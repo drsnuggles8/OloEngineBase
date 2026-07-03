@@ -187,6 +187,17 @@ namespace OloEngine
         data.PrevInstanceTransforms = std::move(data.CurrInstanceTransforms);
         data.CurrInstanceTransforms.clear();
 
+        // The water-surface-depth and planar-reflection texture publications are
+        // strictly per-frame: the owning pass re-publishes when it executes.
+        // Clear them HERE rather than trusting the passes' own Execute-entry
+        // clears — when the render graph culls the publisher entirely (any
+        // no-water frame), Execute never runs, and a consumer that binds
+        // unconditionally (ToneMap's underwater-fog water-depth slot) would
+        // bind a texture name whose owning framebuffer died in an earlier graph
+        // resize/rebuild — the #505 stale-texture GL_INVALID_OPERATION.
+        data.WaterSurfaceDepthTextureID = 0;
+        data.PlanarReflectionTextureID = 0;
+
         // GPU frustum-cull pool reset — slot cursor recycles from 0 each
         // frame. Buffers stay allocated (lifetime = engine, not frame) so
         // steady-state scatter scenes don't re-allocate on every frame.

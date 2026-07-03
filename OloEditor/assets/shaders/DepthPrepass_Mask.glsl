@@ -1,0 +1,82 @@
+// =============================================================================
+// DepthPrepass_Mask.glsl - Depth-only prepass shader for alpha-MASK static meshes
+//
+// MASK (glTF alpha-cutout) variant of DepthPrepass.glsl: the fragment stage
+// re-runs the exact alpha test from PBR_MultiLight.glsl so cutout geometry
+// (foliage cards, grates, chains) writes the same depth coverage the color
+// pass expects — a plain opaque prepass would write depth for the discarded
+// texels and clip holes into everything behind them.
+// =============================================================================
+
+#type vertex
+#version 460 core
+
+layout(location = 0) in vec3 a_Position;
+layout(location = 2) in vec2 a_TexCoord;
+
+// Camera UBO (binding 0)
+layout(std140, binding = 0) uniform CameraMatrices {
+    mat4 u_ViewProjection;
+    mat4 u_View;
+    mat4 u_Projection;
+    vec3 u_CameraPosition;
+    float _padding0;
+};
+
+// Instance transforms SSBO (binding 15)
+#include "include/InstanceBlock_Vertex.glsl"
+
+layout(location = 2) out vec2 v_TexCoord;
+
+invariant gl_Position;
+
+void main()
+{
+    OLO_INSTANCE_FORWARD();
+    v_TexCoord = a_TexCoord;
+    vec3 worldPos = vec3(u_Model * vec4(a_Position, 1.0));
+    gl_Position = u_ViewProjection * vec4(worldPos, 1.0);
+}
+
+#type fragment
+#version 460 core
+
+layout(location = 2) in vec2 v_TexCoord;
+
+layout(binding = 0) uniform sampler2D u_AlbedoMap;          // TEX_DIFFUSE
+
+// PBR Material UBO (binding 2) — full block layout must match PBR_MultiLight.glsl
+layout(std140, binding = 2) uniform PBRMaterialProperties {
+    vec4 u_BaseColorFactor;     // Base color (albedo) with alpha
+    vec4 u_EmissiveFactor;      // Emissive color
+    float u_MetallicFactor;     // Metallic factor
+    float u_RoughnessFactor;    // Roughness factor
+    float u_NormalScale;        // Normal map scale
+    float u_OcclusionStrength;  // AO strength
+    int u_UseAlbedoMap;         // Use albedo texture
+    int u_UseNormalMap;         // Use normal map
+    int u_UseMetallicRoughnessMap; // Use metallic-roughness texture
+    int u_UseAOMap;             // Use ambient occlusion map
+    int u_UseEmissiveMap;       // Use emissive map
+    int u_EnableIBL;            // Enable IBL
+    int u_ApplyGammaCorrection; // Apply gamma correction in this pass
+    float u_AlphaCutoff;        // Alpha cutoff for MASK mode
+    int u_EnableLightProbes;    // Enable light probe indirect diffuse
+    float u_IBLIntensity;       // Runtime IBL strength multiplier
+    int u_AlphaMode;            // 0=Opaque, 1=Mask, 2=Blend
+    int _pbrPad2;
+};
+
+void main()
+{
+    // glTF MASK alpha test — identical to PBR_MultiLight.glsl so the prepass
+    // depth coverage matches the color pass texel-for-texel.
+    if (u_AlphaMode == 1)
+    {
+        float sampledAlpha = u_BaseColorFactor.a;
+        if (u_UseAlbedoMap == 1)
+            sampledAlpha *= texture(u_AlbedoMap, v_TexCoord).a;
+        if (sampledAlpha < u_AlphaCutoff)
+            discard;
+    }
+}

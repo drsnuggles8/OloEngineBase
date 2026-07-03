@@ -13,6 +13,7 @@
 #include "MCP/McpRendererSettings.h"
 #include "MCP/McpGenericFieldWrite.h"
 #include "MCP/McpReloadScript.h"
+#include "MCP/McpSceneControl.h"
 #include "MCP/McpSetCollisionLayer.h"
 #include "MCP/McpShaderReload.h"
 #include "MCP/McpEventStream.h"
@@ -481,6 +482,17 @@ namespace OloEngine::MCP
                 o["commandPackets"] = f.m_CommandPackets;
                 o["sortingMs"] = Round2(f.m_SortingTime);
                 o["cullingMs"] = Round2(f.m_CullingTime);
+                // The ACTUAL scene render resolution (SceneColor target size), so a
+                // reading taken at the wrong resolution is self-evident — e.g. the
+                // render graph silently left at window size while a viewport
+                // override claims 1920x1080 (#316), or FSR rendering below display
+                // res. Omitted when no render graph is live (2D mode / no frame).
+                if (const Ref<Framebuffer> sceneFB = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor))
+                {
+                    const auto& spec = sceneFB->GetSpecification();
+                    o["renderWidth"] = spec.Width;
+                    o["renderHeight"] = spec.Height;
+                }
                 return o; });
             return ToolResult::Structured(j);
         }
@@ -3546,34 +3558,135 @@ namespace OloEngine::MCP
             if (const auto error = ParseArgs(args, introspect, setting, value))
                 return ToolResult::Error(*error);
 
+            // Snapshot the live renderer toggles the perf-lever settings read/write
+            // (#316). Main-thread only — always called inside a MarshalRead.
+            const auto snapshotLever = []() -> LeverState
+            {
+                LeverState lever;
+                lever.DepthPrepassEnabled = Renderer3D::IsDepthPrepassEnabled();
+                lever.DepthPrepassAuto = Renderer3D::ComputeSettingsDerivedDepthPrepass();
+                lever.SoftShadows = Renderer3D::GetShadowMap().GetSettings().SoftShadows;
+                return lever;
+            };
+
             // Introspection: no `setting` -> list every setting with its live current
             // value and the allowed-value catalogue.
             if (introspect)
             {
-                const Json result = server.MarshalRead([]() -> Json
-                                                       { return Describe(Renderer3D::GetPostProcessSettings(), Renderer3D::GetRendererSettings()); });
+                const Json result = server.MarshalRead([&snapshotLever]() -> Json
+                                                       { return Describe(Renderer3D::GetPostProcessSettings(), Renderer3D::GetRendererSettings(), snapshotLever()); });
                 return ToolResult::Text(result.dump(2));
             }
 
-            const Json result = server.MarshalRead([setting, value]() -> Json
+            const Json result = server.MarshalRead([setting, value, &snapshotLever]() -> Json
                                                    {
                 PostProcessSettings& pp = Renderer3D::GetPostProcessSettings();
                 // Fully qualified: `using namespace RendererSettings` is in scope, so
                 // unqualified `RendererSettings` would name that MCP namespace, not the
                 // engine struct.
                 ::OloEngine::RendererSettings& rs = Renderer3D::GetRendererSettings();
-                const ApplyResult applied = Apply(setting, value, pp, rs);
+                LeverState lever = snapshotLever();
+                const ApplyResult applied = Apply(setting, value, pp, rs, lever);
                 if (!applied.Ok)
                     return Json{ { "__error", applied.Error } };
                 // A render-path switch changes the registered pass list, so the
                 // render-graph topology must be rebuilt for the new value to render.
                 if (applied.PathChanged)
                     Renderer3D::ApplyRendererSettings();
+                // Push mutated lever fields back to the renderer — Apply only wrote
+                // the POD snapshot (the header stays renderer-free).
+                if (setting == Setting::DepthPrepass)
+                {
+                    Renderer3D::EnableDepthPrepass(lever.DepthPrepassEnabled);
+                }
+                else if (setting == Setting::SoftShadows)
+                {
+                    ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
+                    shadow.SoftShadows = lever.SoftShadows;
+                    Renderer3D::GetShadowMap().SetSettings(shadow);
+                }
                 return applied.Data; });
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
             return ToolResult::Text(result.dump(2));
+        }
+
+        // ---- olo_scene_open (main-marshaled; PROJECT WRITE) --------------------
+        // Open / switch the active scene over MCP — the consented-write scene switch
+        // (issue #316 Part 5). Loads the requested scene file directly through the
+        // editor's OpenSceneFromMcp hook, which installs it the same way the editor's
+        // Open Scene menu does but WITHOUT the auto-save recovery modal (a remote
+        // agent can't click it) and without the file dialog. Gated at dispatch by the
+        // "Allow writes" session toggle (ToolDef::ProjectWrite): switching scenes
+        // discards the current in-memory scene state, so it crosses the read-only line
+        // by design. The load runs inside the MarshalRead job, i.e. on the main
+        // thread, since it touches the EnTT registry / renderer settings. The shared
+        // schema + path validation + result shaping live in McpSceneControl.h so they
+        // are unit-tested at the dispatch seam without this TU.
+        ToolResult Handle_SceneOpen(McpServer& server, const Json& args)
+        {
+            using namespace SceneControl;
+
+            if (!args.contains("path") || !args["path"].is_string())
+                return ToolResult::Error("Missing required argument 'path' (a .olo or .scene scene file).");
+            const std::string path = args["path"].get<std::string>();
+            if (const auto error = ValidateScenePath(path))
+                return ToolResult::Error(*error);
+
+            if (!server.Context().OpenSceneFromMcp)
+                return ToolResult::Error("Scene open is not available in this editor build.");
+
+            const Json result = server.MarshalRead([&server, &path]() -> Json
+                                                   {
+                if (!server.Context().OpenSceneFromMcp)
+                    return Json{ { "__error", "Scene open is not available in this editor build." } };
+                const McpSceneOpenResult opened = server.Context().OpenSceneFromMcp(path);
+                return ToJson(opened); });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Text(result.dump(2));
+        }
+
+        // ---- olo_scene_play / olo_scene_stop (main-marshaled; PROJECT WRITE) ---
+        // Toggle Play mode over MCP — the consented-write, fully-reversible play/stop
+        // switch (issue #316 Part 5). Wraps the editor's OnScenePlay / OnSceneStop
+        // (the same path the editor's Play / Stop toolbar buttons drive) through the
+        // SetScenePlayState hook. Gated at dispatch by the "Allow writes" session
+        // toggle (ToolDef::ProjectWrite): entering Play copies the scene and executes
+        // the user's game scripts, so it crosses the read-only line — but it is
+        // transient (stopping restores the authored scene, exactly like the editor).
+        // olo_scene_summary reports `isPlaying`, so an agent can confirm the
+        // transition took. The transition runs inside the MarshalRead job (main
+        // thread), since it mutates scene state.
+        ToolResult Handle_ScenePlayState(McpServer& server, bool play)
+        {
+            using namespace SceneControl;
+
+            if (!server.Context().SetScenePlayState)
+                return ToolResult::Error("Play-mode control is not available in this editor build.");
+
+            const Json result = server.MarshalRead([&server, play]() -> Json
+                                                   {
+                if (!server.Context().SetScenePlayState)
+                    return Json{ { "__error", "Play-mode control is not available in this editor build." } };
+                const McpScenePlayResult r = server.Context().SetScenePlayState(play);
+                return ToJson(r); });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Text(result.dump(2));
+        }
+
+        ToolResult Handle_ScenePlay(McpServer& server, const Json&)
+        {
+            return Handle_ScenePlayState(server, /*play*/ true);
+        }
+
+        ToolResult Handle_SceneStop(McpServer& server, const Json&)
+        {
+            return Handle_ScenePlayState(server, /*play*/ false);
         }
 
         // ---- olo_render_why_not_visible (main-marshaled) -----------------------
@@ -4046,8 +4159,10 @@ namespace OloEngine::MCP
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Current-frame renderer performance: fps, frame/CPU/GPU time (ms), draw calls, instanced "
-                "draw calls, triangles, state/shader/texture binds. Server-computed snapshot from the live "
-                "profiler. Map a low fps back to draw calls / lack of instancing.";
+                "draw calls, triangles, state/shader/texture binds, and the ACTUAL scene render resolution "
+                "(renderWidth/renderHeight — cross-check it against any olo_viewport_set_size override "
+                "before trusting timings). Server-computed snapshot from the live profiler. Map a low fps "
+                "back to draw calls / lack of instancing.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema = Schema::Object()
                                     .Prop("fps", Schema::Number())
@@ -4067,6 +4182,8 @@ namespace OloEngine::MCP
                                     .Prop("sortingMs", Schema::Number())
                                     .Prop("cullingMs", Schema::Number())
                                     .Prop("gpuWaitMs", Schema::Number().Desc("CPU ms spent blocked on the GPU frame fence — high values mean GPU-bound."))
+                                    .Prop("renderWidth", Schema::Int().Min(0).Desc("Actual SceneColor render-target width in pixels. Compare against your viewport override to detect a stale/incorrect render size. Omitted when no render graph is live."))
+                                    .Prop("renderHeight", Schema::Int().Min(0).Desc("Actual SceneColor render-target height in pixels."))
                                     .Required({ "fps", "frameTimeMs", "cpuMs", "gpuMs", "drawCalls", "triangles" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfSnapshot;
@@ -4134,9 +4251,11 @@ namespace OloEngine::MCP
             tool.Description =
                 "Whole-frame GPU time split by render-graph pass (Shadow vs Scene vs GTAO vs Bloom vs "
                 "ToneMap...). Each pass carries its GPU time (always-on timestamp queries, resolved a few "
-                "frames after issue) and its CPU dispatch time from the live graph. Frame totals include "
-                "gpuWaitMs (CPU blocked on the GPU fence — the direct GPU-bound signal); unattributedGpuMs "
-                "is frame GPU time spent between/outside the timed passes.";
+                "frames after issue) and its CPU dispatch time from the live graph. ScenePass "
+                "additionally reports subPasses splitting its GPU time into DepthPrepass vs Color (no "
+                "DepthPrepass sub-entry = depth prepass off; sub-pass times are inside the parent's gpuMs, "
+                "not additional). Frame totals include gpuWaitMs (CPU blocked on the GPU fence — the direct "
+                "GPU-bound signal); unattributedGpuMs is frame GPU time spent between/outside the timed passes.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema = Schema::Object()
                                     .Prop("frame", Schema::Object()
@@ -4147,7 +4266,11 @@ namespace OloEngine::MCP
                                     .Prop("passes", Schema::Array(Schema::Object()
                                                                       .Prop("pass", Schema::String())
                                                                       .Prop("gpuMs", Schema::Number())
-                                                                      .Prop("cpuMs", Schema::Number())))
+                                                                      .Prop("cpuMs", Schema::Number())
+                                                                      .Prop("subPasses", Schema::Array(Schema::Object()
+                                                                                                           .Prop("name", Schema::String())
+                                                                                                           .Prop("gpuMs", Schema::Number()))
+                                                                                             .Desc("GPU sub-pass brackets stamped inside this pass (e.g. ScenePass DepthPrepass/Color). Contained in the parent's gpuMs; absent when the pass has no sub-brackets."))))
                                     .Prop("passGpuTotalMs", Schema::Number())
                                     .Prop("unattributedGpuMs", Schema::Number())
                                     .Prop("gpuResultsAgeFrames", Schema::Int().Min(0).Desc("How many frames old the GPU numbers are (results resolve 1-3 frames after issue)."))
@@ -5062,11 +5185,15 @@ namespace OloEngine::MCP
                 "the enum-valued sibling of the on/off olo_render_toggle_pass. Settings: 'upscale' (FSR1 spatial-upscale "
                 "mode: off|quality|balanced|performance|ultraperformance — the #480 case), 'tonemap' (none|reinhard|aces|"
                 "uncharted2), 'renderpath' (forward|forwardplus|deferred; switching rebuilds the render graph, and "
-                "Deferred is required for SSR/SSGI). Call with NO arguments to list every setting with its current value "
-                "and allowed values. The change is session-global and ephemeral (a scene reload restores it); the "
-                "response reports 'previousValue' so you can restore by calling again with that token — this is "
-                "restore-prior-value, NOT an undo-stack entry (unlike olo_entity_set_field). This is a WRITE tool: it is "
-                "refused unless 'Allow writes' is enabled in the editor's MCP Server panel (off by default).";
+                "Deferred is required for SSR/SSGI), plus the two big perf levers (#316): 'depthprepass' (off|on|auto — "
+                "forces the live depth-prepass state; 'auto' restores the settings-derived value; Forward+/Deferred "
+                "derive it on for tile culling) and 'softshadows' (pcf|pcss — PCSS is the dominant ScenePass cost in "
+                "shadowed scenes; A/B it in one call instead of editing shader source). Call with NO arguments to list "
+                "every setting with its current value and allowed values. The change is session-global and ephemeral (a "
+                "scene reload restores it); the response reports 'previousValue' so you can restore by calling again "
+                "with that token — this is restore-prior-value, NOT an undo-stack entry (unlike olo_entity_set_field). "
+                "This is a WRITE tool: it is refused unless 'Allow writes' is enabled in the editor's MCP Server panel "
+                "(off by default).";
             tool.InputSchema = RendererSettings::InputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_RendererSettingsSet;
@@ -5094,6 +5221,87 @@ namespace OloEngine::MCP
                                    .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderWhyNotVisible;
+            server.RegisterTool(std::move(tool));
+        }
+
+        // ---- olo_scene_open / olo_scene_play / olo_scene_stop (#316 Part 5) ----
+        // The scriptable scene-control write tools: switch the active scene and
+        // toggle Play mode over MCP. All three are ProjectWrite (gated behind the
+        // "Allow writes" session toggle) and MainMarshaled (they touch the registry /
+        // runtime). Registered here as a clean append-only block so they don't
+        // conflict with in-flight branches editing the earlier registrations.
+        {
+            ToolDef tool;
+            tool.Name = "olo_scene_open";
+            tool.Toolset = "scene";
+            tool.Title = "Open / switch scene";
+            // A project-WRITE tool: switching scenes discards the current in-memory
+            // scene, so it is gated behind "Allow writes". readOnlyHint:false; NOT
+            // idempotent (each call reloads from disk, discarding unsaved state); not
+            // destructive to the project files (it never writes — the source scene is
+            // untouched, only the in-editor scene changes).
+            tool.ProjectWrite = true;
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
+            tool.Description =
+                "Open / switch the active scene — the scriptable scene-switch that lets an agent set up a repro "
+                "without a manual project StartScene edit + editor relaunch. Give a 'path' to a .olo or .scene file "
+                "(relative paths resolve against the project asset directory, e.g. \"Scenes/Sandbox.olo\"; an absolute "
+                "path also works). Loads the scene directly, the same install path as the editor's File > Open Scene "
+                "but WITHOUT the auto-save recovery modal (a remote agent can't click it). If Play mode is running it "
+                "is stopped first. Returns whether the scene loaded (ok), the resolved path, the new scene name and "
+                "entity count. This is a WRITE tool: it is refused unless 'Allow writes' is enabled in the editor's "
+                "MCP Server panel (off by default).";
+            tool.InputSchema = SceneControl::OpenInputSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_SceneOpen;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_scene_play";
+            tool.Toolset = "scene";
+            tool.Title = "Enter Play mode";
+            // A project-WRITE tool: entering Play copies the scene and runs the user's
+            // game scripts, so it is gated behind "Allow writes". readOnlyHint:false;
+            // idempotent (already playing -> no-op, changed:false); not destructive
+            // (fully reversible — olo_scene_stop restores the authored scene).
+            tool.ProjectWrite = true;
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Enter Play mode — start the runtime simulation, the same as the editor's Play button (and the "
+                "OLO_EDITOR_AUTOPLAY workaround, without a relaunch). Needed to verify anything that only runs in "
+                "Play: physics, cloth/soft-body, scripts, animation. Copies the authored scene and starts the "
+                "runtime; already-playing is a no-op (changed:false). Entering Play can fail if the scene has no "
+                "primary camera — then ok:false and the editor stays in Edit (see the message). Confirm with "
+                "olo_scene_summary's isPlaying, then olo_screenshot. Fully reversible via olo_scene_stop. This is a "
+                "WRITE tool: it is refused unless 'Allow writes' is enabled in the editor's MCP Server panel (off by "
+                "default).";
+            tool.InputSchema = SceneControl::PlayStopInputSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_ScenePlay;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_scene_stop";
+            tool.Toolset = "scene";
+            tool.Title = "Stop Play mode";
+            // A project-WRITE tool for symmetry with olo_scene_play (it ends the
+            // runtime and restores the authored scene). idempotent (already stopped ->
+            // no-op); not destructive (restores the pre-Play authored scene).
+            tool.ProjectWrite = true;
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Stop Play mode — end the runtime simulation and restore the authored (Edit-mode) scene, the same as "
+                "the editor's Stop button. Discards the transient runtime scene copy, so any runtime-only changes are "
+                "dropped (exactly like the editor). Already-stopped is a no-op (changed:false). Confirm with "
+                "olo_scene_summary's isPlaying. This is a WRITE tool: it is refused unless 'Allow writes' is enabled "
+                "in the editor's MCP Server panel (off by default).";
+            tool.InputSchema = SceneControl::PlayStopInputSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_SceneStop;
             server.RegisterTool(std::move(tool));
         }
 

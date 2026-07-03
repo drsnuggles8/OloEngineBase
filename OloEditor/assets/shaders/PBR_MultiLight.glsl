@@ -39,6 +39,11 @@ layout(location = 2) out vec2 v_TexCoord;
 layout(location = 3) out vec4 v_ClipPosCurr;
 layout(location = 4) out vec4 v_ClipPosPrev;
 
+// Depth-prepass contract: the color pass re-tests at GL_LEQUAL against depth
+// written by DepthPrepass*.glsl, which replicates this exact position math.
+// `invariant` forbids optimizations that would round differently per program.
+invariant gl_Position;
+
 void main()
 {
     OLO_INSTANCE_FORWARD();

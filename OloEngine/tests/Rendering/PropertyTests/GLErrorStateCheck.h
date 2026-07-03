@@ -49,14 +49,6 @@ namespace OloEngine::Tests::GLErrorState
     // error but don't care how many were pending (avoids a throwaway count).
     u32 DrainAndGetFirstError();
 
-    // Drains ALL pending GL errors and returns the FIRST one that is not
-    // `allowedError` (GL_NO_ERROR / 0 if the queue held only `allowedError` or
-    // was empty). Lets a caller contain one known-benign error class while still
-    // surfacing any OTHER error that follows it in the queue — a plain
-    // DrainAndGetFirstError() would stop reporting at the benign one and mask
-    // the rest. Bounded and no-GL-context-safe like DrainAndGetFirstError.
-    u32 DrainAndGetFirstUnexpected(u32 allowedError);
-
     // Human-readable name for a GL error enum (e.g. "GL_INVALID_OPERATION").
     // Pure; needs no GL context.
     const char* GlErrorString(u32 err);

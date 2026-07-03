@@ -75,32 +75,4 @@ namespace OloEngine::Tests
         EXPECT_EQ(afterCount, 0u);
     }
 
-    // DrainAndGetFirstUnexpected contains one allowed error class while still
-    // surfacing anything else, and drains the whole queue either way.
-    TEST(GLErrorStateCheckTest, DrainUnexpectedContainsAllowedButSurfacesOthers)
-    {
-        OLO_ENSURE_GPU_OR_SKIP();
-
-        // Start clean.
-        (void)GLErrorState::DrainAndGetFirstError();
-
-        // Inject GL_INVALID_ENUM (GL_TRIANGLES is not a valid glEnable cap).
-        ::glEnable(GL_TRIANGLES);
-
-        // Allowing a DIFFERENT class must still surface the injected error...
-        EXPECT_EQ(GLErrorState::DrainAndGetFirstUnexpected(static_cast<u32>(GL_INVALID_OPERATION)),
-                  static_cast<u32>(GL_INVALID_ENUM))
-            << "an error outside the allowed class must be reported";
-        // ...and the queue must be drained by that call.
-        EXPECT_EQ(GLErrorState::DrainAndGetFirstError(), static_cast<u32>(GL_NO_ERROR))
-            << "DrainAndGetFirstUnexpected must clear the whole queue";
-
-        // Allowing the injected class must report nothing (contained) yet still drain.
-        ::glEnable(GL_TRIANGLES);
-        EXPECT_EQ(GLErrorState::DrainAndGetFirstUnexpected(static_cast<u32>(GL_INVALID_ENUM)),
-                  static_cast<u32>(GL_NO_ERROR))
-            << "the allowed error class must be contained, not reported";
-        EXPECT_EQ(GLErrorState::DrainAndGetFirstError(), static_cast<u32>(GL_NO_ERROR))
-            << "the allowed error must still have been drained from the queue";
-    }
 } // namespace OloEngine::Tests

@@ -196,7 +196,7 @@ namespace OloEngine
 
         u32 shaderIdx = 0;
         // NOTE: Keep totalShaders3D in sync with the number of Load() calls below.
-        constexpr u32 totalShaders3D = 43;
+        constexpr u32 totalShaders3D = 47;
 
         // Boot + fallback are idempotent — no-ops when already initialized by
         // Renderer::Init().  Needed here for the lazy-init path (EditorLayer
@@ -236,6 +236,10 @@ namespace OloEngine
             "assets/shaders/ShadowDepthSkinned.glsl",
             "assets/shaders/ShadowDepthPoint.glsl",
             "assets/shaders/ShadowDepthPointSkinned.glsl",
+            "assets/shaders/DepthPrepass.glsl",
+            "assets/shaders/DepthPrepass_Skinned.glsl",
+            "assets/shaders/DepthPrepass_Mask.glsl",
+            "assets/shaders/DepthPrepass_MaskSkinned.glsl",
             "assets/shaders/Terrain_PBR.glsl",
             "assets/shaders/Terrain_GBuffer.glsl",
             "assets/shaders/Terrain_Depth.glsl",
@@ -298,6 +302,10 @@ namespace OloEngine
         s_Data.ShadowDepthShader = m_ShaderLibrary.Get("ShadowDepth");
         s_Data.ShadowDepthSkinnedShader = m_ShaderLibrary.Get("ShadowDepthSkinned");
         s_Data.ShadowDepthPointSkinnedShader = m_ShaderLibrary.Get("ShadowDepthPointSkinned");
+        s_Data.DepthPrepassShader = m_ShaderLibrary.Get("DepthPrepass");
+        s_Data.DepthPrepassSkinnedShader = m_ShaderLibrary.Get("DepthPrepass_Skinned");
+        s_Data.DepthPrepassMaskShader = m_ShaderLibrary.Get("DepthPrepass_Mask");
+        s_Data.DepthPrepassMaskSkinnedShader = m_ShaderLibrary.Get("DepthPrepass_MaskSkinned");
         s_Data.TerrainPBRShader = m_ShaderLibrary.Get("Terrain_PBR");
         s_Data.TerrainGBufferShader = m_ShaderLibrary.Get("Terrain_GBuffer");
         s_Data.TerrainDepthShader = m_ShaderLibrary.Get("Terrain_Depth");

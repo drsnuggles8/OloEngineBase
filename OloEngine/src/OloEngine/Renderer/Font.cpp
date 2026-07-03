@@ -225,6 +225,24 @@ namespace OloEngine
 
     Font::~Font() = default;
 
+    Ref<Texture2D> Font::GetCurveTexture() const
+    {
+        if (!m_IsLoaded || !m_Data)
+            return nullptr;
+        // A headless-parsed font retained its texel data instead of uploading;
+        // create the GPU texture now that a draw is requesting it (issue #520).
+        SlugFontProcessor::EnsureGpuTextures(*m_Data);
+        return m_Data->CurveTexture;
+    }
+
+    Ref<Texture2D> Font::GetBandTexture() const
+    {
+        if (!m_IsLoaded || !m_Data)
+            return nullptr;
+        SlugFontProcessor::EnsureGpuTextures(*m_Data);
+        return m_Data->BandTexture;
+    }
+
     Ref<Font> Font::GetDefault()
     {
         static Ref<Font> DefaultFont;

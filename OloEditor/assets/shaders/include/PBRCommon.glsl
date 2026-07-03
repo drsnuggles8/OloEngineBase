@@ -800,14 +800,25 @@ float pcssShadowFactor(sampler2DArrayShadow shadowMap, sampler2DArray rawMap,
     float avgBlocker = pcssBlockerSearch(rawMap, uv, layer, zReceiver, searchRadiusUV, rot, numBlockers);
     if (numBlockers == 0)
         return 1.0; // no occluder -> fully lit
+    if (numBlockers == 16)
+        return 0.0; // every search tap occluded -> deep umbra, skip the filter
 
     // Penumbra from occluder/receiver depth gap (contact-hardening). The gain
     // absorbs the cascade depth scale; tuned for a natural soft edge. Clamp to
-    // [1 texel, lightSizeTexels*8] to bound cost and avoid over-blurring.
+    // [1 texel, lightSizeTexels*4] to bound cost and avoid over-blurring —
+    // wide scattered Poisson taps thrash the texture cache, and this radius
+    // cap (down from *8) measured as one of the biggest PCSS costs on Sponza.
     const float PCSS_PENUMBRA_GAIN = 220.0;
     float depthGap = max(zReceiver - avgBlocker, 0.0);
     float filterRadiusTexels = clamp(depthGap * lightSizeTexels * PCSS_PENUMBRA_GAIN,
-                                     1.0, lightSizeTexels * 8.0);
+                                     1.0, lightSizeTexels * 4.0);
+
+    // Contact-hardened fragments (radius clamped to the 1-texel floor) collapse
+    // to a single hardware-PCF tap — its 2x2 bilinear footprint already covers
+    // a 1-texel radius, so the 16-tap Poisson disk adds cost but no quality.
+    if (filterRadiusTexels <= 1.0)
+        return texture(shadowMap, vec4(uv, layer, zReceiver - bias));
+
     float filterRadiusUV = filterRadiusTexels * texelSizeUV;
 
     return pcssVariablePCF(shadowMap, uv, layer, zReceiver, bias, filterRadiusUV, rot);
@@ -889,8 +900,15 @@ float calculateCascadedShadowFactorCSM(
     float baseBias = shadowParams.x;
     float cascadeBias = baseBias * float(cascadeIndex + 1);
 
+    // PCSS only for the two nearest cascades: distant fragments cover too few
+    // shadow-map texels for contact hardening to read, while the blocker
+    // search + wide Poisson PCF stay just as expensive. Cascades 2-3 fall back
+    // to the legacy 3x3 hardware PCF (the cascade cross-fade below blends the
+    // transition).
+    int layerSoftMode = (cascadeIndex < 2) ? softMode : 0;
+
     float shadow = sampleShadowLayer(shadowMap, rawShadowMap, projCoords, float(cascadeIndex),
-                                     cascadeBias, shadowMapResolution, softMode, softness, shadowRot);
+                                     cascadeBias, shadowMapResolution, layerSoftMode, softness, shadowRot);
 
     // Cascade blending: smooth cross-fade in the last 10% of each cascade
     if (cascadeIndex < 3)
@@ -906,8 +924,9 @@ float calculateCascadedShadowFactorCSM(
             vec3 nextProjCoords = nextLightSpacePos.xyz / nextLightSpacePos.w;
             nextProjCoords = nextProjCoords * 0.5 + 0.5;
             float nextBias = baseBias * float(cascadeIndex + 2);
+            int nextSoftMode = (cascadeIndex + 1 < 2) ? softMode : 0;
             float nextShadow = sampleShadowLayer(shadowMap, rawShadowMap, nextProjCoords, float(cascadeIndex + 1),
-                                                 nextBias, shadowMapResolution, softMode, softness, shadowRot);
+                                                 nextBias, shadowMapResolution, nextSoftMode, softness, shadowRot);
             shadow = mix(shadow, nextShadow, blendFactor);
         }
     }
