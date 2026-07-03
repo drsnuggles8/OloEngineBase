@@ -27,13 +27,12 @@ namespace OloEngine::Tests
         //      / binding state (blend / stencil / viewport / program / VAO / FBO)
         //      is contained. Per-slot texture / UBO bindings are intentionally
         //      NOT restored by GLStateGuard (see its class comment).
-        //   3. Drain the errors THIS tick produced, but only treat the known
-        //      benign GL_INVALID_OPERATION stray as expected (the #505 stale-
-        //      handle bind — correct pixels, dirty error queue). Any OTHER error
-        //      class is a genuine render-side regression and is surfaced, not
-        //      swallowed. (A *new* GL_INVALID_OPERATION render bug is
-        //      indistinguishable from #505 by enum and remains contained until
-        //      #505 is fixed — the residual coverage gap tracked there.)
+        //   3. Fail on ANY GL error this tick produced, attributing it to the
+        //      exact tick. The #505 stale-texture GL_INVALID_OPERATION this
+        //      check used to tolerate is fixed at the root (per-frame reset of
+        //      the water-depth / planar-reflection texture publications in
+        //      RenderPipeline::PrepareFrame), so a full-pipeline render is now
+        //      expected to be error-clean — no benign-error carve-out remains.
         void RunGuardedRenderTick(const char* label, const std::function<void()>& tick)
         {
             if (const u32 preErr = GLErrorState::DrainAndGetFirstError(); preErr != 0u)
@@ -46,13 +45,10 @@ namespace OloEngine::Tests
                 tick();
             }
 
-            if (const u32 tickErr =
-                    GLErrorState::DrainAndGetFirstUnexpected(static_cast<u32>(GL_INVALID_OPERATION));
-                tickErr != 0u)
-                ADD_FAILURE() << label << " render tick left an unexpected GL error: "
+            if (const u32 tickErr = GLErrorState::DrainAndGetFirstError(); tickErr != 0u)
+                ADD_FAILURE() << label << " render tick left a GL error: "
                               << GLErrorState::GlErrorString(tickErr)
-                              << " (only the benign #505 GL_INVALID_OPERATION stray is contained here; "
-                                 "the whole error queue is drained regardless).";
+                              << " (the whole error queue is drained so the next test starts clean).";
         }
     } // namespace
 

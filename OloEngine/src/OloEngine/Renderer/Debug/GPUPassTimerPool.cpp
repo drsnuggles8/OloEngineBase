@@ -40,6 +40,7 @@ namespace OloEngine
         m_FrameCounter = 0;
         m_Active = false;
         m_PassOpen = false;
+        m_SubPassOpen = false;
         m_LastFrameGpuMs = 0.0;
         m_LastResolvedFrame = 0;
         m_LastPassTimings.clear();
@@ -69,6 +70,7 @@ namespace OloEngine
         m_Initialized = false;
         m_Active = false;
         m_PassOpen = false;
+        m_SubPassOpen = false;
 
         OLO_CORE_INFO("GPUPassTimerPool: Shutdown");
     }
@@ -105,6 +107,7 @@ namespace OloEngine
         glQueryCounter(slot.Queries[0], GL_TIMESTAMP);
         m_Active = true;
         m_PassOpen = false;
+        m_SubPassOpen = false;
     }
 
     void GPUPassTimerPool::EndFrame()
@@ -112,11 +115,17 @@ namespace OloEngine
         if (!m_Initialized || !m_Active)
             return;
 
+        // Close any bracket left open (a Begin without its End). Every
+        // allocated pair MUST have both timestamps stamped before the slot is
+        // marked pending — resolving a never-stamped end query would publish
+        // garbage.
+        EndSubPass();
+        EndPass();
+
         FrameSlot& slot = m_Slots[m_WriteSlot];
         glQueryCounter(slot.Queries[1], GL_TIMESTAMP);
         slot.Pending = true;
         m_Active = false;
-        m_PassOpen = false;
     }
 
     void GPUPassTimerPool::BeginPass(const std::string& name)
@@ -128,8 +137,11 @@ namespace OloEngine
         if (slot.PassCount >= m_MaxPasses)
             return;
 
-        slot.PassNames[slot.PassCount] = name;
-        glQueryCounter(slot.Queries[2 + (2 * slot.PassCount)], GL_TIMESTAMP);
+        // Allocate the pair up front (rather than on EndPass) so a sub-pass
+        // opened inside this bracket gets its own pair without colliding.
+        m_CurrentPassIndex = slot.PassCount++;
+        slot.PassNames[m_CurrentPassIndex] = name;
+        glQueryCounter(slot.Queries[2 + (2 * m_CurrentPassIndex)], GL_TIMESTAMP);
         m_PassOpen = true;
     }
 
@@ -138,10 +150,37 @@ namespace OloEngine
         if (!m_Active || !m_PassOpen)
             return;
 
+        // A sub-pass left open must not outlive its parent bracket.
+        EndSubPass();
+
         FrameSlot& slot = m_Slots[m_WriteSlot];
-        glQueryCounter(slot.Queries[3 + (2 * slot.PassCount)], GL_TIMESTAMP);
-        ++slot.PassCount;
+        glQueryCounter(slot.Queries[3 + (2 * m_CurrentPassIndex)], GL_TIMESTAMP);
         m_PassOpen = false;
+    }
+
+    void GPUPassTimerPool::BeginSubPass(const std::string& name)
+    {
+        if (!m_Active || !m_PassOpen || m_SubPassOpen)
+            return;
+
+        FrameSlot& slot = m_Slots[m_WriteSlot];
+        if (slot.PassCount >= m_MaxPasses)
+            return;
+
+        m_CurrentSubPassIndex = slot.PassCount++;
+        slot.PassNames[m_CurrentSubPassIndex] = slot.PassNames[m_CurrentPassIndex] + "/" + name;
+        glQueryCounter(slot.Queries[2 + (2 * m_CurrentSubPassIndex)], GL_TIMESTAMP);
+        m_SubPassOpen = true;
+    }
+
+    void GPUPassTimerPool::EndSubPass()
+    {
+        if (!m_Active || !m_SubPassOpen)
+            return;
+
+        FrameSlot& slot = m_Slots[m_WriteSlot];
+        glQueryCounter(slot.Queries[3 + (2 * m_CurrentSubPassIndex)], GL_TIMESTAMP);
+        m_SubPassOpen = false;
     }
 
     void GPUPassTimerPool::TryResolveSlot(FrameSlot& slot, bool dropIfUnavailable)

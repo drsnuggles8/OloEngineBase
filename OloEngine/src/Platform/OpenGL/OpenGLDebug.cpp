@@ -4,9 +4,40 @@
 #include <glad/gl.h>
 
 #include <cstring>
+#include <sstream>
+
+// Stack trace support - available when <stacktrace> header is present (C++23).
+// MSVC reports __cplusplus as 199711L unless /Zc:__cplusplus is set, so check
+// _MSVC_LANG as well — without it this path silently compiles out on MSVC.
+#if __has_include(<stacktrace>) && (__cplusplus >= 202302L || (defined(_MSVC_LANG) && _MSVC_LANG >= 202302L))
+#include <stacktrace>
+#define OLO_HAS_STACKTRACE 1
+#else
+#define OLO_HAS_STACKTRACE 0
+#endif
 
 namespace OloEngine
 {
+    // Log the native call stack that produced a GL ERROR-type debug message.
+    // The debug context is synchronous (GL_DEBUG_OUTPUT_SYNCHRONOUS, see
+    // OpenGLRendererAPI::Init), so the callback runs on the thread that issued
+    // the offending GL call and the capture pins the exact bind/draw site —
+    // this is what turns a "some earlier test corrupted shared renderer state"
+    // hunt (issue #505) into a file:line answer. Errors are rare and already
+    // log at ERROR/CRITICAL, so the symbolization cost only hits broken runs.
+    static void LogGLErrorCallStack()
+    {
+#if OLO_HAS_STACKTRACE
+        const auto stack = std::stacktrace::current(2, 24); // skip this fn + the driver callback thunk
+        std::ostringstream oss;
+        for (const auto& frame : stack)
+        {
+            oss << "\n    " << std::to_string(frame);
+        }
+        OLO_CORE_ERROR("GL error call stack (synchronous debug context):{0}", oss.str());
+#endif
+    }
+
     void OpenGLMessageCallback(
         const unsigned int source,
         const unsigned int type,
@@ -133,17 +164,29 @@ namespace OloEngine
             {
                 case GL_DEBUG_SEVERITY_HIGH:
                     OLO_CORE_CRITICAL("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message);
-                    return;
+                    break;
                 case GL_DEBUG_SEVERITY_MEDIUM:
                     OLO_CORE_ERROR("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message);
-                    return;
+                    break;
                 case GL_DEBUG_SEVERITY_LOW:
                     OLO_CORE_WARN("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message);
                     return;
                 case GL_DEBUG_SEVERITY_NOTIFICATION:
                     OLO_CORE_INFO("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message);
                     return;
+                default:
+                    OLO_CORE_ASSERT(false, "Unknown severity level!");
+                    return;
             }
+
+            // Reached only for HIGH / MEDIUM (the severities that log at
+            // CRITICAL / ERROR above): capture the offending call site once
+            // for both paths.
+            if (type == GL_DEBUG_TYPE_ERROR)
+            {
+                LogGLErrorCallStack();
+            }
+            return;
         }
 
         OLO_CORE_ASSERT(false, "Unknown severity level!");

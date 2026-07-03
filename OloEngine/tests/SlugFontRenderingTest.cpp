@@ -5,6 +5,9 @@
 #include "OloEngine/Renderer/SlugData.h"
 #include "OloEngine/Renderer/SlugFontProcessor.h"
 
+// GL-context fixture for the deferred-upload test below (OLO_ENSURE_GPU_OR_SKIP).
+#include "Rendering/PropertyTests/RenderPropertyTest.h"
+
 #include <stb_image/stb_truetype.h>
 
 #include <cmath>
@@ -394,4 +397,52 @@ TEST(FontMeasureLineTest, MultipleCodepointsAccumulate)
     const f32 widthABC = font->MeasureLine("ABC", fsScale, 0.0f);
     EXPECT_LT(widthA, widthAB);
     EXPECT_LT(widthAB, widthABC);
+}
+
+// ---------------------------------------------------------------------------
+// Deferred GPU texture upload (issue #520)
+//
+// A font parsed without a live GL context (a headless metrics-only load — e.g.
+// Font::GetDefault() called from one of the plain FontMeasureLineTest bodies
+// above, before any GPU test brings the renderer up) skips its curve/band GPU
+// texture creation and retains the packed texel data instead. It must upload
+// those textures lazily the first time it is rendered with a context bound.
+// Without this, such a font was cached as permanently textureless and silently
+// dropped ALL of its text on every later render — the cross-test dropout that
+// made RebindMenuScene.RendersRebindPanelAndProducesPng fail (maxLum 0.269,
+// button-fill grey with no glyphs) only in full-suite runs.
+//
+// This drives SlugFontProcessor::EnsureGpuTextures directly (the mechanism
+// Font::GetCurveTexture()/GetBandTexture() invoke) so the guard is
+// deterministic and order-independent, unlike the full-suite integration
+// symptom. SKIPs cleanly on headless CI.
+// ---------------------------------------------------------------------------
+TEST(SlugDeferredUploadTest, EnsureGpuTexturesUploadsRetainedData)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    SlugFontData data;
+    data.GpuUploadPending = true;
+    data.PendingCurveWidth = 2;
+    data.PendingCurveHeight = 1;
+    data.PendingCurveTexels.assign(static_cast<sizet>(2) * 4, 0.25f); // RGBA16F: 4 floats/texel
+    data.PendingBandWidth = 2;
+    data.PendingBandHeight = 1;
+    data.PendingBandTexels.assign(static_cast<sizet>(2) * 2, static_cast<u16>(3)); // RG16UI: 2 u16s/texel
+
+    ASSERT_EQ(data.CurveTexture.Raw(), nullptr);
+    ASSERT_EQ(data.BandTexture.Raw(), nullptr);
+
+    SlugFontProcessor::EnsureGpuTextures(data);
+
+    EXPECT_NE(data.CurveTexture.Raw(), nullptr) << "deferred curve texture was not uploaded once a context existed";
+    EXPECT_NE(data.BandTexture.Raw(), nullptr) << "deferred band texture was not uploaded once a context existed";
+    EXPECT_FALSE(data.GpuUploadPending) << "pending flag not cleared after upload";
+    EXPECT_TRUE(data.PendingCurveTexels.empty()) << "retained curve texels not freed after upload";
+    EXPECT_TRUE(data.PendingBandTexels.empty()) << "retained band texels not freed after upload";
+
+    // Idempotent: a second call with nothing pending must not re-create the texture.
+    const Texture2D* const curveBefore = data.CurveTexture.Raw();
+    SlugFontProcessor::EnsureGpuTextures(data);
+    EXPECT_EQ(data.CurveTexture.Raw(), curveBefore) << "second call re-created the texture instead of no-op";
 }

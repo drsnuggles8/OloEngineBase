@@ -225,3 +225,29 @@ if (auto it = map.find(key); it != map.end())
 ## 9. UI widget budget
 
 When creating ImGui editor panels for grid/array data, **never allocate a widget per cell** for potentially large grids. Use `ImGuiListClipper` for row virtualization and derive a visible column range from `ImGui::GetContentRegionAvail().x / per-widget-width`. Add paging or scrolling when the data exceeds the visible area.
+
+---
+
+## 10. Language-version gates: check `_MSVC_LANG`, not bare `__cplusplus` (MSVC quirk)
+
+MSVC reports `__cplusplus` as `199711L` unless `/Zc:__cplusplus` is set — and this repo does **not** set it. A guard like
+
+```cpp
+#if __has_include(<stacktrace>) && __cplusplus >= 202302L   // BAD — always false on MSVC here
+```
+
+**silently compiles the feature out** on our primary toolchain: no error, no warning, the code just never runs (this hid the GL-error stack-capture path in `OpenGLDebug.cpp` during the #505 hunt, and the same latent gate sits in `AllocationTracker.cpp`). Gate on both:
+
+```cpp
+#if __has_include(<stacktrace>) && (__cplusplus >= 202302L || (defined(_MSVC_LANG) && _MSVC_LANG >= 202302L))
+```
+
+If a feature-gate ever seems mysteriously inert on Windows, check for a bare `__cplusplus` comparison first.
+
+---
+
+## 11. Raw GL handles published through global state must be reset per frame
+
+A render pass that publishes a raw GL name (`u32` texture/buffer id) into process-wide renderer state (`Renderer3D::Set*TextureID`) **must not rely on its own `Execute()` to clear it** — the render graph can cull the pass entirely, so its "clear at top of Execute" never runs and last frame's (or last *test's*) id survives while the owning framebuffer is deleted by a resize/rebuild. Any consumer that binds the published id then re-binds a dead name: `GL_INVALID_OPERATION "<texture> is not a valid texture name"`, every frame, with visually-correct output (issue #505 — `WaterSurfaceDepthTextureID` / `PlanarReflectionTextureID`, consumed by `ToneMapRenderPass`).
+
+Rule: a raw-id publication is **per-frame state** — reset it in `RenderPipeline::PrepareFrame` (BeginScene) alongside the other per-frame rotations, and let the executing pass re-publish. Holding a `Ref<Texture>` instead sidesteps the dangling-name problem but extends resource lifetime; the per-frame reset is the default. Debugging technique that pins this class of bug in minutes: the GL debug context is synchronous in Debug builds, so `OpenGLMessageCallback` logs a `std::stacktrace` for every ERROR-type message — the offending `glBindTextureUnit` call site is in the log with file:line.
