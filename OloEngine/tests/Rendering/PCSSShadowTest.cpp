@@ -11,8 +11,10 @@
 //     have the values the shaders declare (layout(binding=33/34)).
 //   * The penumbra estimate is contact-hardening: zero occluder/receiver gap →
 //     minimum (sharp) radius; larger gap → monotonically wider penumbra until a
-//     clamp; no blocker → fully lit.
-//   * ShadowSettings defaults to PCSS on, and QualityTiering maps it through.
+//     clamp; no blocker → fully lit; fully-blocked search → umbra early-out.
+//   * ShadowSettings defaults to PCSS OFF (hardware PCF): a live SponzaCSM A/B
+//     (2026-07-02) measured PCSS at ~43 ms of a 46.6 ms scene pass. PCSS is an
+//     Ultra-tier opt-in, and QualityTiering maps it through.
 //
 // The penumbra/blocker helpers below MIRROR pcssShadowFactor / pcssBlockerSearch
 // in assets/shaders/include/PBRCommon.glsl — keep the constants in sync. The
@@ -48,7 +50,7 @@ namespace
     {
         const f32 lightSizeTexels = std::max(softness, 0.05f) * 4.0f;
         const f32 depthGap = std::max(zReceiver - avgBlocker, 0.0f);
-        return std::clamp(depthGap * lightSizeTexels * kPcssPenumbraGain, 1.0f, lightSizeTexels * 8.0f);
+        return std::clamp(depthGap * lightSizeTexels * kPcssPenumbraGain, 1.0f, lightSizeTexels * 4.0f);
     }
 
     // Mirror of pcssBlockerSearch: average of the sample depths nearer the light
@@ -107,10 +109,12 @@ TEST(PCSSShadow, RawDepthBindingSlotsMatchShaders)
 // Settings default + tiering mapping
 // =============================================================================
 
-TEST(PCSSShadow, SoftShadowsDefaultsOn)
+TEST(PCSSShadow, SoftShadowsDefaultsOff)
 {
+    // PCF is the engine baseline; PCSS measured ~14x the scene-pass cost on
+    // SponzaCSM (46.6 ms vs 3.1 ms, RTX 4090 @1080p) and is Ultra-tier only.
     ShadowSettings s{};
-    EXPECT_TRUE(s.SoftShadows);
+    EXPECT_FALSE(s.SoftShadows);
 }
 
 TEST(PCSSShadow, QualityTieringMapsSoftShadows)
@@ -128,12 +132,13 @@ TEST(PCSSShadow, QualityTieringMapsSoftShadows)
     EXPECT_TRUE(shadow.SoftShadows);
 }
 
-TEST(PCSSShadow, LowPresetUsesHardShadows)
+TEST(PCSSShadow, OnlyUltraPresetUsesPCSS)
 {
-    // Low favours the cheapest path.
+    // PCSS is the single most expensive scene-pass feature (SponzaCSM A/B) —
+    // every tier below Ultra uses the hardware PCF path.
     EXPECT_FALSE(GetPresetSettings(QualityPreset::Low).SoftShadows);
-    // Higher tiers keep PCSS on (struct default).
-    EXPECT_TRUE(GetPresetSettings(QualityPreset::High).SoftShadows);
+    EXPECT_FALSE(GetPresetSettings(QualityPreset::Medium).SoftShadows);
+    EXPECT_FALSE(GetPresetSettings(QualityPreset::High).SoftShadows);
     EXPECT_TRUE(GetPresetSettings(QualityPreset::Ultra).SoftShadows);
 }
 
@@ -153,6 +158,21 @@ TEST(PCSSShadow, BlockerSearchAveragesOnlyOccluders)
     // Receiver at 0.6: blockers are 0.2 and 0.4 (avg 0.3); 0.7/0.8 are behind it.
     const std::vector<f32> samples = { 0.2f, 0.4f, 0.7f, 0.8f };
     EXPECT_FLOAT_EQ(AverageBlockerDepth(samples, 0.6f), 0.3f);
+}
+
+TEST(PCSSShadow, FullyBlockedSearchIsUmbra)
+{
+    // pcssShadowFactor early-outs to 0.0 (deep umbra) when all 16 search taps
+    // are occluders — the variable-radius PCF is skipped entirely. Mirror the
+    // decision: every sample below the receiver counts as a blocker.
+    const std::vector<f32> samples(16, 0.3f);
+    int blockers = 0;
+    for (f32 d : samples)
+    {
+        if (d < 0.6f)
+            ++blockers;
+    }
+    EXPECT_EQ(blockers, 16);
 }
 
 // =============================================================================
@@ -179,9 +199,11 @@ TEST(PCSSShadow, PenumbraGrowsMonotonicallyWithGap)
 
 TEST(PCSSShadow, PenumbraClampsToMaxRadius)
 {
-    // A huge gap saturates at lightSizeTexels * 8 (softness 1 -> 4 texels -> 32).
+    // A huge gap saturates at lightSizeTexels * 4 (softness 1 -> 4 texels -> 16).
+    // The cap was halved from *8: wide scattered Poisson taps thrash the
+    // texture cache and dominated the measured PCSS cost on Sponza.
     const f32 r = PcssFilterRadiusTexels(1.0f, 0.0f, 1.0f);
-    EXPECT_FLOAT_EQ(r, 4.0f * 8.0f);
+    EXPECT_FLOAT_EQ(r, 4.0f * 4.0f);
 }
 
 TEST(PCSSShadow, LargerLightSizeGivesSofterMaxPenumbra)

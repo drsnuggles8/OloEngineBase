@@ -89,6 +89,9 @@ namespace OloEngine
 
         // Depth prepass override: when true, ApplyPODRenderState forces depth-only state
         bool DepthPrepassActive = false;
+        // Renderer-ID snapshot for the prepass depth-only shader swap, refreshed
+        // in SetDepthPrepassActive(true) so shader hot-reloads are picked up.
+        Renderer3D::DepthPrepassShaderIDs DepthPrepassShaders;
         // Color pass of depth prepass: override depth func to GL_LEQUAL + depth mask false
         bool DepthPrepassColorPassActive = false;
         // Water surface-depth capture: forces depth-only state even for the blended
@@ -505,6 +508,34 @@ namespace OloEngine
         BindTrackedTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTextureID);
     }
 
+    // Helper: resolve the program to bind for a mesh draw during the depth
+    // prepass. The four standard mesh programs (PBR forward / G-Buffer, static
+    // / skinned) are swapped for the minimal DepthPrepass*.glsl depth-only
+    // programs — running the full lighting FS in the prepass multiplies the
+    // per-pixel cost by (overdraw + 1) instead of eliminating overdraw, which
+    // measured as ~90% of the whole scene pass on Sponza (PCSS per covered
+    // fragment, twice). MASK materials get the *_Mask variants so the glTF
+    // alpha test keeps carving the same depth coverage as the color pass.
+    // Anything else (custom shaders) keeps its own program: its vertex path is
+    // unknown, so only it is guaranteed to reproduce its color-pass depth.
+    static u32 ResolveDepthPrepassShader(const PODMaterialData& mat)
+    {
+        const auto& ids = s_Data.DepthPrepassShaders;
+        const bool isStatic = (mat.shaderRendererID == ids.PBRStatic ||
+                               mat.shaderRendererID == ids.GBufferStatic);
+        const bool isSkinned = !isStatic &&
+                               (mat.shaderRendererID == ids.PBRSkinned ||
+                                mat.shaderRendererID == ids.GBufferSkinned);
+        if (!isStatic && !isSkinned)
+            return mat.shaderRendererID;
+
+        const bool isMask = (mat.alphaMode == 1);
+        const u32 depthID = isStatic
+                                ? (isMask ? ids.DepthMaskStatic : ids.DepthStatic)
+                                : (isMask ? ids.DepthMaskSkinned : ids.DepthSkinned);
+        return depthID != 0 ? depthID : mat.shaderRendererID;
+    }
+
     // Helper: Upload bone matrices from FrameDataBuffer.
     static void UploadBoneMatrices(bool isAnimated, u32 boneBufferOffset, u32 boneCount, u32 prevBoneBufferOffset = UINT32_MAX)
     {
@@ -749,6 +780,10 @@ namespace OloEngine
         if (active)
         {
             s_Data.DepthPrepassColorPassActive = false;
+            // Snapshot the depth-only swap programs once per prepass — cheap,
+            // and keeps the swap correct across shader hot-reloads (renderer
+            // IDs can change when a program is recompiled).
+            s_Data.DepthPrepassShaders = Renderer3D::GetDepthPrepassShaderIDs();
         }
         // Invalidate cache so the next command re-applies state
         InvalidateRenderStateCache();
@@ -1161,11 +1196,21 @@ namespace OloEngine
         // Resolve and apply render state from table
         ApplyPODRenderState(cmd->renderStateIndex, api);
 
-        // Bind shader using renderer ID directly
-        if (s_Data.CurrentBoundShaderID != mat.shaderRendererID)
+        // Bind shader using renderer ID directly. During the depth prepass the
+        // standard PBR programs are swapped for minimal depth-only ones — the
+        // prepass exists to eliminate overdraw, not to run the lighting FS
+        // once more per covered fragment.
+        u32 shaderToBind = mat.shaderRendererID;
+        bool prepassDepthOnly = false;
+        if (s_Data.DepthPrepassActive)
         {
-            glUseProgram(mat.shaderRendererID);
-            s_Data.CurrentBoundShaderID = mat.shaderRendererID;
+            shaderToBind = ResolveDepthPrepassShader(mat);
+            prepassDepthOnly = (shaderToBind != mat.shaderRendererID);
+        }
+        if (s_Data.CurrentBoundShaderID != shaderToBind)
+        {
+            glUseProgram(shaderToBind);
+            s_Data.CurrentBoundShaderID = shaderToBind;
             ++s_Data.Stats.ShaderBinds;
         }
 
@@ -1192,6 +1237,16 @@ namespace OloEngine
 
                 UploadModelInstance(modelData, s_Data.ModelInstanceBuffer);
                 // Legacy ModelMatrixUBO binding retired — all shaders now read transforms from the InstanceBuffer SSBO at binding 15.
+            }
+
+            // MASK materials still need the material UBO (alpha cutoff) and the
+            // albedo texture so the depth-only alpha test carves the same
+            // coverage as the color pass. (Also fixes the pre-swap behavior,
+            // where the prepass ran the full shader against whatever material
+            // state the previous draw left bound.)
+            if (prepassDepthOnly && mat.alphaMode == 1)
+            {
+                UploadMaterialState(mat, cmd->materialDataIndex);
             }
 
             // Bone matrices are still needed for skinned mesh vertex positions.
@@ -1298,11 +1353,20 @@ namespace OloEngine
         // Resolve and apply render state from table
         ApplyPODRenderState(cmd->renderStateIndex, api);
 
-        // Bind shader using renderer ID directly
-        if (s_Data.CurrentBoundShaderID != mat.shaderRendererID)
+        // Bind shader using renderer ID directly. During the depth prepass the
+        // standard PBR programs are swapped for minimal depth-only ones — see
+        // ResolveDepthPrepassShader (mirrors DrawMesh).
+        u32 shaderToBind = mat.shaderRendererID;
+        bool prepassDepthOnly = false;
+        if (s_Data.DepthPrepassActive)
         {
-            glUseProgram(mat.shaderRendererID);
-            s_Data.CurrentBoundShaderID = mat.shaderRendererID;
+            shaderToBind = ResolveDepthPrepassShader(mat);
+            prepassDepthOnly = (shaderToBind != mat.shaderRendererID);
+        }
+        if (s_Data.CurrentBoundShaderID != shaderToBind)
+        {
+            glUseProgram(shaderToBind);
+            s_Data.CurrentBoundShaderID = shaderToBind;
             ++s_Data.Stats.ShaderBinds;
         }
 
@@ -1313,8 +1377,13 @@ namespace OloEngine
             BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
         }
 
-        // Material UBO + texture bindings (skipped when material unchanged)
-        UploadMaterialState(mat, cmd->materialDataIndex);
+        // Material UBO + texture bindings (skipped when material unchanged).
+        // A depth-only prepass draw needs material state only for the MASK
+        // alpha test (cutoff + albedo); opaque depth-only draws skip it.
+        if (!prepassDepthOnly || mat.alphaMode == 1)
+        {
+            UploadMaterialState(mat, cmd->materialDataIndex);
+        }
 
         // GPU-frustum-cull fast path: the cull compute already wrote
         // compacted survivors to `cullOutputInstanceBufferID` and the
@@ -1329,8 +1398,9 @@ namespace OloEngine
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_INSTANCE_DATA,
                              cmd->cullOutputInstanceBufferID);
 
-            // Shadow/snow textures (per-frame, outside material diffing)
-            if (mat.enablePBR)
+            // Shadow/snow textures (per-frame, outside material diffing).
+            // Depth-only prepass draws never sample shadows.
+            if (mat.enablePBR && !prepassDepthOnly)
                 BindShadowTextures();
 
             // Bone matrices (no-op for non-animated GPU-cull submissions)
@@ -1446,8 +1516,9 @@ namespace OloEngine
             s_Data.ModelInstanceBuffer->Bind();
         }
 
-        // Shadow/snow textures (per-frame, outside material diffing)
-        if (mat.enablePBR)
+        // Shadow/snow textures (per-frame, outside material diffing).
+        // Depth-only prepass draws never sample shadows.
+        if (mat.enablePBR && !prepassDepthOnly)
             BindShadowTextures();
 
         // Bone matrices
