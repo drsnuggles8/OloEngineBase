@@ -3080,9 +3080,13 @@ namespace OloEngine
 
     struct SnowDeformerComponent
     {
-        f32 m_DeformRadius = 0.5f;     // World-space radius of the deformation stamp
-        f32 m_DeformDepth = 0.1f;      // How deep the deformer stamps into snow (meters)
-        f32 m_FalloffExponent = 2.0f;  // Radial falloff curve (1=linear, 2=quadratic)
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 50.0f)
+        f32 m_DeformRadius = 0.5f; // World-space radius of the deformation stamp
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
+        f32 m_DeformDepth = 0.1f; // How deep the deformer stamps into snow (meters)
+        OLO_SERIALIZE(Clamp, Min = 0.1f, Max = 10.0f)
+        f32 m_FalloffExponent = 2.0f; // Radial falloff curve (1=linear, 2=quadratic)
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 m_CompactionFactor = 0.5f; // 0=full removal, 1=compact only (no displacement)
         bool m_EmitEjecta = true;      // Emit snow puff particles on deformation
 
@@ -3110,15 +3114,20 @@ namespace OloEngine
     struct FogVolumeComponent
     {
         // Shape & spatial parameters
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 2)
         FogVolumeShape m_Shape = FogVolumeShape::Box;
         glm::vec3 m_Extents = { 5.0f, 5.0f, 5.0f }; // Half-extents for Box/Cylinder, radius for Sphere uses x
 
         // Fog parameters
         glm::vec3 m_Color = { 0.6f, 0.65f, 0.7f };
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
         f32 m_Density = 0.5f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
         f32 m_FalloffDistance = 1.0f; // Boundary fade distance (world-space)
-        i32 m_Priority = 0;           // Sorting priority for overlapping volumes
-        f32 m_BlendWeight = 1.0f;     // 0-1 blend strength
+        OLO_SERIALIZE(Clamp, Min = -100, Max = 100)
+        i32 m_Priority = 0; // Sorting priority for overlapping volumes
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_BlendWeight = 1.0f; // 0-1 blend strength
 
         // Flags
         bool m_Enabled = true;
@@ -3467,13 +3476,18 @@ namespace OloEngine
 
     struct NavAgentComponent
     {
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 100.0f)
         f32 m_Radius = 0.5f;
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 100.0f)
         f32 m_Height = 2.0f;
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
         f32 m_MaxSpeed = 3.5f;
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
         f32 m_Acceleration = 8.0f;
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
         f32 m_StoppingDistance = 0.1f;
         i32 m_AvoidancePriority = 50;
         OLO_PROPERTY()
@@ -3481,11 +3495,17 @@ namespace OloEngine
 
         // Runtime state (not serialized)
         OLO_PROPERTY(Name = "TargetPosition", Type = "vec3", Set = "comp.m_TargetPosition = {v}; comp.m_HasTarget = true; comp.m_HasPath = false")
+        OLO_SERIALIZE(Skip)
         glm::vec3 m_TargetPosition = { 0.0f, 0.0f, 0.0f };
+        OLO_SERIALIZE(Skip)
         bool m_HasTarget = false;
+        OLO_SERIALIZE(Skip)
         bool m_HasPath = false;
+        OLO_SERIALIZE(Skip)
         std::vector<glm::vec3> m_PathCorners;
+        OLO_SERIALIZE(Skip)
         u32 m_CurrentCornerIndex = 0;
+        OLO_SERIALIZE(Skip)
         i32 m_CrowdAgentId = -1;
 
         NavAgentComponent() = default;

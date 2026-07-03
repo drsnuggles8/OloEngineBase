@@ -20,14 +20,18 @@ namespace OloEngine
         OLO_PROPERTY()
         u32 EndBoneIndex = 0; // chain tip bone (e.g. last tail bone)
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 2u)
         u32 ChainLength = 3; // bones in the chain including the tip (min 2 to simulate)
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1e6f)
         f32 Stiffness = 80.0f; // pull toward the animated pose (1/s^2)
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1e6f)
         f32 Damping = 12.0f; // velocity damping rate (1/s)
         OLO_PROPERTY()
         glm::vec3 Gravity{ 0.0f, -9.81f, 0.0f }; // world-space acceleration
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 Weight = 1.0f; // 0 = animated pose, 1 = full spring result
 
         // Trivially-copyable POD component: a single whole-struct bitwise compare

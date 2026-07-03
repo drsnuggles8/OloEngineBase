@@ -511,6 +511,48 @@ static bool SerializeArgsHaveSkip(const std::string& args)
     return false;
 }
 
+// True iff an OLO_SERIALIZE argument list contains a bare `Clamp` token (issue
+// #451's Clamp slice). `minOut`/`maxOut` receive the raw text of `Min=`/`Max=`
+// arguments when present (unset otherwise) — the caller casts them to the field's
+// own type at emit time, so `Min=0` is fine on a float field. Same whole-argument
+// comma-split as SerializeArgsHaveSkip (a bare key or a key=value pair per
+// argument); unrecognised keys are ignored here (this call only extracts Clamp's
+// own arguments — Skip is checked separately and the two are mutually exclusive by
+// construction, since Skip drops the field before this is consulted).
+static bool SerializeArgsClampBounds(const std::string& args, std::optional<std::string>& minOut,
+                                     std::optional<std::string>& maxOut)
+{
+    bool hasClamp = false;
+    minOut.reset();
+    maxOut.reset();
+    for (size_t start = 0; start <= args.size();)
+    {
+        size_t comma = args.find(',', start);
+        const size_t end = (comma == std::string::npos) ? args.size() : comma;
+        std::string part = Trim(args.substr(start, end - start));
+        if (!part.empty())
+        {
+            std::string key = part;
+            std::string value;
+            if (auto eq = part.find('='); eq != std::string::npos)
+            {
+                key = Trim(part.substr(0, eq));
+                value = Trim(part.substr(eq + 1));
+            }
+            if (key == "Clamp")
+                hasClamp = true;
+            else if (key == "Min")
+                minOut = value;
+            else if (key == "Max")
+                maxOut = value;
+        }
+        if (comma == std::string::npos)
+            break;
+        start = comma + 1;
+    }
+    return hasClamp;
+}
+
 // ─── Header Parser ─────────────────────────────────────────────────────────────
 
 static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
@@ -1008,12 +1050,10 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "BuoyancyComponent",
     "DialogueComponent",
     "DialogueStateComponent",
-    "FogVolumeComponent",
     "IDComponent",
     "IKTargetComponent",
     "LODGroupComponent",
     "LightProbeVolumeComponent",
-    "NavAgentComponent",
     "NavMeshBoundsComponent",
     "NoiseAnimationComponent",
     "NoiseAnimationStateComponent",
@@ -1022,9 +1062,7 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "PhysicsJoint3DComponent",
     "Rigidbody3DComponent",
     "ScriptComponent",
-    "SnowDeformerComponent",
     "SphereAreaLightComponent",
-    "SpringBoneComponent",
     "SpringBoneStateComponent",
     "StreamingVolumeComponent",
     "TagComponent",
@@ -1125,6 +1163,16 @@ struct SerField
     // fields of the nested struct (scalar member) or the vector's element struct
     // (isVector). Empty for every scalar / primitive / enum type.
     std::vector<SerField> subFields;
+
+    // OLO_SERIALIZE(Clamp, Min=…, Max=…) — issue #451's Clamp slice. When set, the
+    // generated deserialize ranges the read value into [clampMin, clampMax] (both
+    // set) or applies a one-sided std::max/std::min (only one set). Only ever set
+    // for a scalar (non-vector) Float/Int/UInt/SmallInt/SmallUInt/Enum field —
+    // ParseComponentFields fails the whole component non-trivial if Clamp is
+    // requested on any other type rather than silently dropping it.
+    bool hasClamp{ false };
+    std::optional<std::string> clampMin;
+    std::optional<std::string> clampMax;
 };
 
 // Per-component result of the field scan.
@@ -1554,23 +1602,26 @@ static ComponentSerInfo ParseComponentFields(std::string body,
             continue; // the statement was nothing but access-specifier label(s)
 
         // A leading OLO_SERIALIZE(...) annotation controls how the scene-serializer
-        // codegen treats this member (issue #451). Only `Skip` is honoured today:
-        // OLO_SERIALIZE(Skip) drops the member from the generated serialize/deserialize
-        // — a runtime-only field the round-trip must NOT persist (e.g.
-        // UIButtonComponent::m_State, UISliderComponent::m_IsDragging) — and, crucially,
-        // does NOT mark the component non-trivial. So an otherwise all-trivial component
-        // with one runtime field is now fully generated instead of being kept
-        // hand-written via kComponentsCustomSerialize (per-field control replacing the
-        // old all-or-nothing-per-component exclusion). The macro expands to nothing (see
-        // Scene/ComponentReflection.h) and has no ';', so it is glued to the annotated
-        // field inside one statement; OLO_PROPERTY was already stripped above, so
-        // OLO_SERIALIZE is the statement prefix here. A non-`Skip` OLO_SERIALIZE (a
-        // future Clamp/Min/Max) is peeled off and the field then serializes normally.
+        // codegen treats this member (issue #451). `Skip` drops the member from the
+        // generated serialize/deserialize — a runtime-only field the round-trip must
+        // NOT persist (e.g. UIButtonComponent::m_State, UISliderComponent::m_IsDragging)
+        // — and, crucially, does NOT mark the component non-trivial. So an otherwise
+        // all-trivial component with one runtime field is now fully generated instead
+        // of being kept hand-written via kComponentsCustomSerialize (per-field control
+        // replacing the old all-or-nothing-per-component exclusion). `Clamp` (with
+        // `Min`/`Max`) range-validates the field on deserialize — its own field-type
+        // eligibility check happens below, once the field's PropType is known. The
+        // macro expands to nothing (see Scene/ComponentReflection.h) and has no ';',
+        // so it is glued to the annotated field inside one statement; OLO_PROPERTY was
+        // already stripped above, so OLO_SERIALIZE is the statement prefix here.
+        bool fieldHasClamp = false;
+        std::optional<std::string> fieldClampMin, fieldClampMax;
         if (std::string serArgs, serRest; PeelSerializeMarker(s, serArgs, serRest))
         {
             if (SerializeArgsHaveSkip(serArgs))
                 continue; // runtime-only field — not serialized, not non-trivial
-            s = serRest;  // peel a non-Skip annotation; serialize the field normally
+            fieldHasClamp = SerializeArgsClampBounds(serArgs, fieldClampMin, fieldClampMax);
+            s = serRest; // peel the annotation; the field then serializes normally
             if (s.empty())
                 continue;
         }
@@ -1634,10 +1685,12 @@ static ComponentSerInfo ParseComponentFields(std::string body,
                     ept = PropType::Struct;
             }
             if (inner.find('<') != std::string::npos || ept == PropType::Unknown || !IsIdentifier(rest) ||
-                !publicSection)
+                !publicSection || fieldHasClamp)
             {
-                // vector of Ref / nested template / non-trivial struct / bad name, or a
-                // non-public member the serializer can't reach as comp.member — non-trivial.
+                // vector of Ref / nested template / non-trivial struct / bad name, a
+                // non-public member the serializer can't reach as comp.member, or a
+                // Clamp annotation on a vector field (unsupported — element-wise
+                // clamping is a follow-up, not this slice) — non-trivial.
                 ambiguous = true;
                 continue;
             }
@@ -1714,6 +1767,20 @@ static ComponentSerInfo ParseComponentFields(std::string body,
             ambiguous = true;
             continue;
         }
+        // Clamp (issue #451) is only supported on scalar Float/Int/UInt/SmallInt/
+        // SmallUInt/Enum fields — requesting it on any other type (Vec*/Struct/…),
+        // or with neither Min nor Max given, marks the whole component non-trivial
+        // rather than silently dropping the annotation (ambiguity fails safe, same
+        // discipline as every other unsupported construct in this parser).
+        static const std::set<PropType> kClampEligible = {
+            PropType::Float, PropType::Int, PropType::UInt,
+            PropType::SmallInt, PropType::SmallUInt, PropType::Enum
+        };
+        if (fieldHasClamp && (!kClampEligible.contains(pt) || (!fieldClampMin && !fieldClampMax)))
+        {
+            ambiguous = true;
+            continue;
+        }
 
         SerField f;
         f.member = name;
@@ -1721,6 +1788,12 @@ static ComponentSerInfo ParseComponentFields(std::string body,
         f.type = pt;
         if (pt == PropType::Struct)
             f.subFields = std::move(*nested);
+        if (fieldHasClamp)
+        {
+            f.hasClamp = true;
+            f.clampMin = fieldClampMin;
+            f.clampMax = fieldClampMax;
+        }
         info.fields.push_back(f);
     }
 
@@ -1963,7 +2036,9 @@ static void EmitSceneSerializerHeader(std::ostream& out, const char* verb, const
     out << "//\n";
     out << "// #include'd inside SceneSerializer::" << func << ", where " << locals << "\n";
     out << "// are in scope. Floats are validated with std::isfinite via TryReadFiniteF32 /\n";
-    out << "// the glm Decode helpers (NaN/Inf in YAML keeps the constructor default).\n";
+    out << "// the glm Decode helpers (NaN/Inf in YAML keeps the constructor default). A\n";
+    out << "// field annotated OLO_SERIALIZE(Clamp, Min=…, Max=…) additionally ranges a\n";
+    out << "// successfully-read scalar value into [Min, Max] (issue #451).\n";
     out << "//\n";
     out << "// Each component is handled by EXACTLY ONE of this file or the hand-written\n";
     out << "// serializer — ComponentSerializerCoverageTest fails loudly on a drop or a\n";
@@ -1990,6 +2065,25 @@ static std::string SceneWriteExpr(PropType t, const std::string& expr)
         default:
             return expr;
     }
+}
+
+// Wrap a deserialize value expression `expr` (already of type `castType`, e.g.
+// "f32" / "i32" / "decltype(lhs)") in a range clamp per the field's Clamp
+// annotation (issue #451): both bounds given -> std::clamp, one bound given ->
+// std::max/std::min, neither given -> returns `expr` unchanged (ParseComponentFields
+// never produces this last case — Clamp requires at least one of Min/Max — but the
+// no-op fallback keeps this helper safe to call unconditionally by a caller that
+// already checked f.hasClamp).
+static std::string ApplyClamp(const std::string& expr, const std::string& castType, const SerField& f)
+{
+    if (f.clampMin && f.clampMax)
+        return "std::clamp(" + expr + ", static_cast<" + castType + ">(" + *f.clampMin + "), static_cast<" +
+               castType + ">(" + *f.clampMax + "))";
+    if (f.clampMin)
+        return "std::max(" + expr + ", static_cast<" + castType + ">(" + *f.clampMin + "))";
+    if (f.clampMax)
+        return "std::min(" + expr + ", static_cast<" + castType + ">(" + *f.clampMax + "))";
+    return expr;
 }
 
 // The element loop / temp variable base name for depth `d`. Depth 0 keeps the
@@ -2146,9 +2240,13 @@ static void EmitDeserializeFields(std::ostream& out, const std::vector<SerField>
         switch (f.type)
         {
             case PropType::Float:
-                // Validate finiteness; NaN/Inf or a missing key keeps the default.
+                // Validate finiteness; NaN/Inf or a missing key keeps the default. A
+                // Clamp annotation (issue #451) additionally ranges a finite read value
+                // — mirrors the hand-written SanitizeFloat idiom, which only clamps the
+                // successfully-read value and otherwise leaves the (already in-range)
+                // default alone.
                 out << indent << "if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(" << key << ", v))\n";
-                out << indent << "    " << lhs << " = v;\n";
+                out << indent << "    " << lhs << " = " << (f.hasClamp ? ApplyClamp("v", "f32", f) : "v") << ";\n";
                 break;
             case PropType::Vec2:
                 out << indent << lhs << " = " << key << ".as<glm::vec2>(" << lhs << ");\n";
@@ -2183,19 +2281,29 @@ static void EmitDeserializeFields(std::ostream& out, const std::vector<SerField>
                 out << indent << lhs << " = " << key << ".as<bool>(" << lhs << ");\n";
                 break;
             case PropType::Int:
-                out << indent << lhs << " = " << key << ".as<i32>(" << lhs << ");\n";
+                out << indent << lhs << " = "
+                    << (f.hasClamp ? ApplyClamp(key + ".as<i32>(" + lhs + ")", "i32", f) : key + ".as<i32>(" + lhs + ")")
+                    << ";\n";
                 break;
             case PropType::UInt:
-                out << indent << lhs << " = " << key << ".as<u32>(" << lhs << ");\n";
+                out << indent << lhs << " = "
+                    << (f.hasClamp ? ApplyClamp(key + ".as<u32>(" + lhs + ")", "u32", f) : key + ".as<u32>(" + lhs + ")")
+                    << ";\n";
                 break;
             case PropType::SmallUInt:
             case PropType::SmallInt:
+            {
                 // u8/u16/i8/i16: read via .as<decltype(member)> — yaml-cpp's char-type
                 // decode special-case parses the numeric string and range-checks before
                 // narrowing (an out-of-range / missing value keeps the default). Pairs
-                // with the static_cast<u32>/<i32> emit.
-                out << indent << lhs << " = " << key << ".as<decltype(" << lhs << ")>(" << lhs << ");\n";
+                // with the static_cast<u32>/<i32> emit. A Clamp annotation (issue #451)
+                // casts its bounds to decltype(lhs) too, so the comparison stays within
+                // the field's own (narrow) integer type.
+                const std::string castT = "decltype(" + lhs + ")";
+                const std::string readExpr = key + ".as<" + castT + ">(" + lhs + ")";
+                out << indent << lhs << " = " << (f.hasClamp ? ApplyClamp(readExpr, castT, f) : readExpr) << ";\n";
                 break;
+            }
             case PropType::U64:
                 out << indent << lhs << " = " << key << ".as<u64>(" << lhs << ");\n";
                 break;
@@ -2206,13 +2314,19 @@ static void EmitDeserializeFields(std::ostream& out, const std::vector<SerField>
                 out << indent << lhs << " = " << key << ".as<u64>(static_cast<u64>(" << lhs << "));\n";
                 break;
             case PropType::Enum:
+            {
                 // Read as int, cast back to the member's own enum type via decltype —
                 // robust to nested enums (e.g. Component::State) that aren't in scope by
                 // their unqualified name at the SceneSerializer level. A missing key
                 // keeps the default (cast it to int for the yaml-cpp fallback overload).
-                out << indent << lhs << " = static_cast<decltype(" << lhs << ")>(" << key
-                    << ".as<int>(static_cast<int>(" << lhs << ")));\n";
+                // A Clamp annotation (issue #451) ranges the int value BEFORE the cast
+                // back to the enum type — mirrors the hand-written
+                // `static_cast<EnumType>(std::clamp(intValue, lo, hi))` idiom.
+                const std::string readExpr = key + ".as<int>(static_cast<int>(" + lhs + "))";
+                out << indent << lhs << " = static_cast<decltype(" << lhs << ")>("
+                    << (f.hasClamp ? ApplyClamp(readExpr, "int", f) : readExpr) << ");\n";
                 break;
+            }
             case PropType::String:
                 out << indent << lhs << " = " << key << ".as<std::string>(" << lhs << ");\n";
                 break;

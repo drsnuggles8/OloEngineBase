@@ -13,7 +13,9 @@
 //
 // #include'd inside SceneSerializer::SerializeEntity, where `out` (YAML::Emitter&) and `entity` (Entity)
 // are in scope. Floats are validated with std::isfinite via TryReadFiniteF32 /
-// the glm Decode helpers (NaN/Inf in YAML keeps the constructor default).
+// the glm Decode helpers (NaN/Inf in YAML keeps the constructor default). A
+// field annotated OLO_SERIALIZE(Clamp, Min=…, Max=…) additionally ranges a
+// successfully-read scalar value into [Min, Max] (issue #451).
 //
 // Each component is handled by EXACTLY ONE of this file or the hand-written
 // serializer — ComponentSerializerCoverageTest fails loudly on a drop or a
@@ -83,6 +85,23 @@ if (entity.HasComponent<DirectionalLightComponent>())
     out << YAML::EndMap; // DirectionalLightComponent
 }
 
+if (entity.HasComponent<FogVolumeComponent>())
+{
+    out << YAML::Key << "FogVolumeComponent";
+    out << YAML::BeginMap; // FogVolumeComponent
+    auto const& comp = entity.GetComponent<FogVolumeComponent>();
+    out << YAML::Key << "Shape" << YAML::Value << static_cast<int>(comp.m_Shape);
+    out << YAML::Key << "Extents" << YAML::Value << comp.m_Extents;
+    out << YAML::Key << "Color" << YAML::Value << comp.m_Color;
+    out << YAML::Key << "Density" << YAML::Value << comp.m_Density;
+    out << YAML::Key << "FalloffDistance" << YAML::Value << comp.m_FalloffDistance;
+    out << YAML::Key << "Priority" << YAML::Value << comp.m_Priority;
+    out << YAML::Key << "BlendWeight" << YAML::Value << comp.m_BlendWeight;
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::Key << "AffectTransparent" << YAML::Value << comp.m_AffectTransparent;
+    out << YAML::EndMap; // FogVolumeComponent
+}
+
 if (entity.HasComponent<InstancePortalComponent>())
 {
     out << YAML::Key << "InstancePortalComponent";
@@ -127,6 +146,21 @@ if (entity.HasComponent<NameplateComponent>())
     out << YAML::Key << "BarBackgroundColor" << YAML::Value << comp.m_BarBackgroundColor;
     out << YAML::Key << "ManaBarGap" << YAML::Value << comp.m_ManaBarGap;
     out << YAML::EndMap; // NameplateComponent
+}
+
+if (entity.HasComponent<NavAgentComponent>())
+{
+    out << YAML::Key << "NavAgentComponent";
+    out << YAML::BeginMap; // NavAgentComponent
+    auto const& comp = entity.GetComponent<NavAgentComponent>();
+    out << YAML::Key << "Radius" << YAML::Value << comp.m_Radius;
+    out << YAML::Key << "Height" << YAML::Value << comp.m_Height;
+    out << YAML::Key << "MaxSpeed" << YAML::Value << comp.m_MaxSpeed;
+    out << YAML::Key << "Acceleration" << YAML::Value << comp.m_Acceleration;
+    out << YAML::Key << "StoppingDistance" << YAML::Value << comp.m_StoppingDistance;
+    out << YAML::Key << "AvoidancePriority" << YAML::Value << comp.m_AvoidancePriority;
+    out << YAML::Key << "LockYAxis" << YAML::Value << comp.m_LockYAxis;
+    out << YAML::EndMap; // NavAgentComponent
 }
 
 if (entity.HasComponent<NetworkIdentityComponent>())
@@ -214,6 +248,19 @@ if (entity.HasComponent<RelationshipComponent>())
     out << YAML::EndMap; // RelationshipComponent
 }
 
+if (entity.HasComponent<SnowDeformerComponent>())
+{
+    out << YAML::Key << "SnowDeformerComponent";
+    out << YAML::BeginMap; // SnowDeformerComponent
+    auto const& comp = entity.GetComponent<SnowDeformerComponent>();
+    out << YAML::Key << "DeformRadius" << YAML::Value << comp.m_DeformRadius;
+    out << YAML::Key << "DeformDepth" << YAML::Value << comp.m_DeformDepth;
+    out << YAML::Key << "FalloffExponent" << YAML::Value << comp.m_FalloffExponent;
+    out << YAML::Key << "CompactionFactor" << YAML::Value << comp.m_CompactionFactor;
+    out << YAML::Key << "EmitEjecta" << YAML::Value << comp.m_EmitEjecta;
+    out << YAML::EndMap; // SnowDeformerComponent
+}
+
 if (entity.HasComponent<SpotLightComponent>())
 {
     out << YAML::Key << "SpotLightComponent";
@@ -230,6 +277,21 @@ if (entity.HasComponent<SpotLightComponent>())
     out << YAML::Key << "ShadowBias" << YAML::Value << comp.m_ShadowBias;
     out << YAML::Key << "ShadowNormalBias" << YAML::Value << comp.m_ShadowNormalBias;
     out << YAML::EndMap; // SpotLightComponent
+}
+
+if (entity.HasComponent<SpringBoneComponent>())
+{
+    out << YAML::Key << "SpringBoneComponent";
+    out << YAML::BeginMap; // SpringBoneComponent
+    auto const& comp = entity.GetComponent<SpringBoneComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.Enabled;
+    out << YAML::Key << "EndBoneIndex" << YAML::Value << comp.EndBoneIndex;
+    out << YAML::Key << "ChainLength" << YAML::Value << comp.ChainLength;
+    out << YAML::Key << "Stiffness" << YAML::Value << comp.Stiffness;
+    out << YAML::Key << "Damping" << YAML::Value << comp.Damping;
+    out << YAML::Key << "Gravity" << YAML::Value << comp.Gravity;
+    out << YAML::Key << "Weight" << YAML::Value << comp.Weight;
+    out << YAML::EndMap; // SpringBoneComponent
 }
 
 if (entity.HasComponent<UIButtonComponent>())

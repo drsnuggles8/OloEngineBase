@@ -13,7 +13,9 @@
 //
 // #include'd inside SceneSerializer::DeserializeEntityComponents, where `entity` (const YAML::Node&) and `deserializedEntity` (Entity&)
 // are in scope. Floats are validated with std::isfinite via TryReadFiniteF32 /
-// the glm Decode helpers (NaN/Inf in YAML keeps the constructor default).
+// the glm Decode helpers (NaN/Inf in YAML keeps the constructor default). A
+// field annotated OLO_SERIALIZE(Clamp, Min=…, Max=…) additionally ranges a
+// successfully-read scalar value into [Min, Max] (issue #451).
 //
 // Each component is handled by EXACTLY ONE of this file or the hand-written
 // serializer — ComponentSerializerCoverageTest fails loudly on a drop or a
@@ -88,6 +90,23 @@ if (auto node = entity["DirectionalLightComponent"]; node)
     comp.m_CascadeDebugVisualization = node["CascadeDebugVisualization"].as<bool>(comp.m_CascadeDebugVisualization);
 }
 
+if (auto node = entity["FogVolumeComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<FogVolumeComponent>();
+    comp.m_Shape = static_cast<decltype(comp.m_Shape)>(std::clamp(node["Shape"].as<int>(static_cast<int>(comp.m_Shape)), static_cast<int>(0), static_cast<int>(2)));
+    comp.m_Extents = node["Extents"].as<glm::vec3>(comp.m_Extents);
+    comp.m_Color = node["Color"].as<glm::vec3>(comp.m_Color);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Density"], v))
+        comp.m_Density = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FalloffDistance"], v))
+        comp.m_FalloffDistance = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    comp.m_Priority = std::clamp(node["Priority"].as<i32>(comp.m_Priority), static_cast<i32>(-100), static_cast<i32>(100));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["BlendWeight"], v))
+        comp.m_BlendWeight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    comp.m_AffectTransparent = node["AffectTransparent"].as<bool>(comp.m_AffectTransparent);
+}
+
 if (auto node = entity["InstancePortalComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<InstancePortalComponent>();
@@ -121,6 +140,23 @@ if (auto node = entity["NameplateComponent"]; node)
     comp.m_BarBackgroundColor = node["BarBackgroundColor"].as<glm::vec4>(comp.m_BarBackgroundColor);
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ManaBarGap"], v))
         comp.m_ManaBarGap = v;
+}
+
+if (auto node = entity["NavAgentComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<NavAgentComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Radius"], v))
+        comp.m_Radius = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Height"], v))
+        comp.m_Height = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxSpeed"], v))
+        comp.m_MaxSpeed = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Acceleration"], v))
+        comp.m_Acceleration = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["StoppingDistance"], v))
+        comp.m_StoppingDistance = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    comp.m_AvoidancePriority = node["AvoidancePriority"].as<i32>(comp.m_AvoidancePriority);
+    comp.m_LockYAxis = node["LockYAxis"].as<bool>(comp.m_LockYAxis);
 }
 
 if (auto node = entity["NetworkIdentityComponent"]; node)
@@ -202,6 +238,20 @@ if (auto node = entity["RelationshipComponent"]; node)
     }
 }
 
+if (auto node = entity["SnowDeformerComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<SnowDeformerComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["DeformRadius"], v))
+        comp.m_DeformRadius = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(50.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["DeformDepth"], v))
+        comp.m_DeformDepth = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FalloffExponent"], v))
+        comp.m_FalloffExponent = std::clamp(v, static_cast<f32>(0.1f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["CompactionFactor"], v))
+        comp.m_CompactionFactor = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    comp.m_EmitEjecta = node["EmitEjecta"].as<bool>(comp.m_EmitEjecta);
+}
+
 if (auto node = entity["SpotLightComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<SpotLightComponent>();
@@ -222,6 +272,21 @@ if (auto node = entity["SpotLightComponent"]; node)
         comp.m_ShadowBias = v;
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowNormalBias"], v))
         comp.m_ShadowNormalBias = v;
+}
+
+if (auto node = entity["SpringBoneComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<SpringBoneComponent>();
+    comp.Enabled = node["Enabled"].as<bool>(comp.Enabled);
+    comp.EndBoneIndex = node["EndBoneIndex"].as<u32>(comp.EndBoneIndex);
+    comp.ChainLength = std::max(node["ChainLength"].as<u32>(comp.ChainLength), static_cast<u32>(2u));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Stiffness"], v))
+        comp.Stiffness = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1e6f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Damping"], v))
+        comp.Damping = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1e6f));
+    comp.Gravity = node["Gravity"].as<glm::vec3>(comp.Gravity);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Weight"], v))
+        comp.Weight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
 }
 
 if (auto node = entity["UIButtonComponent"]; node)
