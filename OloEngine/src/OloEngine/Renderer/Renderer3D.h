@@ -669,6 +669,12 @@ namespace OloEngine
         // Depth prepass control
         static void EnableDepthPrepass(bool enable);
         static bool IsDepthPrepassEnabled();
+        // The depth-prepass value ApplyRendererSettings derives from the current
+        // RendererSettings (the "auto" state): the user toggle OR'd with the
+        // paths that require the prepass depth for tile culling (Forward+,
+        // Deferred, Forward with auto-switch). Exposed so the MCP depthprepass
+        // lever's 'auto' token resolves through the same single derivation.
+        static bool ComputeSettingsDerivedDepthPrepass();
 
         // Occlusion culling control (legacy CPU hardware-query path).
         static void EnableOcclusionCulling(bool enable);

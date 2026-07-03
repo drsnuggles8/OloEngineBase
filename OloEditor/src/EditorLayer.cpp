@@ -525,11 +525,18 @@ namespace OloEngine
         const u32 fbWidth = std::max(1u, static_cast<u32>(m_ViewportSize.x * dpiScale));
         const u32 fbHeight = std::max(1u, static_cast<u32>(m_ViewportSize.y * dpiScale));
 
-        // Resize
+        // Resize. Also fires when a window-resize event was seen
+        // (m_ViewportSizeReassertNeeded): Application::OnWindowResize resized the
+        // render graph to the OS window size behind our back, and with an
+        // unchanged viewport size (e.g. an active MCP viewport override) the
+        // spec comparison alone would never correct it — the scene would keep
+        // rendering at window resolution (#316: ~6x inflated frame times with a
+        // maximized window on a 4K monitor).
         if (FramebufferSpecification const spec = m_Framebuffer->GetSpecification();
             (m_ViewportSize.x > 0.0f) && (m_ViewportSize.y > 0.0f) && // zero sized framebuffer is invalid
-            ((std::abs(static_cast<f32>(spec.Width) - static_cast<f32>(fbWidth)) > epsilon) || (std::abs(static_cast<f32>(spec.Height) - static_cast<f32>(fbHeight)) > epsilon)))
+            ((std::abs(static_cast<f32>(spec.Width) - static_cast<f32>(fbWidth)) > epsilon) || (std::abs(static_cast<f32>(spec.Height) - static_cast<f32>(fbHeight)) > epsilon) || m_ViewportSizeReassertNeeded))
         {
+            m_ViewportSizeReassertNeeded = false;
             m_Framebuffer->Resize(fbWidth, fbHeight);
             m_LastViewportResizeFrame = m_FrameIndex; // MCP captures must wait out the resize transient
             m_CameraController.OnResize(m_ViewportSize.x, m_ViewportSize.y);
@@ -1951,10 +1958,28 @@ namespace OloEngine
         EventDispatcher dispatcher(e);
         dispatcher.Dispatch<KeyPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnKeyPressed));
         dispatcher.Dispatch<MouseButtonPressedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnMouseButtonPressed));
+        dispatcher.Dispatch<WindowResizeEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnWindowResized));
         dispatcher.Dispatch<AssetLoadedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnAssetLoaded));
         dispatcher.Dispatch<AssetReloadedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnAssetReloaded));
         dispatcher.Dispatch<AssetImportedEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnAssetImported));
         dispatcher.Dispatch<WindowCloseEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnWindowClose));
+    }
+
+    bool EditorLayer::OnWindowResized(WindowResizeEvent const& e)
+    {
+        // Application::OnWindowResize already ran (it dispatches before the layer
+        // stack) and resized the Renderer3D render graph to the OS window's
+        // framebuffer size. In the editor the scene renders into the viewport
+        // panel (or the MCP olo_viewport_set_size override), not the window, so
+        // mark the viewport-derived size for one reassert on the next OnUpdate —
+        // the resize guard there won't fire on its own when the viewport size is
+        // unchanged (see m_ViewportSizeReassertNeeded). Ignore minimize-sized
+        // events (width/height == 0) since there's no real render-graph work.
+        if (e.GetWidth() > 0 && e.GetHeight() > 0)
+        {
+            m_ViewportSizeReassertNeeded = true;
+        }
+        return false; // other layers may care about the resize too
     }
 
     bool EditorLayer::OnKeyPressed(KeyPressedEvent const& e)

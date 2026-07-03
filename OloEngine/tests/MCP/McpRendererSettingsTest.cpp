@@ -87,8 +87,8 @@ namespace
                 if (const auto error = RS::ParseArgs(args, introspect, setting, value))
                     return ToolResult::Error(*error);
                 if (introspect)
-                    return ToolResult::Text(RS::Describe(m_PP, m_RS).dump());
-                const RS::ApplyResult applied = RS::Apply(setting, value, m_PP, m_RS);
+                    return ToolResult::Text(RS::Describe(m_PP, m_RS, m_Lever).dump());
+                const RS::ApplyResult applied = RS::Apply(setting, value, m_PP, m_RS, m_Lever);
                 if (!applied.Ok)
                     return ToolResult::Error(applied.Error);
                 return ToolResult::Text(applied.Data.dump());
@@ -98,7 +98,8 @@ namespace
 
         PostProcessSettings m_PP;
         RendererSettings m_RS;
-        McpServer m_Server; // declared last → destroyed first (its handler refs m_PP/m_RS)
+        RS::LeverState m_Lever;
+        McpServer m_Server; // declared last → destroyed first (its handler refs m_PP/m_RS/m_Lever)
     };
 } // namespace
 
@@ -224,7 +225,8 @@ TEST(McpRendererSettingsApply, SetsUpscaleAndReportsPrior)
 {
     PostProcessSettings pp;
     RendererSettings rs;
-    const auto result = RS::Apply(RS::Setting::Upscale, static_cast<i32>(UpscaleMode::Balanced), pp, rs);
+    RS::LeverState lever;
+    const auto result = RS::Apply(RS::Setting::Upscale, static_cast<i32>(UpscaleMode::Balanced), pp, rs, lever);
     ASSERT_TRUE(result.Ok);
     EXPECT_EQ(pp.Upscale, UpscaleMode::Balanced);
     EXPECT_EQ(result.Data["previousValue"], "off");
@@ -237,7 +239,8 @@ TEST(McpRendererSettingsApply, SetsTonemap)
 {
     PostProcessSettings pp;
     RendererSettings rs;
-    const auto result = RS::Apply(RS::Setting::Tonemap, static_cast<i32>(TonemapOperator::ACES), pp, rs);
+    RS::LeverState lever;
+    const auto result = RS::Apply(RS::Setting::Tonemap, static_cast<i32>(TonemapOperator::ACES), pp, rs, lever);
     ASSERT_TRUE(result.Ok);
     EXPECT_EQ(pp.Tonemap, TonemapOperator::ACES);
     EXPECT_EQ(result.Data["previousValue"], "reinhard"); // struct default
@@ -249,7 +252,8 @@ TEST(McpRendererSettingsApply, RenderPathChangeFlagsRebuild)
 {
     PostProcessSettings pp;
     RendererSettings rs; // default Forward
-    const auto result = RS::Apply(RS::Setting::RenderPath, static_cast<i32>(RenderingPath::Deferred), pp, rs);
+    RS::LeverState lever;
+    const auto result = RS::Apply(RS::Setting::RenderPath, static_cast<i32>(RenderingPath::Deferred), pp, rs, lever);
     ASSERT_TRUE(result.Ok);
     EXPECT_EQ(rs.Path, RenderingPath::Deferred);
     EXPECT_TRUE(result.PathChanged);
@@ -263,7 +267,8 @@ TEST(McpRendererSettingsApply, NoOpWhenValueUnchanged)
 {
     PostProcessSettings pp;
     RendererSettings rs; // default Forward
-    const auto result = RS::Apply(RS::Setting::RenderPath, static_cast<i32>(RenderingPath::Forward), pp, rs);
+    RS::LeverState lever;
+    const auto result = RS::Apply(RS::Setting::RenderPath, static_cast<i32>(RenderingPath::Forward), pp, rs, lever);
     ASSERT_TRUE(result.Ok);
     EXPECT_FALSE(result.Data["changed"].get<bool>());
     EXPECT_FALSE(result.PathChanged);
@@ -277,12 +282,120 @@ TEST(McpRendererSettingsApply, RejectsOutOfRangeValueAndMutatesNothing)
     PostProcessSettings pp;
     pp.Upscale = UpscaleMode::Quality;
     RendererSettings rs;
+    RS::LeverState lever;
 
-    const auto result = RS::Apply(RS::Setting::Upscale, 999, pp, rs);
+    const auto result = RS::Apply(RS::Setting::Upscale, 999, pp, rs, lever);
     EXPECT_FALSE(result.Ok);
     EXPECT_FALSE(result.Error.empty());
     EXPECT_TRUE(result.Data.is_null());
     EXPECT_EQ(pp.Upscale, UpscaleMode::Quality); // unchanged
+}
+
+// ---- the perf-lever settings (#316: depthprepass / softshadows) ------------
+
+// The depthprepass lever writes the LeverState snapshot (the handler pushes it
+// to Renderer3D::EnableDepthPrepass afterwards) and never touches pp / rs.
+TEST(McpRendererSettingsApply, DepthPrepassOffWritesLeverOnly)
+{
+    PostProcessSettings pp;
+    RendererSettings rs;
+    RS::LeverState lever;
+    lever.DepthPrepassEnabled = true;
+
+    const auto result = RS::Apply(RS::Setting::DepthPrepass, RS::kDepthPrepassOff, pp, rs, lever);
+    ASSERT_TRUE(result.Ok);
+    EXPECT_FALSE(lever.DepthPrepassEnabled);
+    EXPECT_EQ(result.Data["previousValue"], "on");
+    EXPECT_EQ(result.Data["value"], "off");
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+    EXPECT_FALSE(result.Data.contains("requested"));
+    EXPECT_FALSE(result.PathChanged);
+}
+
+// 'auto' resolves to the settings-derived value BEFORE the write, so the
+// response reports the actual resulting state (plus requested:"auto") and the
+// restore hint still round-trips through off/on.
+TEST(McpRendererSettingsApply, DepthPrepassAutoResolvesToDerivedValue)
+{
+    PostProcessSettings pp;
+    RendererSettings rs;
+    RS::LeverState lever;
+    lever.DepthPrepassEnabled = false; // forced off by a prior 'off' write
+    lever.DepthPrepassAuto = true;     // settings say it should be on
+
+    const auto result = RS::Apply(RS::Setting::DepthPrepass, RS::kDepthPrepassAuto, pp, rs, lever);
+    ASSERT_TRUE(result.Ok);
+    EXPECT_TRUE(lever.DepthPrepassEnabled);
+    EXPECT_EQ(result.Data["previousValue"], "off");
+    EXPECT_EQ(result.Data["value"], "on"); // the resolved state, not "auto"
+    EXPECT_EQ(result.Data["requested"], "auto");
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+}
+
+// 'auto' that resolves to the current state is honestly reported unchanged.
+TEST(McpRendererSettingsApply, DepthPrepassAutoNoOpWhenAlreadyDerived)
+{
+    PostProcessSettings pp;
+    RendererSettings rs;
+    RS::LeverState lever;
+    lever.DepthPrepassEnabled = true;
+    lever.DepthPrepassAuto = true;
+
+    const auto result = RS::Apply(RS::Setting::DepthPrepass, RS::kDepthPrepassAuto, pp, rs, lever);
+    ASSERT_TRUE(result.Ok);
+    EXPECT_FALSE(result.Data["changed"].get<bool>());
+    EXPECT_EQ(result.Data["requested"], "auto");
+}
+
+TEST(McpRendererSettingsApply, SoftShadowsPcfDisablesPcssAndReportsPrior)
+{
+    PostProcessSettings pp;
+    RendererSettings rs;
+    RS::LeverState lever;
+    lever.SoftShadows = true; // engine default: PCSS on
+
+    const auto result = RS::Apply(RS::Setting::SoftShadows, RS::kSoftShadowsPcf, pp, rs, lever);
+    ASSERT_TRUE(result.Ok);
+    EXPECT_FALSE(lever.SoftShadows);
+    EXPECT_EQ(result.Data["previousValue"], "pcss");
+    EXPECT_EQ(result.Data["value"], "pcf");
+    EXPECT_EQ(result.Data["restoreWith"], "pcss");
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+
+    // Restore by setting the reported prior value back.
+    const auto restored = RS::Apply(RS::Setting::SoftShadows, RS::kSoftShadowsPcss, pp, rs, lever);
+    ASSERT_TRUE(restored.Ok);
+    EXPECT_TRUE(lever.SoftShadows);
+}
+
+// Describe reads the lever state for the two new settings — 'auto' is
+// write-only, so the current value is always off/on.
+TEST(McpRendererSettingsApply, DescribeReportsLeverCurrentValues)
+{
+    PostProcessSettings pp;
+    RendererSettings rs;
+    RS::LeverState lever;
+    lever.DepthPrepassEnabled = true;
+    lever.SoftShadows = false;
+
+    const Json described = RS::Describe(pp, rs, lever);
+    bool sawPrepass = false;
+    bool sawShadows = false;
+    for (const auto& entry : described["settings"])
+    {
+        if (entry["setting"] == "depthprepass")
+        {
+            sawPrepass = true;
+            EXPECT_EQ(entry["currentValue"], "on");
+        }
+        if (entry["setting"] == "softshadows")
+        {
+            sawShadows = true;
+            EXPECT_EQ(entry["currentValue"], "pcf");
+        }
+    }
+    EXPECT_TRUE(sawPrepass);
+    EXPECT_TRUE(sawShadows);
 }
 
 // ---- the shared arg parser + token resolution ------------------------------

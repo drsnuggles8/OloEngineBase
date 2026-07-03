@@ -228,6 +228,19 @@ namespace OloEngine
         return s_Data.DepthPrepassEnabled;
     }
 
+    bool Renderer3D::ComputeSettingsDerivedDepthPrepass()
+    {
+        // Forward+ compute culling requires the depth pre-pass.
+        // Include the Auto case: when Forward+ can dynamically activate,
+        // the depth buffer must already be available for the culling dispatch.
+        // Deferred likewise needs the depth buffer before the lighting pass —
+        // the G-Buffer depth attachment is populated by the scene pass MRT
+        // writes, and the depth-prepass additionally supports Forward+ tile
+        // culling reused by DeferredLightingPass.
+        const auto& settings = s_Data.Settings;
+        return settings.DepthPrepassEnabled || (settings.Path == RenderingPath::ForwardPlus) || (settings.Path == RenderingPath::Deferred) || (settings.Path == RenderingPath::Forward && settings.ForwardPlusAutoSwitch);
+    }
+
     void Renderer3D::EnableOcclusionCulling(bool enable)
     {
         OLO_PROFILE_FUNCTION();
@@ -359,15 +372,10 @@ namespace OloEngine
                 break;
         }
 
-        // Forward+ compute culling requires the depth pre-pass.
-        // Include the Auto case: when Forward+ can dynamically activate,
-        // the depth buffer must already be available for the culling dispatch.
-        // Deferred likewise needs the depth buffer before the lighting pass —
-        // the G-Buffer depth attachment is populated by the scene pass MRT
-        // writes, and the depth-prepass additionally supports Forward+ tile
-        // culling reused by DeferredLightingPass.
-        const bool effectiveDepthPrepass = settings.DepthPrepassEnabled || (settings.Path == RenderingPath::ForwardPlus) || (settings.Path == RenderingPath::Deferred) || (settings.Path == RenderingPath::Forward && settings.ForwardPlusAutoSwitch);
-        EnableDepthPrepass(effectiveDepthPrepass);
+        // Depth prepass: settings-derived (see ComputeSettingsDerivedDepthPrepass
+        // for why Forward+/Deferred force it on). Shared with the MCP
+        // depthprepass lever's 'auto' token, so the two can't drift.
+        EnableDepthPrepass(ComputeSettingsDerivedDepthPrepass());
 
         fplus.SetTileSize(settings.ForwardPlusTileSize);
         fplus.SetDebugVisualization(settings.ForwardPlusDebugHeatmap);

@@ -481,6 +481,17 @@ namespace OloEngine::MCP
                 o["commandPackets"] = f.m_CommandPackets;
                 o["sortingMs"] = Round2(f.m_SortingTime);
                 o["cullingMs"] = Round2(f.m_CullingTime);
+                // The ACTUAL scene render resolution (SceneColor target size), so a
+                // reading taken at the wrong resolution is self-evident — e.g. the
+                // render graph silently left at window size while a viewport
+                // override claims 1920x1080 (#316), or FSR rendering below display
+                // res. Omitted when no render graph is live (2D mode / no frame).
+                if (const Ref<Framebuffer> sceneFB = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor))
+                {
+                    const auto& spec = sceneFB->GetSpecification();
+                    o["renderWidth"] = spec.Width;
+                    o["renderHeight"] = spec.Height;
+                }
                 return o; });
             return ToolResult::Structured(j);
         }
@@ -3546,29 +3557,53 @@ namespace OloEngine::MCP
             if (const auto error = ParseArgs(args, introspect, setting, value))
                 return ToolResult::Error(*error);
 
+            // Snapshot the live renderer toggles the perf-lever settings read/write
+            // (#316). Main-thread only — always called inside a MarshalRead.
+            const auto snapshotLever = []() -> LeverState
+            {
+                LeverState lever;
+                lever.DepthPrepassEnabled = Renderer3D::IsDepthPrepassEnabled();
+                lever.DepthPrepassAuto = Renderer3D::ComputeSettingsDerivedDepthPrepass();
+                lever.SoftShadows = Renderer3D::GetShadowMap().GetSettings().SoftShadows;
+                return lever;
+            };
+
             // Introspection: no `setting` -> list every setting with its live current
             // value and the allowed-value catalogue.
             if (introspect)
             {
-                const Json result = server.MarshalRead([]() -> Json
-                                                       { return Describe(Renderer3D::GetPostProcessSettings(), Renderer3D::GetRendererSettings()); });
+                const Json result = server.MarshalRead([&snapshotLever]() -> Json
+                                                       { return Describe(Renderer3D::GetPostProcessSettings(), Renderer3D::GetRendererSettings(), snapshotLever()); });
                 return ToolResult::Text(result.dump(2));
             }
 
-            const Json result = server.MarshalRead([setting, value]() -> Json
+            const Json result = server.MarshalRead([setting, value, &snapshotLever]() -> Json
                                                    {
                 PostProcessSettings& pp = Renderer3D::GetPostProcessSettings();
                 // Fully qualified: `using namespace RendererSettings` is in scope, so
                 // unqualified `RendererSettings` would name that MCP namespace, not the
                 // engine struct.
                 ::OloEngine::RendererSettings& rs = Renderer3D::GetRendererSettings();
-                const ApplyResult applied = Apply(setting, value, pp, rs);
+                LeverState lever = snapshotLever();
+                const ApplyResult applied = Apply(setting, value, pp, rs, lever);
                 if (!applied.Ok)
                     return Json{ { "__error", applied.Error } };
                 // A render-path switch changes the registered pass list, so the
                 // render-graph topology must be rebuilt for the new value to render.
                 if (applied.PathChanged)
                     Renderer3D::ApplyRendererSettings();
+                // Push mutated lever fields back to the renderer — Apply only wrote
+                // the POD snapshot (the header stays renderer-free).
+                if (setting == Setting::DepthPrepass)
+                {
+                    Renderer3D::EnableDepthPrepass(lever.DepthPrepassEnabled);
+                }
+                else if (setting == Setting::SoftShadows)
+                {
+                    ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
+                    shadow.SoftShadows = lever.SoftShadows;
+                    Renderer3D::GetShadowMap().SetSettings(shadow);
+                }
                 return applied.Data; });
 
             if (result.is_object() && result.contains("__error"))
@@ -4046,8 +4081,10 @@ namespace OloEngine::MCP
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Current-frame renderer performance: fps, frame/CPU/GPU time (ms), draw calls, instanced "
-                "draw calls, triangles, state/shader/texture binds. Server-computed snapshot from the live "
-                "profiler. Map a low fps back to draw calls / lack of instancing.";
+                "draw calls, triangles, state/shader/texture binds, and the ACTUAL scene render resolution "
+                "(renderWidth/renderHeight — cross-check it against any olo_viewport_set_size override "
+                "before trusting timings). Server-computed snapshot from the live profiler. Map a low fps "
+                "back to draw calls / lack of instancing.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema = Schema::Object()
                                     .Prop("fps", Schema::Number())
@@ -4067,6 +4104,8 @@ namespace OloEngine::MCP
                                     .Prop("sortingMs", Schema::Number())
                                     .Prop("cullingMs", Schema::Number())
                                     .Prop("gpuWaitMs", Schema::Number().Desc("CPU ms spent blocked on the GPU frame fence — high values mean GPU-bound."))
+                                    .Prop("renderWidth", Schema::Int().Min(0).Desc("Actual SceneColor render-target width in pixels. Compare against your viewport override to detect a stale/incorrect render size. Omitted when no render graph is live."))
+                                    .Prop("renderHeight", Schema::Int().Min(0).Desc("Actual SceneColor render-target height in pixels."))
                                     .Required({ "fps", "frameTimeMs", "cpuMs", "gpuMs", "drawCalls", "triangles" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfSnapshot;
@@ -4134,9 +4173,11 @@ namespace OloEngine::MCP
             tool.Description =
                 "Whole-frame GPU time split by render-graph pass (Shadow vs Scene vs GTAO vs Bloom vs "
                 "ToneMap...). Each pass carries its GPU time (always-on timestamp queries, resolved a few "
-                "frames after issue) and its CPU dispatch time from the live graph. Frame totals include "
-                "gpuWaitMs (CPU blocked on the GPU fence — the direct GPU-bound signal); unattributedGpuMs "
-                "is frame GPU time spent between/outside the timed passes.";
+                "frames after issue) and its CPU dispatch time from the live graph. ScenePass "
+                "additionally reports subPasses splitting its GPU time into DepthPrepass vs Color (no "
+                "DepthPrepass sub-entry = depth prepass off; sub-pass times are inside the parent's gpuMs, "
+                "not additional). Frame totals include gpuWaitMs (CPU blocked on the GPU fence — the direct "
+                "GPU-bound signal); unattributedGpuMs is frame GPU time spent between/outside the timed passes.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema = Schema::Object()
                                     .Prop("frame", Schema::Object()
@@ -4147,7 +4188,11 @@ namespace OloEngine::MCP
                                     .Prop("passes", Schema::Array(Schema::Object()
                                                                       .Prop("pass", Schema::String())
                                                                       .Prop("gpuMs", Schema::Number())
-                                                                      .Prop("cpuMs", Schema::Number())))
+                                                                      .Prop("cpuMs", Schema::Number())
+                                                                      .Prop("subPasses", Schema::Array(Schema::Object()
+                                                                                                           .Prop("name", Schema::String())
+                                                                                                           .Prop("gpuMs", Schema::Number()))
+                                                                                             .Desc("GPU sub-pass brackets stamped inside this pass (e.g. ScenePass DepthPrepass/Color). Contained in the parent's gpuMs; absent when the pass has no sub-brackets."))))
                                     .Prop("passGpuTotalMs", Schema::Number())
                                     .Prop("unattributedGpuMs", Schema::Number())
                                     .Prop("gpuResultsAgeFrames", Schema::Int().Min(0).Desc("How many frames old the GPU numbers are (results resolve 1-3 frames after issue)."))
@@ -5062,11 +5107,15 @@ namespace OloEngine::MCP
                 "the enum-valued sibling of the on/off olo_render_toggle_pass. Settings: 'upscale' (FSR1 spatial-upscale "
                 "mode: off|quality|balanced|performance|ultraperformance — the #480 case), 'tonemap' (none|reinhard|aces|"
                 "uncharted2), 'renderpath' (forward|forwardplus|deferred; switching rebuilds the render graph, and "
-                "Deferred is required for SSR/SSGI). Call with NO arguments to list every setting with its current value "
-                "and allowed values. The change is session-global and ephemeral (a scene reload restores it); the "
-                "response reports 'previousValue' so you can restore by calling again with that token — this is "
-                "restore-prior-value, NOT an undo-stack entry (unlike olo_entity_set_field). This is a WRITE tool: it is "
-                "refused unless 'Allow writes' is enabled in the editor's MCP Server panel (off by default).";
+                "Deferred is required for SSR/SSGI), plus the two big perf levers (#316): 'depthprepass' (off|on|auto — "
+                "forces the live depth-prepass state; 'auto' restores the settings-derived value; Forward+/Deferred "
+                "derive it on for tile culling) and 'softshadows' (pcf|pcss — PCSS is the dominant ScenePass cost in "
+                "shadowed scenes; A/B it in one call instead of editing shader source). Call with NO arguments to list "
+                "every setting with its current value and allowed values. The change is session-global and ephemeral (a "
+                "scene reload restores it); the response reports 'previousValue' so you can restore by calling again "
+                "with that token — this is restore-prior-value, NOT an undo-stack entry (unlike olo_entity_set_field). "
+                "This is a WRITE tool: it is refused unless 'Allow writes' is enabled in the editor's MCP Server panel "
+                "(off by default).";
             tool.InputSchema = RendererSettings::InputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_RendererSettingsSet;
