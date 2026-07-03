@@ -475,7 +475,7 @@ namespace OloEngine::Tests
         // resolution — a separate, pre-existing issue (reproduces even at
         // Upscale == Off, so it predates and is unrelated to this fix) that
         // makes GTAO-lit scenes render too dark to use as a brightness oracle.
-        // Worth its own issue; out of scope here. The switch-safety contract
+        // Tracked as #533; out of scope here. The switch-safety contract
         // this test exists for is the GL-error scan above and the "upscaled
         // isn't darker than native" check below, which both hold regardless.
         const f64 nativeMean = MeanLuma(nativePixels);
