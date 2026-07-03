@@ -1965,7 +1965,7 @@ namespace OloEngine
         dispatcher.Dispatch<WindowCloseEvent>(OLO_BIND_EVENT_FN(EditorLayer::OnWindowClose));
     }
 
-    bool EditorLayer::OnWindowResized([[maybe_unused]] WindowResizeEvent const& e)
+    bool EditorLayer::OnWindowResized(WindowResizeEvent const& e)
     {
         // Application::OnWindowResize already ran (it dispatches before the layer
         // stack) and resized the Renderer3D render graph to the OS window's
@@ -1973,8 +1973,12 @@ namespace OloEngine
         // panel (or the MCP olo_viewport_set_size override), not the window, so
         // mark the viewport-derived size for one reassert on the next OnUpdate —
         // the resize guard there won't fire on its own when the viewport size is
-        // unchanged (see m_ViewportSizeReassertNeeded).
-        m_ViewportSizeReassertNeeded = true;
+        // unchanged (see m_ViewportSizeReassertNeeded). Ignore minimize-sized
+        // events (width/height == 0) since there's no real render-graph work.
+        if (e.GetWidth() > 0 && e.GetHeight() > 0)
+        {
+            m_ViewportSizeReassertNeeded = true;
+        }
         return false; // other layers may care about the resize too
     }
 
