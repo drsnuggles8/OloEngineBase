@@ -149,3 +149,77 @@ TEST(McpPassTimingsTest, RoundsToThreeDecimals)
     EXPECT_DOUBLE_EQ(Round3(0.0005001), 0.001);
     EXPECT_DOUBLE_EQ(Round3(1.23456), 1.235);
 }
+
+// ---- sub-pass grouping ("Parent/Sub" GPU entries, #316) ---------------------
+
+// A "Parent/Sub" GPU entry attaches to its parent's subPasses instead of the
+// top-level list, and does NOT count toward passGpuTotalMs (its time is inside
+// the parent's bracket).
+TEST(McpPassTimingsTest, GroupsSubPassEntriesUnderParent)
+{
+    const std::vector<GpuPassEntry> gpu = {
+        { "ShadowPass", 1.0 },
+        { "ScenePass", 46.6 },
+        { "ScenePass/DepthPrepass", 21.9 },
+        { "ScenePass/Color", 24.2 },
+        { "GTAOPass", 0.7 },
+    };
+    const std::vector<CpuPassEntry> cpu = { { "ScenePass", 2.0 } };
+
+    const Json o = BuildPassTimings(gpu, cpu, MakeTotals());
+
+    // Sub entries are folded into the parent: 3 top-level passes remain.
+    ASSERT_EQ(o["passes"].size(), 3u);
+    const Json& scene = o["passes"][1];
+    EXPECT_EQ(scene["pass"], "ScenePass");
+    EXPECT_DOUBLE_EQ(scene["cpuMs"].get<double>(), 2.0);
+
+    ASSERT_TRUE(scene.contains("subPasses"));
+    ASSERT_EQ(scene["subPasses"].size(), 2u);
+    EXPECT_EQ(scene["subPasses"][0]["name"], "DepthPrepass");
+    EXPECT_DOUBLE_EQ(scene["subPasses"][0]["gpuMs"].get<double>(), 21.9);
+    EXPECT_EQ(scene["subPasses"][1]["name"], "Color");
+    EXPECT_DOUBLE_EQ(scene["subPasses"][1]["gpuMs"].get<double>(), 24.2);
+
+    // Passes without sub brackets carry no subPasses key at all.
+    EXPECT_FALSE(o["passes"][0].contains("subPasses"));
+
+    // Total counts each top-level pass once — sub times are already inside.
+    EXPECT_NEAR(o["passGpuTotalMs"].get<double>(), 1.0 + 46.6 + 0.7, 1e-9);
+}
+
+// An orphan sub entry (parent not GPU-timed this frame — pool overflow) stays
+// a top-level entry under its full name and counts toward the total, rather
+// than being dropped silently.
+TEST(McpPassTimingsTest, OrphanSubPassEntryStaysTopLevel)
+{
+    const std::vector<GpuPassEntry> gpu = {
+        { "ScenePass/Color", 24.2 },
+    };
+
+    const Json o = BuildPassTimings(gpu, {}, MakeTotals());
+
+    ASSERT_EQ(o["passes"].size(), 1u);
+    EXPECT_EQ(o["passes"][0]["pass"], "ScenePass/Color");
+    EXPECT_DOUBLE_EQ(o["passes"][0]["gpuMs"].get<double>(), 24.2);
+    EXPECT_NEAR(o["passGpuTotalMs"].get<double>(), 24.2, 1e-9);
+}
+
+// With duplicate parent names (a pass that runs twice), a sub entry attaches to
+// the MOST RECENT parent — the pool allocates parent-before-sub in execution
+// order, so the nearest preceding entry is the owning bracket.
+TEST(McpPassTimingsTest, SubPassAttachesToMostRecentParent)
+{
+    const std::vector<GpuPassEntry> gpu = {
+        { "BlurPass", 1.0 },
+        { "BlurPass", 2.0 },
+        { "BlurPass/Horizontal", 0.9 },
+    };
+
+    const Json o = BuildPassTimings(gpu, {}, MakeTotals());
+
+    ASSERT_EQ(o["passes"].size(), 2u);
+    EXPECT_FALSE(o["passes"][0].contains("subPasses"));
+    ASSERT_TRUE(o["passes"][1].contains("subPasses"));
+    EXPECT_EQ(o["passes"][1]["subPasses"][0]["name"], "Horizontal");
+}

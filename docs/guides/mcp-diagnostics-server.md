@@ -166,11 +166,11 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_scene_summary` | active scene name, play state, entity count |
 | `olo_scene_list_entities` | paginated entity list (id, name, parent, child count) + name filter |
 | `olo_scene_get_entity` | one entity's full component data (YAML) by UUID |
-| `olo_perf_snapshot` | fps, frame/CPU/GPU time (real whole-frame GPU timer), `gpuWaitMs` (CPU blocked on the GPU fence — the direct GPU-bound signal), draw calls, instancing, triangles |
+| `olo_perf_snapshot` | fps, frame/CPU/GPU time (real whole-frame GPU timer), `gpuWaitMs` (CPU blocked on the GPU fence — the direct GPU-bound signal), draw calls, instancing, triangles, plus `renderWidth`/`renderHeight` — the ACTUAL SceneColor render resolution; cross-check it against any `olo_viewport_set_size` override before trusting timings |
 | `olo_perf_bottlenecks` | CPU/GPU/Memory/IO bottleneck + confidence + recommendations (uses real cpu/gpu/gpuWait numbers) |
 | `olo_perf_frame_history` | downsampled recent-frame time series |
 | `olo_perf_capture_frame` | triggers a real frame capture: stats + top-K draw commands by GPU time (per-draw times resolve via a deferred commit one-plus frames after the capture; draws carry their submesh debug names) |
-| `olo_perf_pass_timings` | whole-frame GPU time split by render-graph pass (Shadow vs Scene vs GTAO vs Bloom vs ToneMap…): per-pass GPU (always-on timestamp queries) + CPU dispatch ms, frame totals incl. `gpuWaitMs`, and `unattributedGpuMs` |
+| `olo_perf_pass_timings` | whole-frame GPU time split by render-graph pass (Shadow vs Scene vs GTAO vs Bloom vs ToneMap…): per-pass GPU (always-on timestamp queries) + CPU dispatch ms, frame totals incl. `gpuWaitMs`, and `unattributedGpuMs`. `ScenePass` carries `subPasses` splitting its GPU time into `DepthPrepass` vs `Color` (no DepthPrepass entry = prepass off; sub times are inside the parent's `gpuMs`, not additional) |
 | `olo_render_frame_breakdown` | triggers a real frame capture and returns its **per-command / per-pipeline-stage** structural breakdown (the granularity `olo_perf_capture_frame` omits): pipeline stats + the ordered command list (type, debug-name pass label, draw key shader/material/depth, group, execution order, static flag, GPU time) + a command-type histogram, at the chosen `viewMode` (`presort`/`postsort`/`postbatch`); `format:"markdown"` returns the Command Bucket Inspector's LLM-analysis report (sort/state-change/batching analysis + optimization hints) |
 | `olo_memory_report` | GPU/CPU memory total + per-type breakdown + suspected leaks |
 | `olo_shader_list` | inventory of all registered shaders (id, name, hasErrors) |
@@ -188,13 +188,13 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_camera_set_pose` | move the editor camera: `position` + (`target` \| `yaw`/`pitch`), optional `fov` |
 | `olo_camera_orbit` | orbit-frame the camera around a world point: `target`, `yaw`, `pitch`, `distance` |
 | `olo_camera_frame_entity` | point the camera at an entity (by UUID) and fit it in view |
-| `olo_viewport_set_size` | override the viewport's logical render size for deterministic captures (`reset` to clear) |
+| `olo_viewport_set_size` | override the viewport's logical render size for deterministic captures (`reset` to clear). The override wins over window/panel resizes (the editor reasserts it after any OS window-resize event); verify with `olo_perf_snapshot`'s `renderWidth`/`renderHeight` before perf measurements |
 | `olo_render_list_targets` | the render graph's live texture/framebuffer resources (name, kind, format, size, producers) |
 | `olo_render_capture_target` | read back one intermediate render target (depth, normals, G-buffer, shadow map, AO, post-process stages, …) as a PNG image block; depth is min-max normalised by default |
 | `olo_render_compare_golden` | capture the viewport (optional `camera`/`orbit` pose) and diff it against a golden PNG (`goldenPath`): returns a numeric `similarity`/`rmse`/`ssim` + `pass` verdict; missing golden or `rebase`:true writes the capture as the new baseline (the `OLOENGINE_GOLDEN_REBASE` workflow) |
 | `olo_render_toggle_pass` | flip a post-process / fog feature on/off (`name` + optional `enabled`) — the ephemeral A/B loop: toggle off → `olo_screenshot` → toggle on → `olo_screenshot`. No `name` lists every pass + its live state |
 | `olo_render_set_debug_view` | switch the viewport to a raw AO/SSR/SSGI buffer (`mode`: none/ssao/gtao/ssr/ssgi); reports whether the backing pass is actually running. No `mode` lists the modes + current state |
-| `olo_renderer_settings_set` | **(consented write)** set a multi-valued, session-global renderer / post-process setting — `upscale` (FSR1 spatial-upscale mode), `tonemap` (operator), `renderpath` (forward/forward+/deferred) — to verify a rendering feature live at each value. The enum-valued sibling of `olo_render_toggle_pass`; reports `previousValue` for restore-prior-value (no undo stack). No args lists every setting + current value + allowed values. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
+| `olo_renderer_settings_set` | **(consented write)** set a multi-valued, session-global renderer / post-process setting — `upscale` (FSR1 spatial-upscale mode), `tonemap` (operator), `renderpath` (forward/forward+/deferred), `depthprepass` (off/on/auto — the #316 perf lever), `softshadows` (pcf/pcss — THE ScenePass shadow-cost lever) — to verify a rendering feature live at each value. The enum-valued sibling of `olo_render_toggle_pass`; reports `previousValue` for restore-prior-value (no undo stack). No args lists every setting + current value + allowed values. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
 | `olo_scene_set_time_of_day` | move the procedural sky's sun to a 24-hour clock time (`hours` 0–24) for lighting iteration — ephemeral session override of the sun direction, never written to the scene. `clear`:true restores the authored sun; no args reports the current override |
 | `olo_scene_set_sun_angle` | aim the procedural sky's sun directly from a `yaw` (azimuth) / `pitch` (elevation) pair — the precise sibling of `olo_scene_set_time_of_day`, same ephemeral session override. `clear`:true restores; no args reports state |
 | `olo_render_why_not_visible` | explain why one entity (`entity`) is NOT on screen — the "why can't I see my mesh?" debugger: root-cause `reasonCode`, summary, ordered checks, and the raw render facts |
@@ -510,6 +510,18 @@ The settings:
 - **`renderpath`** — rendering path: `forward` | `forwardplus` | `deferred`.
   Switching **rebuilds the render-graph topology**, and `deferred` is required for
   SSR / SSGI.
+- **`depthprepass`** — the depth-prepass perf lever (#316): `off` | `on` | `auto`.
+  `on`/`off` force the **live** Renderer3D toggle for this session; `auto` restores
+  the settings-derived value (the response then carries `"requested": "auto"` plus
+  the resolved `off`/`on` it landed on). Forward+/Deferred derive it **on** because
+  their tile culling reads the prepass depth — forcing `off` there is a legitimate
+  perf experiment but degrades tiled lighting until restored. Note a later settings
+  apply (e.g. a `renderpath` switch) re-derives it.
+- **`softshadows`** — directional-shadow filtering (#316): `pcf` | `pcss`. PCSS
+  (contact-hardening penumbra) is **the** dominant ScenePass cost in shadowed scenes
+  — the second live perf session measured it at ~93 % of a 46.6 ms ScenePass at
+  1080p Sponza. This lever turns that A/B into one call instead of a shader-source
+  edit + `olo_shader_reload`.
 
 **Restore is restore-PRIOR-VALUE, not CommandHistory.** Unlike the entity field
 writes (`olo_set_collision_layer` / `olo_entity_set_field`), which push an undoable

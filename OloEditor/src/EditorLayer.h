@@ -70,6 +70,7 @@ namespace OloEngine
       private:
         bool OnKeyPressed(KeyPressedEvent const& e);
         bool OnMouseButtonPressed(MouseButtonPressedEvent const& e);
+        bool OnWindowResized(WindowResizeEvent const& e);
         bool OnAssetLoaded(AssetLoadedEvent const& e);
         bool OnAssetReloaded(AssetReloadedEvent const& e);
         bool OnAssetImported(AssetImportedEvent const& e);
@@ -303,6 +304,16 @@ namespace OloEngine
         // resized render-graph framebuffers render black for a couple of
         // frames, so captures must not trust the first frames after a resize.
         u64 m_LastViewportResizeFrame = 0;
+        // Set by OnWindowResized: Application::OnWindowResize (which runs before
+        // layers see the event) resizes the Renderer3D render graph to the OS
+        // window's framebuffer size, but in the editor the graph must track the
+        // viewport panel / MCP override size. When the viewport-derived size
+        // didn't change (typical with an olo_viewport_set_size override active),
+        // the OnUpdate resize guard wouldn't fire and the graph would silently
+        // keep rendering at window resolution — e.g. maximizing on a 4K monitor
+        // inflated a "1920x1080" override's frame times ~6x (#316). This flag
+        // forces one reassert of the viewport-derived size on the next update.
+        bool m_ViewportSizeReassertNeeded = false;
 
         // Undo/Redo
         CommandHistory m_CommandHistory;

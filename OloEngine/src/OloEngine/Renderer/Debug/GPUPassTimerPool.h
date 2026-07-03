@@ -43,12 +43,23 @@ namespace OloEngine
         /// @brief Stamp the frame-end timestamp and mark the slot for readback.
         void EndFrame();
 
-        /// @brief Stamp the begin timestamp for the named pass. Passes must not
-        /// overlap; a Begin without a matching End is dropped.
+        /// @brief Stamp the begin timestamp for the named pass. Top-level passes
+        /// must not overlap; a Begin without a matching End is closed at EndFrame.
         void BeginPass(const std::string& name);
 
         /// @brief Stamp the end timestamp for the pass opened by BeginPass.
         void EndPass();
+
+        /// @brief Stamp the begin timestamp for a sub-pass INSIDE the currently
+        /// open pass (e.g. the ScenePass depth-prepass vs color split, #316).
+        /// The sub-pass is published as "<ParentName>/<name>"; timestamps are
+        /// scope-free so the pair coexists with (and overlaps) the parent's
+        /// bracket. One level only: a sub-pass inside a sub-pass is dropped, as
+        /// is a sub-pass with no pass open.
+        void BeginSubPass(const std::string& name);
+
+        /// @brief Stamp the end timestamp for the sub-pass opened by BeginSubPass.
+        void EndSubPass();
 
         [[nodiscard]] bool IsInitialized() const
         {
@@ -97,7 +108,11 @@ namespace OloEngine
         struct FrameSlot
         {
             // [0] = frame begin, [1] = frame end, then per-pass begin/end pairs
-            // at [2 + 2*i] / [3 + 2*i].
+            // at [2 + 2*i] / [3 + 2*i]. Pass and sub-pass brackets share the
+            // pair array: each Begin{Sub,}Pass allocates the next pair, so a
+            // sub-pass pair sits between its parent's begin and end stamps
+            // (parent-first allocation order is what the MCP shaping relies on
+            // to attach "Parent/Sub" entries to their parent).
             std::vector<u32> Queries;
             std::vector<std::string> PassNames;
             u32 PassCount = 0;
@@ -116,8 +131,11 @@ namespace OloEngine
         u32 m_MaxPasses = 0;
         u64 m_FrameCounter = 0;
         bool m_Initialized = false;
-        bool m_Active = false;   // between BeginFrame/EndFrame
-        bool m_PassOpen = false; // between BeginPass/EndPass
+        bool m_Active = false;      // between BeginFrame/EndFrame
+        bool m_PassOpen = false;    // between BeginPass/EndPass
+        bool m_SubPassOpen = false; // between BeginSubPass/EndSubPass
+        u32 m_CurrentPassIndex = 0; // pair index of the open pass
+        u32 m_CurrentSubPassIndex = 0;
 
         // Published results (most recently resolved frame).
         std::vector<PassTiming> m_LastPassTimings;

@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionCuller.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
@@ -238,12 +239,22 @@ namespace OloEngine
         // with GL_EQUAL and no depth writes for the color pass. This eliminates
         // overdraw from fragment shading of occluded pixels.
         const bool depthPrepass = Renderer3D::IsDepthPrepassEnabled();
+        // Sub-pass GPU timestamp brackets (#316): split this pass's GPU time
+        // into DepthPrepass vs Color inside the render-graph executor's pass
+        // bracket. The pool prefixes the open pass's registered node name
+        // (RenderPipeline names this node "ScenePass"), so these publish as
+        // "ScenePass/DepthPrepass" and "ScenePass/Color"; surfaced as
+        // subPasses in olo_perf_pass_timings. Strictly additive around the
+        // existing Execute calls.
+        auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
         if (depthPrepass)
         {
             // Pass 1: depth only — CommandDispatch overrides per-command state
+            gpuSubTimers.BeginSubPass("DepthPrepass");
             CommandDispatch::SetDepthPrepassActive(true);
             m_CommandBucket.Execute(rendererAPI);
             CommandDispatch::SetDepthPrepassActive(false);
+            gpuSubTimers.EndSubPass();
         }
 
         // Flush deferred occlusion query proxy draws. When a depth prepass ran,
@@ -285,10 +296,15 @@ namespace OloEngine
             rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         }
 
+        // "Color" is emitted even without a depth prepass, so a missing
+        // DepthPrepass sub-entry in olo_perf_pass_timings reads as "prepass
+        // off" rather than "sub-pass timing broken".
+        gpuSubTimers.BeginSubPass("Color");
         if (capturing)
             m_CommandBucket.ExecuteWithGPUTiming(rendererAPI);
         else
             m_CommandBucket.Execute(rendererAPI);
+        gpuSubTimers.EndSubPass();
 
         // Restore depth state after prepass
         if (depthPrepass)
