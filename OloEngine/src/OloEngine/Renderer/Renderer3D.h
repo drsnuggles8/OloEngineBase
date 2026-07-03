@@ -40,6 +40,7 @@ namespace OloEngine
     class VertexArray;
     class Framebuffer;
     class GPUDrivenOcclusionPass;
+    class DeferredGPUOcclusionPass;
     class RenderCommand;
     class UniformBuffer;
     class CommandBucket;
@@ -1312,7 +1313,11 @@ namespace OloEngine
                                             const GPUFrustumCuller::HZBOcclusionInputs& currentHZB);
 
       private:
-        static GPUDrivenOcclusionPass* GetGPUOcclusionPass();
+        [[nodiscard]] static GPUDrivenOcclusionPass* GetGPUOcclusionPass();
+        // Deferred two-phase occlusion (#486). Exposes the deferred phase-2 pass
+        // for submission-side routing; mirrors GetGPUOcclusionPass for the
+        // forward path.
+        [[nodiscard]] static DeferredGPUOcclusionPass* GetDeferredGPUOcclusionPass();
 
       private:
         struct Renderer3DData
