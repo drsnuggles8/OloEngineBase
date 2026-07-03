@@ -55,6 +55,18 @@ namespace OloEngine::RenderPipelineBuilderInternal
             graph.AddNode(PrepareGraphNode("PlanarReflectionPass", inputs.Passes->PlanarReflection));
         }
 
+        // DeferredGPUOcclusionPass (#486) draws the disoccluded instanced statics
+        // into the G-Buffer (phase 2 of the deferred two-phase occlusion cull)
+        // and re-exports the G-Buffer attachments. Register it BEFORE
+        // DeferredOpaqueDecalPass and AO so its G-Buffer writes are ordered ahead
+        // of the decal writes and the AO/lighting reads; the phase-2 HZB is built
+        // from ScenePass's depth (occluders + phase-1 survivors), so it must run
+        // after ScenePass. Self-disables in Forward / Forward+ (no G-Buffer).
+        if (inputs.Deferred && inputs.Passes->DeferredGPUOcclusion)
+        {
+            graph.AddNode(PrepareGraphNode("DeferredGPUOcclusionPass", inputs.Passes->DeferredGPUOcclusion));
+        }
+
         // DeferredOpaqueDecalPass writes G-Buffer attachments (incl. SceneNormals)
         // so it must finish before AO reads those normals. Register it BEFORE AO
         // so the AO pass's `builder.Read(SceneNormals)` resolves to the final

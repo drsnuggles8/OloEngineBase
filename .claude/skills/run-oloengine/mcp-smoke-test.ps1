@@ -153,7 +153,20 @@ Show-Tool 'olo_perf_snapshot' @{} | Out-Null
 Show-Tool 'olo_perf_bottlenecks' @{} | Out-Null
 Show-Tool 'olo_perf_frame_history' @{ points = 8 } | Out-Null
 Show-Tool 'olo_perf_capture_frame' @{ topK = 5 } | Out-Null
-Show-Tool 'olo_perf_pass_timings' @{} | Out-Null
+$passTimings = Show-Tool 'olo_perf_pass_timings' @{}
+# ScenePass sub-pass split (#316): ScenePass should carry subPasses
+# (DepthPrepass and/or Color) once GPU results have resolved. Soft check — the
+# first frames after attach may not have resolved timings yet.
+if ($passTimings.result -and -not $passTimings.result.isError) {
+    $ptObj = $passTimings.result.content[0].text | ConvertFrom-Json
+    $scenePass = $ptObj.passes | Where-Object { $_.pass -eq 'ScenePass' } | Select-Object -First 1
+    if ($scenePass -and $scenePass.subPasses) {
+        $subNames = ($scenePass.subPasses | ForEach-Object { "$($_.name)=$($_.gpuMs)ms" }) -join ', '
+        Write-Host "  ScenePass subPasses: $subNames" -ForegroundColor Green
+    } else {
+        Write-Host '  (no ScenePass subPasses yet — GPU timings unresolved or 2D mode)' -ForegroundColor Yellow
+    }
+}
 
 # 19-20. Shader tools (olo_shader_list discovers a real name for olo_shader_get)
 Show-Tool 'olo_shader_errors' @{} | Out-Null
@@ -193,9 +206,41 @@ if ($camObj.distance -gt 0) {
     Show-Tool 'olo_camera_set_pose' @{ position = @($camObj.position[0], $camObj.position[1], $camObj.position[2]); yaw = $camObj.yawDegrees; pitch = $camObj.pitchDegrees; fov = $camObj.fovDegrees } | Out-Null
 }
 
-# viewport override + reset
+# viewport override + reset. While the override is active, olo_perf_snapshot's
+# renderWidth/renderHeight must match it (#316: the render graph once silently
+# stayed at window size, inflating override readings ~6x on a 4K monitor).
 Show-Tool 'olo_viewport_set_size' @{ width = 1280; height = 720 } | Out-Null
+Start-Sleep -Milliseconds 250 # let a couple of frames apply the override
+$snapAtOverride = Show-Tool 'olo_perf_snapshot' @{}
+if ($snapAtOverride.result -and -not $snapAtOverride.result.isError) {
+    $snapObj = $snapAtOverride.result.content[0].text | ConvertFrom-Json
+    if ($snapObj.renderWidth) {
+        if ([int]$snapObj.renderWidth -eq 1280 -and [int]$snapObj.renderHeight -eq 720) {
+            Write-Host "  renderWidth/Height match the 1280x720 override" -ForegroundColor Green
+        } else {
+            # Note: the framebuffer is viewport x HiDPI scale, so e.g. 1920x1080 at
+            # 150% display scaling is expected — only a WILD mismatch (window-sized
+            # target while an override is active) indicates the #316 resize fight.
+            Write-Warning "renderWidth/Height ($($snapObj.renderWidth)x$($snapObj.renderHeight)) differ from the 1280x720 viewport override (HiDPI scale? resize fight?)"
+        }
+    } else {
+        Write-Host '  (no renderWidth in snapshot — render graph not live?)' -ForegroundColor Yellow
+    }
+}
 Show-Tool 'olo_viewport_set_size' @{ reset = $true } | Out-Null
+
+# olo_renderer_settings_set is a consented WRITE tool: with the editor's
+# "Allow writes" gate off (the default) the call must be REFUSED cleanly; with
+# it on, the no-arg form lists every setting (upscale/tonemap/renderpath +
+# the #316 perf levers depthprepass/softshadows). Either outcome is a pass here.
+$settingsList = Invoke-Rpc 'tools/call' @{ name = 'olo_renderer_settings_set'; arguments = @{} }
+if ($settingsList.error) {
+    Write-Host "tools/call olo_renderer_settings_set -> refused (writes gate off): $($settingsList.error.message)" -ForegroundColor Yellow
+} else {
+    $settingsObj = $settingsList.result.content[0].text | ConvertFrom-Json
+    $tokens = ($settingsObj.settings | ForEach-Object { "$($_.setting)=$($_.currentValue)" }) -join ', '
+    Write-Host "tools/call olo_renderer_settings_set (introspect) -> $tokens" -ForegroundColor Green
+}
 
 # 30. olo_screenshot with a one-shot camera pose (save/restore path).
 # Orbit the sandbox terrain's centre (terrain spans [0,256]^2) — orbiting the

@@ -1028,6 +1028,40 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, ClothComponent& c)
+    {
+        // All fields are authored data — the Jolt soft body and render mesh are runtime
+        // state kept in JoltScene / Scene (keyed by entity UUID), never serialized here.
+        ar << c.m_Columns << c.m_Rows;
+        ar << c.m_Width << c.m_Height << c.m_Mass;
+        ar << c.m_Compliance << c.m_BendCompliance << c.m_LinearDamping << c.m_Pressure;
+        ar << c.m_Iterations;
+        ar << c.m_Attachment;
+        ar << c.m_Enabled;
+
+        // Sanitize untrusted on-disk values (mirrors SceneSerializer / the clamps in
+        // JoltShapes::CreateClothSharedSettings) so a corrupt archive can't blow up the
+        // particle count or feed NaNs into Jolt.
+        if (ar.IsLoading())
+        {
+            c.m_Columns = std::clamp(c.m_Columns, 2u, 128u);
+            c.m_Rows = std::clamp(c.m_Rows, 2u, 128u);
+            c.m_Iterations = std::clamp(c.m_Iterations, 1u, 32u);
+            if (!std::isfinite(c.m_Width) || c.m_Width <= 0.0f)
+                c.m_Width = 2.0f;
+            if (!std::isfinite(c.m_Height) || c.m_Height <= 0.0f)
+                c.m_Height = 2.0f;
+            if (!std::isfinite(c.m_Mass) || c.m_Mass <= 0.0f)
+                c.m_Mass = 1.0f;
+            c.m_Compliance = std::isfinite(c.m_Compliance) ? std::max(0.0f, c.m_Compliance) : 0.0f;
+            c.m_BendCompliance = std::isfinite(c.m_BendCompliance) ? std::max(0.0f, c.m_BendCompliance) : 0.001f;
+            c.m_LinearDamping = std::isfinite(c.m_LinearDamping) ? std::max(0.0f, c.m_LinearDamping) : 0.1f;
+            c.m_Pressure = std::isfinite(c.m_Pressure) ? std::max(0.0f, c.m_Pressure) : 0.0f;
+            if (c.m_Attachment < ClothAttachment::None || c.m_Attachment > ClothAttachment::LeftEdge)
+                c.m_Attachment = ClothAttachment::TopEdge;
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, TextComponent& c)
     {
         ar << c.TextString << c.Color;
@@ -3373,6 +3407,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(PhysicsJoint3DComponent);
         REGISTER_SAVE_COMPONENT(VehicleComponent);
         REGISTER_SAVE_COMPONENT(RagdollComponent);
+        REGISTER_SAVE_COMPONENT(ClothComponent);
         REGISTER_SAVE_COMPONENT(TextComponent);
         REGISTER_SAVE_COMPONENT(ScriptComponent);
         REGISTER_SAVE_COMPONENT(AudioSourceComponent);

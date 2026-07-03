@@ -211,6 +211,7 @@ namespace OloEngine
             REGISTER_COMPONENT(PhysicsJoint3DComponent),
             REGISTER_COMPONENT(VehicleComponent),
             REGISTER_COMPONENT(RagdollComponent),
+            REGISTER_COMPONENT(ClothComponent),
             // UI
             REGISTER_COMPONENT(UICanvasComponent),
             REGISTER_COMPONENT(UIRectTransformComponent),
@@ -1377,6 +1378,49 @@ namespace OloEngine
                                            "twistLimitDeg", sol::property([](const RagdollComponent& r)
                                                                           { return r.m_TwistLimitDeg; }, [](RagdollComponent& r, f32 x)
                                                                           { if (std::isfinite(x)) r.m_TwistLimitDeg = std::clamp(x, 0.0f, 180.0f); }));
+
+        // --- ClothComponent (issue #460) ---
+        // Authored soft-body parameters. Setters guard finiteness / ranges (mirrors the
+        // clamps in JoltShapes::CreateClothSharedSettings) so a script can't feed Jolt a
+        // NaN. Changes take effect at the next OnPhysics3DStart (the soft body is rebuilt
+        // from these fields), matching how the other physics components behave.
+        lua.new_usertype<ClothComponent>("ClothComponent",
+                                         "enabled", sol::property([](const ClothComponent& c)
+                                                                  { return c.m_Enabled; }, [](ClothComponent& c, bool v)
+                                                                  { c.m_Enabled = v; }),
+                                         "columns", sol::property([](const ClothComponent& c)
+                                                                  { return c.m_Columns; }, [](ClothComponent& c, u32 v)
+                                                                  { c.m_Columns = std::clamp(v, 2u, 128u); }),
+                                         "rows", sol::property([](const ClothComponent& c)
+                                                               { return c.m_Rows; }, [](ClothComponent& c, u32 v)
+                                                               { c.m_Rows = std::clamp(v, 2u, 128u); }),
+                                         "width", sol::property([](const ClothComponent& c)
+                                                                { return c.m_Width; }, [](ClothComponent& c, f32 v)
+                                                                { if (std::isfinite(v) && v > 0.0f) c.m_Width = v; }),
+                                         "height", sol::property([](const ClothComponent& c)
+                                                                 { return c.m_Height; }, [](ClothComponent& c, f32 v)
+                                                                 { if (std::isfinite(v) && v > 0.0f) c.m_Height = v; }),
+                                         "mass", sol::property([](const ClothComponent& c)
+                                                               { return c.m_Mass; }, [](ClothComponent& c, f32 v)
+                                                               { if (std::isfinite(v) && v > 0.0f) c.m_Mass = v; }),
+                                         "compliance", sol::property([](const ClothComponent& c)
+                                                                     { return c.m_Compliance; }, [](ClothComponent& c, f32 v)
+                                                                     { if (std::isfinite(v) && v >= 0.0f) c.m_Compliance = v; }),
+                                         "bendCompliance", sol::property([](const ClothComponent& c)
+                                                                         { return c.m_BendCompliance; }, [](ClothComponent& c, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f) c.m_BendCompliance = v; }),
+                                         "linearDamping", sol::property([](const ClothComponent& c)
+                                                                        { return c.m_LinearDamping; }, [](ClothComponent& c, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) c.m_LinearDamping = v; }),
+                                         "pressure", sol::property([](const ClothComponent& c)
+                                                                   { return c.m_Pressure; }, [](ClothComponent& c, f32 v)
+                                                                   { if (std::isfinite(v) && v >= 0.0f) c.m_Pressure = v; }),
+                                         "iterations", sol::property([](const ClothComponent& c)
+                                                                     { return c.m_Iterations; }, [](ClothComponent& c, u32 v)
+                                                                     { c.m_Iterations = std::clamp(v, 1u, 32u); }),
+                                         "attachment", sol::property([](const ClothComponent& c)
+                                                                     { return static_cast<int>(std::to_underlying(c.m_Attachment)); }, [](ClothComponent& c, int v)
+                                                                     { if (v >= static_cast<int>(ClothAttachment::None) && v <= static_cast<int>(ClothAttachment::LeftEdge)) c.m_Attachment = static_cast<ClothAttachment>(v); }));
 
         // --- PrefabComponent ---
         // Read-only window into prefab-instance identity & override state.

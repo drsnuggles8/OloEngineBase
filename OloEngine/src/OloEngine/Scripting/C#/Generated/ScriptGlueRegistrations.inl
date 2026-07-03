@@ -134,6 +134,30 @@ OLO_ADD_INTERNAL_CALL(CircleRendererComponent_SetThickness);
 OLO_ADD_INTERNAL_CALL(CircleRendererComponent_GetFade);
 OLO_ADD_INTERNAL_CALL(CircleRendererComponent_SetFade);
 
+// ClothComponent
+OLO_ADD_INTERNAL_CALL(ClothComponent_GetColumns);
+OLO_ADD_INTERNAL_CALL(ClothComponent_SetColumns);
+OLO_ADD_INTERNAL_CALL(ClothComponent_GetRows);
+OLO_ADD_INTERNAL_CALL(ClothComponent_SetRows);
+OLO_ADD_INTERNAL_CALL(ClothComponent_GetWidth);
+OLO_ADD_INTERNAL_CALL(ClothComponent_SetWidth);
+OLO_ADD_INTERNAL_CALL(ClothComponent_GetHeight);
+OLO_ADD_INTERNAL_CALL(ClothComponent_SetHeight);
+OLO_ADD_INTERNAL_CALL(ClothComponent_GetMass);
+OLO_ADD_INTERNAL_CALL(ClothComponent_SetMass);
+OLO_ADD_INTERNAL_CALL(ClothComponent_GetCompliance);
+OLO_ADD_INTERNAL_CALL(ClothComponent_SetCompliance);
+OLO_ADD_INTERNAL_CALL(ClothComponent_GetBendCompliance);
+OLO_ADD_INTERNAL_CALL(ClothComponent_SetBendCompliance);
+OLO_ADD_INTERNAL_CALL(ClothComponent_GetLinearDamping);
+OLO_ADD_INTERNAL_CALL(ClothComponent_SetLinearDamping);
+OLO_ADD_INTERNAL_CALL(ClothComponent_GetPressure);
+OLO_ADD_INTERNAL_CALL(ClothComponent_SetPressure);
+OLO_ADD_INTERNAL_CALL(ClothComponent_GetIterations);
+OLO_ADD_INTERNAL_CALL(ClothComponent_SetIterations);
+OLO_ADD_INTERNAL_CALL(ClothComponent_GetEnabled);
+OLO_ADD_INTERNAL_CALL(ClothComponent_SetEnabled);
+
 // DirectionalLightComponent
 OLO_ADD_INTERNAL_CALL(DirectionalLightComponent_GetColor);
 OLO_ADD_INTERNAL_CALL(DirectionalLightComponent_SetColor);

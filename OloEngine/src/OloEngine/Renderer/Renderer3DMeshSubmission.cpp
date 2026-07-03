@@ -733,15 +733,15 @@ namespace OloEngine
             return packet;
         };
 
+        const bool hzbOcclusion = IsHZBOcclusionCullingEnabled();
+        const bool deferred = (GetRendererSettings().Path == RenderingPath::Deferred);
+
         // Two-phase GPU-driven occlusion (#431 Stage 2): Forward / Forward+ with
         // HZB occlusion on. Phase 1 culls against the previous frame's HZB and
         // appends occluded survivors to a reject list; both the phase-1 draw and
         // a phase-2 draw are routed to GPUDrivenOcclusionPass, which re-tests the
         // reject list against this frame's depth after the phase-1 draws.
-        if (GPUDrivenOcclusionPass* occlusionPass = (IsHZBOcclusionCullingEnabled() &&
-                                                     GetRendererSettings().Path != RenderingPath::Deferred)
-                                                        ? GetGPUOcclusionPass()
-                                                        : nullptr)
+        if (GPUDrivenOcclusionPass* occlusionPass = (hzbOcclusion && !deferred) ? GetGPUOcclusionPass() : nullptr)
         {
             auto twoPhase = s_Data.GPUFrustumCuller->CullTwoPhasePhase1(
                 packed, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion);
@@ -757,8 +757,31 @@ namespace OloEngine
             return nullptr; // both phases handled by the pass; caller's SubmitPacket is a no-op
         }
 
-        // Single-phase path: frustum-only (occlusion off) or Deferred single-phase
-        // occlusion — drawn through the normal ScenePass / G-Buffer bucket.
+        // Two-phase GPU-driven occlusion on the Deferred path (#486). Phase 1
+        // draws through the normal ScenePass G-Buffer bucket — the phase-1 packet
+        // is returned to the caller exactly like the single-phase deferred packet,
+        // so the disocclusion-corrected path preserves the current G-Buffer fill.
+        // The phase-1 cull already ran (against the previous frame's HZB) and
+        // appended occluded survivors to a reject list; the phase-2 packet is
+        // registered with DeferredGPUOcclusionPass, which rebuilds the HZB from
+        // this frame's G-Buffer depth (occluders + phase-1 survivors) and draws
+        // the disoccluded instances before AO / lighting.
+        if (DeferredGPUOcclusionPass* deferredOcclusionPass = (hzbOcclusion && deferred) ? GetDeferredGPUOcclusionPass() : nullptr)
+        {
+            auto twoPhase = s_Data.GPUFrustumCuller->CullTwoPhasePhase1(
+                packed, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion);
+
+            if (CommandPacket* phase2Packet = buildPacket(twoPhase.Phase2Output->GetStorage()->GetRendererID(),
+                                                          twoPhase.Phase2Indirect->GetRendererID()))
+                deferredOcclusionPass->SubmitPhase2(phase2Packet, twoPhase);
+
+            // Phase 1 → caller → ScenePass G-Buffer bucket.
+            return buildPacket(twoPhase.Phase1Output->GetStorage()->GetRendererID(),
+                               twoPhase.Phase1Indirect->GetRendererID());
+        }
+
+        // Single-phase path: frustum-only (occlusion off) — drawn through the
+        // normal ScenePass / G-Buffer bucket.
         auto cullResult = s_Data.GPUFrustumCuller->Cull(
             packed, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion);
         return buildPacket(cullResult.OutputBuffer->GetStorage()->GetRendererID(),

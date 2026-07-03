@@ -106,9 +106,50 @@
 // Jolt Physics
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/MotionType.h>
+#include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h> // cloth soft body (issue #460)
 
 namespace OloEngine
 {
+    // ── EnTT owning-group ownership map (issue #443) ──────────────────────────
+    // EnTT v4 rule (registry.hpp:1064 assertion "Conflicting groups"): a
+    // component may be *owned* by at most ONE owning group; a component owned by
+    // one group may still be *observed* (entt::get<>) by any number of others.
+    // The hottest per-frame multi-component loops below use owning / partial-
+    // owning groups so their owned pools iterate as a tight packed range. Keep
+    // this table current — creating a group that owns an already-owned component
+    // is a runtime assert, not a compile error:
+    //
+    //   OWNED component            GROUP (owner)                         OBSERVED (get)
+    //   -----------------------    ----------------------------------    ---------------
+    //   TransformComponent         2D sprite draw loop                   SpriteRendererComponent
+    //   AudioListenerComponent     audio listener sync                   TransformComponent
+    //   AudioSourceComponent       audio source sync                     TransformComponent
+    //   Rigidbody3DComponent       physics 3D transform sync (#443)      TransformComponent
+    //   ParticleSystemComponent    particle system update/render (#443)  TransformComponent
+    //   AnimationStateComponent }  animation update (full-owning, #443)  — (none)
+    //   SkeletonComponent       }
+    //
+    // TransformComponent is already owned by the sprite loop, so physics and
+    // particles CANNOT own it — they partial-own their unique component and
+    // borrow Transform via entt::get<>, matching the existing audio groups.
+    // Animation owns both AnimationStateComponent + SkeletonComponent (neither
+    // is shared with another hot loop), giving a full-owning group. Views over
+    // these components elsewhere (morph-only anim, skeleton mesh, single-
+    // component particle draws) are unaffected — views never conflict with
+    // ownership; the group only reorders the owned pools.
+    // ──────────────────────────────────────────────────────────────────────────
+
+    namespace
+    {
+        // Forward declarations for the cloth soft-body helpers (issue #460). They are
+        // defined in the anonymous namespace next to OnPhysics3DStart (far below), but
+        // OnUpdateRuntime — which sits above that — recomputes cloth normals each tick,
+        // so it needs them declared first.
+        void ComputeClothNormals(const std::vector<glm::vec3>& positions, u32 columns, u32 rows,
+                                 std::vector<glm::vec3>& outNormals);
+        std::vector<u32> BuildClothGridIndices(u32 columns, u32 rows);
+    } // namespace
+
     // Underwater test (WATER_FUTURE_IMPROVEMENTS.md §7.2). True when `cameraPos`
     // lies inside the water plane's XZ footprint; writes the signed vertical gap
     // (still-surface Y − camera Y; positive = camera below the surface) to
@@ -1448,6 +1489,16 @@ namespace OloEngine
             // and scripts/animation/2D-physics tick at different rates; keep
             // them equal (issue #452 follow-up: single shared fixed step).
             m_JoltScene->Simulate(ts.GetSeconds());
+
+            // Cloth readback (issue #460): pull each soft body's deformed world-space
+            // particle positions into its CPU buffers and recompute smooth normals. This
+            // is GPU-free (no render mesh touched here), so it runs headless / on the
+            // dedicated server; the render pass uploads these to the deforming VBO.
+            for (auto& [entityID, state] : m_ClothRuntime)
+            {
+                if (m_JoltScene->GetClothVertices(entityID, state.m_Positions))
+                    ComputeClothNormals(state.m_Positions, state.m_Columns, state.m_Rows, state.m_Normals);
+            }
         }
 
         // Retrieve transform from Box2D
@@ -1478,12 +1529,14 @@ namespace OloEngine
             }
         }
 
-        // Retrieve transforms from Jolt 3D physics
-        for (const auto view = m_Registry.view<Rigidbody3DComponent, TransformComponent>(); const auto e : view)
+        // Retrieve transforms from Jolt 3D physics. Partial-owning group: owns
+        // Rigidbody3DComponent, borrows TransformComponent (owned by the sprite
+        // loop) — see the ownership map at the top of this file (issue #443).
+        for (auto rbGroup = m_Registry.group<Rigidbody3DComponent>(entt::get<TransformComponent>); const auto e : rbGroup)
         {
             Entity entity = { e, this };
-            auto& transform = entity.GetComponent<TransformComponent>();
-            const auto& rb3d = entity.GetComponent<Rigidbody3DComponent>();
+            auto& transform = rbGroup.get<TransformComponent>(e);
+            const auto& rb3d = rbGroup.get<Rigidbody3DComponent>(e);
 
             if (rb3d.m_RuntimeBodyToken != 0 && rb3d.m_Type != BodyType3D::Static && m_JoltScene)
             {
@@ -1563,9 +1616,11 @@ namespace OloEngine
                 m_DialogueSystem->Update(ts);
             }
 
-            // Update animations
+            // Update animations. Full-owning group over AnimationStateComponent +
+            // SkeletonComponent (neither is shared with the physics/particle hot
+            // loops, so both pools are owned — issue #443 ownership map).
             {
-                auto animView = m_Registry.view<AnimationStateComponent, SkeletonComponent>();
+                auto animView = m_Registry.group<AnimationStateComponent, SkeletonComponent>();
                 for (auto e : animView)
                 {
                     auto& animState = animView.get<AnimationStateComponent>(e);
@@ -1845,10 +1900,12 @@ namespace OloEngine
                     }
                 }
 
-                for (auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>(); auto entity : view)
+                // Partial-owning group: owns ParticleSystemComponent, borrows
+                // TransformComponent (issue #443 ownership map).
+                for (auto psGroup = m_Registry.group<ParticleSystemComponent>(entt::get<TransformComponent>); auto entity : psGroup)
                 {
-                    const auto& transform = view.get<TransformComponent>(entity);
-                    auto& psc = view.get<ParticleSystemComponent>(entity);
+                    const auto& transform = psGroup.get<TransformComponent>(entity);
+                    auto& psc = psGroup.get<ParticleSystemComponent>(entity);
                     // Provide Jolt scene for raycast collision
                     psc.System.SetJoltScene(m_JoltScene.get());
                     psc.System.UpdateLOD(camPos, transform.Translation);
@@ -2188,10 +2245,11 @@ namespace OloEngine
         // Update particle systems so they preview in the editor
         {
             const glm::vec3 camPos = camera.GetPosition();
-            for (auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>(); auto entity : view)
+            // Reuses the ParticleSystemComponent owning group (issue #443).
+            for (auto psGroup = m_Registry.group<ParticleSystemComponent>(entt::get<TransformComponent>); auto entity : psGroup)
             {
-                const auto& transform = view.get<TransformComponent>(entity);
-                auto& psc = view.get<ParticleSystemComponent>(entity);
+                const auto& transform = psGroup.get<TransformComponent>(entity);
+                auto& psc = psGroup.get<ParticleSystemComponent>(entity);
                 psc.System.UpdateLOD(camPos, transform.Translation);
                 psc.System.Update(ts, transform.Translation, glm::vec3(0.0f), transform.GetRotation());
 
@@ -2203,9 +2261,10 @@ namespace OloEngine
         // Process snow deformer entities in editor preview
         ProcessSnowDeformers(ts, m_EditorSnowPrevPositions);
 
-        // Update animations so they preview in the editor (IK responds to target movement)
+        // Update animations so they preview in the editor (IK responds to target movement).
+        // Reuses the AnimationStateComponent + SkeletonComponent owning group (issue #443).
         {
-            auto animView = m_Registry.view<AnimationStateComponent, SkeletonComponent>();
+            auto animView = m_Registry.group<AnimationStateComponent, SkeletonComponent>();
             for (auto e : animView)
             {
                 auto& animState = animView.get<AnimationStateComponent>(e);
@@ -2987,6 +3046,70 @@ namespace OloEngine
             JPH::BodyID bodyID = joltScene.CreateTerrainBody(entity, shape, transform.Translation, transform.GetRotation());
             terrain.m_RuntimeCollisionBodyToken = bodyID.IsInvalid() ? 0 : static_cast<u64>(bodyID.GetIndexAndSequenceNumber());
         }
+
+        // ── Cloth soft bodies (issue #460) ─────────────────────────────────────
+        // Row-major triangle indices for a columns×rows cloth grid (two triangles per
+        // cell). Winding matches the soft-body faces built in CreateClothSharedSettings.
+        std::vector<u32> BuildClothGridIndices(u32 columns, u32 rows)
+        {
+            std::vector<u32> indices;
+            if (columns < 2 || rows < 2)
+                return indices;
+            indices.reserve(static_cast<sizet>(columns - 1) * (rows - 1) * 6);
+            for (u32 row = 0; row + 1 < rows; ++row)
+            {
+                for (u32 col = 0; col + 1 < columns; ++col)
+                {
+                    const u32 i0 = row * columns + col;
+                    const u32 i1 = i0 + 1;
+                    const u32 i2 = i0 + columns;
+                    const u32 i3 = i2 + 1;
+                    indices.push_back(i0);
+                    indices.push_back(i2);
+                    indices.push_back(i1);
+                    indices.push_back(i1);
+                    indices.push_back(i2);
+                    indices.push_back(i3);
+                }
+            }
+            return indices;
+        }
+
+        // Smooth per-vertex normals for the deformed cloth: accumulate each grid triangle's
+        // face normal onto its three vertices, then normalize. Lets the render mesh shade
+        // correctly as the sheet folds. outNormals is resized to match positions.
+        void ComputeClothNormals(const std::vector<glm::vec3>& positions, u32 columns, u32 rows,
+                                 std::vector<glm::vec3>& outNormals)
+        {
+            outNormals.assign(positions.size(), glm::vec3(0.0f));
+            if (positions.size() != static_cast<sizet>(columns) * rows || columns < 2 || rows < 2)
+                return;
+
+            auto addTri = [&](u32 a, u32 b, u32 c)
+            {
+                const glm::vec3 n = glm::cross(positions[b] - positions[a], positions[c] - positions[a]);
+                outNormals[a] += n;
+                outNormals[b] += n;
+                outNormals[c] += n;
+            };
+            for (u32 row = 0; row + 1 < rows; ++row)
+            {
+                for (u32 col = 0; col + 1 < columns; ++col)
+                {
+                    const u32 i0 = row * columns + col;
+                    const u32 i1 = i0 + 1;
+                    const u32 i2 = i0 + columns;
+                    const u32 i3 = i2 + 1;
+                    addTri(i0, i2, i1);
+                    addTri(i1, i2, i3);
+                }
+            }
+            for (glm::vec3& n : outNormals)
+            {
+                const f32 len = glm::length(n);
+                n = (len > 1.0e-6f) ? (n / len) : glm::vec3(0.0f, 1.0f, 0.0f);
+            }
+        }
     } // namespace
 
     void Scene::OnPhysics3DStart()
@@ -3010,9 +3133,12 @@ namespace OloEngine
             return;
         }
 
-        // Create physics bodies for all entities with Rigidbody3DComponent
-        auto view = m_Registry.view<Rigidbody3DComponent, TransformComponent>();
-        for (auto entity : view)
+        // Create physics bodies for all entities with Rigidbody3DComponent.
+        // Establishing the Rigidbody3D owning group here front-loads its one-time
+        // packing pass at physics-start, before the per-step transform-sync loop
+        // in OnPhysics3DUpdate reuses it (issue #443 ownership map).
+        auto rbGroup = m_Registry.group<Rigidbody3DComponent>(entt::get<TransformComponent>);
+        for (auto entity : rbGroup)
         {
             Entity ent = { entity, this };
 
@@ -3020,7 +3146,7 @@ namespace OloEngine
             auto body = m_JoltScene->CreateBody(ent);
             if (body)
             {
-                auto& rb3d = ent.GetComponent<Rigidbody3DComponent>();
+                auto& rb3d = rbGroup.get<Rigidbody3DComponent>(entity);
                 // Store only the body token for safe runtime access
                 rb3d.m_RuntimeBodyToken = static_cast<std::uint64_t>(body->GetBodyID().GetIndexAndSequenceNumber());
             }
@@ -3071,6 +3197,39 @@ namespace OloEngine
         {
             Entity ent = { entity, this };
             BuildTerrainCollisionBody(*m_JoltScene, ent, ent.GetComponent<TerrainComponent>());
+        }
+
+        // Cloth pass: build a Jolt soft body for every enabled ClothComponent from its
+        // grid + world transform (issue #460). GPU-free — the deforming render mesh is
+        // built lazily in the render pass, so this also runs headless / on the server.
+        m_ClothRuntime.clear();
+        auto clothView = m_Registry.view<TransformComponent, ClothComponent>();
+        for (auto entity : clothView)
+        {
+            Entity ent = { entity, this };
+            const auto& cloth = ent.GetComponent<ClothComponent>();
+            if (!cloth.m_Enabled)
+                continue;
+
+            const auto& transform = ent.GetComponent<TransformComponent>();
+            JPH::Ref<JPH::SoftBodySharedSettings> settings = JoltShapes::CreateClothSharedSettings(
+                cloth.m_Columns, cloth.m_Rows, cloth.m_Width, cloth.m_Height, cloth.m_Mass,
+                cloth.m_Compliance, cloth.m_BendCompliance, cloth.m_Attachment, transform.GetTransform());
+            if (!settings)
+                continue;
+
+            JPH::BodyID bodyID = m_JoltScene->CreateClothBody(ent, settings, cloth.m_Iterations, cloth.m_LinearDamping, cloth.m_Pressure);
+            if (bodyID.IsInvalid())
+                continue;
+
+            // Register runtime render state and seed the CPU position buffer with the rest
+            // shape so the first render (before the first physics tick) already has geometry.
+            ClothRuntimeState state;
+            state.m_Columns = std::clamp(cloth.m_Columns, 2u, 128u);
+            state.m_Rows = std::clamp(cloth.m_Rows, 2u, 128u);
+            (void)m_JoltScene->GetClothVertices(ent.GetUUID(), state.m_Positions);
+            ComputeClothNormals(state.m_Positions, state.m_Columns, state.m_Rows, state.m_Normals);
+            m_ClothRuntime[ent.GetUUID()] = std::move(state);
         }
     }
 
@@ -3160,7 +3319,21 @@ namespace OloEngine
             }
         }
 
+        // Tear down cloth soft bodies and drop their runtime render state (issue #460).
+        // Shutdown below also sweeps any stragglers; this releases the render meshes early.
+        for (const auto& [entityID, state] : m_ClothRuntime)
+            m_JoltScene->DestroyClothBody(entityID);
+        m_ClothRuntime.clear();
+
         m_JoltScene->Shutdown();
+    }
+
+    const std::vector<glm::vec3>* Scene::GetClothVertexPositions(UUID entityID) const
+    {
+        auto it = m_ClothRuntime.find(entityID);
+        if (it == m_ClothRuntime.end() || it->second.m_Positions.empty())
+            return nullptr;
+        return &it->second.m_Positions;
     }
 
     void Scene::ProcessSnowDeformers(Timestep ts, TMap<u64, glm::vec3>& prevPositions)
@@ -5466,6 +5639,79 @@ namespace OloEngine
             }
         }
 
+        // Cloth soft-body render pass (issue #460). Each live cloth owns a deforming
+        // MeshSource whose vertices are the world-space particle positions read back from
+        // Jolt each tick. The mesh is built lazily here (it needs a GL context, so headless
+        // ticks never reach this render path), then its VBO is re-uploaded every frame and
+        // drawn at the identity transform — the particle positions are already in world
+        // space. SetPreOptimized keeps the grid-index ↔ VBO-slot mapping stable so the raw
+        // readback order can be uploaded directly.
+        if (!m_ClothRuntime.empty())
+        {
+            for (auto& [entityID, state] : m_ClothRuntime)
+            {
+                // Use the cloth entity's authored MaterialComponent if present, else the
+                // shared default (mirrors the MeshComponent path above). Force TwoSided:
+                // a cloth is a thin sheet, so both faces must draw — otherwise back-facing
+                // triangles are culled and the drape looks torn / invisible from behind.
+                Entity clothEntity = GetEntityByUUID(entityID);
+                Material clothMaterial = (clothEntity && clothEntity.HasComponent<MaterialComponent>())
+                                             ? clothEntity.GetComponent<MaterialComponent>().m_Material
+                                             : GetDefaultMaterial();
+                clothMaterial.SetFlag(MaterialFlag::TwoSided, true);
+                const sizet count = state.m_Positions.size();
+                if (count == 0 || state.m_Normals.size() != count || state.m_Columns < 2 || state.m_Rows < 2)
+                    continue;
+
+                if (!state.m_RenderMesh)
+                {
+                    std::vector<Vertex> vertices(count);
+                    for (u32 row = 0; row < state.m_Rows; ++row)
+                    {
+                        for (u32 col = 0; col < state.m_Columns; ++col)
+                        {
+                            const u32 i = row * state.m_Columns + col;
+                            vertices[i].Position = state.m_Positions[i];
+                            vertices[i].Normal = state.m_Normals[i];
+                            vertices[i].TexCoord = glm::vec2(
+                                static_cast<f32>(col) / static_cast<f32>(state.m_Columns - 1),
+                                static_cast<f32>(row) / static_cast<f32>(state.m_Rows - 1));
+                        }
+                    }
+                    std::vector<u32> indices = BuildClothGridIndices(state.m_Columns, state.m_Rows);
+
+                    Ref<MeshSource> meshSource = Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
+                    meshSource->SetPreOptimized(true); // preserve grid-index ↔ VBO-slot mapping
+                    Submesh submesh;
+                    submesh.m_VertexCount = static_cast<u32>(count);
+                    submesh.m_IndexCount = static_cast<u32>(meshSource->GetIndices().Num());
+                    meshSource->AddSubmesh(submesh);
+                    meshSource->Build();
+                    state.m_RenderMesh = meshSource;
+                }
+                else
+                {
+                    auto& verts = state.m_RenderMesh->GetVertices();
+                    if (static_cast<sizet>(verts.Num()) == count)
+                    {
+                        for (sizet i = 0; i < count; ++i)
+                        {
+                            verts.GetData()[i].Position = state.m_Positions[i];
+                            verts.GetData()[i].Normal = state.m_Normals[i];
+                        }
+                        // Non-const Ref copy: GetVertexBuffer() returns a const Ref&, whose
+                        // operator-> yields a const VertexBuffer* — SetData is non-const.
+                        Ref<VertexBuffer> vb = state.m_RenderMesh->GetVertexBuffer();
+                        vb->SetData(VertexData{ verts.GetData(), static_cast<u32>(static_cast<sizet>(verts.Num()) * sizeof(Vertex)) });
+                    }
+                }
+
+                auto clothMesh = Ref<Mesh>::Create(state.m_RenderMesh, 0);
+                if (auto* packet = Renderer3D::DrawMesh(clothMesh, glm::mat4(1.0f), clothMaterial, false, -1, nullptr); packet)
+                    Renderer3D::SubmitPacket(packet);
+            }
+        }
+
         // Draw entity-owned dense instance batches (InstancedMeshComponent).
         // Each entity holds its own world-space InstanceData[] and renders in
         // a single DrawMeshInstanced packet per submesh (chunked at the
@@ -6313,10 +6559,12 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Sort particle systems back-to-front for correct alpha blending
-        auto psView = m_Registry.view<TransformComponent, ParticleSystemComponent>();
+        // Sort particle systems back-to-front for correct alpha blending.
+        // Reuses the ParticleSystemComponent owning group (issue #443); a group
+        // exposes an exact size(), so reserve is precise (not a hint).
+        auto psView = m_Registry.group<ParticleSystemComponent>(entt::get<TransformComponent>);
         std::vector<std::pair<f32, entt::entity>> sortedSystems;
-        sortedSystems.reserve(psView.size_hint());
+        sortedSystems.reserve(psView.size());
         for (auto entity : psView)
         {
             const auto& tc = psView.get<TransformComponent>(entity);

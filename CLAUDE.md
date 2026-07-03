@@ -128,7 +128,7 @@ C++23 baseline, OpenGL 4.6 with DSA. Layout:
 
 Cross-cutting patterns:
 
-- **ECS:** EnTT under an `Entity` wrapper (UUID). Components are POD-ish; serialization lives in [OloEngine/src/OloEngine/Core/YAMLConverters.h](OloEngine/src/OloEngine/Core/YAMLConverters.h).
+- **ECS:** EnTT under an `Entity` wrapper (UUID). Components are POD-ish; serialization lives in [OloEngine/src/OloEngine/Core/YAMLConverters.h](OloEngine/src/OloEngine/Core/YAMLConverters.h). The hottest multi-component update loops use EnTT **owning groups** (`registry.group<Owned>(entt::get<Observed>)`) instead of views for packed iteration. EnTT v4 asserts only one rule: a component may be *owned* by at most one group (`get<>`-observed types are unconstrained), so `TransformComponent` — owned by the 2D sprite loop — is *borrowed* by the physics-sync / particle / audio groups. Before adding a new owning group, consult and update the ownership-map comment at the top of `Scene/Scene.cpp`; owning an already-owned component is a **runtime assert**, and an owned pool can't be `.sort()`ed.
 - **Stateless layered render command queue** (Molecular Matters style) — queue population is separated from execution.
 - **Asset system:** `AssetManager::LoadAssetFromFile()` returns a handle; retrieve typed assets via `GetAsset<T>()`. Hot-reload via filewatch fires `AssetReloadedEvent`. Adding a new asset type means loader + `AssetManager` registration + YAML serialization + hot-reload handling.
 - **Smart pointers / primitives:** `Ref<T>` from `Core/Ref.h`; integer / float typedefs (`u32`, `f32`, `sizet`, …) from `Core/Base.h`.

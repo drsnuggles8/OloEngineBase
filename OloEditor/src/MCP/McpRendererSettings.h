@@ -12,6 +12,14 @@
 // the toggle shape can't express (upscale quality preset, tone-map operator,
 // forward/forward+/deferred path).
 //
+// Issue #316 added the two big perf LEVERS the live perf sessions had to A/B via
+// shader-source edits: `depthprepass` (off|on|auto — Renderer3D's live toggle;
+// 'auto' restores the settings-derived value) and `softshadows` (pcf|pcss —
+// ShadowSettings::SoftShadows). Neither lives in the PostProcessSettings /
+// RendererSettings PODs, so the handler snapshots them into a LeverState POD
+// before Apply()/Describe() and pushes mutated fields back to the renderer
+// afterwards (Renderer3D::EnableDepthPrepass / ShadowMap::SetSettings).
+//
 // Restore semantics — restore-PRIOR-VALUE, NOT CommandHistory. Unlike the entity
 // field writes (olo_set_collision_layer / olo_entity_set_field), which push an
 // undoable ComponentChangeCommand onto the editor's undo stack, these are GLOBAL
@@ -61,10 +69,36 @@ namespace OloEngine::MCP::RendererSettings
     // only — the structs are plain POD).
     enum class Setting
     {
-        Upscale,    // PostProcessSettings::Upscale  (FSR1 spatial-upscale quality preset)
-        Tonemap,    // PostProcessSettings::Tonemap  (tone-map operator)
-        RenderPath, // RendererSettings::Path        (forward / forward+ / deferred)
+        Upscale,      // PostProcessSettings::Upscale  (FSR1 spatial-upscale quality preset)
+        Tonemap,      // PostProcessSettings::Tonemap  (tone-map operator)
+        RenderPath,   // RendererSettings::Path        (forward / forward+ / deferred)
+        DepthPrepass, // LeverState::DepthPrepassEnabled (Renderer3D live toggle; 'auto' = settings-derived)
+        SoftShadows,  // LeverState::SoftShadows       (ShadowSettings::SoftShadows: PCSS vs PCF)
     };
+
+    // Live renderer state the perf-lever settings (#316) read/write. These are NOT
+    // fields of PostProcessSettings / RendererSettings: the depth prepass is
+    // Renderer3D's live toggle (EnableDepthPrepass) and soft shadows live in
+    // ShadowSettings. The handler snapshots the live values into this POD before
+    // Apply()/Describe() and pushes mutated fields back to the renderer afterwards
+    // (EnableDepthPrepass / ShadowMap::SetSettings) — keeping this header
+    // renderer-free and unit-testable, same seam as the pp/rs structs.
+    struct LeverState
+    {
+        bool DepthPrepassEnabled = false; // live effective value (Renderer3D::IsDepthPrepassEnabled)
+        bool DepthPrepassAuto = false;    // what 'auto' resolves to (Renderer3D::ComputeSettingsDerivedDepthPrepass)
+        bool SoftShadows = false;         // live ShadowSettings::SoftShadows
+    };
+
+    // Engine integers of the depthprepass tri-token. 'off'/'on' mirror the live
+    // bool; 'auto' (2) is a WRITE-ONLY token that resolves to LeverState::
+    // DepthPrepassAuto on apply — the current value always reads back as off/on.
+    inline constexpr i32 kDepthPrepassOff = 0;
+    inline constexpr i32 kDepthPrepassOn = 1;
+    inline constexpr i32 kDepthPrepassAuto = 2;
+
+    inline constexpr i32 kSoftShadowsPcf = 0;
+    inline constexpr i32 kSoftShadowsPcss = 1;
 
     // One allowed value of an enum-valued setting: the stable, user-facing token the
     // agent passes, the underlying engine enum integer, and a human description.
@@ -99,6 +133,17 @@ namespace OloEngine::MCP::RendererSettings
         { "deferred", static_cast<i32>(RenderingPath::Deferred), "G-buffer + tiled deferred lighting (enables SSR/SSGI)" },
     } };
 
+    inline constexpr std::array<EnumValue, 3> kDepthPrepassValues = { {
+        { "off", kDepthPrepassOff, "Force the depth prepass off for this session (single geometry pass; full overdraw cost)" },
+        { "on", kDepthPrepassOn, "Force the depth prepass on for this session (depth-only pass first, then color with GL_EQUAL)" },
+        { "auto", kDepthPrepassAuto, "Restore the settings-derived value (on when the user toggle or the Forward+/Deferred path requires it)" },
+    } };
+
+    inline constexpr std::array<EnumValue, 2> kSoftShadowValues = { {
+        { "pcf", kSoftShadowsPcf, "Fixed 3x3 hardware PCF (cheap, hard-edged shadows)" },
+        { "pcss", kSoftShadowsPcss, "Percentage-Closer Soft Shadows (contact-hardening variable penumbra; expensive blocker search)" },
+    } };
+
     // Setting token + description + which struct field it targets (documented only).
     struct SettingInfo
     {
@@ -107,7 +152,7 @@ namespace OloEngine::MCP::RendererSettings
         std::string_view Description;
     };
 
-    inline constexpr std::array<SettingInfo, 3> kSettings = { {
+    inline constexpr std::array<SettingInfo, 5> kSettings = { {
         { "upscale", Setting::Upscale,
           "FSR1 spatial-upscale quality preset (PostProcess.Upscale). Off is native resolution; the other presets render "
           "below display resolution and EASU-upscale the HDR scene colour back to display res (#480)." },
@@ -115,6 +160,15 @@ namespace OloEngine::MCP::RendererSettings
         { "renderpath", Setting::RenderPath,
           "High-level rendering path (RendererSettings.Path). Switching rebuilds the render-graph topology; Deferred is "
           "required for SSR / SSGI." },
+        { "depthprepass", Setting::DepthPrepass,
+          "Depth-prepass perf lever (Renderer3D live toggle, #316). 'on'/'off' force the live state for this session; "
+          "'auto' restores the settings-derived value. Forward+/Deferred derive it ON because their tile culling reads "
+          "the prepass depth — forcing 'off' there is a valid perf experiment but degrades tiled lighting until restored. "
+          "A later settings apply (e.g. a renderpath switch) re-derives it." },
+        { "softshadows", Setting::SoftShadows,
+          "Directional-shadow filtering (ShadowSettings.SoftShadows): 'pcss' = contact-hardening soft shadows, 'pcf' = "
+          "fixed 3x3 hardware PCF. THE dominant ScenePass perf lever in shadowed scenes (#316: PCSS was ~93% of "
+          "ScenePass at 1080p Sponza)." },
     } };
 
     // Lowercase + drop every non-alphanumeric character so "Ultra Performance",
@@ -144,6 +198,10 @@ namespace OloEngine::MCP::RendererSettings
                 return kTonemapValues;
             case Setting::RenderPath:
                 return kRenderPathValues;
+            case Setting::DepthPrepass:
+                return kDepthPrepassValues;
+            case Setting::SoftShadows:
+                return kSoftShadowValues;
         }
         return {};
     }
@@ -240,8 +298,8 @@ namespace OloEngine::MCP::RendererSettings
     [[nodiscard]] inline Json InputSchema()
     {
         return Schema::Object()
-            .Prop("setting", Schema::String().Enum({ "upscale", "tonemap", "renderpath" }).Desc("Which renderer / post-process setting to set. Omit both arguments to list every setting with its current value and allowed values."))
-            .Prop("value", Schema::String().Desc("The new value token for the chosen setting — upscale: off|quality|balanced|performance|ultraperformance; tonemap: none|reinhard|aces|uncharted2; renderpath: forward|forwardplus|deferred. Call with no arguments to discover the valid tokens for each setting."))
+            .Prop("setting", Schema::String().Enum({ "upscale", "tonemap", "renderpath", "depthprepass", "softshadows" }).Desc("Which renderer / post-process setting to set. Omit both arguments to list every setting with its current value and allowed values."))
+            .Prop("value", Schema::String().Desc("The new value token for the chosen setting — upscale: off|quality|balanced|performance|ultraperformance; tonemap: none|reinhard|aces|uncharted2; renderpath: forward|forwardplus|deferred; depthprepass: off|on|auto; softshadows: pcf|pcss. Call with no arguments to discover the valid tokens for each setting."))
             .NoAdditional();
     }
 
@@ -299,7 +357,7 @@ namespace OloEngine::MCP::RendererSettings
     // (the current value) so the mapping lives in one place and can't drift when a
     // setting is added. NOTE: `OloEngine::RendererSettings` is spelled fully qualified
     // — unqualified `RendererSettings` names THIS namespace, not the engine struct.
-    [[nodiscard]] inline i32 CurrentValue(Setting setting, const PostProcessSettings& pp, const ::OloEngine::RendererSettings& rs)
+    [[nodiscard]] inline i32 CurrentValue(Setting setting, const PostProcessSettings& pp, const ::OloEngine::RendererSettings& rs, const LeverState& lever)
     {
         switch (setting)
         {
@@ -309,15 +367,23 @@ namespace OloEngine::MCP::RendererSettings
                 return static_cast<i32>(pp.Tonemap);
             case Setting::RenderPath:
                 return static_cast<i32>(rs.Path);
+            case Setting::DepthPrepass:
+                // Always reads back as off/on — 'auto' is a write-only token.
+                return lever.DepthPrepassEnabled ? kDepthPrepassOn : kDepthPrepassOff;
+            case Setting::SoftShadows:
+                return lever.SoftShadows ? kSoftShadowsPcss : kSoftShadowsPcf;
         }
         return 0;
     }
 
     // Apply `value` (an engine enum integer) to `setting`, mutating the matching
-    // field of `pp` / `rs` and reporting the prior value so the change can be
-    // restored by setting it back (restore-prior-value, no undo stack). MUST run on
-    // the main (game) thread — the caller passes the live Renderer3D settings.
-    [[nodiscard]] inline ApplyResult Apply(Setting setting, i32 value, PostProcessSettings& pp, ::OloEngine::RendererSettings& rs)
+    // field of `pp` / `rs` / `lever` and reporting the prior value so the change can
+    // be restored by setting it back (restore-prior-value, no undo stack). MUST run
+    // on the main (game) thread — the caller passes the live Renderer3D settings and
+    // a LeverState snapshot of the live renderer toggles, and pushes any mutated
+    // lever field back to the renderer afterwards (the renderer-bound side effect
+    // stays out of this header, like PathChanged).
+    [[nodiscard]] inline ApplyResult Apply(Setting setting, i32 value, PostProcessSettings& pp, ::OloEngine::RendererSettings& rs, LeverState& lever)
     {
         ApplyResult result;
 
@@ -335,7 +401,15 @@ namespace OloEngine::MCP::RendererSettings
             return result;
         }
 
-        const i32 previous = CurrentValue(setting, pp, rs);
+        const i32 previous = CurrentValue(setting, pp, rs, lever);
+
+        // 'auto' resolves to the settings-derived bool before the write, so the
+        // reported value / changed flag describe the actual resulting state (the
+        // response carries "requested": "auto" for transparency).
+        const bool requestedAuto = setting == Setting::DepthPrepass && value == kDepthPrepassAuto;
+        if (requestedAuto)
+            value = lever.DepthPrepassAuto ? kDepthPrepassOn : kDepthPrepassOff;
+
         switch (setting)
         {
             case Setting::Upscale:
@@ -346,6 +420,12 @@ namespace OloEngine::MCP::RendererSettings
                 break;
             case Setting::RenderPath:
                 rs.Path = static_cast<RenderingPath>(static_cast<u8>(value));
+                break;
+            case Setting::DepthPrepass:
+                lever.DepthPrepassEnabled = value == kDepthPrepassOn;
+                break;
+            case Setting::SoftShadows:
+                lever.SoftShadows = value == kSoftShadowsPcss;
                 break;
         }
 
@@ -364,18 +444,20 @@ namespace OloEngine::MCP::RendererSettings
             // entry, unlike the entity field writes).
             { "restoreWith", ValueToken(setting, previous) },
         };
+        if (requestedAuto)
+            result.Data["requested"] = "auto";
         return result;
     }
 
     // Introspection payload: every setting with its live current value and the full
     // allowed-value catalogue. The handler reads the live Renderer3D settings and
     // hands them here.
-    [[nodiscard]] inline Json Describe(const PostProcessSettings& pp, const ::OloEngine::RendererSettings& rs)
+    [[nodiscard]] inline Json Describe(const PostProcessSettings& pp, const ::OloEngine::RendererSettings& rs, const LeverState& lever)
     {
         Json arr = Json::array();
         for (const auto& info : kSettings)
         {
-            const i32 current = CurrentValue(info.Id, pp, rs);
+            const i32 current = CurrentValue(info.Id, pp, rs, lever);
 
             Json values = Json::array();
             for (const auto& v : SettingValues(info.Id))

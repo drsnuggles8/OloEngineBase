@@ -102,6 +102,7 @@ add_executable(OloEngine-Tests
 		Rendering/InstanceDataLayoutTest.cpp
 		Rendering/GPUFrustumCullParityTest.cpp
 		Rendering/GPUOcclusionCullParityTest.cpp
+		Rendering/DeferredTwoPhaseOcclusionTest.cpp
 		Rendering/ScatterBrushMathTest.cpp
 		Rendering/SphereAreaLightMathTest.cpp
 		Rendering/ProceduralSkyMathTest.cpp
@@ -143,6 +144,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/HZBGeneratorResizeTest.cpp
 		Rendering/PropertyTests/GPUOcclusionCullGPUTest.cpp
 		Rendering/PropertyTests/OcclusionCullVisualEvidenceTest.cpp
+		Rendering/PropertyTests/OcclusionCullDeferredVisualEvidenceTest.cpp
 		Rendering/PropertyTests/OceanFFTGpuContractTest.cpp
 		Rendering/PropertyTests/OceanFFTSpectrumTest.cpp
 		Rendering/PropertyTests/PostProcessPropertyTests.cpp
@@ -161,6 +163,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/StarNestSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
+		Rendering/PropertyTests/WaterStaleTexturePublicationTest.cpp
 		Rendering/PropertyTests/CompressedTextureVisualEvidenceTest.cpp
 		Rendering/PropertyTests/OceanFFTVisualEvidenceTest.cpp
 		Rendering/PropertyTests/UnderwaterCausticsVisualTest.cpp
@@ -187,6 +190,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/PropertyTests/RendererAttachedSmokeTest.cpp
 		Rendering/PropertyTests/SceneRenderEvidenceTest.cpp
+		Rendering/PropertyTests/ClothVisualEvidenceTest.cpp
 		Rendering/PropertyTests/RebindMenuVisualEvidenceTest.cpp
 		# Headless-attach stretch of issue #316: hosts the read-only MCP server
 		# inside the test binary against the offscreen render-graph FB so
@@ -319,6 +323,8 @@ add_executable(OloEngine-Tests
 		TransformComponentTest.cpp
 		# Physics3D mesh mass-properties (divergence-theorem volume + centroid)
 		JoltShapesMeshMassPropertiesTest.cpp
+		# Physics3D cloth soft-body shared-settings contract (issue #460)
+		ClothSharedSettingsTest.cpp
 		# Physics3D mesh collider cache invalidation
 		MeshCookingFactoryCacheTest.cpp
 		# StaticMesh GenerateColliders flag -> generated MeshColliderAsset (cook + raycast)
@@ -431,6 +437,14 @@ add_executable(OloEngine-Tests
 		# structs, restore-prior-value not CommandHistory). Renderer-light header, so
 		# no extra editor TU is pulled in.
 		MCP/McpRendererSettingsTest.cpp
+		# Consented MCP scene-control WRITE tools: olo_scene_open / olo_scene_play /
+		# olo_scene_stop (#316 Part 5) — the scriptable scene switch + play-mode toggle.
+		# Same dispatch seam (session write gate + inputSchema enforcement at
+		# McpServer.cpp) and shared shaping/validation (MCP/McpSceneControl.h: schemas,
+		# ValidateScenePath, result->JSON). The scene ACTIONS are context hooks (the
+		# EnTT registry / runtime in the editor), so the test injects fakes and never
+		# touches a scene. Header-only on the editor side, so no extra editor TU.
+		MCP/McpSceneControlTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).
@@ -440,6 +454,7 @@ add_executable(OloEngine-Tests
 		Functional/Cinematic/CinematicAssetPlaybackTest.cpp
 		Functional/AnimationPhysics/FreeFallLandingTest.cpp
 		Functional/AnimationPhysics/TerrainCollisionTest.cpp
+		Functional/AnimationPhysics/ClothSimulationTest.cpp
 		Functional/AnimationPhysics/PhysicsJoint3DTest.cpp
 		Functional/AnimationPhysics/PhysicsJointCollideConnectedTest.cpp
 		Functional/AnimationPhysics/VehicleTest.cpp

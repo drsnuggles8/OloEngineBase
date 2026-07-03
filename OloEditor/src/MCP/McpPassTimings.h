@@ -19,6 +19,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cmath>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -63,6 +64,15 @@ namespace OloEngine::MCP::PassTimings
     // CPU-only passes (not GPU-timed this frame — pool overflow or transient
     // topology change between the resolved GPU frame and the current CPU frame)
     // are appended with gpuMs 0.
+    //
+    // A GPU entry named "Parent/Sub" is a SUB-PASS bracket stamped inside the
+    // pass named "Parent" (GPUPassTimerPool::BeginSubPass — e.g. the ScenePass
+    // DepthPrepass/Color split, #316): it is attached to the most recent
+    // top-level entry named "Parent" as subPasses[{name, gpuMs}] and does NOT
+    // count toward passGpuTotalMs (its time is already inside the parent's
+    // bracket). An orphan sub-entry (parent not GPU-timed this frame — pool
+    // overflow) is kept as a top-level entry under its full name rather than
+    // dropped.
     [[nodiscard]] inline Json BuildPassTimings(const std::vector<GpuPassEntry>& gpuPasses,
                                                const std::vector<CpuPassEntry>& cpuPasses,
                                                const FrameTotals& totals)
@@ -84,8 +94,35 @@ namespace OloEngine::MCP::PassTimings
             return 0.0;
         };
 
+        // Index of the last top-level entry per pass name, for sub-pass
+        // attachment (the pool allocates parent-before-sub, so a forward walk
+        // always sees the parent first).
+        const auto findParentIndex = [&passes](const std::string& parentName) -> std::optional<sizet>
+        {
+            for (sizet i = passes.size(); i > 0; --i)
+            {
+                if (passes[i - 1]["pass"].get<std::string>() == parentName)
+                    return i - 1;
+            }
+            return std::nullopt;
+        };
+
         for (const auto& gpuPass : gpuPasses)
         {
+            if (const auto slash = gpuPass.Name.find('/'); slash != std::string::npos)
+            {
+                if (const auto parentIdx = findParentIndex(gpuPass.Name.substr(0, slash)))
+                {
+                    Json& parent = passes[*parentIdx];
+                    if (!parent.contains("subPasses"))
+                        parent["subPasses"] = Json::array();
+                    parent["subPasses"].push_back(Json{ { "name", gpuPass.Name.substr(slash + 1) },
+                                                        { "gpuMs", Round3(gpuPass.GpuMs) } });
+                    continue;
+                }
+                // Orphan sub-entry: fall through and publish under the full name
+                // (counted in passGpuTotal — its parent bracket is absent).
+            }
             passGpuTotal += gpuPass.GpuMs;
             passes.push_back(Json{ { "pass", gpuPass.Name },
                                    { "gpuMs", Round3(gpuPass.GpuMs) },

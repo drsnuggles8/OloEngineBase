@@ -227,6 +227,13 @@ namespace OloEngine
             return m_JoltScene.get();
         }
 
+        // Latest world-space particle positions of a live cloth soft body (issue #460),
+        // row-major in the generating grid order. Refreshed every runtime tick from the
+        // Jolt soft body (GPU-free), so it is readable headless. Returns nullptr when the
+        // entity has no live cloth body (edit mode, no ClothComponent, or cloth disabled).
+        // Backs the cloth functional tests and any gameplay query of the draped shape.
+        const std::vector<glm::vec3>* GetClothVertexPositions(UUID entityID) const;
+
         // Physics lifecycle (public for external scene setup)
         void OnPhysics3DStart();
         void OnPhysics3DStop();
@@ -668,6 +675,22 @@ namespace OloEngine
 
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;
+
+        // Cloth soft-body runtime state (issue #460), keyed by the owning ClothComponent
+        // entity. Built at OnPhysics3DStart, torn down at OnPhysics3DStop; never serialized
+        // or copied. m_Positions / m_Normals are CPU buffers refreshed each runtime tick from
+        // JoltScene::GetClothVertices (GPU-free — functional tests read them, the dedicated
+        // server needs no GL). m_RenderMesh is the deforming render mesh, built and its VBO
+        // updated lazily only inside the GL render pass; a headless run leaves it null.
+        struct ClothRuntimeState
+        {
+            Ref<MeshSource> m_RenderMesh;
+            std::vector<glm::vec3> m_Positions;
+            std::vector<glm::vec3> m_Normals;
+            u32 m_Columns = 0;
+            u32 m_Rows = 0;
+        };
+        std::unordered_map<UUID, ClothRuntimeState> m_ClothRuntime;
         std::unique_ptr<SceneStreamer> m_SceneStreamer;
         std::unique_ptr<DialogueSystem> m_DialogueSystem;
         DialogueVariables m_DialogueVariables;

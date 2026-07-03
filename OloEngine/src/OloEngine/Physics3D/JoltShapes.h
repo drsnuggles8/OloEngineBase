@@ -38,6 +38,11 @@
 #include <unordered_map>
 #include <vector>
 #include <filesystem>
+
+namespace JPH
+{
+    class SoftBodySharedSettings; // Full type only needed in JoltShapes.cpp / JoltScene.cpp
+}
 #include "OloEngine/Threading/Mutex.h"
 #include "OloEngine/Threading/SharedMutex.h"
 #include "OloEngine/Threading/UniqueLock.h"
@@ -124,6 +129,23 @@ namespace OloEngine
         static JPH::Ref<JPH::Shape> CreateTerrainHeightFieldShape(const std::vector<f32>& heights, u32 resolution,
                                                                   f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
                                                                   const glm::vec3& scale = glm::vec3(1.0f));
+
+        // @brief Build the shared settings for a rectangular cloth soft body (issue #460).
+        //
+        // Generates a `columns`×`rows` grid of particles in the local X–Z plane (spanning
+        // width×height, centred on the local origin), bakes `worldTransform` into each
+        // particle's initial position (so the body is created directly in world space at
+        // the identity pose), pins the particles selected by `attachment` (inverse mass 0),
+        // distributes `totalMass` over the remaining free particles, adds two faces per
+        // grid cell, and auto-generates stretch/shear/bend constraints from that topology
+        // (`compliance` = edge inverse stiffness, `bendCompliance` = fold inverse stiffness).
+        // The grid is clamped to [2,128] per axis. Returns nullptr on non-finite input.
+        //
+        // The returned shared settings can be handed to JoltScene::CreateClothBody, and are
+        // shareable/immutable — one settings object can back many identical cloth bodies.
+        static JPH::Ref<JPH::SoftBodySharedSettings> CreateClothSharedSettings(
+            u32 columns, u32 rows, f32 width, f32 height, f32 totalMass,
+            f32 compliance, f32 bendCompliance, ClothAttachment attachment, const glm::mat4& worldTransform);
 
         // Create compound shapes
         static JPH::Ref<JPH::Shape> CreateCompoundShape(Entity entity, bool isMutable = false);
