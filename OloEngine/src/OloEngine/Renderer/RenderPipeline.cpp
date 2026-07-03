@@ -1278,7 +1278,10 @@ namespace OloEngine
         // ------------------------------------------------------------------
         // When an FSR1 upscale preset is active, resize the Scene pass (and its
         // G-buffer, which SceneRenderPass::ResizeFramebuffer keeps in lockstep)
-        // plus SSAO to the reduced render resolution. This cascades to SceneColor
+        // plus SSAO and GTAO to the reduced render resolution — both AO
+        // techniques read the scene-band depth/normals and must track its size
+        // (see the GTAO scratch-texture comment below for the #504 regression
+        // this omission caused). This cascades to SceneColor
         // / SceneDepth / SceneNormals / Velocity and the screen-space band (all
         // derive from the Scene pass spec); EASURenderPass then upscales the
         // result to full display res while the post chain below stays full. Run
@@ -1301,6 +1304,8 @@ namespace OloEngine
                     pipeline.FrameCorePasses.Scene->ResizeFramebuffer(sceneW, sceneH);
                     if (pipeline.SceneCompositePasses.SSAO)
                         pipeline.SceneCompositePasses.SSAO->ResizeFramebuffer(sceneW, sceneH);
+                    if (pipeline.SceneCompositePasses.GTAO)
+                        pipeline.SceneCompositePasses.GTAO->ResizeFramebuffer(sceneW, sceneH);
                 }
             }
         }
@@ -1845,8 +1850,19 @@ namespace OloEngine
                 return result;
             };
 
-            const u32 hzbW = nextPow2(postProcessWidth);
-            const u32 hzbH = nextPow2(postProcessHeight);
+            // GTAO reads SceneDepth/SceneNormals (scene-band resolution, reduced
+            // below display res under FSR1) and writes AOBuffer (also declared
+            // at sceneBandWidth/Height above) — every GTAO scratch resource must
+            // match that same scene-band size, not postProcessWidth/Height (the
+            // full display size the post chain runs at). Using postProcessWidth/
+            // Height here left GTAODenoisePing/Pong/Edge/HZB at display size
+            // while AOBuffer shrank with the scene band, so the final
+            // glCopyImageSubData in GTAORenderPass::Execute copied a
+            // display-sized region into the smaller AOBuffer and overran its Y
+            // bound (GL_INVALID_VALUE id 1281) — invisible when Upscale == Off
+            // since sceneBandWidth/Height == postProcessWidth/Height then (#504).
+            const u32 hzbW = nextPow2(sceneBandWidth);
+            const u32 hzbH = nextPow2(sceneBandHeight);
             u32 mipCount = 1u;
             for (u32 mipW = hzbW, mipH = hzbH; mipW > 1u || mipH > 1u; ++mipCount)
             {
@@ -1876,16 +1892,16 @@ namespace OloEngine
             RGResourceDesc edgeDesc;
             edgeDesc.Kind = ResourceHandle::Kind::Texture2D;
             edgeDesc.Format = RGResourceFormat::R8UNorm;
-            edgeDesc.Width = postProcessWidth;
-            edgeDesc.Height = postProcessHeight;
+            edgeDesc.Width = sceneBandWidth;
+            edgeDesc.Height = sceneBandHeight;
             edgeDesc.DebugName = "GTAOEdge";
             board.Scratch.GTAOEdge = declareGraphOnlyTexture("GTAOEdge", edgeDesc);
 
             RGResourceDesc denoiseDesc;
             denoiseDesc.Kind = ResourceHandle::Kind::Texture2D;
             denoiseDesc.Format = RGResourceFormat::R8UNorm;
-            denoiseDesc.Width = postProcessWidth;
-            denoiseDesc.Height = postProcessHeight;
+            denoiseDesc.Width = sceneBandWidth;
+            denoiseDesc.Height = sceneBandHeight;
             denoiseDesc.DebugName = std::string(ResourceNames::GTAODenoisePing);
             board.Scratch.GTAODenoisePing = declareGraphOnlyTexture(ResourceNames::GTAODenoisePing, denoiseDesc);
 

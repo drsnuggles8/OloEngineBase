@@ -29,6 +29,7 @@
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
 
+#include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -382,5 +383,105 @@ namespace OloEngine::Tests
         EXPECT_LT(dofEnergy, sharpEnergy)
             << "DOF did not reduce high-frequency detail (sharp=" << sharpEnergy
             << " dof=" << dofEnergy << ") — depth-driven defocus may be failing. See EASU_DOF_*.png";
+    }
+
+    // Regression test for issue #504: GTAO's scratch textures (GTAODenoisePing/
+    // Pong/Edge/HZB, declared in PopulateBlackboard) must track the scene-band
+    // resolution FSR1 renders at, same as AOBuffer — not the full display
+    // resolution the post chain runs at. When they didn't, GTAORenderPass::
+    // Execute's final glCopyImageSubData copied a display-sized region into the
+    // smaller (scene-band-sized) AOBuffer and overran its Y bound
+    // (GL_INVALID_VALUE id 1281) the instant Upscale left Off at runtime — the
+    // two sizes are identical (and the bug invisible) only when Upscale == Off,
+    // which is why boot-time-Off scenes never surfaced it. SSAO went through
+    // the same runtime switch in RunUpscaleContract above without issue (its
+    // AOBuffer + scratch targets both derive from sceneSpec directly), so this
+    // needs its own GTAO-enabled repro rather than reusing that helper.
+    // GTAO is not the default AOTechnique (SSAO is), so this must explicitly
+    // opt in — every other test in this file runs with the SSAO/GTAO defaults
+    // and never touched this path.
+    TEST_F(EASUVisualEvidenceTest, GTAOSurvivesRuntimeUpscaleSwitch)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        const glm::vec3 pos = { 0.0f, 7.0f, 16.0f };
+        constexpr f32 yaw = 0.0f;
+        constexpr f32 pitch = 0.32f;
+
+        auto& pp = Renderer3D::GetPostProcessSettings();
+        const AOTechnique savedTechnique = pp.ActiveAOTechnique;
+        const bool savedGtaoEnabled = pp.GTAOEnabled;
+        pp.ActiveAOTechnique = AOTechnique::GTAO;
+        pp.GTAOEnabled = true;
+
+        pp.Upscale = UpscaleMode::Off;
+        std::vector<u8> nativePixels;
+        Capture("GTAONative", pos, yaw, pitch, nativePixels);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        // The runtime switch itself is the regression: GTAO's scratch textures
+        // were declared once (at display res) and never resized to the reduced
+        // scene band this transition introduces.
+        pp.Upscale = UpscaleMode::Performance;
+        pp.RCASSharpness = 0.6f;
+        std::vector<u8> upscaledPixels;
+        Capture("GTAOPerformance", pos, yaw, pitch, upscaledPixels);
+
+        pp.Upscale = UpscaleMode::Off; // restore
+        pp.ActiveAOTechnique = savedTechnique;
+        pp.GTAOEnabled = savedGtaoEnabled;
+
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        // The statistical contract in RunUpscaleContract can pass even with
+        // GL_INVALID_VALUE spam (a corrupted corner of the frame doesn't
+        // necessarily fail loose mean-luma/energy thresholds), so check the log
+        // directly for the GL debug callback's error record.
+        const auto recent = Log::Get().GetRecentLogMessages(2000);
+        int glErrorCount = 0;
+        std::string firstGlError;
+        for (const auto& line : recent)
+        {
+            if (line.find("OpenGL debug message") != std::string::npos &&
+                line.find("type: ERROR") != std::string::npos)
+            {
+                ++glErrorCount;
+                if (firstGlError.empty())
+                    firstGlError = line;
+            }
+        }
+        EXPECT_EQ(glErrorCount, 0) << "GL error(s) after switching Upscale to Performance with GTAO active: "
+                                   << firstGlError;
+
+        // Deliberately NOT asserting on absolute brightness here (unlike
+        // RunUpscaleContract's native-vs-upscaled checks above): GTAO's
+        // AOApplyPass reuses PostProcess_SSAOApply.glsl, which is written for
+        // SSAO's HALF-resolution AOBuffer (see its "This texture is at HALF
+        // resolution" comment) even though GTAO's AOBuffer is FULL scene-band
+        // resolution — a separate, pre-existing issue (reproduces even at
+        // Upscale == Off, so it predates and is unrelated to this fix) that
+        // makes GTAO-lit scenes render too dark to use as a brightness oracle.
+        // Worth its own issue; out of scope here. The switch-safety contract
+        // this test exists for is the GL-error scan above and the "upscaled
+        // isn't darker than native" check below, which both hold regardless.
+        const f64 nativeMean = MeanLuma(nativePixels);
+        const f64 upMean = MeanLuma(upscaledPixels);
+        EXPECT_GE(upMean, nativeMean * 0.5)
+            << "runtime Upscale switch made the GTAO-lit frame substantially darker than native (native="
+            << nativeMean << " up=" << upMean << ") — see EASU_GTAONative.png / EASU_GTAOPerformance.png";
     }
 } // namespace OloEngine::Tests
