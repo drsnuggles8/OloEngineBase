@@ -3,6 +3,7 @@
 
 #include <glad/gl.h>
 
+#include <atomic>
 #include <cstring>
 #include <sstream>
 
@@ -18,6 +19,21 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        std::atomic<u32> s_GLErrorCount{ 0 };
+    } // namespace
+
+    u32 GetGLErrorCount()
+    {
+        return s_GLErrorCount.load(std::memory_order_relaxed);
+    }
+
+    void ResetGLErrorCount()
+    {
+        s_GLErrorCount.store(0, std::memory_order_relaxed);
+    }
+
     // Log the native call stack that produced a GL ERROR-type debug message.
     // The debug context is synchronous (GL_DEBUG_OUTPUT_SYNCHRONOUS, see
     // OpenGLRendererAPI::Init), so the callback runs on the thread that issued
@@ -76,6 +92,11 @@ namespace OloEngine
             constexpr const char* asyncBatchPrefix = "AsyncBatch[";
             if (std::strncmp(message, asyncBatchPrefix, std::strlen(asyncBatchPrefix)) == 0)
                 return;
+        }
+
+        if (type == GL_DEBUG_TYPE_ERROR)
+        {
+            s_GLErrorCount.fetch_add(1, std::memory_order_relaxed);
         }
 
         std::string sourceStr;
