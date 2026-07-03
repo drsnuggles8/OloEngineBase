@@ -43,6 +43,16 @@
 # metadata the measurement driver (scripts/perf/run-perf-battery.ps1) consumes:
 # file, entity count, whether the scene needs Play mode to exercise its axis,
 # and generation stats (a 50k YAML load being slow is itself a finding).
+#
+# --smoke writes ONE tiny, deterministic, COMMITTED scene (outside the
+# git-ignored PerfStress/ dir) that references both PerfBob.lua and
+# PerfBob.cs. Those two script assets exist to be reused by every regenerated
+# scripts_swarm* scene, so they must persist across clones — but a script
+# asset with no committed scene reference is an orphan (AssetLuaScriptValidity
+# / AssetCSharpScriptValidity) and PerfBob.cs additionally needs an
+# AssetRegistry.oar entry (AssetContentValidity.EverySupportedAssetOnDiskIsInTheRegistry
+# — launch the editor once to auto-rescan after adding/renaming a .cs file).
+#   python OloEngine/tests/scripts/generate_perf_scenes.py --smoke
 # =============================================================================
 
 import argparse
@@ -625,6 +635,20 @@ SCENES = {
 }
 
 
+def build_smoke_scene():
+    """Tiny fixed scene, committed outside PerfStress/: keeps PerfBob.lua and
+    PerfBob.cs off the asset-orphan lists without checking in a full
+    generated scene. Not part of the perf battery itself."""
+    w = SceneWriter("PerfStressSmoke.olo")
+    add_camera(w, (0, 4, 10), (-0.2, 0, 0))
+    add_dir_light(w)
+    w.entity("LuaBob", (-1, 1, 0), (0, 0, 0), (1, 1, 1),
+             mesh(1) + material([0.6, 0.6, 0.8]) + lua_script("Scripts/LuaScripts/PerfBob.lua"))
+    w.entity("CSharpBob", (1, 1, 0), (0, 0, 0), (1, 1, 1),
+             mesh(1) + material([0.8, 0.6, 0.6]) + csharp_script("Sandbox.PerfBob"))
+    return w
+
+
 def build_scene(scene, count, seed):
     rng = random.Random(seed)
     name = f"{scene}_{count}"
@@ -651,11 +675,20 @@ def main():
     ap.add_argument("--seed", type=int, default=1337)
     ap.add_argument("--out-dir", type=pathlib.Path, default=DEFAULT_OUT_DIR)
     ap.add_argument("--list", action="store_true", help="list scene ids and defaults")
+    ap.add_argument("--smoke", action="store_true",
+                    help="(re)generate the tiny committed PerfStressSmoke.olo and exit")
     args = ap.parse_args()
 
     if args.list:
         for k, (_, dflt, play, _probe, desc) in SCENES.items():
             print(f"{k:18s} default={dflt:<7d} play_mode={'yes' if play else 'no ':3s} {desc}")
+        return 0
+
+    if args.smoke:
+        out = REPO_ROOT / "OloEditor" / "SandboxProject" / "Assets" / "Scenes" / "PerfStressSmoke.olo"
+        w = build_smoke_scene()
+        out.write_text(w.text(), encoding="utf-8", newline="\n")
+        print(f"smoke scene -> {out} ({w.count} entities)")
         return 0
 
     if args.scene != "all" and args.scene not in SCENES:

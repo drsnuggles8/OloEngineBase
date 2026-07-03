@@ -1,0 +1,66 @@
+Scene: PerfStressSmoke.olo
+Entities:
+  - Entity: 910000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 4, 10]
+      Rotation: [-0.2, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7854
+        PerspectiveNear: 0.01
+        PerspectiveFar: 2000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 910000000000002
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.3, -1, -0.2]
+      Color: [1, 1, 1]
+      Intensity: 2
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 300
+      CascadeSplitLambda: 0.95
+  - Entity: 910000000000003
+    TagComponent:
+      Tag: LuaBob
+    TransformComponent:
+      Translation: [-1, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.8]
+      Metallic: 0.1
+      Roughness: 0.6
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/PerfBob.lua
+  - Entity: 910000000000004
+    TagComponent:
+      Tag: CSharpBob
+    TransformComponent:
+      Translation: [1, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.6, 0.6]
+      Metallic: 0.1
+      Roughness: 0.6
+    ScriptComponent:
+      ClassName: Sandbox.PerfBob
