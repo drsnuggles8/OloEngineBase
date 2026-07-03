@@ -26,7 +26,9 @@ namespace OloEngine
         f32 ShadowSoftness = 1.0f;
         bool ShadowEnabled = true;
         // Percentage-Closer Soft Shadows (contact-hardening variable penumbra).
-        bool SoftShadows = true;
+        // Ultra-tier only — PCSS measured as the single largest scene-pass cost
+        // (SponzaCSM A/B, 2026-07-02), so Low/Medium/High use hardware PCF.
+        bool SoftShadows = false;
 
         // AO
         AOTechnique AO = AOTechnique::GTAO;

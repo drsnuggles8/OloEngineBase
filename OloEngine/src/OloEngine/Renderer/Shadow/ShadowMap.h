@@ -32,7 +32,10 @@ namespace OloEngine
         // Percentage-Closer Soft Shadows: contact-hardening variable-penumbra
         // filtering (sharp where the occluder touches the receiver, softening with
         // distance). Off falls back to the legacy fixed 3x3 hardware PCF.
-        bool SoftShadows = true;
+        // Default OFF: a live A/B on SponzaCSM (RTX 4090, 1080p, 2026-07-02)
+        // measured PCSS at ~43 ms of a 46.6 ms scene pass vs ~3 ms with PCF —
+        // PCSS is an Ultra-tier opt-in (see QualityTiering), not the baseline.
+        bool SoftShadows = false;
     };
 
     // @brief Manages shadow map textures, light-space matrices, and UBO uploads

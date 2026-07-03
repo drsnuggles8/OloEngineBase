@@ -220,7 +220,10 @@ namespace OloEngine
             ImGui::SetTooltip("Percentage-Closer Soft Shadows: contact-hardening variable\n"
                               "penumbra (sharp at contact, softening with distance).\n"
                               "Off uses the legacy fixed PCF. 'Shadow Softness' is the\n"
-                              "light apparent size when PCSS is on.");
+                              "light apparent size when PCSS is on.\n"
+                              "PCSS is by far the most expensive shadow path (measured\n"
+                              "~14x the scene-pass cost of PCF on Sponza) — Ultra tier only\n"
+                              "by default.");
         if (ImGui::SliderFloat("Shadow Softness##qt", &qt.ShadowSoftness, 0.0f, 2.0f))
             changed = true;
     }

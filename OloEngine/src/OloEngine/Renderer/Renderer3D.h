@@ -905,6 +905,48 @@ namespace OloEngine
             return project(currFullTransforms);
         }
 
+        // Depth-prepass shader swap: while the scene depth prepass is active,
+        // CommandDispatch binds these minimal depth-only programs in place of
+        // the full PBR forward / G-Buffer shaders so covered fragments never
+        // run the expensive lighting fragment shader. Returned as one renderer-
+        // ID snapshot (taken per prepass activation) so the per-draw resolve is
+        // a handful of integer compares. IDs are 0 while shaders are unloaded,
+        // which disables the swap safely.
+        struct DepthPrepassShaderIDs
+        {
+            // Standard mesh programs eligible for the swap
+            u32 PBRStatic = 0;
+            u32 PBRSkinned = 0;
+            u32 GBufferStatic = 0;
+            u32 GBufferSkinned = 0;
+            // Replacement depth-only programs (DepthPrepass*.glsl)
+            u32 DepthStatic = 0;
+            u32 DepthSkinned = 0;
+            u32 DepthMaskStatic = 0;
+            u32 DepthMaskSkinned = 0;
+        };
+        static DepthPrepassShaderIDs GetDepthPrepassShaderIDs()
+        {
+            DepthPrepassShaderIDs ids;
+            if (s_Data.PBRMultiLightShader)
+                ids.PBRStatic = s_Data.PBRMultiLightShader->GetRendererID();
+            if (s_Data.PBRMultiLightSkinnedShader)
+                ids.PBRSkinned = s_Data.PBRMultiLightSkinnedShader->GetRendererID();
+            if (s_Data.PBRGBufferShader)
+                ids.GBufferStatic = s_Data.PBRGBufferShader->GetRendererID();
+            if (s_Data.PBRGBufferSkinnedShader)
+                ids.GBufferSkinned = s_Data.PBRGBufferSkinnedShader->GetRendererID();
+            if (s_Data.DepthPrepassShader)
+                ids.DepthStatic = s_Data.DepthPrepassShader->GetRendererID();
+            if (s_Data.DepthPrepassSkinnedShader)
+                ids.DepthSkinned = s_Data.DepthPrepassSkinnedShader->GetRendererID();
+            if (s_Data.DepthPrepassMaskShader)
+                ids.DepthMaskStatic = s_Data.DepthPrepassMaskShader->GetRendererID();
+            if (s_Data.DepthPrepassMaskSkinnedShader)
+                ids.DepthMaskSkinned = s_Data.DepthPrepassMaskSkinnedShader->GetRendererID();
+            return ids;
+        }
+
         static Ref<Shader> GetTerrainPBRShader()
         {
             return s_Data.TerrainPBRShader;
@@ -1457,6 +1499,12 @@ namespace OloEngine
             Ref<Shader> ShadowDepthShader;
             Ref<Shader> ShadowDepthSkinnedShader;
             Ref<Shader> ShadowDepthPointSkinnedShader;
+
+            // Depth-prepass depth-only programs (see GetDepthPrepassShaderIDs)
+            Ref<Shader> DepthPrepassShader;
+            Ref<Shader> DepthPrepassSkinnedShader;
+            Ref<Shader> DepthPrepassMaskShader;
+            Ref<Shader> DepthPrepassMaskSkinnedShader;
 
             // Terrain
             Ref<Shader> TerrainPBRShader;

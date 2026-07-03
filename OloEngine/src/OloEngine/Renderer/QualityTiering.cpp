@@ -82,6 +82,8 @@ namespace OloEngine
                 s.ShadowResolution = 4096;
                 s.ShadowSoftness = 1.0f;
                 s.ShadowEnabled = true;
+                s.SoftShadows = true; // PCSS: contact-hardening penumbra, Ultra-only cost
+
                 s.AO = AOTechnique::GTAO;
                 s.SSAOSamples = 64;
                 s.SSAORadius = 0.5f;
