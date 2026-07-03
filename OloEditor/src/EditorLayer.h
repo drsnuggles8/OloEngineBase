@@ -85,6 +85,11 @@ namespace OloEngine
         void NewScene();
         void OpenScene();
         bool OpenScene(const std::filesystem::path& path);
+        // Deserialize `loadPath` and install it as the editor scene, recording
+        // `scenePath` as its on-disk identity (they differ only for auto-save
+        // recovery). The shared, modal-free "Open Scene" finalization used by
+        // OpenScene and the MCP olo_scene_open hook. Returns false on a failed load.
+        bool LoadEditorSceneFile(const std::filesystem::path& loadPath, const std::filesystem::path& scenePath);
         // Point the editor camera at a terrain in the scene (terrain spans world
         // [0, worldSize] from its transform, so the default origin-focused camera
         // would otherwise look right past it). No-op when the scene has no terrain.

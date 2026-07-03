@@ -436,6 +436,14 @@ add_executable(OloEngine-Tests
 		# structs, restore-prior-value not CommandHistory). Renderer-light header, so
 		# no extra editor TU is pulled in.
 		MCP/McpRendererSettingsTest.cpp
+		# Consented MCP scene-control WRITE tools: olo_scene_open / olo_scene_play /
+		# olo_scene_stop (#316 Part 5) — the scriptable scene switch + play-mode toggle.
+		# Same dispatch seam (session write gate + inputSchema enforcement at
+		# McpServer.cpp) and shared shaping/validation (MCP/McpSceneControl.h: schemas,
+		# ValidateScenePath, result->JSON). The scene ACTIONS are context hooks (the
+		# EnTT registry / runtime in the editor), so the test injects fakes and never
+		# touches a scene. Header-only on the editor side, so no extra editor TU.
+		MCP/McpSceneControlTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).

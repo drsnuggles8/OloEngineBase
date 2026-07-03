@@ -92,6 +92,40 @@ namespace
                                { return static_cast<char>(std::tolower(c)); });
         return ext;
     }
+
+    // How to answer the "Recover Auto-Save?" prompt when OpenScene finds a newer
+    // .auto file. Prompt = show the modal (the interactive default).
+    enum class AutoSaveRecoveryChoice
+    {
+        Prompt,
+        Autosave, // load the .auto (the recovered work)
+        Original, // load the saved scene, leaving the .auto in place
+        Discard,  // delete the .auto, then load the saved scene
+    };
+
+    // A headless / agent session can't click the recovery modal — synthetic Win32
+    // clicks don't reach ImGui — so a newer auto-save would wedge the editor at a
+    // modal it can never dismiss (issue #316 Part 5). OLO_EDITOR_AUTOSAVE_RECOVERY
+    // lets an automated launch pre-answer it: 'autosave'/'recover', 'original'/'keep',
+    // or 'discard'/'delete' (case-insensitive). Unset / empty / unrecognized keeps
+    // the interactive modal, so this never changes a human's editor.
+    [[nodiscard]] AutoSaveRecoveryChoice ResolveAutoSaveRecoveryChoice()
+    {
+        const char* env = std::getenv("OLO_EDITOR_AUTOSAVE_RECOVERY");
+        if (env == nullptr || *env == '\0')
+            return AutoSaveRecoveryChoice::Prompt;
+        std::string value(env);
+        std::ranges::transform(value, value.begin(),
+                               [](unsigned char c)
+                               { return static_cast<char>(std::tolower(c)); });
+        if (value == "autosave" || value == "recover" || value == "auto")
+            return AutoSaveRecoveryChoice::Autosave;
+        if (value == "original" || value == "keep" || value == "saved")
+            return AutoSaveRecoveryChoice::Original;
+        if (value == "discard" || value == "delete")
+            return AutoSaveRecoveryChoice::Discard;
+        return AutoSaveRecoveryChoice::Prompt; // unrecognized -> safe interactive default
+    }
 } // namespace
 
 namespace OloEngine
@@ -405,6 +439,108 @@ namespace OloEngine
 #else
                 result.Message = "C# scripting is disabled in this build (Mono not available on this platform).";
 #endif
+                return result;
+            };
+            // olo_scene_open (#316 Part 5): open/switch the active scene. Resolves the
+            // path against the project asset directory when relative, stops Play mode
+            // if running, and loads the scene DIRECTLY via LoadEditorSceneFile — never
+            // raising the auto-save recovery modal (a remote agent can't click it).
+            // Main-thread-only (EnTT registry / renderer settings), so the MCP server
+            // calls it from a MarshalRead job.
+            mcpContext.OpenSceneFromMcp = [this](const std::string& path) -> MCP::McpSceneOpenResult
+            {
+                MCP::McpSceneOpenResult result;
+                result.Available = true;
+
+                std::filesystem::path scenePath(path);
+                if (scenePath.is_relative() && Project::GetActive())
+                    scenePath = Project::GetAssetFileSystemPath(scenePath);
+                result.Path = scenePath.string();
+
+                if (auto const ext = LowercaseExtension(scenePath); ext != ".olo" && ext != ".scene")
+                {
+                    result.Message = "Not a scene file (expected .olo or .scene): " + scenePath.string();
+                    return result;
+                }
+                std::error_code ec;
+                if (!std::filesystem::exists(scenePath, ec))
+                {
+                    result.Message = "Scene file not found: " + scenePath.string();
+                    return result;
+                }
+
+                // The runtime scene in Play/Simulate is a transient copy; stop first so
+                // the load replaces the authored (Edit-mode) scene cleanly.
+                if (m_SceneState != SceneState::Edit)
+                    OnSceneStop();
+
+                if (!LoadEditorSceneFile(scenePath, scenePath))
+                {
+                    result.Message = "Failed to load scene (deserialize error — see the engine log): " + scenePath.string();
+                    return result;
+                }
+
+                result.Ok = true;
+                result.SceneName = m_ActiveScene ? m_ActiveScene->GetName() : std::string{};
+                result.EntityCount = m_ActiveScene
+                                         ? static_cast<u32>(m_ActiveScene->GetAllEntitiesWith<IDComponent>().size())
+                                         : 0;
+                result.Message = "Opened scene '" + result.SceneName + "' (" +
+                                 std::to_string(result.EntityCount) + " entities).";
+                return result;
+            };
+            // olo_scene_play / olo_scene_stop (#316 Part 5): toggle Play mode — the
+            // same OnScenePlay / OnSceneStop the editor's Play/Stop buttons drive.
+            // Idempotent: a redundant call reports changed:false. Entering Play can
+            // fail when the scene has no primary camera (OnScenePlay reverts to Edit),
+            // reported as ok:false. Main-thread-only (mutates scene state / runs the
+            // runtime start-stop), so it runs inside a MarshalRead job.
+            mcpContext.SetScenePlayState = [this](bool play) -> MCP::McpScenePlayResult
+            {
+                MCP::McpScenePlayResult result;
+                result.Available = true;
+
+                if (play)
+                {
+                    if (m_SceneState == SceneState::Play)
+                    {
+                        result.Ok = true;
+                        result.Playing = true;
+                        result.Message = "Already in Play mode.";
+                    }
+                    else
+                    {
+                        // From Simulate, OnScenePlay stops it first; from Edit it enters
+                        // Play. It reverts to Edit if the scene has no primary camera.
+                        OnScenePlay();
+                        const bool nowPlaying = m_SceneState == SceneState::Play;
+                        result.Ok = nowPlaying;
+                        result.Playing = nowPlaying;
+                        result.Changed = nowPlaying;
+                        result.Message = nowPlaying
+                                             ? "Entered Play mode."
+                                             : "Could not enter Play mode: the scene has no primary CameraComponent "
+                                               "(see the engine log). The editor stayed in Edit mode.";
+                    }
+                }
+                else
+                {
+                    if (m_SceneState == SceneState::Play || m_SceneState == SceneState::Simulate)
+                    {
+                        OnSceneStop();
+                        result.Ok = true;
+                        result.Changed = true;
+                        result.Message = "Stopped Play mode; restored the authored scene.";
+                    }
+                    else
+                    {
+                        result.Ok = true;
+                        result.Message = "Already stopped (Edit mode).";
+                    }
+                    result.Playing = false;
+                }
+
+                result.SceneName = m_ActiveScene ? m_ActiveScene->GetName() : std::string{};
                 return result;
             };
             mcpContext.GetFrameIndex = [this]() -> u64
@@ -2584,19 +2720,53 @@ namespace OloEngine
         autoPath += ".auto";
         if (FileSystem::IsNewer(autoPath, path))
         {
-            m_PendingRecoveryScenePath = path;
-            m_PendingRecoveryAutoPath = autoPath;
-            m_ShowAutoSaveRecovery = true;
-            return true; // The modal will handle loading
+            // A headless / agent session can't click the recovery modal, so an
+            // automated launch can pre-answer it via OLO_EDITOR_AUTOSAVE_RECOVERY
+            // (issue #316 Part 5). Unset -> show the modal as before.
+            switch (ResolveAutoSaveRecoveryChoice())
+            {
+                case AutoSaveRecoveryChoice::Autosave:
+                    OLO_CORE_INFO("Auto-save recovery pre-answered (autosave): loading '{}'", autoPath.string());
+                    return LoadEditorSceneFile(autoPath, path);
+                case AutoSaveRecoveryChoice::Original:
+                    OLO_CORE_INFO("Auto-save recovery pre-answered (original): loading '{}'", path.string());
+                    return LoadEditorSceneFile(path, path);
+                case AutoSaveRecoveryChoice::Discard:
+                {
+                    OLO_CORE_INFO("Auto-save recovery pre-answered (discard): deleting '{}' and loading '{}'",
+                                  autoPath.string(), path.string());
+                    std::error_code ec;
+                    std::filesystem::remove(autoPath, ec);
+                    return LoadEditorSceneFile(path, path);
+                }
+                case AutoSaveRecoveryChoice::Prompt:
+                default:
+                    m_PendingRecoveryScenePath = path;
+                    m_PendingRecoveryAutoPath = autoPath;
+                    m_ShowAutoSaveRecovery = true;
+                    return true; // The modal will handle loading
+            }
         }
 
+        return LoadEditorSceneFile(path, path);
+    }
+
+    // Deserialize `loadPath` and install it as the editor scene, recording `scenePath`
+    // as the scene's on-disk identity (they differ only for auto-save recovery, where
+    // we load the .auto but keep the real scene's path). The full "Open Scene"
+    // finalization: SetEditorScene, camera framing, the unified-timeline SceneLoad
+    // event, and syncing the scene's renderer settings + quality tiering. Shared by
+    // OpenScene (the non-modal path) and the MCP olo_scene_open hook. Returns false
+    // (leaving the current scene untouched) if the deserialize fails.
+    bool EditorLayer::LoadEditorSceneFile(const std::filesystem::path& loadPath, const std::filesystem::path& scenePath)
+    {
         Ref<Scene> const newScene = Ref<Scene>::Create();
-        if (SceneSerializer serializer(newScene); !serializer.Deserialize(path.string()))
+        if (SceneSerializer serializer(newScene); !serializer.Deserialize(loadPath.string()))
         {
             return false;
         }
         SetEditorScene(newScene);
-        m_EditorScenePath = path;
+        m_EditorScenePath = scenePath;
         FrameEditorCameraOnTerrain(newScene);
 
         // One unified-timeline event for the whole load (#306 item B). The per-entity
@@ -2606,7 +2776,7 @@ namespace OloEngine
             DiagnosticEventCategory::SceneLoad,
             "Loaded scene '" + newScene->GetName() + "' (" +
                 std::to_string(static_cast<u64>(newScene->GetAllEntitiesWith<IDComponent>().size())) + " entities)",
-            0, path.filename().string());
+            0, scenePath.filename().string());
 
         Renderer3D::GetPostProcessSettings() = newScene->GetPostProcessSettings();
         Renderer3D::GetSnowSettings() = newScene->GetSnowSettings();

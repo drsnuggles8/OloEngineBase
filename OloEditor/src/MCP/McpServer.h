@@ -195,6 +195,40 @@ namespace OloEngine::MCP
         std::string Message;
     };
 
+    // Outcome of a consented scene switch (issue #316 Part 5), returned by
+    // EditorMcpContext::OpenSceneFromMcp. `Available` is false in a host that owns
+    // no editor (the headless attach / dispatch tests) — the tool then reports that
+    // honestly. `Ok` is true only when the scene actually loaded; on failure
+    // `Message` explains why (bad extension, not found, deserialize failed). `Path`
+    // is the resolved scene path, `SceneName` / `EntityCount` describe the scene now
+    // active. The load bypasses the editor's auto-save recovery modal (an agent
+    // can't click it) and loads the requested file directly.
+    struct McpSceneOpenResult
+    {
+        bool Available = false;
+        bool Ok = false;
+        std::string Path;
+        std::string SceneName;
+        u32 EntityCount = 0;
+        std::string Message;
+    };
+
+    // Outcome of a consented play-mode toggle (issue #316 Part 5), returned by
+    // EditorMcpContext::SetScenePlayState. `Available` is false in a host with no
+    // editor. `Ok` is true when the editor is in the requested mode afterwards;
+    // `Changed` is true only when this call actually transitioned (entering Play can
+    // fail — e.g. no primary camera — leaving the editor in Edit with Ok:false).
+    // `Playing` is the resulting play state; `SceneName` is the active scene.
+    struct McpScenePlayResult
+    {
+        bool Available = false;
+        bool Ok = false;
+        bool Playing = false;
+        bool Changed = false;
+        std::string SceneName;
+        std::string Message;
+    };
+
     // Editor state the main-marshaled tools read. EditorLayer fills these in; the
     // std::function bodies are ONLY safe to call on the main (game) thread, i.e.
     // from inside a MarshalRead() job.
@@ -256,6 +290,28 @@ namespace OloEngine::MCP
         // a headless host that owns no script engine — the tool then reports "not
         // available".
         std::function<McpScriptReloadResult()> ReloadScriptAssembly;
+
+        // Open / switch the active scene — the consented-write scene switch
+        // (issue #316 Part 5). Loads the scene at `path` (resolved against the
+        // project asset directory when relative) directly, the same install path
+        // as the editor's Open Scene menu but WITHOUT the auto-save recovery modal
+        // (a remote agent can't click it) and without the file dialog. Stops Play
+        // mode first if running. Main-thread-only (touches the EnTT registry /
+        // renderer settings), so the server calls it from a MarshalRead job. Like
+        // GetCommandHistory this is a consented project-write tool. Null in a
+        // headless host that owns no editor scene — the tool then reports "not
+        // available".
+        std::function<McpSceneOpenResult(const std::string& path)> OpenSceneFromMcp;
+
+        // Toggle Play mode — the consented-write, fully-reversible play/stop switch
+        // (issue #316 Part 5). `play` true enters Play (OnScenePlay: copies the
+        // scene + starts the runtime), false stops it (OnSceneStop: restores the
+        // authored scene). Idempotent — a redundant call is a no-op reported as
+        // Changed:false. Main-thread-only (mutates scene state / runs runtime
+        // start-stop), so the server calls it from a MarshalRead job. A consented
+        // project-write tool (entering Play executes the user's game scripts). Null
+        // in a headless host with no editor.
+        std::function<McpScenePlayResult(bool play)> SetScenePlayState;
     };
 
     // An MCP resource: a passive, addressable blob (vs. an active tool). The reader
