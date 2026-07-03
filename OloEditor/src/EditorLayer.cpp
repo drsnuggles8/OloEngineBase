@@ -578,6 +578,20 @@ namespace OloEngine
                 }
                 if (m_McpServer->Start(port))
                     m_ShowMcpPanel = true; // surface the panel so the token is visible
+
+                // Session write consent (issue #306 item C) defaults to Disabled and
+                // is never persisted, so a headless launch would otherwise refuse
+                // every olo_scene_open/olo_scene_play/olo_scene_stop call with no way
+                // to click the MCP panel's radio buttons. OLO_MCP_ALLOW_WRITES is the
+                // explicit, opt-in escape hatch for a deliberately-launched automated
+                // session (e.g. scripts/perf/run-perf-battery.ps1) — same spirit as
+                // OLO_MCP_AUTOSTART, and still off by default for an interactive user.
+                const char* allowWritesEnv = std::getenv("OLO_MCP_ALLOW_WRITES");
+                if (allowWritesEnv != nullptr && *allowWritesEnv != '\0' && std::string_view(allowWritesEnv) != "0")
+                {
+                    OLO_CORE_INFO("OLO_MCP_ALLOW_WRITES set - MCP write consent = AllowSession");
+                    m_McpServer->SetAllowWrites(true);
+                }
             }
         }
     }
@@ -652,21 +666,6 @@ namespace OloEngine
 
         m_ActiveScene->OnViewportResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
         m_ActiveScene->SetViewportOffset(m_ViewportBounds[0]);
-
-        // Headless-automation opt-in (same spirit as OLO_MCP_AUTOSTART): enter
-        // Play mode once the editor is up, so drivers that measure runtime
-        // behaviour (physics/scripts/animation) over MCP don't need to click
-        // the toolbar. A few frames of settle lets the first viewport
-        // resize/shader warmup finish before OnScenePlay copies the scene.
-        if (m_SceneState == SceneState::Edit && m_FrameIndex == 30)
-        {
-            if (const char* autoplay = std::getenv("OLO_EDITOR_AUTOPLAY");
-                autoplay != nullptr && *autoplay != '\0' && std::string_view(autoplay) != "0")
-            {
-                OLO_CORE_INFO("OLO_EDITOR_AUTOPLAY set - entering Play mode");
-                OnScenePlay();
-            }
-        }
 
         const f64 epsilon = 1e-5;
 

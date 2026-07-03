@@ -123,17 +123,47 @@ bulk/binary path or runtime spawner is the fix direction.
   transform scale); getting it wrong silently substitutes a default shape.
 - Edit-mode scenes are viewed through the **editor camera** — the driver poses
   it from the manifest (`olo_camera_set_pose`).
-- No MCP scene-open or play/stop control exists (both logged on #306) — the
-  driver edits `Sandbox.oloproj` StartScene and relaunches per scene; the
-  editor briefly holds the file on shutdown (writes are retried).
 - MCP `MarshalRead` times out on heavily stalled main threads (log-spam or
   sub-1-fps scenes) — samples degrade to null rather than failing the run.
 
+## Update (2026-07-03, later same day): reworked onto real scene control
+
+`olo_scene_open`/`olo_scene_play`/`olo_scene_stop` (#316 Part 5) merged to
+master shortly after the section above was written. Merged into this branch
+and reworked the driver to keep **one** editor instance for the whole battery,
+switching scenes over MCP instead of relaunching per scene — see
+[docs/guides/perf-stress-scenes.md](../guides/perf-stress-scenes.md) for the
+new flow. Re-ran the full battery afterward; numbers were directionally
+consistent with the table above (ShadowPass still dominates the unshadowed
+mesh scenes, `ecs_static_100000` still ~19 ms with near-zero attributable
+render CPU, both script swarms still verified moving via the probe), with one
+exception: **`physics_pile_50000` measured markedly worse** (8.1 s vs. 2.0 s
+frame time; Jolt update-error code 7 vs. 4 — `BodyPairCacheFull |
+ContactConstraintsFull` vs. `ContactConstraintsFull` alone) run as the 15th
+scene in a long session versus fresh/first in its own process. The
+qualitative finding (#523) holds either way, but treat absolute numbers for
+the heaviest physics scenes as **session-order-sensitive** in the one-instance
+design — rerun a suspect scene standalone for a clean read.
+
+Hit one real bug integrating the merged tools: `Handle_SceneOpen` /
+`Handle_ScenePlayState` (McpTools.cpp) called `server.MarshalRead(job)` with
+the default 5 s dispatch watchdog — nowhere near enough for a 50k-entity load
+(measured ~44–59 s). Worse, a timed-out `MarshalRead` does not cancel the
+still-running main-thread job, so a driver that reacts to the timeout by
+immediately opening the *next* scene queues a second heavy job behind the
+first — the queue never recovers and every remaining scene in the run fails
+identically. Fixed by giving those two handlers an explicit 120 s timeout
+(`kSceneControlTimeout`); every other MCP tool keeps the 5 s default since a
+slow *query* tool should hang loudly rather than silently block a queue. This
+was an integration bug in the newly-merged tools' interaction with a
+long-running driver, not a pre-existing MCP defect — fixed in-branch rather
+than logged to a tracker.
+
 ## Tooling gaps logged
 
-- #306: `olo_scene_play`/`olo_scene_stop` (posted 2026-07-03); `olo_scene_open`
-  (already listed — noted there that the battery driver should be reworked to
-  keep one editor instance and switch scenes over MCP once it lands).
+- #306: `olo_scene_play`/`olo_scene_stop` (posted 2026-07-03, now resolved —
+  merged same day); `olo_scene_open` (already listed, also resolved). Posted a
+  follow-up confirming the driver rework once it landed.
 - #519: fresh evidence for `olo_perf_cpu_scopes` + request for read-only
   `olo_physics_stats` (bodies active/sleeping, step ms, update-error flags)
   (posted 2026-07-03).

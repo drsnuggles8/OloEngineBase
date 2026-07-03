@@ -3612,6 +3612,23 @@ namespace OloEngine::MCP
             return ToolResult::Text(result.dump(2));
         }
 
+        // MarshalRead's default 5s watchdog is sized for the typical read-only tool
+        // (a snapshot, a query) — nowhere near enough for a full scene load/copy at
+        // stress-test entity counts (a 50k-entity YAML deserialize measured ~55-60s
+        // wall time; a 100k-entity transform-only scene ~24s: see
+        // docs/analysis/perf-stress-findings-2026-07.md). Below that ceiling
+        // MarshalRead's CALLER gives up and returns an error while the job it
+        // enqueued keeps running on the game thread regardless (nothing dequeues
+        // it) — a driver that reacts to that "timeout" by immediately queuing the
+        // NEXT scene's open compounds a single-threaded backlog that never
+        // recovers (found running scripts/perf/run-perf-battery.ps1 against a
+        // long-lived editor instance, #316 Part 5 follow-up). olo_scene_open /
+        // olo_scene_play / olo_scene_stop are the only tools that legitimately need
+        // more room; every other MarshalRead call site is a fast query and keeps
+        // the 5s default deliberately, so slow tools genuinely hang rather than
+        // silently blocking behind the queue for minutes.
+        constexpr std::chrono::milliseconds kSceneControlTimeout{ 120000 };
+
         // ---- olo_scene_open (main-marshaled; PROJECT WRITE) --------------------
         // Open / switch the active scene over MCP — the consented-write scene switch
         // (issue #316 Part 5). Loads the requested scene file directly through the
@@ -3642,7 +3659,8 @@ namespace OloEngine::MCP
                 if (!server.Context().OpenSceneFromMcp)
                     return Json{ { "__error", "Scene open is not available in this editor build." } };
                 const McpSceneOpenResult opened = server.Context().OpenSceneFromMcp(path);
-                return ToJson(opened); });
+                return ToJson(opened); },
+                                                   kSceneControlTimeout);
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
@@ -3672,7 +3690,8 @@ namespace OloEngine::MCP
                 if (!server.Context().SetScenePlayState)
                     return Json{ { "__error", "Play-mode control is not available in this editor build." } };
                 const McpScenePlayResult r = server.Context().SetScenePlayState(play);
-                return ToJson(r); });
+                return ToJson(r); },
+                                                   kSceneControlTimeout);
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());

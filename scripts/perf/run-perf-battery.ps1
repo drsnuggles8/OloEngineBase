@@ -1,24 +1,34 @@
 # =============================================================================
 # run-perf-battery.ps1 — measurement driver for the perf stress scene battery.
 #
-# For every generated scene in Assets/Scenes/PerfStress/manifest.json (see
-# OloEngine/tests/scripts/generate_perf_scenes.py) this script:
+# Launches ONE OloEditor instance (default -Config Dist) and drives it through
+# every generated scene in Assets/Scenes/PerfStress/manifest.json (see
+# OloEngine/tests/scripts/generate_perf_scenes.py) over MCP, switching scenes
+# and Play state with the consented-write scene-control tools (#316 Part 5)
+# instead of relaunching the editor per scene:
 #
-#   1. points Sandbox.oloproj's StartScene at the scene (RESTORED afterwards —
-#      no olo_scene_open MCP tool exists yet; logged on #306. When that tool
-#      lands, rework this loop to keep ONE editor instance alive and switch
-#      scenes + play state over MCP instead of relaunching per scene),
-#   2. launches OloEditor (default -Config Dist) with OLO_MCP_AUTOSTART=1 on a
-#      dedicated port, and OLO_EDITOR_AUTOPLAY=1 when the scene needs Play mode
-#      (physics/scripts/animation don't tick in Edit mode),
-#   3. measures startup+scene-load wall time (launch -> MCP discovery file),
-#   4. over MCP JSON-RPC: olo_viewport_set_size 1920x1080 (window is NOT
-#      maximized — the override fights a maximized panel, known issue), waits
-#      -SettleSeconds, then records olo_perf_snapshot xN, olo_perf_pass_timings
-#      xN (averaged), olo_perf_frame_history, olo_memory_report, a screenshot,
-#      and shader/script error probes,
-#   5. kills the editor and writes results.md (markdown table) + results.json
-#      (raw samples) + per-scene PNGs into -OutDir.
+#   1. launch once, with OLO_MCP_AUTOSTART=1 + OLO_MCP_ALLOW_WRITES=1 (the
+#      session-level write-consent opt-in — off by default; needed because
+#      olo_scene_open/olo_scene_play/olo_scene_stop are ProjectWrite tools) +
+#      OLO_EDITOR_AUTOSAVE_RECOVERY=original (pre-answers the recovery modal a
+#      headless session could never click, in case a stray .auto file exists),
+#   2. per scene: olo_scene_open (timed — this is the scene-load-time metric),
+#      then olo_scene_play if the scene needs Play mode (physics/scripts/
+#      animation don't tick in Edit mode; olo_scene_open stops Play first, so
+#      no explicit olo_scene_stop is needed between scenes),
+#   3. over MCP JSON-RPC: olo_viewport_set_size 1920x1080 (window is NOT
+#      maximized — the override fights a maximized panel, known issue), poses
+#      the editor camera for edit-mode scenes, waits -SettleSeconds, then
+#      records olo_perf_snapshot xN, olo_perf_pass_timings xN (averaged),
+#      olo_perf_frame_history, olo_memory_report, a screenshot, a workload
+#      probe, and shader/script error probes,
+#   4. after the last scene, stops Play mode and kills the one editor process,
+#      and writes results.md (markdown table) + results.json (raw samples) +
+#      per-scene PNGs/log-deltas into -OutDir.
+#
+# A scene that fails to open/play (e.g. missing file, no primary camera) is
+# recorded as an error row and the run continues — no relaunch needed, unlike
+# the old per-scene-process design.
 #
 # Usage (repo root):
 #   pwsh -File scripts/perf/run-perf-battery.ps1                       # all scenes
@@ -26,7 +36,9 @@
 #   pwsh -File scripts/perf/run-perf-battery.ps1 -Config Release -SettleSeconds 30
 #
 # Prereqs: scenes generated (generate_perf_scenes.py --scene all), OloEditor
-# built in the chosen config, interactive desktop session (GL context).
+# built in the chosen config (with the OLO_MCP_ALLOW_WRITES hook —
+# EditorLayer.cpp, merged alongside #316 Part 5), interactive desktop session
+# (GL context).
 # =============================================================================
 [CmdletBinding()]
 param(
@@ -35,7 +47,8 @@ param(
     [string]$Config = 'Dist',
     [int]$SettleSeconds = 20,             # steady-state wait before sampling
     [int]$Samples = 3,                    # perf_snapshot / pass_timings repeats
-    [int]$LoadTimeoutSeconds = 600,       # 50k-entity scenes can load for minutes
+    [int]$StartupTimeoutSeconds = 120,    # one-time: launch -> MCP discovery file
+    [int]$SceneOpenTimeoutSeconds = 600,  # per-scene: 50k-entity scenes can load for minutes
     [switch]$SkipBaseline,                # baseline = PinkCube.olo reference row
     [string]$OutDir
 )
@@ -43,7 +56,6 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $workDir = Join-Path $repo 'OloEditor'
-$projFile = Join-Path $workDir 'SandboxProject\Sandbox.oloproj'
 $manifestPath = Join-Path $workDir 'SandboxProject\Assets\Scenes\PerfStress\manifest.json'
 $exePath = Join-Path $repo "bin\$Config\OloEditor\OloEditor.exe"
 
@@ -131,13 +143,18 @@ function Read-EngineLog {
     } catch { return $null }
 }
 
-# The editor occasionally still holds Sandbox.oloproj briefly after a kill
-# (shutdown-time writes) — retry instead of aborting the whole battery.
-function Set-ContentRetry([string]$path, [string]$value) {
-    for ($attempt = 1; $attempt -le 5; $attempt++) {
-        try { Set-Content -Path $path -Value $value -NoNewline; return }
-        catch { if ($attempt -eq 5) { throw }; Start-Sleep -Seconds 2 }
-    }
+# The editor is now a single long-lived process for the whole battery, so
+# OloEngine.log keeps growing across scenes (it is truncated only once, on
+# THIS launch). Save each scene's DELTA since the previous snapshot instead
+# of the whole file, so <scene>.log stays scoped to that scene like it was
+# in the old per-scene-relaunch design.
+$script:logOffset = 0
+function Save-LogDelta([string]$key) {
+    $text = Read-EngineLog
+    if ($null -eq $text) { return }
+    $delta = if ($text.Length -gt $script:logOffset) { $text.Substring($script:logOffset) } else { '' }
+    Set-Content -Path (Join-Path $OutDir "$key.log") -Value $delta -NoNewline
+    $script:logOffset = $text.Length
 }
 
 function Get-Avg($values) {
@@ -146,10 +163,43 @@ function Get-Avg($values) {
     return [math]::Round(($vals | Measure-Object -Average).Average, 2)
 }
 
-# --- run ---------------------------------------------------------------------
-$projBackup = Get-Content $projFile -Raw
-$port = 47311   # fixed battery port; per-run discovery file below
+# --- launch ONE editor instance for the whole battery -------------------------
+$port = 47311
 $discoveryPath = Join-Path $env:TEMP "oloengine-mcp-perfbattery.json"
+Remove-Item $discoveryPath -ErrorAction SilentlyContinue
+
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = $exePath
+$psi.WorkingDirectory = $workDir
+$psi.UseShellExecute = $true
+# ShellExecute children inherit this process's environment (same trick
+# driver.ps1 -Action attach uses), so set the opt-ins via $env:.
+$env:OLO_MCP_AUTOSTART = '1'
+$env:OLO_MCP_PORT = "$port"
+$env:OLO_MCP_DISCOVERY_FILE = $discoveryPath
+$env:OLO_MCP_ALLOW_WRITES = '1'
+$env:OLO_EDITOR_AUTOSAVE_RECOVERY = 'original'
+$proc = $null
+try {
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    Write-Host "Launching $exePath (pid=$($proc.Id))..." -ForegroundColor Cyan
+    $discovery = Wait-Discovery $discoveryPath $StartupTimeoutSeconds $proc
+} finally {
+    Remove-Item Env:OLO_MCP_AUTOSTART, Env:OLO_MCP_PORT, Env:OLO_MCP_DISCOVERY_FILE, Env:OLO_MCP_ALLOW_WRITES, Env:OLO_EDITOR_AUTOSAVE_RECOVERY -ErrorAction SilentlyContinue
+}
+Write-Host "MCP ready: $($discovery.url)" -ForegroundColor Cyan
+
+$script:rpcUrl = $discovery.url
+$script:rpcHeaders = @{
+    'Authorization' = "Bearer $($discovery.token)"
+    'Content-Type'  = 'application/json'
+    'Accept'        = 'application/json, text/event-stream'
+}
+$null = Invoke-Rpc 'initialize' @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'perf-battery'; version = '2.0' } }
+$null = Invoke-WebRequest -Uri $script:rpcUrl -Method Post -Headers $script:rpcHeaders -Body (@{ jsonrpc = '2.0'; method = 'notifications/initialized' } | ConvertTo-Json)
+Save-LogDelta '_startup'
+
+# --- run each scene against the live editor -----------------------------------
 $results = @()
 
 try {
@@ -157,64 +207,36 @@ try {
         $sceneRel = if ($job.File.StartsWith('../')) { "Scenes/" + $job.File.Substring(3) } else { "Scenes/PerfStress/$($job.File)" }
         Write-Host "=== $($job.Key)  ($sceneRel, entities=$($job.Entities), play=$($job.NeedsPlay)) ===" -ForegroundColor Cyan
 
-        # 1. point StartScene at the scene (restored in finally)
-        $projText = $projBackup -replace 'StartScene:\s*"[^"]*"', "StartScene: `"$sceneRel`""
-        Set-ContentRetry $projFile $projText
-
-        Remove-Item $discoveryPath -ErrorAction SilentlyContinue
-
-        # 2. launch
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = $exePath
-        $psi.WorkingDirectory = $workDir
-        $psi.UseShellExecute = $true
-        # ShellExecute children inherit this process's environment (same trick
-        # driver.ps1 -Action attach uses), so set the opt-ins via $env:.
-        $env:OLO_MCP_AUTOSTART = '1'
-        $env:OLO_MCP_PORT = "$port"
-        $env:OLO_MCP_DISCOVERY_FILE = $discoveryPath
-        if ($job.NeedsPlay) { $env:OLO_EDITOR_AUTOPLAY = '1' } else { Remove-Item Env:OLO_EDITOR_AUTOPLAY -ErrorAction SilentlyContinue }
-        $t0 = Get-Date
-        $proc = $null
-        try {
-            try {
-                $proc = [System.Diagnostics.Process]::Start($psi)
-                # 3. startup + scene load wall time = launch -> discovery file (MCP
-                #    autostart runs at the END of editor init, after project+scene load)
-                $discovery = Wait-Discovery $discoveryPath $LoadTimeoutSeconds $proc
-            } finally {
-                Remove-Item Env:OLO_MCP_AUTOSTART, Env:OLO_MCP_PORT, Env:OLO_MCP_DISCOVERY_FILE, Env:OLO_EDITOR_AUTOPLAY -ErrorAction SilentlyContinue
-            }
-        }
-        catch {
-            # A scene that fails to launch/load must not abort the rest of the battery.
-            Write-Warning "  launch/load failed: $($_.Exception.Message)"
-            $logText = Read-EngineLog
-            if ($logText) { Set-Content -Path (Join-Path $OutDir "$($job.Key).log") -Value $logText -NoNewline }
-            if ($proc -and -not $proc.HasExited) { $proc.Kill(); $proc.WaitForExit(5000) | Out-Null }
-            $results += [pscustomobject]([ordered]@{ scene = $job.Key; entities = $job.Entities; playMode = [bool]$job.NeedsPlay; error = "load: $($_.Exception.Message)" })
-            continue
-        }
-        $startupSeconds = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
-        Write-Host "  startup+load: ${startupSeconds}s  MCP: $($discovery.url)"
-
         $row = [ordered]@{
             scene = $job.Key; entities = $job.Entities; playMode = [bool]$job.NeedsPlay
-            startupLoadSeconds = $startupSeconds
         }
-        $raw = [ordered]@{ scene = $job.Key; discoveryUrl = $discovery.url; samples = @() }
+        $raw = [ordered]@{ scene = $job.Key; samples = @() }
 
         try {
-            $script:rpcUrl = $discovery.url
-            $script:rpcHeaders = @{
-                'Authorization' = "Bearer $($discovery.token)"
-                'Content-Type'  = 'application/json'
-                'Accept'        = 'application/json, text/event-stream'
+            # 1. switch scene (timed — this IS the scene-load-time metric now)
+            $t0 = Get-Date
+            $opened = Get-ToolJson 'olo_scene_open' @{ path = $sceneRel } $SceneOpenTimeoutSeconds
+            $row.sceneOpenSeconds = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
+            if (-not $opened -or -not $opened.ok) {
+                $msg = if ($opened) { $opened.message } else { 'olo_scene_open returned no result (RPC error — see warning above)' }
+                throw "scene open failed: $msg"
             }
-            $null = Invoke-Rpc 'initialize' @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'perf-battery'; version = '1.0' } }
-            $null = Invoke-WebRequest -Uri $script:rpcUrl -Method Post -Headers $script:rpcHeaders -Body (@{ jsonrpc = '2.0'; method = 'notifications/initialized' } | ConvertTo-Json)
+            $row.entitiesLoaded = $opened.entityCount
+            Write-Host "  scene open: $($row.sceneOpenSeconds)s ($($opened.entityCount) entities)"
 
-            # 4. fixed viewport (do NOT maximize the window; override fights it)
+            # 2. enter Play mode if this axis needs runtime ticking (physics/
+            #    scripts/animation don't tick in Edit mode). olo_scene_open
+            #    already stopped any PREVIOUS scene's Play mode, so no
+            #    explicit olo_scene_stop is needed between scenes.
+            if ($job.NeedsPlay) {
+                $played = Get-ToolJson 'olo_scene_play' @{}
+                if (-not $played -or -not $played.ok) {
+                    $msg = if ($played) { $played.message } else { 'olo_scene_play returned no result' }
+                    throw "scene play failed: $msg"
+                }
+            }
+
+            # 3. fixed viewport (do NOT maximize the window; override fights it)
             $null = Invoke-Tool 'olo_viewport_set_size' @{ width = 1920; height = 1080 }
 
             # Edit-mode scenes render through the EDITOR camera — pose it to the
@@ -224,9 +246,6 @@ try {
                     position = @($job.Camera.position); target = @($job.Camera.target)
                 }
             }
-
-            $summary = Get-ToolJson 'olo_scene_summary' @{}
-            if ($summary) { $row.entitiesLoaded = $summary.entityCount }
 
             Write-Host "  settling ${SettleSeconds}s..."
             Start-Sleep -Seconds $SettleSeconds
@@ -305,15 +324,14 @@ try {
             }
         }
         catch {
-            Write-Warning "  measurement failed: $($_.Exception.Message)"
+            # A scene that fails to open/play must not abort the rest of the
+            # battery — unlike the old per-scene-process design there is no
+            # relaunch to fall back to, so just record the error and move on.
+            Write-Warning "  $($job.Key): $($_.Exception.Message)"
             $row.error = $_.Exception.Message
         }
         finally {
-            # 5. kill + snapshot log
-            $logText = Read-EngineLog
-            if ($logText) { Set-Content -Path (Join-Path $OutDir "$($job.Key).log") -Value $logText -NoNewline }
-            if ($proc -and -not $proc.HasExited) { $proc.Kill(); $proc.WaitForExit(5000) | Out-Null }
-            Start-Sleep -Seconds 2
+            Save-LogDelta $job.Key
         }
 
         $results += [pscustomobject]$row
@@ -321,24 +339,28 @@ try {
     }
 }
 finally {
-    Set-ContentRetry $projFile $projBackup
+    # Best-effort: leave the editor in Edit mode before killing it.
+    try { $null = Invoke-Tool 'olo_scene_stop' @{} } catch { }
+    if ($proc -and -not $proc.HasExited) { $proc.Kill(); $proc.WaitForExit(5000) | Out-Null }
     Remove-Item $discoveryPath -ErrorAction SilentlyContinue
-    Write-Host "Restored $projFile"
+    Write-Host "Stopped editor (pid=$($proc.Id))"
 }
 
-# 6. results
+# --- results -------------------------------------------------------------------
 $results | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $OutDir 'results.json')
 
 $md = @()
 $md += "# Perf stress battery — $Config, $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 $md += ""
-$md += "Settle ${SettleSeconds}s, $Samples samples averaged. Viewport 1920x1080 via olo_viewport_set_size."
+$md += "One long-lived editor instance, scenes switched via olo_scene_open/olo_scene_play " +
+       "(#316 Part 5) — no relaunch per scene. Settle ${SettleSeconds}s, $Samples samples averaged. " +
+       "Viewport 1920x1080 via olo_viewport_set_size."
 $md += ""
-$md += "| scene | entities | play | load s | fps | frame ms | cpu ms | gpu ms | gpuWait ms | draws | tris | max ms | probe | error |"
+$md += "| scene | entities | play | scene open s | fps | frame ms | cpu ms | gpu ms | gpuWait ms | draws | tris | max ms | probe | error |"
 $md += "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
 foreach ($r in $results) {
     $probe = if ($null -eq $r.workloadActive) { '' } elseif ($r.workloadActive) { 'moving' } else { 'STATIC!' }
-    $md += "| $($r.scene) | $($r.entities) | $($r.playMode) | $($r.startupLoadSeconds) | $($r.fps) | $($r.frameMs) | $($r.cpuMs) | $($r.gpuMs) | $($r.gpuWaitMs) | $($r.drawCalls) | $($r.triangles) | $($r.maxFrameMs) | $probe | $($r.error) |"
+    $md += "| $($r.scene) | $($r.entities) | $($r.playMode) | $($r.sceneOpenSeconds) | $($r.fps) | $($r.frameMs) | $($r.cpuMs) | $($r.gpuMs) | $($r.gpuWaitMs) | $($r.drawCalls) | $($r.triangles) | $($r.maxFrameMs) | $probe | $($r.error) |"
 }
 $md += ""
 $md += "## GPU pass timings (avg ms)"
@@ -349,4 +371,4 @@ foreach ($r in $results) {
 $md -join "`n" | Set-Content -Path (Join-Path $OutDir 'results.md')
 
 Write-Host "`nResults: $OutDir\results.md" -ForegroundColor Green
-$results | Format-Table scene, entities, startupLoadSeconds, fps, frameMs, gpuMs, gpuWaitMs, drawCalls -AutoSize
+$results | Format-Table scene, entities, sceneOpenSeconds, fps, frameMs, gpuMs, gpuWaitMs, drawCalls -AutoSize
