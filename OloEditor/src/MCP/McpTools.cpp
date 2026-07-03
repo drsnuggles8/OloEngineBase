@@ -3,6 +3,7 @@
 #include "MCP/McpServer.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpScriptApi.h"
+#include "MCP/McpCpuScopes.h"
 #include "MCP/McpFrameBreakdown.h"
 #include "MCP/McpGoldenCompare.h"
 #include "MCP/McpPassTimings.h"
@@ -21,6 +22,7 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetMetadata.h"
 #include "OloEngine/Asset/AssetTypes.h"
+#include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
@@ -652,6 +654,41 @@ namespace OloEngine::MCP
                         ? pool.GetCurrentFrameNumber() - pool.GetLastResolvedFrameNumber()
                         : 0;
                 return PassTimings::BuildPassTimings(gpuPasses, cpuPasses, totals); });
+            return ToolResult::Structured(j);
+        }
+
+        // ---- olo_perf_cpu_scopes (main-marshaled) -------------------------------
+        // Per-scope CPU timings collected by PerformanceProfiler (every system in
+        // Scene.cpp is wrapped in OLO_PERF_SCOPE / OLO_PERF_SCOPE_AUTO) — the same
+        // data the editor's PerformanceLayer CPU Scopes table reads, exposed
+        // read-only over MCP (#519, first slice). OLO_PERF_SCOPE compiles to a
+        // no-op in Distribution builds, so this reports an explicit "unavailable"
+        // status there rather than a misleadingly empty scope list — shaping (incl.
+        // that degradation) lives in the pure McpCpuScopes.h so it unit-tests
+        // without this TU.
+        ToolResult Handle_PerfCpuScopes(McpServer& server, const Json& args)
+        {
+            u32 limit = 0; // 0 = no limit
+            if (args.contains("limit") && args["limit"].is_number_integer())
+                limit = static_cast<u32>(std::clamp<long long>(args["limit"].get<long long>(), 1, 1000));
+
+#if defined(OLO_DEBUG) || defined(OLO_RELEASE)
+            constexpr bool scopesCompiledIn = true;
+#else
+            constexpr bool scopesCompiledIn = false;
+#endif
+
+            Json j = server.MarshalRead([limit]() -> Json
+                                        {
+                std::vector<CpuScopes::ScopeEntry> entries;
+                if (Application* app = Application::TryGet())
+                {
+                    const auto& data = app->GetProfilerPreviousFrameData();
+                    entries.reserve(data.size());
+                    for (const auto& [name, perFrame] : data)
+                        entries.push_back(CpuScopes::ScopeEntry{ name, perFrame.Time, perFrame.Samples });
+                }
+                return CpuScopes::BuildCpuScopes(entries, scopesCompiledIn, limit); });
             return ToolResult::Structured(j);
         }
 
@@ -4303,6 +4340,37 @@ namespace OloEngine::MCP
                                     .Required({ "frame", "passes", "passGpuTotalMs" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfPassTimings;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_perf_cpu_scopes";
+            tool.Toolset = "perf";
+            tool.Title = "Per-scope CPU timings";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Per-scope CPU time from PerformanceProfiler — every system in Scene.cpp (and other "
+                "OLO_PERF_SCOPE / OLO_PERF_SCOPE_AUTO call sites) reports how long it took last frame, sorted "
+                "descending by time. Mirrors the editor's PerformanceLayer CPU Scopes table. OLO_PERF_SCOPE is "
+                "compiled out entirely in Distribution builds; this reports status \"unavailable\" there instead "
+                "of an empty list. status \"ok_no_data\" means the build supports scope timing but nothing was "
+                "recorded last frame (e.g. queried before the first frame completed).";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("limit", Schema::Int().Min(1).Max(1000).Desc("Max scopes to return, sorted by time descending (default: all)."))
+                                   .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("status", Schema::String().Enum({ "ok", "ok_no_data", "unavailable" }))
+                                    .Prop("note", Schema::String())
+                                    .Prop("scopes", Schema::Array(Schema::Object()
+                                                                      .Prop("name", Schema::String())
+                                                                      .Prop("timeMs", Schema::Number())
+                                                                      .Prop("samples", Schema::Int().Min(0))))
+                                    .Prop("totalTimeMs", Schema::Number())
+                                    .Prop("scopeCount", Schema::Int().Min(0).Desc("Total distinct scopes recorded last frame, before `limit` truncation."))
+                                    .Required({ "status", "note", "scopes", "totalTimeMs", "scopeCount" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_PerfCpuScopes;
             server.RegisterTool(std::move(tool));
         }
 
