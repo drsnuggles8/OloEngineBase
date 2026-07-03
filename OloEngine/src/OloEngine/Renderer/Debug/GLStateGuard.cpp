@@ -259,6 +259,24 @@ namespace OloEngine
         return diffs;
     }
 
+    namespace
+    {
+        // A snapshotted container-object name is validated before the rebind:
+        // the guarded scope may legitimately delete an object that was bound at
+        // entry (a render-graph resize destroys framebuffers/VAOs), and
+        // rebinding a deleted name is itself a GL_INVALID_OPERATION — the guard
+        // would then manufacture the very GL-error pollution it exists to
+        // contain (#505). Restoring 0 for a dead name matches what the driver
+        // did to the binding when the object was deleted.
+        // The parameter type is glad's shared `GLboolean (GLAD_API_PTR*)(GLuint)`
+        // pointer signature (all glIs* typedefs alias it) so the calling
+        // convention matches on every target, not just x64 where it's moot.
+        u32 ValidOrZero(u32 name, PFNGLISFRAMEBUFFERPROC isAlive)
+        {
+            return (name != 0u && isAlive(name)) ? name : 0u;
+        }
+    } // namespace
+
     void GLStateSnapshot::ApplyCore() const
     {
         OLO_PROFILE_FUNCTION();
@@ -266,19 +284,11 @@ namespace OloEngine
         // FBO bindings FIRST — subsequent state-setting calls are global so
         // their order doesn't matter, but `glNamedFramebuffer*` DSA calls
         // (not used here) would still target the snapshot's FBO regardless.
-        //
-        // Each container-object name is validated before the rebind: the guarded
-        // scope may legitimately delete an object that was bound at entry (a
-        // render-graph resize destroys framebuffers/VAOs), and rebinding a
-        // deleted name is itself a GL_INVALID_OPERATION — the guard would then
-        // manufacture the very GL-error pollution it exists to contain (#505).
-        // Restoring 0 for a dead name matches what the driver did to the
-        // binding when the object was deleted.
-        ::glBindFramebuffer(GL_DRAW_FRAMEBUFFER, ::glIsFramebuffer(m_FboDraw) ? m_FboDraw : 0u);
-        ::glBindFramebuffer(GL_READ_FRAMEBUFFER, ::glIsFramebuffer(m_FboRead) ? m_FboRead : 0u);
+        ::glBindFramebuffer(GL_DRAW_FRAMEBUFFER, ValidOrZero(m_FboDraw, ::glIsFramebuffer));
+        ::glBindFramebuffer(GL_READ_FRAMEBUFFER, ValidOrZero(m_FboRead, ::glIsFramebuffer));
 
-        ::glUseProgram(::glIsProgram(m_ActiveProgram) ? m_ActiveProgram : 0u);
-        ::glBindVertexArray(::glIsVertexArray(m_Vao) ? m_Vao : 0u);
+        ::glUseProgram(ValidOrZero(m_ActiveProgram, ::glIsProgram));
+        ::glBindVertexArray(ValidOrZero(m_Vao, ::glIsVertexArray));
 
         // Depth
         if (m_DepthTest)

@@ -164,25 +164,29 @@ namespace OloEngine
             {
                 case GL_DEBUG_SEVERITY_HIGH:
                     OLO_CORE_CRITICAL("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message);
-                    if (type == GL_DEBUG_TYPE_ERROR)
-                    {
-                        LogGLErrorCallStack();
-                    }
-                    return;
+                    break;
                 case GL_DEBUG_SEVERITY_MEDIUM:
                     OLO_CORE_ERROR("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message);
-                    if (type == GL_DEBUG_TYPE_ERROR)
-                    {
-                        LogGLErrorCallStack();
-                    }
-                    return;
+                    break;
                 case GL_DEBUG_SEVERITY_LOW:
                     OLO_CORE_WARN("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message);
                     return;
                 case GL_DEBUG_SEVERITY_NOTIFICATION:
                     OLO_CORE_INFO("OpenGL debug message (source: {0}, type: {1}, id: {2}): {3}", sourceStr, typeStr, id, message);
                     return;
+                default:
+                    OLO_CORE_ASSERT(false, "Unknown severity level!");
+                    return;
             }
+
+            // Reached only for HIGH / MEDIUM (the severities that log at
+            // CRITICAL / ERROR above): capture the offending call site once
+            // for both paths.
+            if (type == GL_DEBUG_TYPE_ERROR)
+            {
+                LogGLErrorCallStack();
+            }
+            return;
         }
 
         OLO_CORE_ASSERT(false, "Unknown severity level!");

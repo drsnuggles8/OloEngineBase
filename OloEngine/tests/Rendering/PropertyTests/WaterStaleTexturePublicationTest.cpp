@@ -71,6 +71,11 @@ namespace OloEngine::Tests
                 wc.m_WorldSizeZ = 50.0f;
                 wc.m_GridResolutionX = 32;
                 wc.m_GridResolutionZ = 32;
+                // Planar reflections ON so the water frame publishes BOTH raw-id
+                // side channels this test pins (water-surface depth + planar
+                // reflection colour) — otherwise the planar assertion below
+                // would compare 0 against a value that was never non-zero.
+                wc.m_PlanarReflectionsEnabled = true;
             }
         }
 
@@ -93,11 +98,17 @@ namespace OloEngine::Tests
         const EditorCamera camera = MakePosedCamera();
 
         // 1. Water frame: WaterRenderPass executes its surface-depth capture and
-        //    publishes the depth texture for the tone-map underwater-fog stage.
+        //    publishes the depth texture for the tone-map underwater-fog stage;
+        //    PlanarReflectionRenderPass publishes its reflection colour target.
+        //    Both must be observed non-zero or the reset assertions below would
+        //    be vacuous.
         RunEditorFrames(camera, 2);
         EXPECT_NE(Renderer3D::GetWaterSurfaceDepthTextureID(), 0u)
             << "A frame that renders water must publish the water-surface depth "
                "texture (otherwise this test exercises nothing).";
+        EXPECT_NE(Renderer3D::GetPlanarReflectionTextureID(), 0u)
+            << "A frame that renders reflective water must publish the planar-"
+               "reflection texture (otherwise this test exercises nothing).";
 
         // 2. No-water frame: the graph culls the water pass, so nothing
         //    re-publishes. The per-frame reset in PrepareFrame must have cleared
