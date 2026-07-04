@@ -116,6 +116,7 @@ add_executable(OloEngine-Tests
 		Rendering/EASUMathTest.cpp
 		Rendering/RCASMathTest.cpp
 		Rendering/SSAOMathTest.cpp
+		Rendering/GTAOMathTest.cpp
 		Rendering/BloomMathTest.cpp
 		Rendering/FogMathTest.cpp
 		Rendering/MotionVectorMathTest.cpp
@@ -178,6 +179,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/CASVisualEvidenceTest.cpp
 		Rendering/PropertyTests/EASUVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSAOVisualEvidenceTest.cpp
+		Rendering/PropertyTests/GTAOVisualEvidenceTest.cpp
 		Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowEarlyOutVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp

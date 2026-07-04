@@ -208,7 +208,18 @@ void main()
         // Direction in view-space (projected onto the tangent plane)
         vec3 directionVS = vec3(omega.x, omega.y, 0.0);
         vec3 orthoDirectionVS = directionVS - dot(directionVS, viewNormal) * viewNormal;
-        vec3 axisVS = normalize(cross(directionVS, viewNormal));
+        // axisVS must be the slice plane's normal -- built from the slice
+        // direction and the camera's view axis, NOT the surface normal.
+        // cross(X, viewNormal) is perpendicular to viewNormal for ANY X, so
+        // crossing with viewNormal here made dot(viewNormal, axisVS) == 0
+        // identically, collapsing projectedNormal to viewNormal and cosN to 1
+        // for every slice on every pixel -- i.e. n was always 0, regardless of
+        // the surface's real tilt relative to the camera. That zeroed the
+        // anisotropic tangent-elevation term entirely, so any surface not
+        // exactly face-on to the camera (almost every visible pixel) measured
+        // its horizon against the wrong (untilted) baseline and self-occluded
+        // -- the root cause of issue #533's near-black GTAO frames.
+        vec3 axisVS = normalize(cross(directionVS, vec3(0.0, 0.0, -1.0)));
         vec3 projectedNormal = viewNormal - axisVS * dot(viewNormal, axisVS);
         float projectedNormalLen = length(projectedNormal);
 

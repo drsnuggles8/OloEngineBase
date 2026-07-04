@@ -2157,6 +2157,7 @@ namespace OloEngine::MCP
 
                 // Side effects + preconditions, so a freshly enabled effect actually
                 // appears (otherwise an agent A/Bs a toggle and sees no change).
+                bool aoTechniqueChanged = false;
                 if (r.Enabled)
                 {
                     switch (pass)
@@ -2167,6 +2168,7 @@ namespace OloEngine::MCP
                             if (pp.ActiveAOTechnique != AOTechnique::SSAO)
                             {
                                 pp.ActiveAOTechnique = AOTechnique::SSAO;
+                                aoTechniqueChanged = true;
                                 r.Note = "Active AO technique set to SSAO so the effect is visible.";
                             }
                             break;
@@ -2174,6 +2176,7 @@ namespace OloEngine::MCP
                             if (pp.ActiveAOTechnique != AOTechnique::GTAO)
                             {
                                 pp.ActiveAOTechnique = AOTechnique::GTAO;
+                                aoTechniqueChanged = true;
                                 r.Note = "Active AO technique set to GTAO so the effect is visible.";
                             }
                             break;
@@ -2194,6 +2197,20 @@ namespace OloEngine::MCP
                             break;
                     }
                 }
+                // An ActiveAOTechnique change swaps which AO pass is registered in
+                // the render graph (RegisterSceneAndLightingNodes's switch), so it
+                // must go through ApplyRendererSettings' dirty-check the same way
+                // PostProcessSettingsPanel's technique combo box does (see
+                // Renderer3DState.cpp's aoTechniqueChanged detection). Without this,
+                // the previously-active technique's pass stays wired in, the newly
+                // selected one's compute pass never runs, its AOBuffer is never
+                // written (stays zero-initialized), and AOApplyRenderPass still
+                // multiplies the WHOLE composited frame by that all-zero buffer at
+                // intensity 1.0 -- an all-black frame indistinguishable from a
+                // genuine rendering bug (issue #533's "essentially fully black"
+                // symptom, when reproduced via this A/B toggle tool).
+                if (aoTechniqueChanged)
+                    Renderer3D::ApplyRendererSettings();
                 return ToJson(r); });
 
             if (result.is_object() && result.contains("__error"))

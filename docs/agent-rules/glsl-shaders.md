@@ -250,6 +250,27 @@ cutoff → discard`) so the prepass depth coverage matches the color pass.
 4. **`vec3` without padding** in UBOs → misaligned reads. Use `vec4` or add explicit padding.
 5. **Binding-slot collision** → two resources fighting for the same slot. Check the tables above.
 6. **Integer literal in float context** → SPIR-V error. Use `1.0` not `1`, `vec3(0.0)` not `vec3(0)`.
+7. **`cross(X, N)` is trivially ⊥ `N` for ANY `X`** — don't use that fact by
+   accident. `GTAO.comp`'s per-slice horizon search (issue #533) built its
+   slice-plane basis as `axisVS = cross(directionVS, viewNormal)`, intending to
+   later measure how far `viewNormal` tilts out of that plane via
+   `projectedNormal = viewNormal - axisVS * dot(viewNormal, axisVS)`. But
+   `dot(viewNormal, cross(X, viewNormal)) == 0` is a pure vector-algebra
+   identity for *any* `X` — crossing with the very vector you're about to
+   project is always perpendicular to it, so `projectedNormal` collapsed to
+   `viewNormal` and the "how tilted is this surface" angle came out as exactly
+   0 for every slice on every pixel, regardless of the surface's real
+   orientation. Only a surface exactly face-on to the camera has genuinely-zero
+   tilt; every other angle then measured its horizon against the wrong,
+   untilted baseline and self-occluded — a whole-frame darkening bug that
+   passed a casual code read because the math *looked* like a normal
+   projection. The fix: build the basis vector from the camera's **view
+   axis**, not the value you intend to project onto it
+   (`cross(directionVS, vec3(0,0,-1))`). General lesson: when a formula
+   projects vector `V` using a basis built from `cross(_, V)`, stop and check
+   whether that basis is unconditionally ⊥ `V` — if so, the projection is dead
+   code that always returns `V` unchanged, and the bug will look completely
+   plausible until you check the numbers.
 
 ---
 
