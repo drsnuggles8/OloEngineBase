@@ -550,6 +550,7 @@ add_executable(OloEngine-Tests
 		Functional/Gameplay/AbilityActivationEffectAppliesToCasterTest.cpp
 		Functional/Gameplay/AbilityRequiredTagGatesActivationTest.cpp
 		Functional/AnimationPhysics/TwoCharacterControllersCoexistTest.cpp
+		Functional/AnimationPhysics/ContactConstraintLimitsHonouredTest.cpp
 		Functional/Gameplay/AbilityResourceCostDeductedFromManaTest.cpp
 		Functional/Dialogue/DialogueSelectChoiceBranchesToTargetTest.cpp
 		Functional/Dialogue/DialogueAcceptsQuestAndGatesOnStateTest.cpp

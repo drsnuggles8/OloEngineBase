@@ -25,7 +25,16 @@ namespace OloEngine
         // System limits
         u32 m_MaxBodies = 65536;
         u32 m_MaxBodyPairs = 65536;
-        u32 m_MaxContactConstraints = 10240;
+        // A contact constraint is generated per touching body pair, so this can never
+        // exceed m_MaxBodyPairs — match it, rather than the old 10240 (issue #523: far too
+        // small for the advertised 65536 max bodies, letting Jolt's contact-constraint
+        // buffer overflow and bodies tunnel through static geometry in dense piles well
+        // under that body count). NOTE: raising this requires JoltScene's temp allocator to
+        // scale with it (see JoltScene.h's kBaselineTempAllocatorSize) — Jolt's per-step
+        // scratch usage scales with the constraint capacity, and handing Jolt a bigger
+        // capacity without a proportionally bigger fixed-size scratch buffer corrupts
+        // memory. Do not raise this default without checking that scaling is still wired up.
+        u32 m_MaxContactConstraints = 65536;
 
         // Debug and capture settings (capture is off by default for production)
         bool m_CaptureOnPlay = false;

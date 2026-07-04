@@ -205,7 +205,7 @@ namespace
         validated.m_MaxBodyPairs = ValidateAndClampUInt(Settings.m_MaxBodyPairs,
                                                         s_MinMaxPairs, s_MaxMaxPairs, 65536u, "MaxBodyPairs");
         validated.m_MaxContactConstraints = ValidateAndClampUInt(Settings.m_MaxContactConstraints,
-                                                                 s_MinMaxContacts, s_MaxMaxContacts, 10240u, "MaxContactConstraints");
+                                                                 s_MinMaxContacts, s_MaxMaxContacts, 65536u, "MaxContactConstraints");
 
         // Validate advanced Jolt settings
         validated.m_Baumgarte = ValidateAndClampFloat(Settings.m_Baumgarte,
@@ -313,7 +313,7 @@ namespace OloEngine
                 out << YAML::Comment("Maximum body pairs for collision detection (range: 100-1000000, default: 65536)");
                 out << YAML::Key << "MaxBodyPairs" << YAML::Value << physicsSettings.m_MaxBodyPairs;
 
-                out << YAML::Comment("Maximum contact constraints (range: 100-100000, default: 10240)");
+                out << YAML::Comment("Maximum contact constraints (range: 100-100000, default: 65536)");
                 out << YAML::Key << "MaxContactConstraints" << YAML::Value << physicsSettings.m_MaxContactConstraints;
 
                 // Debug and capture settings (booleans don't need validation)
