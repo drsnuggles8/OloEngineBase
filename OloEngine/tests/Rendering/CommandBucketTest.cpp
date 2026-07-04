@@ -773,11 +773,13 @@ TEST_F(CommandBucketBatchTest, BatchedTransformsAreContiguous)
 // 10k-Instance Stress: GPU Instancing acceptance criterion
 // =============================================================================
 // Issue #173 acceptance: "10,000+ instances rendered in 1-2 draw calls". The
-// default CommandBucketConfig::MaxMeshInstances is now 16384 (capped at the
-// FrameDataBuffer EntityID stream capacity), so 10k same-mesh draws collapse
-// into a single DrawMeshInstanced packet without raising the cap in the test.
-// Dispatcher uses a TLS heap scratch buffer, so the 10k * 224 B = 2.24 MB of
-// per-instance data lives off-stack.
+// default CommandBucketConfig::MaxMeshInstances is 16384 (well below the
+// FrameDataBuffer EntityID/Color/Custom capacity of 262144 raised for the
+// GPU-cull InstancedMeshComponent path by issue #524 — a different subsystem;
+// see CommandBucket.h), so 10k same-mesh draws collapse into a single
+// DrawMeshInstanced packet without raising the cap in the test. Dispatcher
+// uses a TLS heap scratch buffer, so the 10k * 224 B = 2.24 MB of per-instance
+// data lives off-stack.
 
 TEST_F(CommandBucketBatchTest, TenThousandInstancesCollapseToSinglePacket)
 {

@@ -605,10 +605,30 @@ namespace OloEngine
         // ── Phase 2: Merge groups with count > 1 ──────────────────────
         FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
 
+        // Once-per-BatchCommands-call throttles (this function runs once per
+        // frame, so a local flag here is equivalent to the once-per-frame
+        // throttle used by FrameDataBuffer's own internal overflow logs —
+        // without it, a stress scene with many overflowing groups logs once
+        // per group instead of once per frame).
+        bool truncationLogged = false;
+        bool transformOverflowLogged = false;
+        bool prevTransformOverflowLogged = false;
+        bool entityIDOverflowLogged = false;
+        bool colorOverflowLogged = false;
+        bool customOverflowLogged = false;
+
         for (auto& [key, indices] : groups)
         {
             if (indices.size() <= 1)
                 continue;
+
+            if (indices.size() > m_Config.MaxMeshInstances && !truncationLogged)
+            {
+                OLO_CORE_WARN("CommandBucket::BatchCommands: Instance group of {} exceeds MaxMeshInstances ({}); "
+                              "truncating to the cap. Subsequent truncations this frame will be silent.",
+                              indices.size(), m_Config.MaxMeshInstances);
+                truncationLogged = true;
+            }
 
             u32 totalInstances = static_cast<u32>(
                 std::min(indices.size(), static_cast<sizet>(m_Config.MaxMeshInstances)));
@@ -621,13 +641,25 @@ namespace OloEngine
             u32 transformOffset = frameBuffer.AllocateTransforms(totalInstances);
             if (transformOffset == UINT32_MAX)
             {
-                OLO_CORE_ERROR("CommandBucket::BatchCommands: Failed to allocate {} transforms in FrameDataBuffer", totalInstances);
+                if (!transformOverflowLogged)
+                {
+                    OLO_CORE_ERROR("CommandBucket::BatchCommands: Failed to allocate {} transforms in FrameDataBuffer. "
+                                   "Subsequent failures this frame will be silent.",
+                                   totalInstances);
+                    transformOverflowLogged = true;
+                }
                 continue;
             }
             u32 prevTransformOffset = frameBuffer.AllocateTransforms(totalInstances);
             if (prevTransformOffset == UINT32_MAX)
             {
-                OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} prev-transforms; batched motion vectors will alias current frame", totalInstances);
+                if (!prevTransformOverflowLogged)
+                {
+                    OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} prev-transforms; batched motion vectors will alias current frame. "
+                                  "Subsequent failures this frame will be silent.",
+                                  totalInstances);
+                    prevTransformOverflowLogged = true;
+                }
                 // Continue without prev-transform stream — dispatcher falls back
                 // to prevTransforms = transforms, producing zero velocity for
                 // this draw (same behaviour as a brand-new entity in frame 0).
@@ -635,7 +667,13 @@ namespace OloEngine
             u32 entityIDOffset = frameBuffer.AllocateEntityIDs(totalInstances);
             if (entityIDOffset == UINT32_MAX)
             {
-                OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} entity IDs; batched picking will return -1", totalInstances);
+                if (!entityIDOverflowLogged)
+                {
+                    OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} entity IDs; batched picking will return -1. "
+                                  "Subsequent failures this frame will be silent.",
+                                  totalInstances);
+                    entityIDOverflowLogged = true;
+                }
             }
 
             // Only allocate Color / Custom streams when at least one source has
@@ -665,14 +703,24 @@ namespace OloEngine
             if (anyNonDefaultColor)
             {
                 colorOffset = frameBuffer.AllocateColors(totalInstances);
-                if (colorOffset == UINT32_MAX)
-                    OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} colors; per-entity tint lost in batched draw", totalInstances);
+                if (colorOffset == UINT32_MAX && !colorOverflowLogged)
+                {
+                    OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} colors; per-entity tint lost in batched draw. "
+                                  "Subsequent failures this frame will be silent.",
+                                  totalInstances);
+                    colorOverflowLogged = true;
+                }
             }
             if (anyNonDefaultCustom)
             {
                 customOffset = frameBuffer.AllocateCustoms(totalInstances);
-                if (customOffset == UINT32_MAX)
-                    OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} customs; per-entity Custom lost in batched draw", totalInstances);
+                if (customOffset == UINT32_MAX && !customOverflowLogged)
+                {
+                    OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} customs; per-entity Custom lost in batched draw. "
+                                  "Subsequent failures this frame will be silent.",
+                                  totalInstances);
+                    customOverflowLogged = true;
+                }
             }
 
             // Write each source command's per-instance data contiguously.

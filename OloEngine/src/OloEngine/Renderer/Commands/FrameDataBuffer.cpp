@@ -28,22 +28,27 @@ namespace OloEngine
         {
             TUniqueLock<FMutex> boneLock(m_BoneMutex);
             m_BoneMatrixOffset = 0;
+            m_BoneOverflowLogged = false;
         }
         {
             TUniqueLock<FMutex> transformLock(m_TransformMutex);
             m_TransformOffset = 0;
+            m_TransformOverflowLogged = false;
         }
         {
             TUniqueLock<FMutex> entityIDLock(m_EntityIDMutex);
             m_EntityIDOffset = 0;
+            m_EntityIDOverflowLogged = false;
         }
         {
             TUniqueLock<FMutex> colorLock(m_ColorMutex);
             m_ColorOffset = 0;
+            m_ColorOverflowLogged = false;
         }
         {
             TUniqueLock<FMutex> customLock(m_CustomMutex);
             m_CustomOffset = 0;
+            m_CustomOverflowLogged = false;
         }
 
         // Reset parallel submission state
@@ -82,8 +87,13 @@ namespace OloEngine
         // Check for overflow before addition
         if (count > static_cast<u32>(m_BoneMatrices.size()) - offset)
         {
-            OLO_CORE_ERROR("FrameDataBuffer: Bone matrix buffer overflow! Requested {} matrices at offset {}, capacity {}",
-                           count, offset, m_BoneMatrices.size());
+            if (!m_BoneOverflowLogged)
+            {
+                OLO_CORE_ERROR("FrameDataBuffer: Bone matrix buffer overflow! Requested {} matrices at offset {}, capacity {}. "
+                               "Subsequent overflows this frame will be silent.",
+                               count, offset, m_BoneMatrices.size());
+                m_BoneOverflowLogged = true;
+            }
             return UINT32_MAX;
         }
 
@@ -103,8 +113,13 @@ namespace OloEngine
         // Check for overflow before addition
         if (count > static_cast<u32>(m_Transforms.size()) - offset)
         {
-            OLO_CORE_ERROR("FrameDataBuffer: Transform buffer overflow! Requested {} transforms at offset {}, capacity {}",
-                           count, offset, m_Transforms.size());
+            if (!m_TransformOverflowLogged)
+            {
+                OLO_CORE_ERROR("FrameDataBuffer: Transform buffer overflow! Requested {} transforms at offset {}, capacity {}. "
+                               "Subsequent overflows this frame will be silent.",
+                               count, offset, m_Transforms.size());
+                m_TransformOverflowLogged = true;
+            }
             return UINT32_MAX;
         }
 
@@ -188,8 +203,13 @@ namespace OloEngine
         u32 offset = m_EntityIDOffset;
         if (count > static_cast<u32>(m_EntityIDs.size()) - offset)
         {
-            OLO_CORE_ERROR("FrameDataBuffer: EntityID buffer overflow! Requested {} ids at offset {}, capacity {}",
-                           count, offset, m_EntityIDs.size());
+            if (!m_EntityIDOverflowLogged)
+            {
+                OLO_CORE_ERROR("FrameDataBuffer: EntityID buffer overflow! Requested {} ids at offset {}, capacity {}. "
+                               "Subsequent overflows this frame will be silent.",
+                               count, offset, m_EntityIDs.size());
+                m_EntityIDOverflowLogged = true;
+            }
             return UINT32_MAX;
         }
         m_EntityIDOffset = offset + count;
@@ -232,8 +252,13 @@ namespace OloEngine
         u32 offset = m_ColorOffset;
         if (count > static_cast<u32>(m_Colors.size()) - offset)
         {
-            OLO_CORE_ERROR("FrameDataBuffer: Color buffer overflow! Requested {} at offset {}, capacity {}",
-                           count, offset, m_Colors.size());
+            if (!m_ColorOverflowLogged)
+            {
+                OLO_CORE_ERROR("FrameDataBuffer: Color buffer overflow! Requested {} at offset {}, capacity {}. "
+                               "Subsequent overflows this frame will be silent.",
+                               count, offset, m_Colors.size());
+                m_ColorOverflowLogged = true;
+            }
             return UINT32_MAX;
         }
         m_ColorOffset = offset + count;
@@ -276,8 +301,13 @@ namespace OloEngine
         u32 offset = m_CustomOffset;
         if (count > static_cast<u32>(m_Customs.size()) - offset)
         {
-            OLO_CORE_ERROR("FrameDataBuffer: Custom buffer overflow! Requested {} at offset {}, capacity {}",
-                           count, offset, m_Customs.size());
+            if (!m_CustomOverflowLogged)
+            {
+                OLO_CORE_ERROR("FrameDataBuffer: Custom buffer overflow! Requested {} at offset {}, capacity {}. "
+                               "Subsequent overflows this frame will be silent.",
+                               count, offset, m_Customs.size());
+                m_CustomOverflowLogged = true;
+            }
             return UINT32_MAX;
         }
         m_CustomOffset = offset + count;

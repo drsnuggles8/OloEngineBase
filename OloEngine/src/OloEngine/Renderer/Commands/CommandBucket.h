@@ -71,10 +71,20 @@ namespace OloEngine
     {
         bool EnableSorting = true;    // Sort commands to minimize state changes
         bool EnableBatching = true;   // Batch similar DrawMesh → DrawMeshInstanced (requires instanced shader support)
-        u32 MaxMeshInstances = 16384; // Maximum instances per DrawMeshInstanced packet. Capped at the FrameDataBuffer
-                                      // EntityID stream capacity (16384) so an N-into-1 collapse never silently
-                                      // truncates per-source picking IDs. Dispatcher uses a TLS heap scratch so
-                                      // raising this doesn't bloat the stack.
+        u32 MaxMeshInstances = 16384; // Maximum instances per DrawMeshInstanced packet, for CommandBucket's CPU
+                                      // auto-batching of separate DrawMesh entities that share mesh/material/render
+                                      // state — a different path from the GPU-cull InstancedMeshComponent draw (see
+                                      // FrameDataBuffer::DEFAULT_ENTITY_ID_CAPACITY, 262144, for that one; issue
+                                      // #524's draws_unique/draws_instanced/anim_crowd stress scenes all route
+                                      // around this path — unique materials, single-InstancedMeshComponent, and
+                                      // animated-mesh-skips-batching, respectively — so there's no evidence this
+                                      // needs to scale with those). Well below FrameDataBuffer's EntityID/Color/
+                                      // Custom capacity (so an N-into-1 collapse never truncates per-source picking
+                                      // IDs) and below DEFAULT_TRANSFORM_CAPACITY (65536) with headroom — a group
+                                      // at this cap uses only 1/4 of the transform buffer for its current-transform
+                                      // allocation, leaving room for the prev-transform stream plus other groups in
+                                      // the same frame. Dispatcher uses a TLS heap scratch so raising this doesn't
+                                      // bloat the stack.
         u32 InitialCapacity = 1024;   // Initial capacity for command arrays
     };
 
