@@ -179,6 +179,11 @@ namespace OloEngine
         m_LastWriterPassNameByResource.clear();
         m_ResourceNames.Clear();
         m_PassNames.Clear();
+
+        // See ResetTopology(): a full teardown also wipes the blackboard, so
+        // advance the generation to invalidate external populate caches.
+        ++m_TopologyGeneration;
+
         m_ResourceRegistryDirty = true;
     }
 
@@ -270,6 +275,12 @@ namespace OloEngine
         m_ExplicitVersionProducers.clear();
         m_ResourceNames.Clear();
         m_PassNames.Clear();
+
+        // Bump AFTER the blackboard/imported-resource wipe: any external cache
+        // keyed off blackboard contents (RenderPipeline's populate fingerprint)
+        // must observe a new generation so it repopulates next frame even when
+        // every other hashed input is identical — the #530 reentry-cull bug.
+        ++m_TopologyGeneration;
 
         m_ResourceRegistryDirty = true;
     }

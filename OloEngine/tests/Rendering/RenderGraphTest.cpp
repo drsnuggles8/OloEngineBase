@@ -2419,6 +2419,39 @@ TEST(RenderGraph, AddNodeMakesItRetrievable)
     EXPECT_EQ(retrieved->GetName(), "GraphNodeA");
 }
 
+// Issue #530: ResetTopology() wipes the blackboard + imported-resource maps,
+// but external per-frame caches that assume the blackboard survives between
+// calls (RenderPipeline's blackboard-populate fingerprint) can't observe that
+// wipe when every other hashed input is identical — which is exactly what
+// happens when the same Deferred scene re-enters the render path twice in one
+// process. GetTopologyGeneration() is their invalidation signal: it MUST
+// advance on every topology teardown (ResetTopology / Shutdown) so a
+// reconfigure still forces a repopulate. Without the bump, the second Deferred
+// entry sees a matching fingerprint, skips repopulating the just-wiped
+// blackboard, and every pass's Setup() reads empty handles -> the whole graph
+// is culled (reads=0/writes=0).
+TEST(RenderGraph, ResetTopologyAdvancesTopologyGenerationForCacheInvalidation)
+{
+    RenderGraph graph;
+
+    const u64 gen0 = graph.GetTopologyGeneration();
+
+    graph.ResetTopology();
+    const u64 gen1 = graph.GetTopologyGeneration();
+    EXPECT_GT(gen1, gen0) << "ResetTopology must advance the topology generation";
+
+    // The bug shape is a reconfigure -> reconfigure sequence with no render in
+    // between (TearDown path-restore then SetUp path-switch), so the generation
+    // must keep advancing across back-to-back teardowns, never settling.
+    graph.ResetTopology();
+    const u64 gen2 = graph.GetTopologyGeneration();
+    EXPECT_GT(gen2, gen1) << "every ResetTopology must advance the generation";
+
+    graph.Shutdown();
+    EXPECT_GT(graph.GetTopologyGeneration(), gen2)
+        << "a full Shutdown also wipes the blackboard and must advance the generation";
+}
+
 TEST(RenderGraph, GraphNodeSetupAndExecuteUseCanonicalSubmissionPath)
 {
     RenderGraph graph;
