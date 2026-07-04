@@ -173,6 +173,14 @@ void main()
     // Reconstruct view-space position
     vec3 pixCenterPos = ComputeViewspacePosition(normalizedScreenPos, viewspaceZ);
 
+    // Per-pixel view vector (from the shaded point toward the camera, which
+    // sits at the view-space origin). Used below as the slice plane's
+    // reference axis instead of a globally-fixed screen axis, so the
+    // tangent-elevation basis tracks the true per-pixel perspective ray
+    // (a fixed axis is only a good approximation near screen centre; it
+    // diverges from the real view ray increasingly toward the edges).
+    vec3 viewVec = normalize(-pixCenterPos);
+
     // Decode world-space normal from GBuffer and convert to view-space
     vec2 encodedNormal = texelFetch(u_ViewNormals, pixCoord, 0).rg;
     vec3 viewNormal = normalize(mat3(u_ViewMatrix) * OctDecode(encodedNormal));
@@ -207,24 +215,36 @@ void main()
 
         // Direction in view-space (projected onto the tangent plane)
         vec3 directionVS = vec3(omega.x, omega.y, 0.0);
-        vec3 orthoDirectionVS = directionVS - dot(directionVS, viewNormal) * viewNormal;
-        // axisVS must be the slice plane's normal -- built from the slice
-        // direction and the camera's view axis, NOT the surface normal.
-        // cross(X, viewNormal) is perpendicular to viewNormal for ANY X, so
-        // crossing with viewNormal here made dot(viewNormal, axisVS) == 0
-        // identically, collapsing projectedNormal to viewNormal and cosN to 1
-        // for every slice on every pixel -- i.e. n was always 0, regardless of
-        // the surface's real tilt relative to the camera. That zeroed the
-        // anisotropic tangent-elevation term entirely, so any surface not
-        // exactly face-on to the camera (almost every visible pixel) measured
-        // its horizon against the wrong (untilted) baseline and self-occluded
-        // -- the root cause of issue #533's near-black GTAO frames.
-        vec3 axisVS = normalize(cross(directionVS, vec3(0.0, 0.0, -1.0)));
+        // orthoDirectionVS / axisVS / projectedNormal / cosN all measure the
+        // surface normal's tilt relative to the SLICE PLANE, which is spanned
+        // by the per-pixel view vector and the slice's screen direction --
+        // NOT relative to the surface normal itself, and NOT relative to a
+        // globally-fixed screen axis. Two related bugs lived here (issue
+        // #533):
+        //   1. axisVS was built as cross(directionVS, viewNormal). Crossing
+        //      anything with viewNormal is perpendicular to viewNormal for
+        //      ANY input, so dot(viewNormal, axisVS) == 0 identically,
+        //      collapsing projectedNormal to viewNormal and n to exactly 0
+        //      for every slice on every pixel -- see
+        //      docs/agent-rules/glsl-shaders.md's cross(X,V)⊥V note.
+        //   2. Even after basing axisVS on the view axis instead, cosN dotted
+        //      projectedNormal against viewNormal -- but for an orthogonal
+        //      projection P = V - axis*dot(V,axis), dot(P,V) == |P|^2 is a
+        //      plain linear-algebra identity, so that cosN always reduced to
+        //      projectedNormalLen again: non-degenerate, but still not the
+        //      intended "elevation relative to the slice plane's reference
+        //      axis" quantity, which left surfaces away from dead-on self-
+        //      occluded and washed out real, localised occlusion (e.g. a
+        //      contact crease) into the same flat wrongness.
+        // Fixed by using the per-pixel viewVec (not viewNormal, not a fixed
+        // axis) throughout this block.
+        vec3 orthoDirectionVS = directionVS - dot(directionVS, viewVec) * viewVec;
+        vec3 axisVS = normalize(cross(directionVS, viewVec));
         vec3 projectedNormal = viewNormal - axisVS * dot(viewNormal, axisVS);
         float projectedNormalLen = length(projectedNormal);
 
         float signN = sign(dot(orthoDirectionVS, projectedNormal));
-        float cosN = clamp(dot(projectedNormal, viewNormal) / projectedNormalLen, 0.0, 1.0);
+        float cosN = clamp(dot(projectedNormal, viewVec) / projectedNormalLen, 0.0, 1.0);
         float n = signN * acos(cosN);
 
         // Horizon angles (initialize to below horizon)
