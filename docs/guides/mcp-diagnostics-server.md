@@ -103,10 +103,15 @@ Two entry points, both in
   The session runs for `OLO_MCP_ATTACH_SECONDS` (default 600, capped 7200), or stops early
   when the sentinel file `<discovery-file>.stop` is created and then removed.
 
-Honesty boundary: the headless host wires the read-only/inspection hooks only —
-`olo_camera_frame_entity`, `olo_viewport_set_size`, and the consented project-write tools
-return a clean "not available" because the test owns no editor undo stack / panel viewport.
-The screenshot, shader, scene, perf, physics, and render-capture/override tools all work.
+Honesty boundary: the headless host wires the read-only/inspection hooks, plus the two
+Tier-0 camera/viewport hooks the Part-1 follow-on closed out — `olo_camera_frame_entity`
+(shares `OloEngine::FrameCameraOnEntity`, the same bounds-computation + fit logic
+`EditorLayer::FrameEditorCameraOnEntity` uses, pointed at the fixture's `Scene`/`EditorCamera`)
+and `olo_viewport_set_size` (resizes the fixture's `Scene` viewport + the Renderer3D render
+graph via `RendererAttachedTest::ResizeRenderTarget`, wired through `Hooks::SetViewportSize`).
+The consented project-write tools (`GetCommandHistory` and friends) remain null by design —
+no project writes in the headless host; that's Tier 2 / #306-C, out of scope. The screenshot,
+shader, scene, perf, physics, and render-capture/override tools all work.
 
 ## Attaching an agent
 

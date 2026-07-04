@@ -238,6 +238,8 @@ namespace OloEngine::Tests
             .RenderHeight = kHeight,
             .RenderOneFrame = [this, &camera]()
             { RunEditorFrames(camera, 1); },
+            .SetViewportSize = [this](u32 w, u32 h)
+            { ResizeRenderTarget(w, h); },
         });
 
         const u16 port = host.Start();
@@ -352,6 +354,83 @@ namespace OloEngine::Tests
             }
         }
 
+        // ---- olo_camera_frame_entity: no longer "not available" (#316 follow-on) -
+        // Proves the headless host actually moves the camera to frame the Cube
+        // entity, sharing OloEngine::FrameCameraOnEntity with the editor's wiring.
+        {
+            Entity cube = GetScene().FindEntityByName("Cube");
+            ASSERT_TRUE(static_cast<bool>(cube)) << "BuildScene's 'Cube' entity is missing";
+            const u64 cubeUuid = static_cast<u64>(cube.GetUUID());
+
+            // MakeCamera() posed the camera with SetPose, which collapses the
+            // orbit to distance 0 — so ANY successful frame moves distance off
+            // zero. That makes "did framing actually run" unambiguous without
+            // parsing the response JSON.
+            ASSERT_NEAR(camera.GetDistance(), 0.0f, 1e-4f) << "test precondition: MakeCamera should start at distance 0";
+
+            const Json resp = host.CallTool("olo_camera_frame_entity", Json{ { "id", std::to_string(cubeUuid) } });
+            ASSERT_TRUE(resp.contains("result")) << "olo_camera_frame_entity returned an error: " << resp.dump(2);
+            EXPECT_FALSE(resp["result"].value("isError", false))
+                << "olo_camera_frame_entity is still reporting unavailable: " << resp.dump(2);
+
+            const std::string text = FindTextData(resp);
+            ASSERT_FALSE(text.empty()) << "olo_camera_frame_entity returned no text: " << resp.dump(2);
+            const Json pose = Json::parse(text, nullptr, /*allow_exceptions=*/false);
+            ASSERT_TRUE(pose.is_object()) << "olo_camera_frame_entity text was not JSON: " << text;
+            EXPECT_EQ(pose.value("framedEntity", std::string{}), std::to_string(cubeUuid)) << text;
+
+            // The camera (shared with the host via the Hooks::Camera pointer) must
+            // have actually moved: pivoted onto the cube (world-space origin) at a
+            // non-zero fit distance, not left at the pre-call pose.
+            EXPECT_GT(camera.GetDistance(), 0.5f) << "camera was not re-pivoted to a real orbit distance";
+            EXPECT_NEAR(camera.GetFocalPoint().x, 0.0f, 0.5f) << "camera did not focus on the cube (at the origin)";
+            EXPECT_NEAR(camera.GetFocalPoint().y, 0.0f, 0.5f) << "camera did not focus on the cube (at the origin)";
+            EXPECT_NEAR(camera.GetFocalPoint().z, 0.0f, 0.5f) << "camera did not focus on the cube (at the origin)";
+        }
+
+        // ---- olo_viewport_set_size: no longer "not available" (#316 follow-on) -
+        // Proves a resize actually changes the offscreen composite framebuffer's
+        // dimensions (not just that the tool call succeeds), then proves `reset`
+        // restores the fixture's original resolution.
+        {
+            constexpr int kOverrideWidth = 320;
+            constexpr int kOverrideHeight = 200;
+            const Json setResp = host.CallTool(
+                "olo_viewport_set_size", Json{ { "width", kOverrideWidth }, { "height", kOverrideHeight } });
+            ASSERT_TRUE(setResp.contains("result")) << "olo_viewport_set_size returned an error: " << setResp.dump(2);
+            EXPECT_FALSE(setResp["result"].value("isError", false))
+                << "olo_viewport_set_size is still reporting unavailable: " << setResp.dump(2);
+
+            const Json shotResp = host.CallTool("olo_screenshot", Json{ { "maxWidth", 1000 } });
+            ASSERT_TRUE(shotResp.contains("result")) << shotResp.dump(2);
+            const std::string b64 = FindImageData(shotResp);
+            ASSERT_FALSE(b64.empty()) << "olo_screenshot returned no image after resize: " << shotResp.dump(2);
+            const std::vector<u8> png = Base64Decode(b64);
+            int dw = 0, dh = 0, dch = 0;
+            stbi_uc* decoded = ::stbi_load_from_memory(png.data(), static_cast<int>(png.size()), &dw, &dh, &dch, 4);
+            ASSERT_NE(decoded, nullptr) << "resized screenshot PNG did not decode";
+            ::stbi_image_free(decoded);
+            EXPECT_EQ(dw, kOverrideWidth) << "olo_viewport_set_size did not resize the composite framebuffer's width";
+            EXPECT_EQ(dh, kOverrideHeight) << "olo_viewport_set_size did not resize the composite framebuffer's height";
+
+            // reset: true restores the fixture's original kWidth x kHeight.
+            const Json resetResp = host.CallTool("olo_viewport_set_size", Json{ { "reset", true } });
+            ASSERT_TRUE(resetResp.contains("result")) << resetResp.dump(2);
+            EXPECT_FALSE(resetResp["result"].value("isError", false)) << resetResp.dump(2);
+
+            const Json shotResp2 = host.CallTool("olo_screenshot", Json{ { "maxWidth", 1000 } });
+            ASSERT_TRUE(shotResp2.contains("result")) << shotResp2.dump(2);
+            const std::string b64_2 = FindImageData(shotResp2);
+            ASSERT_FALSE(b64_2.empty()) << "olo_screenshot returned no image after reset: " << shotResp2.dump(2);
+            const std::vector<u8> png2 = Base64Decode(b64_2);
+            int dw2 = 0, dh2 = 0, dch2 = 0;
+            stbi_uc* decoded2 = ::stbi_load_from_memory(png2.data(), static_cast<int>(png2.size()), &dw2, &dh2, &dch2, 4);
+            ASSERT_NE(decoded2, nullptr) << "post-reset screenshot PNG did not decode";
+            ::stbi_image_free(decoded2);
+            EXPECT_EQ(dw2, static_cast<int>(kWidth)) << "olo_viewport_set_size{reset:true} did not restore the original width";
+            EXPECT_EQ(dh2, static_cast<int>(kHeight)) << "olo_viewport_set_size{reset:true} did not restore the original height";
+        }
+
         host.Stop();
     }
 
@@ -380,6 +459,8 @@ namespace OloEngine::Tests
             .RenderHeight = kHeight,
             .RenderOneFrame = [this, &camera]()
             { RunEditorFrames(camera, 1); },
+            .SetViewportSize = [this](u32 w, u32 h)
+            { ResizeRenderTarget(w, h); },
         });
 
         // Honour the per-worktree port the driver picked (OLO_MCP_PORT); the

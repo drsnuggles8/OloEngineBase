@@ -40,6 +40,7 @@
 //       .Camera                = &camera,
 //       .RenderWidth = w, .RenderHeight = h,
 //       .RenderOneFrame        = [&]{ RunEditorFrames(camera, 1); },
+//       .SetViewportSize       = [&](u32 w, u32 h){ ResizeRenderTarget(w, h); }, // optional
 //   });
 //   const u16 port = host.Start(/*basePort=*/0);   // 0 => derive a free port
 //   const Json result = host.CallTool("olo_screenshot", { {"maxWidth", 256} });
@@ -61,6 +62,7 @@
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/SceneCameraFraming.h"
 #include "OloEngine/Task/NamedThreads.h"
 
 #include <glad/gl.h>
@@ -107,10 +109,19 @@ namespace OloEngine::Tests
             // job always sees a fresh frame and AwaitRenderedFrames sees the frame
             // counter advance.
             std::function<void()> RenderOneFrame;
+            // Resize the fixture's render target so olo_viewport_set_size can pin a
+            // deterministic capture resolution (issue #316 follow-on). Optional —
+            // leaving it null keeps the tool's clean "not available" response.
+            // Implementations must resize BOTH the Scene's viewport-driven cameras
+            // and the Renderer3D render-graph targets (see
+            // RendererAttachedTest::ResizeRenderTarget), mirroring the editor's
+            // OnUpdate resize block so the NEXT RenderOneFrame actually produces a
+            // composite framebuffer at the new size.
+            std::function<void(u32 width, u32 height)> SetViewportSize;
         };
 
         explicit McpHeadlessHost(Hooks hooks)
-            : m_Hooks(std::move(hooks))
+            : m_Hooks(std::move(hooks)), m_InitialRenderWidth(m_Hooks.RenderWidth), m_InitialRenderHeight(m_Hooks.RenderHeight)
         {
             m_Server = CreateScope<MCP::McpServer>(BuildContext());
             MCP::RegisterBuiltinTools(*m_Server);
@@ -303,9 +314,11 @@ namespace OloEngine::Tests
         // Build the EditorMcpContext that backs the server with the OFFSCREEN FB
         // and the test's EditorCamera. Mirrors EditorLayer's wiring (#316) but
         // sources its frame from the fixture's render-graph composite rather than
-        // a live viewport. GetCommandHistory / FrameEntity / SetViewportSizeOverride
-        // are intentionally null (no project writes in the headless host; the
-        // remaining two degrade to a clean "not available" from their tools).
+        // a live viewport. GetCommandHistory is intentionally null (no project
+        // writes in the headless host — out of scope, #306-C). FrameEntity and
+        // SetViewportSizeOverride are wired when the test supplies GetScene/Camera
+        // and SetViewportSize respectively; a host built without them keeps the
+        // clean "not available" response from their tools.
         MCP::EditorMcpContext BuildContext()
         {
             MCP::EditorMcpContext ctx;
@@ -364,6 +377,43 @@ namespace OloEngine::Tests
             { return m_FrameIndex.load(std::memory_order_relaxed); };
             ctx.IsCaptureUnready = [this]() -> bool
             { return m_FrameIndex.load(std::memory_order_relaxed) == 0; };
+
+            // olo_camera_frame_entity (#316 follow-on): shares the exact
+            // bounds-computation + fit logic EditorLayer uses, just pointed at the
+            // fixture's Scene/EditorCamera instead of the editor's.
+            ctx.FrameEntity = [this](u64 entityUuid) -> bool
+            {
+                if (!m_Hooks.Camera)
+                    return false;
+                const Ref<Scene> scene = m_Hooks.GetScene ? m_Hooks.GetScene() : nullptr;
+                return FrameCameraOnEntity(scene, entityUuid, *m_Hooks.Camera);
+            };
+
+            // olo_viewport_set_size (#316 follow-on): only wired when the test
+            // supplies a resize callback; otherwise the tool keeps reporting
+            // "not available" (no fixture render target to resize). `width`/
+            // `height` == 0 (the tool's `reset` request) restores the size the
+            // host was originally constructed with, mirroring the editor's
+            // "override cleared -> falls back to the natural size" behaviour.
+            if (m_Hooks.SetViewportSize)
+            {
+                ctx.SetViewportSizeOverride = [this](u32 width, u32 height)
+                {
+                    if (width == 0 && height == 0)
+                    {
+                        width = m_InitialRenderWidth;
+                        height = m_InitialRenderHeight;
+                    }
+                    else
+                    {
+                        width = std::clamp(width, 64u, 8192u);
+                        height = std::clamp(height, 64u, 8192u);
+                    }
+                    m_Hooks.SetViewportSize(width, height);
+                    m_Hooks.RenderWidth = width;
+                    m_Hooks.RenderHeight = height;
+                };
+            }
             return ctx;
         }
 
@@ -381,6 +431,12 @@ namespace OloEngine::Tests
         }
 
         Hooks m_Hooks;
+        // The size the host was constructed with — the "reset" target for
+        // olo_viewport_set_size's { reset: true } request (see BuildContext's
+        // SetViewportSizeOverride). Snapshotted in the ctor init list, before
+        // any resize can mutate m_Hooks.RenderWidth/RenderHeight.
+        const u32 m_InitialRenderWidth;
+        const u32 m_InitialRenderHeight;
         Scope<MCP::McpServer> m_Server;
         std::atomic<u64> m_FrameIndex{ 0 };
         std::atomic<int> m_NextId{ 0 };
