@@ -2562,12 +2562,50 @@ namespace OloEngine
         m_ContactListener = std::make_unique<JoltContactListener>(*this);
         m_JoltSystem->SetContactListener(m_ContactListener.get());
 
-        // Set default gravity
-        m_JoltSystem->SetGravity(JPH::Vec3(0.0f, -9.81f, 0.0f));
+        // Apply gravity from PhysicsSettings instead of hardcoding Earth gravity —
+        // a project authoring non-Earth gravity (underwater levels, low-g, etc.) had
+        // zero effect on the live simulation before issue #540.
+        m_JoltSystem->SetGravity(JoltUtils::ToJoltVector(settings.m_Gravity));
+
+        // Mirror Physics3DSystem::UpdatePhysicsSystemSettings's solver/sleep tuning
+        // onto the system that's actually stepped every frame (JoltScene::Simulate).
+        // Physics3DSystem::m_PhysicsSystem is never stepped — nothing calls
+        // Physics3DSystem::Update — so applying this tuning only there (as it was
+        // before #540) was a no-op on the live sim; JoltScene::m_JoltSystem is the
+        // only system that matters at runtime.
+        JPH::PhysicsSettings joltSettings;
+        joltSettings.mNumVelocitySteps = settings.m_VelocitySolverIterations;
+        joltSettings.mNumPositionSteps = settings.m_PositionSolverIterations;
+        joltSettings.mBaumgarte = settings.m_Baumgarte;
+        joltSettings.mSpeculativeContactDistance = settings.m_SpeculativeContactDistance;
+        joltSettings.mPenetrationSlop = settings.m_PenetrationSlop;
+        joltSettings.mLinearCastThreshold = settings.m_LinearCastThreshold;
+        joltSettings.mMinVelocityForRestitution = settings.m_MinVelocityForRestitution;
+        joltSettings.mTimeBeforeSleep = settings.m_TimeBeforeSleep;
+        joltSettings.mPointVelocitySleepThreshold = settings.m_PointVelocitySleepThreshold;
+        joltSettings.mDeterministicSimulation = settings.m_DeterministicSimulation;
+        joltSettings.mConstraintWarmStart = settings.m_ConstraintWarmStart;
+        joltSettings.mUseBodyPairContactCache = settings.m_UseBodyPairContactCache;
+        joltSettings.mUseManifoldReduction = settings.m_UseManifoldReduction;
+        joltSettings.mUseLargeIslandSplitter = settings.m_UseLargeIslandSplitter;
+        joltSettings.mAllowSleeping = settings.m_AllowSleeping;
+        m_JoltSystem->SetPhysicsSettings(joltSettings);
+
+        // Seed the fixed timestep from PhysicsSettings instead of leaving the 1/60
+        // default initializer in place (issue #540). Guard defensively — same
+        // rationale as the maxBodies/maxContactConstraints clamps above:
+        // SetSettings() has no validating caller other than ProjectSerializer, so a
+        // direct caller (test, script) could hand this a non-positive/non-finite
+        // value that would spin Simulate()'s accumulator loop forever.
+        if (std::isfinite(settings.m_FixedTimestep) && settings.m_FixedTimestep > 0.0f)
+        {
+            m_FixedTimeStep = settings.m_FixedTimestep;
+        }
 
         OLO_CORE_INFO("Jolt Physics initialized - MaxBodies: {0}, MaxBodyPairs: {1}, MaxContactConstraints: {2}, "
-                      "TempAllocatorSize: {3} bytes",
-                      maxBodies, maxBodyPairs, maxContactConstraints, tempAllocatorSize);
+                      "TempAllocatorSize: {3} bytes, Gravity: ({4}, {5}, {6}), FixedTimeStep: {7}",
+                      maxBodies, maxBodyPairs, maxContactConstraints, tempAllocatorSize,
+                      settings.m_Gravity.x, settings.m_Gravity.y, settings.m_Gravity.z, m_FixedTimeStep);
     }
 
     void JoltScene::ShutdownJolt()
