@@ -96,6 +96,87 @@ TEST_F(ContactConstraintLimitsHonouredTest, CustomSettingsAreAppliedNotHardcoded
            "divergence from issue #523 regressed";
 }
 
+// Issue #540: before this fix, JoltScene::InitializeJolt hardcoded gravity to
+// -9.81 and the fixed timestep to 1/60, and never pushed solver/sleep tuning
+// onto its own JPH::PhysicsSystem at all — those settings only ever reached
+// the never-stepped Physics3DSystem::m_PhysicsSystem, a no-op on the live sim.
+// A project authoring non-Earth gravity, a custom timestep, or solver/sleep
+// tuning had zero effect on how bodies actually simulated.
+TEST_F(ContactConstraintLimitsHonouredTest, GravityTimestepAndSolverSettingsAreAppliedToLiveScene)
+{
+    PhysicsSettings settings = PhysicsSettings::GetDefaults();
+    settings.m_Gravity = { 0.0f, -1.62f, 0.0f }; // lunar gravity — far from the -9.81 default
+    settings.m_FixedTimestep = 1.0f / 30.0f;     // far from the 1/60 default
+    settings.m_VelocitySolverIterations = 6;     // far from the default of 10
+    settings.m_PositionSolverIterations = 4;     // far from the default of 2
+    settings.m_AllowSleeping = false;            // far from the default of true
+    Physics3DSystem::SetSettings(settings);
+
+    CreateFloor(GetScene(), /*topY=*/0.0f);
+    EnablePhysics3D();
+
+    JoltScene* joltScene = GetScene().GetPhysicsScene();
+    ASSERT_NE(joltScene, nullptr);
+
+    const glm::vec3 gravity = joltScene->GetGravity();
+    EXPECT_NEAR(gravity.x, settings.m_Gravity.x, 1e-4f) << "JoltScene ignored PhysicsSettings::m_Gravity.x";
+    EXPECT_NEAR(gravity.y, settings.m_Gravity.y, 1e-4f)
+        << "JoltScene::InitializeJolt ignored PhysicsSettings::m_Gravity — still hardcoded -9.81";
+    EXPECT_NEAR(gravity.z, settings.m_Gravity.z, 1e-4f) << "JoltScene ignored PhysicsSettings::m_Gravity.z";
+
+    EXPECT_NEAR(joltScene->GetFixedTimeStep(), settings.m_FixedTimestep, 1e-6f)
+        << "JoltScene::InitializeJolt ignored PhysicsSettings::m_FixedTimestep — still hardcoded 1/60";
+
+    const JPH::PhysicsSettings appliedJoltSettings = joltScene->GetAppliedPhysicsSettings();
+    EXPECT_EQ(appliedJoltSettings.mNumVelocitySteps, settings.m_VelocitySolverIterations)
+        << "JoltScene::InitializeJolt never applied PhysicsSettings::m_VelocitySolverIterations to "
+           "the live JPH::PhysicsSystem";
+    EXPECT_EQ(appliedJoltSettings.mNumPositionSteps, settings.m_PositionSolverIterations)
+        << "JoltScene::InitializeJolt never applied PhysicsSettings::m_PositionSolverIterations to "
+           "the live JPH::PhysicsSystem";
+    EXPECT_EQ(appliedJoltSettings.mAllowSleeping, settings.m_AllowSleeping)
+        << "JoltScene::InitializeJolt never applied PhysicsSettings::m_AllowSleeping to the live "
+           "JPH::PhysicsSystem";
+}
+
+// Issue #540: a dropped body's fall distance depends on gravity actually
+// reaching the live simulation, not just on the accessor reporting the right
+// number back. This is the runtime-behavior half of the settings-plumbing
+// check above.
+TEST_F(ContactConstraintLimitsHonouredTest, CustomGravityChangesFallBehavior)
+{
+    PhysicsSettings settings = PhysicsSettings::GetDefaults();
+    settings.m_Gravity = { 0.0f, -1.62f, 0.0f }; // lunar gravity — much weaker than -9.81
+    Physics3DSystem::SetSettings(settings);
+
+    CreateFloor(GetScene(), /*topY=*/-1000.0f); // far below so the body never lands during the test
+
+    Entity ball = GetScene().CreateEntity("FallingBall");
+    constexpr f32 kStartY = 10.0f;
+    ball.GetComponent<TransformComponent>().Translation = { 0.0f, kStartY, 0.0f };
+    auto& body = ball.AddComponent<Rigidbody3DComponent>();
+    body.m_Type = BodyType3D::Dynamic;
+    body.m_Mass = 1.0f;
+    auto& col = ball.AddComponent<SphereCollider3DComponent>();
+    col.m_Radius = 0.5f;
+
+    EnablePhysics3D();
+    TickFor(/*seconds=*/1.0f);
+
+    const f32 fallDistance = kStartY - ball.GetComponent<TransformComponent>().Translation.y;
+    ASSERT_TRUE(std::isfinite(fallDistance)) << "ball transform contains NaN/Inf";
+
+    // Under Earth gravity (-9.81) the ball would fall ~4.9m in 1s (0.5 * 9.81 * 1^2);
+    // under lunar gravity (-1.62) it falls ~0.81m. Assert it's well below the
+    // Earth-gravity distance, catching a JoltScene that silently kept -9.81.
+    constexpr f32 kEarthGravityOneSecondFallDistance = 4.9f;
+    EXPECT_LT(fallDistance, kEarthGravityOneSecondFallDistance * 0.75f)
+        << "ball fell as if under Earth gravity (-9.81) — JoltScene ignored the authored lunar "
+           "gravity (fallDistance="
+        << fallDistance << ")";
+    EXPECT_GT(fallDistance, 0.1f) << "ball didn't fall at all — gravity may be zero or disabled";
+}
+
 TEST_F(ContactConstraintLimitsHonouredTest, DensePileSettlesOnFloorInsteadOfTunnelling)
 {
     // Defaults now match m_MaxContactConstraints to m_MaxBodyPairs (65536) rather

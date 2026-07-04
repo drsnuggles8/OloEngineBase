@@ -283,6 +283,22 @@ namespace OloEngine
         {
             return m_AppliedMaxContactConstraints;
         }
+        // The fixed timestep InitializeJolt() actually seeded from PhysicsSettings
+        // (defaults to 1/60 before Initialize(), or if PhysicsSettings::m_FixedTimestep
+        // was non-positive/non-finite). Exposed so tests can verify it, mirroring the
+        // GetMaxBodies()-style accessors above (issue #540).
+        f32 GetFixedTimeStep() const
+        {
+            return m_FixedTimeStep;
+        }
+        // The solver/sleep tuning InitializeJolt() actually passed to
+        // JPH::PhysicsSystem::SetPhysicsSettings, read from PhysicsSettings at init
+        // time. Exposed so tests can verify solver/sleep settings are honoured by the
+        // live sim rather than only reaching the never-stepped Physics3DSystem (issue #540).
+        JPH::PhysicsSettings GetAppliedPhysicsSettings() const
+        {
+            return m_JoltSystem ? m_JoltSystem->GetPhysicsSettings() : JPH::PhysicsSettings{};
+        }
 
         // Read-only snapshot of the entity pairs whose bodies are currently in
         // contact, deduplicated per entity pair. Empty when the contact listener
