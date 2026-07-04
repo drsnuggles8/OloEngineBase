@@ -518,6 +518,43 @@ namespace OloEngine::Tests
         EXPECT_EQ(rb.m_IsTrigger, expectedIsTrigger);
     }
 
+    // A corrupted/hand-authored `Mass: 0` (or negative, or NaN) would otherwise
+    // produce an infinite inverse mass in JoltBody::CreateBodySettings, NaN-
+    // propagating across the whole solver island (issue #541).
+    TEST(ComponentRoundTrip, Rigidbody3DComponentInvalidMassIsSanitizedOnLoad)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& rb = entity.AddComponent<Rigidbody3DComponent>();
+            rb.m_Mass = 7.5f;
+            rb.m_LinearDrag = 0.25f;
+            rb.m_AngularDrag = 0.6f;
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        yaml = std::regex_replace(yaml, std::regex(R"(Mass: [0-9.e+-]+)"), "Mass: .nan");
+        yaml = std::regex_replace(yaml, std::regex(R"(LinearDrag: [0-9.e+-]+)"), "LinearDrag: -5");
+        yaml = std::regex_replace(yaml, std::regex(R"(AngularDrag: [0-9.e+-]+)"), "AngularDrag: .inf");
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml))
+            << "Deserialize rejected the (structurally valid) NaN/Inf-injected scene.";
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<Rigidbody3DComponent>());
+
+        const auto& rb = restored.GetComponent<Rigidbody3DComponent>();
+        EXPECT_TRUE(std::isfinite(rb.m_Mass));
+        EXPECT_GT(rb.m_Mass, 0.0f) << "NaN mass must not become a zero/negative inverse-mass divisor";
+        EXPECT_TRUE(std::isfinite(rb.m_LinearDrag));
+        EXPECT_GE(rb.m_LinearDrag, 0.0f) << "Negative drag should fall back to a non-negative value";
+        EXPECT_TRUE(std::isfinite(rb.m_AngularDrag));
+        EXPECT_GE(rb.m_AngularDrag, 0.0f) << "Inf drag should be sanitized to a finite value";
+    }
+
     // -------------------------------------------------------------------------
     // BoxCollider2DComponent
     // -------------------------------------------------------------------------
@@ -3189,6 +3226,41 @@ namespace OloEngine::Tests
         EXPECT_NEAR(nc.m_ManaBarColor.b, expectedManaColor.b, kFloatEpsilon);
         EXPECT_NEAR(nc.m_BarBackgroundColor.g, expectedBgColor.g, kFloatEpsilon);
         EXPECT_NEAR(nc.m_ManaBarGap, expectedManaBarGap, kFloatEpsilon);
+    }
+
+    // -------------------------------------------------------------------------
+    // AnimationStateComponent
+    // -------------------------------------------------------------------------
+    // A corrupted/hand-authored `CurrentTime: .nan` would otherwise flow through
+    // AnimationSystem::Update's LoopTime (a NaN passes the `while` guards
+    // unchanged) into SampleBonePosition/Rotation/Scale, NaN-propagating forward
+    // kinematics across the whole skeleton (issue #541).
+    TEST(ComponentRoundTrip, AnimationStateComponentInvalidTimingIsSanitizedOnLoad)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& anim = entity.AddComponent<AnimationStateComponent>();
+            anim.m_CurrentTime = 1.5f;
+            anim.m_BlendDuration = 0.2f;
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        yaml = std::regex_replace(yaml, std::regex(R"(CurrentTime: [0-9.e+-]+)"), "CurrentTime: .nan");
+        yaml = std::regex_replace(yaml, std::regex(R"(BlendDuration: [0-9.e+-]+)"), "BlendDuration: -.inf");
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml))
+            << "Deserialize rejected the (structurally valid) NaN/Inf-injected scene.";
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<AnimationStateComponent>());
+
+        const auto& anim = restored.GetComponent<AnimationStateComponent>();
+        EXPECT_TRUE(std::isfinite(anim.m_CurrentTime)) << "NaN CurrentTime must not propagate into forward kinematics";
+        EXPECT_TRUE(std::isfinite(anim.m_BlendDuration)) << "Inf BlendDuration should be sanitized to a finite value";
     }
 
     // =========================================================================
