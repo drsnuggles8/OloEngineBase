@@ -244,7 +244,7 @@ void main()
         float projectedNormalLen = length(projectedNormal);
 
         float signN = sign(dot(orthoDirectionVS, projectedNormal));
-        float cosN = clamp(dot(projectedNormal, viewVec) / projectedNormalLen, 0.0, 1.0);
+        float cosN = clamp(dot(projectedNormal, viewVec) / max(projectedNormalLen, 1e-6), 0.0, 1.0);
         float n = signN * acos(cosN);
 
         // Horizon angles (initialize to below horizon)
