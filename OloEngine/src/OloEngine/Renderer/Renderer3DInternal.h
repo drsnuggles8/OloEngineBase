@@ -21,6 +21,7 @@
 #include "OloEngine/Renderer/Passes/MotionBlurRenderPass.h"
 #include "OloEngine/Renderer/Passes/OITPrepareRenderPass.h"
 #include "OloEngine/Renderer/Passes/OITResolveRenderPass.h"
+#include "OloEngine/Renderer/Passes/OverdrawRenderPass.h"
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
 #include "OloEngine/Renderer/Passes/PlanarReflectionRenderPass.h"
 #include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
@@ -67,6 +68,7 @@ namespace OloEngine
         Ref<VignetteRenderPass> Vignette;
         Ref<FXAARenderPass> FXAA;
         Ref<SelectionOutlineRenderPass> SelectionOutline;
+        Ref<OverdrawRenderPass> Overdraw;
         Ref<UICompositeRenderPass> UIComposite;
         Ref<FinalRenderPass> Final;
 
@@ -92,6 +94,7 @@ namespace OloEngine
             Vignette.Reset();
             FXAA.Reset();
             SelectionOutline.Reset();
+            Overdraw.Reset();
             UIComposite.Reset();
             Final.Reset();
         }

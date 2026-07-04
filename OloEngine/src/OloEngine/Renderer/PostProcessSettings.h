@@ -249,6 +249,20 @@ namespace OloEngine
         f32 ContactShadowEdgeFade = 0.1f;    // Screen-border fade width in UV (0..0.5); larger = softer edges
         bool ContactShadowDebugView = false; // Show the shadow factor as greyscale instead of the composite
 
+        // Overdraw debug view (#519)
+        // A GPU perf-diagnostics visualisation (like the SSAO/SSR/SSGI debug
+        // views): when active, OverdrawRenderPass re-draws the frame's opaque
+        // geometry into a single-channel accumulation target with additive
+        // blending and depth testing DISABLED (so occluded fragments count too),
+        // then heat-maps the per-pixel fragment count and replaces the viewport
+        // image with it — black where nothing drew, blue/green/yellow/red as the
+        // layer count rises. The count->colour ramp lives in Renderer/OverdrawHeatmap.h
+        // (mirrored by PostProcess_OverdrawHeatmap.glsl), pinned by
+        // OverdrawHeatmapMathTest; the frame is checked by OverdrawVisualEvidenceTest.
+        // Path-agnostic (works in Forward / Forward+ / Deferred). Not persisted —
+        // an ephemeral session render setting, like the other *DebugView flags.
+        bool OverdrawDebugView = false;
+
         bool operator==(const PostProcessSettings&) const = default;
     };
 

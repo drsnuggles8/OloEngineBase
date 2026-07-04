@@ -54,6 +54,7 @@ namespace OloEngine
         RenderGraphNode* Vignette = nullptr;
         RenderGraphNode* FXAA = nullptr;
         RenderGraphNode* SelectionOutline = nullptr;
+        RenderGraphNode* Overdraw = nullptr;
         RenderGraphNode* UIComposite = nullptr;
         RenderGraphNode* Final = nullptr;
     };

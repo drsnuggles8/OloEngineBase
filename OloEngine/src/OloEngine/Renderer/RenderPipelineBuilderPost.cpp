@@ -89,6 +89,15 @@ namespace OloEngine::RenderPipelineBuilderInternal
             graph.AddNode(PrepareGraphNode("SelectionOutlinePass",
                                            inputs.Passes->SelectionOutline));
         }
+        // Overdraw heatmap debug view (#519). Runs late — after tone mapping and
+        // every LDR effect — so the heat colours reach the viewport undistorted;
+        // when active it replaces the composite (UIComposite/Final read its
+        // OverdrawColor at top priority). Self-skips when the debug view is off.
+        if (inputs.Passes->Overdraw)
+        {
+            graph.AddNode(PrepareGraphNode("OverdrawPass",
+                                           inputs.Passes->Overdraw));
+        }
         graph.AddNode(PrepareGraphNode("UICompositePass",
                                        inputs.Passes->UIComposite));
         graph.AddNode(PrepareGraphNode("FinalPass",

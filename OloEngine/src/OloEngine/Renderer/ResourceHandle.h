@@ -365,6 +365,8 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view SSRColorTexture = "SSRColorTexture";                           // Color attachment view of SSRColor
     inline constexpr std::string_view ContactShadowColor = "ContactShadowColor";                     // After screen-space contact-shadow composite (only valid when ContactShadow is enabled, deferred path)
     inline constexpr std::string_view ContactShadowColorTexture = "ContactShadowColorTexture";       // Color attachment view of ContactShadowColor
+    inline constexpr std::string_view OverdrawColor = "OverdrawColor";                               // Overdraw heatmap debug view (only valid when OverdrawDebugView is on); replaces the viewport late in the post chain
+    inline constexpr std::string_view OverdrawColorTexture = "OverdrawColorTexture";                 // Color attachment view of OverdrawColor
     inline constexpr std::string_view EASUColor = "EASUColor";                                       // After FSR1 EASU spatial upscale (only valid when Upscale != Off) — display-res HDR, runs early before Bloom
     inline constexpr std::string_view EASUColorTexture = "EASUColorTexture";                         // Color attachment view of EASUColor
     inline constexpr std::string_view UpscaledDepthVelocity = "UpscaledDepthVelocity";               // FSR1 full-res depth+velocity FBO (RT0 = R32F depth, RT1 = RG16F velocity), only valid when Upscale != Off

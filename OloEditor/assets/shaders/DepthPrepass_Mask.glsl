@@ -45,6 +45,10 @@ layout(location = 2) in vec2 v_TexCoord;
 
 layout(binding = 0) uniform sampler2D u_AlbedoMap;          // TEX_DIFFUSE
 
+// Overdraw counter — see DepthPrepass.glsl. Written only for fragments that
+// survive the MASK alpha test below, so the count matches shaded coverage.
+layout(location = 0) out vec4 o_OverdrawCount;
+
 // PBR Material UBO (binding 2) — full block layout must match PBR_MultiLight.glsl
 layout(std140, binding = 2) uniform PBRMaterialProperties {
     vec4 u_BaseColorFactor;     // Base color (albedo) with alpha
@@ -79,4 +83,6 @@ void main()
         if (sampledAlpha < u_AlphaCutoff)
             discard;
     }
+
+    o_OverdrawCount = vec4(1.0);
 }

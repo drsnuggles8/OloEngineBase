@@ -94,6 +94,15 @@ namespace OloEngine
         Renderer3D::DepthPrepassShaderIDs DepthPrepassShaders;
         // Color pass of depth prepass: override depth func to GL_LEQUAL + depth mask false
         bool DepthPrepassColorPassActive = false;
+        // Overdraw debug view (#519): when true, ApplyPODRenderState forces
+        // additive (GL_ONE, GL_ONE) blending with depth testing DISABLED and the
+        // colour mask ON, and the batchable opaque draws are swapped for the
+        // depth-only DepthPrepass* programs (reusing DepthPrepassShaders) whose
+        // fragment stage emits 1.0 — so every covered fragment adds 1 to the
+        // accumulation target's red channel. Geometry with no depth-only variant
+        // (skybox / terrain / voxel / custom shaders) is skipped so its full
+        // material shader can't pollute the counter.
+        bool OverdrawActive = false;
         // Water surface-depth capture: forces depth-only state even for the blended
         // water draw so the nearest water surface is written to its own depth target.
         bool WaterDepthCaptureActive = false;
@@ -192,6 +201,18 @@ namespace OloEngine
             {
                 api.SetDepthFunc(GL_LEQUAL);
                 api.SetDepthMask(false);
+            }
+            // During the overdraw debug view, count every covered fragment:
+            // additive blend, depth test off (so occluded fragments count too),
+            // colour writes on, depth writes off.
+            else if (s_Data.OverdrawActive)
+            {
+                api.SetColorMask(true, true, true, true);
+                api.SetDepthTest(false);
+                api.SetDepthMask(false);
+                api.SetBlendState(true);
+                api.SetBlendFunc(GL_ONE, GL_ONE);
+                api.SetBlendEquation(GL_FUNC_ADD);
             }
             else
             {
@@ -317,6 +338,22 @@ namespace OloEngine
         {
             api.SetDepthFunc(GL_LEQUAL);
             api.SetDepthMask(false);
+        }
+        // During the overdraw debug view, count every covered fragment regardless
+        // of the command's own blend/depth state: additive accumulation, depth
+        // test off (occluded fragments count), colour writes on, depth writes off.
+        // The per-command cull face is kept (from the state applied above) so a
+        // back-face-culled opaque mesh still counts one layer per pixel, matching
+        // what the real forward/G-Buffer pass would shade.
+        else if (s_Data.OverdrawActive)
+        {
+            api.SetColorMask(true, true, true, true);
+            api.SetDepthTest(false);
+            api.SetDepthMask(false);
+            api.SetBlendState(true);
+            api.SetBlendFunc(GL_ONE, GL_ONE);
+            api.SetBlendEquation(GL_FUNC_ADD);
+            api.SetStencilMask(0);
         }
         else
         {
@@ -766,6 +803,7 @@ namespace OloEngine
         s_Data.SnowDepthTextureID = 0;
         s_Data.DepthPrepassActive = false;
         s_Data.DepthPrepassColorPassActive = false;
+        s_Data.OverdrawActive = false;
         s_Data.Stats.Reset();
     }
 
@@ -797,6 +835,24 @@ namespace OloEngine
             s_Data.DepthPrepassActive = false;
         }
         // Invalidate cache so the next command re-applies state
+        InvalidateRenderStateCache();
+    }
+
+    void CommandDispatch::SetOverdrawActive(bool active)
+    {
+        s_Data.OverdrawActive = active;
+        if (active)
+        {
+            // Overdraw is mutually exclusive with the depth-prepass modes.
+            s_Data.DepthPrepassActive = false;
+            s_Data.DepthPrepassColorPassActive = false;
+            // Snapshot the depth-only swap programs once (same rationale as
+            // SetDepthPrepassActive) — overdraw reuses them so every batchable
+            // opaque geometry type keeps its correct vertex transform while its
+            // fragment stage emits the constant overdraw count.
+            s_Data.DepthPrepassShaders = Renderer3D::GetDepthPrepassShaderIDs();
+        }
+        // Invalidate cache so the next command re-applies state.
         InvalidateRenderStateCache();
     }
 
@@ -1207,6 +1263,20 @@ namespace OloEngine
             shaderToBind = ResolveDepthPrepassShader(mat);
             prepassDepthOnly = (shaderToBind != mat.shaderRendererID);
         }
+        else if (s_Data.OverdrawActive)
+        {
+            // Overdraw counts coverage via the depth-only programs (their fragment
+            // stage emits 1.0). Reuse the prepass shader resolve so every batchable
+            // opaque geometry type keeps its correct vertex transform. Geometry
+            // with no depth-only variant (skybox / terrain / voxel / custom
+            // shaders) would otherwise run its full material shader additively and
+            // pollute the counter, so skip it (an honest under-count of exotic
+            // geometry rather than garbage).
+            shaderToBind = ResolveDepthPrepassShader(mat);
+            if (shaderToBind == mat.shaderRendererID)
+                return;
+            prepassDepthOnly = true;
+        }
         if (s_Data.CurrentBoundShaderID != shaderToBind)
         {
             glUseProgram(shaderToBind);
@@ -1214,9 +1284,11 @@ namespace OloEngine
             ++s_Data.Stats.ShaderBinds;
         }
 
-        // During depth prepass, only the model matrix and bones are needed
-        // (vertex transform). Skip material, textures, normal matrix, and light UBOs.
-        if (s_Data.DepthPrepassActive)
+        // During the depth prepass OR the overdraw view, only the model matrix and
+        // bones are needed (vertex transform). Skip material, textures, normal
+        // matrix, and light UBOs — the overdraw fragment stage emits a constant,
+        // and MASK materials still get their UBO + albedo below for the alpha test.
+        if (s_Data.DepthPrepassActive || s_Data.OverdrawActive)
         {
             // Camera UBO is still needed for vertex transform (u_ViewProjection)
             if (s_Data.CameraUBO)
@@ -1362,6 +1434,20 @@ namespace OloEngine
         {
             shaderToBind = ResolveDepthPrepassShader(mat);
             prepassDepthOnly = (shaderToBind != mat.shaderRendererID);
+        }
+        else if (s_Data.OverdrawActive)
+        {
+            // Overdraw counts coverage via the depth-only programs (their fragment
+            // stage emits 1.0). Reuse the prepass shader resolve so every batchable
+            // opaque geometry type keeps its correct vertex transform. Geometry
+            // with no depth-only variant (skybox / terrain / voxel / custom
+            // shaders) would otherwise run its full material shader additively and
+            // pollute the counter, so skip it (an honest under-count of exotic
+            // geometry rather than garbage).
+            shaderToBind = ResolveDepthPrepassShader(mat);
+            if (shaderToBind == mat.shaderRendererID)
+                return;
+            prepassDepthOnly = true;
         }
         if (s_Data.CurrentBoundShaderID != shaderToBind)
         {

@@ -43,7 +43,16 @@ void main()
 #type fragment
 #version 460 core
 
+// Overdraw counter. During the normal depth prepass the colour mask is off, so
+// this write is discarded and the shader stays depth-only. When the overdraw
+// debug view (#519) replays this geometry with the colour mask on, depth test
+// off and additive (GL_ONE, GL_ONE) blending, each covered fragment adds 1 to
+// the accumulation target's red channel — the raw per-pixel overdraw count.
+layout(location = 0) out vec4 o_OverdrawCount;
+
 void main()
 {
-    // Depth is written by the rasterizer; color writes are masked off.
+    // Depth is written by the rasterizer; colour writes are masked off in the
+    // ordinary depth prepass (see above).
+    o_OverdrawCount = vec4(1.0);
 }
