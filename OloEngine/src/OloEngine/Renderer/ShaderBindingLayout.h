@@ -927,7 +927,7 @@ namespace OloEngine
                            // Post-process / fullscreen passes reuse slot 0 with
                            // pass-local input names.
                            name == "u_Current" || name == "u_EntityID" ||
-                           name == "u_CurveTexture";
+                           name == "u_CurveTexture" || name.contains("Overdraw");
                 case TEX_SPECULAR:
                     // Slot 1 is reused across shader contexts: Metallic/Roughness in PBR,
                     // Depth textures in particle effects, Bloom textures in post-processing,
