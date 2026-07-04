@@ -4830,7 +4830,7 @@ namespace OloEngine
         };
 
         out << "{\n";
-        out << "  \"schemaVersion\": 16,\n";
+        out << "  \"schemaVersion\": 17,\n";
         out << "  \"timingVersion\": 4,\n";
         out << "  \"finalPass\": \"" << jsonEscape(m_FinalPassName) << "\",\n";
         out << "  \"hasExplicitFinalPass\": " << (m_HasExplicitFinalPass ? "true" : "false") << ",\n";
@@ -4859,6 +4859,12 @@ namespace OloEngine
             << ", \"crossLaneSyncCount\": " << crossLaneSyncCount
             << ", \"resourceLifetimeCount\": " << resourceLifetimeCount
             << ", \"resolveFailureCount\": " << resolveFailureCount
+            // Load-bearing cache key (#530): external per-frame caches (the
+            // blackboard-populate fingerprint) hash this so a reconfigure that
+            // wipes the blackboard forces a repopulate. Emit it so a
+            // reads=0/writes=0 cull can be traced to a stale cache from the dump
+            // alone.
+            << ", \"topologyGeneration\": " << m_TopologyGeneration
             << " },\n";
         out << "  \"buildStats\": { "
             << "\"passesVisited\": " << m_LastBuildStats.PassesVisited
