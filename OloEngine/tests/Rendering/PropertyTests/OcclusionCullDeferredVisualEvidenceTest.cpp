@@ -247,4 +247,64 @@ namespace OloEngine::Tests
                "G-Buffer / lighting; see "
             << out.string();
     }
+
+    // -------------------------------------------------------------------------
+    // Issue #530 regression: re-entering the Deferred path a second time in one
+    // process must not cull the entire graph.
+    //
+    // ConfigureRenderGraph() -> RenderGraph::ResetTopology() wipes the graph's
+    // blackboard + imported-resource maps on every path switch, but the
+    // RenderPipeline's blackboard-populate cache is keyed on a fingerprint that
+    // (before the fix) hashed only scene/settings inputs — identical for the
+    // same Deferred scene across two entries. So the second entry recomputed a
+    // matching fingerprint, short-circuited PopulateBlackboard, and left the
+    // just-wiped blackboard empty; every pass's Setup() then read empty handles,
+    // RGBuilder dropped every declaration, and the whole 37-pass graph culled
+    // (reads=0/writes=0) — a blank composite with no GL error.
+    //
+    // The repro is a reconfigure -> reconfigure sequence with NO frame rendered
+    // in between (mirrors the fixture TearDown path-restore followed by the next
+    // test's SetUp path-switch), which is what leaves the cache primed with the
+    // prior Deferred fingerprint. The fix hashes RenderGraph::GetTopologyGeneration()
+    // — bumped by every ResetTopology() — so the second entry's fingerprint can
+    // never match the first's cached one. A blank second frame (LuminanceSpread
+    // collapses to ~0) is the observable symptom of the cull.
+    // -------------------------------------------------------------------------
+    TEST_F(DeferredOccludedInstanceFieldScene, ReenteringDeferredPathDoesNotCullEntireGraph_Issue530)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const DeferredHZBRestore restore;
+
+        // First Deferred entry: configure + render so the blackboard is
+        // populated and the populate-cache fingerprint is primed.
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+        RunFrames(2);
+        std::vector<u8> firstFrame;
+        u32 w = 0, h = 0;
+        ASSERT_TRUE(ReadbackComposite(firstFrame, w, h)) << "first Deferred entry: ReadbackComposite failed";
+        ASSERT_GT(LuminanceSpread(firstFrame), 0.05f)
+            << "first Deferred entry already rendered a flat frame — test scene is broken";
+
+        // Reconfigure AWAY from Deferred and back with no frame in between. The
+        // blackboard is wiped twice by ResetTopology, but the populate cache
+        // still holds the Deferred fingerprint from the first entry.
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+
+        // Second Deferred entry: identical scene/settings, so every fingerprint
+        // input EXCEPT the topology generation matches the first entry. Without
+        // the #530 fix the populate cache hits, the blackboard stays empty, and
+        // this frame is blank.
+        RunFrames(2);
+        std::vector<u8> secondFrame;
+        ASSERT_TRUE(ReadbackComposite(secondFrame, w, h))
+            << "second Deferred entry: ReadbackComposite failed — the graph was likely fully culled";
+        EXPECT_GT(LuminanceSpread(secondFrame), 0.05f)
+            << "issue #530: re-entering the Deferred path produced a blank frame — the whole render "
+               "graph was culled because PopulateBlackboard's fingerprint cache short-circuited past "
+               "the ResetTopology() blackboard wipe (topology-generation hashing missing/broken)";
+    }
 } // namespace OloEngine::Tests

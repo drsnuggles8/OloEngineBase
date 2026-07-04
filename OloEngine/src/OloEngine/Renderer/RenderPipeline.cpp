@@ -1120,6 +1120,11 @@ namespace OloEngine
             HashByte(h, static_cast<u8>((v >> 16) & 0xffu));
             HashByte(h, static_cast<u8>((v >> 24) & 0xffu));
         }
+        inline void HashU64(u64& h, u64 v) noexcept
+        {
+            HashU32(h, static_cast<u32>(v & 0xffffffffu));
+            HashU32(h, static_cast<u32>((v >> 32) & 0xffffffffu));
+        }
         inline void HashBool(u64& h, bool v) noexcept
         {
             HashByte(h, v ? 1u : 0u);
@@ -1148,6 +1153,17 @@ namespace OloEngine
     u64 Renderer3D::RenderPipeline::ComputeBlackboardFingerprint(const Renderer3DData& data) const
     {
         u64 h = kFnv1aOffset;
+
+        // Graph topology generation (#530). ResetTopology() / Reset() wipe the
+        // graph's blackboard + imported-resource maps on every path / AO-technique
+        // reconfigure but leave this fingerprint's other inputs identical when the
+        // same Deferred scene re-enters twice in one process. Without this the
+        // populate-cache short-circuit below sees a matching fingerprint, skips
+        // repopulating the just-wiped blackboard, and every pass's Setup() reads
+        // empty handles -> RGBuilder drops all declarations -> the whole graph is
+        // culled (reads=0/writes=0). Hashing the generation makes the cache
+        // self-invalidate on ANY reconfigure without enumerating call sites.
+        HashU64(h, data.RGraph ? data.RGraph->GetTopologyGeneration() : 0u);
 
         // Scene framebuffer dimensions drive most transient resource sizes; a
         // resize must trigger a full repopulate.

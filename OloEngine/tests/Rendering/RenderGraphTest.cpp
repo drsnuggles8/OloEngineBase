@@ -2419,6 +2419,39 @@ TEST(RenderGraph, AddNodeMakesItRetrievable)
     EXPECT_EQ(retrieved->GetName(), "GraphNodeA");
 }
 
+// Issue #530: ResetTopology() wipes the blackboard + imported-resource maps,
+// but external per-frame caches that assume the blackboard survives between
+// calls (RenderPipeline's blackboard-populate fingerprint) can't observe that
+// wipe when every other hashed input is identical — which is exactly what
+// happens when the same Deferred scene re-enters the render path twice in one
+// process. GetTopologyGeneration() is their invalidation signal: it MUST
+// advance on every topology teardown (ResetTopology / Shutdown) so a
+// reconfigure still forces a repopulate. Without the bump, the second Deferred
+// entry sees a matching fingerprint, skips repopulating the just-wiped
+// blackboard, and every pass's Setup() reads empty handles -> the whole graph
+// is culled (reads=0/writes=0).
+TEST(RenderGraph, ResetTopologyAdvancesTopologyGenerationForCacheInvalidation)
+{
+    RenderGraph graph;
+
+    const u64 gen0 = graph.GetTopologyGeneration();
+
+    graph.ResetTopology();
+    const u64 gen1 = graph.GetTopologyGeneration();
+    EXPECT_GT(gen1, gen0) << "ResetTopology must advance the topology generation";
+
+    // The bug shape is a reconfigure -> reconfigure sequence with no render in
+    // between (TearDown path-restore then SetUp path-switch), so the generation
+    // must keep advancing across back-to-back teardowns, never settling.
+    graph.ResetTopology();
+    const u64 gen2 = graph.GetTopologyGeneration();
+    EXPECT_GT(gen2, gen1) << "every ResetTopology must advance the generation";
+
+    graph.Shutdown();
+    EXPECT_GT(graph.GetTopologyGeneration(), gen2)
+        << "a full Shutdown also wipes the blackboard and must advance the generation";
+}
+
 TEST(RenderGraph, GraphNodeSetupAndExecuteUseCanonicalSubmissionPath)
 {
     RenderGraph graph;
@@ -3148,7 +3181,7 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     ASSERT_TRUE(in.is_open());
 
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
     EXPECT_NE(json.find("\"timingVersion\": 4"), std::string::npos);
     EXPECT_NE(json.find("\"hasTimings\": true"), std::string::npos);
     EXPECT_NE(json.find("\"frameSummary\""), std::string::npos);
@@ -3162,6 +3195,9 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
     EXPECT_NE(json.find("\"externallyBackedTransientRootCount\": 0"), std::string::npos);
     EXPECT_NE(json.find("\"externallyBackedResourceCount\": 0"), std::string::npos);
     EXPECT_NE(json.find("\"temporalHistoryContractCount\": 0"), std::string::npos);
+    // #530: the load-bearing cache key must be observable in the dump.
+    EXPECT_NE(json.find("\"topologyGeneration\":"), std::string::npos)
+        << "frameSummary must expose topologyGeneration";
     EXPECT_NE(json.find("\"passFlags\""), std::string::npos);
     EXPECT_NE(json.find("\"workType\": \"Graphics\""), std::string::npos);
     EXPECT_NE(json.find("\"asyncComputeCandidate\": false"), std::string::npos);
@@ -6372,7 +6408,7 @@ TEST(RenderGraphTypedHandles, ExternallyBackedTransientFramebufferViewsResolveBa
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
     EXPECT_NE(json.find("\"externallyBackedTransientRootCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"externallyBackedResourceCount\": 3"), std::string::npos);
     EXPECT_NE(json.find("\"hasExternalBacking\": true"), std::string::npos);
@@ -6498,7 +6534,7 @@ TEST(RenderGraphTypedHandles, ExternallyBackedTransientTextureViewsResolveBackin
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
     EXPECT_NE(json.find("\"externallyBackedTransientRootCount\": 2"), std::string::npos);
     EXPECT_NE(json.find("\"externallyBackedResourceCount\": 4"), std::string::npos);
     EXPECT_NE(json.find("\"resource\": \"ExternallyBackedShadowCSMCascade2\", \"isImported\": false, \"isExtracted\": false, \"isHistory\": false, \"isTransient\": true, \"hasExternalBacking\": true"), std::string::npos);
@@ -8134,7 +8170,7 @@ TEST(RenderGraphDumpJson, PassFlagsAreSurfacedInDump)
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
     // Schema version bump
-    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
 
     // frameSummary compute counts
     EXPECT_NE(json.find("\"computePassCount\": 1"), std::string::npos);
@@ -8656,7 +8692,7 @@ TEST(RenderGraphSubmissionPlan, DumpToJsonIncludesSubmissionPlan)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
     EXPECT_NE(json.find("\"submissionCommandCount\":"), std::string::npos);
     EXPECT_NE(json.find("\"submissionPlan\""), std::string::npos);
     EXPECT_NE(json.find("\"kind\": \"BatchBegin\""), std::string::npos);
@@ -9121,7 +9157,7 @@ TEST(RenderGraphTemporalHistoryContracts, DumpToJsonIncludesHistoryResourcesAndC
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
     EXPECT_NE(json.find("\"historyResourceCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"temporalHistoryContractCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"name\": \"TAAHistory\", \"kind\": \"Texture2D\", \"imported\": true, \"isHistory\": true"), std::string::npos);
@@ -9423,7 +9459,7 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
     EXPECT_NE(json.find("\"asyncBatchCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"batchInputResourceCount\": 1"), std::string::npos);
     EXPECT_NE(json.find("\"batchOutputResourceCount\": 1"), std::string::npos);
@@ -9653,7 +9689,7 @@ TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos)
+    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos)
         << "Schema must be version 16 after external-backing dump visibility updates";
     EXPECT_NE(json.find("\"resourceTransitionCount\": 1"), std::string::npos)
         << "frameSummary must expose resourceTransitionCount";
@@ -9858,7 +9894,7 @@ TEST(RenderGraphResourceLifetimes, DumpToJsonIncludesResourceLifetimes)
     ASSERT_TRUE(in.is_open());
     const std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos)
+    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos)
         << "Schema must be version 16 after external-backing dump visibility updates";
     EXPECT_NE(json.find("\"resourceLifetimeCount\""), std::string::npos)
         << "frameSummary must expose resourceLifetimeCount";
@@ -10232,7 +10268,7 @@ TEST(RenderGraphSubresourceRange, DumpToJsonIncludesRange)
     ASSERT_TRUE(in.is_open()) << "DumpToJson must create the output file";
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos)
+    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos)
         << "Schema must be version 16 after external-backing dump visibility updates";
     EXPECT_NE(json.find("\"range\""), std::string::npos)
         << "At least one range object must be present in the JSON output";
@@ -10405,7 +10441,7 @@ TEST(RenderGraphCrossLaneSync, DumpToJsonIncludesCrossLaneSyncFields)
     ASSERT_TRUE(in.is_open()) << "DumpToJson must create the output file";
     std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos)
+    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos)
         << "Schema must be version 16 after external-backing dump visibility updates";
     EXPECT_NE(json.find("\"crossLaneSyncCount\""), std::string::npos)
         << "frameSummary must include crossLaneSyncCount";
@@ -10810,7 +10846,7 @@ TEST(RenderGraphResolveFailureTelemetry, DumpToJsonUsesResolveFailureFieldNames)
     buffer << in.rdbuf();
     const std::string json = buffer.str();
 
-    EXPECT_NE(json.find("\"schemaVersion\": 16"), std::string::npos);
+    EXPECT_NE(json.find("\"schemaVersion\": 17"), std::string::npos);
     EXPECT_NE(json.find("\"resolveFailureCount\": 2"), std::string::npos);
     EXPECT_NE(json.find("\"resolveFailures\": ["), std::string::npos);
     EXPECT_EQ(json.find("\"fallbackActivationCount\""), std::string::npos);

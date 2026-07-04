@@ -640,6 +640,16 @@ namespace OloEngine
             m_Blackboard.Reset();
         }
 
+        // Monotonic generation of the current topology; bumped whenever the
+        // graph is torn down (ResetTopology / Reset), which also wipes the
+        // blackboard and imported-resource maps. Hash this into any external
+        // per-frame cache that assumes the blackboard survived between calls
+        // so a reconfigure invalidates it even when nothing else changed.
+        [[nodiscard]] u64 GetTopologyGeneration() const
+        {
+            return m_TopologyGeneration;
+        }
+
         // -------------------------------------------------------------------
         // Transient resource pool access
         // -------------------------------------------------------------------
@@ -1417,6 +1427,15 @@ namespace OloEngine
         // Frame blackboard
         // -------------------------------------------------------------------
         FrameBlackboard m_Blackboard;
+
+        // Monotonic counter bumped every time the topology (and with it the
+        // blackboard / imported-resource maps) is wiped via ResetTopology() or
+        // the full Reset(). External per-frame caches keyed off blackboard
+        // contents (e.g. RenderPipeline's blackboard-populate fingerprint) hash
+        // this so a reconfigure that leaves every other hashed input identical
+        // still forces a repopulate — see issue #530. Never reset; wraps
+        // harmlessly at u64.
+        u64 m_TopologyGeneration = 0;
         // -------------------------------------------------------------------
         // Transient resource pool
         // -------------------------------------------------------------------
