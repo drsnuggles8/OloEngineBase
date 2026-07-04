@@ -170,9 +170,13 @@ namespace OloEngine
          * @brief Save a cubemap to cache file
          *
          * Saves as raw binary format for fast loading (not KTX2 for simplicity).
+         * @param sourceTimestamp Source file's last-write-time, stamped into the
+         *        header so TryLoad can detect an in-place source edit (0 if the
+         *        source is not file-backed).
          */
         static bool SaveCubemapToCache(const Ref<TextureCubemap>& cubemap,
-                                       const std::filesystem::path& path);
+                                       const std::filesystem::path& path,
+                                       u64 sourceTimestamp);
 
         /**
          * @brief Load a 2D texture from cache file
@@ -181,9 +185,12 @@ namespace OloEngine
 
         /**
          * @brief Save a 2D texture to cache file
+         *
+         * @param sourceTimestamp Source file's last-write-time (see SaveCubemapToCache).
          */
         static bool SaveTexture2DToCache(const Ref<Texture2D>& texture,
-                                         const std::filesystem::path& path);
+                                         const std::filesystem::path& path,
+                                         u64 sourceTimestamp);
 
         static std::filesystem::path s_CacheDirectory;
         static bool s_Initialized;

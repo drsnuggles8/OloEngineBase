@@ -32,7 +32,15 @@ namespace OloEngine
     // shaders. The advanced shaders now exist (IBLPrefilterImportance,
     // IrradianceConvolutionAdvanced, BRDFIntegrationAdvanced) with
     // mip-biased importance sampling, so the baked output differs.
-    constexpr u32 kIBLCacheVersion = 5;
+    // Version 6 adds SourceTimestamp to the header (staleness tracking):
+    // the cache is keyed on source-path + config only, so editing an
+    // environment-map file in place (same path, same config) previously
+    // served the IBL baked from the OLD image forever. The header now
+    // stores the source file's last-write-time; TryLoad rejects (and
+    // invalidates) an entry whose stored timestamp no longer matches the
+    // source, so an in-place edit re-bakes on next load. The layout change
+    // also makes older v1–v5 files unreadable, which is the intended reset.
+    constexpr u32 kIBLCacheVersion = 6;
 
     // Cache file header for version tracking
     // Use pragma pack to ensure consistent binary layout across compilers
@@ -45,13 +53,14 @@ namespace OloEngine
         u32 Height = 0;
         u32 Format = 0; // ImageFormat enum value
         u32 MipLevels = 0;
-        u32 FaceCount = 0; // 1 for Texture2D, 6 for cubemap
-        u64 DataSize = 0;  // Total data size following header
+        u32 FaceCount = 0;       // 1 for Texture2D, 6 for cubemap
+        u64 DataSize = 0;        // Total data size following header
+        u64 SourceTimestamp = 0; // Source file's last_write_time (0 if unknown / not file-backed)
     };
 #pragma pack(pop)
 
     // Verify header size at compile time
-    static_assert(sizeof(IBLCacheHeader) == 36, "IBLCacheHeader size mismatch - packing may be incorrect");
+    static_assert(sizeof(IBLCacheHeader) == 44, "IBLCacheHeader size mismatch - packing may be incorrect");
 
     namespace
     {
@@ -104,6 +113,56 @@ namespace OloEngine
         [[nodiscard]] bool IsInvalidBRDFLutPayload(ImageFormat format, const std::vector<u8>& data)
         {
             return format == ImageFormat::RG32F && !HasMeaningfulFloatPayload(data);
+        }
+
+        // Get the source file's last-write-time as a u64 for staleness tracking.
+        // Mirrors MeshCache::GetSourceTimestamp. Returns 0 when the source is not
+        // a real file on disk — e.g. synthetic keys for in-memory / procedural
+        // cubemaps ("cubemap_<name>_WxH_fmt"), which have no mtime and are
+        // deliberately allowed to keep hitting the cache (0 == 0 on compare).
+        [[nodiscard]] u64 GetSourceTimestamp(const std::string& sourcePath)
+        {
+            std::error_code ec;
+            auto ftime = std::filesystem::last_write_time(sourcePath, ec);
+            if (ec)
+            {
+                return 0;
+            }
+            return static_cast<u64>(ftime.time_since_epoch().count());
+        }
+
+        // Read only the header of a cache file and hand back its stored
+        // SourceTimestamp. Validates magic + version so a corrupt or
+        // stale-format file is treated as "no timestamp" (returns false),
+        // which the caller resolves to a cache miss.
+        [[nodiscard]] bool ReadCachedSourceTimestamp(const std::filesystem::path& path, u64& outTimestamp)
+        {
+            std::ifstream file(path, std::ios::binary);
+            if (!file.is_open())
+            {
+                return false;
+            }
+
+            IBLCacheHeader header;
+            file.read(reinterpret_cast<char*>(&header), sizeof(header));
+            if (!file || file.gcount() != static_cast<std::streamsize>(sizeof(header)))
+            {
+                return false;
+            }
+
+            if (header.Magic[0] != 'I' || header.Magic[1] != 'B' ||
+                header.Magic[2] != 'L' || header.Magic[3] != 'C')
+            {
+                return false;
+            }
+
+            if (header.Version != kIBLCacheVersion)
+            {
+                return false;
+            }
+
+            outTimestamp = header.SourceTimestamp;
+            return true;
         }
     } // anonymous namespace
 
@@ -246,6 +305,24 @@ namespace OloEngine
             return false;
         }
 
+        // Staleness check: the cache key folds only source-path + config, so an
+        // in-place edit of the source (same path, same config) would otherwise
+        // return the IBL baked from the OLD image forever. Compare the source
+        // file's current last-write-time against the timestamp stored in the
+        // cache header; on mismatch the entry is stale — drop it and miss so the
+        // caller re-bakes and overwrites. A synthetic key (in-memory / procedural
+        // cubemap) has no file, so both sides are 0 and it still hits.
+        u64 currentTimestamp = GetSourceTimestamp(sourcePath);
+        u64 cachedTimestamp = 0;
+        if (!ReadCachedSourceTimestamp(paths.Irradiance, cachedTimestamp) ||
+            cachedTimestamp != currentTimestamp)
+        {
+            OLO_CORE_INFO("IBLCache: Stale cache for {} (source modified) — invalidating", sourcePath);
+            Invalidate(sourcePath, config);
+            ++s_Stats.CacheMisses;
+            return false;
+        }
+
         // Try to load each texture
         outCached.Irradiance = LoadCubemapFromCache(paths.Irradiance);
         if (!outCached.Irradiance)
@@ -299,22 +376,27 @@ namespace OloEngine
         u64 hash = ComputeHash(sourcePath, config);
         CachePaths paths = GetCachePaths(hash);
 
+        // Stamp every cache file with the source file's current last-write-time
+        // so TryLoad can detect an in-place source edit and re-bake (0 for
+        // synthetic keys that aren't file-backed — they always hit).
+        u64 sourceTimestamp = GetSourceTimestamp(sourcePath);
+
         bool success = true;
 
-        if (!SaveCubemapToCache(irradiance, paths.Irradiance))
+        if (!SaveCubemapToCache(irradiance, paths.Irradiance, sourceTimestamp))
         {
             OLO_CORE_WARN("IBLCache: Failed to save irradiance map");
             success = false;
         }
 
-        if (!SaveCubemapToCache(prefilter, paths.Prefilter))
+        if (!SaveCubemapToCache(prefilter, paths.Prefilter, sourceTimestamp))
         {
             OLO_CORE_WARN("IBLCache: Failed to save prefilter map");
             success = false;
         }
 
         // Save BRDF LUT (resolution-specific via hash, so always save)
-        if (!SaveTexture2DToCache(brdfLut, paths.BRDFLut))
+        if (!SaveTexture2DToCache(brdfLut, paths.BRDFLut, sourceTimestamp))
         {
             OLO_CORE_WARN("IBLCache: Failed to save BRDF LUT");
             success = false;
@@ -341,9 +423,19 @@ namespace OloEngine
 
         try
         {
-            return std::filesystem::exists(paths.Irradiance) &&
-                   std::filesystem::exists(paths.Prefilter) &&
-                   std::filesystem::exists(paths.BRDFLut);
+            if (!std::filesystem::exists(paths.Irradiance) ||
+                !std::filesystem::exists(paths.Prefilter) ||
+                !std::filesystem::exists(paths.BRDFLut))
+            {
+                return false;
+            }
+
+            // A stale entry (source edited in place) is not a usable cache — match
+            // TryLoad's freshness contract so callers never see a "true" that would
+            // load the IBL baked from the old source.
+            u64 cachedTimestamp = 0;
+            return ReadCachedSourceTimestamp(paths.Irradiance, cachedTimestamp) &&
+                   (cachedTimestamp == GetSourceTimestamp(sourcePath));
         }
         catch (const std::filesystem::filesystem_error& e)
         {
@@ -544,7 +636,8 @@ namespace OloEngine
     }
 
     bool IBLCache::SaveCubemapToCache(const Ref<TextureCubemap>& cubemap,
-                                      const std::filesystem::path& path)
+                                      const std::filesystem::path& path,
+                                      u64 sourceTimestamp)
     {
         if (!cubemap)
             return false;
@@ -571,6 +664,7 @@ namespace OloEngine
         header.MipLevels = mipLevels;
         header.FaceCount = 6;
         header.DataSize = totalDataSize;
+        header.SourceTimestamp = sourceTimestamp;
 
         std::ofstream file(path, std::ios::binary);
         if (!file.is_open())
@@ -684,7 +778,8 @@ namespace OloEngine
     }
 
     bool IBLCache::SaveTexture2DToCache(const Ref<Texture2D>& texture,
-                                        const std::filesystem::path& path)
+                                        const std::filesystem::path& path,
+                                        u64 sourceTimestamp)
     {
         if (!texture)
             return false;
@@ -703,6 +798,7 @@ namespace OloEngine
         header.MipLevels = 1;
         header.FaceCount = 1;
         header.DataSize = dataSize;
+        header.SourceTimestamp = sourceTimestamp;
 
         std::ofstream file(path, std::ios::binary);
         if (!file.is_open())
