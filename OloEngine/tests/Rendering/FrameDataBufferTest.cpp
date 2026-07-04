@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 
 #include "RenderingTestUtils.h"
+#include "OloEngine/Core/Log.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 
 #include <cstring>
@@ -10,6 +11,24 @@
 #include <vector>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file, brevity preferred
+
+namespace
+{
+    // Counts how many currently-buffered log messages (spdlog ringbuffer sink,
+    // capacity 200 — see Log.cpp) contain the given marker substring. Used to
+    // assert overflow logging is throttled to once-per-frame rather than
+    // growing with allocation-failure count (issue #524).
+    sizet CountLogOccurrences(std::string_view marker)
+    {
+        sizet count = 0;
+        for (const auto& message : Log::Get().GetRecentLogMessages(0))
+        {
+            if (message.find(marker) != std::string::npos)
+                ++count;
+        }
+        return count;
+    }
+} // namespace
 
 // =============================================================================
 // Basic Write-Read Round-Trip
@@ -575,4 +594,121 @@ TEST(FrameDataBuffer, PBRAndLegacyMaterialsDedupIndependently)
     EXPECT_EQ(buffer.AllocateMaterialData(pbrMat), pbrIdx);
     EXPECT_EQ(buffer.AllocateMaterialData(legacyMat), legacyIdx);
     EXPECT_EQ(buffer.GetMaterialDataCount(), 2u);
+}
+
+// =============================================================================
+// Overflow Logging Throttle (issue #524)
+//
+// FrameDataBuffer's five per-stream allocators (bone/transform/entityID/color/
+// custom) must log an overflow at most once per frame, not once per failed
+// allocation — the unthrottled version produced 126,410 log lines in a ~60s
+// stress-scene session and stalled the editor main thread. Reset() clears the
+// throttle so the next frame's first overflow logs again.
+// =============================================================================
+
+TEST(FrameDataBuffer, BoneOverflowLoggedOncePerFrame)
+{
+    FrameDataBuffer buffer(4, 4);
+    buffer.Reset();
+
+    // Baseline: other tests in this binary share the same ring-buffer sink and
+    // may have already logged this exact marker, so compare deltas, not
+    // absolute counts.
+    sizet baseline = CountLogOccurrences("Bone matrix buffer overflow");
+
+    for (int i = 0; i < 20; ++i)
+    {
+        EXPECT_EQ(buffer.AllocateBoneMatrices(100), UINT32_MAX);
+    }
+    EXPECT_EQ(CountLogOccurrences("Bone matrix buffer overflow") - baseline, 1u)
+        << "20 overflowing allocations in one frame must log exactly once";
+
+    buffer.Reset(); // Simulate next frame
+    EXPECT_EQ(buffer.AllocateBoneMatrices(100), UINT32_MAX);
+    EXPECT_EQ(CountLogOccurrences("Bone matrix buffer overflow") - baseline, 2u)
+        << "Reset() must clear the throttle so the next frame logs again";
+}
+
+TEST(FrameDataBuffer, TransformOverflowLoggedOncePerFrame)
+{
+    FrameDataBuffer buffer(4, 4);
+    buffer.Reset();
+
+    sizet baseline = CountLogOccurrences("Transform buffer overflow");
+
+    for (int i = 0; i < 20; ++i)
+    {
+        EXPECT_EQ(buffer.AllocateTransforms(100), UINT32_MAX);
+    }
+    EXPECT_EQ(CountLogOccurrences("Transform buffer overflow") - baseline, 1u)
+        << "20 overflowing allocations in one frame must log exactly once";
+
+    buffer.Reset();
+    EXPECT_EQ(buffer.AllocateTransforms(100), UINT32_MAX);
+    EXPECT_EQ(CountLogOccurrences("Transform buffer overflow") - baseline, 2u)
+        << "Reset() must clear the throttle so the next frame logs again";
+}
+
+TEST(FrameDataBuffer, EntityIDOverflowLoggedOncePerFrame)
+{
+    FrameDataBuffer buffer(4, 4, 4);
+    buffer.Reset();
+
+    sizet baseline = CountLogOccurrences("EntityID buffer overflow");
+
+    for (int i = 0; i < 20; ++i)
+    {
+        EXPECT_EQ(buffer.AllocateEntityIDs(100), UINT32_MAX);
+    }
+    EXPECT_EQ(CountLogOccurrences("EntityID buffer overflow") - baseline, 1u)
+        << "20 overflowing allocations in one frame must log exactly once";
+
+    buffer.Reset();
+    EXPECT_EQ(buffer.AllocateEntityIDs(100), UINT32_MAX);
+    EXPECT_EQ(CountLogOccurrences("EntityID buffer overflow") - baseline, 2u)
+        << "Reset() must clear the throttle so the next frame logs again";
+}
+
+TEST(FrameDataBuffer, ColorOverflowLoggedOncePerFrame)
+{
+    FrameDataBuffer buffer(4, 4);
+    buffer.Reset();
+
+    // DEFAULT_COLOR_CAPACITY is fixed (not constructor-configurable), so
+    // request more than that to force overflow.
+    constexpr u32 kOver = static_cast<u32>(FrameDataBuffer::DEFAULT_COLOR_CAPACITY) + 1;
+    sizet baseline = CountLogOccurrences("Color buffer overflow");
+
+    for (int i = 0; i < 20; ++i)
+    {
+        EXPECT_EQ(buffer.AllocateColors(kOver), UINT32_MAX);
+    }
+    EXPECT_EQ(CountLogOccurrences("Color buffer overflow") - baseline, 1u)
+        << "20 overflowing allocations in one frame must log exactly once";
+
+    buffer.Reset();
+    EXPECT_EQ(buffer.AllocateColors(kOver), UINT32_MAX);
+    EXPECT_EQ(CountLogOccurrences("Color buffer overflow") - baseline, 2u)
+        << "Reset() must clear the throttle so the next frame logs again";
+}
+
+TEST(FrameDataBuffer, CustomOverflowLoggedOncePerFrame)
+{
+    FrameDataBuffer buffer(4, 4);
+    buffer.Reset();
+
+    constexpr u32 kOver = static_cast<u32>(FrameDataBuffer::DEFAULT_CUSTOM_CAPACITY) + 1;
+    sizet baseline = CountLogOccurrences("Custom buffer overflow");
+
+    for (int i = 0; i < 20; ++i)
+    {
+        EXPECT_EQ(buffer.AllocateCustoms(kOver), UINT32_MAX);
+    }
+    EXPECT_EQ(CountLogOccurrences("Custom buffer overflow") - baseline, 1u)
+        << "20 overflowing allocations in one frame must log exactly once";
+
+    buffer.Reset();
+    EXPECT_EQ(buffer.AllocateCustoms(kOver), UINT32_MAX);
+    EXPECT_EQ(CountLogOccurrences("Custom buffer overflow") - baseline, 2u)
+        << "Reset() must clear the throttle so the next frame logs again";
 }
