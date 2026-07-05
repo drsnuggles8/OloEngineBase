@@ -8,6 +8,13 @@
 
 using namespace OloEngine;
 
+// These fixtures use a single "Bone0" clip where the channel index trivially
+// equals the bone-name order, so the by-name sampling context below reduces to
+// the historical index-0 behaviour. The dedicated channel-order regression for
+// issue #543 lives in Animation/AnimationGraphBoneMappingTest.cpp.
+static const std::vector<std::string> s_Bone0Names = { "Bone0" };
+static const PoseEvalContext s_Bone0Ctx{ s_Bone0Names, {} };
+
 // Helper to create a simple animation clip for blend tree testing
 static Ref<AnimationClip> CreateBlendTestClip(const std::string& name, float duration, const glm::vec3& startPos, const glm::vec3& endPos)
 {
@@ -51,7 +58,7 @@ TEST(BlendTreeTest, Simple1D_AtFirstThreshold)
     params.DefineFloat("Speed", 0.0f);
 
     std::vector<BoneTransform> result;
-    tree.Evaluate(0.0f, params, 1, result);
+    tree.Evaluate(0.0f, params, 1, s_Bone0Ctx, result);
     ASSERT_EQ(result.size(), 1u);
     // At Speed=0, should be 100% idle (position = 0,0,0 at t=0)
     EXPECT_NEAR(result[0].Translation.x, 0.0f, 0.01f);
@@ -75,7 +82,7 @@ TEST(BlendTreeTest, Simple1D_AtMidThreshold)
     params.DefineFloat("Speed", 0.5f);
 
     std::vector<BoneTransform> result;
-    tree.Evaluate(0.0f, params, 1, result);
+    tree.Evaluate(0.0f, params, 1, s_Bone0Ctx, result);
     ASSERT_EQ(result.size(), 1u);
     // At Speed=0.5, should be 100% walk (position = 1,0,0 at t=0)
     EXPECT_NEAR(result[0].Translation.x, 1.0f, 0.01f);
@@ -97,7 +104,7 @@ TEST(BlendTreeTest, Simple1D_BetweenThresholds)
     params.DefineFloat("Speed", 0.5f);
 
     std::vector<BoneTransform> result;
-    tree.Evaluate(0.0f, params, 1, result);
+    tree.Evaluate(0.0f, params, 1, s_Bone0Ctx, result);
     ASSERT_EQ(result.size(), 1u);
     // At Speed=0.5, should be 50% idle (0) + 50% walk (2) = 1
     EXPECT_NEAR(result[0].Translation.x, 1.0f, 0.01f);
@@ -119,7 +126,7 @@ TEST(BlendTreeTest, Simple1D_AtLastThreshold)
     params.DefineFloat("Speed", 1.0f);
 
     std::vector<BoneTransform> result;
-    tree.Evaluate(0.0f, params, 1, result);
+    tree.Evaluate(0.0f, params, 1, s_Bone0Ctx, result);
     ASSERT_EQ(result.size(), 1u);
     // At Speed=1, should be 100% run (position = 4,0,0 at t=0)
     EXPECT_NEAR(result[0].Translation.x, 4.0f, 0.01f);
@@ -141,7 +148,7 @@ TEST(BlendTreeTest, Simple1D_ClampBelowFirst)
     params.DefineFloat("Speed", -0.5f);
 
     std::vector<BoneTransform> result;
-    tree.Evaluate(0.0f, params, 1, result);
+    tree.Evaluate(0.0f, params, 1, s_Bone0Ctx, result);
     ASSERT_EQ(result.size(), 1u);
     // Below first threshold, should clamp to idle
     EXPECT_NEAR(result[0].Translation.x, 0.0f, 0.01f);
@@ -163,7 +170,7 @@ TEST(BlendTreeTest, Simple1D_ClampAboveLast)
     params.DefineFloat("Speed", 1.5f);
 
     std::vector<BoneTransform> result;
-    tree.Evaluate(0.0f, params, 1, result);
+    tree.Evaluate(0.0f, params, 1, s_Bone0Ctx, result);
     ASSERT_EQ(result.size(), 1u);
     // Above last threshold, should clamp to walk
     EXPECT_NEAR(result[0].Translation.x, 2.0f, 0.01f);
@@ -191,7 +198,7 @@ TEST(BlendTreeTest, SimpleDirectional2D_AtChild)
     params.DefineFloat("VelocityZ", 1.0f);
 
     std::vector<BoneTransform> result;
-    tree.Evaluate(0.0f, params, 1, result);
+    tree.Evaluate(0.0f, params, 1, s_Bone0Ctx, result);
     ASSERT_EQ(result.size(), 1u);
     // Exactly on the Forward child, should be 100% forward
     // With inverse distance weighting, when exactly on a point, that point gets full weight
@@ -212,7 +219,7 @@ TEST(BlendTreeTest, EmptyBlendTree)
     params.DefineFloat("Speed", 0.5f);
 
     std::vector<BoneTransform> result;
-    tree.Evaluate(0.0f, params, 1, result);
+    tree.Evaluate(0.0f, params, 1, s_Bone0Ctx, result);
     // Empty tree should produce identity bone transforms sized to boneCount
     EXPECT_EQ(result.size(), 1u);
 }
@@ -231,7 +238,7 @@ TEST(BlendTreeTest, SingleChild)
     params.DefineFloat("Speed", 0.0f);
 
     std::vector<BoneTransform> result;
-    tree.Evaluate(0.0f, params, 1, result);
+    tree.Evaluate(0.0f, params, 1, s_Bone0Ctx, result);
     ASSERT_EQ(result.size(), 1u);
     // Single child should get full weight regardless of parameter
     EXPECT_NEAR(result[0].Translation.x, 3.0f, 0.01f);
@@ -280,7 +287,7 @@ TEST(BlendTreeTest, Simple1D_UnboundParam_DurationMatchesEvaluatedPose)
 
     // Evaluate samples the lowest-threshold child (First, x=10), not the 2.0s average child.
     std::vector<BoneTransform> result;
-    tree.Evaluate(0.0f, params, 1, result);
+    tree.Evaluate(0.0f, params, 1, s_Bone0Ctx, result);
     ASSERT_EQ(result.size(), 1u);
     EXPECT_NEAR(result[0].Translation.x, 10.0f, 0.01f);
 
@@ -313,7 +320,7 @@ TEST(BlendTreeTest, Simple1D_NonPlayableMiddleChild_DurationMatchesEvaluatedPose
     // Evaluate skips the null middle child and blends First<->Last at t=0.5:
     // x = mix(10, 30, 0.5) = 20.
     std::vector<BoneTransform> result;
-    tree.Evaluate(0.0f, params, 1, result);
+    tree.Evaluate(0.0f, params, 1, s_Bone0Ctx, result);
     ASSERT_EQ(result.size(), 1u);
     EXPECT_NEAR(result[0].Translation.x, 20.0f, 0.01f);
 

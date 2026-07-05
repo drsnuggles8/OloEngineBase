@@ -21,9 +21,13 @@ namespace OloEngine
         std::vector<AnimationLayer> Layers;
 
         void Start();
+        // bindPoseLocal supplies each bone's rest local transform so bones a clip
+        // does not animate fall back to bind pose rather than identity (#543); it
+        // may be empty (identity fallback). boneNames drives by-name channel mapping.
         void Update(f32 dt, sizet boneCount, std::vector<glm::mat4>& outFinalBoneMatrices,
                     const std::vector<std::string>& boneNames,
-                    const std::vector<i32>& parentIndices);
+                    const std::vector<i32>& parentIndices,
+                    const std::vector<BoneTransform>& bindPoseLocal);
 
         [[nodiscard("cloned graph must be assigned")]] Ref<AnimationGraph> Clone() const;
         void ResolveClips(const std::vector<Ref<AnimationClip>>& availableClips);
