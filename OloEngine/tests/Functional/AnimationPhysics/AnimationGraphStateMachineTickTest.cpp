@@ -30,6 +30,7 @@
 #include "OloEngine/Animation/AnimationState.h"
 #include "OloEngine/Animation/AnimationLayer.h"
 #include "OloEngine/Animation/Skeleton.h"
+#include "Animation/AnimationTestHelpers.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -121,19 +122,7 @@ TEST_F(AnimationGraphStateMachineTickTest, RuntimeGraphIsStartedAndCurrentStateM
 
 namespace
 {
-    // Constant-translation channel: sampling at any time yields `translation`.
-    BoneAnimation ConstantChannel(std::string boneName, const glm::vec3& translation)
-    {
-        BoneAnimation anim;
-        anim.BoneName = std::move(boneName);
-        anim.PositionKeys.push_back({ 0.0, translation });
-        anim.PositionKeys.push_back({ 1.0, translation });
-        anim.RotationKeys.push_back({ 0.0, glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
-        anim.RotationKeys.push_back({ 1.0, glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
-        anim.ScaleKeys.push_back({ 0.0, glm::vec3(1.0f) });
-        anim.ScaleKeys.push_back({ 1.0, glm::vec3(1.0f) });
-        return anim;
-    }
+    using OloEngine::AnimTest::MakeConstantChannel;
 
     // Attach a single-state, single-clip graph (one full-weight base layer)
     // that plays `clip` to `entity`.
@@ -178,8 +167,8 @@ class AnimationGraphBoneMappingTickTest : public FunctionalTest
         auto clip = Ref<AnimationClip>::Create();
         clip->Name = "ReverseOrder";
         clip->Duration = 1.0f;
-        clip->BoneAnimations.push_back(ConstantChannel("Child", glm::vec3(0.0f, 20.0f, 0.0f)));
-        clip->BoneAnimations.push_back(ConstantChannel("Root", glm::vec3(10.0f, 0.0f, 0.0f)));
+        clip->BoneAnimations.push_back(MakeConstantChannel("Child", glm::vec3(0.0f, 20.0f, 0.0f)));
+        clip->BoneAnimations.push_back(MakeConstantChannel("Root", glm::vec3(10.0f, 0.0f, 0.0f)));
         clip->InitializeBoneCache();
 
         m_Animated = GetScene().CreateEntity("Animated");
@@ -223,7 +212,7 @@ class AnimationGraphUnkeyedBindPoseTickTest : public FunctionalTest
         auto clip = Ref<AnimationClip>::Create();
         clip->Name = "RootOnly";
         clip->Duration = 1.0f;
-        clip->BoneAnimations.push_back(ConstantChannel("Root", glm::vec3(10.0f, 0.0f, 0.0f)));
+        clip->BoneAnimations.push_back(MakeConstantChannel("Root", glm::vec3(10.0f, 0.0f, 0.0f)));
         clip->InitializeBoneCache();
 
         m_Animated = GetScene().CreateEntity("Animated");

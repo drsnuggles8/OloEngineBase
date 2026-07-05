@@ -7,14 +7,14 @@
 #include "OloEngine/Animation/AnimationParameter.h"
 #include "OloEngine/Animation/BlendNode.h"
 #include "OloEngine/Animation/AnimationClip.h"
+#include "Animation/AnimationTestHelpers.h"
 
 using namespace OloEngine;
 
 // Single-bone sampling context: bone 0 is named "Bone0" (matching CreateTestClip's
 // channel), so by-name mapping resolves to the historical index-0 behaviour. The
 // channel-order regression for #543 lives in Animation/AnimationGraphBoneMappingTest.cpp.
-static const std::vector<std::string> s_Bone0Names = { "Bone0" };
-static const PoseEvalContext s_Bone0Ctx{ s_Bone0Names, {} };
+using OloEngine::AnimTest::s_Bone0Ctx;
 
 // Helper to create a simple animation clip with one bone
 static Ref<AnimationClip> CreateTestClip(const std::string& name, float duration,

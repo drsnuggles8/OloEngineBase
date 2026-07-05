@@ -5,15 +5,16 @@
 #include "OloEngine/Animation/AnimationParameter.h"
 #include "OloEngine/Animation/AnimationClip.h"
 #include "OloEngine/Animation/BlendNode.h"
+#include "Animation/AnimationTestHelpers.h"
 
 using namespace OloEngine;
 
 // These fixtures use a single "Bone0" clip where the channel index trivially
-// equals the bone-name order, so the by-name sampling context below reduces to
-// the historical index-0 behaviour. The dedicated channel-order regression for
-// issue #543 lives in Animation/AnimationGraphBoneMappingTest.cpp.
-static const std::vector<std::string> s_Bone0Names = { "Bone0" };
-static const PoseEvalContext s_Bone0Ctx{ s_Bone0Names, {} };
+// equals the bone-name order, so the shared s_Bone0Ctx (by-name) sampling
+// context reduces to the historical index-0 behaviour. The dedicated
+// channel-order regression for issue #543 lives in
+// Animation/AnimationGraphBoneMappingTest.cpp.
+using OloEngine::AnimTest::s_Bone0Ctx;
 
 // Helper to create a simple animation clip for blend tree testing
 static Ref<AnimationClip> CreateBlendTestClip(const std::string& name, float duration, const glm::vec3& startPos, const glm::vec3& endPos)

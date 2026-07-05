@@ -23,30 +23,16 @@
 #include "OloEngine/Animation/AnimationClip.h"
 #include "OloEngine/Animation/BlendNode.h"
 #include "OloEngine/Core/Ref.h"
+#include "Animation/AnimationTestHelpers.h"
 
 #include <string>
 #include <vector>
 
 using namespace OloEngine;
+using OloEngine::AnimTest::MakeConstantChannel;
 
 namespace
 {
-    // A clip channel that holds a constant translation across the whole clip, so
-    // sampling at any time yields exactly that translation — makes the bone a
-    // channel lands on unambiguous.
-    BoneAnimation MakeConstantChannel(const std::string& boneName, const glm::vec3& translation)
-    {
-        BoneAnimation anim;
-        anim.BoneName = boneName;
-        anim.PositionKeys.push_back({ 0.0, translation });
-        anim.PositionKeys.push_back({ 1.0, translation });
-        anim.RotationKeys.push_back({ 0.0, glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
-        anim.RotationKeys.push_back({ 1.0, glm::quat(1.0f, 0.0f, 0.0f, 0.0f) });
-        anim.ScaleKeys.push_back({ 0.0, glm::vec3(1.0f) });
-        anim.ScaleKeys.push_back({ 1.0, glm::vec3(1.0f) });
-        return anim;
-    }
-
     // Skeleton bone order (depth-first): Hips(0), Spine(1), Head(2).
     const std::vector<std::string> kBoneNames = { "Hips", "Spine", "Head" };
 
