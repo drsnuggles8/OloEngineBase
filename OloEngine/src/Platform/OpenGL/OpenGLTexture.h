@@ -68,6 +68,7 @@ namespace OloEngine
         }
 
         void Resize(u32 width, u32 height) override;
+        bool Reload() override;
 
       private:
         void InvalidateImpl(std::string_view path, u32 width, u32 height, const void* data, u32 channels);
