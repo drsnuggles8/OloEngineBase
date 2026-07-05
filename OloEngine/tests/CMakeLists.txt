@@ -33,6 +33,7 @@ add_executable(OloEngine-Tests
 		ComponentTupleCoverageTest.cpp
 		ComponentHandlerCoverageTest.cpp
 		SceneSerializerFuzzRegressionTest.cpp
+		SceneVersionMigrationTest.cpp
 		EngineSubsystemSmokeTest.cpp
 		AppLaunchSmokeTest.cpp
 		FunctionalTestFixtureCoverageTest.cpp

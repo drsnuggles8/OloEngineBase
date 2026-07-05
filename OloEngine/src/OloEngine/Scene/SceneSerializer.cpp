@@ -67,6 +67,51 @@ namespace OloEngine
         return value;
     }
 
+    // ---------------------------------------------------------------------
+    // Scene YAML versioning
+    // ---------------------------------------------------------------------
+    // Ordered migration chain, applied in place from a file's recorded
+    // version up to SceneSerializer::CurrentVersion. Empty today -- v1 only
+    // seeds the version field, no schema has changed yet -- but this is
+    // where a future breaking change adds a Migrate_VN_to_VNplus1(node) step
+    // and a matching `case N:` below.
+    static void MigrateSceneYAML(YAML::Node& data, u32 fromVersion)
+    {
+        if (fromVersion >= SceneSerializer::CurrentVersion)
+            return;
+
+        OLO_CORE_INFO("SceneSerializer: migrating scene YAML from version {} to {}", fromVersion, SceneSerializer::CurrentVersion);
+
+        for (u32 v = fromVersion; v < SceneSerializer::CurrentVersion; ++v)
+        {
+            switch (v)
+            {
+                // case 0: Migrate_V0_to_V1(data); break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    // Absence of the "Version" key means the file predates this scheme
+    // entirely, so it defaults to SceneSerializer::ImplicitVersion rather
+    // than being rejected.
+    static u32 ReadSceneVersion(const YAML::Node& data)
+    {
+        if (auto versionNode = data["Version"]; versionNode && versionNode.IsScalar())
+        {
+            try
+            {
+                return versionNode.as<u32>();
+            }
+            catch (const YAML::Exception&)
+            {
+                return SceneSerializer::ImplicitVersion;
+            }
+        }
+        return SceneSerializer::ImplicitVersion;
+    }
+
     // Load a texture referenced by scene YAML through the asset registry so
     // it participates in hot-reload and is de-duplicated across the scene
     // graph. Falls back to a raw Texture2D::Create() when no EditorAssetManager
@@ -5827,6 +5872,7 @@ namespace OloEngine
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
+        out << YAML::Key << "Version" << YAML::Value << SceneSerializer::CurrentVersion;
 
         out << YAML::Key << "PostProcessSettings";
         out << YAML::BeginMap;
@@ -6030,6 +6076,9 @@ namespace OloEngine
         OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
         m_Scene->SetName(sceneName);
 
+        const u32 fileVersion = ReadSceneVersion(data);
+        MigrateSceneYAML(data, fileVersion);
+
         try
         {
             if (auto ppNode = data["PostProcessSettings"]; ppNode && ppNode.IsMap())
@@ -6216,6 +6265,7 @@ namespace OloEngine
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
+        out << YAML::Key << "Version" << YAML::Value << SceneSerializer::CurrentVersion;
 
         out << YAML::Key << "PostProcessSettings";
         out << YAML::BeginMap;
@@ -6365,6 +6415,9 @@ namespace OloEngine
             return false;
         }
         OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
+
+        const u32 fileVersion = ReadSceneVersion(data);
+        MigrateSceneYAML(data, fileVersion);
 
         // Top-level guard for the schema-walk: fuzz inputs that pass the
         // "is map + Scene scalar" check above can still hit `.as<T>()`
