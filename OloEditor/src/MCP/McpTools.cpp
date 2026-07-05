@@ -2231,6 +2231,8 @@ namespace OloEngine::MCP
                 return DebugView::SSR;
             if (pp.SSGIDebugView)
                 return DebugView::SSGI;
+            if (pp.OverdrawDebugView)
+                return DebugView::Overdraw;
             return DebugView::None;
         }
 
@@ -2246,6 +2248,7 @@ namespace OloEngine::MCP
             r.GTAODebugView = pp.GTAODebugView;
             r.SSRDebugView = pp.SSRDebugView;
             r.SSGIDebugView = pp.SSGIDebugView;
+            r.OverdrawDebugView = pp.OverdrawDebugView;
             const bool deferred = Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred;
             switch (view)
             {
@@ -2271,6 +2274,12 @@ namespace OloEngine::MCP
                     r.PassEnabled = pp.SSGIEnabled && deferred;
                     if (!r.PassEnabled)
                         r.Note = "SSGI is not active; enable it with olo_render_toggle_pass { name: 'ssgi' } (Deferred path only).";
+                    break;
+                case DebugView::Overdraw:
+                    // Overdraw re-draws the opaque geometry itself into its own
+                    // accumulation target — no backing effect pass to enable, and
+                    // it works on every rendering path.
+                    r.PassEnabled = true;
                     break;
             }
             return r;
@@ -2318,6 +2327,7 @@ namespace OloEngine::MCP
                 pp.GTAODebugView = (view == DebugView::GTAO);
                 pp.SSRDebugView = (view == DebugView::SSR);
                 pp.SSGIDebugView = (view == DebugView::SSGI);
+                pp.OverdrawDebugView = (view == DebugView::Overdraw);
                 return ToJson(BuildDebugViewResult(pp, view)); });
             return ToolResult::Text(result.dump(2));
         }
@@ -4928,16 +4938,19 @@ namespace OloEngine::MCP
             // Edits ephemeral session render settings; destroys nothing.
             tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
             tool.Description =
-                "Switch the viewport to a raw intermediate buffer for AO/reflection/GI debugging. 'mode' is "
-                "one of none (the normal composite), ssao, gtao, ssr, ssgi — exactly one is shown at a time; "
-                "mode 'none' (or 'enabled':false) clears them all. Returns the active mode, the four "
+                "Switch the viewport to a raw intermediate buffer for AO/reflection/GI/overdraw debugging. "
+                "'mode' is one of none (the normal composite), ssao, gtao, ssr, ssgi, overdraw — exactly one "
+                "is shown at a time; mode 'none' (or 'enabled':false) clears them all. 'overdraw' heat-maps "
+                "per-pixel fragment count (how many layers deep the frame is: black=none, blue/green/yellow/"
+                "red=increasing overlap) by re-drawing opaque geometry with depth test off + additive blend; "
+                "it needs no backing pass and works on every rendering path. Returns the active mode, the "
                 "*DebugView flag states, and 'passEnabled' — whether the pass that produces the chosen "
                 "buffer is actually running this frame (with an actionable 'note' if not, e.g. enable SSAO "
                 "first with olo_render_toggle_pass). The change is EPHEMERAL: it edits the renderer's "
                 "session-global settings, not the scene, so it is never saved and a scene reload restores "
                 "it. Call with no arguments to list the modes + current state.";
             tool.InputSchema = Schema::Object()
-                                   .Prop("mode", Schema::String().Enum({ "none", "ssao", "gtao", "ssr", "ssgi" }).Desc("Debug view to show. 'none' clears all. Omit to list modes + state."))
+                                   .Prop("mode", Schema::String().Enum({ "none", "ssao", "gtao", "ssr", "ssgi", "overdraw" }).Desc("Debug view to show. 'none' clears all. Omit to list modes + state."))
                                    .Prop("enabled", Schema::Bool().Desc("Set false as an alias for mode:'none' (clear all debug views)."))
                                    .NoAdditional();
             tool.MainMarshaled = true;

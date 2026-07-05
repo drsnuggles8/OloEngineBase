@@ -47,6 +47,14 @@ namespace OloEngine
         static void InvalidateTextureBinding(u32 textureID);
         static void SetDepthPrepassActive(bool active);
         static void SetDepthPrepassColorPassActive(bool active);
+        // Overdraw debug view (#519): when active, ApplyPODRenderState forces
+        // additive (GL_ONE, GL_ONE) blending with depth testing off and the
+        // colour mask on, and batchable opaque draws are swapped for the
+        // depth-only DepthPrepass* programs (fragment emits 1.0) so each covered
+        // fragment adds 1 to the accumulation target. OverdrawRenderPass sets this
+        // around a replay of the scene command bucket. Mutually exclusive with the
+        // depth-prepass modes.
+        static void SetOverdrawActive(bool active);
         // Water surface-depth capture: when active, ApplyPODRenderState forces
         // depth-only state (color writes off, depth writes on, GL_LESS, no blend)
         // even for the blended water draw, so the nearest wavy water surface is

@@ -200,6 +200,8 @@ namespace OloEngine
             RGTextureHandle SSRColorTexture;              // Color attachment view of SSRColor
             RGFramebufferHandle ContactShadowColor;       // After contact-shadow composite (only valid when ContactShadow is enabled, deferred path)
             RGTextureHandle ContactShadowColorTexture;    // Color attachment view of ContactShadowColor
+            RGFramebufferHandle OverdrawColor;            // Overdraw heatmap debug view (only valid when OverdrawDebugView is on); replaces the viewport late in the post chain
+            RGTextureHandle OverdrawColorTexture;         // Color attachment view of OverdrawColor
             RGFramebufferHandle EASUColor;                // After FSR1 EASU spatial upscale (only valid when Upscale != Off; display-res HDR, runs early before Bloom)
             RGTextureHandle EASUColorTexture;             // Color attachment view of EASUColor
             RGFramebufferHandle UpscaledDepthVelocity;    // FSR1 full-res depth+velocity FBO (RT0 R32F depth, RT1 RG16F velocity), only valid when Upscale != Off
