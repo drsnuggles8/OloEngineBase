@@ -7,15 +7,30 @@
 
 namespace OloEngine
 {
+    void BlendTree::FillBindPose(const PoseEvalContext& ctx, sizet boneCount,
+                                 std::vector<BoneTransform>& out)
+    {
+        // Fill an output pose with each bone's bind-pose local transform (or
+        // identity when no bind pose is available). Used both as the starting
+        // point of a clip sample — so bones the clip does not key rest at bind
+        // pose, not identity (#543) — and for degenerate "no animation" returns.
+        out.resize(boneCount);
+        auto bindCount = ctx.BindPose.size();
+        for (sizet i = 0; i < boneCount; ++i)
+        {
+            out[i] = (i < bindCount) ? ctx.BindPose[i] : BoneTransform{};
+        }
+    }
+
     void BlendTree::Evaluate(f32 normalizedTime, const AnimationParameterSet& params,
-                             sizet boneCount,
+                             sizet boneCount, const PoseEvalContext& ctx,
                              std::vector<BoneTransform>& outBoneTransforms) const
     {
         OLO_PROFILE_FUNCTION();
 
         if (Children.empty())
         {
-            outBoneTransforms.resize(boneCount);
+            FillBindPose(ctx, boneCount, outBoneTransforms);
             return;
         }
 
@@ -25,7 +40,7 @@ namespace OloEngine
             case Simple1D:
             {
                 f32 paramValue = params.GetFloat(BlendParameterX);
-                Evaluate1D(paramValue, normalizedTime, boneCount, outBoneTransforms);
+                Evaluate1D(paramValue, normalizedTime, boneCount, ctx, outBoneTransforms);
                 break;
             }
             case SimpleDirectional2D:
@@ -34,14 +49,14 @@ namespace OloEngine
             {
                 f32 paramX = params.GetFloat(BlendParameterX);
                 f32 paramY = params.GetFloat(BlendParameterY);
-                Evaluate2D(paramX, paramY, normalizedTime, boneCount, outBoneTransforms);
+                Evaluate2D(paramX, paramY, normalizedTime, boneCount, ctx, outBoneTransforms);
                 break;
             }
             default:
             {
-                // Unknown blend type — emit default transforms so the output is
+                // Unknown blend type — emit bind-pose transforms so the output is
                 // always sized for the caller.
-                outBoneTransforms.resize(boneCount);
+                FillBindPose(ctx, boneCount, outBoneTransforms);
                 break;
             }
         }
@@ -197,7 +212,7 @@ namespace OloEngine
     }
 
     void BlendTree::Evaluate1D(f32 paramValue, f32 normalizedTime, sizet boneCount,
-                               std::vector<BoneTransform>& out) const
+                               const PoseEvalContext& ctx, std::vector<BoneTransform>& out) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -207,7 +222,7 @@ namespace OloEngine
 
         if (!selection.HasPlayable)
         {
-            out.resize(boneCount);
+            FillBindPose(ctx, boneCount, out);
             return;
         }
 
@@ -215,7 +230,7 @@ namespace OloEngine
         {
             auto const& child = Children[selection.IndexA];
             f32 timeSeconds = normalizedTime * child.Clip->Duration;
-            SampleClipBoneTransforms(child.Clip, timeSeconds, boneCount, out);
+            SampleClipBoneTransforms(child.Clip, timeSeconds, boneCount, ctx, out);
             return;
         }
 
@@ -228,14 +243,14 @@ namespace OloEngine
         f32 timeA = normalizedTime * childA.Clip->Duration;
         f32 timeB = normalizedTime * childB.Clip->Duration;
 
-        SampleClipBoneTransforms(childA.Clip, timeA, boneCount, transformsA);
-        SampleClipBoneTransforms(childB.Clip, timeB, boneCount, transformsB);
+        SampleClipBoneTransforms(childA.Clip, timeA, boneCount, ctx, transformsA);
+        SampleClipBoneTransforms(childB.Clip, timeB, boneCount, ctx, transformsB);
 
         BlendBoneTransforms(transformsA, transformsB, selection.Weight, out);
     }
 
     void BlendTree::Evaluate2D(f32 paramX, f32 paramY, f32 normalizedTime, sizet boneCount,
-                               std::vector<BoneTransform>& out) const
+                               const PoseEvalContext& ctx, std::vector<BoneTransform>& out) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -257,7 +272,7 @@ namespace OloEngine
             {
                 // Exact match - use this child exclusively
                 f32 timeSeconds = normalizedTime * Children[i].Clip->Duration;
-                SampleClipBoneTransforms(Children[i].Clip, timeSeconds, boneCount, out);
+                SampleClipBoneTransforms(Children[i].Clip, timeSeconds, boneCount, ctx, out);
                 return;
             }
             weights[i] = 1.0f / (dist * dist);
@@ -271,6 +286,13 @@ namespace OloEngine
             {
                 w /= totalWeight;
             }
+        }
+
+        // No playable child contributed — rest at bind pose (not identity).
+        if (totalWeight <= 0.0f)
+        {
+            FillBindPose(ctx, boneCount, out);
+            return;
         }
 
         // Blend all children by weight using cumulative-weight slerp for rotations
@@ -288,7 +310,7 @@ namespace OloEngine
             f32 clipDur = Children[i].Clip ? Children[i].Clip->Duration : 0.0f;
             // Speed is already factored into GetDuration (and thus normalizedTime)
             f32 timeSeconds = normalizedTime * clipDur;
-            SampleClipBoneTransforms(Children[i].Clip, timeSeconds, boneCount, childTransforms);
+            SampleClipBoneTransforms(Children[i].Clip, timeSeconds, boneCount, ctx, childTransforms);
 
             accumulatedWeight += weights[i];
 
@@ -317,24 +339,33 @@ namespace OloEngine
     }
 
     void BlendTree::SampleClipBoneTransforms(const Ref<AnimationClip>& clip, f32 timeSeconds,
-                                             sizet boneCount,
+                                             sizet boneCount, const PoseEvalContext& ctx,
                                              std::vector<BoneTransform>& out)
     {
         OLO_PROFILE_FUNCTION();
 
-        out.resize(boneCount);
+        // Start every bone at its bind-pose local transform so bones the clip
+        // does not animate keep their rest pose instead of snapping to identity
+        // (mirrors AnimationSystem's bind-pose reset — issue #543).
+        FillBindPose(ctx, boneCount, out);
         if (!clip)
         {
             return;
         }
 
-        auto boneAnimCount = clip->BoneAnimations.size();
-        for (sizet i = 0; i < boneCount && i < boneAnimCount; ++i)
+        // Map each skeleton bone to its clip channel BY NAME. Clip channel order
+        // is exporter-dependent and does not match the skeleton's DFS bone index
+        // order, so the old clip.BoneAnimations[i] -> bone i fill wrote each
+        // channel onto the wrong bone on any real imported rig (issue #543).
+        auto boneNameCount = ctx.BoneNames.size();
+        for (sizet i = 0; i < boneCount && i < boneNameCount; ++i)
         {
-            auto const& boneAnim = clip->BoneAnimations[i];
-            out[i].Translation = AnimatedModel::SampleBonePosition(boneAnim.PositionKeys, timeSeconds);
-            out[i].Rotation = AnimatedModel::SampleBoneRotation(boneAnim.RotationKeys, timeSeconds);
-            out[i].Scale = AnimatedModel::SampleBoneScale(boneAnim.ScaleKeys, timeSeconds);
+            if (const auto* boneAnim = clip->FindBoneAnimation(ctx.BoneNames[i]); boneAnim)
+            {
+                out[i].Translation = AnimatedModel::SampleBonePosition(boneAnim->PositionKeys, timeSeconds);
+                out[i].Rotation = AnimatedModel::SampleBoneRotation(boneAnim->RotationKeys, timeSeconds);
+                out[i].Scale = AnimatedModel::SampleBoneScale(boneAnim->ScaleKeys, timeSeconds);
+            }
         }
     }
 

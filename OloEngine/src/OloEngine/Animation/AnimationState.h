@@ -34,7 +34,7 @@ namespace OloEngine
         Ref<BlendTree> Tree;
 
         void Evaluate(f32 normalizedTime, const AnimationParameterSet& params,
-                      sizet boneCount,
+                      sizet boneCount, const PoseEvalContext& ctx,
                       std::vector<BoneTransform>& outBoneTransforms) const;
 
         [[nodiscard("clip duration needed for time calculations")]] f32 GetClipDuration() const;

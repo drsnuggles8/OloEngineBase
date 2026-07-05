@@ -56,7 +56,7 @@ namespace OloEngine
     }
 
     void AnimationStateMachine::Update(f32 dt, AnimationParameterSet& params,
-                                       sizet boneCount,
+                                       sizet boneCount, const PoseEvalContext& ctx,
                                        std::vector<BoneTransform>& outBoneTransforms)
     {
         OLO_PROFILE_FUNCTION();
@@ -130,7 +130,7 @@ namespace OloEngine
                     {
                         normalizedTime = m_CurrentStateTime / dur;
                     }
-                    currentState->Evaluate(normalizedTime, params, boneCount, outBoneTransforms);
+                    currentState->Evaluate(normalizedTime, params, boneCount, ctx, outBoneTransforms);
                 }
                 else
                 {
@@ -152,7 +152,7 @@ namespace OloEngine
                 {
                     normalizedTime = m_CurrentStateTime / currentDuration;
                 }
-                currentState->Evaluate(normalizedTime, params, boneCount, currentTransforms);
+                currentState->Evaluate(normalizedTime, params, boneCount, ctx, currentTransforms);
             }
 
             if (targetState)
@@ -163,7 +163,7 @@ namespace OloEngine
                 {
                     normalizedTime = m_TargetStateTime / targetDuration;
                 }
-                targetState->Evaluate(normalizedTime, params, boneCount, targetTransforms);
+                targetState->Evaluate(normalizedTime, params, boneCount, ctx, targetTransforms);
             }
 
             // Blend
@@ -177,7 +177,7 @@ namespace OloEngine
         {
             normalizedTime = m_CurrentStateTime / currentDuration;
         }
-        currentState->Evaluate(normalizedTime, params, boneCount, outBoneTransforms);
+        currentState->Evaluate(normalizedTime, params, boneCount, ctx, outBoneTransforms);
 
         // Check for transitions
         CheckTransitions(params, boneCount);

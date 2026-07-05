@@ -1,34 +1,10 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/AnimationState.h"
-#include "OloEngine/Renderer/AnimatedModel.h"
 
 namespace OloEngine
 {
-    namespace
-    {
-        // Sample a single clip into the output pose: clear to bind pose, then
-        // per-bone TRS for every bone that has an animation channel.
-        void SampleClipIntoPose(const AnimationClip& clip, f32 normalizedTime, sizet boneCount,
-                                std::vector<BoneTransform>& out)
-        {
-            f32 timeSeconds = normalizedTime * clip.Duration;
-            out.assign(boneCount, BoneTransform{});
-            auto boneAnimCount = clip.BoneAnimations.size();
-            for (sizet i = 0; i < boneCount; ++i)
-            {
-                if (i < boneAnimCount)
-                {
-                    auto const& boneAnim = clip.BoneAnimations[i];
-                    out[i].Translation = AnimatedModel::SampleBonePosition(boneAnim.PositionKeys, timeSeconds);
-                    out[i].Rotation = AnimatedModel::SampleBoneRotation(boneAnim.RotationKeys, timeSeconds);
-                    out[i].Scale = AnimatedModel::SampleBoneScale(boneAnim.ScaleKeys, timeSeconds);
-                }
-            }
-        }
-    } // namespace
-
     void AnimationState::Evaluate(f32 normalizedTime, const AnimationParameterSet& params,
-                                  sizet boneCount,
+                                  sizet boneCount, const PoseEvalContext& ctx,
                                   std::vector<BoneTransform>& outBoneTransforms) const
     {
         OLO_PROFILE_FUNCTION();
@@ -39,27 +15,29 @@ namespace OloEngine
             {
                 if (!Clip)
                 {
-                    outBoneTransforms.assign(boneCount, BoneTransform{});
+                    BlendTree::FillBindPose(ctx, boneCount, outBoneTransforms);
                     return;
                 }
-                SampleClipIntoPose(*Clip, normalizedTime, boneCount, outBoneTransforms);
+                // Sample by bone NAME with a bind-pose fallback (issue #543);
+                // shares BlendTree's sampler so both graph paths behave identically.
+                BlendTree::SampleClipBoneTransforms(Clip, normalizedTime * Clip->Duration, boneCount, ctx, outBoneTransforms);
                 break;
             }
             case MotionType::BlendTree:
             {
                 if (!Tree)
                 {
-                    outBoneTransforms.assign(boneCount, BoneTransform{});
+                    BlendTree::FillBindPose(ctx, boneCount, outBoneTransforms);
                     return;
                 }
-                Tree->Evaluate(normalizedTime, params, boneCount, outBoneTransforms);
+                Tree->Evaluate(normalizedTime, params, boneCount, ctx, outBoneTransforms);
                 break;
             }
             default:
             {
-                // Unknown motion type — emit identity transforms so the output is
+                // Unknown motion type — emit bind-pose transforms so the output is
                 // always fully initialised for the caller.
-                outBoneTransforms.assign(boneCount, BoneTransform{});
+                BlendTree::FillBindPose(ctx, boneCount, outBoneTransforms);
                 break;
             }
         }

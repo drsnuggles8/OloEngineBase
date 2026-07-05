@@ -8,6 +8,8 @@
 #include "OloEngine/Animation/Procedural/NoisePostPass.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSystem.h"
+#include "OloEngine/Animation/BlendNode.h"
+#include "OloEngine/Animation/BlendUtils.h"
 #include "OloEngine/Core/Log.h"
 
 #include <vector>
@@ -42,8 +44,29 @@ namespace OloEngine::Animation
         // Sync per-entity parameters into the runtime graph
         graphComp.RuntimeGraph->Parameters = graphComp.Parameters;
 
+        // Decompose the skeleton's bind-pose local transforms into TRS so the
+        // graph can fall back to bind pose (not identity) for bones a clip does
+        // not animate — mirrors AnimationSystem's bind-pose reset (issue #543).
+        // The bind pose is stable per skeleton, so cache the decomposed TRS on the
+        // component and rebuild only when the bone count changes (or on first tick)
+        // rather than re-decomposing every mat4 each frame. Stays empty when the
+        // skeleton has no captured bind pose; the graph then degrades to an
+        // identity fallback.
+        if (graphComp.BindPoseLocalTRS.size() != boneCount)
+        {
+            graphComp.BindPoseLocalTRS.clear();
+            if (skeleton.m_BindPoseLocalTransforms.size() == boneCount)
+            {
+                graphComp.BindPoseLocalTRS.resize(boneCount);
+                for (sizet i = 0; i < boneCount; ++i)
+                {
+                    graphComp.BindPoseLocalTRS[i] = BlendUtils::DecomposeMatrix(skeleton.m_BindPoseLocalTransforms[i]);
+                }
+            }
+        }
+
         // Evaluate the animation graph directly into the skeleton's local transform buffer
-        graphComp.RuntimeGraph->Update(deltaTime, boneCount, skeleton.m_LocalTransforms, skeleton.m_BoneNames, skeleton.m_ParentIndices);
+        graphComp.RuntimeGraph->Update(deltaTime, boneCount, skeleton.m_LocalTransforms, skeleton.m_BoneNames, skeleton.m_ParentIndices, graphComp.BindPoseLocalTRS);
 
         // Copy parameters back (triggers may have been consumed)
         graphComp.Parameters = graphComp.RuntimeGraph->Parameters;

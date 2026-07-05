@@ -18,10 +18,18 @@ namespace OloEngine
         // Per-entity parameter instance (copied from graph at start)
         AnimationParameterSet Parameters;
 
+        // Runtime-only cache of the entity skeleton's bind-pose local transforms
+        // in TRS form, so AnimationGraphSystem::Update doesn't re-decompose every
+        // bind-pose mat4 each tick (the bind pose is stable for a given skeleton).
+        // Filled lazily and rebuilt only when the bone count changes; reset on
+        // copy like RuntimeGraph.
+        std::vector<BoneTransform> BindPoseLocalTRS;
+
         AnimationGraphComponent() = default;
 
         // Copying shares the RuntimeGraph Ref which causes aliasing.
-        // Reset RuntimeGraph on copy so each entity gets its own runtime instance via lazy-load.
+        // Reset RuntimeGraph (and the bind-pose cache) on copy so each entity gets
+        // its own runtime instance via lazy-load.
         AnimationGraphComponent(const AnimationGraphComponent& other)
             : AnimationGraphAssetHandle(other.AnimationGraphAssetHandle), Parameters(other.Parameters)
         {
@@ -34,6 +42,7 @@ namespace OloEngine
                 AnimationGraphAssetHandle = other.AnimationGraphAssetHandle;
                 RuntimeGraph = nullptr;
                 Parameters = other.Parameters;
+                BindPoseLocalTRS.clear();
             }
             return *this;
         }

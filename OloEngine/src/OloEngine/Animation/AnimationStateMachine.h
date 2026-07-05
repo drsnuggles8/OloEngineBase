@@ -22,7 +22,7 @@ namespace OloEngine
 
         void Start(const AnimationParameterSet& params);
         void Update(f32 dt, AnimationParameterSet& params,
-                    sizet boneCount,
+                    sizet boneCount, const PoseEvalContext& ctx,
                     std::vector<BoneTransform>& outBoneTransforms);
 
         [[nodiscard("state name needed for UI or logic")]] const std::string& GetCurrentStateName() const
