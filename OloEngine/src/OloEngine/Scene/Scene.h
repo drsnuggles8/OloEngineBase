@@ -520,6 +520,24 @@ namespace OloEngine
         // tick (e.g. a unit test that places entities then queries immediately).
         void UpdateSpatialIndex();
 
+        // Compose parent-chain world matrices for every entity with a
+        // TransformComponent in one flat, depth-sorted sweep (issue #499):
+        // roots first, breadth-first over RelationshipComponent::m_Children,
+        // so a parent's WorldTransformComponent is always written before any
+        // child that reads it. Called automatically once per tick (runtime,
+        // simulation, and editor-preview updates); exposed so headless
+        // harnesses / tests can refresh world transforms after reparenting or
+        // mutating local transforms outside a tick.
+        void PropagateWorldTransforms();
+
+        // Reads the composed world matrix written by PropagateWorldTransforms()
+        // for a raw entt handle (render/submission loops iterate EnTT views
+        // directly rather than through the Entity wrapper). Falls back to the
+        // local transform if the propagation pass hasn't run yet this tick.
+        // Defined out-of-line in Scene.cpp: TransformComponent / WorldTransformComponent
+        // are only forward-declared here (full definitions live in Components.h).
+        [[nodiscard("Store this!")]] glm::mat4 GetWorldTransform(entt::entity entity) const;
+
         // Audio Events
         [[nodiscard]] Audio::AudioCommandRegistry* GetAudioCommandRegistry()
         {

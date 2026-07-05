@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <unordered_set>
 
 #include "Components.h"
 #include "Prefab.h"
@@ -191,14 +192,14 @@ namespace OloEngine
         return fallback;
     }
 
-    static void DrawTextWithShadow(const TextComponent& text, const TransformComponent& transform, int entityID)
+    static void DrawTextWithShadow(const TextComponent& text, const glm::mat4& worldTransform, int entityID)
     {
         if (text.DropShadow)
         {
-            glm::mat4 shadowTransform = glm::translate(transform.GetTransform(), glm::vec3(text.ShadowDistance, -text.ShadowDistance, 0.0f));
+            glm::mat4 shadowTransform = glm::translate(worldTransform, glm::vec3(text.ShadowDistance, -text.ShadowDistance, 0.0f));
             Renderer2D::DrawString(text.TextString, text.FontAsset, shadowTransform, { text.ShadowColor, text.Kerning, text.LineSpacing, text.MaxWidth }, entityID);
         }
-        Renderer2D::DrawString(text.TextString, transform.GetTransform(), text, entityID);
+        Renderer2D::DrawString(text.TextString, worldTransform, text, entityID);
     }
 
     [[nodiscard("Store this!")]] static b2BodyType Rigidbody2DTypeToBox2DBody(const Rigidbody2DComponent::BodyType bodyType)
@@ -1342,6 +1343,110 @@ namespace OloEngine
         }
     }
 
+    glm::mat4 Scene::GetWorldTransform(entt::entity entity) const
+    {
+        if (auto const* world = m_Registry.try_get<WorldTransformComponent>(entity))
+            return world->WorldMatrix;
+        return m_Registry.get<TransformComponent>(entity).GetTransform();
+    }
+
+    void Scene::PropagateWorldTransforms()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Resolves an entity's parent, treating a missing/invalid/dangling
+        // RelationshipComponent::m_ParentHandle (e.g. DestroyEntity doesn't
+        // clean up former children — see HierarchyChildFollowsPhysicsParentTest)
+        // as "no parent" rather than propagating a stale reference.
+        auto resolveParent = [this](entt::entity entity) -> entt::entity
+        {
+            auto const* rel = m_Registry.try_get<RelationshipComponent>(entity);
+            if (!rel || static_cast<u64>(rel->m_ParentHandle) == 0)
+                return entt::null;
+
+            auto const* parentEntity = m_EntityMap.Find(rel->m_ParentHandle);
+            if (!parentEntity || !m_Registry.valid(*parentEntity) || !m_Registry.all_of<TransformComponent>(*parentEntity))
+                return entt::null;
+
+            return *parentEntity;
+        };
+
+        auto view = m_Registry.view<TransformComponent>();
+
+        // Flat, depth-sorted traversal order: breadth-first from every root
+        // (no resolvable parent) so a parent always precedes its children.
+        std::vector<entt::entity> order;
+        order.reserve(view.size());
+
+        std::unordered_set<entt::entity> visited;
+        visited.reserve(view.size());
+
+        std::vector<entt::entity> queue;
+        queue.reserve(view.size());
+        for (auto entity : view)
+        {
+            if (resolveParent(entity) == entt::null)
+                queue.push_back(entity);
+        }
+
+        for (sizet head = 0; head < queue.size(); ++head)
+        {
+            entt::entity const entity = queue[head];
+            if (!visited.insert(entity).second)
+                continue;
+
+            order.push_back(entity);
+
+            auto const* rel = m_Registry.try_get<RelationshipComponent>(entity);
+            if (!rel)
+                continue;
+
+            for (UUID const childId : rel->m_Children)
+            {
+                auto const* childEntity = m_EntityMap.Find(childId);
+                if (!childEntity || !m_Registry.valid(*childEntity) || visited.contains(*childEntity))
+                    continue;
+                if (!m_Registry.all_of<TransformComponent>(*childEntity))
+                    continue;
+                // Only descend if the child's own resolved parent agrees this
+                // entity is it — guards against m_Children/m_ParentHandle
+                // drifting out of sync (data corruption, not a supported path).
+                if (resolveParent(*childEntity) != entity)
+                    continue;
+
+                queue.push_back(*childEntity);
+            }
+        }
+
+        // Defensive fallback: any TransformComponent entity unreachable from a
+        // root (corrupted relationship data, or a cycle that slipped past
+        // Entity::SetParent's guard via direct deserialization) still gets a
+        // defined world matrix (== its local transform) instead of staying
+        // stale from a prior tick.
+        for (auto entity : view)
+        {
+            if (visited.insert(entity).second)
+                order.push_back(entity);
+        }
+
+        // One linear sweep: parents are guaranteed to precede their children,
+        // so each child composes against an already-written parent world matrix.
+        for (auto entity : order)
+        {
+            glm::mat4 const& local = m_Registry.get<TransformComponent>(entity).GetTransform();
+            entt::entity const parent = resolveParent(entity);
+
+            glm::mat4 world = local;
+            if (parent != entt::null)
+            {
+                if (auto const* parentWorld = m_Registry.try_get<WorldTransformComponent>(parent))
+                    world = parentWorld->WorldMatrix * local;
+            }
+
+            m_Registry.emplace_or_replace<WorldTransformComponent>(entity, world);
+        }
+    }
+
     void Scene::OnUpdateRuntime(Timestep const ts)
     {
         PerformanceProfiler* perfProfiler = nullptr;
@@ -1801,6 +1906,11 @@ namespace OloEngine
             // runtime/simulate tick — see Scene::StepPhysics).
             StepPhysics(ts);
 
+            // Compose parent-chain world matrices now that scripts, animation,
+            // and physics have all finished moving local transforms this tick,
+            // but before navigation/AI/audio/particles/render read them (#499).
+            PropagateWorldTransforms();
+
             // Update navigation / pathfinding
             NavigationSystem::OnUpdate(this, ts.GetSeconds());
 
@@ -2083,20 +2193,20 @@ namespace OloEngine
 
                                                              for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
                                                              {
-                                                                 const auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
-                                                                 Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(std::to_underlying(entity)));
+                                                                 const auto& sprite = group.get<SpriteRendererComponent>(entity);
+                                                                 Renderer2D::DrawSprite(GetWorldTransform(entity), sprite, static_cast<int>(std::to_underlying(entity)));
                                                              }
 
                                                              for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
                                                              {
-                                                                 const auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
-                                                                 Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(std::to_underlying(entity)));
+                                                                 const auto& circle = view.get<CircleRendererComponent>(entity);
+                                                                 Renderer2D::DrawCircle(GetWorldTransform(entity), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(std::to_underlying(entity)));
                                                              }
 
                                                              for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
                                                              {
-                                                                 const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                                                                 DrawTextWithShadow(text, transform, static_cast<int>(std::to_underlying(entity)));
+                                                                 const auto& text = view.get<TextComponent>(entity);
+                                                                 DrawTextWithShadow(text, GetWorldTransform(entity), static_cast<int>(std::to_underlying(entity)));
                                                              }
 
                                                              Renderer2D::EndScene();
@@ -2123,20 +2233,20 @@ namespace OloEngine
 
                 for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
                 {
-                    const auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
-                    Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(std::to_underlying(entity)));
+                    const auto& sprite = group.get<SpriteRendererComponent>(entity);
+                    Renderer2D::DrawSprite(GetWorldTransform(entity), sprite, static_cast<int>(std::to_underlying(entity)));
                 }
 
                 for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
                 {
-                    const auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
-                    Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(std::to_underlying(entity)));
+                    const auto& circle = view.get<CircleRendererComponent>(entity);
+                    Renderer2D::DrawCircle(GetWorldTransform(entity), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(std::to_underlying(entity)));
                 }
 
                 for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
                 {
-                    const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                    DrawTextWithShadow(text, transform, static_cast<int>(std::to_underlying(entity)));
+                    const auto& text = view.get<TextComponent>(entity);
+                    DrawTextWithShadow(text, GetWorldTransform(entity), static_cast<int>(std::to_underlying(entity)));
                 }
 
                 // 2D particles (3D particles are rendered by ParticleRenderPass)
@@ -2198,6 +2308,11 @@ namespace OloEngine
             StepPhysics(ts);
         }
 
+        // Compose parent-chain world matrices before rendering, unconditionally
+        // (even while paused) so gizmo edits made in play-in-editor "simulate"
+        // mode still show composed parent transforms this frame (#499).
+        PropagateWorldTransforms();
+
         // Render based on mode
         if (m_RenderingEnabled)
         {
@@ -2235,6 +2350,12 @@ namespace OloEngine
         // Refresh LocalizedTextComponent → TextComponent.TextString so the
         // editor reflects locale changes in real time.
         LocalizationSystem::UpdateLocalizedText(*this);
+
+        // Compose parent-chain world matrices early — editor-preview mode has
+        // no physics step, and gizmo/inspector edits to local transforms need
+        // to show composed parent transforms in this same frame's render (#499).
+        PropagateWorldTransforms();
+
         // Scene streaming update (editor preview)
         if (m_SceneStreamer)
         {
@@ -2322,8 +2443,8 @@ namespace OloEngine
 
                                                              for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
                                                              {
-                                                                 const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                                                                 DrawTextWithShadow(text, transform, static_cast<int>(std::to_underlying(entity)));
+                                                                 const auto& text = view.get<TextComponent>(entity);
+                                                                 DrawTextWithShadow(text, GetWorldTransform(entity), static_cast<int>(std::to_underlying(entity)));
                                                              }
 
                                                              Renderer2D::EndScene();
@@ -3632,9 +3753,9 @@ namespace OloEngine
         {
             for (const auto view = m_Registry.view<TransformComponent, SpriteRendererComponent>(); const auto entity : view)
             {
-                const auto [transform, sprite] = view.get<TransformComponent, SpriteRendererComponent>(entity);
+                const auto& sprite = view.get<SpriteRendererComponent>(entity);
 
-                Renderer2D::DrawSprite(transform.GetTransform(), sprite, static_cast<int>(std::to_underlying(entity)));
+                Renderer2D::DrawSprite(GetWorldTransform(entity), sprite, static_cast<int>(std::to_underlying(entity)));
             }
         }
 
@@ -3642,9 +3763,9 @@ namespace OloEngine
         {
             for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
             {
-                const auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
+                const auto& circle = view.get<CircleRendererComponent>(entity);
 
-                Renderer2D::DrawCircle(transform.GetTransform(), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(std::to_underlying(entity)));
+                Renderer2D::DrawCircle(GetWorldTransform(entity), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(std::to_underlying(entity)));
             }
         }
 
@@ -3652,8 +3773,8 @@ namespace OloEngine
         {
             for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
             {
-                const auto [transform, text] = view.get<TransformComponent, TextComponent>(entity);
-                DrawTextWithShadow(text, transform, static_cast<int>(std::to_underlying(entity)));
+                const auto& text = view.get<TextComponent>(entity);
+                DrawTextWithShadow(text, GetWorldTransform(entity), static_cast<int>(std::to_underlying(entity)));
             }
         }
 
@@ -5585,12 +5706,14 @@ namespace OloEngine
                     continue;
                 }
 
-                const auto [transform, mesh] = view.get<TransformComponent, MeshComponent>(entity);
+                const auto& mesh = view.get<MeshComponent>(entity);
 
                 if (!mesh.m_MeshSource)
                 {
                     continue;
                 }
+
+                const glm::mat4 worldTransform = GetWorldTransform(entity);
 
                 // Get material or use cached default
                 const Material& material = m_Registry.all_of<MaterialComponent>(entity)
@@ -5627,7 +5750,7 @@ namespace OloEngine
                     for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
                     {
                         auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
-                        if (auto* packet = Renderer3D::DrawMesh(submesh, transform.GetTransform(), material, true, entityID, lodGroup); packet)
+                        if (auto* packet = Renderer3D::DrawMesh(submesh, worldTransform, material, true, entityID, lodGroup); packet)
                             Renderer3D::SubmitPacket(packet);
 
                         // Shadow caster for this submesh
@@ -5638,8 +5761,8 @@ namespace OloEngine
                             {
                                 Renderer3D::AddMeshShadowCaster(
                                     va->GetRendererID(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
-                                    transform.GetTransform(), GetShadowVaoID(submesh),
-                                    submesh->GetTransformedBoundingBox(transform.GetTransform()));
+                                    worldTransform, GetShadowVaoID(submesh),
+                                    submesh->GetTransformedBoundingBox(worldTransform));
                             }
                         }
                     }
@@ -5841,12 +5964,14 @@ namespace OloEngine
             auto view = m_Registry.view<TransformComponent, SubmeshComponent>();
             for (auto entity : view)
             {
-                const auto [transform, submesh] = view.get<TransformComponent, SubmeshComponent>(entity);
+                const auto& submesh = view.get<SubmeshComponent>(entity);
 
                 if (!submesh.m_Mesh || !submesh.m_Visible)
                 {
                     continue;
                 }
+
+                const glm::mat4 worldTransform = GetWorldTransform(entity);
 
                 // Get material or use cached default
                 const Material& material = m_Registry.all_of<MaterialComponent>(entity)
@@ -5875,7 +6000,7 @@ namespace OloEngine
                     }
                 }
 
-                if (auto* packet = Renderer3D::DrawMesh(submesh.m_Mesh, transform.GetTransform(), material, true, entityID, lodGroup); packet)
+                if (auto* packet = Renderer3D::DrawMesh(submesh.m_Mesh, worldTransform, material, true, entityID, lodGroup); packet)
                     Renderer3D::SubmitPacket(packet);
 
                 // Shadow caster for this submesh entity
@@ -5886,8 +6011,8 @@ namespace OloEngine
                     {
                         Renderer3D::AddMeshShadowCaster(
                             va->GetRendererID(), submesh.m_Mesh->GetIndexCount(), submesh.m_Mesh->GetBaseIndex(),
-                            transform.GetTransform(), GetShadowVaoID(submesh.m_Mesh),
-                            submesh.m_Mesh->GetTransformedBoundingBox(transform.GetTransform()));
+                            worldTransform, GetShadowVaoID(submesh.m_Mesh),
+                            submesh.m_Mesh->GetTransformedBoundingBox(worldTransform));
                     }
                 }
             }
@@ -5898,7 +6023,7 @@ namespace OloEngine
             auto view = m_Registry.view<TransformComponent, ModelComponent>();
             for (auto entity : view)
             {
-                const auto [transform, model] = view.get<TransformComponent, ModelComponent>(entity);
+                const auto& model = view.get<ModelComponent>(entity);
 
                 if (!model.m_Model || !model.m_Visible)
                 {
@@ -5907,7 +6032,7 @@ namespace OloEngine
 
                 // Model::DrawParallel uses the model's own materials loaded from file
                 // Pass entity ID for mouse picking support
-                const auto modelTransform = transform.GetTransform();
+                const auto modelTransform = GetWorldTransform(entity);
                 model.m_Model->DrawParallel(modelTransform, static_cast<int>(std::to_underlying(entity)));
 
                 // Submit each submesh as a shadow caster — Model::DrawParallel
@@ -5953,12 +6078,14 @@ namespace OloEngine
             auto view = m_Registry.view<TransformComponent, MeshComponent, SkeletonComponent>();
             for (auto entity : view)
             {
-                const auto [transform, mesh, skeleton] = view.get<TransformComponent, MeshComponent, SkeletonComponent>(entity);
+                const auto [mesh, skeleton] = view.get<MeshComponent, SkeletonComponent>(entity);
 
                 if (!mesh.m_MeshSource || !skeleton.m_Skeleton)
                 {
                     continue;
                 }
+
+                const glm::mat4 worldTransform = GetWorldTransform(entity);
 
                 // Get material or use cached default
                 const Material& material = m_Registry.all_of<MaterialComponent>(entity)
@@ -5985,7 +6112,7 @@ namespace OloEngine
                     for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
                     {
                         auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
-                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, transform.GetTransform(), material, boneMatrices, prevBoneMatrices, false, entityID);
+                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, worldTransform, material, boneMatrices, prevBoneMatrices, false, entityID);
                         if (packet)
                         {
                             Renderer3D::SubmitPacket(packet);
@@ -6001,9 +6128,9 @@ namespace OloEngine
                                     {
                                         Renderer3D::AddSkinnedShadowCaster(
                                             va->GetRendererID(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
-                                            transform.GetTransform(),
+                                            worldTransform,
                                             cmd->boneBufferOffset, cmd->boneCount,
-                                            submesh->GetTransformedBoundingBox(transform.GetTransform()));
+                                            submesh->GetTransformedBoundingBox(worldTransform));
                                     }
                                     else
                                     {
@@ -6020,7 +6147,7 @@ namespace OloEngine
                 {
                     Renderer3D::DrawSkeleton(
                         *skeleton.m_Skeleton,
-                        transform.GetTransform(),
+                        worldTransform,
                         m_SkeletonVisualization.ShowBones,
                         m_SkeletonVisualization.ShowJoints,
                         m_SkeletonVisualization.JointSize,
@@ -6034,7 +6161,7 @@ namespace OloEngine
             auto view = m_Registry.view<TransformComponent, TileRendererComponent>();
             for (auto entity : view)
             {
-                const auto [transform, tileComp] = view.get<TransformComponent, TileRendererComponent>(entity);
+                const auto& tileComp = view.get<TileRendererComponent>(entity);
 
                 if (!tileComp.TileMesh || !tileComp.TileMesh->IsValid())
                 {
@@ -6042,7 +6169,7 @@ namespace OloEngine
                 }
 
                 i32 entityID = static_cast<i32>(std::to_underlying(entity));
-                glm::mat4 baseTransform = transform.GetTransform();
+                glm::mat4 baseTransform = GetWorldTransform(entity);
 
                 for (u32 z = 0; z < tileComp.Height; ++z)
                 {
@@ -6355,8 +6482,9 @@ namespace OloEngine
             auto view = m_Registry.view<TransformComponent, CameraComponent>();
             for (auto entity : view)
             {
-                const auto& [transform, cameraComp] = view.get<TransformComponent, CameraComponent>(entity);
+                const auto& cameraComp = view.get<CameraComponent>(entity);
                 const SceneCamera& sceneCamera = cameraComp.Camera;
+                const glm::mat4 worldTransform = GetWorldTransform(entity);
 
                 // Aspect ratio: cameras flagged FixedAspectRatio use their own
                 // projection aspect (set externally and not driven by the
@@ -6376,7 +6504,7 @@ namespace OloEngine
                 if (sceneCamera.GetProjectionType() == SceneCamera::ProjectionType::Perspective)
                 {
                     Renderer3D::DrawCameraFrustum(
-                        transform.GetTransform(),
+                        worldTransform,
                         sceneCamera.GetPerspectiveVerticalFOV(),
                         aspectRatio,
                         sceneCamera.GetPerspectiveNearClip(),
@@ -6390,7 +6518,7 @@ namespace OloEngine
                 {
                     // Orthographic camera
                     Renderer3D::DrawCameraFrustum(
-                        transform.GetTransform(),
+                        worldTransform,
                         0.0f, // fov (not used for ortho)
                         aspectRatio,
                         sceneCamera.GetOrthographicNearClip(),
@@ -6463,10 +6591,10 @@ namespace OloEngine
                 {
                     if (m_Registry.all_of<SkeletonComponent>(entity))
                         continue;
-                    const auto& [tc, mc] = view.get<TransformComponent, MeshComponent>(entity);
+                    const auto& mc = view.get<MeshComponent>(entity);
                     if (!mc.m_MeshSource)
                         continue;
-                    drawWorldAABB(mc.m_MeshSource->GetBoundingBox().Transform(tc.GetTransform()));
+                    drawWorldAABB(mc.m_MeshSource->GetBoundingBox().Transform(GetWorldTransform(entity)));
                 }
             }
 
@@ -6475,10 +6603,10 @@ namespace OloEngine
                 auto view = m_Registry.view<TransformComponent, ModelComponent>();
                 for (auto entity : view)
                 {
-                    const auto& [tc, modelComp] = view.get<TransformComponent, ModelComponent>(entity);
+                    const auto& modelComp = view.get<ModelComponent>(entity);
                     if (!modelComp.m_Model || !modelComp.m_Visible)
                         continue;
-                    drawWorldAABB(modelComp.m_Model->GetTransformedBoundingBox(tc.GetTransform()));
+                    drawWorldAABB(modelComp.m_Model->GetTransformedBoundingBox(GetWorldTransform(entity)));
                 }
             }
         }

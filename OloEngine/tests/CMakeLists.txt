@@ -326,6 +326,7 @@ add_executable(OloEngine-Tests
 		PerformanceProfilerTest.cpp
 		# TransformComponent Tests
 		TransformComponentTest.cpp
+		Scene/WorldTransformPropagationBenchmarkTest.cpp
 		# Physics3D mesh mass-properties (divergence-theorem volume + centroid)
 		JoltShapesMeshMassPropertiesTest.cpp
 		# Physics3D cloth soft-body shared-settings contract (issue #460)
@@ -481,6 +482,7 @@ add_executable(OloEngine-Tests
 		Functional/Scene/PhysicsRestartIsCleanTest.cpp
 		Functional/Scene/MultipleScenesCoexistTest.cpp
 		Functional/Scene/HierarchyChildFollowsPhysicsParentTest.cpp
+		Functional/Scene/WorldTransformPropagationTest.cpp
 		Functional/AI/BehaviorTreeAdvancesViaSceneTickTest.cpp
 		Functional/AI/GoapAgentPlansViaSceneTickTest.cpp
 		Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp
