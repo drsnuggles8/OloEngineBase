@@ -49,6 +49,7 @@
 #include <cmath>
 #include <regex>
 #include <string>
+#include <unordered_set>
 
 namespace OloEngine::Tests
 {
@@ -1998,6 +1999,50 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // PrefabComponent — exercises the GENERATED std::unordered_set<std::string>
+    // serializer path (#451 unordered_map/set slice). The three override-tracking
+    // sets are populated with MULTIPLE entries each (rather than a single one) so
+    // a bug that only appends/reads the first inserted element would be caught;
+    // the generated code sorts before emit, so this also exercises that the
+    // insertion order doesn't matter for round-trip equality.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, PrefabComponentSurvivesYAMLRoundTrip)
+    {
+        const UUID expectedPrefabID{ 0x1234ULL };
+        const UUID expectedPrefabEntityID{ 0x5678ULL };
+        const std::unordered_set<std::string> expectedOverridden = { "TransformComponent", "SpriteRendererComponent" };
+        const std::unordered_set<std::string> expectedAdded = { "ScriptComponent" };
+        const std::unordered_set<std::string> expectedRemoved = { "CameraComponent", "AudioSourceComponent" };
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& pc = entity.AddComponent<PrefabComponent>();
+            pc.m_PrefabID = expectedPrefabID;
+            pc.m_PrefabEntityID = expectedPrefabEntityID;
+            pc.m_OverriddenComponents = expectedOverridden;
+            pc.m_AddedComponents = expectedAdded;
+            pc.m_RemovedComponents = expectedRemoved;
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<PrefabComponent>());
+
+        const auto& pc = restored.GetComponent<PrefabComponent>();
+        EXPECT_EQ(static_cast<u64>(pc.m_PrefabID), static_cast<u64>(expectedPrefabID));
+        EXPECT_EQ(static_cast<u64>(pc.m_PrefabEntityID), static_cast<u64>(expectedPrefabEntityID));
+        EXPECT_EQ(pc.m_OverriddenComponents, expectedOverridden);
+        EXPECT_EQ(pc.m_AddedComponents, expectedAdded);
+        EXPECT_EQ(pc.m_RemovedComponents, expectedRemoved);
+    }
+
+    // -------------------------------------------------------------------------
     // InstancePortalComponent — exercises the GENERATED small-int (u8) serializer
     // path (#451 small-int slice). InstanceType is a u8; the codegen widens it to
     // u32 on emit so yaml-cpp writes the number, not a raw char. Use a value > 127
@@ -2284,6 +2329,15 @@ namespace OloEngine::Tests
             Entity body = scene->CreateEntity("PhysicsBox");
             body.AddComponent<Rigidbody3DComponent>().m_Mass = 4.0f;
             body.AddComponent<BoxCollider3DComponent>().m_HalfExtents = { 1.0f, 0.5f, 0.5f };
+
+            // Exercises the GENERATED std::unordered_set<std::string> serializer
+            // path's sort-before-emit determinism (#451 unordered_map/set slice):
+            // an unordered_set's own iteration order is not guaranteed stable, so
+            // without the generator's sort step this entity alone could make
+            // firstYaml/secondYaml differ.
+            Entity prefabInstance = scene->CreateEntity("PrefabInstance");
+            auto& pc = prefabInstance.AddComponent<PrefabComponent>(UUID(0xAAAAULL), UUID(0xBBBBULL));
+            pc.m_OverriddenComponents = { "TransformComponent", "SpriteRendererComponent" };
 
             return scene;
         };
