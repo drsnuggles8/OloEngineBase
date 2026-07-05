@@ -363,9 +363,15 @@ namespace OloEngine
             {
                 if (auto it = m_Connections.find(pInfo->m_hConn); it != m_Connections.end())
                 {
+                    u32 const clientID = it->second.GetClientID();
                     OLO_CORE_INFO("[NetworkServer] Client disconnected (ID: {}, reason: {})",
-                                  it->second.GetClientID(), pInfo->m_info.m_szEndDebug);
+                                  clientID, pInfo->m_info.m_szEndDebug);
                     m_Connections.erase(it);
+
+                    if (m_ClientDisconnectedCallback)
+                    {
+                        m_ClientDisconnectedCallback(clientID);
+                    }
                 }
 
                 m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
@@ -403,6 +409,13 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_IdleTimeout;
+    }
+
+    void NetworkServer::SetClientDisconnectedCallback(ClientDisconnectedCallback callback)
+    {
+        OLO_PROFILE_FUNCTION();
+        TUniqueLock<FMutex> lock(m_Mutex);
+        m_ClientDisconnectedCallback = std::move(callback);
     }
 
     void NetworkServer::CloseConnection(HSteamNetConnection connection, i32 reason, const char* debug)

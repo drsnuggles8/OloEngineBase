@@ -70,9 +70,9 @@ namespace OloEngine
             {
                 return;
             }
-            t.Translation = glm::mix(pre.Translation, t.Translation, rate);
-            t.SetRotation(glm::slerp(pre.GetRotation(), t.GetRotation(), rate));
-            t.Scale = glm::mix(pre.Scale, t.Scale, rate);
+            t.Translation = glm::mix(t.Translation, pre.Translation, rate);
+            t.SetRotation(glm::slerp(t.GetRotation(), pre.GetRotation(), rate));
+            t.Scale = glm::mix(t.Scale, pre.Scale, rate);
         }
 
         // ── Rigidbody3DComponent: velocity lerp, body-type/mass step ─────────
@@ -113,8 +113,8 @@ namespace OloEngine
         {
             const Rigidbody3DComponent pre = ParseComponent<Rigidbody3DComponent>(preReconcile);
             auto& rc = e.GetComponent<Rigidbody3DComponent>();
-            rc.m_InitialLinearVelocity = glm::mix(pre.m_InitialLinearVelocity, rc.m_InitialLinearVelocity, rate);
-            rc.m_InitialAngularVelocity = glm::mix(pre.m_InitialAngularVelocity, rc.m_InitialAngularVelocity, rate);
+            rc.m_InitialLinearVelocity = glm::mix(rc.m_InitialLinearVelocity, pre.m_InitialLinearVelocity, rate);
+            rc.m_InitialAngularVelocity = glm::mix(rc.m_InitialAngularVelocity, pre.m_InitialAngularVelocity, rate);
         }
 
         // ── AnimationStateComponent: step (discrete state) ───────────────────

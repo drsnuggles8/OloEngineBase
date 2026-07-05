@@ -198,4 +198,14 @@ namespace OloEngine
     {
         return m_Buffer;
     }
+
+    void SnapshotInterpolator::Reset()
+    {
+        m_Buffer.Clear();
+        m_LatestReceivedTick = 0;
+        m_CachedBeforeTick = UINT32_MAX;
+        m_CachedAfterTick = UINT32_MAX;
+        m_CachedBefore.clear();
+        m_CachedAfter.clear();
+    }
 } // namespace OloEngine

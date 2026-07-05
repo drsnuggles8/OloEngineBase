@@ -7,11 +7,17 @@
 #include "OloEngine/Threading/UniqueLock.h"
 
 #include <steam/steamnetworkingsockets.h>
+#include <functional>
 #include <unordered_map>
 #include <string>
 
 namespace OloEngine
 {
+    // Invoked with the client's ID after its connection is torn down (peer close
+    // or locally-detected problem), so owners of per-client state (e.g.
+    // ServerInputHandler's last-processed-tick map) can prune it.
+    using ClientDisconnectedCallback = std::function<void(u32 clientID)>;
+
     class NetworkServer
     {
       public:
@@ -59,6 +65,9 @@ namespace OloEngine
 
         void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo);
 
+        // Set the callback invoked when a client's connection is torn down.
+        void SetClientDisconnectedCallback(ClientDisconnectedCallback callback);
+
       private:
         void HandlePing(HSteamNetConnection senderConn, const u8* data, u32 size);
 
@@ -73,6 +82,7 @@ namespace OloEngine
         mutable FMutex m_Mutex;
         u32 m_MaxConnections = 0; // 0 = unlimited
         f32 m_IdleTimeout = 0.0f; // 0 = disabled
+        ClientDisconnectedCallback m_ClientDisconnectedCallback;
     };
 
     template<typename Fn>

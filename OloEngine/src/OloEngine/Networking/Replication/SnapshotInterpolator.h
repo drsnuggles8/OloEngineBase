@@ -39,6 +39,11 @@ namespace OloEngine
 
         [[nodiscard]] const SnapshotBuffer& GetBuffer() const;
 
+        // Drop all buffered/cached snapshot state (render delay and tick-rate
+        // configuration are left untouched). Call on reconnect so a new session
+        // never interpolates against the previous session's snapshots.
+        void Reset();
+
       private:
         SnapshotBuffer m_Buffer;
         f32 m_RenderDelay = 0.1f;  // seconds behind latest tick

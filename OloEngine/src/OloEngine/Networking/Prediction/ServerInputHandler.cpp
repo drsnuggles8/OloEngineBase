@@ -112,4 +112,9 @@ namespace OloEngine
     {
         return m_LastProcessedTicks;
     }
+
+    void ServerInputHandler::RemoveClient(u32 clientID)
+    {
+        m_LastProcessedTicks.erase(clientID);
+    }
 } // namespace OloEngine

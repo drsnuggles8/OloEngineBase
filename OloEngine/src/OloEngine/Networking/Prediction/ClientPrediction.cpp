@@ -167,4 +167,11 @@ namespace OloEngine
     {
         return m_HardSnapThreshold;
     }
+
+    void ClientPrediction::ResetSession()
+    {
+        m_InputBuffer.Clear();
+        m_CurrentTick = 0;
+        m_LastConfirmedTick = 0;
+    }
 } // namespace OloEngine
