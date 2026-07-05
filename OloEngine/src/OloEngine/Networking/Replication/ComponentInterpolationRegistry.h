@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Threading/Mutex.h"
 
 #include <string>
 #include <string_view>
@@ -98,8 +99,10 @@ namespace OloEngine
         }
 
       private:
+        // Caller must hold s_Mutex.
         static void EnsureInitialized();
 
+        static FMutex s_Mutex;
         static std::vector<InterpolationEntry> s_Entries;
         static bool s_Initialized;
     };
