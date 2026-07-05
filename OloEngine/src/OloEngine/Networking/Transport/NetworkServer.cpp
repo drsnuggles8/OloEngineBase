@@ -296,84 +296,108 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        TUniqueLock<FMutex> lock(m_Mutex);
+        // Collect the disconnect notification under lock, then invoke the
+        // callback outside the lock — it may re-enter NetworkServer (e.g. to
+        // broadcast or close another connection), which would deadlock on
+        // m_Mutex otherwise. Mirrors the deferred-dispatch pattern in
+        // PollMessages().
+        bool hasDisconnected = false;
+        u32 disconnectedClientID = 0;
+        ClientDisconnectedCallback disconnectedCallback;
 
-        // Only handle connections that belong to our listen socket or are already tracked
-        if (pInfo->m_info.m_hListenSocket != k_HSteamListenSocket_Invalid && pInfo->m_info.m_hListenSocket != m_ListenSocket)
         {
-            return;
+            TUniqueLock<FMutex> lock(m_Mutex);
+
+            // Only handle connections that belong to our listen socket or are already tracked
+            if (pInfo->m_info.m_hListenSocket != k_HSteamListenSocket_Invalid && pInfo->m_info.m_hListenSocket != m_ListenSocket)
+            {
+                return;
+            }
+
+            // Ignore connections that aren't incoming (not associated with any listen socket)
+            // and aren't already tracked by this server
+            if (pInfo->m_info.m_hListenSocket == k_HSteamListenSocket_Invalid && m_Connections.find(pInfo->m_hConn) == m_Connections.end())
+            {
+                return;
+            }
+
+            switch (pInfo->m_info.m_eState)
+            {
+                case k_ESteamNetworkingConnectionState_Connecting:
+                {
+                    // Enforce max connection limit
+                    if (m_MaxConnections > 0 && static_cast<u32>(m_Connections.size()) >= m_MaxConnections)
+                    {
+                        m_Interface->CloseConnection(pInfo->m_hConn, 0, "Server full", false);
+                        OLO_CORE_WARN("[NetworkServer] Rejected connection: server full ({}/{})",
+                                      m_Connections.size(), m_MaxConnections);
+                        break;
+                    }
+
+                    if (m_Interface->AcceptConnection(pInfo->m_hConn) != k_EResultOK)
+                    {
+                        m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+                        OLO_CORE_WARN("[NetworkServer] Failed to accept connection");
+                        break;
+                    }
+
+                    if (!m_Interface->SetConnectionPollGroup(pInfo->m_hConn, m_PollGroup))
+                    {
+                        m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+                        OLO_CORE_WARN("[NetworkServer] Failed to assign connection to poll group");
+                        break;
+                    }
+
+                    NetworkConnection conn(pInfo->m_hConn);
+                    conn.SetState(EConnectionState::Connecting);
+                    u32 const clientID = m_NextClientID++;
+                    conn.SetClientID(clientID);
+                    m_Connections.emplace(pInfo->m_hConn, std::move(conn));
+
+                    OLO_CORE_INFO("[NetworkServer] Client connecting (ID: {})", clientID);
+                    break;
+                }
+
+                case k_ESteamNetworkingConnectionState_Connected:
+                {
+                    if (auto it = m_Connections.find(pInfo->m_hConn); it != m_Connections.end())
+                    {
+                        it->second.SetState(EConnectionState::Connected);
+                        OLO_CORE_INFO("[NetworkServer] Client connected (ID: {})", it->second.GetClientID());
+                    }
+                    break;
+                }
+
+                case k_ESteamNetworkingConnectionState_ClosedByPeer:
+                case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+                {
+                    if (auto it = m_Connections.find(pInfo->m_hConn); it != m_Connections.end())
+                    {
+                        u32 const clientID = it->second.GetClientID();
+                        OLO_CORE_INFO("[NetworkServer] Client disconnected (ID: {}, reason: {})",
+                                      clientID, pInfo->m_info.m_szEndDebug);
+                        m_Connections.erase(it);
+
+                        if (m_ClientDisconnectedCallback)
+                        {
+                            hasDisconnected = true;
+                            disconnectedClientID = clientID;
+                            disconnectedCallback = m_ClientDisconnectedCallback;
+                        }
+                    }
+
+                    m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
+                    break;
+                }
+
+                default:
+                    break;
+            }
         }
 
-        // Ignore connections that aren't incoming (not associated with any listen socket)
-        // and aren't already tracked by this server
-        if (pInfo->m_info.m_hListenSocket == k_HSteamListenSocket_Invalid && m_Connections.find(pInfo->m_hConn) == m_Connections.end())
+        if (hasDisconnected)
         {
-            return;
-        }
-
-        switch (pInfo->m_info.m_eState)
-        {
-            case k_ESteamNetworkingConnectionState_Connecting:
-            {
-                // Enforce max connection limit
-                if (m_MaxConnections > 0 && static_cast<u32>(m_Connections.size()) >= m_MaxConnections)
-                {
-                    m_Interface->CloseConnection(pInfo->m_hConn, 0, "Server full", false);
-                    OLO_CORE_WARN("[NetworkServer] Rejected connection: server full ({}/{})",
-                                  m_Connections.size(), m_MaxConnections);
-                    break;
-                }
-
-                if (m_Interface->AcceptConnection(pInfo->m_hConn) != k_EResultOK)
-                {
-                    m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-                    OLO_CORE_WARN("[NetworkServer] Failed to accept connection");
-                    break;
-                }
-
-                if (!m_Interface->SetConnectionPollGroup(pInfo->m_hConn, m_PollGroup))
-                {
-                    m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-                    OLO_CORE_WARN("[NetworkServer] Failed to assign connection to poll group");
-                    break;
-                }
-
-                NetworkConnection conn(pInfo->m_hConn);
-                conn.SetState(EConnectionState::Connecting);
-                u32 const clientID = m_NextClientID++;
-                conn.SetClientID(clientID);
-                m_Connections.emplace(pInfo->m_hConn, std::move(conn));
-
-                OLO_CORE_INFO("[NetworkServer] Client connecting (ID: {})", clientID);
-                break;
-            }
-
-            case k_ESteamNetworkingConnectionState_Connected:
-            {
-                if (auto it = m_Connections.find(pInfo->m_hConn); it != m_Connections.end())
-                {
-                    it->second.SetState(EConnectionState::Connected);
-                    OLO_CORE_INFO("[NetworkServer] Client connected (ID: {})", it->second.GetClientID());
-                }
-                break;
-            }
-
-            case k_ESteamNetworkingConnectionState_ClosedByPeer:
-            case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-            {
-                if (auto it = m_Connections.find(pInfo->m_hConn); it != m_Connections.end())
-                {
-                    OLO_CORE_INFO("[NetworkServer] Client disconnected (ID: {}, reason: {})",
-                                  it->second.GetClientID(), pInfo->m_info.m_szEndDebug);
-                    m_Connections.erase(it);
-                }
-
-                m_Interface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-                break;
-            }
-
-            default:
-                break;
+            disconnectedCallback(disconnectedClientID);
         }
     }
 
@@ -403,6 +427,13 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         TUniqueLock<FMutex> lock(m_Mutex);
         return m_IdleTimeout;
+    }
+
+    void NetworkServer::SetClientDisconnectedCallback(ClientDisconnectedCallback callback)
+    {
+        OLO_PROFILE_FUNCTION();
+        TUniqueLock<FMutex> lock(m_Mutex);
+        m_ClientDisconnectedCallback = std::move(callback);
     }
 
     void NetworkServer::CloseConnection(HSteamNetConnection connection, i32 reason, const char* debug)

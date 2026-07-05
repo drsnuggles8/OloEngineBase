@@ -32,6 +32,10 @@ namespace OloEngine
         // Get all per-client last-processed ticks (for embedding in snapshots).
         [[nodiscard]] const std::unordered_map<u32, u32>& GetAllLastProcessedTicks() const;
 
+        // Drop a disconnected client's tracked tick so m_LastProcessedTicks
+        // doesn't grow without bound over the lifetime of a long-running server.
+        void RemoveClient(u32 clientID);
+
       private:
         InputApplyCallback m_ApplyCallback;
         std::unordered_map<u32, u32> m_LastProcessedTicks; // clientID → last processed tick

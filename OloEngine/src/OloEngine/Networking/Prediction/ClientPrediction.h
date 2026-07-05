@@ -56,6 +56,12 @@ namespace OloEngine
         // Get the current prediction tick (client-side).
         [[nodiscard]] u32 GetCurrentTick() const;
 
+        // Drop all session state (buffered inputs, confirmed/current tick) so a
+        // reconnect doesn't resimulate stale session-A inputs against session-B
+        // snapshots. Configuration (apply callback, smoothing rate, hard-snap
+        // threshold) is left untouched.
+        void ResetSession();
+
       private:
         NetworkInputBuffer m_InputBuffer;
         InputApplyCallback m_ApplyCallback;

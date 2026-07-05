@@ -4,6 +4,7 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Serialization/Archive.h"
+#include "OloEngine/Threading/UniqueLock.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -70,9 +71,9 @@ namespace OloEngine
             {
                 return;
             }
-            t.Translation = glm::mix(pre.Translation, t.Translation, rate);
-            t.SetRotation(glm::slerp(pre.GetRotation(), t.GetRotation(), rate));
-            t.Scale = glm::mix(pre.Scale, t.Scale, rate);
+            t.Translation = glm::mix(t.Translation, pre.Translation, rate);
+            t.SetRotation(glm::slerp(t.GetRotation(), pre.GetRotation(), rate));
+            t.Scale = glm::mix(t.Scale, pre.Scale, rate);
         }
 
         // ── Rigidbody3DComponent: velocity lerp, body-type/mass step ─────────
@@ -113,8 +114,8 @@ namespace OloEngine
         {
             const Rigidbody3DComponent pre = ParseComponent<Rigidbody3DComponent>(preReconcile);
             auto& rc = e.GetComponent<Rigidbody3DComponent>();
-            rc.m_InitialLinearVelocity = glm::mix(pre.m_InitialLinearVelocity, rc.m_InitialLinearVelocity, rate);
-            rc.m_InitialAngularVelocity = glm::mix(pre.m_InitialAngularVelocity, rc.m_InitialAngularVelocity, rate);
+            rc.m_InitialLinearVelocity = glm::mix(rc.m_InitialLinearVelocity, pre.m_InitialLinearVelocity, rate);
+            rc.m_InitialAngularVelocity = glm::mix(rc.m_InitialAngularVelocity, pre.m_InitialAngularVelocity, rate);
         }
 
         // ── AnimationStateComponent: step (discrete state) ───────────────────
@@ -150,6 +151,7 @@ namespace OloEngine
         }
     } // namespace
 
+    FMutex ComponentInterpolationRegistry::s_Mutex;
     std::vector<InterpolationEntry> ComponentInterpolationRegistry::s_Entries;
     bool ComponentInterpolationRegistry::s_Initialized = false;
 
@@ -201,11 +203,13 @@ namespace OloEngine
 
     void ComponentInterpolationRegistry::RegisterDefaults()
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         EnsureInitialized();
     }
 
     void ComponentInterpolationRegistry::Register(InterpolationEntry entry)
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         EnsureInitialized();
         entry.Id = HashName(entry.Name);
 
@@ -228,12 +232,14 @@ namespace OloEngine
 
     const std::vector<InterpolationEntry>& ComponentInterpolationRegistry::GetEntries()
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         EnsureInitialized();
         return s_Entries;
     }
 
     const InterpolationEntry* ComponentInterpolationRegistry::FindById(u32 id)
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         EnsureInitialized();
         for (const auto& entry : s_Entries)
         {
@@ -247,6 +253,7 @@ namespace OloEngine
 
     const InterpolationEntry* ComponentInterpolationRegistry::FindByName(std::string_view name)
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         EnsureInitialized();
         for (const auto& entry : s_Entries)
         {
@@ -260,6 +267,7 @@ namespace OloEngine
 
     void ComponentInterpolationRegistry::Clear()
     {
+        TUniqueLock<FMutex> lock(s_Mutex);
         s_Entries.clear();
         s_Initialized = false;
     }

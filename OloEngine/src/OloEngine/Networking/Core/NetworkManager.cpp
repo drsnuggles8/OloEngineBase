@@ -5,6 +5,7 @@
 #include "OloEngine/Networking/Transport/NetworkClient.h"
 #include "OloEngine/Networking/Replication/EntitySnapshot.h"
 #include "OloEngine/Networking/Replication/ComponentReplicator.h"
+#include "OloEngine/Networking/Replication/ComponentInterpolationRegistry.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Memory/Platform.h" // OLO_ASAN_ENABLED
@@ -109,6 +110,7 @@ namespace OloEngine
         NetworkThread::Start(60);
 
         ComponentReplicator::RegisterDefaults();
+        ComponentInterpolationRegistry::RegisterDefaults();
 
         s_Initialized = true;
         OLO_CORE_INFO("NetworkManager initialized (GameNetworkingSockets)");
@@ -187,6 +189,11 @@ namespace OloEngine
                                                           OLO_CORE_WARN_TAG("Networking", "Server rejected input from client {}", senderClientID);
                                                       }
                                                   });
+
+        // Prune the per-client last-processed-tick entry on disconnect so it
+        // doesn't grow without bound over the lifetime of a long-running server.
+        s_Server->SetClientDisconnectedCallback([](u32 clientID)
+                                                { s_ServerInputHandler.RemoveClient(clientID); });
 
         return true;
     }
@@ -282,6 +289,14 @@ namespace OloEngine
             s_Client->Disconnect();
             s_Client.reset();
         }
+
+        // Drop this session's client-side snapshot/prediction state so a later
+        // reconnect never mixes stale session-A snapshots/inputs with session-B
+        // (the interpolator/prediction buffers and tick counter would otherwise
+        // survive the reset above, which only clears s_Client).
+        s_ClientInterpolator.Reset();
+        s_ClientPrediction.ResetSession();
+        s_ClientReceivedTick = 0;
     }
 
     bool NetworkManager::IsClient()
