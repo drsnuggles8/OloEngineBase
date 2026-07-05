@@ -3,11 +3,12 @@
 //
 // Per-component scene-YAML serialize blocks — one block per
 // `struct *Component` whose every data member is a primitive / small-int /
-// glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / enum, an all-trivial
-// nested struct, or a std::vector of one of those (the generator's SceneSerType
-// plus the enum-type, nested-struct, and std::vector handling), minus the
-// kComponentsCustomSerialize exclusion set (trivial components deliberately kept
-// hand-written). A component with any still-unhandled non-trivial field (Ref<T>,
+// glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / enum / Ref<T> of an
+// Asset-derived T, an all-trivial nested struct, or a std::vector of one of
+// those (the generator's SceneSerType plus the enum-type, Ref<T>/CollectAssetTypes,
+// nested-struct, and std::vector handling), minus the kComponentsCustomSerialize
+// exclusion set (trivial components deliberately kept hand-written). A component
+// with any still-unhandled non-trivial field (Ref<T> of a non-asset type,
 // std::unordered_map/set, std::array, a vector-of-non-trivial-struct, or a
 // non-public member) is classified non-trivial and stays hand-written.
 //
@@ -83,6 +84,27 @@ if (entity.HasComponent<DirectionalLightComponent>())
     out << YAML::Key << "CascadeSplitLambda" << YAML::Value << comp.m_CascadeSplitLambda;
     out << YAML::Key << "CascadeDebugVisualization" << YAML::Value << comp.m_CascadeDebugVisualization;
     out << YAML::EndMap; // DirectionalLightComponent
+}
+
+if (entity.HasComponent<EnvironmentMapComponent>())
+{
+    out << YAML::Key << "EnvironmentMapComponent";
+    out << YAML::BeginMap; // EnvironmentMapComponent
+    auto const& comp = entity.GetComponent<EnvironmentMapComponent>();
+    out << YAML::Key << "EnvironmentMapAsset" << YAML::Value << static_cast<u64>(comp.m_EnvironmentMapAsset);
+    out << YAML::Key << "FilePath" << YAML::Value << comp.m_FilePath;
+    if (comp.m_EnvironmentMap && comp.m_EnvironmentMap->GetHandle() != 0)
+        out << YAML::Key << "EnvironmentMapHandle" << YAML::Value << static_cast<u64>(comp.m_EnvironmentMap->GetHandle());
+    out << YAML::Key << "IsCubemapFolder" << YAML::Value << comp.m_IsCubemapFolder;
+    out << YAML::Key << "EnableSkybox" << YAML::Value << comp.m_EnableSkybox;
+    out << YAML::Key << "Rotation" << YAML::Value << comp.m_Rotation;
+    out << YAML::Key << "Exposure" << YAML::Value << comp.m_Exposure;
+    out << YAML::Key << "BlurAmount" << YAML::Value << comp.m_BlurAmount;
+    out << YAML::Key << "EnableIBL" << YAML::Value << comp.m_EnableIBL;
+    out << YAML::Key << "IBLIntensity" << YAML::Value << comp.m_IBLIntensity;
+    out << YAML::Key << "UseSphericalHarmonics" << YAML::Value << comp.m_UseSphericalHarmonics;
+    out << YAML::Key << "Tint" << YAML::Value << comp.m_Tint;
+    out << YAML::EndMap; // EnvironmentMapComponent
 }
 
 if (entity.HasComponent<FogVolumeComponent>())
