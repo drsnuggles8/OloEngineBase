@@ -558,20 +558,24 @@ namespace OloEngine
         OLO_CORE_INFO("Renderer3D::OnAssetReloaded: handle={}, type={}, generation={}, path={}",
                       static_cast<u64>(handle), static_cast<int>(type), generation, e.GetPath().string());
 
-        // Commands are rebuilt each frame from Material/Mesh objects.
-        // When AssetManager reloads an asset in-place, the Ref<T> smart
-        // pointers still point to the same object whose internal state has
-        // been refreshed, so the NEXT frame's DrawMesh() / DrawAnimatedMesh()
-        // will naturally pick up new RendererIDs.
+        // Commands are rebuilt each frame from Material/Mesh objects, so no
+        // per-command patching is needed here — command buckets are cleared and
+        // rebuilt every frame (stale RendererIDs survive at most one frame) and the
+        // Material/Render-state tables in FrameDataBuffer are rebuilt each frame via
+        // Reset(). What matters is that the Ref<T> a Material/Mesh/s_Data cache holds
+        // ends up seeing the refreshed GPU resource on the NEXT frame's DrawMesh() /
+        // DrawAnimatedMesh(). That holds only for the reload paths that refresh the
+        // resource *in place* (same object identity behind the existing Ref):
+        //  - Shaders: ShaderLibrary::ReloadShaders() calls OpenGLShader::Reload(),
+        //    which recompiles onto the same Shader object.
+        //  - Textures: EditorAssetManager::ReloadData() refreshes a Texture2D in place
+        //    via Texture2D::Reload() (issue #544 Part B) rather than swapping in a new
+        //    object, so a Material's Ref<Texture2D> members pick up the new pixels.
         //
-        // No per-command patching is needed because:
-        //  1. Command buckets are cleared every frame — stale IDs survive
-        //     at most one frame.
-        //  2. Material/Render-state tables in FrameDataBuffer are rebuilt
-        //     each frame via Reset().
-        //
-        // If a cached Ref<Shader> in s_Data is the reloaded asset, the
-        // Ref still points to the same (now updated) Shader object.
+        // Asset types that ReloadData still *replaces* with a brand-new object (meshes,
+        // etc.) are NOT covered by this: a consumer caching the old Ref keeps the
+        // pre-edit object until it re-resolves the handle. Extending in-place reload (or
+        // handle re-resolution) to those types is future work.
     }
 
     void Renderer3D::OnWindowResize(u32 width, u32 height)

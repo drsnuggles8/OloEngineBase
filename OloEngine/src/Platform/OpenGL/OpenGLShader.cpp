@@ -962,6 +962,15 @@ namespace OloEngine
         }
         estimatedMemory += 1024; // Additional overhead for program linking, uniforms, etc.
 
+        // On a hot-reload FinalizeProgram runs again for the same 'this'. The tracker is
+        // keyed by pointer, so re-tracking without first releasing the prior allocation
+        // leaks the old size into m_TypeUsage on every reload — balance it here so
+        // FinalizeProgram is self-consistent across re-invocations.
+        if (m_TrackedAllocation)
+        {
+            OLO_TRACK_DEALLOC(this);
+        }
+
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this,
                             estimatedMemory,
@@ -1507,7 +1516,14 @@ namespace OloEngine
 
     void OpenGLShader::Reload()
     {
-        OLO_SHADER_RELOAD_START(m_RendererID);
+        // Capture the currently-live program up front. Every recompile path funnels
+        // through FinalizeProgram, which reassigns m_RendererID to a fresh
+        // glCreateProgram() handle — the old handle would otherwise leak. Keeping the
+        // old id in a local also lets us key the debugger reload start/end on a single,
+        // consistent id (the pre-reload one), instead of START(old)/END(new) which
+        // orphaned the old entry stuck m_IsReloading=true forever.
+        const GLuint oldProgram = m_RendererID;
+        OLO_SHADER_RELOAD_START(oldProgram);
 
         m_CompilationStatus = ShaderCompilationStatus::Pending;
 
@@ -1542,8 +1558,23 @@ namespace OloEngine
             m_CompilationStatus = ShaderCompilationStatus::Failed;
         }
 
-        [[maybe_unused]] const bool success = (m_CompilationStatus == ShaderCompilationStatus::Ready);
-        OLO_SHADER_RELOAD_END(m_RendererID, success);
+        const bool success = (m_CompilationStatus == ShaderCompilationStatus::Ready);
+
+        // Retire the previous GL program (and its debugger entry) once the new one is
+        // live. Guarding on success keeps the old program as a fallback when a reload
+        // fails — the sync/AMD paths leave m_RendererID untouched on failure, so the
+        // previously-working program stays bound. Guarding on the id actually changing
+        // avoids deleting a handle a cache-hit path legitimately reused. Deletion is
+        // deferred through the FrameResourceManager (matching the destructor) because
+        // the old program may still be referenced by the in-flight frame's commands.
+        if (success && oldProgram != 0 && m_RendererID != oldProgram)
+        {
+            OLO_SHADER_UNREGISTER(oldProgram);
+            FrameResourceManager::Get().SubmitForDeletion([oldProgram]()
+                                                          { glDeleteProgram(oldProgram); });
+        }
+
+        OLO_SHADER_RELOAD_END(oldProgram, success);
     }
 
     void OpenGLShader::Bind() const

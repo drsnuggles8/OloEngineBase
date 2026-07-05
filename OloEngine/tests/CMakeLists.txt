@@ -215,6 +215,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ModelLoadDeterminismTest.cpp
 		Rendering/PropertyTests/DrawIndexedRawOffsetTest.cpp
 		Rendering/PropertyTests/TextureSaveRoundTripTest.cpp
+		Rendering/PropertyTests/TextureInPlaceReloadTest.cpp
 		Streaming/SceneStreamingTest.cpp
 		InputActionTest.cpp
 		InputRebindControllerTest.cpp

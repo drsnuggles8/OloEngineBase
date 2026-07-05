@@ -125,6 +125,17 @@ namespace OloEngine
         // Needed because glTextureStorage2D allocates immutable storage.
         virtual void Resize(u32 width, u32 height) = 0;
 
+        // Re-read this texture's source file and refresh its GPU contents *in place*,
+        // preserving object identity so existing Ref<Texture2D> holders (materials,
+        // sprites, decals, UI) see the new pixels without being re-pointed on a
+        // hot-reload (issue #544). Returns false when it can't refresh in place — no
+        // source path, or a cooked block-compressed container — so the caller falls
+        // back to replacing the object. Default is a no-op refusal.
+        virtual bool Reload()
+        {
+            return false;
+        }
+
         static Ref<Texture2D> Create(const TextureSpecification& specification);
         // Create a GPU texture from an offline block-compressed (BC7/BC5) mip chain,
         // uploaded via glCompressedTextureSubImage2D. On hardware lacking the required

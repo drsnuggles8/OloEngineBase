@@ -12,6 +12,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Task/NamedThreads.h"
 #include "OloEngine/Threading/UniqueLock.h"
@@ -326,14 +327,42 @@ namespace OloEngine
             path = metadata.FilePath;
         }
 
-        // Remove from cache to force reload
+        // Prefer an in-place refresh for asset types that support it (currently
+        // Texture2D). Object-replacing reload (the fallback below) hands back a brand-new
+        // object with a new RendererID, but consumers that cached the old Ref<T> — a
+        // Material's Ref<Texture2D> members, sprites, decals, UI — keep pointing at the
+        // pre-edit object until the whole scene is reloaded. An in-place refresh keeps
+        // the same object identity, so every existing Ref sees the new pixels on the
+        // next bind (issue #544 Part B).
+        Ref<Asset> asset;
+        if (type == AssetType::Texture2D)
         {
-            TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
-            m_LoadedAssets.erase(assetHandle);
+            Ref<Asset> existing;
+            {
+                TSharedLock<FSharedMutex> lock(m_AssetsMutex);
+                if (auto it = m_LoadedAssets.find(assetHandle); it != m_LoadedAssets.end())
+                    existing = it->second;
+            }
+
+            if (auto texture = existing.As<Texture2D>(); texture && texture->Reload())
+            {
+                OLO_CORE_TRACE("Reloaded texture in place: {} (handle {})", path.string(), (u64)assetHandle);
+                asset = existing; // same cached object, refreshed contents — Refs stay valid
+            }
         }
 
-        // Reload asset
-        auto asset = LoadAssetFromFile(metadata);
+        if (!asset)
+        {
+            // Remove from cache to force reload
+            {
+                TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
+                m_LoadedAssets.erase(assetHandle);
+            }
+
+            // Reload asset
+            asset = LoadAssetFromFile(metadata);
+        }
+
         if (!asset)
         {
             OLO_CORE_ERROR("Failed to reload asset: {}", path.string());

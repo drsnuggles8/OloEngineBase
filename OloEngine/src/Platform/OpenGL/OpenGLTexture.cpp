@@ -327,6 +327,47 @@ namespace OloEngine
         ::stbi_image_free(data);
     }
 
+    bool OpenGLTexture2D::Reload()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Cooked block-compressed containers (.olotex) are build artifacts, not
+        // hand-edited live assets, and InvalidateImpl only knows the uncompressed
+        // upload path — refuse so the caller replaces the object instead.
+        if (IsCompressedFormat(m_Specification.Format))
+            return false;
+
+        if (m_Path.empty())
+            return false;
+
+        int width = 0;
+        int height = 0;
+        int channels = 0;
+        // Match the path constructor's thread-local flip handling exactly (see the
+        // long comment there) so a reloaded texture isn't vertically mirrored.
+        ::stbi_set_flip_vertically_on_load_thread(1);
+        stbi_uc* data = nullptr;
+        {
+            OLO_PROFILE_SCOPE("stbi_load - OpenGLTexture2D::Reload");
+            data = ::stbi_load(m_Path.c_str(), &width, &height, &channels, 0);
+        }
+        ::stbi_set_flip_vertically_on_load_thread(0);
+
+        if (!data)
+        {
+            OLO_CORE_ERROR("OpenGLTexture2D::Reload: failed to re-read texture '{}'", m_Path);
+            return false;
+        }
+
+        // InvalidateImpl tears down the previous GL texture (its re-entrancy guard) and
+        // uploads the new data onto this same object. m_RendererID changes, but the
+        // Ref<Texture2D> does not — every consumer picks up the new pixels on next bind.
+        InvalidateImpl(m_Path, static_cast<u32>(width), static_cast<u32>(height), data, static_cast<u32>(channels));
+
+        ::stbi_image_free(data);
+        return true;
+    }
+
     OpenGLTexture2D::OpenGLTexture2D(const CompressedTextureImage& image)
     {
         OLO_PROFILE_FUNCTION();
@@ -832,6 +873,23 @@ namespace OloEngine
         m_DataFormat = dataFormat;
 
         OLO_CORE_ASSERT(internalFormat & dataFormat, "Format not supported!");
+
+        // Re-entrancy: InvalidateImpl runs again on an in-place reload (see Reload()).
+        // glCreateTextures below overwrites m_RendererID, so release the previous
+        // texture first — otherwise every reload leaks a GL texture, its tracker entry,
+        // its inspector registration, and leaves a stale slot-binding cache entry.
+        // Guarded on a non-zero id so the first-time path (m_RendererID == 0) is a no-op.
+        if (m_RendererID != 0)
+        {
+            OLO_TRACK_DEALLOC(this);
+            GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
+            CommandDispatch::InvalidateTextureBinding(m_RendererID);
+            u32 oldId = m_RendererID;
+            FrameResourceManager::Get().SubmitForDeletion([oldId]()
+                                                          { glDeleteTextures(1, &oldId); });
+            m_RendererID = 0;
+        }
+
         glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
         glTextureStorage2D(m_RendererID, 1, internalFormat, static_cast<int>(m_Width), static_cast<int>(m_Height));
 
