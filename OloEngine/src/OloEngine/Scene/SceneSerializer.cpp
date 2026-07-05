@@ -2249,20 +2249,14 @@ namespace OloEngine
                 sky.m_CubemapResolution = res;
         }
 
-        if (auto envMapComponent = entity["EnvironmentMapComponent"]; envMapComponent)
-        {
-            auto& envMap = deserializedEntity.AddComponent<EnvironmentMapComponent>();
-            envMap.m_FilePath = envMapComponent["FilePath"].as<std::string>(envMap.m_FilePath);
-            envMap.m_IsCubemapFolder = envMapComponent["IsCubemapFolder"].as<bool>(envMap.m_IsCubemapFolder);
-            envMap.m_EnableSkybox = envMapComponent["EnableSkybox"].as<bool>(envMap.m_EnableSkybox);
-            envMap.m_Rotation = envMapComponent["Rotation"].as<f32>(envMap.m_Rotation);
-            envMap.m_Exposure = envMapComponent["Exposure"].as<f32>(envMap.m_Exposure);
-            envMap.m_BlurAmount = envMapComponent["BlurAmount"].as<f32>(envMap.m_BlurAmount);
-            envMap.m_EnableIBL = envMapComponent["EnableIBL"].as<bool>(envMap.m_EnableIBL);
-            envMap.m_IBLIntensity = envMapComponent["IBLIntensity"].as<f32>(envMap.m_IBLIntensity);
-            envMap.m_UseSphericalHarmonics = envMapComponent["UseSphericalHarmonics"].as<bool>(envMap.m_UseSphericalHarmonics);
-            envMap.m_Tint = envMapComponent["Tint"].as<glm::vec3>(envMap.m_Tint);
-        }
+        // EnvironmentMapComponent — auto-generated (issue #451 Ref<T> slice: the
+        // Ref<EnvironmentMap> m_EnvironmentMap cache round-trips as an
+        // "EnvironmentMapHandle" u64 via AssetManager, which is always a no-op today
+        // since the cache is populated directly by EnvironmentMap::CreateFrom* rather
+        // than through the asset manager — same net effect as this hand-written block,
+        // which never touched m_EnvironmentMap either). Bonus fix: m_EnvironmentMapAsset
+        // (an AssetHandle SaveGame already persists) is now also round-tripped through
+        // scene YAML, which this hand-written block had been silently dropping.
 
         if (auto rb3dComponent = entity["Rigidbody3DComponent"]; rb3dComponent)
         {
@@ -4167,25 +4161,8 @@ namespace OloEngine
             out << YAML::EndMap; // StarNestSkyComponent
         }
 
-        if (entity.HasComponent<EnvironmentMapComponent>())
-        {
-            out << YAML::Key << "EnvironmentMapComponent";
-            out << YAML::BeginMap; // EnvironmentMapComponent
-
-            auto const& envMap = entity.GetComponent<EnvironmentMapComponent>();
-            out << YAML::Key << "FilePath" << YAML::Value << envMap.m_FilePath;
-            out << YAML::Key << "IsCubemapFolder" << YAML::Value << envMap.m_IsCubemapFolder;
-            out << YAML::Key << "EnableSkybox" << YAML::Value << envMap.m_EnableSkybox;
-            out << YAML::Key << "Rotation" << YAML::Value << envMap.m_Rotation;
-            out << YAML::Key << "Exposure" << YAML::Value << envMap.m_Exposure;
-            out << YAML::Key << "BlurAmount" << YAML::Value << envMap.m_BlurAmount;
-            out << YAML::Key << "EnableIBL" << YAML::Value << envMap.m_EnableIBL;
-            out << YAML::Key << "IBLIntensity" << YAML::Value << envMap.m_IBLIntensity;
-            out << YAML::Key << "UseSphericalHarmonics" << YAML::Value << envMap.m_UseSphericalHarmonics;
-            out << YAML::Key << "Tint" << YAML::Value << envMap.m_Tint;
-
-            out << YAML::EndMap; // EnvironmentMapComponent
-        }
+        // EnvironmentMapComponent — auto-generated; see the matching comment in
+        // DeserializeEntityComponents (issue #451 Ref<T> slice).
 
         if (entity.HasComponent<Rigidbody3DComponent>())
         {

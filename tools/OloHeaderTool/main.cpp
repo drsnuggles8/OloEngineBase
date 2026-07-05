@@ -38,10 +38,12 @@
 //      full data-member scan, NOT the OLO_PROPERTY scan — the serializer
 //      persists every field, not just script-exposed ones), minus the
 //      kComponentsCustomSerialize exclusion set. #include'd by
-//      SceneSerializer.cpp. A component with any non-trivial field (enum,
-//      AssetHandle, Ref<T>, std::vector, nested struct, …) is classified
-//      non-trivial and stays hand-written. Collapses the last big *unguarded*
-//      ECS touch-point — a forgotten field was silent scene-data loss.
+//      SceneSerializer.cpp. Enum, AssetHandle, and Ref<T> (of an Asset-derived T)
+//      fields, std::vector of a trivial element, and all-trivial nested structs are
+//      handled too; a component with any STILL-unhandled non-trivial field
+//      (std::unordered_map/set, std::array, Ref<T> of a non-asset type, …) is
+//      classified non-trivial and stays hand-written. Collapses the last big
+//      *unguarded* ECS touch-point — a forgotten field was silent scene-data loss.
 //
 // Usage:
 //   OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir> <scene_out_dir> <savegame_out_dir>
@@ -120,6 +122,20 @@ enum class PropType
             // Detected by recursively parsing the member type's struct definition
             // (see CollectStructBodies / ClassifyStruct in ParseComponentFields);
             // #451's nested-struct slice. The scripting path never produces this.
+    Ref,    // A `Ref<T>` runtime asset handle, where T transitively derives from
+            // Asset (see CollectAssetTypes) and is therefore resolvable via
+            // AssetManager::GetAsset<T>(handle). Scene-serializer-only: persisted as
+            // a "<Key>Handle" u64 (matches the hand-written MeshComponent::m_MeshSource
+            // -> "MeshSourceHandle" idiom) written only when the Ref is non-null and
+            // actually asset-manager-registered (GetHandle() != 0); resolved back via
+            // AssetManager::GetAsset<T> on read, falling back to a null Ref if the key
+            // is absent or the asset no longer resolves. SerField::refType carries the
+            // spelling of T for the generated AssetManager::GetAsset<T> call. A
+            // Ref<T> of a non-asset type (Skeleton, FoliageRenderer, …) is NOT this
+            // PropType — it stays Unknown and marks the component non-trivial, unless
+            // the field carries OLO_SERIALIZE(Skip) (issue #451's Ref<T> slice). The
+            // scripting path never produces this — only the scene serializer codegen
+            // emits it.
     Unknown
 };
 
@@ -949,10 +965,11 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 // kept HAND-WRITTEN in SceneSerializer.cpp rather than auto-generated.
 // The scene serialize/deserialize codegen (issue #380; AssetHandle/UUID added by
 // the #451 first slice, enums by the #451 enum slice, glm-math + small-int +
-// std::vector<primitive> by the #451 glm/vector slice, and an all-trivial nested
-// struct / std::vector<struct> — recursively — by the #451 nested-struct slice)
-// emits a block for every all-trivial component EXCEPT these; anything with a
-// still-unhandled non-trivial field (Ref<T>, std::unordered_map/set, std::array, a
+// std::vector<primitive> by the #451 glm/vector slice, an all-trivial nested
+// struct / std::vector<struct> — recursively — by the #451 nested-struct slice, and
+// Ref<T> of an Asset-derived T by the #451 Ref<T> slice) emits a block for every
+// all-trivial component EXCEPT these; anything with a still-unhandled non-trivial
+// field (Ref<T> of a non-asset type, std::unordered_map/set, std::array, a
 // std::vector<Ref<T>> / vector-of-non-trivial-struct, or a non-public data member) is
 // classified non-trivial by the parser and skipped automatically without an entry here.
 //
@@ -1042,31 +1059,86 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 //     Excluded so the runtime state is never persisted; like DialogueStateComponent
 //     they have no hand-written block, so nothing else guards against the drift.
 //
+// The #451 Ref<T> slice (CollectAssetTypes) flipped 16 components whose only
+// remaining obstacle was a Ref<T> field to all-trivial. Every one is kept
+// hand-written, for one of three reasons — none is a clean auto-gen migration
+// (unlike MeshComponent's Ref<MeshSource>, which turned out NOT to be clean either,
+// see below):
+//   * ON-DISK FORMAT INCOMPATIBILITY — the hand-written block persists the asset by
+//     FILE PATH (a "*Path" string key resolved via LoadSceneTexture / Font::Create),
+//     not by AssetManager handle, so auto-gen's "<Key>Handle" u64 key would silently
+//     stop round-tripping existing scenes' texture/font references: DecalComponent
+//     (AlbedoTexturePath/NormalTexturePath/RMATexturePath/EmissiveTexturePath, plus
+//     Sanitize/clamp on Color/Size/FadeDistance/NormalAngleThreshold),
+//     SpriteRendererComponent (TexturePath), TextComponent (FontPath),
+//     UIImageComponent (TexturePath), UIPanelComponent (BackgroundTexturePath),
+//     UITextComponent / UIInputFieldComponent / UIDropdownComponent (FontPath).
+//   * DROPPED CUSTOM LOAD LOGIC — the hand-written deserialize does something
+//     auto-gen's plain field-by-field read cannot express: ModelComponent calls
+//     `mc.Reload()` from `m_FilePath` when present (auto-gen would leave m_Model
+//     null); MeshComponent range-validates `Primitive` (falls back to `None` +
+//     warns on an out-of-range value) AND reconstructs `m_MeshSource` from the
+//     primitive when no explicit mesh asset was authored (auto-gen would silently
+//     leave a primitive-only mesh with a null MeshSource); SubmeshComponent's
+//     `m_Mesh` is explicitly NOT persisted — reconstructed from the parent
+//     MeshComponent at runtime (a hand-written comment says so); ProceduralSkyComponent
+//     / StarNestSkyComponent / ReflectionProbeComponent deserialize with per-field
+//     positivity/range guards (turbidity > 0, resolution clamped to a sane range,
+//     iterations/volSteps bounds, …) well beyond plain finiteness.
+//   * RUNTIME-ONLY FIELDS AUTO-GEN WOULD NEWLY PERSIST — CinematicComponent's
+//     `RuntimeSequence` Ref plus `Playing`/`Time`/`PreviousTime`/`Finished`/
+//     `EventsFiredThisFrame` are explicitly "never serialized" runtime playback
+//     state (per the component's own header comment); ReflectionProbeComponent's
+//     `m_BakedEnvironment` likewise (baked at runtime, not persisted — the header
+//     comment on m_NeedsBake says so) and its deserialize forces `m_NeedsBake = true`
+//     unconditionally regardless of what a plain round-trip would read back.
+// None of the 16 is a false positive needing correction here — see each component's
+// own header/serializer comments for confirmation. A future slice could migrate any
+// of these off this set with OLO_SERIALIZE(Skip) on the runtime fields (mirroring how
+// UIButtonComponent/UISliderComponent migrated off in the earlier Skip slice) or, for
+// the format-incompatible ones, by first migrating their on-disk format to the
+// handle-based scheme in a dedicated slice.
+//
 // DISJOINTNESS is guarded by ComponentSerializerCoverageTest: a component must be
 // handled by EXACTLY ONE of the generated .inl or the hand-written serializer —
 // listing one here while ALSO leaving (or removing) its hand-written block is a
 // loud test failure, never a silent double-emit / drop.
 static const std::set<std::string> kComponentsCustomSerialize = {
     "BuoyancyComponent",
+    "CinematicComponent",
+    "DecalComponent",
     "DialogueComponent",
     "DialogueStateComponent",
     "IDComponent",
     "IKTargetComponent",
     "LODGroupComponent",
     "LightProbeVolumeComponent",
+    "MeshComponent",
+    "ModelComponent",
     "NavMeshBoundsComponent",
     "NoiseAnimationComponent",
     "NoiseAnimationStateComponent",
     "PerceptionComponent",
     "PhaseComponent",
     "PhysicsJoint3DComponent",
+    "ProceduralSkyComponent",
+    "ReflectionProbeComponent",
     "Rigidbody3DComponent",
     "ScriptComponent",
     "SphereAreaLightComponent",
+    "SpriteRendererComponent",
     "SpringBoneStateComponent",
+    "StarNestSkyComponent",
     "StreamingVolumeComponent",
+    "SubmeshComponent",
     "TagComponent",
+    "TextComponent",
+    "UIDropdownComponent",
+    "UIImageComponent",
+    "UIInputFieldComponent",
+    "UIPanelComponent",
     "UIResolvedRectComponent",
+    "UITextComponent",
     "VehicleComponent",
 };
 
@@ -1173,6 +1245,11 @@ struct SerField
     bool hasClamp{ false };
     std::optional<std::string> clampMin;
     std::optional<std::string> clampMax;
+
+    // Populated only when type == PropType::Ref: the spelling of T in `Ref<T>`
+    // (elaborated-type keyword already peeled), used for the generated
+    // AssetManager::GetAsset<T> call (issue #451 Ref<T> slice).
+    std::string refType;
 };
 
 // Per-component result of the field scan.
@@ -1198,11 +1275,14 @@ struct ComponentSerInfo
 // (CollectEnumTypes), and a std::vector<E> by parsing its element type, both AFTER this
 // returns Unknown. A member that names an all-trivial nested struct (or a
 // std::vector<struct> of one) is classified PropType::Struct by ClassifyStruct —
-// #451's nested-struct slice — also AFTER this returns Unknown. Anything still
-// unhandled — Ref<T>, std::unordered_map/set, std::array, a vector-of-non-trivial-
-// struct, raw pointer, … — returns Unknown and (being neither a built-in, an enum, a
-// recognised vector, nor a trivial nested struct) marks the component non-trivial so
-// it stays hand-written in SceneSerializer.cpp (a future #451 slice).
+// #451's nested-struct slice — also AFTER this returns Unknown. A `Ref<T>` member
+// (T transitively deriving from Asset) is likewise classified PropType::Ref by
+// ParseComponentFields directly (against CollectAssetTypes), AFTER this returns
+// Unknown — #451's Ref<T> slice. Anything still unhandled — Ref<T> of a non-asset
+// type, std::unordered_map/set, std::array, a vector-of-non-trivial-struct, raw
+// pointer, … — returns Unknown and (being neither a built-in, an enum, a recognised
+// vector, a trivial nested struct, nor an asset-backed Ref<T>) marks the component
+// non-trivial so it stays hand-written in SceneSerializer.cpp (a future #451 slice).
 static PropType SceneSerType(const std::string& t)
 {
     if (t == "f32" || t == "float")
@@ -1461,11 +1541,84 @@ static std::string LeafTypeName(const std::string& type)
     return type;
 }
 
+// Collect the set of type names that transitively derive from `Asset`, used by the
+// scene-serializer field parser to recognise a `Ref<T>` member as a persistable
+// asset handle (issue #451 Ref<T> slice) — only such a T is resolvable via
+// AssetManager::GetAsset<T>(handle). Scans `class Derived : public Base` (or
+// `: Base` without an access-specifier) declarations under scanDir and builds a
+// derived -> first-base edge map, then walks each type's base chain up to "Asset".
+//
+// One level of indirection is common and load-bearing here: `MeshSource`/`Mesh`
+// derive from `Asset` directly, but `Material`/`Model`/`EnvironmentMap` derive from
+// the intermediate `RendererResource : public Asset` — a textual "is it spelled
+// `: public Asset`" check alone would miss them, so this walks the full chain
+// rather than pattern-matching one hop.
+//
+// Only the FIRST base in a multiple-inheritance list is tracked (mirrors
+// CollectEnumTypes' "fail safe on ambiguity" discipline) — a class that reaches
+// Asset only through a second/third base is not recognised and its Ref<T> fields
+// stay non-trivial (hand-written), same as any other unhandled construct. No
+// false positive is possible this way: every name this function returns
+// genuinely has an Asset-deriving base chain from its FIRST listed base.
+static std::set<std::string> CollectAssetTypes(const fs::path& scanDir)
+{
+    std::map<std::string, std::string> bases; // derived leaf -> first-base leaf
+    static const std::regex classRe(
+        R"(\bclass\s+([A-Za-z_]\w*)\s*:\s*(?:public\s+|private\s+|protected\s+)?([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*))");
+
+    for (auto const& entry : fs::recursive_directory_iterator(scanDir))
+    {
+        if (!entry.is_regular_file())
+            continue;
+        if (auto ext = entry.path().extension().string(); ext != ".h" && ext != ".hpp")
+            continue;
+
+        std::ifstream file(entry.path());
+        if (!file.is_open())
+            continue;
+        std::string raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        if (raw.find("class") == std::string::npos)
+            continue;
+
+        std::string content = StripComments(raw);
+        for (auto it = std::sregex_iterator(content.begin(), content.end(), classRe);
+             it != std::sregex_iterator(); ++it)
+        {
+            std::string derived = (*it)[1].str();
+            std::string base = LeafTypeName((*it)[2].str());
+            bases.try_emplace(derived, base); // first definition wins
+        }
+    }
+
+    std::set<std::string> assetTypes;
+    for (auto const& [name, firstBase] : bases)
+    {
+        std::set<std::string> chainVisited;
+        std::string cur = name;
+        while (true)
+        {
+            if (cur == "Asset")
+            {
+                assetTypes.insert(name);
+                break;
+            }
+            if (!chainVisited.insert(cur).second)
+                break; // cycle guard — shouldn't happen in valid C++, fail safe
+            auto it = bases.find(cur);
+            if (it == bases.end())
+                break; // base is outside the scanned set (e.g. RefCounted) — not an Asset
+            cur = it->second;
+        }
+    }
+    return assetTypes;
+}
+
 // Forward declaration: ParseComponentFields and ClassifyStruct are mutually
 // recursive (a component member of struct type is classified by re-parsing that
 // struct's body, which may itself contain nested-struct members).
 static ComponentSerInfo ParseComponentFields(std::string body,
                                              const std::set<std::string>& enumTypes,
+                                             const std::set<std::string>& assetTypes,
                                              const std::map<std::string, std::string>& structDefs,
                                              std::set<std::string> visited);
 
@@ -1484,6 +1637,7 @@ static ComponentSerInfo ParseComponentFields(std::string body,
 static std::optional<std::vector<SerField>> ClassifyStruct(
     const std::string& leaf,
     const std::set<std::string>& enumTypes,
+    const std::set<std::string>& assetTypes,
     const std::map<std::string, std::string>& structDefs,
     std::set<std::string> visited)
 {
@@ -1493,7 +1647,7 @@ static std::optional<std::vector<SerField>> ClassifyStruct(
     if (it == structDefs.end())
         return std::nullopt; // not a known struct (e.g. Ref<T>, std::array, a class)
     visited.insert(leaf);
-    ComponentSerInfo sub = ParseComponentFields(it->second, enumTypes, structDefs, std::move(visited));
+    ComponentSerInfo sub = ParseComponentFields(it->second, enumTypes, assetTypes, structDefs, std::move(visited));
     if (!sub.trivial)
         return std::nullopt; // a member of the nested struct is itself non-trivial
     return sub.fields;
@@ -1508,6 +1662,7 @@ static std::optional<std::vector<SerField>> ClassifyStruct(
 // struct non-trivial so it is left hand-written (ambiguity always fails safe).
 static ComponentSerInfo ParseComponentFields(std::string body,
                                              const std::set<std::string>& enumTypes,
+                                             const std::set<std::string>& assetTypes,
                                              const std::map<std::string, std::string>& structDefs,
                                              std::set<std::string> visited)
 {
@@ -1680,7 +1835,7 @@ static ComponentSerInfo ParseComponentFields(std::string body,
             std::optional<std::vector<SerField>> elemStruct;
             if (ept == PropType::Unknown && inner.find('<') == std::string::npos)
             {
-                elemStruct = ClassifyStruct(LeafTypeName(inner), enumTypes, structDefs, visited);
+                elemStruct = ClassifyStruct(LeafTypeName(inner), enumTypes, assetTypes, structDefs, visited);
                 if (elemStruct)
                     ept = PropType::Struct;
             }
@@ -1701,6 +1856,51 @@ static ComponentSerInfo ParseComponentFields(std::string body,
             f.isVector = true;
             if (ept == PropType::Struct)
                 f.subFields = std::move(*elemStruct);
+            info.fields.push_back(f);
+            continue;
+        }
+
+        // Ref<T> member (issue #451 Ref<T> slice) — handled before the generic
+        // complex-declarator rejection below (which bans '<' / '>'), same as
+        // std::vector<E> above. Auto-serializable iff T transitively derives from
+        // Asset (assetTypes, from CollectAssetTypes) and is therefore resolvable via
+        // AssetManager::GetAsset<T>(handle); a Ref<T> of a non-asset type (Skeleton,
+        // FoliageRenderer, a nested Ref<Ref<T>>, …) marks the component non-trivial,
+        // same as any other unhandled construct (stays hand-written unless the field
+        // carries OLO_SERIALIZE(Skip), which drops it before this point regardless of
+        // type — see the Skip handling above).
+        if (auto lt = decl.find('<'); lt != std::string::npos &&
+                                      Trim(decl.substr(0, lt)) == "Ref")
+        {
+            auto gt = decl.rfind('>');
+            std::string inner = (gt != std::string::npos && gt > lt) ? Trim(decl.substr(lt + 1, gt - lt - 1)) : "";
+            std::string rest = (gt != std::string::npos) ? Trim(decl.substr(gt + 1)) : "";
+            // Peel an elaborated-type keyword (`Ref<class Material>`, `Ref<struct Foo>`)
+            // — some declarations spell the template argument this way to avoid a
+            // forward-declaration include.
+            for (std::string_view kw : { "class ", "struct " })
+            {
+                if (inner.starts_with(kw))
+                {
+                    inner = Trim(inner.substr(kw.size()));
+                    break;
+                }
+            }
+            std::string leaf = LeafTypeName(inner);
+            if (inner.find('<') != std::string::npos || !assetTypes.contains(leaf) ||
+                !IsIdentifier(rest) || !publicSection || fieldHasClamp)
+            {
+                // Ref<non-asset-type> / Ref<Ref<T>> / bad name, a non-public member the
+                // serializer can't reach as comp.member, or a Clamp annotation on a Ref
+                // field (unsupported) — non-trivial.
+                ambiguous = true;
+                continue;
+            }
+            SerField f;
+            f.member = rest;
+            f.key = StripPrefix(rest, "m_");
+            f.type = PropType::Ref;
+            f.refType = inner;
             info.fields.push_back(f);
             continue;
         }
@@ -1750,7 +1950,7 @@ static ComponentSerInfo ParseComponentFields(std::string body,
         std::optional<std::vector<SerField>> nested;
         if (pt == PropType::Unknown)
         {
-            nested = ClassifyStruct(LeafTypeName(type), enumTypes, structDefs, visited);
+            nested = ClassifyStruct(LeafTypeName(type), enumTypes, assetTypes, structDefs, visited);
             if (nested)
                 pt = PropType::Struct;
         }
@@ -1875,12 +2075,13 @@ static std::map<std::string, ComponentSerInfo> CollectComponentFields(const fs::
                                                                       const std::set<std::string>& enumTypes)
 {
     const std::map<std::string, std::string> structDefs = CollectStructBodies(scanDir);
+    const std::set<std::string> assetTypes = CollectAssetTypes(scanDir);
     std::map<std::string, ComponentSerInfo> result;
     for (auto const& [name, body] : structDefs)
     {
         if (!name.ends_with("Component"))
             continue;
-        result.emplace(name, ParseComponentFields(body, enumTypes, structDefs, {}));
+        result.emplace(name, ParseComponentFields(body, enumTypes, assetTypes, structDefs, {}));
     }
     return result;
 }
@@ -2026,11 +2227,12 @@ static void EmitSceneSerializerHeader(std::ostream& out, const char* verb, const
     out << "//\n";
     out << "// Per-component scene-YAML " << verb << " blocks — one block per\n";
     out << "// `struct *Component` whose every data member is a primitive / small-int /\n";
-    out << "// glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / enum, an all-trivial\n";
-    out << "// nested struct, or a std::vector of one of those (the generator's SceneSerType\n";
-    out << "// plus the enum-type, nested-struct, and std::vector handling), minus the\n";
-    out << "// kComponentsCustomSerialize exclusion set (trivial components deliberately kept\n";
-    out << "// hand-written). A component with any still-unhandled non-trivial field (Ref<T>,\n";
+    out << "// glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / enum / Ref<T> of an\n";
+    out << "// Asset-derived T, an all-trivial nested struct, or a std::vector of one of\n";
+    out << "// those (the generator's SceneSerType plus the enum-type, Ref<T>/CollectAssetTypes,\n";
+    out << "// nested-struct, and std::vector handling), minus the kComponentsCustomSerialize\n";
+    out << "// exclusion set (trivial components deliberately kept hand-written). A component\n";
+    out << "// with any still-unhandled non-trivial field (Ref<T> of a non-asset type,\n";
     out << "// std::unordered_map/set, std::array, a vector-of-non-trivial-struct, or a\n";
     out << "// non-public member) is classified non-trivial and stays hand-written.\n";
     out << "//\n";
@@ -2134,6 +2336,18 @@ static void EmitSerializeFields(std::ostream& out, const std::vector<SerField>& 
             }
             continue;
         }
+        // Ref<T> (issue #451 Ref<T> slice) — only serialize a non-null, actually
+        // asset-manager-registered reference (GetHandle() != 0). A Ref constructed
+        // directly (Ref<T>::Create(...), never registered with the asset manager)
+        // has handle 0 and is deliberately left unpersisted — matches the
+        // hand-written MeshComponent::m_MeshSource -> "MeshSourceHandle" idiom.
+        if (f.type == PropType::Ref)
+        {
+            out << indent << "if (" << access << " && " << access << "->GetHandle() != 0)\n";
+            out << indent << "    out << YAML::Key << \"" << f.key << "Handle\" << YAML::Value << static_cast<u64>("
+                << access << "->GetHandle());\n";
+            continue;
+        }
         // std::vector<E> of a trivial element — a YAML sequence. Each element uses the
         // same per-value write expression (cast for handle/enum/small-int) as a scalar.
         if (f.isVector)
@@ -2199,6 +2413,18 @@ static void EmitDeserializeFields(std::ostream& out, const std::vector<SerField>
                 EmitDeserializeFields(out, f.subFields, lhs, sn, indent + "    ", depth + 1);
                 out << indent << "}\n";
             }
+            continue;
+        }
+        // Ref<T> (issue #451 Ref<T> slice) — resolve via AssetManager::GetAsset<T>. A
+        // missing key or an unresolvable handle leaves the Ref at its constructor
+        // default (null) — matches the hand-written MeshComponent::m_MeshSource
+        // pattern, which never crashes on a stale/deleted asset reference.
+        if (f.type == PropType::Ref)
+        {
+            const std::string handleKey = node + "[\"" + f.key + "Handle\"]";
+            out << indent << "if (auto h" << depth << " = " << handleKey << "; h" << depth << ")\n";
+            out << indent << "    " << lhs << " = AssetManager::GetAsset<" << f.refType << ">(h" << depth
+                << ".as<u64>());\n";
             continue;
         }
         // std::vector<E> of a trivial element — rebuild the sequence element-by-element.
