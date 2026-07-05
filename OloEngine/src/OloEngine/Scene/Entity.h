@@ -117,6 +117,16 @@ namespace OloEngine
             return glm::translate(glm::mat4(1.0f), transform.Translation) * glm::toMat4(transform.GetRotation()) * glm::scale(glm::mat4(1.0f), transform.Scale);
         }
 
+        // Composed parent-chain world matrix, refreshed once per tick by
+        // Scene::PropagateWorldTransforms() (issue #499). Falls back to the
+        // local transform if the propagation pass hasn't run yet for this
+        // entity (e.g. an entity queried the same frame it was created,
+        // before the next Scene::OnUpdate*).
+        [[nodiscard("Store this!")]] glm::mat4 GetWorldTransform() const
+        {
+            return m_Scene->GetWorldTransform(m_EntityHandle);
+        }
+
         [[nodiscard("Store this!")]] UUID GetUUID() const
         {
             return GetComponent<IDComponent>().ID;

@@ -2087,6 +2087,20 @@ namespace OloEngine
         }
     };
 
+    // Transient per-frame component — the composed parent-chain world matrix,
+    // written once per tick by Scene::PropagateWorldTransforms() in a flat,
+    // depth-sorted sweep (issue #499). NOT serialized: it's purely derived from
+    // TransformComponent + RelationshipComponent and is rebuilt every frame, the
+    // same runtime-only discipline as UIResolvedRectComponent above.
+    struct WorldTransformComponent
+    {
+        glm::mat4 WorldMatrix{ 1.0f };
+
+        WorldTransformComponent() = default;
+        explicit WorldTransformComponent(const glm::mat4& worldMatrix) : WorldMatrix(worldMatrix) {}
+        WorldTransformComponent(const WorldTransformComponent&) = default;
+    };
+
     // ── UI Components ────────────────────────────────────────────────────
 
     enum class UICanvasRenderMode : u8

@@ -163,6 +163,7 @@ namespace OloEngine::Tests
             "PhaseComponent",               // Animation phase runtime state; recomputed each tick.
             "SpringBoneStateComponent",     // Per-tick spring-bone simulation state (velocity, current position); recomputed each tick.
             "UIResolvedRectComponent",      // Layout-resolved UI rect; computed each tick by the UI system.
+            "WorldTransformComponent",      // Composed parent-chain world matrix; rebuilt every tick by Scene::PropagateWorldTransforms() (issue #499).
         };
 
         std::vector<std::string> missing;

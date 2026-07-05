@@ -17,6 +17,7 @@
 #include <limits>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -520,6 +521,24 @@ namespace OloEngine
         // tick (e.g. a unit test that places entities then queries immediately).
         void UpdateSpatialIndex();
 
+        // Compose parent-chain world matrices for every entity with a
+        // TransformComponent in one flat, depth-sorted sweep (issue #499):
+        // roots first, breadth-first over RelationshipComponent::m_Children,
+        // so a parent's WorldTransformComponent is always written before any
+        // child that reads it. Called automatically once per tick (runtime,
+        // simulation, and editor-preview updates); exposed so headless
+        // harnesses / tests can refresh world transforms after reparenting or
+        // mutating local transforms outside a tick.
+        void PropagateWorldTransforms();
+
+        // Reads the composed world matrix written by PropagateWorldTransforms()
+        // for a raw entt handle (render/submission loops iterate EnTT views
+        // directly rather than through the Entity wrapper). Falls back to the
+        // local transform if the propagation pass hasn't run yet this tick.
+        // Defined out-of-line in Scene.cpp: TransformComponent / WorldTransformComponent
+        // are only forward-declared here (full definitions live in Components.h).
+        [[nodiscard("Store this!")]] glm::mat4 GetWorldTransform(entt::entity entity) const;
+
         // Audio Events
         [[nodiscard]] Audio::AudioCommandRegistry* GetAudioCommandRegistry()
         {
@@ -703,6 +722,14 @@ namespace OloEngine
         // Spatial acceleration (runtime-only; rebuilt each OnUpdateRuntime tick,
         // never serialized/copied). See GetSpatialIndex / UpdateSpatialIndex.
         SceneSpatialIndex m_SpatialIndex;
+
+        // Scratch buffers for PropagateWorldTransforms (issue #499) — persistent
+        // across ticks and .clear()ed at the top of each call instead of being
+        // reconstructed/reserved from scratch, so the flat BFS sweep doesn't
+        // pay a fresh heap allocation for every tick.
+        std::vector<entt::entity> m_TransformOrder;
+        std::unordered_set<entt::entity> m_TransformVisited;
+        std::vector<entt::entity> m_TransformQueue;
 
         // Audio Events
         std::unique_ptr<Audio::AudioCommandRegistry> m_AudioCommandRegistry;

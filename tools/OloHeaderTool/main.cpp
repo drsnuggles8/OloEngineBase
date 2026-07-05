@@ -854,6 +854,7 @@ static const std::set<std::string> kComponentsNotInTuple = {
     "DialogueStateComponent",
     "SpringBoneStateComponent",
     "NoiseAnimationStateComponent",
+    "WorldTransformComponent",
 };
 
 // Components intentionally kept OUT of the save-game capture/restore lists
@@ -878,6 +879,7 @@ static const std::set<std::string> kComponentsNotInSaveGame = {
     "DialogueStateComponent",
     "SpringBoneStateComponent",
     "NoiseAnimationStateComponent",
+    "WorldTransformComponent",
     "AudioSoundGraphComponent",
     "LocalizedTextComponent",
 };
@@ -1041,6 +1043,11 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 //     std::vector<glm::vec3> position buffers) serializable, flipping them all-trivial.
 //     Excluded so the runtime state is never persisted; like DialogueStateComponent
 //     they have no hand-written block, so nothing else guards against the drift.
+//   * WorldTransformComponent — the composed parent-chain world matrix written every
+//     tick by Scene::PropagateWorldTransforms() (issue #499). A single glm::mat4 is
+//     all-trivial, so it MUST be excluded here (same no-hand-written-block blind spot
+//     as DialogueStateComponent) or auto-gen would persist a purely-derived value that
+//     gets recomputed from TransformComponent + RelationshipComponent next frame anyway.
 //
 // DISJOINTNESS is guarded by ComponentSerializerCoverageTest: a component must be
 // handled by EXACTLY ONE of the generated .inl or the hand-written serializer —
@@ -1068,6 +1075,7 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "TagComponent",
     "UIResolvedRectComponent",
     "VehicleComponent",
+    "WorldTransformComponent",
 };
 
 // Collect the name of every `struct *Component` *definition* under the scan dir.

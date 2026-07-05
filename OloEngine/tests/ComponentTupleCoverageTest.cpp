@@ -204,6 +204,7 @@ namespace OloEngine::Tests
             "DialogueStateComponent",       // Active dialogue progression (current node, text-reveal); rebuilt at runtime.
             "SpringBoneStateComponent",     // Spring-bone sim state; SpringBoneComponent.h documents it as deliberately out of the tuple (sim restarts fresh on scene copy).
             "NoiseAnimationStateComponent", // Noise phase accumulator; NoiseAnimationComponent.h documents it as deliberately out of the tuple (phase restarts fresh at zero on scene copy).
+            "WorldTransformComponent",      // Composed parent-chain world matrix; rebuilt every tick by Scene::PropagateWorldTransforms() (issue #499), never copied/serialized.
         };
 
         std::vector<std::string> missing;
