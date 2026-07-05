@@ -67,7 +67,11 @@ void main()
 #type fragment
 #version 460 core
 
+// Overdraw counter — see DepthPrepass.glsl. Discarded in the normal depth
+// prepass (colour mask off); accumulated additively by the overdraw debug view.
+layout(location = 0) out vec4 o_OverdrawCount;
+
 void main()
 {
-    // Depth is written by the rasterizer; color writes are masked off.
+    o_OverdrawCount = vec4(1.0);
 }

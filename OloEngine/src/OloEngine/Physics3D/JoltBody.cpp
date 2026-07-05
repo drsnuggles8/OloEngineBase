@@ -280,6 +280,13 @@ namespace OloEngine
         if (m_BodyID.IsInvalid() || !IsDynamic())
             return;
 
+        // Guard the reciprocal: a zero/negative/non-finite mass (e.g. from a
+        // C#/Lua SetMass(0) call, which bypasses the editor's soft DragFloat
+        // range) would yield an inf/nan inverse mass and NaN-propagate the
+        // solver island.
+        if (!std::isfinite(mass) || mass <= 0.0f)
+            return;
+
         const auto& bodyLockInterface = GetBodyLockInterface();
         if (JPH::BodyLockWrite lock(bodyLockInterface, m_BodyID); lock.Succeeded())
         {

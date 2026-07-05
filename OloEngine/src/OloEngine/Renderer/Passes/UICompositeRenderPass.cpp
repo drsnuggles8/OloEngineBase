@@ -47,6 +47,8 @@ namespace OloEngine
             builder,
             this,
             {
+                // Overdraw heatmap debug view (#519) replaces the composite when active.
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::OverdrawColor, ResourceNames::OverdrawColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SelectionOutlineColor, ResourceNames::SelectionOutlineColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::FXAAColor, ResourceNames::FXAAColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::VignetteColor, ResourceNames::VignetteColorTexture),

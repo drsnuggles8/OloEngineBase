@@ -7,8 +7,14 @@
 #include "OloEngine/Animation/AnimationParameter.h"
 #include "OloEngine/Animation/BlendNode.h"
 #include "OloEngine/Animation/AnimationClip.h"
+#include "Animation/AnimationTestHelpers.h"
 
 using namespace OloEngine;
+
+// Single-bone sampling context: bone 0 is named "Bone0" (matching CreateTestClip's
+// channel), so by-name mapping resolves to the historical index-0 behaviour. The
+// channel-order regression for #543 lives in Animation/AnimationGraphBoneMappingTest.cpp.
+using OloEngine::AnimTest::s_Bone0Ctx;
 
 // Helper to create a simple animation clip with one bone
 static Ref<AnimationClip> CreateTestClip(const std::string& name, float duration,
@@ -199,17 +205,17 @@ TEST(AnimationStateMachineTest, BasicTransition)
 
     // Speed below threshold - should stay in Idle
     std::vector<BoneTransform> bones;
-    sm.Update(0.1f, params, 1, bones);
+    sm.Update(0.1f, params, 1, s_Bone0Ctx, bones);
     EXPECT_EQ(sm.GetCurrentStateName(), "Idle");
     EXPECT_FALSE(sm.IsInTransition());
 
     // Set speed above threshold
     params.SetFloat("Speed", 0.5f);
-    sm.Update(0.1f, params, 1, bones);
+    sm.Update(0.1f, params, 1, s_Bone0Ctx, bones);
     EXPECT_TRUE(sm.IsInTransition());
 
     // Complete the transition
-    sm.Update(0.3f, params, 1, bones);
+    sm.Update(0.3f, params, 1, s_Bone0Ctx, bones);
     EXPECT_EQ(sm.GetCurrentStateName(), "Walk");
     EXPECT_FALSE(sm.IsInTransition());
 }
@@ -260,11 +266,11 @@ TEST(AnimationStateMachineTest, AnyStateTransition)
     // Trigger jump from any state
     params.SetTrigger("Jump");
     std::vector<BoneTransform> bones;
-    sm.Update(0.01f, params, 1, bones);
+    sm.Update(0.01f, params, 1, s_Bone0Ctx, bones);
     EXPECT_TRUE(sm.IsInTransition());
 
     // Complete transition
-    sm.Update(0.15f, params, 1, bones);
+    sm.Update(0.15f, params, 1, s_Bone0Ctx, bones);
     EXPECT_EQ(sm.GetCurrentStateName(), "Jump");
 
     // Trigger should have been consumed
@@ -306,12 +312,12 @@ TEST(AnimationStateMachineTest, ExitTimeTransition)
     std::vector<BoneTransform> bones;
 
     // Before exit time
-    sm.Update(0.5f, params, 1, bones);
+    sm.Update(0.5f, params, 1, s_Bone0Ctx, bones);
     EXPECT_EQ(sm.GetCurrentStateName(), "Attack");
     EXPECT_FALSE(sm.IsInTransition());
 
     // At exit time (0.8)
-    sm.Update(0.35f, params, 1, bones);
+    sm.Update(0.35f, params, 1, s_Bone0Ctx, bones);
     EXPECT_TRUE(sm.IsInTransition());
 }
 
@@ -354,12 +360,12 @@ TEST(AnimationStateMachineTest, CrossFadeBlending)
     std::vector<BoneTransform> bones;
 
     // Trigger transition
-    sm.Update(0.01f, params, 1, bones);
+    sm.Update(0.01f, params, 1, s_Bone0Ctx, bones);
     EXPECT_TRUE(sm.IsInTransition());
     EXPECT_EQ(bones.size(), 1u);
 
     // Mid-transition - should produce blended bone transforms
-    sm.Update(0.25f, params, 1, bones);
+    sm.Update(0.25f, params, 1, s_Bone0Ctx, bones);
     EXPECT_TRUE(sm.IsInTransition());
     EXPECT_EQ(bones.size(), 1u);
     // Blended between idle (x=0) and walk (x=10) — result should be between 0 and 10
@@ -367,7 +373,7 @@ TEST(AnimationStateMachineTest, CrossFadeBlending)
     EXPECT_LT(bones[0].Translation.x, 10.0f);
 
     // Complete transition
-    sm.Update(0.5f, params, 1, bones);
+    sm.Update(0.5f, params, 1, s_Bone0Ctx, bones);
     EXPECT_EQ(sm.GetCurrentStateName(), "Walk");
     EXPECT_FALSE(sm.IsInTransition());
 }

@@ -67,8 +67,24 @@ namespace OloEngine
         // target's depth attachment otherwise — mirrors SceneRenderPass's own
         // export resolution (SceneRenderPass.cpp). The depth attachment holds
         // the final geometry depth now that the whole graph has executed.
+        //
+        // The G-Buffer branch MUST be gated on the deferred path being active,
+        // not merely on the G-Buffer existing: `SceneRenderPass` is a
+        // process-global pass object whose `m_GBuffer` is lazily created on the
+        // first Deferred frame and never released, so after any Deferred render
+        // `GetGBuffer()` stays non-null for the rest of the process. In
+        // Forward/Forward+ the scene renders to `GetTarget()`, NOT the G-Buffer,
+        // so reading the retained-but-stale G-Buffer depth here builds the HZB
+        // from a prior Deferred scene's depth — a false occlusion cull that
+        // punches a hole in the forward frame. This surfaced as the #549
+        // cross-test order-dependence (a Deferred test earlier in the shuffle
+        // leaves the G-Buffer non-null), and is equally a runtime Deferred→
+        // Forward path-switch bug. Mirror SceneRenderPass's `deferredActive &&
+        // m_GBuffer` gate so the HZB always samples the depth the ACTIVE path
+        // actually wrote this frame.
+        const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
         u32 depthTexID = 0;
-        if (const Ref<GBuffer>& gbuffer = scenePass->GetGBuffer())
+        if (const Ref<GBuffer>& gbuffer = scenePass->GetGBuffer(); deferredActive && gbuffer)
         {
             depthTexID = gbuffer->GetDepthAttachmentID();
         }

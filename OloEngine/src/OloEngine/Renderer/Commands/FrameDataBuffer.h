@@ -23,7 +23,10 @@ namespace OloEngine
     static constexpr u16 MAX_RENDER_STATES_PER_FRAME = 256;
 
     // MaterialData table capacity — max unique material configs per frame
-    static constexpr u16 MAX_MATERIAL_DATA_PER_FRAME = 1024;
+    // Raised 1024 -> 4096 (issue #524): draws_unique_10000 stress scene overflowed
+    // the old cap every frame. ~150 bytes/entry, so 4096 costs ~600KB, cheap
+    // relative to the crowd/instancing stalls the old cap caused.
+    static constexpr u16 MAX_MATERIAL_DATA_PER_FRAME = 4096;
 
     /**
      * @brief Per-worker scratch buffer for thread-local bone/transform accumulation
@@ -85,11 +88,20 @@ namespace OloEngine
     class FrameDataBuffer
     {
       public:
-        static constexpr sizet DEFAULT_BONE_CAPACITY = 4096;       // ~256KB for bones
+        // Raised 4096 -> 16384 (issue #524): anim_crowd_200 (200 skinned foxes) overflowed
+        // the old cap every frame, and the resulting unthrottled error log spam stalled
+        // the editor main thread. ~1MB for bones — cheap relative to that stall.
+        static constexpr sizet DEFAULT_BONE_CAPACITY = 16384;
         static constexpr sizet DEFAULT_TRANSFORM_CAPACITY = 65536; // ~4MB for transforms; doubled to cover the parallel prev-transform stream
                                                                    // that CommandBucket auto-batching now allocates alongside the current
                                                                    // stream (~32k current + ~32k prev with headroom for non-batched draws).
-        static constexpr sizet DEFAULT_ENTITY_ID_CAPACITY = 16384; // ~64KB i32 stream (auto-batching can collapse many small draws)
+        // Raised 16384 -> 262144 (issue #524): draws_instanced_200000 — one
+        // InstancedMeshComponent with 200,000 instances, the GPU-cull path's own
+        // documented design point (SubmitGPUCulledInstanced sizes its transform SSBO
+        // to the full pre-cull count; only this stream was still capped) — measured
+        // overflowing even the first 65536 bump when actually run in the editor.
+        // 262144 clears 200k with ~30% headroom. ~1MB i32 stream.
+        static constexpr sizet DEFAULT_ENTITY_ID_CAPACITY = 262144;
 
         FrameDataBuffer(sizet boneCapacity = DEFAULT_BONE_CAPACITY,
                         sizet transformCapacity = DEFAULT_TRANSFORM_CAPACITY,
@@ -199,8 +211,10 @@ namespace OloEngine
         // leaves InstanceData.Color = (1,1,1,1) and InstanceData.Custom = 0
         // in the SSBO upload.
         // ====================================================================
-        static constexpr sizet DEFAULT_COLOR_CAPACITY = 16384;
-        static constexpr sizet DEFAULT_CUSTOM_CAPACITY = 16384;
+        // Raised 16384 -> 262144 (issue #524), matching DEFAULT_ENTITY_ID_CAPACITY —
+        // same 200k-instance GPU-cull draw populates all three streams together.
+        static constexpr sizet DEFAULT_COLOR_CAPACITY = 262144;
+        static constexpr sizet DEFAULT_CUSTOM_CAPACITY = 262144;
 
         u32 AllocateColors(u32 count);
         glm::vec4* GetColorPtr(u32 offset);
@@ -380,6 +394,12 @@ namespace OloEngine
         mutable FMutex m_EntityIDMutex;
         mutable FMutex m_ColorMutex;
         mutable FMutex m_CustomMutex;
+
+        bool m_BoneOverflowLogged = false;      // Once-per-frame overflow warning
+        bool m_TransformOverflowLogged = false; // Once-per-frame overflow warning
+        bool m_EntityIDOverflowLogged = false;  // Once-per-frame overflow warning
+        bool m_ColorOverflowLogged = false;     // Once-per-frame overflow warning
+        bool m_CustomOverflowLogged = false;    // Once-per-frame overflow warning
 
         // ====================================================================
         // RenderState Table Storage

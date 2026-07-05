@@ -126,6 +126,16 @@ namespace OloEngine::Tests
         /// `ReadbackComposite()` can read the result back.
         void EnableRendering(u32 width = 256, u32 height = 256);
 
+        /// Resize the render target AFTER `EnableRendering` already brought the
+        /// scene into 3D mode — the runtime analogue of the editor's MCP
+        /// viewport-override resize block in `EditorLayer::OnUpdate`. Re-sizes
+        /// the Scene's viewport-driven cameras and the Renderer3D render-graph
+        /// targets, so the next `RunFrames`/`RunEditorFrames` tick — and
+        /// `ReadbackComposite()` afterward — produce a composite framebuffer at
+        /// the new dimensions. Used to back `McpHeadlessHost::Hooks::SetViewportSize`
+        /// (`olo_viewport_set_size`, issue #316 follow-on).
+        void ResizeRenderTarget(u32 width, u32 height);
+
         /// Read back the final composited frame (the render graph's
         /// `UIComposite` RT0 — the same image the editor viewport shows)
         /// into a tightly-packed RGBA8 buffer. Returns false if rendering

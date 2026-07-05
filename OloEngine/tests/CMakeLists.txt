@@ -33,6 +33,7 @@ add_executable(OloEngine-Tests
 		ComponentTupleCoverageTest.cpp
 		ComponentHandlerCoverageTest.cpp
 		SceneSerializerFuzzRegressionTest.cpp
+		SceneVersionMigrationTest.cpp
 		EngineSubsystemSmokeTest.cpp
 		AppLaunchSmokeTest.cpp
 		FunctionalTestFixtureCoverageTest.cpp
@@ -112,10 +113,12 @@ add_executable(OloEngine-Tests
 		Rendering/ScreenSpaceReflectionMathTest.cpp
 		Rendering/ScreenSpaceGIMathTest.cpp
 		Rendering/ContactShadowMathTest.cpp
+		Rendering/OverdrawHeatmapMathTest.cpp
 		Rendering/CASMathTest.cpp
 		Rendering/EASUMathTest.cpp
 		Rendering/RCASMathTest.cpp
 		Rendering/SSAOMathTest.cpp
+		Rendering/GTAOMathTest.cpp
 		Rendering/BloomMathTest.cpp
 		Rendering/FogMathTest.cpp
 		Rendering/MotionVectorMathTest.cpp
@@ -174,10 +177,12 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/FogVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSGIVisualEvidenceTest.cpp
+		Rendering/PropertyTests/OverdrawVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ContactShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/CASVisualEvidenceTest.cpp
 		Rendering/PropertyTests/EASUVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSAOVisualEvidenceTest.cpp
+		Rendering/PropertyTests/GTAOVisualEvidenceTest.cpp
 		Rendering/PropertyTests/PCSSVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowEarlyOutVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp
@@ -290,6 +295,7 @@ add_executable(OloEngine-Tests
 		Animation/SpringBoneSolverTest.cpp
 		Animation/NoiseSolverTest.cpp
 		Animation/AnimationRetargetTest.cpp
+		Animation/AnimationGraphBoneMappingTest.cpp
 		# Cinematic Sequencer Tests
 		Cinematic/CinematicCurveTest.cpp
 		Cinematic/CinematicPlayerTest.cpp
@@ -324,6 +330,7 @@ add_executable(OloEngine-Tests
 		PerformanceProfilerTest.cpp
 		# TransformComponent Tests
 		TransformComponentTest.cpp
+		Scene/WorldTransformPropagationBenchmarkTest.cpp
 		# Physics3D mesh mass-properties (divergence-theorem volume + centroid)
 		JoltShapesMeshMassPropertiesTest.cpp
 		# Physics3D cloth soft-body shared-settings contract (issue #460)
@@ -479,6 +486,7 @@ add_executable(OloEngine-Tests
 		Functional/Scene/PhysicsRestartIsCleanTest.cpp
 		Functional/Scene/MultipleScenesCoexistTest.cpp
 		Functional/Scene/HierarchyChildFollowsPhysicsParentTest.cpp
+		Functional/Scene/WorldTransformPropagationTest.cpp
 		Functional/AI/BehaviorTreeAdvancesViaSceneTickTest.cpp
 		Functional/AI/GoapAgentPlansViaSceneTickTest.cpp
 		Functional/AI/GoapAuthoredFromLuaViaSceneTickTest.cpp

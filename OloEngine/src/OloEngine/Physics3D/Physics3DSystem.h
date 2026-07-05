@@ -142,6 +142,17 @@ namespace OloEngine
         void OnContactRemoved(const JPH::SubShapeIDPair& inSubShapePair) override;
     };
 
+    // NOTE (issue #540): m_PhysicsSystem here is a *second*, parallel JPH::PhysicsSystem —
+    // distinct from the one each Scene actually simulates (JoltScene::m_JoltSystem,
+    // stepped every frame from JoltScene::Simulate()). Nothing calls
+    // Physics3DSystem::Update(), so this system is never stepped; it only exists as an
+    // apply-target for SetSettings()/ApplySettings() (gravity + solver/sleep tuning),
+    // which historically meant those settings had zero effect on the live simulation.
+    // As of #540, JoltScene::InitializeJolt() applies the full PhysicsSettings (gravity,
+    // solver iterations, Baumgarte, sleep thresholds, etc.) directly to its own
+    // m_JoltSystem, so the live sim no longer depends on this class at all. Before
+    // wiring a new PhysicsSettings field, confirm you're applying it to
+    // JoltScene::m_JoltSystem (the one that matters at runtime), not just here.
     class Physics3DSystem
     {
       public:

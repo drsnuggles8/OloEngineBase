@@ -26,6 +26,9 @@ namespace OloEngine
             this,
             {
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::UIComposite, ResourceNames::UICompositeTexture),
+                // Overdraw heatmap debug view (#519) — if UIComposite is disabled it
+                // still reaches the backbuffer directly.
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::OverdrawColor, ResourceNames::OverdrawColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SelectionOutlineColor, ResourceNames::SelectionOutlineColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::FXAAColor, ResourceNames::FXAAColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::VignetteColor, ResourceNames::VignetteColorTexture),

@@ -3,11 +3,12 @@
 //
 // Per-component scene-YAML deserialize blocks — one block per
 // `struct *Component` whose every data member is a primitive / small-int /
-// glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / enum, an all-trivial
-// nested struct, or a std::vector of one of those (the generator's SceneSerType
-// plus the enum-type, nested-struct, and std::vector handling), minus the
-// kComponentsCustomSerialize exclusion set (trivial components deliberately kept
-// hand-written). A component with any still-unhandled non-trivial field (Ref<T>,
+// glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / enum / Ref<T> of an
+// Asset-derived T, an all-trivial nested struct, or a std::vector of one of
+// those (the generator's SceneSerType plus the enum-type, Ref<T>/CollectAssetTypes,
+// nested-struct, and std::vector handling), minus the kComponentsCustomSerialize
+// exclusion set (trivial components deliberately kept hand-written). A component
+// with any still-unhandled non-trivial field (Ref<T> of a non-asset type,
 // std::unordered_map/set, std::array, a vector-of-non-trivial-struct, or a
 // non-public member) is classified non-trivial and stays hand-written.
 //
@@ -88,6 +89,28 @@ if (auto node = entity["DirectionalLightComponent"]; node)
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["CascadeSplitLambda"], v))
         comp.m_CascadeSplitLambda = v;
     comp.m_CascadeDebugVisualization = node["CascadeDebugVisualization"].as<bool>(comp.m_CascadeDebugVisualization);
+}
+
+if (auto node = entity["EnvironmentMapComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<EnvironmentMapComponent>();
+    comp.m_EnvironmentMapAsset = node["EnvironmentMapAsset"].as<u64>(static_cast<u64>(comp.m_EnvironmentMapAsset));
+    comp.m_FilePath = node["FilePath"].as<std::string>(comp.m_FilePath);
+    if (auto h0 = node["EnvironmentMapHandle"]; h0)
+        comp.m_EnvironmentMap = AssetManager::GetAsset<EnvironmentMap>(h0.as<u64>());
+    comp.m_IsCubemapFolder = node["IsCubemapFolder"].as<bool>(comp.m_IsCubemapFolder);
+    comp.m_EnableSkybox = node["EnableSkybox"].as<bool>(comp.m_EnableSkybox);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Rotation"], v))
+        comp.m_Rotation = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Exposure"], v))
+        comp.m_Exposure = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["BlurAmount"], v))
+        comp.m_BlurAmount = v;
+    comp.m_EnableIBL = node["EnableIBL"].as<bool>(comp.m_EnableIBL);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["IBLIntensity"], v))
+        comp.m_IBLIntensity = v;
+    comp.m_UseSphericalHarmonics = node["UseSphericalHarmonics"].as<bool>(comp.m_UseSphericalHarmonics);
+    comp.m_Tint = node["Tint"].as<glm::vec3>(comp.m_Tint);
 }
 
 if (auto node = entity["FogVolumeComponent"]; node)

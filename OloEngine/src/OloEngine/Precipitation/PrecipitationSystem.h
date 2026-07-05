@@ -143,6 +143,10 @@ namespace OloEngine
             f32 m_EmissionReductionFactor = 1.0f;
             f32 m_LastFrameTimeMs = 0.0f;
             u32 m_LastAccumulationFeedCount = 0;
+            // Counts frames since the feed-count stat above was last refreshed from a
+            // GPU->CPU readback (see PrecipitationSystem::Update) — refreshed periodically
+            // rather than every frame to avoid a per-frame counter-SSBO stall/migration.
+            u32 m_FeedStatRefreshCounter = 0;
 
             // Drain timer: when precipitation is disabled, keep simulating
             // for long enough that all alive particles expire naturally.

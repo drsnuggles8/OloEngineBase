@@ -103,10 +103,15 @@ Two entry points, both in
   The session runs for `OLO_MCP_ATTACH_SECONDS` (default 600, capped 7200), or stops early
   when the sentinel file `<discovery-file>.stop` is created and then removed.
 
-Honesty boundary: the headless host wires the read-only/inspection hooks only —
-`olo_camera_frame_entity`, `olo_viewport_set_size`, and the consented project-write tools
-return a clean "not available" because the test owns no editor undo stack / panel viewport.
-The screenshot, shader, scene, perf, physics, and render-capture/override tools all work.
+Honesty boundary: the headless host wires the read-only/inspection hooks, plus the two
+Tier-0 camera/viewport hooks the Part-1 follow-on closed out — `olo_camera_frame_entity`
+(shares `OloEngine::FrameCameraOnEntity`, the same bounds-computation + fit logic
+`EditorLayer::FrameEditorCameraOnEntity` uses, pointed at the fixture's `Scene`/`EditorCamera`)
+and `olo_viewport_set_size` (resizes the fixture's `Scene` viewport + the Renderer3D render
+graph via `RendererAttachedTest::ResizeRenderTarget`, wired through `Hooks::SetViewportSize`).
+The consented project-write tools (`GetCommandHistory` and friends) remain null by design —
+no project writes in the headless host; that's Tier 2 / #306-C, out of scope. The screenshot,
+shader, scene, perf, physics, and render-capture/override tools all work.
 
 ## Attaching an agent
 
@@ -196,7 +201,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_render_capture_target` | read back one intermediate render target (depth, normals, G-buffer, shadow map, AO, post-process stages, …) as a PNG image block; depth is min-max normalised by default |
 | `olo_render_compare_golden` | capture the viewport (optional `camera`/`orbit` pose) and diff it against a golden PNG (`goldenPath`): returns a numeric `similarity`/`rmse`/`ssim` + `pass` verdict; missing golden or `rebase`:true writes the capture as the new baseline (the `OLOENGINE_GOLDEN_REBASE` workflow) |
 | `olo_render_toggle_pass` | flip a post-process / fog feature on/off (`name` + optional `enabled`) — the ephemeral A/B loop: toggle off → `olo_screenshot` → toggle on → `olo_screenshot`. No `name` lists every pass + its live state |
-| `olo_render_set_debug_view` | switch the viewport to a raw AO/SSR/SSGI buffer (`mode`: none/ssao/gtao/ssr/ssgi); reports whether the backing pass is actually running. No `mode` lists the modes + current state |
+| `olo_render_set_debug_view` | switch the viewport to a raw AO/SSR/SSGI buffer or the overdraw heatmap (`mode`: none/ssao/gtao/ssr/ssgi/overdraw); reports whether the backing pass is actually running. No `mode` lists the modes + current state |
 | `olo_renderer_settings_set` | **(consented write)** set a multi-valued, session-global renderer / post-process setting — `upscale` (FSR1 spatial-upscale mode), `tonemap` (operator), `renderpath` (forward/forward+/deferred), `depthprepass` (off/on/auto — the #316 perf lever), `softshadows` (pcf/pcss — THE ScenePass shadow-cost lever) — to verify a rendering feature live at each value. The enum-valued sibling of `olo_render_toggle_pass`; reports `previousValue` for restore-prior-value (no undo stack). No args lists every setting + current value + allowed values. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
 | `olo_scene_set_time_of_day` | move the procedural sky's sun to a 24-hour clock time (`hours` 0–24) for lighting iteration — ephemeral session override of the sun direction, never written to the scene. `clear`:true restores the authored sun; no args reports the current override |
 | `olo_scene_set_sun_angle` | aim the procedural sky's sun directly from a `yaw` (azimuth) / `pitch` (elevation) pair — the precise sibling of `olo_scene_set_time_of_day`, same ephemeral session override. `clear`:true restores; no args reports state |
@@ -542,10 +547,10 @@ isn't a mystery:
 
 `olo_render_set_debug_view { mode }` switches the viewport to a single raw intermediate
 buffer for AO / reflection / GI debugging. `mode` is one of **none, ssao, gtao, ssr,
-ssgi** (exactly one is shown at a time; `none`, or `enabled:false`, clears them all). It
-reports the four `*DebugView` flag states and **`passEnabled`** — whether the pass that
-produces the chosen buffer is actually running this frame — with an actionable `note`
-when it is not:
+ssgi, overdraw** (exactly one is shown at a time; `none`, or `enabled:false`, clears them
+all). It reports the `*DebugView` flag states and **`passEnabled`** — whether the pass
+that produces the chosen buffer is actually running this frame — with an actionable
+`note` when it is not:
 
 ```jsonc
 // olo_render_set_debug_view { "mode": "ssao" }   (with SSAO not yet enabled)
@@ -557,6 +562,20 @@ when it is not:
 So the usual debug-view flow is two steps: `olo_render_toggle_pass { name: "ssao",
 enabled: true }` then `olo_render_set_debug_view { mode: "ssao" }`. Calling the tool
 with no `mode` lists the modes + the current state.
+
+**`overdraw`** is the odd one out: unlike the AO/reflection/GI views it has no backing
+effect to enable first (`passEnabled` is always `true`) and works on **every** rendering
+path. It re-draws the frame's opaque geometry into a private single-channel accumulation
+target with **depth testing off and additive blending**, so every fragment that *would*
+be shaded — including the occluded ones an ordinary depth-tested pass overwrites — adds 1
+to that pixel's counter. The per-pixel count is then heat-mapped (**black** = nothing
+drew → **blue → green → yellow → red** as the layer count rises, saturating around 10
+layers) and replaces the viewport, so "how many layers deep is this frame" is measurable
+directly instead of inferred from A/B toggling passes. It answers questions like *is this
+scene fill-bound?* and *is the depth prepass earning its keep?* at a glance. Geometry with
+no depth-only shader variant (skybox / terrain / voxel / custom-shader meshes) is skipped,
+so the heatmap is an honest count of the batchable opaque mesh geometry rather than a
+guess for everything.
 
 ### Multi-valued renderer settings (`olo_renderer_settings_set`)
 

@@ -65,54 +65,105 @@ namespace OloEngine::Tests
             return RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Scene" /
                    "Generated" / "SceneDeserializeComponents.Generated.inl";
         }
+
+        // The full set of headers that declare `struct *Component` types reachable
+        // from the ECS, not just Components.h itself — the engine groups subsystem
+        // components in their own files (Animation, Gameplay, Networking, …).
+        // Components.h only #includes a handful of these transitively; the rest are
+        // pulled in by CMake globbing / other TUs, so a text-only scan of
+        // Components.h misses them entirely. Both the forward ("declared but not
+        // serialized") and inverse ("serialized but not declared") checks must
+        // share this exact list, or a component can slip through one direction.
+        //
+        // MAINTENANCE: when adding new subsystem/component headers (especially
+        // those that declare `struct *Component` outside of Components.h),
+        // append the header path here — this is the single shared source of
+        // truth for both directions of this coverage test.
+        std::vector<fs::path> ComponentHeaderRoots()
+        {
+            const fs::path root = RepoRoot() / "OloEngine" / "src" / "OloEngine";
+            return {
+                root / "Scene" / "Components.h",
+                root / "Animation" / "AnimatedMeshComponents.h",
+                root / "Animation" / "AnimationGraphComponent.h",
+                root / "Animation" / "MorphTargets" / "MorphTargetComponents.h",
+                root / "Animation" / "IKTargetComponent.h",
+                root / "Animation" / "SpringBoneComponent.h",
+                root / "Animation" / "NoiseAnimationComponent.h",
+                root / "Gameplay" / "Inventory" / "InventoryComponents.h",
+                root / "Gameplay" / "Quest" / "QuestComponents.h",
+                root / "Gameplay" / "Abilities" / "AbilityComponents.h",
+                root / "Scene" / "Streaming" / "StreamingVolumeComponent.h",
+                root / "AI" / "AIComponents.h",
+                root / "Networking" / "NetworkIdentityComponent.h",
+                root / "Renderer" / "Instancing" / "InstancedMeshComponent.h",
+                root / "Localization" / "LocalizedTextComponent.h",
+                root / "Cinematic" / "CinematicComponent.h",
+            };
+        }
+
+        // Find every `struct <Name>Component` declaration across the given headers.
+        // No `^` anchor: `std::regex`'s ECMAScript mode doesn't enable multiline by
+        // default. The `\b` boundary and the explicit `struct` keyword are enough
+        // to avoid false matches.
+        std::set<std::string> CollectDeclaredComponents(const std::vector<fs::path>& headerRoots)
+        {
+            const std::regex structPat{ R"(struct\s+(\w+Component)\b)" };
+            std::set<std::string> declared;
+            for (const auto& path : headerRoots)
+            {
+                if (std::error_code ec; !fs::exists(path, ec))
+                    continue; // header path may have moved; tolerate
+                const std::string src = ReadFile(path);
+                for (auto it = std::sregex_iterator(src.begin(), src.end(), structPat);
+                     it != std::sregex_iterator(); ++it)
+                {
+                    declared.insert((*it)[1].str());
+                }
+            }
+            return declared;
+        }
     } // namespace
 
     TEST(ComponentSerializerCoverage, EveryDeclaredComponentIsHandledBySceneSerializer)
     {
-        const fs::path componentsHeader = RepoRoot() / "OloEngine" / "src" /
-                                          "OloEngine" / "Scene" / "Components.h";
         const fs::path serializerCpp = RepoRoot() / "OloEngine" / "src" /
                                        "OloEngine" / "Scene" / "SceneSerializer.cpp";
-        ASSERT_TRUE(fs::exists(componentsHeader));
         ASSERT_TRUE(fs::exists(serializerCpp));
         ASSERT_TRUE(fs::exists(GeneratedSerializeInl()))
             << "Generated serialize .inl missing — build GenerateBindings first.";
         ASSERT_TRUE(fs::exists(GeneratedDeserializeInl()))
             << "Generated deserialize .inl missing — build GenerateBindings first.";
 
-        const std::string headerSrc = ReadFile(componentsHeader);
         // Corpus = the hand-written serializer PLUS the two OloHeaderTool-generated
         // .inl files. A component handled by either path counts as plumbed-through.
         const std::string serializerSrc = ReadFile(serializerCpp) +
                                           ReadFile(GeneratedSerializeInl()) +
                                           ReadFile(GeneratedDeserializeInl());
 
-        // Find every `struct <Name>Component` declaration in the header.
-        // No `^` anchor: `std::regex`'s ECMAScript mode doesn't enable
-        // multiline by default. The `\b` boundary and the explicit
-        // `struct` keyword are enough to avoid false matches.
-        const std::regex structPat{ R"(struct\s+(\w+Component)\b)" };
-        std::set<std::string> declared;
-        for (auto it = std::sregex_iterator(headerSrc.begin(), headerSrc.end(), structPat);
-             it != std::sregex_iterator(); ++it)
-        {
-            declared.insert((*it)[1].str());
-        }
+        // Scan the FULL header-root list (Components.h + every subsystem header),
+        // not just Components.h — otherwise a non-trivial component declared in a
+        // subsystem header (e.g. InventoryComponent) escapes detection entirely
+        // (issue #545).
+        const std::set<std::string> declared = CollectDeclaredComponents(ComponentHeaderRoots());
         ASSERT_FALSE(declared.empty())
-            << "Regex didn't match any *Component structs in Components.h — header "
-               "format changed and this test needs updating.";
+            << "Regex didn't match any *Component structs in the header roots — "
+               "header format changed and this test needs updating.";
 
         // Runtime-only components (derived state, networking runtime
         // state, etc.) that legitimately have no on-disk representation.
         // Each entry needs the rationale documented inline so the
         // exclusion list doesn't quietly grow into a dumping ground.
         const std::set<std::string> kRuntimeOnly = {
-            "IDComponent",             // Entity UUID; serialised as the top-level `Entity: <uuid>` line, not as a sub-map under the entity.
-            "DialogueStateComponent",  // Active dialogue progression (current node, text-reveal progress); recomputed at runtime.
-            "InstancePortalComponent", // Networking runtime — assigned by the instance / portal manager, not authored in scenes.
-            "NetworkLODComponent",     // Networking-derived LOD level; set by the interest manager per tick.
-            "PhaseComponent",          // Animation phase runtime state; recomputed each tick.
-            "UIResolvedRectComponent", // Layout-resolved UI rect; computed each tick by the UI system.
+            "IDComponent",                  // Entity UUID; serialised as the top-level `Entity: <uuid>` line, not as a sub-map under the entity.
+            "DialogueStateComponent",       // Active dialogue progression (current node, text-reveal progress); recomputed at runtime.
+            "InstancePortalComponent",      // Networking runtime — assigned by the instance / portal manager, not authored in scenes.
+            "NetworkLODComponent",          // Networking-derived LOD level; set by the interest manager per tick.
+            "NoiseAnimationStateComponent", // Per-tick noise-animation phase/offset state; recomputed each tick, not authored.
+            "PhaseComponent",               // Animation phase runtime state; recomputed each tick.
+            "SpringBoneStateComponent",     // Per-tick spring-bone simulation state (velocity, current position); recomputed each tick.
+            "UIResolvedRectComponent",      // Layout-resolved UI rect; computed each tick by the UI system.
+            "WorldTransformComponent",      // Composed parent-chain world matrix; rebuilt every tick by Scene::PropagateWorldTransforms() (issue #499).
         };
 
         std::vector<std::string> missing;
@@ -131,7 +182,7 @@ namespace OloEngine::Tests
         {
             std::ostringstream oss;
             oss << missing.size()
-                << " component type(s) declared in Components.h but not plumbed "
+                << " component type(s) declared in the header roots but not plumbed "
                 << "through SceneSerializer.cpp:\n";
             for (const auto& n : missing)
                 oss << "  - " << n << "\n";
@@ -155,14 +206,10 @@ namespace OloEngine::Tests
     // -------------------------------------------------------------------------
     TEST(ComponentSerializerCoverage, EverySerializerComponentReferenceHasMatchingStruct)
     {
-        const fs::path componentsHeader = RepoRoot() / "OloEngine" / "src" /
-                                          "OloEngine" / "Scene" / "Components.h";
         const fs::path serializerCpp = RepoRoot() / "OloEngine" / "src" /
                                        "OloEngine" / "Scene" / "SceneSerializer.cpp";
-        ASSERT_TRUE(fs::exists(componentsHeader));
         ASSERT_TRUE(fs::exists(serializerCpp));
 
-        const std::string headerSrc = ReadFile(componentsHeader);
         // Same combined corpus as the forward test: scan the hand-written serializer
         // AND the generated .inl so a renamed/removed component is caught wherever
         // its serialization lives.
@@ -170,54 +217,10 @@ namespace OloEngine::Tests
                                           ReadFile(GeneratedSerializeInl()) +
                                           ReadFile(GeneratedDeserializeInl());
 
-        // Components.h includes other component headers transitively
-        // (Animation, UI, Streaming, …). We also need to consult those
-        // for `struct *Component` declarations or this test produces
-        // false positives for legitimate references to externally-
-        // declared components.
-        //
-        // Cheaper than walking every included file: pull the union of
-        // every `*Component` token used as a struct declaration across
-        // a curated set of header roots that Components.h pulls in.
-        // MAINTENANCE: when adding new subsystem/component headers (especially
-        // those that declare `struct *Component` outside of Components.h),
-        // append the header path here to avoid false positives where this
-        // coverage test flags externally-declared components as missing
-        // serializer support.
-        const std::vector<fs::path> componentHeaderRoots = {
-            componentsHeader,
-            // The headers Components.h itself reaches via #include — the
-            // engine groups subsystem components in their own files.
-            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Animation" / "AnimatedMeshComponents.h",
-            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Animation" / "AnimationGraphComponent.h",
-            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Animation" / "MorphTargets" / "MorphTargetComponents.h",
-            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Animation" / "IKTargetComponent.h",
-            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Animation" / "SpringBoneComponent.h",
-            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Animation" / "NoiseAnimationComponent.h",
-            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Gameplay" / "Inventory" / "InventoryComponents.h",
-            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Gameplay" / "Quest" / "QuestComponents.h",
-            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Gameplay" / "Abilities" / "AbilityComponents.h",
-            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Scene" / "Streaming" / "StreamingVolumeComponent.h",
-            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "AI" / "AIComponents.h",
-            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Networking" / "NetworkIdentityComponent.h",
-            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Renderer" / "Instancing" / "InstancedMeshComponent.h",
-            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Localization" / "LocalizedTextComponent.h",
-            RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Cinematic" / "CinematicComponent.h",
-        };
-
-        const std::regex structPat{ R"(struct\s+(\w+Component)\b)" };
-        std::set<std::string> allDeclared;
-        for (const auto& path : componentHeaderRoots)
-        {
-            if (std::error_code ec; !fs::exists(path, ec))
-                continue; // header path may have moved; tolerate
-            const std::string src = ReadFile(path);
-            for (auto it = std::sregex_iterator(src.begin(), src.end(), structPat);
-                 it != std::sregex_iterator(); ++it)
-            {
-                allDeclared.insert((*it)[1].str());
-            }
-        }
+        // Same header-root list as the forward test — see ComponentHeaderRoots()
+        // above. Consulting the full list (not just Components.h) avoids false
+        // positives for legitimate references to externally-declared components.
+        const std::set<std::string> allDeclared = CollectDeclaredComponents(ComponentHeaderRoots());
 
         // Find every `"<X>Component"` literal in the serializer.
         const std::regex tokenPat{ R"(\"(\w+Component)\")" };
@@ -246,7 +249,7 @@ namespace OloEngine::Tests
                 oss << "  - " << n << "\n";
             oss << "\nEither remove the dead serializer branch, or — if the "
                 << "component is declared in a header not in this test's search "
-                << "list — append that header path to `componentHeaderRoots` above.\n";
+                << "list — append that header path to `ComponentHeaderRoots()` above.\n";
             FAIL() << oss.str();
         }
     }

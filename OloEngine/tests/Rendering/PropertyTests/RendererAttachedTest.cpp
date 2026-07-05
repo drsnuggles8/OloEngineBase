@@ -202,6 +202,14 @@ namespace OloEngine::Tests
         m_RenderingEnabled = true;
     }
 
+    void RendererAttachedTest::ResizeRenderTarget(u32 width, u32 height)
+    {
+        m_RenderWidth = width;
+        m_RenderHeight = height;
+        m_Scene->OnViewportResize(width, height);
+        Renderer3D::OnWindowResize(width, height);
+    }
+
     bool RendererAttachedTest::ReadbackComposite(std::vector<u8>& outRgba, u32& outWidth, u32& outHeight)
     {
         outWidth = 0;

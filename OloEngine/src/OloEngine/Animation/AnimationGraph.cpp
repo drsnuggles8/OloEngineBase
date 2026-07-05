@@ -24,7 +24,8 @@ namespace OloEngine
 
     void AnimationGraph::Update(f32 dt, sizet boneCount, std::vector<glm::mat4>& outFinalBoneMatrices,
                                 const std::vector<std::string>& boneNames,
-                                const std::vector<i32>& parentIndices)
+                                const std::vector<i32>& parentIndices,
+                                const std::vector<BoneTransform>& bindPoseLocal)
     {
         OLO_PROFILE_FUNCTION();
         if (Layers.empty() || boneCount == 0)
@@ -33,8 +34,15 @@ namespace OloEngine
             return;
         }
 
-        // Start with identity transforms
-        std::vector<BoneTransform> accumulatedTransforms(boneCount);
+        // Shared per-skeleton sampling context: clip channels map to bones by
+        // name (not array index) and un-keyed bones fall back to bind pose (#543).
+        const PoseEvalContext ctx{ boneNames, bindPoseLocal };
+
+        // Start each bone at its bind-pose local transform so a full-weight
+        // Override layer that leaves a bone un-keyed rests it at bind pose
+        // rather than blending toward identity.
+        std::vector<BoneTransform> accumulatedTransforms;
+        BlendTree::FillBindPose(ctx, boneCount, accumulatedTransforms);
 
         // Evaluate each layer bottom-to-top
         for (auto& layer : Layers)
@@ -45,7 +53,7 @@ namespace OloEngine
             }
 
             std::vector<BoneTransform> layerTransforms;
-            layer.StateMachine->Update(dt, Parameters, boneCount, layerTransforms);
+            layer.StateMachine->Update(dt, Parameters, boneCount, ctx, layerTransforms);
 
             if (layerTransforms.size() < boneCount)
             {

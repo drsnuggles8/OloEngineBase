@@ -658,6 +658,14 @@ namespace OloEngine
                 data.PostProcessGPU.ContactShadow->Bind();
             }
         }
+        // Overdraw heatmap debug view (#519). Gated purely on the debug flag — it
+        // needs no backing effect and works on every rendering path. Its enable is
+        // hashed into the blackboard fingerprint so toggling it rebuilds the graph
+        // (declaring / dropping the OverdrawColor resource).
+        if (PostProcessPasses.Overdraw)
+        {
+            PostProcessPasses.Overdraw->SetEnabled(data.PostProcess.OverdrawDebugView);
+        }
         // Standalone dynamic post-chain configuration.
         if (PostProcessPasses.Bloom)
         {
@@ -1120,6 +1128,11 @@ namespace OloEngine
             HashByte(h, static_cast<u8>((v >> 16) & 0xffu));
             HashByte(h, static_cast<u8>((v >> 24) & 0xffu));
         }
+        inline void HashU64(u64& h, u64 v) noexcept
+        {
+            HashU32(h, static_cast<u32>(v & 0xffffffffu));
+            HashU32(h, static_cast<u32>((v >> 32) & 0xffffffffu));
+        }
         inline void HashBool(u64& h, bool v) noexcept
         {
             HashByte(h, v ? 1u : 0u);
@@ -1148,6 +1161,17 @@ namespace OloEngine
     u64 Renderer3D::RenderPipeline::ComputeBlackboardFingerprint(const Renderer3DData& data) const
     {
         u64 h = kFnv1aOffset;
+
+        // Graph topology generation (#530). ResetTopology() / Reset() wipe the
+        // graph's blackboard + imported-resource maps on every path / AO-technique
+        // reconfigure but leave this fingerprint's other inputs identical when the
+        // same Deferred scene re-enters twice in one process. Without this the
+        // populate-cache short-circuit below sees a matching fingerprint, skips
+        // repopulating the just-wiped blackboard, and every pass's Setup() reads
+        // empty handles -> RGBuilder drops all declarations -> the whole graph is
+        // culled (reads=0/writes=0). Hashing the generation makes the cache
+        // self-invalidate on ANY reconfigure without enumerating call sites.
+        HashU64(h, data.RGraph ? data.RGraph->GetTopologyGeneration() : 0u);
 
         // Scene framebuffer dimensions drive most transient resource sizes; a
         // resize must trigger a full repopulate.
@@ -1184,6 +1208,15 @@ namespace OloEngine
         HashBool(h, data.PostProcess.SSGIEnabled);
         HashBool(h, data.PostProcess.SSREnabled);
         HashBool(h, data.PostProcess.ContactShadowEnabled);
+        // Overdraw debug view (#519) declares/drops the OverdrawColor resource, so
+        // it MUST be hashed — otherwise toggling it would not rebuild the graph.
+        HashBool(h, data.PostProcess.OverdrawDebugView);
+        // The declare-gate below also requires the heatmap shader to be ready
+        // (see the readiness comment there), so that readiness bit must be
+        // hashed too — otherwise the cache would freeze the resource
+        // undeclared forever once a not-ready frame is cached, even after the
+        // (possibly async) shader compile finishes on a later frame.
+        HashBool(h, PostProcessPasses.Overdraw && PostProcessPasses.Overdraw->IsReadyForExecution());
         HashBool(h, data.PostProcess.BloomEnabled);
         HashBool(h, data.PostProcess.DOFEnabled);
         HashBool(h, data.PostProcess.MotionBlurEnabled);
@@ -1261,6 +1294,7 @@ namespace OloEngine
         HashPassState(h, PostProcessPasses.Vignette);
         HashPassState(h, PostProcessPasses.FXAA);
         HashPassState(h, PostProcessPasses.SelectionOutline);
+        HashPassState(h, PostProcessPasses.Overdraw);
         HashPassState(h, PostProcessPasses.UIComposite);
         HashPassState(h, PostProcessPasses.Final);
 
@@ -2383,6 +2417,30 @@ namespace OloEngine
             }
         }
 
+        // Overdraw heatmap debug view (#519). Declared only when the debug flag is
+        // on (gated on the data flag, not the pass's m_Enabled, which SetEnabled
+        // updates only AFTER PopulateBlackboard — same rationale as SelectionOutline
+        // above; the flag is hashed into the fingerprint so toggling rebuilds the
+        // graph) AND the heatmap composite shader is ready (IsReadyForExecution).
+        // Without the readiness gate, toggling the view on before the (possibly
+        // async) shader finishes compiling would still declare OverdrawColor;
+        // Execute() would then no-op on shaderReady==false and leave the
+        // graph-allocated target with stale/uninitialised contents for
+        // UICompositePass/FinalRenderPass to pick up. Display-res LDR target: it
+        // runs late (post tone-map) and replaces the composite. While off (or
+        // not yet ready), the resource is absent and downstream aliases back to
+        // the normal chain.
+        if (pipeline.PostProcessPasses.Overdraw && pipeline.PostProcessPasses.Overdraw->IsReadyForExecution() &&
+            data.PostProcess.OverdrawDebugView)
+        {
+            const auto overdrawOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::OverdrawColor,
+                ResourceNames::OverdrawColorTexture,
+                RGResourceFormat::RGBA8UNorm);
+            board.Post.OverdrawColor = overdrawOutput.Framebuffer;
+            board.Post.OverdrawColorTexture = overdrawOutput.Texture;
+        }
+
         if (pipeline.PostProcessPasses.UIComposite)
         {
             RGResourceDesc uiCompositeDesc;
@@ -2547,6 +2605,7 @@ namespace OloEngine
         inputs.Passes.Vignette = PostProcessPasses.Vignette.Raw();
         inputs.Passes.FXAA = PostProcessPasses.FXAA.Raw();
         inputs.Passes.SelectionOutline = PostProcessPasses.SelectionOutline.Raw();
+        inputs.Passes.Overdraw = PostProcessPasses.Overdraw.Raw();
         inputs.Passes.UIComposite = PostProcessPasses.UIComposite.Raw();
         inputs.Passes.Final = PostProcessPasses.Final.Raw();
 
@@ -2784,6 +2843,14 @@ namespace OloEngine
         PostProcessPasses.SelectionOutline = Ref<SelectionOutlineRenderPass>::Create();
         PostProcessPasses.SelectionOutline->SetName("SelectionOutlinePass");
         PostProcessPasses.SelectionOutline->Init(finalPassSpec);
+
+        // Overdraw heatmap debug view (#519). Replays ScenePass's opaque bucket to
+        // count per-pixel overdraw, so it borrows the scene pass constructed above
+        // in CreateFramePasses.
+        PostProcessPasses.Overdraw = Ref<OverdrawRenderPass>::Create();
+        PostProcessPasses.Overdraw->SetName("OverdrawPass");
+        PostProcessPasses.Overdraw->Init(finalPassSpec);
+        PostProcessPasses.Overdraw->SetScenePass(FrameCorePasses.Scene.Raw());
 
         PostProcessPasses.UIComposite = Ref<UICompositeRenderPass>::Create();
         PostProcessPasses.UIComposite->SetName("UICompositePass");

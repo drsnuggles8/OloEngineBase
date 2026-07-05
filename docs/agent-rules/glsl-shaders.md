@@ -250,6 +250,38 @@ cutoff → discard`) so the prepass depth coverage matches the color pass.
 4. **`vec3` without padding** in UBOs → misaligned reads. Use `vec4` or add explicit padding.
 5. **Binding-slot collision** → two resources fighting for the same slot. Check the tables above.
 6. **Integer literal in float context** → SPIR-V error. Use `1.0` not `1`, `vec3(0.0)` not `vec3(0)`.
+7. **Projecting `V` with a basis built from `V` itself is dead code — and so
+   is measuring the projection *against* `V` again.** `GTAO.comp`'s per-slice
+   horizon search (issue #533) had two layered instances of this:
+   - `axisVS` was built as `cross(directionVS, viewNormal)`.
+     `dot(viewNormal, cross(X, viewNormal)) == 0` is a pure vector-algebra
+     identity for *any* `X` — crossing with the vector you're about to
+     project is always perpendicular to it — so
+     `projectedNormal = viewNormal - axisVS * dot(viewNormal, axisVS)`
+     collapsed to `viewNormal` outright, and the derived tilt angle was
+     exactly 0 for every slice on every pixel regardless of the surface's
+     real orientation.
+   - Fixing `axisVS` to use the camera's view vector instead (not the surface
+     normal, not a value derived from it) stopped that collapse, but a
+     *second*, quieter instance remained: `cosN` still divided
+     `dot(projectedNormal, viewNormal)` by `|projectedNormal|`. For any
+     orthogonal projection `P = V - axis·dot(V,axis)`, `dot(P, V) == |P|²` is
+     also a plain linear-algebra identity — so that `cosN` always reduced
+     back to `|projectedNormal|` again: non-degenerate this time (it varies
+     per slice), but still not the intended "elevation relative to the slice
+     plane's reference axis" quantity, so it silently washed out real
+     occlusion the same way.
+   Both are fixed by measuring consistently against the camera's per-pixel
+   view vector (`viewVec = normalize(-pixCenterPos)`, not `viewNormal`, not a
+   fixed screen axis) everywhere in the block: `orthoDirectionVS`, `axisVS`,
+   and `cosN`'s dot target. General lesson: whenever a formula's basis,
+   projection, *and* the dot product measuring the projection all reference
+   the same vector `V`, stop and check which of those `dot(_, V)` terms are
+   guaranteed by construction to reduce to something already known (0, or the
+   projection's own length) — a bug at that point produces a plausible,
+   non-obviously-wrong number, not a crash, and single-instance testing
+   (checking only that the result is "nonzero" or "not exactly the old bug")
+   can pass while a subtler version of the same mistake survives underneath.
 
 ---
 

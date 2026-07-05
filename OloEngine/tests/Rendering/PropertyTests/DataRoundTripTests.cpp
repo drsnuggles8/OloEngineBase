@@ -40,6 +40,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -494,6 +495,124 @@ namespace OloEngine::Tests
         EXPECT_EQ(totalDiffs, 0u)
             << "IBL cache round-trip produced " << totalDiffs
             << " bit-different texels across all mips (classic 'only mip 0 loaded' symptom)";
+
+        // cacheGuard destructor runs IBLCache::Shutdown + remove_all(tempDir).
+    }
+
+    // =========================================================================
+    // IBL cache STALENESS (#542): the cache keys on source-path + config only,
+    // so editing an environment-map file in place (same path, same config) used
+    // to serve the IBL baked from the OLD image forever — including across
+    // editor restarts. The cache header now stores the source file's
+    // last-write-time; TryLoad must reject (and invalidate) an entry whose
+    // stored timestamp no longer matches the source on disk.
+    //
+    // We save an IBL triplet keyed on a REAL temp file, confirm a fresh hit,
+    // then bump the source file's mtime (simulating an in-place edit) and
+    // confirm TryLoad now MISSES and the stale entry is gone. Contrast: a
+    // synthetic key with no backing file (0 == 0 on compare) keeps hitting.
+    // =========================================================================
+    TEST(DataRoundTripTest, IblCacheInvalidatesWhenSourceFileEditedInPlace)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        std::random_device rd;
+        const auto randomTag = std::to_string(rd()) + "_" + std::to_string(rd());
+        auto tempDir = std::filesystem::temp_directory_path() /
+                       (std::string("olo_ibl_stale_test_") +
+                        std::to_string(
+#if defined(_WIN32)
+                            static_cast<unsigned long>(::_getpid())
+#else
+                            static_cast<unsigned long>(::getpid())
+#endif
+                                ) +
+                        "_" + randomTag);
+        std::error_code probeEc;
+        ASSERT_FALSE(std::filesystem::exists(tempDir, probeEc))
+            << "temp cache path unexpectedly exists: " << tempDir.string();
+        ScopedIBLCacheGuard cacheGuard(tempDir);
+
+        // Build a minimal but valid IBL triplet — content is irrelevant here,
+        // only the timestamp bookkeeping is under test.
+        auto MakeCubemap = [](u32 size) -> Ref<TextureCubemap>
+        {
+            CubemapSpecification spec{};
+            spec.Width = size;
+            spec.Height = size;
+            spec.Format = ImageFormat::RGBA32F;
+            spec.GenerateMips = false;
+            spec.MipLevels = 1;
+            Ref<TextureCubemap> cube = TextureCubemap::Create(spec);
+            std::vector<f32> pixels(static_cast<std::size_t>(size) * size * 4u, 0.25f);
+            for (u32 face = 0; face < 6; ++face)
+                cube->SetFaceDataMip(face, 0, pixels.data(),
+                                     static_cast<u32>(pixels.size() * sizeof(f32)));
+            return cube;
+        };
+        Ref<TextureCubemap> irradiance = MakeCubemap(8);
+        Ref<TextureCubemap> prefilter = MakeCubemap(8);
+        ASSERT_TRUE(irradiance && prefilter);
+
+        TextureSpecification brdfSpec{};
+        brdfSpec.Width = 8;
+        brdfSpec.Height = 8;
+        brdfSpec.Format = ImageFormat::RGBA32F;
+        brdfSpec.GenerateMips = false;
+        Ref<Texture2D> brdf = Texture2D::Create(brdfSpec);
+        ASSERT_TRUE(brdf != nullptr);
+        {
+            std::vector<f32> brdfPixels(8u * 8u * 4u, 0.5f);
+            brdf->SetData(brdfPixels.data(), static_cast<u32>(brdfPixels.size() * sizeof(f32)));
+        }
+
+        // A REAL source file on disk, so it has a real last_write_time.
+        const auto sourceFile = tempDir / "env_source.hdr";
+        {
+            std::ofstream out(sourceFile, std::ios::binary);
+            ASSERT_TRUE(out.is_open());
+            out << "original-hdr-bytes";
+        }
+        const std::string sourcePath = sourceFile.string();
+
+        IBLConfiguration config{};
+
+        // Save + confirm a fresh cache hit and a positive HasCache.
+        ASSERT_TRUE(IBLCache::Save(sourcePath, config, irradiance, prefilter, brdf));
+        EXPECT_TRUE(IBLCache::HasCache(sourcePath, config));
+        {
+            IBLCache::CachedIBL cached;
+            EXPECT_TRUE(IBLCache::TryLoad(sourcePath, config, cached))
+                << "Fresh cache (unmodified source) must hit";
+        }
+
+        // Simulate an in-place edit: bump the source file's last-write-time.
+        // Setting the time explicitly is deterministic (no wall-clock sleep) and
+        // guarantees a value distinct from the one stamped into the cache.
+        {
+            std::error_code ec;
+            auto ftime = std::filesystem::last_write_time(sourceFile, ec);
+            ASSERT_FALSE(ec) << "could not read source mtime: " << ec.message();
+            std::filesystem::last_write_time(sourceFile, ftime + std::chrono::hours(48), ec);
+            ASSERT_FALSE(ec) << "could not bump source mtime: " << ec.message();
+        }
+
+        // The stale entry must now miss AND be invalidated off disk.
+        {
+            IBLCache::CachedIBL cached;
+            EXPECT_FALSE(IBLCache::TryLoad(sourcePath, config, cached))
+                << "Edited-in-place source must invalidate the stale IBL cache";
+        }
+        EXPECT_FALSE(IBLCache::HasCache(sourcePath, config))
+            << "Stale cache files should have been removed by the staleness check";
+
+        // Re-baking with the current (bumped) mtime hits again.
+        ASSERT_TRUE(IBLCache::Save(sourcePath, config, irradiance, prefilter, brdf));
+        {
+            IBLCache::CachedIBL cached;
+            EXPECT_TRUE(IBLCache::TryLoad(sourcePath, config, cached))
+                << "Re-baked cache with the current mtime must hit";
+        }
 
         // cacheGuard destructor runs IBLCache::Shutdown + remove_all(tempDir).
     }

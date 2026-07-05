@@ -249,6 +249,7 @@ namespace OloEngine::MCP::RenderOverrides
         GTAO,
         SSR,
         SSGI,
+        Overdraw,
     };
 
     struct DebugViewInfo
@@ -258,12 +259,13 @@ namespace OloEngine::MCP::RenderOverrides
         std::string_view Description;
     };
 
-    inline constexpr std::array<DebugViewInfo, 5> kDebugViews = { {
+    inline constexpr std::array<DebugViewInfo, 6> kDebugViews = { {
         { "none", DebugView::None, "Normal composite (clear all debug views)" },
         { "ssao", DebugView::SSAO, "Raw SSAO occlusion buffer" },
         { "gtao", DebugView::GTAO, "Raw GTAO occlusion buffer" },
         { "ssr", DebugView::SSR, "Raw screen-space reflection buffer" },
         { "ssgi", DebugView::SSGI, "Raw screen-space GI (indirect-diffuse) buffer" },
+        { "overdraw", DebugView::Overdraw, "Per-pixel overdraw heatmap (fragment shade count)" },
     } };
 
     // Resolve a debug-view mode token (case / separator insensitive). "off" is
@@ -327,6 +329,7 @@ namespace OloEngine::MCP::RenderOverrides
         bool GTAODebugView = false;
         bool SSRDebugView = false;
         bool SSGIDebugView = false;
+        bool OverdrawDebugView = false;
         bool PassEnabled = false; // backing pass enabled so the view renders (true for "none")
         std::string Note;         // actionable hint when PassEnabled is false; empty otherwise
     };
@@ -339,6 +342,7 @@ namespace OloEngine::MCP::RenderOverrides
         j["gtaoDebugView"] = r.GTAODebugView;
         j["ssrDebugView"] = r.SSRDebugView;
         j["ssgiDebugView"] = r.SSGIDebugView;
+        j["overdrawDebugView"] = r.OverdrawDebugView;
         j["passEnabled"] = r.PassEnabled;
         if (!r.Note.empty())
             j["note"] = r.Note;

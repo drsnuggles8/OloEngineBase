@@ -124,6 +124,7 @@ namespace OloEngine::Tests
             "DialogueStateComponent",
             "SpringBoneStateComponent",
             "NoiseAnimationStateComponent",
+            "WorldTransformComponent",
         };
 
         // Mirror of tools/OloHeaderTool/main.cpp::kComponentsCustomOnAdd — the

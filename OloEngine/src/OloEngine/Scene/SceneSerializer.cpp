@@ -67,6 +67,51 @@ namespace OloEngine
         return value;
     }
 
+    // ---------------------------------------------------------------------
+    // Scene YAML versioning
+    // ---------------------------------------------------------------------
+    // Ordered migration chain, applied in place from a file's recorded
+    // version up to SceneSerializer::CurrentVersion. Empty today -- v1 only
+    // seeds the version field, no schema has changed yet -- but this is
+    // where a future breaking change adds a Migrate_VN_to_VNplus1(node) step
+    // and a matching `case N:` below.
+    static void MigrateSceneYAML(YAML::Node& data, u32 fromVersion)
+    {
+        if (fromVersion >= SceneSerializer::CurrentVersion)
+            return;
+
+        OLO_CORE_INFO("SceneSerializer: migrating scene YAML from version {} to {}", fromVersion, SceneSerializer::CurrentVersion);
+
+        for (u32 v = fromVersion; v < SceneSerializer::CurrentVersion; ++v)
+        {
+            switch (v)
+            {
+                // case 0: Migrate_V0_to_V1(data); break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    // Absence of the "Version" key means the file predates this scheme
+    // entirely, so it defaults to SceneSerializer::ImplicitVersion rather
+    // than being rejected.
+    static u32 ReadSceneVersion(const YAML::Node& data)
+    {
+        if (auto versionNode = data["Version"]; versionNode && versionNode.IsScalar())
+        {
+            try
+            {
+                return versionNode.as<u32>();
+            }
+            catch (const YAML::Exception&)
+            {
+                return SceneSerializer::ImplicitVersion;
+            }
+        }
+        return SceneSerializer::ImplicitVersion;
+    }
+
     // Load a texture referenced by scene YAML through the asset registry so
     // it participates in hot-reload and is de-duplicated across the scene
     // graph. Falls back to a raw Texture2D::Create() when no EditorAssetManager
@@ -286,6 +331,7 @@ namespace OloEngine
                         // No additional handling required.
                     }
                     mod.Magnitude = modNode["Magnitude"].as<f32>(0.0f);
+                    SanitizeFloat(mod.Magnitude, -1.0e6f, 1.0e6f, 0.0f);
                     ge.Modifiers.push_back(mod);
                 }
             }
@@ -1127,8 +1173,11 @@ namespace OloEngine
 
         terrain.m_HeightmapPath = terrainComponent["HeightmapPath"].as<std::string>(terrain.m_HeightmapPath);
         terrain.m_WorldSizeX = terrainComponent["WorldSizeX"].as<f32>(terrain.m_WorldSizeX);
+        SanitizeFloat(terrain.m_WorldSizeX, 1.0e-3f, 1.0e6f, 256.0f);
         terrain.m_WorldSizeZ = terrainComponent["WorldSizeZ"].as<f32>(terrain.m_WorldSizeZ);
+        SanitizeFloat(terrain.m_WorldSizeZ, 1.0e-3f, 1.0e6f, 256.0f);
         terrain.m_HeightScale = terrainComponent["HeightScale"].as<f32>(terrain.m_HeightScale);
+        SanitizeFloat(terrain.m_HeightScale, 0.0f, 1.0e6f, 64.0f);
         terrain.m_CollisionEnabled = terrainComponent["CollisionEnabled"].as<bool>(terrain.m_CollisionEnabled);
 
         // Procedural generation settings
@@ -1137,8 +1186,11 @@ namespace OloEngine
         terrain.m_ProceduralResolution = terrainComponent["ProceduralResolution"].as<u32>(terrain.m_ProceduralResolution);
         terrain.m_ProceduralOctaves = terrainComponent["ProceduralOctaves"].as<u32>(terrain.m_ProceduralOctaves);
         terrain.m_ProceduralFrequency = terrainComponent["ProceduralFrequency"].as<f32>(terrain.m_ProceduralFrequency);
+        SanitizeFloat(terrain.m_ProceduralFrequency, 0.0f, 1.0e4f, 3.0f);
         terrain.m_ProceduralLacunarity = terrainComponent["ProceduralLacunarity"].as<f32>(terrain.m_ProceduralLacunarity);
+        SanitizeFloat(terrain.m_ProceduralLacunarity, 1.0e-3f, 64.0f, 2.0f);
         terrain.m_ProceduralPersistence = terrainComponent["ProceduralPersistence"].as<f32>(terrain.m_ProceduralPersistence);
+        SanitizeFloat(terrain.m_ProceduralPersistence, 0.0f, 1.0f, 0.45f);
         terrain.m_ProceduralErosionIterations = terrainComponent["ProceduralErosionIterations"].as<i32>(terrain.m_ProceduralErosionIterations);
 
         // Advanced height-field shaping
@@ -1207,13 +1259,16 @@ namespace OloEngine
 
         terrain.m_TessellationEnabled = terrainComponent["TessellationEnabled"].as<bool>(terrain.m_TessellationEnabled);
         terrain.m_TargetTriangleSize = terrainComponent["TargetTriangleSize"].as<f32>(terrain.m_TargetTriangleSize);
+        SanitizeFloat(terrain.m_TargetTriangleSize, 1.0e-3f, 1.0e4f, 8.0f);
         terrain.m_MorphRegion = terrainComponent["MorphRegion"].as<f32>(terrain.m_MorphRegion);
+        SanitizeFloat(terrain.m_MorphRegion, 0.0f, 1.0f, 0.3f);
 
         // Streaming settings
         terrain.m_StreamingEnabled = terrainComponent["StreamingEnabled"].as<bool>(terrain.m_StreamingEnabled);
         terrain.m_TileDirectory = terrainComponent["TileDirectory"].as<std::string>(terrain.m_TileDirectory);
         terrain.m_TileFilePattern = terrainComponent["TileFilePattern"].as<std::string>(terrain.m_TileFilePattern);
         terrain.m_TileWorldSize = terrainComponent["TileWorldSize"].as<f32>(terrain.m_TileWorldSize);
+        SanitizeFloat(terrain.m_TileWorldSize, 1.0e-3f, 1.0e6f, 256.0f);
         terrain.m_TileResolution = terrainComponent["TileResolution"].as<u32>(terrain.m_TileResolution);
         terrain.m_StreamingLoadRadius = terrainComponent["StreamingLoadRadius"].as<u32>(terrain.m_StreamingLoadRadius);
         terrain.m_StreamingMaxTiles = terrainComponent["StreamingMaxTiles"].as<u32>(terrain.m_StreamingMaxTiles);
@@ -1221,6 +1276,7 @@ namespace OloEngine
         // Voxel override settings
         terrain.m_VoxelEnabled = terrainComponent["VoxelEnabled"].as<bool>(terrain.m_VoxelEnabled);
         terrain.m_VoxelSize = terrainComponent["VoxelSize"].as<f32>(terrain.m_VoxelSize);
+        SanitizeFloat(terrain.m_VoxelSize, 1.0e-3f, 1.0e6f, 1.0f);
 
         // Deserialize terrain material layers
         if (auto layersNode = terrainComponent["Layers"]; layersNode && layersNode.IsSequence())
@@ -1563,13 +1619,29 @@ namespace OloEngine
             auto cameraProps = cameraComponent["Camera"];
             cc.Camera.SetProjectionType(static_cast<SceneCamera::ProjectionType>(cameraProps["ProjectionType"].as<int>()));
 
-            cc.Camera.SetPerspectiveVerticalFOV(cameraProps["PerspectiveFOV"].as<f32>());
-            cc.Camera.SetPerspectiveNearClip(cameraProps["PerspectiveNear"].as<f32>());
-            cc.Camera.SetPerspectiveFarClip(cameraProps["PerspectiveFar"].as<f32>());
+            f32 perspectiveFov = cameraProps["PerspectiveFOV"].as<f32>();
+            SanitizeFloat(perspectiveFov, glm::radians(0.1f), glm::radians(179.0f), glm::radians(45.0f));
+            cc.Camera.SetPerspectiveVerticalFOV(perspectiveFov);
 
-            cc.Camera.SetOrthographicSize(cameraProps["OrthographicSize"].as<f32>());
-            cc.Camera.SetOrthographicNearClip(cameraProps["OrthographicNear"].as<f32>());
-            cc.Camera.SetOrthographicFarClip(cameraProps["OrthographicFar"].as<f32>());
+            f32 perspectiveNear = cameraProps["PerspectiveNear"].as<f32>();
+            SanitizeFloat(perspectiveNear, 1.0e-4f, 1.0e6f, 0.01f);
+            cc.Camera.SetPerspectiveNearClip(perspectiveNear);
+
+            f32 perspectiveFar = cameraProps["PerspectiveFar"].as<f32>();
+            SanitizeFloat(perspectiveFar, 1.0e-3f, 1.0e9f, 1000.0f);
+            cc.Camera.SetPerspectiveFarClip(perspectiveFar);
+
+            f32 orthographicSize = cameraProps["OrthographicSize"].as<f32>();
+            SanitizeFloat(orthographicSize, 1.0e-3f, 1.0e9f, 10.0f);
+            cc.Camera.SetOrthographicSize(orthographicSize);
+
+            f32 orthographicNear = cameraProps["OrthographicNear"].as<f32>();
+            SanitizeFloat(orthographicNear, -1.0e9f, 1.0e9f, -1.0f);
+            cc.Camera.SetOrthographicNearClip(orthographicNear);
+
+            f32 orthographicFar = cameraProps["OrthographicFar"].as<f32>();
+            SanitizeFloat(orthographicFar, -1.0e9f, 1.0e9f, 1.0f);
+            cc.Camera.SetOrthographicFarClip(orthographicFar);
 
             cc.Primary = cameraComponent["Primary"].as<bool>();
             cc.FixedAspectRatio = cameraComponent["FixedAspectRatio"].as<bool>();
@@ -1772,9 +1844,13 @@ namespace OloEngine
             bc2d.Offset = boxCollider2DComponent["Offset"].as<glm::vec2>();
             bc2d.Size = boxCollider2DComponent["Size"].as<glm::vec2>();
             bc2d.Density = boxCollider2DComponent["Density"].as<f32>();
+            SanitizeFloat(bc2d.Density, 1.0e-6f, 1.0e6f, 1.0f);
             bc2d.Friction = boxCollider2DComponent["Friction"].as<f32>();
+            SanitizeFloat(bc2d.Friction, 0.0f, 1.0f, 0.5f);
             bc2d.Restitution = boxCollider2DComponent["Restitution"].as<f32>();
+            SanitizeFloat(bc2d.Restitution, 0.0f, 1.0f, 0.0f);
             bc2d.RestitutionThreshold = boxCollider2DComponent["RestitutionThreshold"].as<f32>();
+            SanitizeFloat(bc2d.RestitutionThreshold, 0.0f, 1.0e6f, 0.5f);
         }
 
         if (auto circleCollider2DComponent = entity["CircleCollider2DComponent"]; circleCollider2DComponent)
@@ -1782,10 +1858,15 @@ namespace OloEngine
             auto& cc2d = deserializedEntity.AddComponent<CircleCollider2DComponent>();
             cc2d.Offset = circleCollider2DComponent["Offset"].as<glm::vec2>();
             cc2d.Radius = circleCollider2DComponent["Radius"].as<f32>();
+            SanitizeFloat(cc2d.Radius, 1.0e-6f, 1.0e6f, 0.5f);
             cc2d.Density = circleCollider2DComponent["Density"].as<f32>();
+            SanitizeFloat(cc2d.Density, 1.0e-6f, 1.0e6f, 1.0f);
             cc2d.Friction = circleCollider2DComponent["Friction"].as<f32>();
+            SanitizeFloat(cc2d.Friction, 0.0f, 1.0f, 0.5f);
             cc2d.Restitution = circleCollider2DComponent["Restitution"].as<f32>();
+            SanitizeFloat(cc2d.Restitution, 0.0f, 1.0f, 0.0f);
             cc2d.RestitutionThreshold = circleCollider2DComponent["RestitutionThreshold"].as<f32>();
+            SanitizeFloat(cc2d.RestitutionThreshold, 0.0f, 1.0e6f, 0.5f);
         }
 
         if (auto textComponent = entity["TextComponent"]; textComponent)
@@ -2213,28 +2294,25 @@ namespace OloEngine
                 sky.m_CubemapResolution = res;
         }
 
-        if (auto envMapComponent = entity["EnvironmentMapComponent"]; envMapComponent)
-        {
-            auto& envMap = deserializedEntity.AddComponent<EnvironmentMapComponent>();
-            envMap.m_FilePath = envMapComponent["FilePath"].as<std::string>(envMap.m_FilePath);
-            envMap.m_IsCubemapFolder = envMapComponent["IsCubemapFolder"].as<bool>(envMap.m_IsCubemapFolder);
-            envMap.m_EnableSkybox = envMapComponent["EnableSkybox"].as<bool>(envMap.m_EnableSkybox);
-            envMap.m_Rotation = envMapComponent["Rotation"].as<f32>(envMap.m_Rotation);
-            envMap.m_Exposure = envMapComponent["Exposure"].as<f32>(envMap.m_Exposure);
-            envMap.m_BlurAmount = envMapComponent["BlurAmount"].as<f32>(envMap.m_BlurAmount);
-            envMap.m_EnableIBL = envMapComponent["EnableIBL"].as<bool>(envMap.m_EnableIBL);
-            envMap.m_IBLIntensity = envMapComponent["IBLIntensity"].as<f32>(envMap.m_IBLIntensity);
-            envMap.m_UseSphericalHarmonics = envMapComponent["UseSphericalHarmonics"].as<bool>(envMap.m_UseSphericalHarmonics);
-            envMap.m_Tint = envMapComponent["Tint"].as<glm::vec3>(envMap.m_Tint);
-        }
+        // EnvironmentMapComponent — auto-generated (issue #451 Ref<T> slice: the
+        // Ref<EnvironmentMap> m_EnvironmentMap cache round-trips as an
+        // "EnvironmentMapHandle" u64 via AssetManager, which is always a no-op today
+        // since the cache is populated directly by EnvironmentMap::CreateFrom* rather
+        // than through the asset manager — same net effect as this hand-written block,
+        // which never touched m_EnvironmentMap either). Bonus fix: m_EnvironmentMapAsset
+        // (an AssetHandle SaveGame already persists) is now also round-tripped through
+        // scene YAML, which this hand-written block had been silently dropping.
 
         if (auto rb3dComponent = entity["Rigidbody3DComponent"]; rb3dComponent)
         {
             auto& rb3d = deserializedEntity.AddComponent<Rigidbody3DComponent>();
             rb3d.m_Type = static_cast<BodyType3D>(rb3dComponent["BodyType"].as<int>(std::to_underlying(rb3d.m_Type)));
             rb3d.m_Mass = rb3dComponent["Mass"].as<f32>(rb3d.m_Mass);
+            SanitizeFloat(rb3d.m_Mass, 1.0e-6f, 1.0e6f, 1.0f);
             rb3d.m_LinearDrag = rb3dComponent["LinearDrag"].as<f32>(rb3d.m_LinearDrag);
+            SanitizeFloat(rb3d.m_LinearDrag, 0.0f, 1.0e6f, 0.01f);
             rb3d.m_AngularDrag = rb3dComponent["AngularDrag"].as<f32>(rb3d.m_AngularDrag);
+            SanitizeFloat(rb3d.m_AngularDrag, 0.0f, 1.0e6f, 0.05f);
             rb3d.m_DisableGravity = rb3dComponent["DisableGravity"].as<bool>(rb3d.m_DisableGravity);
             rb3d.m_IsTrigger = rb3dComponent["IsTrigger"].as<bool>(rb3d.m_IsTrigger);
         }
@@ -2796,7 +2874,9 @@ namespace OloEngine
             auto& anim = deserializedEntity.AddComponent<AnimationStateComponent>();
             anim.m_State = static_cast<AnimationStateComponent::State>(animComponent["State"].as<int>(std::to_underlying(anim.m_State)));
             anim.m_CurrentTime = animComponent["CurrentTime"].as<f32>(anim.m_CurrentTime);
+            SanitizeFloat(anim.m_CurrentTime, 0.0f, 1.0e6f, 0.0f);
             anim.m_BlendDuration = animComponent["BlendDuration"].as<f32>(anim.m_BlendDuration);
+            SanitizeFloat(anim.m_BlendDuration, 0.0f, 1.0e6f, 0.3f);
             anim.m_CurrentClipIndex = animComponent["CurrentClipIndex"].as<int>(anim.m_CurrentClipIndex);
             anim.m_IsPlaying = animComponent["IsPlaying"].as<bool>(anim.m_IsPlaying);
 
@@ -4126,25 +4206,8 @@ namespace OloEngine
             out << YAML::EndMap; // StarNestSkyComponent
         }
 
-        if (entity.HasComponent<EnvironmentMapComponent>())
-        {
-            out << YAML::Key << "EnvironmentMapComponent";
-            out << YAML::BeginMap; // EnvironmentMapComponent
-
-            auto const& envMap = entity.GetComponent<EnvironmentMapComponent>();
-            out << YAML::Key << "FilePath" << YAML::Value << envMap.m_FilePath;
-            out << YAML::Key << "IsCubemapFolder" << YAML::Value << envMap.m_IsCubemapFolder;
-            out << YAML::Key << "EnableSkybox" << YAML::Value << envMap.m_EnableSkybox;
-            out << YAML::Key << "Rotation" << YAML::Value << envMap.m_Rotation;
-            out << YAML::Key << "Exposure" << YAML::Value << envMap.m_Exposure;
-            out << YAML::Key << "BlurAmount" << YAML::Value << envMap.m_BlurAmount;
-            out << YAML::Key << "EnableIBL" << YAML::Value << envMap.m_EnableIBL;
-            out << YAML::Key << "IBLIntensity" << YAML::Value << envMap.m_IBLIntensity;
-            out << YAML::Key << "UseSphericalHarmonics" << YAML::Value << envMap.m_UseSphericalHarmonics;
-            out << YAML::Key << "Tint" << YAML::Value << envMap.m_Tint;
-
-            out << YAML::EndMap; // EnvironmentMapComponent
-        }
+        // EnvironmentMapComponent — auto-generated; see the matching comment in
+        // DeserializeEntityComponents (issue #451 Ref<T> slice).
 
         if (entity.HasComponent<Rigidbody3DComponent>())
         {
@@ -5786,6 +5849,7 @@ namespace OloEngine
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
+        out << YAML::Key << "Version" << YAML::Value << SceneSerializer::CurrentVersion;
 
         out << YAML::Key << "PostProcessSettings";
         out << YAML::BeginMap;
@@ -5989,6 +6053,9 @@ namespace OloEngine
         OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
         m_Scene->SetName(sceneName);
 
+        const u32 fileVersion = ReadSceneVersion(data);
+        MigrateSceneYAML(data, fileVersion);
+
         try
         {
             if (auto ppNode = data["PostProcessSettings"]; ppNode && ppNode.IsMap())
@@ -6175,6 +6242,7 @@ namespace OloEngine
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
+        out << YAML::Key << "Version" << YAML::Value << SceneSerializer::CurrentVersion;
 
         out << YAML::Key << "PostProcessSettings";
         out << YAML::BeginMap;
@@ -6324,6 +6392,9 @@ namespace OloEngine
             return false;
         }
         OLO_CORE_TRACE("Deserializing scene '{0}'", sceneName);
+
+        const u32 fileVersion = ReadSceneVersion(data);
+        MigrateSceneYAML(data, fileVersion);
 
         // Top-level guard for the schema-walk: fuzz inputs that pass the
         // "is map + Scene scalar" check above can still hit `.as<T>()`

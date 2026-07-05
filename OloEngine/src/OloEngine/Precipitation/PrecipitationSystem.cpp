@@ -264,7 +264,6 @@ namespace OloEngine
 
         f32 deltaTime = static_cast<f32>(dt);
         s_Data.m_AccumulatedTime += deltaTime;
-        s_Data.m_LastAccumulationFeedCount = 0;
 
         if (!settings.Enabled)
         {
@@ -302,6 +301,7 @@ namespace OloEngine
             }
 
             s_Data.m_LastCameraPos = cameraPos;
+            s_Data.m_LastAccumulationFeedCount = 0;
             return;
         }
 
@@ -375,17 +375,32 @@ namespace OloEngine
             // because far-field Simulate()/Compact() left the far-field SSBO bound.
             s_Data.m_NearFieldSystem->GetParticleSSBO()->Bind();
 
-            // Feed from near-field system
-            // The compute shader reads from the particle SSBO (already bound)
-            // and writes to the snow depth image
-            u32 nearAlive = s_Data.m_NearFieldSystem->GetAliveCount();
-            s_Data.m_LastAccumulationFeedCount = nearAlive;
-            if (nearAlive > 0)
+            // Feed from near-field system. Precipitation_Feed.comp reads the alive
+            // count straight from the already-bound counter SSBO and self-bounds via
+            // `if (idx >= aliveCount) return;`, so we dispatch a fixed group count
+            // sized to buffer capacity instead of reading the alive count back to the
+            // CPU every frame. A per-frame GetAliveCount() here forced a
+            // glGetNamedBufferSubData readback of a GL_DYNAMIC_COPY buffer every
+            // frame, which the driver reported as a per-frame VIDEO->HOST buffer
+            // migration (issue #551, hundreds of log lines/sec). The feed-count stat
+            // is refreshed periodically instead of every frame — see below.
+            u32 nearMaxParticles = s_Data.m_NearFieldSystem->GetMaxParticles();
+            if (nearMaxParticles > 0)
             {
-                u32 groups = (nearAlive + 255) / 256;
+                u32 groups = (nearMaxParticles + 255) / 256;
                 RenderCommand::DispatchCompute(groups, 1, 1);
                 RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
             }
+
+            constexpr u32 k_FeedStatRefreshIntervalFrames = 30;
+            if ((s_Data.m_FeedStatRefreshCounter++ % k_FeedStatRefreshIntervalFrames) == 0)
+            {
+                s_Data.m_LastAccumulationFeedCount = s_Data.m_NearFieldSystem->GetAliveCount();
+            }
+        }
+        else
+        {
+            s_Data.m_LastAccumulationFeedCount = 0;
         }
 
         // --- End GPU timer ---
