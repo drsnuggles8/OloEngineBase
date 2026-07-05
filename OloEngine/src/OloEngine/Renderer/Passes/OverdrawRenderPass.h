@@ -45,10 +45,13 @@ namespace OloEngine
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;
-        [[nodiscard]] Ref<Framebuffer> GetTarget() const override
-        {
-            return m_Target;
-        }
+        // GetTarget() is intentionally NOT overridden: it inherits
+        // RenderGraphNode::GetTarget(), which returns the base m_Target member
+        // that Execute() below populates. A local shadow field here would give
+        // ApplyRenderViewport() (also inherited, unmodified) a DIFFERENT,
+        // never-populated m_Target to resize on DRS changes — the two would
+        // silently drift apart. Sharing the single base member keeps them in
+        // sync (mirrors PlanarReflectionRenderPass, which does the same).
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
@@ -61,6 +64,13 @@ namespace OloEngine
         {
             return m_Enabled;
         }
+        // Reports false until the heatmap composite shader has finished
+        // (possibly async) compilation, so PopulateBlackboard can withhold
+        // declaring OverdrawColor rather than exposing a frame where Execute()
+        // would otherwise early-out and leave the graph-allocated target with
+        // stale or uninitialised contents. Defined out-of-line: Shader is only
+        // forward-declared here (Shader::IsReady() needs the complete type).
+        [[nodiscard]] bool IsReadyForExecution() const noexcept override;
 
         // The ScenePass whose batched opaque bucket is replayed to count overdraw.
         // Wired once at pipeline construction (mirrors PlanarReflectionRenderPass).
@@ -76,6 +86,8 @@ namespace OloEngine
         SceneRenderPass* m_ScenePass = nullptr;
         Ref<Shader> m_HeatmapShader;
         Ref<Framebuffer> m_AccumFramebuffer; ///< owned RGBA16F additive counter (count in .r), lazily created
-        Ref<Framebuffer> m_Target;           ///< resolved graph OverdrawColor output (for GetTarget)
+        // Resolved graph OverdrawColor output lives in the inherited
+        // RenderGraphNode::m_Target (see the GetTarget() comment above) — no
+        // local field here.
     };
 } // namespace OloEngine

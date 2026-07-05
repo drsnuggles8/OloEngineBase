@@ -66,6 +66,11 @@ namespace OloEngine
         OLO_CORE_INFO("OverdrawRenderPass: Initialized with viewport {}x{}", spec.Width, spec.Height);
     }
 
+    bool OverdrawRenderPass::IsReadyForExecution() const noexcept
+    {
+        return m_HeatmapShader && m_HeatmapShader->IsReady();
+    }
+
     void OverdrawRenderPass::EnsureAccumFramebuffer(u32 width, u32 height)
     {
         if (width == 0 || height == 0)

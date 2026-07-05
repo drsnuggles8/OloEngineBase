@@ -1277,6 +1277,12 @@ namespace OloEngine
                 return;
             prepassDepthOnly = true;
         }
+        else
+        {
+            /* Neither the depth prepass nor the overdraw view is active — the
+               material's own shaderToBind and prepassDepthOnly=false set above
+               already describe the normal colour-pass draw. */
+        }
         if (s_Data.CurrentBoundShaderID != shaderToBind)
         {
             glUseProgram(shaderToBind);
@@ -1448,6 +1454,12 @@ namespace OloEngine
             if (shaderToBind == mat.shaderRendererID)
                 return;
             prepassDepthOnly = true;
+        }
+        else
+        {
+            /* Neither the depth prepass nor the overdraw view is active — the
+               material's own shaderToBind and prepassDepthOnly=false set above
+               already describe the normal colour-pass draw. */
         }
         if (s_Data.CurrentBoundShaderID != shaderToBind)
         {

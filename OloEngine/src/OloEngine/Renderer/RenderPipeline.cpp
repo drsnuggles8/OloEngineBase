@@ -1195,6 +1195,12 @@ namespace OloEngine
         // Overdraw debug view (#519) declares/drops the OverdrawColor resource, so
         // it MUST be hashed — otherwise toggling it would not rebuild the graph.
         HashBool(h, data.PostProcess.OverdrawDebugView);
+        // The declare-gate below also requires the heatmap shader to be ready
+        // (see the readiness comment there), so that readiness bit must be
+        // hashed too — otherwise the cache would freeze the resource
+        // undeclared forever once a not-ready frame is cached, even after the
+        // (possibly async) shader compile finishes on a later frame.
+        HashBool(h, PostProcessPasses.Overdraw && PostProcessPasses.Overdraw->IsReadyForExecution());
         HashBool(h, data.PostProcess.BloomEnabled);
         HashBool(h, data.PostProcess.DOFEnabled);
         HashBool(h, data.PostProcess.MotionBlurEnabled);
@@ -2399,10 +2405,17 @@ namespace OloEngine
         // on (gated on the data flag, not the pass's m_Enabled, which SetEnabled
         // updates only AFTER PopulateBlackboard — same rationale as SelectionOutline
         // above; the flag is hashed into the fingerprint so toggling rebuilds the
-        // graph). Display-res LDR target: it runs late (post tone-map) and replaces
-        // the composite. While off, the resource is absent and downstream aliases
-        // back to the normal chain.
-        if (pipeline.PostProcessPasses.Overdraw && data.PostProcess.OverdrawDebugView)
+        // graph) AND the heatmap composite shader is ready (IsReadyForExecution).
+        // Without the readiness gate, toggling the view on before the (possibly
+        // async) shader finishes compiling would still declare OverdrawColor;
+        // Execute() would then no-op on shaderReady==false and leave the
+        // graph-allocated target with stale/uninitialised contents for
+        // UICompositePass/FinalRenderPass to pick up. Display-res LDR target: it
+        // runs late (post tone-map) and replaces the composite. While off (or
+        // not yet ready), the resource is absent and downstream aliases back to
+        // the normal chain.
+        if (pipeline.PostProcessPasses.Overdraw && pipeline.PostProcessPasses.Overdraw->IsReadyForExecution() &&
+            data.PostProcess.OverdrawDebugView)
         {
             const auto overdrawOutput = declareGraphOnlyPostProcessOutput(
                 ResourceNames::OverdrawColor,
