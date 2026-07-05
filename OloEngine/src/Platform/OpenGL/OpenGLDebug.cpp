@@ -5,7 +5,9 @@
 
 #include <atomic>
 #include <cstring>
+#include <mutex>
 #include <sstream>
+#include <unordered_map>
 
 // Stack trace support - available when <stacktrace> header is present (C++23).
 // MSVC reports __cplusplus as 199711L unless /Zc:__cplusplus is set, so check
@@ -22,6 +24,36 @@ namespace OloEngine
     namespace
     {
         std::atomic<u32> s_GLErrorCount{ 0 };
+
+        std::mutex s_PerfThrottleMutex;
+        std::unordered_map<unsigned int, u64> s_PerfMessageCounts;
+
+        // GL_DEBUG_TYPE_PERFORMANCE notifications can repeat the same message ID
+        // every single frame (issue #551 - e.g. NVIDIA id 131186 "buffer migrated
+        // VIDEO->HOST" on a per-frame GPU->CPU readback), flooding OloEngine.log at
+        // hundreds of lines/sec - the same log-spam-stalls-main-thread failure mode
+        // as #524. Log the first 10 occurrences of a given id, then every 10th up to
+        // 100, every 100th up to 1000, etc. - keeps the warning visible without the
+        // per-frame flood. Returns the running occurrence count for this id so the
+        // caller can report it ("x123") in the (possibly suppressed) log line.
+        [[nodiscard]] bool ShouldLogThrottledPerfMessage(unsigned int id, u64& outOccurrence)
+        {
+            std::lock_guard lock(s_PerfThrottleMutex);
+            const u64 count = ++s_PerfMessageCounts[id];
+            outOccurrence = count;
+
+            if (count <= 10)
+            {
+                return true;
+            }
+
+            u64 step = 10;
+            while (step * 10 <= count)
+            {
+                step *= 10;
+            }
+            return (count % step) == 0;
+        }
     } // namespace
 
     u32 GetGLErrorCount()
@@ -150,18 +182,24 @@ namespace OloEngine
         // Performance and portability messages should generally be less severe
         if (type == GL_DEBUG_TYPE_PERFORMANCE)
         {
+            u64 occurrence = 0;
+            const bool shouldLog = ShouldLogThrottledPerfMessage(id, occurrence);
+
             // Performance messages are usually informational, not errors
             switch (severity)
             {
                 case GL_DEBUG_SEVERITY_HIGH:
-                    OLO_CORE_ERROR("OpenGL performance issue (source: {0}, id: {1}): {2}", sourceStr, id, message);
+                    if (shouldLog)
+                        OLO_CORE_ERROR("OpenGL performance issue (source: {0}, id: {1}, occurrence: {2}): {3}", sourceStr, id, occurrence, message);
                     return;
                 case GL_DEBUG_SEVERITY_MEDIUM:
                 case GL_DEBUG_SEVERITY_LOW:
-                    OLO_CORE_WARN("OpenGL performance warning (source: {0}, id: {1}): {2}", sourceStr, id, message);
+                    if (shouldLog)
+                        OLO_CORE_WARN("OpenGL performance warning (source: {0}, id: {1}, occurrence: {2}): {3}", sourceStr, id, occurrence, message);
                     return;
                 case GL_DEBUG_SEVERITY_NOTIFICATION:
-                    OLO_CORE_TRACE("OpenGL performance hint (source: {0}, id: {1}): {2}", sourceStr, id, message);
+                    if (shouldLog)
+                        OLO_CORE_TRACE("OpenGL performance hint (source: {0}, id: {1}, occurrence: {2}): {3}", sourceStr, id, occurrence, message);
                     return;
             }
         }
