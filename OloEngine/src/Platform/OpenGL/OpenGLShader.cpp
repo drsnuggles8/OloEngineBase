@@ -1560,13 +1560,30 @@ namespace OloEngine
 
         const bool success = (m_CompilationStatus == ShaderCompilationStatus::Ready);
 
+        // Async link failure: the parallel-compile path (CreateProgram) commits the fresh
+        // program to m_RendererID before the link resolves, and FinalizeAfterLink then
+        // deletes it and zeroes m_RendererID on failure — unlike the sync/AMD paths, which
+        // leave m_RendererID on the old program. Restore the previously-working program so
+        // a failed reload keeps the shader usable and doesn't orphan the old handle. The
+        // retire block below is success-gated, so oldProgram is never deleted on this path.
+        if (!success && oldProgram != 0 && m_RendererID != oldProgram)
+        {
+            m_RendererID = oldProgram;
+            m_CompilationStatus = ShaderCompilationStatus::Ready;
+        }
+
+        // Notify the debugger of the reload outcome BEFORE unregistering the old id, so
+        // ShaderDebugger::OnReloadEnd can still resolve the entry by its (old) RendererID
+        // and record the reload event. `success` reflects the reload result, independent
+        // of any restore above.
+        OLO_SHADER_RELOAD_END(oldProgram, success);
+
         // Retire the previous GL program (and its debugger entry) once the new one is
         // live. Guarding on success keeps the old program as a fallback when a reload
-        // fails — the sync/AMD paths leave m_RendererID untouched on failure, so the
-        // previously-working program stays bound. Guarding on the id actually changing
-        // avoids deleting a handle a cache-hit path legitimately reused. Deletion is
-        // deferred through the FrameResourceManager (matching the destructor) because
-        // the old program may still be referenced by the in-flight frame's commands.
+        // fails. Guarding on the id actually changing avoids deleting a handle a cache-hit
+        // path legitimately reused. Deletion is deferred through the FrameResourceManager
+        // (matching the destructor) because the old program may still be referenced by the
+        // in-flight frame's commands.
         if (success && oldProgram != 0 && m_RendererID != oldProgram)
         {
             OLO_SHADER_UNREGISTER(oldProgram);
@@ -1588,8 +1605,6 @@ namespace OloEngine
             FrameResourceManager::Get().SubmitForDeletion([oldProgram]()
                                                           { glDeleteProgram(oldProgram); });
         }
-
-        OLO_SHADER_RELOAD_END(oldProgram, success);
     }
 
     void OpenGLShader::Bind() const
