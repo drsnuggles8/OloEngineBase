@@ -124,9 +124,7 @@ namespace OloEngine
         // before the next Scene::OnUpdate*).
         [[nodiscard("Store this!")]] glm::mat4 GetWorldTransform() const
         {
-            if (HasComponent<WorldTransformComponent>())
-                return GetComponent<WorldTransformComponent>().WorldMatrix;
-            return GetLocalTransform();
+            return m_Scene->GetWorldTransform(m_EntityHandle);
         }
 
         [[nodiscard("Store this!")]] UUID GetUUID() const

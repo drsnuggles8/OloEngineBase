@@ -1375,13 +1375,18 @@ namespace OloEngine
 
         // Flat, depth-sorted traversal order: breadth-first from every root
         // (no resolvable parent) so a parent always precedes its children.
-        std::vector<entt::entity> order;
+        // Buffers are persistent Scene members (issue #499 perf follow-up) —
+        // clear() keeps prior capacity, avoiding a fresh allocation every tick.
+        std::vector<entt::entity>& order = m_TransformOrder;
+        order.clear();
         order.reserve(view.size());
 
-        std::unordered_set<entt::entity> visited;
+        std::unordered_set<entt::entity>& visited = m_TransformVisited;
+        visited.clear();
         visited.reserve(view.size());
 
-        std::vector<entt::entity> queue;
+        std::vector<entt::entity>& queue = m_TransformQueue;
+        queue.clear();
         queue.reserve(view.size());
         for (auto entity : view)
         {
