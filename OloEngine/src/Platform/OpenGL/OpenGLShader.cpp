@@ -1570,6 +1570,21 @@ namespace OloEngine
         if (success && oldProgram != 0 && m_RendererID != oldProgram)
         {
             OLO_SHADER_UNREGISTER(oldProgram);
+
+            // Re-point the shader-system resource-registry map from the old program id
+            // to the new one. ShaderLibrary::ReloadShaders() only calls Reload() and
+            // never re-runs InitializeResourceRegistry, so without this the global map
+            // keeps mapping the (about-to-be-deleted) old id — Find(newId) misses and
+            // the stale old-id entry leaks until the shader is destroyed (the destructor
+            // only unregisters the current id). A same-file recompile keeps the resource
+            // layout, so the existing m_ResourceRegistry contents stay valid; we only
+            // re-point when the old id was actually registered.
+            if (ShaderResourceRegistry::Find(oldProgram) != nullptr)
+            {
+                ShaderResourceRegistry::Unregister(oldProgram);
+                ShaderResourceRegistry::Register(m_RendererID, &m_ResourceRegistry);
+            }
+
             FrameResourceManager::Get().SubmitForDeletion([oldProgram]()
                                                           { glDeleteProgram(oldProgram); });
         }
