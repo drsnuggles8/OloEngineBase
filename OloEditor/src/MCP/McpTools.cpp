@@ -627,6 +627,13 @@ namespace OloEngine::MCP
             return ToolResult::Text(o.dump(2));
         }
 
+        // McpPassTimings.h duplicates the pool's slot count as a Jolt/engine-free
+        // constant so it stays unit-testable without pulling in GPUPassTimerPool.h;
+        // pin the two together here — where both are in scope — so a future ring
+        // resize fails the build instead of silently desyncing the staleness flag.
+        static_assert(PassTimings::kGpuResultsStaleThreshold == GPUPassTimerPool::kSlotCount,
+                      "olo_perf_pass_timings staleness threshold is out of sync with GPUPassTimerPool's slot count");
+
         // ---- olo_perf_pass_timings (main-marshaled) -----------------------------
         // Per-render-graph-pass GPU/CPU times: GPU from the always-on
         // GPUPassTimerPool (GL_TIMESTAMP pairs around each executed pass, resolved

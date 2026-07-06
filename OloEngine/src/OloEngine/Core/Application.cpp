@@ -347,13 +347,25 @@ namespace OloEngine
             // returns, so the wait is handed to the profiler and patched into
             // this already-recorded frame at the next BeginFrame() (see
             // RendererProfiler::BeginFrame()).
+            //
+            // Only reported while !m_Minimized: RendererProfiler::BeginFrame()/
+            // EndFrame() are only called from the render path above, which is
+            // itself skipped while minimized. Reporting unconditionally would
+            // accumulate into m_PendingPostFrameGPUWaitTime for as long as the
+            // window stays minimized (no BeginFrame() runs to drain it), and
+            // the whole pent-up total would then land on the first frame
+            // rendered after restore, reading as a bogus multi-{minutes,hours}
+            // GPU-wait spike on that one frame.
             const auto swapStart = std::chrono::high_resolution_clock::now();
             OLO_PROFILE_FRAMEMARK_START("Window SwapBuffers");
             m_Window->SwapBuffers();
             OLO_PROFILE_FRAMEMARK_END("Window SwapBuffers");
             const auto swapEnd = std::chrono::high_resolution_clock::now();
-            RendererProfiler::GetInstance().AddPostFrameGPUWaitTime(
-                std::chrono::duration<f64, std::milli>(swapEnd - swapStart).count());
+            if (!m_Minimized)
+            {
+                RendererProfiler::GetInstance().AddPostFrameGPUWaitTime(
+                    std::chrono::duration<f64, std::milli>(swapEnd - swapStart).count());
+            }
 
             // Frame-rate cap (issue #456). Placed AFTER SwapBuffers so it only
             // sleeps for the budget vsync (if on) didn't already consume — no
