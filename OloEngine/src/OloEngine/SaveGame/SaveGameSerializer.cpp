@@ -75,6 +75,7 @@ namespace OloEngine
                          : (entity).GetComponent<ComponentType>();                                               \
         FMemoryReader cr(dataBuf);                                                                               \
         cr.ArIsSaveGame = true;                                                                                  \
+        cr.SetArchiveVersion(reader.GetArchiveVersion());                                                        \
         SaveGameComponentSerializer::Serialize(cr, comp);                                                        \
         if (cr.IsError() || cr.Tell() != static_cast<i64>((dataBuf).size()))                                     \
         {                                                                                                        \
@@ -466,7 +467,7 @@ namespace OloEngine
         return !reader.IsError();
     }
 
-    bool SaveGameSerializer::RestoreSceneState(Scene& scene, const std::vector<u8>& data)
+    bool SaveGameSerializer::RestoreSceneState(Scene& scene, const std::vector<u8>& data, u32 formatVersion)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -477,6 +478,7 @@ namespace OloEngine
 
         FMemoryReader reader(data);
         reader.ArIsSaveGame = true;
+        reader.SetArchiveVersion(formatVersion);
 
         // --- Parse settings into local temporaries ---
         u32 settingsMarker = 0;

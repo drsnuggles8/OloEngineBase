@@ -290,6 +290,22 @@ namespace OloEngine
             return SaveLoadResult::ChecksumMismatch;
         }
 
+        // Read header to learn the save's FormatVersion (may be older than
+        // kSaveGameFormatVersion — see SaveGameTypes.h/SaveGameSerializer.h,
+        // issue #454) so the component deserializer can gate fields correctly.
+        SaveGameHeader header;
+        if (!SaveGameFile::ReadHeader(path, header))
+        {
+            OLO_CORE_ERROR("[SaveGameManager] Failed to read header: {}", path.string());
+            return SaveLoadResult::IOError;
+        }
+
+        if (header.FormatVersion < kSaveGameFormatVersion)
+        {
+            OLO_CORE_INFO("[SaveGameManager] Migrating save '{}' from format v{} to v{}",
+                          slotName, header.FormatVersion, kSaveGameFormatVersion);
+        }
+
         // Read payload
         std::vector<u8> payload;
         if (!SaveGameFile::ReadPayload(path, payload))
@@ -299,7 +315,7 @@ namespace OloEngine
         }
 
         // Restore scene state
-        if (!SaveGameSerializer::RestoreSceneState(scene, payload))
+        if (!SaveGameSerializer::RestoreSceneState(scene, payload, header.FormatVersion))
         {
             OLO_CORE_ERROR("[SaveGameManager] Failed to restore scene state from: {}", path.string());
             return SaveLoadResult::SerializationFailed;
