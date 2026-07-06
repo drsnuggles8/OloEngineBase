@@ -514,10 +514,10 @@ namespace OloEngine
                     auto const& bc2d = entity.GetComponent<BoxCollider2DComponent>();
                     b2ShapeDef shapeDef = b2DefaultShapeDef();
                     shapeDef.density = bc2d.Density;
-                    shapeDef.friction = bc2d.Friction;
-                    shapeDef.restitution = bc2d.Restitution;
+                    shapeDef.material.friction = bc2d.Friction;
+                    shapeDef.material.restitution = bc2d.Restitution;
                     b2Polygon polygon = b2MakeOffsetBox(bc2d.Size.x * transform.Scale.x, bc2d.Size.y * transform.Scale.y,
-                                                        { bc2d.Offset.x, bc2d.Offset.y }, 0.0f);
+                                                        { bc2d.Offset.x, bc2d.Offset.y }, b2MakeRot(0.0f));
                     b2CreatePolygonShape(body, &shapeDef, &polygon);
                 }
 
@@ -526,8 +526,8 @@ namespace OloEngine
                     auto const& cc2d = entity.GetComponent<CircleCollider2DComponent>();
                     b2ShapeDef shapeDef = b2DefaultShapeDef();
                     shapeDef.density = cc2d.Density;
-                    shapeDef.friction = cc2d.Friction;
-                    shapeDef.restitution = cc2d.Restitution;
+                    shapeDef.material.friction = cc2d.Friction;
+                    shapeDef.material.restitution = cc2d.Restitution;
                     b2Circle circle = { b2Vec2(cc2d.Offset.x, cc2d.Offset.y), transform.Scale.x * cc2d.Radius };
                     b2CreateCircleShape(body, &shapeDef, &circle);
                 }
