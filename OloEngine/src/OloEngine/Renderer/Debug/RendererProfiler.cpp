@@ -59,9 +59,14 @@ namespace OloEngine
         m_FrameHistory.clear();
         m_FrameHistory.resize(OLO_FRAME_HISTORY_SIZE);
         m_HistoryIndex = 0;
+        m_LastWrittenHistoryIndex = 0;
 
         // Reset current frame data
         m_CurrentFrame = {};
+        m_PreviousFrame = {};
+        m_LastCompletedFrame = {};
+        m_HasCompletedFrame = false;
+        m_PendingPostFrameGPUWaitTime = 0.0;
 
         // Reset timing data
         m_FrameStartTime = std::chrono::high_resolution_clock::now();
@@ -75,10 +80,45 @@ namespace OloEngine
         m_FrameStartTime = std::chrono::high_resolution_clock::now();
         ++m_FrameNumber;
 
-        // Calculate frame time from previous frame
-        auto frameTime = std::chrono::duration<f64, std::milli>(m_FrameStartTime - m_LastFrameTime).count();
-        m_CurrentFrame.m_FrameTime = frameTime;
+        // The wall-clock delta since the last BeginFrame() is the PREVIOUS
+        // frame's true total duration: its CPU submission + GPU fence wait,
+        // PLUS everything that happens after its EndFrame() and before this
+        // call (SwapBuffers/vsync, frame-rate pacing, next frame's CPU-side
+        // prep). EndFrame() already finalized that previous frame's
+        // CPUTime/GPUTime/history entry *before* any of that post-render time
+        // had elapsed, so this frame-time value — and any post-frame GPU wait
+        // reported via AddPostFrameGPUWaitTime() (e.g. SwapBuffers blocking)
+        // — can only be attributed correctly here, patched into the
+        // already-recorded previous frame, rather than stamped onto the
+        // frame that's only just starting. Without this the MCP/UI snapshot
+        // paired frame N-1's frame time with frame N's CPU time, which could
+        // read as cpuMs > frameTimeMs whenever frame times swing (#519).
+        const f64 frameTime = std::chrono::duration<f64, std::milli>(m_FrameStartTime - m_LastFrameTime).count();
+        if (m_HasCompletedFrame)
+        {
+            const f64 patchedWait = m_PreviousFrame.m_GPUWaitTime + m_PendingPostFrameGPUWaitTime;
+            m_PreviousFrame.m_FrameTime = frameTime;
+            m_PreviousFrame.m_GPUWaitTime = patchedWait;
+
+            if (!m_FrameHistory.empty())
+            {
+                m_FrameHistory[m_LastWrittenHistoryIndex].m_FrameTime = frameTime;
+                m_FrameHistory[m_LastWrittenHistoryIndex].m_GPUWaitTime = patchedWait;
+            }
+
+            m_Counters[MetricType::FrameTime].AddSample(frameTime);
+            m_Counters[MetricType::GPUWaitTime].AddSample(patchedWait);
+
+            // m_PreviousFrame is now fully self-consistent (every field
+            // describes the same completed frame) — publish it.
+            m_LastCompletedFrame = m_PreviousFrame;
+        }
+        m_PendingPostFrameGPUWaitTime = 0.0;
         m_LastFrameTime = m_FrameStartTime;
+
+        // Live estimate for UI consumers reading m_CurrentFrame mid-frame;
+        // corrected to this frame's own value at the next BeginFrame() above.
+        m_CurrentFrame.m_FrameTime = frameTime;
 
         // Reset frame counters
         m_CurrentFrame.m_GPUWaitTime = 0.0;
@@ -115,15 +155,17 @@ namespace OloEngine
         const f64 wallMs = std::chrono::duration<f64, std::milli>(frameEndTime - m_FrameStartTime).count();
         m_CurrentFrame.m_CPUTime = std::max(0.0, wallMs - m_CurrentFrame.m_GPUWaitTime);
 
-        // Store frame data in history
+        // Store frame data in history. FrameTime and any post-frame GPU wait
+        // (SwapBuffers etc.) aren't known yet — the next BeginFrame() patches
+        // both fields into this exact slot and into m_PreviousFrame once they
+        // are (see there), so their counter samples are added there too.
         m_FrameHistory[m_HistoryIndex] = m_CurrentFrame;
+        m_LastWrittenHistoryIndex = m_HistoryIndex;
         m_HistoryIndex = (m_HistoryIndex + 1) % OLO_FRAME_HISTORY_SIZE;
 
         // Update performance counters
-        m_Counters[MetricType::FrameTime].AddSample(m_CurrentFrame.m_FrameTime);
         m_Counters[MetricType::CPUTime].AddSample(m_CurrentFrame.m_CPUTime);
         m_Counters[MetricType::GPUTime].AddSample(m_CurrentFrame.m_GPUTime);
-        m_Counters[MetricType::GPUWaitTime].AddSample(m_CurrentFrame.m_GPUWaitTime);
         m_Counters[MetricType::DrawCalls].AddSample(m_CurrentFrame.m_DrawCalls);
         m_Counters[MetricType::StateChanges].AddSample(m_CurrentFrame.m_StateChanges);
         m_Counters[MetricType::ShaderBinds].AddSample(m_CurrentFrame.m_ShaderBinds);
@@ -138,8 +180,10 @@ namespace OloEngine
         m_Counters[MetricType::InstancesRendered].AddSample(m_CurrentFrame.m_InstancesRendered);
         m_Counters[MetricType::InstancesBatched].AddSample(m_CurrentFrame.m_InstancesBatched);
 
-        // Move current to previous
+        // Move current to previous — FrameTime/GPUWaitTime patched at the
+        // next BeginFrame() once they're known (see there).
         m_PreviousFrame = m_CurrentFrame;
+        m_HasCompletedFrame = true;
     }
 
     void RendererProfiler::AddTimingSample(const std::string& name, f64 timeMs, MetricType type)

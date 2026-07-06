@@ -28,6 +28,14 @@ namespace OloEngine
             f64 GpuMs = 0.0;
         };
 
+        // 4 slots: results are read back 1-3 frames after issue without ever
+        // blocking; a slot still pending when its turn comes again (GPU >3
+        // frames behind — pathological) is dropped instead of waited on.
+        // Public so callers (e.g. the MCP olo_perf_pass_timings staleness
+        // flag) can statically pin their own "results are stale" threshold
+        // to this ring size instead of duplicating the number.
+        static constexpr u32 kSlotCount = 4;
+
         static GPUPassTimerPool& GetInstance();
 
         /// @brief Allocate query objects. Call once after the GL context is valid.
@@ -99,11 +107,6 @@ namespace OloEngine
         ~GPUPassTimerPool();
         GPUPassTimerPool(const GPUPassTimerPool&) = delete;
         GPUPassTimerPool& operator=(const GPUPassTimerPool&) = delete;
-
-        // 4 slots: results are read back 1-3 frames after issue without ever
-        // blocking; a slot still pending when its turn comes again (GPU >3
-        // frames behind — pathological) is dropped instead of waited on.
-        static constexpr u32 kSlotCount = 4;
 
         struct FrameSlot
         {

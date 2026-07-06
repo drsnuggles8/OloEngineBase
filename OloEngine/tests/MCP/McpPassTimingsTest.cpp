@@ -21,6 +21,7 @@ namespace
     using OloEngine::MCP::PassTimings::CpuPassEntry;
     using OloEngine::MCP::PassTimings::FrameTotals;
     using OloEngine::MCP::PassTimings::GpuPassEntry;
+    using OloEngine::MCP::PassTimings::kGpuResultsStaleThreshold;
     using OloEngine::MCP::PassTimings::Round3;
     using Json = OloEngine::MCP::PassTimings::Json;
 
@@ -119,6 +120,30 @@ TEST(McpPassTimingsTest, FrameTotalsAndUnattributedGpu)
 
     // 8.1 total - 6.0 attributed = 2.1 unattributed (barriers, HZB rebuild, ...).
     EXPECT_NEAR(o["unattributedGpuMs"].get<double>(), 2.1, 1e-9);
+
+    // MakeTotals() uses an age of 2, comfortably inside the normal 1-3 frame
+    // resolve latency — not stale.
+    EXPECT_FALSE(o["gpuResultsStale"].get<bool>());
+}
+
+// #519: an age at or beyond GPUPassTimerPool's slot count means a timestamp
+// slot was dropped (GPU fell more than a full ring's worth of frames behind)
+// rather than resolved through the normal 1-3 frame latency — the numbers
+// are from a stale, possibly no-longer-representative frame. Surfaced as an
+// explicit flag so a caller doesn't have to know to compare
+// gpuResultsAgeFrames against the pool's slot count itself.
+TEST(McpPassTimingsTest, FlagsGpuResultsAsStaleAtOrBeyondSlotCount)
+{
+    FrameTotals totals = MakeTotals();
+
+    totals.GpuResultsAgeFrames = kGpuResultsStaleThreshold - 1;
+    EXPECT_FALSE(BuildPassTimings({}, {}, totals)["gpuResultsStale"].get<bool>());
+
+    totals.GpuResultsAgeFrames = kGpuResultsStaleThreshold;
+    EXPECT_TRUE(BuildPassTimings({}, {}, totals)["gpuResultsStale"].get<bool>());
+
+    totals.GpuResultsAgeFrames = kGpuResultsStaleThreshold + 5;
+    EXPECT_TRUE(BuildPassTimings({}, {}, totals)["gpuResultsStale"].get<bool>());
 }
 
 TEST(McpPassTimingsTest, UnattributedGpuClampsToZeroWhenPassesExceedFrameSpan)
