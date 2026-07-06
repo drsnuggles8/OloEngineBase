@@ -387,16 +387,16 @@ TEST_F(AudioEventsSceneIntegrationTest, AudioSourceComponentEventSystemFlag)
     auto entity = m_Scene->CreateEntity("AudioEntity");
     auto& asc = entity.AddComponent<AudioSourceComponent>();
 
-    EXPECT_FALSE(asc.UseEventSystem);
-    EXPECT_FALSE(asc.StartCommandID.IsValid());
+    EXPECT_FALSE(asc.GetUseEventSystem());
+    EXPECT_FALSE(asc.GetStartCommandID().IsValid());
 
     // Configure for event-driven audio
-    asc.UseEventSystem = true;
-    asc.StartEvent = "PlayBGM";
-    asc.StartCommandID = CommandID::FromString("PlayBGM");
+    asc.SetUseEventSystem(true);
+    asc.SetStartEvent("PlayBGM");
+    asc.SetStartCommandID(CommandID::FromString("PlayBGM"));
 
-    EXPECT_TRUE(asc.UseEventSystem);
-    EXPECT_TRUE(asc.StartCommandID.IsValid());
+    EXPECT_TRUE(asc.GetUseEventSystem());
+    EXPECT_TRUE(asc.GetStartCommandID().IsValid());
 }
 
 TEST_F(AudioEventsSceneIntegrationTest, CommandIDFromStartEventMatchesRegistry)

@@ -230,34 +230,6 @@ if (auto node = entity["PointLightComponent"]; node)
         comp.m_ShadowNormalBias = v;
 }
 
-if (auto node = entity["PrefabComponent"]; node)
-{
-    auto& comp = deserializedEntity.AddComponent<PrefabComponent>();
-    comp.m_PrefabID = node["PrefabID"].as<u64>(static_cast<u64>(comp.m_PrefabID));
-    comp.m_PrefabEntityID = node["PrefabEntityID"].as<u64>(static_cast<u64>(comp.m_PrefabEntityID));
-    if (auto seqNode = node["OverriddenComponents"]; seqNode && seqNode.IsSequence())
-    {
-        comp.m_OverriddenComponents.clear();
-        for (auto const& e : seqNode)
-            if (decltype(comp.m_OverriddenComponents)::value_type v{}; ::YAML::convert<decltype(comp.m_OverriddenComponents)::value_type>::decode(e, v))
-                comp.m_OverriddenComponents.insert(v);
-    }
-    if (auto seqNode = node["AddedComponents"]; seqNode && seqNode.IsSequence())
-    {
-        comp.m_AddedComponents.clear();
-        for (auto const& e : seqNode)
-            if (decltype(comp.m_AddedComponents)::value_type v{}; ::YAML::convert<decltype(comp.m_AddedComponents)::value_type>::decode(e, v))
-                comp.m_AddedComponents.insert(v);
-    }
-    if (auto seqNode = node["RemovedComponents"]; seqNode && seqNode.IsSequence())
-    {
-        comp.m_RemovedComponents.clear();
-        for (auto const& e : seqNode)
-            if (decltype(comp.m_RemovedComponents)::value_type v{}; ::YAML::convert<decltype(comp.m_RemovedComponents)::value_type>::decode(e, v))
-                comp.m_RemovedComponents.insert(v);
-    }
-}
-
 if (auto node = entity["QuestGiverComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<QuestGiverComponent>();

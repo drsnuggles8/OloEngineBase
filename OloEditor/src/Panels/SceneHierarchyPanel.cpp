@@ -560,7 +560,7 @@ namespace OloEngine
         {
             if (ImGui::MenuItem("Rename"))
             {
-                tagComponent.renaming = true;
+                m_RenamingEntityUUID = entity.GetUUID();
                 m_RenameOldName = tag;
             }
 
@@ -667,9 +667,9 @@ namespace OloEngine
                     Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(pc.m_PrefabID);
                     if (prefab)
                     {
-                        RevertComponentList(prefab, entity, pc.m_OverriddenComponents);
-                        RevertComponentList(prefab, entity, pc.m_AddedComponents);
-                        RevertComponentList(prefab, entity, pc.m_RemovedComponents);
+                        RevertComponentList(prefab, entity, pc.GetOverriddenComponents());
+                        RevertComponentList(prefab, entity, pc.GetAddedComponents());
+                        RevertComponentList(prefab, entity, pc.GetRemovedComponents());
                         pc.ClearAllOverrides();
                         OLO_CORE_INFO("Reverted all overrides on '{}'", tag);
                     }
@@ -683,9 +683,9 @@ namespace OloEngine
                         Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(pc.m_PrefabID);
                         if (prefab)
                         {
-                            ApplyComponentList(prefab, entity, pc.m_OverriddenComponents);
-                            ApplyComponentList(prefab, entity, pc.m_AddedComponents);
-                            ApplyComponentList(prefab, entity, pc.m_RemovedComponents);
+                            ApplyComponentList(prefab, entity, pc.GetOverriddenComponents());
+                            ApplyComponentList(prefab, entity, pc.GetAddedComponents());
+                            ApplyComponentList(prefab, entity, pc.GetRemovedComponents());
                             pc.ClearAllOverrides();
                             OLO_CORE_INFO("Applied all overrides from '{}' to prefab", tag);
                         }
@@ -727,7 +727,7 @@ namespace OloEngine
             ImGui::EndDragDropTarget();
         }
 
-        if (tagComponent.renaming)
+        if (m_RenamingEntityUUID == entity.GetUUID())
         {
             char buffer[256];
             ::memset(buffer, 0, sizeof(buffer));
@@ -741,7 +741,7 @@ namespace OloEngine
 
             if (ImGui::IsMouseClicked(0) && ImGui::IsWindowHovered())
             {
-                tagComponent.renaming = false;
+                m_RenamingEntityUUID = UUID(0);
                 if (m_CommandHistory && tag != m_RenameOldName)
                 {
                     m_CommandHistory->PushAlreadyExecuted(std::make_unique<RenameEntityCommand>(
@@ -3905,8 +3905,8 @@ namespace OloEngine
             // SoundConfig (.olosoundc) preset. Assigning one stamps its values into the inline
             // Config below for instant editor feedback and is re-applied at play
             // (Scene::InitAudioRuntime). Drag a .olosoundc from the content browser onto the button.
-            std::string presetLabel = component.SoundConfigHandle != 0
-                ? "Preset: " + std::to_string(static_cast<u64>(component.SoundConfigHandle))
+            std::string presetLabel = component.GetSoundConfigHandle() != 0
+                ? "Preset: " + std::to_string(static_cast<u64>(component.GetSoundConfigHandle()))
                 : "Preset: <none — drag a .olosoundc here>";
             ImGui::Button(presetLabel.c_str(), ImVec2(-1.0f, 0.0f));
             if (ImGui::BeginDragDropTarget())
@@ -3919,10 +3919,10 @@ namespace OloEngine
                         AssetHandle handle = assetManager->ImportAsset(assetPath);
                         if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::SoundConfig)
                         {
-                            component.SoundConfigHandle = handle;
+                            component.SetSoundConfigHandle(handle);
                             // Stamp the preset into Config immediately so the fields below preview it.
                             if (auto preset = AssetManager::GetAsset<SoundConfigAsset>(handle))
-                                component.Config = preset->m_Config;
+                                component.GetConfig() = preset->m_Config;
                         }
                         else if (handle != 0)
                         {
@@ -3937,106 +3937,109 @@ namespace OloEngine
                 }
                 ImGui::EndDragDropTarget();
             }
-            if (component.SoundConfigHandle != 0)
+            if (component.GetSoundConfigHandle() != 0)
             {
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Clear##SoundConfig"))
                 {
-                    component.SoundConfigHandle = 0;
+                    component.SetSoundConfigHandle(0);
                 }
                 ImGui::SetItemTooltip("Unlinks the preset; the values already stamped into the fields below stay.");
             }
             ImGui::Separator();
 
-            ImGui::DragFloat("Volume##AudioSource", &component.Config.VolumeMultiplier, 0.01f, 0.0f, 2.0f);
-            ImGui::DragFloat("Pitch##AudioSource", &component.Config.PitchMultiplier, 0.01f, 0.1f, 3.0f);
-            ImGui::Checkbox("Play On Awake##AudioSource", &component.Config.PlayOnAwake);
-            ImGui::Checkbox("Looping##AudioSource", &component.Config.Looping);
+            auto& config = component.GetConfig();
+            ImGui::DragFloat("Volume##AudioSource", &config.VolumeMultiplier, 0.01f, 0.0f, 2.0f);
+            ImGui::DragFloat("Pitch##AudioSource", &config.PitchMultiplier, 0.01f, 0.1f, 3.0f);
+            ImGui::Checkbox("Play On Awake##AudioSource", &config.PlayOnAwake);
+            ImGui::Checkbox("Looping##AudioSource", &config.Looping);
 
             ImGui::Separator();
             ImGui::Text("Spatialization");
-            ImGui::Checkbox("Spatialization##AudioSource", &component.Config.Spatialization);
+            ImGui::Checkbox("Spatialization##AudioSource", &config.Spatialization);
 
-            if (component.Config.Spatialization)
+            if (config.Spatialization)
             {
                 const char* attenuationModels[] = { "None", "Inverse", "Linear", "Exponential" };
-                if (int currentModel = static_cast<int>(component.Config.AttenuationModel); ImGui::Combo("Attenuation Model##AudioSource", &currentModel, attenuationModels, IM_ARRAYSIZE(attenuationModels)))
-                    component.Config.AttenuationModel = static_cast<AttenuationModelType>(currentModel);
+                if (int currentModel = static_cast<int>(config.AttenuationModel); ImGui::Combo("Attenuation Model##AudioSource", &currentModel, attenuationModels, IM_ARRAYSIZE(attenuationModels)))
+                    config.AttenuationModel = static_cast<AttenuationModelType>(currentModel);
 
-                ImGui::DragFloat("Roll Off##AudioSource", &component.Config.RollOff, 0.1f, 0.0f, 10.0f);
-                ImGui::DragFloat("Min Gain##AudioSource", &component.Config.MinGain, 0.01f, 0.0f, 1.0f);
-                ImGui::DragFloat("Max Gain##AudioSource", &component.Config.MaxGain, 0.01f, 0.0f, 2.0f);
-                ImGui::DragFloat("Min Distance##AudioSource", &component.Config.MinDistance, 0.1f, 0.0f, 100.0f);
-                ImGui::DragFloat("Max Distance##AudioSource", &component.Config.MaxDistance, 1.0f, 0.0f, 1000.0f);
+                ImGui::DragFloat("Roll Off##AudioSource", &config.RollOff, 0.1f, 0.0f, 10.0f);
+                ImGui::DragFloat("Min Gain##AudioSource", &config.MinGain, 0.01f, 0.0f, 1.0f);
+                ImGui::DragFloat("Max Gain##AudioSource", &config.MaxGain, 0.01f, 0.0f, 2.0f);
+                ImGui::DragFloat("Min Distance##AudioSource", &config.MinDistance, 0.1f, 0.0f, 100.0f);
+                ImGui::DragFloat("Max Distance##AudioSource", &config.MaxDistance, 1.0f, 0.0f, 1000.0f);
 
                 ImGui::Separator();
                 ImGui::Text("Cone Settings");
-                ImGui::DragFloat("Inner Angle##AudioSource", &component.Config.ConeInnerAngle, 1.0f, 0.0f, 360.0f);
-                ImGui::DragFloat("Outer Angle##AudioSource", &component.Config.ConeOuterAngle, 1.0f, 0.0f, 360.0f);
-                ImGui::DragFloat("Outer Gain##AudioSource", &component.Config.ConeOuterGain, 0.01f, 0.0f, 1.0f);
-                ImGui::DragFloat("Doppler Factor##AudioSource", &component.Config.DopplerFactor, 0.1f, 0.0f, 10.0f);
+                ImGui::DragFloat("Inner Angle##AudioSource", &config.ConeInnerAngle, 1.0f, 0.0f, 360.0f);
+                ImGui::DragFloat("Outer Angle##AudioSource", &config.ConeOuterAngle, 1.0f, 0.0f, 360.0f);
+                ImGui::DragFloat("Outer Gain##AudioSource", &config.ConeOuterGain, 0.01f, 0.0f, 1.0f);
+                ImGui::DragFloat("Doppler Factor##AudioSource", &config.DopplerFactor, 0.1f, 0.0f, 10.0f);
 
                 ImGui::Separator();
                 ImGui::Text("VBAP Panning");
-                ImGui::SliderFloat("Spread##AudioSource", &component.Config.Spread, 0.0f, 1.0f, "%.3f");
+                ImGui::SliderFloat("Spread##AudioSource", &config.Spread, 0.0f, 1.0f, "%.3f");
                 ImGui::SetItemTooltip("Virtual source spread [0..1]. 1.0 = full spread");
-                ImGui::SliderFloat("Focus##AudioSource", &component.Config.Focus, 0.0f, 1.0f, "%.3f");
+                ImGui::SliderFloat("Focus##AudioSource", &config.Focus, 0.0f, 1.0f, "%.3f");
                 ImGui::SetItemTooltip("Channel focus [0..1]. 1.0 = fully focused");
             }
 
             ImGui::Separator();
             ImGui::Text("DSP Filters");
-            ImGui::SliderFloat("Low-Pass Cutoff##AudioSource", &component.Config.LowPassCutoff, 0.0f, 1.0f, "%.3f");
+            ImGui::SliderFloat("Low-Pass Cutoff##AudioSource", &config.LowPassCutoff, 0.0f, 1.0f, "%.3f");
             ImGui::SetItemTooltip("Normalized cutoff [0..1]. 1.0 = 20 kHz (bypassed)");
-            ImGui::SliderFloat("High-Pass Cutoff##AudioSource", &component.Config.HighPassCutoff, 0.0f, 1.0f, "%.3f");
+            ImGui::SliderFloat("High-Pass Cutoff##AudioSource", &config.HighPassCutoff, 0.0f, 1.0f, "%.3f");
             ImGui::SetItemTooltip("Normalized cutoff [0..1]. 0.0 = 20 Hz (bypassed)");
-            ImGui::SliderFloat("Reverb Send##AudioSource", &component.Config.ReverbSend, 0.0f, 1.0f, "%.3f");
+            ImGui::SliderFloat("Reverb Send##AudioSource", &config.ReverbSend, 0.0f, 1.0f, "%.3f");
             ImGui::SetItemTooltip("Reverb send level [0..1]");
 
             ImGui::Separator();
             ImGui::Text("Event System");
-            if (auto prev = component.UseEventSystem; ImGui::Checkbox("Use Event System##AudioSource", &component.UseEventSystem))
+            bool useEventSystem = component.GetUseEventSystem();
+            if (bool prev = useEventSystem; ImGui::Checkbox("Use Event System##AudioSource", &useEventSystem))
             {
-                if (component.UseEventSystem && !prev)
+                component.SetUseEventSystem(useEventSystem);
+                if (useEventSystem && !prev)
                 {
                     if (auto* reg = m_Context->GetAudioCommandRegistry())
                     {
-                        if (auto resolved = Audio::CommandID::FromString(component.StartEvent); reg->Contains(resolved))
+                        if (auto resolved = Audio::CommandID::FromString(component.GetStartEvent()); reg->Contains(resolved))
                         {
-                            component.StartCommandID = resolved;
+                            component.SetStartCommandID(resolved);
                         }
                         else
                         {
-                            component.StartCommandID = {};
+                            component.SetStartCommandID({});
                         }
                     }
                     else
                     {
-                        component.StartCommandID = {};
+                        component.SetStartCommandID({});
                     }
                 }
             }
-            if (component.UseEventSystem)
+            if (component.GetUseEventSystem())
             {
                 char eventBuf[256] = {};
-                std::strncpy(eventBuf, component.StartEvent.c_str(), sizeof(eventBuf) - 1);
+                std::strncpy(eventBuf, component.GetStartEvent().c_str(), sizeof(eventBuf) - 1);
                 if (ImGui::InputText("Start Event##AudioSource", eventBuf, sizeof(eventBuf)))
                 {
-                    component.StartEvent = eventBuf;
+                    component.SetStartEvent(eventBuf);
                     if (auto* reg = m_Context->GetAudioCommandRegistry())
                     {
-                        if (auto resolved = Audio::CommandID::FromString(component.StartEvent); reg->Contains(resolved))
+                        if (auto resolved = Audio::CommandID::FromString(component.GetStartEvent()); reg->Contains(resolved))
                         {
-                            component.StartCommandID = resolved;
+                            component.SetStartCommandID(resolved);
                         }
                         else
                         {
-                            component.StartCommandID = {};
+                            component.SetStartCommandID({});
                         }
                     }
                     else
                     {
-                        component.StartCommandID = {};
+                        component.SetStartCommandID({});
                     }
                 }
 
@@ -4044,34 +4047,34 @@ namespace OloEngine
                 bool validated = false;
                 if (auto* reg = m_Context->GetAudioCommandRegistry())
                 {
-                    if (!component.StartEvent.empty() && !component.StartCommandID.IsValid())
+                    if (!component.GetStartEvent().empty() && !component.GetStartCommandID().IsValid())
                     {
-                        if (auto resolved = Audio::CommandID::FromString(component.StartEvent); reg->Contains(resolved))
+                        if (auto resolved = Audio::CommandID::FromString(component.GetStartEvent()); reg->Contains(resolved))
                         {
-                            component.StartCommandID = resolved;
+                            component.SetStartCommandID(resolved);
                         }
                     }
-                    if (component.StartCommandID.IsValid())
+                    if (component.GetStartCommandID().IsValid())
                     {
-                        validated = reg->Contains(component.StartCommandID);
+                        validated = reg->Contains(component.GetStartCommandID());
                     }
                 }
 
-                if (component.StartEvent.empty())
+                if (component.GetStartEvent().empty())
                 {
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "No event name set");
                 }
-                else if (!component.StartCommandID.IsValid())
+                else if (!component.GetStartCommandID().IsValid())
                 {
                     ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "Unresolved start event");
                 }
                 else if (!validated && m_Context->IsRunning())
                 {
-                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "CommandID: %u (not found in registry)", component.StartCommandID.ID);
+                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "CommandID: %u (not found in registry)", component.GetStartCommandID().ID);
                 }
                 else
                 {
-                    ImGui::Text("CommandID: %u", component.StartCommandID.ID);
+                    ImGui::Text("CommandID: %u", component.GetStartCommandID().ID);
                 }
             } });
 

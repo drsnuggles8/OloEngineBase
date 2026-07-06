@@ -242,40 +242,6 @@ if (entity.HasComponent<PointLightComponent>())
     out << YAML::EndMap; // PointLightComponent
 }
 
-if (entity.HasComponent<PrefabComponent>())
-{
-    out << YAML::Key << "PrefabComponent";
-    out << YAML::BeginMap; // PrefabComponent
-    auto const& comp = entity.GetComponent<PrefabComponent>();
-    out << YAML::Key << "PrefabID" << YAML::Value << static_cast<u64>(comp.m_PrefabID);
-    out << YAML::Key << "PrefabEntityID" << YAML::Value << static_cast<u64>(comp.m_PrefabEntityID);
-    {
-        std::vector<decltype(comp.m_OverriddenComponents)::value_type> sorted0(comp.m_OverriddenComponents.begin(), comp.m_OverriddenComponents.end());
-        std::ranges::sort(sorted0);
-        out << YAML::Key << "OverriddenComponents" << YAML::Value << YAML::BeginSeq;
-        for (auto const& e : sorted0)
-            out << e;
-        out << YAML::EndSeq;
-    }
-    {
-        std::vector<decltype(comp.m_AddedComponents)::value_type> sorted0(comp.m_AddedComponents.begin(), comp.m_AddedComponents.end());
-        std::ranges::sort(sorted0);
-        out << YAML::Key << "AddedComponents" << YAML::Value << YAML::BeginSeq;
-        for (auto const& e : sorted0)
-            out << e;
-        out << YAML::EndSeq;
-    }
-    {
-        std::vector<decltype(comp.m_RemovedComponents)::value_type> sorted0(comp.m_RemovedComponents.begin(), comp.m_RemovedComponents.end());
-        std::ranges::sort(sorted0);
-        out << YAML::Key << "RemovedComponents" << YAML::Value << YAML::BeginSeq;
-        for (auto const& e : sorted0)
-            out << e;
-        out << YAML::EndSeq;
-    }
-    out << YAML::EndMap; // PrefabComponent
-}
-
 if (entity.HasComponent<QuestGiverComponent>())
 {
     out << YAML::Key << "QuestGiverComponent";

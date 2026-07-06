@@ -56,6 +56,7 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/norm.hpp>
 
+#include <memory>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -82,7 +83,6 @@ namespace OloEngine
     struct TagComponent
     {
         std::string Tag;
-        bool renaming = false; // Transient editor flag — NOT authoring data.
 
         TagComponent() = default;
         TagComponent(const TagComponent& other) = default;
@@ -98,13 +98,31 @@ namespace OloEngine
             return Tag;
         }
 
-        // Authoring-only equality — `renaming` is a transient editor flag toggled
-        // while the user is mid-rename. Including it would treat start/end of an
-        // inline edit as a real change and pollute the undo stack.
         auto operator==(const TagComponent& other) const -> bool
         {
             return Tag == other.Tag;
         }
+    };
+
+    // Cold, editor/prefab-authoring-only override-tracking data (issue #444
+    // hot/cold split). Most prefab instances have no per-instance overrides at
+    // all, so PrefabComponent heap-allocates this on first mutation instead of
+    // carrying three empty std::unordered_sets (~180 bytes) on every instance —
+    // "present only on prefab instances that actually have overrides" is then
+    // literally true (null == no overrides) rather than just conventionally so.
+    struct PrefabOverrideSets
+    {
+        // Components listed here have been intentionally modified on this instance
+        // and will not be updated when the source prefab changes.
+        std::unordered_set<std::string> Overridden;
+
+        // Components added to this instance that do not exist in the source prefab.
+        std::unordered_set<std::string> Added;
+
+        // Components removed from this instance that exist in the source prefab.
+        std::unordered_set<std::string> Removed;
+
+        auto operator==(const PrefabOverrideSets&) const -> bool = default;
     };
 
     struct PrefabComponent
@@ -112,22 +130,24 @@ namespace OloEngine
         UUID m_PrefabID{};
         UUID m_PrefabEntityID{};
 
-        // Component-level override tracking for prefab instances.
-        // Components listed here have been intentionally modified on this instance
-        // and will not be updated when the source prefab changes.
-        std::unordered_set<std::string> m_OverriddenComponents;
-
-        // Components added to this instance that do not exist in the source prefab.
-        std::unordered_set<std::string> m_AddedComponents;
-
-        // Components removed from this instance that exist in the source prefab.
-        std::unordered_set<std::string> m_RemovedComponents;
-
         PrefabComponent() = default;
-        PrefabComponent(const PrefabComponent&) = default;
+        PrefabComponent(const PrefabComponent& other)
+            : m_PrefabID(other.m_PrefabID), m_PrefabEntityID(other.m_PrefabEntityID),
+              m_Overrides(other.m_Overrides ? std::make_unique<PrefabOverrideSets>(*other.m_Overrides) : nullptr)
+        {
+        }
         PrefabComponent(PrefabComponent&&) = default;
-        PrefabComponent& operator=(const PrefabComponent&) = default;
-        PrefabComponent& operator=(PrefabComponent&&) = default;
+        auto operator=(const PrefabComponent& other) -> PrefabComponent&
+        {
+            if (this != &other)
+            {
+                m_PrefabID = other.m_PrefabID;
+                m_PrefabEntityID = other.m_PrefabEntityID;
+                m_Overrides = other.m_Overrides ? std::make_unique<PrefabOverrideSets>(*other.m_Overrides) : nullptr;
+            }
+            return *this;
+        }
+        auto operator=(PrefabComponent&&) -> PrefabComponent& = default;
         PrefabComponent(UUID prefabID, UUID prefabEntityID)
             : m_PrefabID(prefabID), m_PrefabEntityID(prefabEntityID) {}
 
@@ -136,52 +156,116 @@ namespace OloEngine
             return static_cast<u64>(m_PrefabID) != 0 && static_cast<u64>(m_PrefabEntityID) != 0;
         }
 
+        [[nodiscard]] const std::unordered_set<std::string>& GetOverriddenComponents() const noexcept
+        {
+            static const std::unordered_set<std::string> kEmpty;
+            return m_Overrides ? m_Overrides->Overridden : kEmpty;
+        }
+
+        [[nodiscard]] const std::unordered_set<std::string>& GetAddedComponents() const noexcept
+        {
+            static const std::unordered_set<std::string> kEmpty;
+            return m_Overrides ? m_Overrides->Added : kEmpty;
+        }
+
+        [[nodiscard]] const std::unordered_set<std::string>& GetRemovedComponents() const noexcept
+        {
+            static const std::unordered_set<std::string> kEmpty;
+            return m_Overrides ? m_Overrides->Removed : kEmpty;
+        }
+
         [[nodiscard]] inline bool IsComponentOverridden(const std::string& componentName) const
         {
-            return m_OverriddenComponents.contains(componentName);
+            return m_Overrides && m_Overrides->Overridden.contains(componentName);
         }
 
         [[nodiscard]] inline bool IsComponentAdded(const std::string& componentName) const
         {
-            return m_AddedComponents.contains(componentName);
+            return m_Overrides && m_Overrides->Added.contains(componentName);
         }
 
         [[nodiscard]] inline bool IsComponentRemoved(const std::string& componentName) const
         {
-            return m_RemovedComponents.contains(componentName);
+            return m_Overrides && m_Overrides->Removed.contains(componentName);
         }
 
         [[nodiscard]] inline bool HasAnyOverrides() const noexcept
         {
-            return !m_OverriddenComponents.empty() || !m_AddedComponents.empty() || !m_RemovedComponents.empty();
+            return m_Overrides && (!m_Overrides->Overridden.empty() || !m_Overrides->Added.empty() || !m_Overrides->Removed.empty());
         }
 
         inline void MarkComponentOverridden(const std::string& componentName)
         {
-            m_OverriddenComponents.insert(componentName);
+            EnsureOverrides().Overridden.insert(componentName);
+        }
+
+        inline void MarkComponentAdded(const std::string& componentName)
+        {
+            EnsureOverrides().Added.insert(componentName);
+        }
+
+        inline void MarkComponentRemoved(const std::string& componentName)
+        {
+            EnsureOverrides().Removed.insert(componentName);
+        }
+
+        inline void SetOverriddenComponents(std::unordered_set<std::string> names)
+        {
+            EnsureOverrides().Overridden = std::move(names);
+        }
+
+        inline void SetAddedComponents(std::unordered_set<std::string> names)
+        {
+            EnsureOverrides().Added = std::move(names);
+        }
+
+        inline void SetRemovedComponents(std::unordered_set<std::string> names)
+        {
+            EnsureOverrides().Removed = std::move(names);
         }
 
         inline void ClearComponentOverride(const std::string& componentName)
         {
-            m_OverriddenComponents.erase(componentName);
-            m_AddedComponents.erase(componentName);
-            m_RemovedComponents.erase(componentName);
+            if (!m_Overrides)
+                return;
+            m_Overrides->Overridden.erase(componentName);
+            m_Overrides->Added.erase(componentName);
+            m_Overrides->Removed.erase(componentName);
         }
 
         inline void ClearAllOverrides()
         {
-            m_OverriddenComponents.clear();
-            m_AddedComponents.clear();
-            m_RemovedComponents.clear();
+            m_Overrides.reset();
         }
 
         // Manual operator== — UUID members would trigger C2666 ambiguity with
-        // defaulted ==. Compare UUIDs via u64.
+        // defaulted ==. Compare UUIDs via u64; treat a null override blob as
+        // equivalent to one with all-empty sets.
         auto operator==(const PrefabComponent& other) const -> bool
         {
-            return static_cast<u64>(m_PrefabID) == static_cast<u64>(other.m_PrefabID) && static_cast<u64>(m_PrefabEntityID) == static_cast<u64>(other.m_PrefabEntityID) && m_OverriddenComponents == other.m_OverriddenComponents && m_AddedComponents == other.m_AddedComponents && m_RemovedComponents == other.m_RemovedComponents;
+            if (static_cast<u64>(m_PrefabID) != static_cast<u64>(other.m_PrefabID) || static_cast<u64>(m_PrefabEntityID) != static_cast<u64>(other.m_PrefabEntityID))
+                return false;
+            static const PrefabOverrideSets kEmpty;
+            const auto& a = m_Overrides ? *m_Overrides : kEmpty;
+            const auto& b = other.m_Overrides ? *other.m_Overrides : kEmpty;
+            return a == b;
+        }
+
+      private:
+        std::unique_ptr<PrefabOverrideSets> m_Overrides;
+
+        PrefabOverrideSets& EnsureOverrides()
+        {
+            if (!m_Overrides)
+                m_Overrides = std::make_unique<PrefabOverrideSets>();
+            return *m_Overrides;
         }
     };
+
+    // Regression guard for issue #444: before the hot/cold split PrefabComponent
+    // carried three inline std::unordered_sets (~184-208 bytes depending on
+    // stdlib); it should now be just the two UUIDs plus one pointer.
+    static_assert(sizeof(PrefabComponent) <= 32, "PrefabComponent grew back into hot-array bloat — keep override tracking behind PrefabOverrideSets (issue #444)");
 
     struct TransformComponent
     {
@@ -1332,44 +1416,64 @@ namespace OloEngine
         auto operator==(const LuaScriptComponent&) const -> bool = default;
     };
 
-    struct AudioSourceComponent
+    // Cold, editor/scripting-authoring data for AudioSourceComponent (issue #444
+    // hot/cold split): playback config, event wiring, and the SoundConfig asset
+    // handle. Scene::UpdateAudio's per-frame position-sync loop only reads
+    // AudioSourceComponent::Source (see below) — never any of this — so it is
+    // heap-owned instead of inline to keep that hot per-entity iteration small.
+    // Always allocated (a config semantically always exists for an audio
+    // source), unlike PrefabOverrideSets' lazy allocation above.
+    struct AudioSourceColdData
     {
-        OLO_PROPERTY(Name = "Volume", Type = "float", Get = "comp.Config.VolumeMultiplier", Set = "comp.Config.VolumeMultiplier = {v}; if (comp.Source) comp.Source->SetVolume({v})")
-        OLO_PROPERTY(Name = "Pitch", Type = "float", Get = "comp.Config.PitchMultiplier", Set = "comp.Config.PitchMultiplier = {v}; if (comp.Source) comp.Source->SetPitch({v})")
-        OLO_PROPERTY(Name = "PlayOnAwake", Type = "bool", Get = "comp.Config.PlayOnAwake", Set = "comp.Config.PlayOnAwake = {v}")
-        OLO_PROPERTY(Name = "Looping", Type = "bool", Get = "comp.Config.Looping", Set = "comp.Config.Looping = {v}; if (comp.Source) comp.Source->SetLooping({v})")
-        OLO_PROPERTY(Name = "Spatialization", Type = "bool", Get = "comp.Config.Spatialization", Set = "comp.Config.Spatialization = {v}; if (comp.Source) comp.Source->SetSpatialization({v})")
-        OLO_PROPERTY(Name = "AttenuationModel", Type = "int", Get = "static_cast<int>(comp.Config.AttenuationModel)", Set = "comp.Config.AttenuationModel = static_cast<AttenuationModelType>({v}); if (comp.Source) comp.Source->SetAttenuationModel(comp.Config.AttenuationModel)")
-        OLO_PROPERTY(Name = "RollOff", Type = "float", Get = "comp.Config.RollOff", Set = "comp.Config.RollOff = {v}; if (comp.Source) comp.Source->SetRollOff({v})")
-        OLO_PROPERTY(Name = "MinGain", Type = "float", Get = "comp.Config.MinGain", Set = "comp.Config.MinGain = {v}; if (comp.Source) comp.Source->SetMinGain({v})")
-        OLO_PROPERTY(Name = "MaxGain", Type = "float", Get = "comp.Config.MaxGain", Set = "comp.Config.MaxGain = {v}; if (comp.Source) comp.Source->SetMaxGain({v})")
-        OLO_PROPERTY(Name = "MinDistance", Type = "float", Get = "comp.Config.MinDistance", Set = "comp.Config.MinDistance = {v}; if (comp.Source) comp.Source->SetMinDistance({v})")
-        OLO_PROPERTY(Name = "MaxDistance", Type = "float", Get = "comp.Config.MaxDistance", Set = "comp.Config.MaxDistance = {v}; if (comp.Source) comp.Source->SetMaxDistance({v})")
-        OLO_PROPERTY(Name = "ConeInnerAngle", Type = "float", Get = "comp.Config.ConeInnerAngle", Set = "comp.Config.ConeInnerAngle = {v}; if (comp.Source) comp.Source->SetCone(comp.Config.ConeInnerAngle, comp.Config.ConeOuterAngle, comp.Config.ConeOuterGain)")
-        OLO_PROPERTY(Name = "ConeOuterAngle", Type = "float", Get = "comp.Config.ConeOuterAngle", Set = "comp.Config.ConeOuterAngle = {v}; if (comp.Source) comp.Source->SetCone(comp.Config.ConeInnerAngle, comp.Config.ConeOuterAngle, comp.Config.ConeOuterGain)")
-        OLO_PROPERTY(Name = "ConeOuterGain", Type = "float", Get = "comp.Config.ConeOuterGain", Set = "comp.Config.ConeOuterGain = {v}; if (comp.Source) comp.Source->SetCone(comp.Config.ConeInnerAngle, comp.Config.ConeOuterAngle, comp.Config.ConeOuterGain)")
-        OLO_PROPERTY(Name = "DopplerFactor", Type = "float", Get = "comp.Config.DopplerFactor", Set = "comp.Config.DopplerFactor = {v}; if (comp.Source) comp.Source->SetDopplerFactor({v})")
         AudioSourceConfig Config;
 
         // Optional SoundConfig (.olosoundc) preset. When non-zero, Scene::InitAudioRuntime
         // loads the referenced SoundConfigAsset and overwrites Config with its values at
         // playback — a reusable preset shared across entities. Zero means "use the inline
-        // Config above". Exposed as ulong so scripts can swap presets at runtime.
-        OLO_PROPERTY()
+        // Config above".
         AssetHandle SoundConfigHandle = 0;
-
-        Ref<AudioSource> Source = nullptr;
 
         // Event-driven audio
         std::string StartEvent;          // Event name, e.g. "PlayFootsteps"
         Audio::CommandID StartCommandID; // CRC32 of StartEvent (cached)
         bool UseEventSystem = false;     // If true, uses events instead of direct play
-        u64 ActiveEventID = 0;           // Runtime handle from AudioPlayback::PostTrigger
+
+        auto operator==(const AudioSourceColdData& other) const -> bool
+        {
+            return Math::BitwiseEqual(Config, other.Config) && SoundConfigHandle == other.SoundConfigHandle && StartEvent == other.StartEvent && StartCommandID == other.StartCommandID && UseEventSystem == other.UseEventSystem;
+        }
+    };
+
+    struct AudioSourceComponent
+    {
+        // Every property below is a window into the cold m_Cold blob, not the
+        // Source field it happens to be anchored to syntactically (OLO_PROPERTY
+        // just needs a real field declaration to follow the stack — same
+        // precedent as TransformComponent's Rotation/RotationEuler pair above).
+        OLO_PROPERTY(Name = "Volume", Type = "float", Get = "comp.GetConfig().VolumeMultiplier", Set = "comp.GetConfig().VolumeMultiplier = {v}; if (comp.Source) comp.Source->SetVolume({v})")
+        OLO_PROPERTY(Name = "Pitch", Type = "float", Get = "comp.GetConfig().PitchMultiplier", Set = "comp.GetConfig().PitchMultiplier = {v}; if (comp.Source) comp.Source->SetPitch({v})")
+        OLO_PROPERTY(Name = "PlayOnAwake", Type = "bool", Get = "comp.GetConfig().PlayOnAwake", Set = "comp.GetConfig().PlayOnAwake = {v}")
+        OLO_PROPERTY(Name = "Looping", Type = "bool", Get = "comp.GetConfig().Looping", Set = "comp.GetConfig().Looping = {v}; if (comp.Source) comp.Source->SetLooping({v})")
+        OLO_PROPERTY(Name = "Spatialization", Type = "bool", Get = "comp.GetConfig().Spatialization", Set = "comp.GetConfig().Spatialization = {v}; if (comp.Source) comp.Source->SetSpatialization({v})")
+        OLO_PROPERTY(Name = "AttenuationModel", Type = "int", Get = "static_cast<int>(comp.GetConfig().AttenuationModel)", Set = "comp.GetConfig().AttenuationModel = static_cast<AttenuationModelType>({v}); if (comp.Source) comp.Source->SetAttenuationModel(comp.GetConfig().AttenuationModel)")
+        OLO_PROPERTY(Name = "RollOff", Type = "float", Get = "comp.GetConfig().RollOff", Set = "comp.GetConfig().RollOff = {v}; if (comp.Source) comp.Source->SetRollOff({v})")
+        OLO_PROPERTY(Name = "MinGain", Type = "float", Get = "comp.GetConfig().MinGain", Set = "comp.GetConfig().MinGain = {v}; if (comp.Source) comp.Source->SetMinGain({v})")
+        OLO_PROPERTY(Name = "MaxGain", Type = "float", Get = "comp.GetConfig().MaxGain", Set = "comp.GetConfig().MaxGain = {v}; if (comp.Source) comp.Source->SetMaxGain({v})")
+        OLO_PROPERTY(Name = "MinDistance", Type = "float", Get = "comp.GetConfig().MinDistance", Set = "comp.GetConfig().MinDistance = {v}; if (comp.Source) comp.Source->SetMinDistance({v})")
+        OLO_PROPERTY(Name = "MaxDistance", Type = "float", Get = "comp.GetConfig().MaxDistance", Set = "comp.GetConfig().MaxDistance = {v}; if (comp.Source) comp.Source->SetMaxDistance({v})")
+        OLO_PROPERTY(Name = "ConeInnerAngle", Type = "float", Get = "comp.GetConfig().ConeInnerAngle", Set = "comp.GetConfig().ConeInnerAngle = {v}; if (comp.Source) comp.Source->SetCone(comp.GetConfig().ConeInnerAngle, comp.GetConfig().ConeOuterAngle, comp.GetConfig().ConeOuterGain)")
+        OLO_PROPERTY(Name = "ConeOuterAngle", Type = "float", Get = "comp.GetConfig().ConeOuterAngle", Set = "comp.GetConfig().ConeOuterAngle = {v}; if (comp.Source) comp.Source->SetCone(comp.GetConfig().ConeInnerAngle, comp.GetConfig().ConeOuterAngle, comp.GetConfig().ConeOuterGain)")
+        OLO_PROPERTY(Name = "ConeOuterGain", Type = "float", Get = "comp.GetConfig().ConeOuterGain", Set = "comp.GetConfig().ConeOuterGain = {v}; if (comp.Source) comp.Source->SetCone(comp.GetConfig().ConeInnerAngle, comp.GetConfig().ConeOuterAngle, comp.GetConfig().ConeOuterGain)")
+        OLO_PROPERTY(Name = "DopplerFactor", Type = "float", Get = "comp.GetConfig().DopplerFactor", Set = "comp.GetConfig().DopplerFactor = {v}; if (comp.Source) comp.Source->SetDopplerFactor({v})")
+        OLO_PROPERTY(Name = "SoundConfigHandle", Type = "ulong", Get = "static_cast<u64>(comp.GetSoundConfigHandle())", Set = "comp.SetSoundConfigHandle(AssetHandle({v}))")
+        Ref<AudioSource> Source = nullptr;
+
+        u64 ActiveEventID = 0; // Runtime handle from AudioPlayback::PostTrigger
 
         AudioSourceComponent() = default;
 
         AudioSourceComponent(const AudioSourceComponent& other)
-            : Config(other.Config), SoundConfigHandle(other.SoundConfigHandle), Source(other.Source), StartEvent(other.StartEvent), StartCommandID(other.StartCommandID), UseEventSystem(other.UseEventSystem)
+            : Source(other.Source), m_Cold(std::make_unique<AudioSourceColdData>(*other.m_Cold))
         {
         }
 
@@ -1377,23 +1481,69 @@ namespace OloEngine
         {
             if (this != &other)
             {
-                Config = other.Config;
-                SoundConfigHandle = other.SoundConfigHandle;
                 Source = other.Source;
-                StartEvent = other.StartEvent;
-                StartCommandID = other.StartCommandID;
-                UseEventSystem = other.UseEventSystem;
                 ActiveEventID = 0;
+                *m_Cold = *other.m_Cold;
             }
             return *this;
+        }
+
+        [[nodiscard]] AudioSourceConfig& GetConfig() noexcept
+        {
+            return m_Cold->Config;
+        }
+        [[nodiscard]] const AudioSourceConfig& GetConfig() const noexcept
+        {
+            return m_Cold->Config;
+        }
+        [[nodiscard]] AssetHandle GetSoundConfigHandle() const noexcept
+        {
+            return m_Cold->SoundConfigHandle;
+        }
+        void SetSoundConfigHandle(AssetHandle handle) noexcept
+        {
+            m_Cold->SoundConfigHandle = handle;
+        }
+        [[nodiscard]] const std::string& GetStartEvent() const noexcept
+        {
+            return m_Cold->StartEvent;
+        }
+        void SetStartEvent(std::string event)
+        {
+            m_Cold->StartEvent = std::move(event);
+        }
+        [[nodiscard]] Audio::CommandID GetStartCommandID() const noexcept
+        {
+            return m_Cold->StartCommandID;
+        }
+        void SetStartCommandID(Audio::CommandID id) noexcept
+        {
+            m_Cold->StartCommandID = id;
+        }
+        [[nodiscard]] bool GetUseEventSystem() const noexcept
+        {
+            return m_Cold->UseEventSystem;
+        }
+        void SetUseEventSystem(bool value) noexcept
+        {
+            m_Cold->UseEventSystem = value;
         }
 
         // Equality for undo/redo — compares serialized/editor-visible fields only
         auto operator==(const AudioSourceComponent& other) const -> bool
         {
-            return Math::BitwiseEqual(Config, other.Config) && SoundConfigHandle == other.SoundConfigHandle && StartEvent == other.StartEvent && StartCommandID == other.StartCommandID && UseEventSystem == other.UseEventSystem;
+            return *m_Cold == *other.m_Cold;
         }
+
+      private:
+        std::unique_ptr<AudioSourceColdData> m_Cold = std::make_unique<AudioSourceColdData>();
     };
+
+    // Regression guard for issue #444: before the hot/cold split
+    // AudioSourceComponent carried AudioSourceConfig (~76 bytes) plus a
+    // std::string, an AssetHandle, a CommandID and a bool inline; the tight
+    // per-frame position-sync loop in Scene::UpdateAudio only ever needs Source.
+    static_assert(sizeof(AudioSourceComponent) <= 32, "AudioSourceComponent grew back into hot-array bloat — keep config/strings/handles behind AudioSourceColdData (issue #444)");
 
     struct AudioListenerComponent
     {

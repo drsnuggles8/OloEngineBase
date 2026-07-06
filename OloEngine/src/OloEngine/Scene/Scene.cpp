@@ -501,8 +501,6 @@ namespace OloEngine
         if (prefab->RevertComponent(entity, componentName))
         {
             pc.ClearComponentOverride(componentName);
-            pc.m_AddedComponents.erase(componentName);
-            pc.m_RemovedComponents.erase(componentName);
         }
     }
 
@@ -524,8 +522,6 @@ namespace OloEngine
         if (prefab->ApplyComponentToPrefab(entity, componentName))
         {
             pc.ClearComponentOverride(componentName);
-            pc.m_AddedComponents.erase(componentName);
-            pc.m_RemovedComponents.erase(componentName);
         }
     }
 
@@ -715,17 +711,17 @@ namespace OloEngine
             // A SoundConfig (.olosoundc) preset, when assigned, is the source of truth for this
             // source's playback parameters: load it and stamp Config before either the event path
             // or the direct-play path reads it.
-            if (ac.SoundConfigHandle != 0)
+            if (ac.GetSoundConfigHandle() != 0)
             {
-                if (auto preset = AssetManager::GetAsset<SoundConfigAsset>(ac.SoundConfigHandle))
-                    ac.Config = preset->m_Config;
+                if (auto preset = AssetManager::GetAsset<SoundConfigAsset>(ac.GetSoundConfigHandle()))
+                    ac.GetConfig() = preset->m_Config;
             }
 
             // Event-driven audio: post the start event instead of direct play
-            if (ac.UseEventSystem && ac.StartCommandID.IsValid() && ac.Config.PlayOnAwake)
+            if (ac.GetUseEventSystem() && ac.GetStartCommandID().IsValid() && ac.GetConfig().PlayOnAwake)
             {
                 Entity entity(e, this);
-                ac.ActiveEventID = Audio::AudioPlayback::PostTrigger(ac.StartCommandID, static_cast<u64>(entity.GetUUID()));
+                ac.ActiveEventID = Audio::AudioPlayback::PostTrigger(ac.GetStartCommandID(), static_cast<u64>(entity.GetUUID()));
                 continue;
             }
 
@@ -733,10 +729,10 @@ namespace OloEngine
             {
                 const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
                 const glm::vec3 forward = SafeAudioBasis(glm::vec3(inverted[2]), glm::vec3(0.0f, 0.0f, 1.0f));
-                ac.Source->SetConfig(ac.Config);
+                ac.Source->SetConfig(ac.GetConfig());
                 ac.Source->SetPosition(tc.Translation);
                 ac.Source->SetDirection(forward);
-                if (ac.Config.PlayOnAwake)
+                if (ac.GetConfig().PlayOnAwake)
                 {
                     ac.Source->Play();
                 }
@@ -6736,12 +6732,12 @@ namespace OloEngine
                 const auto& [tc, audioSource] = view.get<TransformComponent, AudioSourceComponent>(entity);
 
                 // Only draw gizmo if spatialization is enabled
-                if (audioSource.Config.Spatialization)
+                if (audioSource.GetConfig().Spatialization)
                 {
                     Renderer3D::DrawAudioSourceGizmo(
                         tc.Translation,
-                        audioSource.Config.MinDistance,
-                        audioSource.Config.MaxDistance,
+                        audioSource.GetConfig().MinDistance,
+                        audioSource.GetConfig().MaxDistance,
                         glm::vec3(0.2f, 0.6f, 1.0f) // Blue color for audio
                     );
                 }

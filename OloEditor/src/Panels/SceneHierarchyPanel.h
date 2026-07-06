@@ -78,6 +78,12 @@ namespace OloEngine
         // Rename tracking for undo
         std::string m_RenameOldName;
 
+        // Entity currently being renamed (inline text-edit state). Panel-local
+        // rather than a TagComponent flag (issue #444 hot/cold split) — only one
+        // entity can be mid-rename at a time, so this doesn't need to live on
+        // the runtime component.
+        UUID m_RenamingEntityUUID{ 0 };
+
         // Entity search filter
         char m_FilterText[256] = {};
     };

@@ -120,7 +120,7 @@ static float AudioSourceComponent_GetVolume(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return comp.Config.VolumeMultiplier;
+    return comp.GetConfig().VolumeMultiplier;
 }
 
 static void AudioSourceComponent_SetVolume(UUID entityID, float value)
@@ -132,7 +132,7 @@ static void AudioSourceComponent_SetVolume(UUID entityID, float value)
     if (!std::isfinite(value))
         return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.Config.VolumeMultiplier = value;
+    comp.GetConfig().VolumeMultiplier = value;
     if (comp.Source)
         comp.Source->SetVolume(value);
 }
@@ -144,7 +144,7 @@ static float AudioSourceComponent_GetPitch(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return comp.Config.PitchMultiplier;
+    return comp.GetConfig().PitchMultiplier;
 }
 
 static void AudioSourceComponent_SetPitch(UUID entityID, float value)
@@ -156,7 +156,7 @@ static void AudioSourceComponent_SetPitch(UUID entityID, float value)
     if (!std::isfinite(value))
         return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.Config.PitchMultiplier = value;
+    comp.GetConfig().PitchMultiplier = value;
     if (comp.Source)
         comp.Source->SetPitch(value);
 }
@@ -168,7 +168,7 @@ static bool AudioSourceComponent_GetPlayOnAwake(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return comp.Config.PlayOnAwake;
+    return comp.GetConfig().PlayOnAwake;
 }
 
 static void AudioSourceComponent_SetPlayOnAwake(UUID entityID, bool value)
@@ -178,7 +178,7 @@ static void AudioSourceComponent_SetPlayOnAwake(UUID entityID, bool value)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.Config.PlayOnAwake = value;
+    comp.GetConfig().PlayOnAwake = value;
 }
 
 static bool AudioSourceComponent_GetLooping(UUID entityID)
@@ -188,7 +188,7 @@ static bool AudioSourceComponent_GetLooping(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return comp.Config.Looping;
+    return comp.GetConfig().Looping;
 }
 
 static void AudioSourceComponent_SetLooping(UUID entityID, bool value)
@@ -198,7 +198,7 @@ static void AudioSourceComponent_SetLooping(UUID entityID, bool value)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.Config.Looping = value;
+    comp.GetConfig().Looping = value;
     if (comp.Source)
         comp.Source->SetLooping(value);
 }
@@ -210,7 +210,7 @@ static bool AudioSourceComponent_GetSpatialization(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return comp.Config.Spatialization;
+    return comp.GetConfig().Spatialization;
 }
 
 static void AudioSourceComponent_SetSpatialization(UUID entityID, bool value)
@@ -220,7 +220,7 @@ static void AudioSourceComponent_SetSpatialization(UUID entityID, bool value)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.Config.Spatialization = value;
+    comp.GetConfig().Spatialization = value;
     if (comp.Source)
         comp.Source->SetSpatialization(value);
 }
@@ -232,7 +232,7 @@ static int AudioSourceComponent_GetAttenuationModel(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return static_cast<int>(comp.Config.AttenuationModel);
+    return static_cast<int>(comp.GetConfig().AttenuationModel);
 }
 
 static void AudioSourceComponent_SetAttenuationModel(UUID entityID, int value)
@@ -242,9 +242,9 @@ static void AudioSourceComponent_SetAttenuationModel(UUID entityID, int value)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.Config.AttenuationModel = static_cast<AttenuationModelType>(value);
+    comp.GetConfig().AttenuationModel = static_cast<AttenuationModelType>(value);
     if (comp.Source)
-        comp.Source->SetAttenuationModel(comp.Config.AttenuationModel);
+        comp.Source->SetAttenuationModel(comp.GetConfig().AttenuationModel);
 }
 
 static float AudioSourceComponent_GetRollOff(UUID entityID)
@@ -254,7 +254,7 @@ static float AudioSourceComponent_GetRollOff(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return comp.Config.RollOff;
+    return comp.GetConfig().RollOff;
 }
 
 static void AudioSourceComponent_SetRollOff(UUID entityID, float value)
@@ -266,7 +266,7 @@ static void AudioSourceComponent_SetRollOff(UUID entityID, float value)
     if (!std::isfinite(value))
         return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.Config.RollOff = value;
+    comp.GetConfig().RollOff = value;
     if (comp.Source)
         comp.Source->SetRollOff(value);
 }
@@ -278,7 +278,7 @@ static float AudioSourceComponent_GetMinGain(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return comp.Config.MinGain;
+    return comp.GetConfig().MinGain;
 }
 
 static void AudioSourceComponent_SetMinGain(UUID entityID, float value)
@@ -290,7 +290,7 @@ static void AudioSourceComponent_SetMinGain(UUID entityID, float value)
     if (!std::isfinite(value))
         return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.Config.MinGain = value;
+    comp.GetConfig().MinGain = value;
     if (comp.Source)
         comp.Source->SetMinGain(value);
 }
@@ -302,7 +302,7 @@ static float AudioSourceComponent_GetMaxGain(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return comp.Config.MaxGain;
+    return comp.GetConfig().MaxGain;
 }
 
 static void AudioSourceComponent_SetMaxGain(UUID entityID, float value)
@@ -314,7 +314,7 @@ static void AudioSourceComponent_SetMaxGain(UUID entityID, float value)
     if (!std::isfinite(value))
         return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.Config.MaxGain = value;
+    comp.GetConfig().MaxGain = value;
     if (comp.Source)
         comp.Source->SetMaxGain(value);
 }
@@ -326,7 +326,7 @@ static float AudioSourceComponent_GetMinDistance(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return comp.Config.MinDistance;
+    return comp.GetConfig().MinDistance;
 }
 
 static void AudioSourceComponent_SetMinDistance(UUID entityID, float value)
@@ -338,7 +338,7 @@ static void AudioSourceComponent_SetMinDistance(UUID entityID, float value)
     if (!std::isfinite(value))
         return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.Config.MinDistance = value;
+    comp.GetConfig().MinDistance = value;
     if (comp.Source)
         comp.Source->SetMinDistance(value);
 }
@@ -350,7 +350,7 @@ static float AudioSourceComponent_GetMaxDistance(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return comp.Config.MaxDistance;
+    return comp.GetConfig().MaxDistance;
 }
 
 static void AudioSourceComponent_SetMaxDistance(UUID entityID, float value)
@@ -362,7 +362,7 @@ static void AudioSourceComponent_SetMaxDistance(UUID entityID, float value)
     if (!std::isfinite(value))
         return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.Config.MaxDistance = value;
+    comp.GetConfig().MaxDistance = value;
     if (comp.Source)
         comp.Source->SetMaxDistance(value);
 }
@@ -374,7 +374,7 @@ static float AudioSourceComponent_GetConeInnerAngle(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return comp.Config.ConeInnerAngle;
+    return comp.GetConfig().ConeInnerAngle;
 }
 
 static void AudioSourceComponent_SetConeInnerAngle(UUID entityID, float value)
@@ -386,9 +386,9 @@ static void AudioSourceComponent_SetConeInnerAngle(UUID entityID, float value)
     if (!std::isfinite(value))
         return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.Config.ConeInnerAngle = value;
+    comp.GetConfig().ConeInnerAngle = value;
     if (comp.Source)
-        comp.Source->SetCone(comp.Config.ConeInnerAngle, comp.Config.ConeOuterAngle, comp.Config.ConeOuterGain);
+        comp.Source->SetCone(comp.GetConfig().ConeInnerAngle, comp.GetConfig().ConeOuterAngle, comp.GetConfig().ConeOuterGain);
 }
 
 static float AudioSourceComponent_GetConeOuterAngle(UUID entityID)
@@ -398,7 +398,7 @@ static float AudioSourceComponent_GetConeOuterAngle(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return comp.Config.ConeOuterAngle;
+    return comp.GetConfig().ConeOuterAngle;
 }
 
 static void AudioSourceComponent_SetConeOuterAngle(UUID entityID, float value)
@@ -410,9 +410,9 @@ static void AudioSourceComponent_SetConeOuterAngle(UUID entityID, float value)
     if (!std::isfinite(value))
         return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.Config.ConeOuterAngle = value;
+    comp.GetConfig().ConeOuterAngle = value;
     if (comp.Source)
-        comp.Source->SetCone(comp.Config.ConeInnerAngle, comp.Config.ConeOuterAngle, comp.Config.ConeOuterGain);
+        comp.Source->SetCone(comp.GetConfig().ConeInnerAngle, comp.GetConfig().ConeOuterAngle, comp.GetConfig().ConeOuterGain);
 }
 
 static float AudioSourceComponent_GetConeOuterGain(UUID entityID)
@@ -422,7 +422,7 @@ static float AudioSourceComponent_GetConeOuterGain(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return comp.Config.ConeOuterGain;
+    return comp.GetConfig().ConeOuterGain;
 }
 
 static void AudioSourceComponent_SetConeOuterGain(UUID entityID, float value)
@@ -434,9 +434,9 @@ static void AudioSourceComponent_SetConeOuterGain(UUID entityID, float value)
     if (!std::isfinite(value))
         return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.Config.ConeOuterGain = value;
+    comp.GetConfig().ConeOuterGain = value;
     if (comp.Source)
-        comp.Source->SetCone(comp.Config.ConeInnerAngle, comp.Config.ConeOuterAngle, comp.Config.ConeOuterGain);
+        comp.Source->SetCone(comp.GetConfig().ConeInnerAngle, comp.GetConfig().ConeOuterAngle, comp.GetConfig().ConeOuterGain);
 }
 
 static float AudioSourceComponent_GetDopplerFactor(UUID entityID)
@@ -446,7 +446,7 @@ static float AudioSourceComponent_GetDopplerFactor(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return comp.Config.DopplerFactor;
+    return comp.GetConfig().DopplerFactor;
 }
 
 static void AudioSourceComponent_SetDopplerFactor(UUID entityID, float value)
@@ -458,7 +458,7 @@ static void AudioSourceComponent_SetDopplerFactor(UUID entityID, float value)
     if (!std::isfinite(value))
         return;
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.Config.DopplerFactor = value;
+    comp.GetConfig().DopplerFactor = value;
     if (comp.Source)
         comp.Source->SetDopplerFactor(value);
 }
@@ -470,7 +470,7 @@ static u64 AudioSourceComponent_GetSoundConfigHandle(UUID entityID)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    return comp.SoundConfigHandle;
+    return static_cast<u64>(comp.GetSoundConfigHandle());
 }
 
 static void AudioSourceComponent_SetSoundConfigHandle(UUID entityID, u64 value)
@@ -480,7 +480,7 @@ static void AudioSourceComponent_SetSoundConfigHandle(UUID entityID, u64 value)
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
-    comp.SoundConfigHandle = value;
+    comp.SetSoundConfigHandle(AssetHandle(value));
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////

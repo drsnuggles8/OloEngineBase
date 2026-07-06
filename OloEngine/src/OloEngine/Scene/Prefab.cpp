@@ -364,13 +364,7 @@ namespace OloEngine
             // Preserve the prefab link: keep source entity ID for child-level resolution
             if (prefabChild.HasComponent<PrefabComponent>())
             {
-                const auto& srcPc = prefabChild.GetComponent<PrefabComponent>();
-                auto& dstPc = targetChild.AddOrReplaceComponent<PrefabComponent>();
-                dstPc.m_PrefabID = srcPc.m_PrefabID;
-                dstPc.m_PrefabEntityID = srcPc.m_PrefabEntityID;
-                dstPc.m_OverriddenComponents = srcPc.m_OverriddenComponents;
-                dstPc.m_AddedComponents = srcPc.m_AddedComponents;
-                dstPc.m_RemovedComponents = srcPc.m_RemovedComponents;
+                targetChild.AddOrReplaceComponent<PrefabComponent>(prefabChild.GetComponent<PrefabComponent>());
             }
 
             targetChild.SetParent(targetParent);
@@ -426,7 +420,7 @@ namespace OloEngine
         if (instanceEntity.HasComponent<PrefabComponent>())
         {
             const auto& pc = instanceEntity.GetComponent<PrefabComponent>();
-            for (const auto& name : pc.m_OverriddenComponents)
+            for (const auto& name : pc.GetOverriddenComponents())
                 outOverridden.insert(name);
         }
     }
