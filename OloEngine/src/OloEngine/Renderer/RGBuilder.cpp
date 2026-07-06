@@ -14,6 +14,7 @@ namespace OloEngine
         m_DeclaredAccesses.clear();
         m_DeclaredFeedbacks.clear();
         m_DeclaredPassDependencies.clear();
+        m_DeclaredLifetimeExtensions.clear();
         m_NextVersionOrdinalByResource.clear();
     }
 
@@ -132,6 +133,18 @@ namespace OloEngine
         });
     }
 
+    void RGBuilder::RecordLifetimeExtension(std::string_view resourceName)
+    {
+        if (resourceName.empty())
+            return;
+
+        if (const auto alreadyDeclared = std::ranges::find(m_DeclaredLifetimeExtensions, resourceName);
+            alreadyDeclared == m_DeclaredLifetimeExtensions.end())
+        {
+            m_DeclaredLifetimeExtensions.emplace_back(resourceName);
+        }
+    }
+
     // -------------------------------------------------------------------
     // Read operations
     // -------------------------------------------------------------------
@@ -235,6 +248,41 @@ namespace OloEngine
         else
         {
             RecordWrite(resourceName, usage, range);
+
+            // When the write targets a framebuffer attachment view, also
+            // extend the parent framebuffer's transient lifetime back to
+            // this pass. Without this, a pass that seeds an MRT purely
+            // through attachment-view writes (e.g. OITPreparePass writing
+            // OITAccum/OITRevealage/OITDepthAttachment but never the parent
+            // OITBuffer directly) doesn't count as a writer of the parent
+            // framebuffer, so the transient planner's FirstPassIndex for the
+            // parent starts at the first *reader* instead of this earlier
+            // write — under-reporting the parent's lifetime and letting the
+            // transient allocator alias its storage while the attachment is
+            // still logically live.
+            //
+            // This deliberately does NOT mirror Read's propagation by
+            // calling RecordWrite(parent, ...): that would declare a real
+            // write access under the parent's name, which (a) collides with
+            // this same pass's propagated Read(parent) whenever it also
+            // reads a *different* attachment view of the same framebuffer
+            // (a legitimate RMW pattern, e.g. DecalRenderPass/ParticleRender
+            // Pass sampling one OIT attachment while rewriting another) —
+            // producing a false same-pass feedback hazard on the parent's
+            // name even though the individual views involved never overlap
+            // and are correctly declared via AllowSamePassReadWrite; and (b)
+            // gets expanded by expandTextureViewAccesses back down onto
+            // *every* sibling attachment view of the parent, falsely
+            // implying this pass wrote attachments it never touched (e.g.
+            // marking OITDepthAttachment written just because OITAccum was).
+            // RecordLifetimeExtension sidesteps both by feeding only the
+            // transient planner, not hazard validation or the view-expansion
+            // pass.
+            if (auto parent = m_Graph.FindAttachmentViewParent(resourceName);
+                !parent.empty() && parent != resourceName)
+            {
+                RecordLifetimeExtension(parent);
+            }
         }
 
         (void)usage;

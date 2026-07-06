@@ -1254,6 +1254,11 @@ namespace OloEngine
         // Barrier planning/execution
         std::unordered_map<std::string, std::vector<RGAccessDeclaration>> m_PassAccessDeclarations;
         std::unordered_map<std::string, std::vector<RGFeedbackDeclaration>> m_PassFeedbackDeclarations;
+        // Parent framebuffers whose transient lifetime a pass extends via an
+        // attachment-view write (RGBuilder::GetDeclaredLifetimeExtensions).
+        // Consumed only by RenderGraphTransientPlanner — deliberately kept
+        // out of m_PassAccessDeclarations; see the comment in RGBuilder::Write.
+        std::unordered_map<std::string, std::vector<std::string>> m_PassLifetimeExtensions;
         std::unordered_map<std::string, MemoryBarrierFlags> m_PassBarrierFlags;
         std::vector<PlannedBarrier> m_PlannedBarriers;
         std::vector<BuildDiagnostic> m_BuildDiagnostics;

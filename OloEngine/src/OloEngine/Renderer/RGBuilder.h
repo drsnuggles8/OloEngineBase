@@ -360,6 +360,22 @@ namespace OloEngine
             return m_DeclaredPassDependencies;
         }
 
+        // Resources whose transient lifetime this pass extends without a
+        // full hazard-tracked access declaration — currently just the parent
+        // framebuffer of an attachment view this pass writes (see Write()).
+        // Deliberately NOT folded into GetDeclaredAccesses(): unlike Read's
+        // parent propagation (safe because same-pass Read+Read and harmless
+        // sibling-view expansion never trigger a hazard), a propagated
+        // *write* on the parent's name would (a) collide with a same-pass
+        // read of a sibling view under the feedback-hazard validator, and
+        // (b) get expanded by expandTextureViewAccesses back down onto every
+        // sibling attachment view, falsely implying this pass wrote views it
+        // never touched. Consumed only by RenderGraphTransientPlanner.
+        [[nodiscard]] const std::vector<std::string>& GetDeclaredLifetimeExtensions() const noexcept
+        {
+            return m_DeclaredLifetimeExtensions;
+        }
+
         // Builder-side accessor for the owning graph. Used by free helpers
         // (e.g. `RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass`)
         // that need to look up the latest-version handle for a resource base
@@ -376,6 +392,7 @@ namespace OloEngine
         void RecordFeedback(std::string_view resourceName, const RGSubresourceRange& range);
         void RecordRead(std::string_view resourceName, RGReadUsage usage, const RGSubresourceRange& range);
         void RecordWrite(std::string_view resourceName, RGWriteUsage usage, const RGSubresourceRange& range);
+        void RecordLifetimeExtension(std::string_view resourceName);
 
         RenderGraph& m_Graph;
         const FrameBlackboard& m_Blackboard;
@@ -385,6 +402,7 @@ namespace OloEngine
         std::vector<RGAccessDeclaration> m_DeclaredAccesses;
         std::vector<RGFeedbackDeclaration> m_DeclaredFeedbacks;
         std::vector<std::string> m_DeclaredPassDependencies;
+        std::vector<std::string> m_DeclaredLifetimeExtensions;
         std::unordered_map<std::string, u32> m_NextVersionOrdinalByResource;
     };
 

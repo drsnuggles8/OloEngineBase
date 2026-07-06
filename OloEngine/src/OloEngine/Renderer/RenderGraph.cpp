@@ -132,6 +132,7 @@ namespace OloEngine
         m_LastBuildStats = {};
         m_PassAccessDeclarations.clear();
         m_PassFeedbackDeclarations.clear();
+        m_PassLifetimeExtensions.clear();
         m_PassBarrierFlags.clear();
         m_PlannedBarriers.clear();
         m_BuildDiagnostics.clear();
@@ -208,6 +209,7 @@ namespace OloEngine
         m_LastBuildStats = {};
         m_PassAccessDeclarations.clear();
         m_PassFeedbackDeclarations.clear();
+        m_PassLifetimeExtensions.clear();
         m_PassBarrierFlags.clear();
         m_PlannedBarriers.clear();
         m_BuildDiagnostics.clear();
@@ -4151,6 +4153,7 @@ namespace OloEngine
             .TransientResourceDescs = m_TransientResourceDescs,
             .ExecutionOrder = m_ExecutionOrder,
             .PassAccessDeclarations = m_PassAccessDeclarations,
+            .PassLifetimeExtensions = m_PassLifetimeExtensions,
             .IsPassReachable = [this](const std::string& passName)
             { return IsPassReachable(passName); },
             .IsExternallyBackedTransientResource = [this](std::string_view name)
@@ -5702,6 +5705,7 @@ namespace OloEngine
         m_DependencyGraphDirty = true;
         m_PassAccessDeclarations.clear();
         m_PassFeedbackDeclarations.clear();
+        m_PassLifetimeExtensions.clear();
         m_PassBarrierFlags.clear();
         m_PlannedBarriers.clear();
         m_BuildDiagnostics.clear();
@@ -6077,6 +6081,8 @@ namespace OloEngine
 
             const auto& feedbacks = builder.GetDeclaredFeedbacks();
             m_PassFeedbackDeclarations[nodeName] = expandTextureViewFeedbacks(feedbacks);
+
+            m_PassLifetimeExtensions[nodeName] = builder.GetDeclaredLifetimeExtensions();
 
             const auto& passDependencies = builder.GetDeclaredPassDependencies();
             declaredPassDependenciesByPass[nodeName] = passDependencies;

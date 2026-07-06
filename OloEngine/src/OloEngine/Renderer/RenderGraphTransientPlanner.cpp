@@ -232,33 +232,50 @@ namespace OloEngine::RenderGraphTransientPlanner
         std::unordered_map<std::string, Lifetime> lifetimes;
         lifetimes.reserve(input.TransientResourceDescs.size());
 
+        const auto touchResource = [&input, &lifetimes](const std::string& resourceName,
+                                                        u32 passIndex,
+                                                        const std::string& passName)
+        {
+            if (!input.TransientResourceDescs.contains(resourceName))
+                return;
+
+            auto& lifetime = lifetimes[resourceName];
+            if (!input.IsPassReachable(passName))
+                return;
+
+            lifetime.Reachable = true;
+            if (passIndex < lifetime.First)
+            {
+                lifetime.First = passIndex;
+                lifetime.FirstPass = passName;
+            }
+            if (passIndex >= lifetime.Last)
+            {
+                lifetime.Last = passIndex;
+                lifetime.LastPass = passName;
+            }
+        };
+
         for (u32 passIndex = 0; passIndex < static_cast<u32>(input.ExecutionOrder.size()); ++passIndex)
         {
             const auto& passName = input.ExecutionOrder[passIndex];
-            const auto accessIt = input.PassAccessDeclarations.find(passName);
-            if (accessIt == input.PassAccessDeclarations.end())
-                continue;
-
-            for (const auto& access : accessIt->second)
+            if (const auto accessIt = input.PassAccessDeclarations.find(passName);
+                accessIt != input.PassAccessDeclarations.end())
             {
-                if (!input.TransientResourceDescs.contains(access.ResourceName))
-                    continue;
+                for (const auto& access : accessIt->second)
+                    touchResource(access.ResourceName, passIndex, passName);
+            }
 
-                auto& lifetime = lifetimes[access.ResourceName];
-                if (!input.IsPassReachable(passName))
-                    continue;
-
-                lifetime.Reachable = true;
-                if (passIndex < lifetime.First)
-                {
-                    lifetime.First = passIndex;
-                    lifetime.FirstPass = passName;
-                }
-                if (passIndex >= lifetime.Last)
-                {
-                    lifetime.Last = passIndex;
-                    lifetime.LastPass = passName;
-                }
+            // Attachment-view writes extend their parent framebuffer's
+            // lifetime without a hazard-tracked access declaration (see
+            // RGBuilder::Write) — fold those touches in too so a pass that
+            // seeds an MRT purely through attachment views (e.g.
+            // OITPreparePass) isn't excluded from the parent's FirstPassIndex.
+            if (const auto lifetimeIt = input.PassLifetimeExtensions.find(passName);
+                lifetimeIt != input.PassLifetimeExtensions.end())
+            {
+                for (const auto& resourceName : lifetimeIt->second)
+                    touchResource(resourceName, passIndex, passName);
             }
         }
 
