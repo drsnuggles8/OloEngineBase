@@ -8,32 +8,37 @@ endif()
 
 message(STATUS "Downloading third party libraries using CMake's FetchContent and CPM")
 
-# --- Vendor dependency pinning (#294: reproducible builds) ---
-# Every dependency below is pinned to a fixed commit. A floating branch (GIT_TAG
-# master/main/docking) lets CI silently fetch a newer version than any dev with zero
-# repo changes -- exactly how the #281 flaky physics crash hid (CI and local ran
-# different Jolt commits) -- and it defeats build caching. The SHAs are the branch
-# tips as of 2026-06-05 (the known-good versions built against today); each keeps a
-# trailing "# <branch> @ <date>" so a deliberate bump is a one-line, reviewable change.
+# --- Vendor dependency pinning (#294: reproducible builds + supply-chain integrity) ---
+# EVERY dependency below is pinned to a full commit SHA -- never a bare tag. A git tag
+# (v3.1.1, etc.) is a MOVABLE pointer: the upstream maintainer, or anyone who compromises
+# the account, can force-move it to a different commit, so a tag pin does not guarantee
+# the bytes you fetch. A 40-char commit SHA is content-addressed and immutable, so it is
+# both reproducible AND tamper-evident. A floating branch (GIT_TAG master/main/docking) is
+# worse still -- it lets CI silently fetch a newer version than any dev with zero repo
+# changes (exactly how the #281 flaky physics crash hid: CI and local ran different Jolt
+# commits) and defeats build caching. Two comment conventions, both machine-read by
+# Renovate (.github/renovate.json5) so a deliberate bump stays a one-line, reviewable diff:
+#   * branch-tracked digest pins carry "# <branch> @ <date>" (SHA = that branch tip);
+#   * release pins carry "# <tag>" (SHA = that tag's commit) -- the gold-standard form.
 # NOTE: GIT_SHALLOW must be FALSE for a commit-SHA pin -- a shallow fetch only pulls
 # branch tips and cannot resolve an arbitrary historical commit (see Jolt below).
 FetchContent_Declare(
 	assimp
 	GIT_REPOSITORY	https://github.com/assimp/assimp.git
-	GIT_TAG			ace8c310f5d7452d7ef1e19e81957513326ccd07  # master @ 2026-06-05
+	GIT_TAG			3edb902014ae609bc7e2106c974e7b4c42b2e573  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
 	atomic_queue
 	GIT_REPOSITORY	https://github.com/max0x7ba/atomic_queue.git
-	GIT_TAG			705fe1acf5a0207ad0b2a24ac59d211b91e151a7  # master @ 2026-06-05
+	GIT_TAG			e9724223814e59a5f2d1aa46ed3ff00754191ace  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
 	box2d
 	GIT_REPOSITORY	https://github.com/erincatto/box2d.git
-	GIT_TAG			v3.0.0
-	GIT_SHALLOW		TRUE
+	GIT_TAG			8c661469c9507d3ad6fbd2fea3f1aa71669c2fe3  # v3.1.1
+	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
 	entt
@@ -51,15 +56,15 @@ FetchContent_Declare(
 FetchContent_Declare(
 	glad
 	GIT_REPOSITORY	https://github.com/Dav1dde/glad.git
-	GIT_TAG			v2.0.8
-	GIT_SHALLOW		TRUE
+	GIT_TAG			73db193f853e2ee079bf3ca8a64aa2eaf6459043  # v2.0.8
+	GIT_SHALLOW		FALSE
 	SOURCE_SUBDIR	cmake
 )
 FetchContent_Declare(
 	glfw
 	GIT_REPOSITORY	https://github.com/glfw/glfw.git
-	GIT_TAG			3.4
-	GIT_SHALLOW		TRUE
+	GIT_TAG			7b6aead9fb88b3623e3b3725ebb42670cbe4c579  # 3.4
+	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
 	glm
@@ -70,7 +75,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	googletest
 	GIT_REPOSITORY https://github.com/google/googletest.git
-	GIT_TAG 7140cd416cecd7462a8aae488024abeee55598e4  # main @ 2026-06-05
+	GIT_TAG 973323ed64a05b128418e7eab67016db5ba049df  # main @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 # Pin Jolt to a fixed commit (not a floating branch). A floating `GIT_TAG master`
@@ -111,55 +116,55 @@ FetchContent_Declare(
 FetchContent_Declare(
 	meshoptimizer
 	GIT_REPOSITORY	https://github.com/zeux/meshoptimizer.git
-	GIT_TAG			v1.1
-	GIT_SHALLOW		TRUE
+	GIT_TAG			9d9890c73011d75920af614485296d1e03e95448  # v1.2
+	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
 	recastnavigation
 	GIT_REPOSITORY	https://github.com/recastnavigation/recastnavigation.git
-	GIT_TAG			v1.6.0
-	GIT_SHALLOW		TRUE
+	GIT_TAG			6dc1667f580357e8a2154c28b7867bea7e8ad3a7  # v1.6.0
+	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
 	spdlog
 	GIT_REPOSITORY	https://github.com/gabime/spdlog.git
-	GIT_TAG			v1.15.1
-	GIT_SHALLOW		TRUE
+	GIT_TAG			79524ddd08a4ec981b7fea76afd08ee05f83755d  # v1.17.0
+	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
 	tracy
 	GIT_REPOSITORY	https://github.com/wolfpld/tracy.git
-	GIT_TAG			v0.11.1
-	GIT_SHALLOW		TRUE
+	GIT_TAG			05cceee0df3b8d7c6fa87e9638af311dbabc63cb  # v0.13.1
+	GIT_SHALLOW		FALSE
 	GIT_PROGRESS    TRUE
 )
 FetchContent_Declare(
 	yaml-cpp
 	GIT_REPOSITORY	https://github.com/jbeder/yaml-cpp.git
-	GIT_TAG			2decf96e915d2b0c26c68c1659665789dfef2633  # master @ 2026-06-05
+	GIT_TAG			ee52744a3196c32f29536b4671c703146cac9cb6  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
     zlib
     GIT_REPOSITORY https://github.com/madler/zlib.git
-    GIT_TAG v1.3.1
-	GIT_SHALLOW		TRUE
+    GIT_TAG da607da739fa6047df13e66a2af6b8bec7c2a498  # v1.3.2
+	GIT_SHALLOW		FALSE
 )
 
 # --- libsodium (crypto backend for GameNetworkingSockets) ---
 FetchContent_Declare(
 	libsodium
 	GIT_REPOSITORY	https://github.com/jedisct1/libsodium.git
-	GIT_TAG			1.0.20-RELEASE
-	GIT_SHALLOW		TRUE
+	GIT_TAG			77e1ce5d6dee871c49ef211222ba18ef0c486bda  # 1.0.22
+	GIT_SHALLOW		FALSE
 )
 
 # --- Protobuf (required by GameNetworkingSockets) ---
 FetchContent_Declare(
 	protobuf
 	GIT_REPOSITORY	https://github.com/protocolbuffers/protobuf.git
-	GIT_TAG			v35.1
-	GIT_SHALLOW		TRUE
+	GIT_TAG			35cd01f9fe9afbeea38cc7b979a3b6bfcde82c03  # v35.1
+	GIT_SHALLOW		FALSE
 	EXCLUDE_FROM_ALL
 )
 
@@ -167,7 +172,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	GameNetworkingSockets
 	GIT_REPOSITORY	https://github.com/ValveSoftware/GameNetworkingSockets.git
-	GIT_TAG			d67d1673abb1a3c00dfa9e62344860e15c741c1d  # master @ 2026-06-05
+	GIT_TAG			f4525e39ee10f6b45181fd92d01fee75f7d71756  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 	EXCLUDE_FROM_ALL
 )
@@ -291,7 +296,7 @@ set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
-	GIT_TAG 2af6dd9694288e6befe1edb7ce25510911693c22  # docking @ 2026-06-05
+	GIT_TAG 4be08b1ecf7709f15e4274fb2ddac37e121d7d9a  # docking @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if(imgui_ADDED)
@@ -314,7 +319,7 @@ endif()
 
 CPMAddPackage(NAME imguizmo
 	GITHUB_REPOSITORY CedricGuillemet/ImGuizmo
-	GIT_TAG be8aa4aeab86b402701c8c1df011bd8cd776760b  # master @ 2026-06-05
+	GIT_TAG 87fb88b13a4f6bb04cd6ecd4e9d1625929935ff1  # master @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if (imguizmo_ADDED)
@@ -358,7 +363,7 @@ endif()
 # Pinned to a fixed tag SHA for reproducible builds (#294 convention).
 CPMAddPackage(NAME cpp_httplib
   GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-  GIT_TAG 5304464a53f793f8e3e4777ea5941d60cf8c91e3  # v0.29.0
+  GIT_TAG 2132205e1a69c9fce8096f085b1b8d72efc759fa  # v0.49.0
   GIT_SHALLOW FALSE
   DOWNLOAD_ONLY YES)
 if(cpp_httplib_ADDED)
@@ -446,9 +451,9 @@ if(NOT libsodium_POPULATED)
 			file(WRITE "${libsodium_SOURCE_DIR}/src/libsodium/include/sodium/version.h"
 				"#ifndef sodium_version_H\n"
 				"#define sodium_version_H\n"
-				"#define SODIUM_VERSION_STRING \"1.0.20\"\n"
+				"#define SODIUM_VERSION_STRING \"1.0.22\"\n"
 				"#define SODIUM_LIBRARY_VERSION_MAJOR 26\n"
-				"#define SODIUM_LIBRARY_VERSION_MINOR 2\n"
+				"#define SODIUM_LIBRARY_VERSION_MINOR 3\n"
 				"#define SODIUM_LIBRARY_MINIMAL 0\n"
 				"#endif\n"
 			)
@@ -612,7 +617,11 @@ endif()
 
 set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
 set_target_properties(box2d PROPERTIES FOLDER "Utilities/box2d")
-set_target_properties(simde PROPERTIES FOLDER "Utilities/box2d")
+# box2d dropped its bundled `simde` SIMD-portability target in v3.1 (it now carries
+# its own SIMD abstraction), so guard the IDE-folder assignment.
+if(TARGET simde)
+	set_target_properties(simde PROPERTIES FOLDER "Utilities/box2d")
+endif()
 set_target_properties(glad PROPERTIES FOLDER "Utilities/glad")
 set_target_properties(glfw PROPERTIES FOLDER "Utilities/GLFW3")
 set_target_properties(glm PROPERTIES FOLDER "Utilities")
@@ -635,9 +644,17 @@ set_target_properties(lua PROPERTIES FOLDER "Utilities/Lua")
 set_target_properties(spdlog PROPERTIES FOLDER "Utilities")
 set_target_properties(TracyClient PROPERTIES FOLDER "Utilities")
 set_target_properties(yaml-cpp PROPERTIES FOLDER "Utilities")
-set_target_properties(example PROPERTIES FOLDER "Utilities/zlib")
-set_target_properties(minigzip PROPERTIES FOLDER "Utilities/zlib")
-set_target_properties(zlib PROPERTIES FOLDER "Utilities/zlib")
+# zlib v1.3.2 gates its `example`/`minigzip` test programs behind ZLIB_BUILD_EXAMPLES
+# (and no longer defines them in our static-only config), so guard those two.
+if(TARGET example)
+	set_target_properties(example PROPERTIES FOLDER "Utilities/zlib")
+endif()
+if(TARGET minigzip)
+	set_target_properties(minigzip PROPERTIES FOLDER "Utilities/zlib")
+endif()
+if(TARGET zlib)
+	set_target_properties(zlib PROPERTIES FOLDER "Utilities/zlib")
+endif()
 set_target_properties(zlibstatic PROPERTIES FOLDER "Utilities/zlib")
 
 # ClangCL compatibility: Vendor libraries (Jolt, assimp, box2d) use /Wall /WX,
