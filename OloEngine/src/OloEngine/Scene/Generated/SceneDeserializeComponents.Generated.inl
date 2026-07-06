@@ -4,13 +4,15 @@
 // Per-component scene-YAML deserialize blocks — one block per
 // `struct *Component` whose every data member is a primitive / small-int /
 // glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / enum / Ref<T> of an
-// Asset-derived T, an all-trivial nested struct, or a std::vector of one of
-// those (the generator's SceneSerType plus the enum-type, Ref<T>/CollectAssetTypes,
-// nested-struct, and std::vector handling), minus the kComponentsCustomSerialize
-// exclusion set (trivial components deliberately kept hand-written). A component
-// with any still-unhandled non-trivial field (Ref<T> of a non-asset type,
-// std::unordered_map/set, std::array, a vector-of-non-trivial-struct, or a
-// non-public member) is classified non-trivial and stays hand-written.
+// Asset-derived T, an all-trivial nested struct, a std::vector of one of those,
+// a std::unordered_set of a sortable trivial scalar, or a std::string-keyed
+// std::unordered_map (the generator's SceneSerType plus the enum-type,
+// Ref<T>/CollectAssetTypes, nested-struct, std::vector, and unordered_set/map
+// handling), minus the kComponentsCustomSerialize exclusion set (trivial
+// components deliberately kept hand-written). A component with any still-
+// unhandled non-trivial field (Ref<T> of a non-asset type, std::array, a
+// non-string-keyed map, a vector-of-non-trivial-struct, or a non-public member)
+// is classified non-trivial and stays hand-written.
 //
 // #include'd inside SceneSerializer::DeserializeEntityComponents, where `entity` (const YAML::Node&) and `deserializedEntity` (Entity&)
 // are in scope. Floats are validated with std::isfinite via TryReadFiniteF32 /
@@ -226,6 +228,34 @@ if (auto node = entity["PointLightComponent"]; node)
         comp.m_ShadowBias = v;
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowNormalBias"], v))
         comp.m_ShadowNormalBias = v;
+}
+
+if (auto node = entity["PrefabComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<PrefabComponent>();
+    comp.m_PrefabID = node["PrefabID"].as<u64>(static_cast<u64>(comp.m_PrefabID));
+    comp.m_PrefabEntityID = node["PrefabEntityID"].as<u64>(static_cast<u64>(comp.m_PrefabEntityID));
+    if (auto seqNode = node["OverriddenComponents"]; seqNode && seqNode.IsSequence())
+    {
+        comp.m_OverriddenComponents.clear();
+        for (auto const& e : seqNode)
+            if (decltype(comp.m_OverriddenComponents)::value_type v{}; ::YAML::convert<decltype(comp.m_OverriddenComponents)::value_type>::decode(e, v))
+                comp.m_OverriddenComponents.insert(v);
+    }
+    if (auto seqNode = node["AddedComponents"]; seqNode && seqNode.IsSequence())
+    {
+        comp.m_AddedComponents.clear();
+        for (auto const& e : seqNode)
+            if (decltype(comp.m_AddedComponents)::value_type v{}; ::YAML::convert<decltype(comp.m_AddedComponents)::value_type>::decode(e, v))
+                comp.m_AddedComponents.insert(v);
+    }
+    if (auto seqNode = node["RemovedComponents"]; seqNode && seqNode.IsSequence())
+    {
+        comp.m_RemovedComponents.clear();
+        for (auto const& e : seqNode)
+            if (decltype(comp.m_RemovedComponents)::value_type v{}; ::YAML::convert<decltype(comp.m_RemovedComponents)::value_type>::decode(e, v))
+                comp.m_RemovedComponents.insert(v);
+    }
 }
 
 if (auto node = entity["QuestGiverComponent"]; node)

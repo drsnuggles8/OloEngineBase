@@ -4,13 +4,15 @@
 // Per-component scene-YAML serialize blocks — one block per
 // `struct *Component` whose every data member is a primitive / small-int /
 // glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / enum / Ref<T> of an
-// Asset-derived T, an all-trivial nested struct, or a std::vector of one of
-// those (the generator's SceneSerType plus the enum-type, Ref<T>/CollectAssetTypes,
-// nested-struct, and std::vector handling), minus the kComponentsCustomSerialize
-// exclusion set (trivial components deliberately kept hand-written). A component
-// with any still-unhandled non-trivial field (Ref<T> of a non-asset type,
-// std::unordered_map/set, std::array, a vector-of-non-trivial-struct, or a
-// non-public member) is classified non-trivial and stays hand-written.
+// Asset-derived T, an all-trivial nested struct, a std::vector of one of those,
+// a std::unordered_set of a sortable trivial scalar, or a std::string-keyed
+// std::unordered_map (the generator's SceneSerType plus the enum-type,
+// Ref<T>/CollectAssetTypes, nested-struct, std::vector, and unordered_set/map
+// handling), minus the kComponentsCustomSerialize exclusion set (trivial
+// components deliberately kept hand-written). A component with any still-
+// unhandled non-trivial field (Ref<T> of a non-asset type, std::array, a
+// non-string-keyed map, a vector-of-non-trivial-struct, or a non-public member)
+// is classified non-trivial and stays hand-written.
 //
 // #include'd inside SceneSerializer::SerializeEntity, where `out` (YAML::Emitter&) and `entity` (Entity)
 // are in scope. Floats are validated with std::isfinite via TryReadFiniteF32 /
@@ -238,6 +240,40 @@ if (entity.HasComponent<PointLightComponent>())
     out << YAML::Key << "ShadowBias" << YAML::Value << comp.m_ShadowBias;
     out << YAML::Key << "ShadowNormalBias" << YAML::Value << comp.m_ShadowNormalBias;
     out << YAML::EndMap; // PointLightComponent
+}
+
+if (entity.HasComponent<PrefabComponent>())
+{
+    out << YAML::Key << "PrefabComponent";
+    out << YAML::BeginMap; // PrefabComponent
+    auto const& comp = entity.GetComponent<PrefabComponent>();
+    out << YAML::Key << "PrefabID" << YAML::Value << static_cast<u64>(comp.m_PrefabID);
+    out << YAML::Key << "PrefabEntityID" << YAML::Value << static_cast<u64>(comp.m_PrefabEntityID);
+    {
+        std::vector<decltype(comp.m_OverriddenComponents)::value_type> sorted0(comp.m_OverriddenComponents.begin(), comp.m_OverriddenComponents.end());
+        std::ranges::sort(sorted0);
+        out << YAML::Key << "OverriddenComponents" << YAML::Value << YAML::BeginSeq;
+        for (auto const& e : sorted0)
+            out << e;
+        out << YAML::EndSeq;
+    }
+    {
+        std::vector<decltype(comp.m_AddedComponents)::value_type> sorted0(comp.m_AddedComponents.begin(), comp.m_AddedComponents.end());
+        std::ranges::sort(sorted0);
+        out << YAML::Key << "AddedComponents" << YAML::Value << YAML::BeginSeq;
+        for (auto const& e : sorted0)
+            out << e;
+        out << YAML::EndSeq;
+    }
+    {
+        std::vector<decltype(comp.m_RemovedComponents)::value_type> sorted0(comp.m_RemovedComponents.begin(), comp.m_RemovedComponents.end());
+        std::ranges::sort(sorted0);
+        out << YAML::Key << "RemovedComponents" << YAML::Value << YAML::BeginSeq;
+        for (auto const& e : sorted0)
+            out << e;
+        out << YAML::EndSeq;
+    }
+    out << YAML::EndMap; // PrefabComponent
 }
 
 if (entity.HasComponent<QuestGiverComponent>())

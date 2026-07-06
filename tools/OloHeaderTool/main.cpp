@@ -39,11 +39,13 @@
 //      persists every field, not just script-exposed ones), minus the
 //      kComponentsCustomSerialize exclusion set. #include'd by
 //      SceneSerializer.cpp. Enum, AssetHandle, and Ref<T> (of an Asset-derived T)
-//      fields, std::vector of a trivial element, and all-trivial nested structs are
-//      handled too; a component with any STILL-unhandled non-trivial field
-//      (std::unordered_map/set, std::array, Ref<T> of a non-asset type, …) is
-//      classified non-trivial and stays hand-written. Collapses the last big
-//      *unguarded* ECS touch-point — a forgotten field was silent scene-data loss.
+//      fields, std::vector of a trivial element, all-trivial nested structs,
+//      std::unordered_set of a sortable trivial scalar, and std::unordered_map
+//      keyed by std::string are handled too; a component with any STILL-unhandled
+//      non-trivial field (std::array, a non-string-keyed map, Ref<T> of a
+//      non-asset type, …) is classified non-trivial and stays hand-written.
+//      Collapses the last big *unguarded* ECS touch-point — a forgotten field was
+//      silent scene-data loss.
 //
 // Usage:
 //   OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir> <scene_out_dir> <savegame_out_dir>
@@ -337,6 +339,38 @@ static std::string ReplaceAll(std::string s, const std::string& from, const std:
     for (size_t pos = 0; (pos = s.find(from, pos)) != std::string::npos; pos += to.size())
         s.replace(pos, from.size(), to);
     return s;
+}
+
+// Split a template-argument-list string at top-level commas — i.e. commas at
+// angle-bracket depth 0 — so `std::unordered_map<std::string, f32>`'s inner text
+// "std::string, f32" splits into ["std::string", "f32"] while a hypothetical
+// nested-template argument keeps its internal comma intact. Used to separate a
+// std::unordered_map<K, V[, Hash[, KeyEq]]> member's template arguments; the
+// caller rejects anything other than exactly 2 parts (a custom hash/equality
+// functor, or a malformed declaration).
+static std::vector<std::string> SplitTopLevelCommas(const std::string& s)
+{
+    std::vector<std::string> parts;
+    int depth = 0;
+    std::string cur;
+    for (char c : s)
+    {
+        if (c == '<')
+            ++depth;
+        else if (c == '>')
+            --depth;
+        if (c == ',' && depth == 0)
+        {
+            parts.push_back(Trim(cur));
+            cur.clear();
+        }
+        else
+        {
+            cur += c;
+        }
+    }
+    parts.push_back(Trim(cur));
+    return parts;
 }
 
 // Splits a multi-statement expression (separated by ';') and emits each
@@ -968,10 +1002,12 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 // The scene serialize/deserialize codegen (issue #380; AssetHandle/UUID added by
 // the #451 first slice, enums by the #451 enum slice, glm-math + small-int +
 // std::vector<primitive> by the #451 glm/vector slice, an all-trivial nested
-// struct / std::vector<struct> — recursively — by the #451 nested-struct slice, and
-// Ref<T> of an Asset-derived T by the #451 Ref<T> slice) emits a block for every
-// all-trivial component EXCEPT these; anything with a still-unhandled non-trivial
-// field (Ref<T> of a non-asset type, std::unordered_map/set, std::array, a
+// struct / std::vector<struct> — recursively — by the #451 nested-struct slice,
+// Ref<T> of an Asset-derived T by the #451 Ref<T> slice, and a sortable-scalar
+// std::unordered_set / a std::string-keyed std::unordered_map by the #451
+// unordered_map/set slice) emits a block for every all-trivial component EXCEPT
+// these; anything with a still-unhandled non-trivial field (Ref<T> of a
+// non-asset type, std::array, a non-string-keyed map, a
 // std::vector<Ref<T>> / vector-of-non-trivial-struct, or a non-public data member) is
 // classified non-trivial by the parser and skipped automatically without an entry here.
 //
@@ -1239,6 +1275,17 @@ struct SerField
     // For a std::vector<struct>, type == PropType::Struct and subFields holds the
     // element struct's fields.
     bool isVector{ false };
+    // When true the member is a std::unordered_set<E> serialized as a YAML
+    // sequence, SORTED before emit (unlike isVector, whose declaration order is
+    // already deterministic) — issue #451's unordered_map/set slice. `type` holds
+    // the element PropType E; mutually exclusive with isVector/isMap.
+    bool isSet{ false };
+    // When true the member is a std::unordered_map<std::string, V> serialized as
+    // a YAML mapping, sorted BY KEY before emit for the same determinism reason
+    // as isSet — issue #451's unordered_map/set slice. `type` holds the value
+    // PropType V; the key is always std::string (the only key type any real
+    // component or precedent uses). Mutually exclusive with isVector/isSet.
+    bool isMap{ false };
     // Populated only when type == PropType::Struct: the recursively-classified
     // fields of the nested struct (scalar member) or the vector's element struct
     // (isVector). Empty for every scalar / primitive / enum type.
@@ -1286,10 +1333,14 @@ struct ComponentSerInfo
 // #451's nested-struct slice — also AFTER this returns Unknown. A `Ref<T>` member
 // (T transitively deriving from Asset) is likewise classified PropType::Ref by
 // ParseComponentFields directly (against CollectAssetTypes), AFTER this returns
-// Unknown — #451's Ref<T> slice. Anything still unhandled — Ref<T> of a non-asset
-// type, std::unordered_map/set, std::array, a vector-of-non-trivial-struct, raw
-// pointer, … — returns Unknown and (being neither a built-in, an enum, a recognised
-// vector, a trivial nested struct, nor an asset-backed Ref<T>) marks the component
+// Unknown — #451's Ref<T> slice. A std::unordered_set<E> (E a sortable trivial
+// scalar) and a std::string-keyed std::unordered_map<std::string, V> are also
+// classified directly by ParseComponentFields after this returns Unknown —
+// #451's unordered_map/set slice. Anything still unhandled — Ref<T> of a
+// non-asset type, std::array, a non-string-keyed map, a vector-of-non-trivial-
+// struct, raw pointer, … — returns Unknown and (being neither a built-in, an
+// enum, a recognised vector/set/map, a trivial nested struct, nor an
+// asset-backed Ref<T>) marks the component
 // non-trivial so it stays hand-written in SceneSerializer.cpp (a future #451 slice).
 static PropType SceneSerType(const std::string& t)
 {
@@ -1661,6 +1712,32 @@ static std::optional<std::vector<SerField>> ClassifyStruct(
     return sub.fields;
 }
 
+// std::unordered_set<E> element eligibility (issue #451's unordered_map/set
+// slice) — the same trivial scalar types std::vector<E> accepts, MINUS the glm
+// vector/matrix/quat types and nested struct: none of those define a meaningful
+// operator< for the sort-before-emit step in EmitSerializeFields, and no real
+// component needs one as a set element. Float is excluded too — sorting a
+// sequence containing NaN is undefined behavior (violates strict-weak
+// ordering), and no real component needs a float set.
+static bool IsSetEligiblePropType(PropType t)
+{
+    switch (t)
+    {
+        case PropType::Bool:
+        case PropType::Int:
+        case PropType::UInt:
+        case PropType::U64:
+        case PropType::SmallUInt:
+        case PropType::SmallInt:
+        case PropType::AssetHandle:
+        case PropType::String:
+        case PropType::Enum:
+            return true;
+        default:
+            return false;
+    }
+}
+
 // Parse the top-level data members of a `struct { ... }` body and classify it as
 // auto-serializable or not — used for both `struct *Component` bodies and (via
 // ClassifyStruct) nested struct member types. A member is collected only when it is
@@ -1864,6 +1941,78 @@ static ComponentSerInfo ParseComponentFields(std::string body,
             f.isVector = true;
             if (ept == PropType::Struct)
                 f.subFields = std::move(*elemStruct);
+            info.fields.push_back(f);
+            continue;
+        }
+
+        // std::unordered_set<E> member (issue #451 unordered_map/set slice) —
+        // serialized as a YAML sequence, SORTED before emit since (unlike
+        // std::vector) an unordered_set's iteration order is not deterministic —
+        // see EmitSerializeFields. E must be one of the sortable trivial scalar
+        // types (IsSetEligiblePropType); a set of struct / Ref / glm-vector /
+        // float / nested template stays non-trivial, same fail-safe discipline as
+        // every other unhandled construct here.
+        if (auto lt = decl.find('<'); lt != std::string::npos &&
+                                      Trim(decl.substr(0, lt)) == "std::unordered_set")
+        {
+            auto gt = decl.rfind('>');
+            std::string inner = (gt != std::string::npos && gt > lt) ? Trim(decl.substr(lt + 1, gt - lt - 1)) : "";
+            std::string rest = (gt != std::string::npos) ? Trim(decl.substr(gt + 1)) : "";
+            PropType ept = SceneSerType(inner);
+            if (ept == PropType::Unknown && enumTypes.contains(LeafTypeName(inner)))
+                ept = PropType::Enum;
+            if (inner.find('<') != std::string::npos || !IsSetEligiblePropType(ept) || !IsIdentifier(rest) ||
+                !publicSection || fieldHasClamp)
+            {
+                ambiguous = true;
+                continue;
+            }
+            SerField f;
+            f.member = rest;
+            f.key = StripPrefix(rest, "m_");
+            f.type = ept;
+            f.isSet = true;
+            info.fields.push_back(f);
+            continue;
+        }
+
+        // std::unordered_map<std::string, V> member (issue #451 unordered_map/set
+        // slice) — serialized as a genuine YAML mapping, sorted BY KEY before emit
+        // for the same determinism reason as std::unordered_set above (matches the
+        // on-disk shape of every hand-written string-keyed map in this codebase,
+        // e.g. MorphTargetComponent::Weights). Scoped to a std::string key — the
+        // only key type any real component or hand-written precedent uses — via
+        // SplitTopLevelCommas: exactly 2 top-level template args are required, so
+        // a 3rd arg (custom hash/equality functor) or a non-string key stays
+        // non-trivial. V is any trivial scalar/glm/string/enum/AssetHandle element
+        // type std::vector accepts; a struct-valued map is not handled by this
+        // slice (no real component needs one).
+        if (auto lt = decl.find('<'); lt != std::string::npos &&
+                                      Trim(decl.substr(0, lt)) == "std::unordered_map")
+        {
+            auto gt = decl.rfind('>');
+            std::string inner = (gt != std::string::npos && gt > lt) ? Trim(decl.substr(lt + 1, gt - lt - 1)) : "";
+            std::string rest = (gt != std::string::npos) ? Trim(decl.substr(gt + 1)) : "";
+            std::vector<std::string> parts = SplitTopLevelCommas(inner);
+            PropType vt = PropType::Unknown;
+            bool keyOk = false;
+            if (parts.size() == 2)
+            {
+                keyOk = parts[0] == "std::string";
+                vt = SceneSerType(parts[1]);
+                if (vt == PropType::Unknown && enumTypes.contains(LeafTypeName(parts[1])))
+                    vt = PropType::Enum;
+            }
+            if (!keyOk || vt == PropType::Unknown || !IsIdentifier(rest) || !publicSection || fieldHasClamp)
+            {
+                ambiguous = true;
+                continue;
+            }
+            SerField f;
+            f.member = rest;
+            f.key = StripPrefix(rest, "m_");
+            f.type = vt;
+            f.isMap = true;
             info.fields.push_back(f);
             continue;
         }
@@ -2236,13 +2385,15 @@ static void EmitSceneSerializerHeader(std::ostream& out, const char* verb, const
     out << "// Per-component scene-YAML " << verb << " blocks — one block per\n";
     out << "// `struct *Component` whose every data member is a primitive / small-int /\n";
     out << "// glm::vec*/ivec*/quat/mat* / std::string / AssetHandle / enum / Ref<T> of an\n";
-    out << "// Asset-derived T, an all-trivial nested struct, or a std::vector of one of\n";
-    out << "// those (the generator's SceneSerType plus the enum-type, Ref<T>/CollectAssetTypes,\n";
-    out << "// nested-struct, and std::vector handling), minus the kComponentsCustomSerialize\n";
-    out << "// exclusion set (trivial components deliberately kept hand-written). A component\n";
-    out << "// with any still-unhandled non-trivial field (Ref<T> of a non-asset type,\n";
-    out << "// std::unordered_map/set, std::array, a vector-of-non-trivial-struct, or a\n";
-    out << "// non-public member) is classified non-trivial and stays hand-written.\n";
+    out << "// Asset-derived T, an all-trivial nested struct, a std::vector of one of those,\n";
+    out << "// a std::unordered_set of a sortable trivial scalar, or a std::string-keyed\n";
+    out << "// std::unordered_map (the generator's SceneSerType plus the enum-type,\n";
+    out << "// Ref<T>/CollectAssetTypes, nested-struct, std::vector, and unordered_set/map\n";
+    out << "// handling), minus the kComponentsCustomSerialize exclusion set (trivial\n";
+    out << "// components deliberately kept hand-written). A component with any still-\n";
+    out << "// unhandled non-trivial field (Ref<T> of a non-asset type, std::array, a\n";
+    out << "// non-string-keyed map, a vector-of-non-trivial-struct, or a non-public member)\n";
+    out << "// is classified non-trivial and stays hand-written.\n";
     out << "//\n";
     out << "// #include'd inside SceneSerializer::" << func << ", where " << locals << "\n";
     out << "// are in scope. Floats are validated with std::isfinite via TryReadFiniteF32 /\n";
@@ -2356,6 +2507,61 @@ static void EmitSerializeFields(std::ostream& out, const std::vector<SerField>& 
                 << access << "->GetHandle());\n";
             continue;
         }
+        // std::unordered_set<E> (issue #451 unordered_map/set slice) — copy into a
+        // temporary vector and sort it before emitting, so the YAML output is
+        // deterministic (an unordered_set's iteration order is implementation-
+        // defined and can vary run-to-run, which would otherwise break the
+        // "serialize -> deserialize -> serialize produces identical YAML"
+        // round-trip guarantee). AssetHandle elements sort via an explicit u64
+        // cast — UUID has no operator< of its own, only an implicit conversion to
+        // u64, same reasoning as SceneWriteExpr's own AssetHandle cast below —
+        // every other IsSetEligiblePropType element has a native operator<.
+        if (f.isSet)
+        {
+            const std::string sorted = "sorted" + std::to_string(depth);
+            out << indent << "{\n";
+            out << indent << "    std::vector<decltype(" << access << ")::value_type> " << sorted << "("
+                << access << ".begin(), " << access << ".end());\n";
+            if (f.type == PropType::AssetHandle)
+            {
+                out << indent << "    std::ranges::sort(" << sorted
+                    << ", [](auto const& lhs, auto const& rhs) { return static_cast<u64>(lhs) < static_cast<u64>(rhs); });\n";
+            }
+            else
+            {
+                out << indent << "    std::ranges::sort(" << sorted << ");\n";
+            }
+            out << indent << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << YAML::BeginSeq;\n";
+            out << indent << "    for (auto const& " << ElemVar(depth) << " : " << sorted << ")\n";
+            out << indent << "        out << " << SceneWriteExpr(f.type, ElemVar(depth)) << ";\n";
+            out << indent << "    out << YAML::EndSeq;\n";
+            out << indent << "}\n";
+            continue;
+        }
+        // std::unordered_map<std::string, V> (issue #451 unordered_map/set slice)
+        // — sorted by key for the same determinism reason as std::unordered_set
+        // above. Emitted as a genuine YAML mapping (not a sequence of pairs) —
+        // matches the on-disk shape of every hand-written string-keyed map in
+        // this codebase (e.g. MorphTargetComponent::Weights).
+        if (f.isMap)
+        {
+            const std::string keys = "keys" + std::to_string(depth);
+            const std::string entry = "entry" + std::to_string(depth);
+            const std::string k = "k" + std::to_string(depth);
+            out << indent << "{\n";
+            out << indent << "    std::vector<std::string> " << keys << ";\n";
+            out << indent << "    " << keys << ".reserve(" << access << ".size());\n";
+            out << indent << "    for (auto const& " << entry << " : " << access << ")\n";
+            out << indent << "        " << keys << ".push_back(" << entry << ".first);\n";
+            out << indent << "    std::ranges::sort(" << keys << ");\n";
+            out << indent << "    out << YAML::Key << \"" << f.key << "\" << YAML::Value << YAML::BeginMap;\n";
+            out << indent << "    for (auto const& " << k << " : " << keys << ")\n";
+            out << indent << "        out << YAML::Key << " << k << " << YAML::Value << "
+                << SceneWriteExpr(f.type, access + ".at(" + k + ")") << ";\n";
+            out << indent << "    out << YAML::EndMap;\n";
+            out << indent << "}\n";
+            continue;
+        }
         // std::vector<E> of a trivial element — a YAML sequence. Each element uses the
         // same per-value write expression (cast for handle/enum/small-int) as a scalar.
         if (f.isVector)
@@ -2433,6 +2639,73 @@ static void EmitDeserializeFields(std::ostream& out, const std::vector<SerField>
             out << indent << "if (auto h" << depth << " = " << handleKey << "; h" << depth << ")\n";
             out << indent << "    " << lhs << " = AssetManager::GetAsset<" << f.refType << ">(h" << depth
                 << ".as<u64>());\n";
+            continue;
+        }
+        // std::unordered_set<E> (issue #451 unordered_map/set slice) — rebuild the
+        // set element-by-element, same validation as std::vector<E> below (an
+        // IsSetEligiblePropType element is never Float, so there is no
+        // TryReadFiniteF32 branch here — every eligible type goes through the
+        // Enum int-decode or the generic YAML::convert<> path).
+        if (f.isSet)
+        {
+            const std::string sv = SeqVar(depth);
+            const std::string el = ElemVar(depth);
+            out << indent << "if (auto " << sv << " = " << key << "; " << sv << " && " << sv << ".IsSequence())\n";
+            out << indent << "{\n";
+            out << indent << "    " << lhs << ".clear();\n";
+            out << indent << "    for (auto const& " << el << " : " << sv << ")\n";
+            if (f.type == PropType::Enum)
+            {
+                out << indent << "        if (int ev; ::YAML::convert<int>::decode(" << el << ", ev))\n";
+                out << indent << "            " << lhs << ".insert(static_cast<decltype(" << lhs
+                    << ")::value_type>(ev));\n";
+            }
+            else
+            {
+                out << indent << "        if (decltype(" << lhs << ")::value_type v{}; ::YAML::convert<decltype("
+                    << lhs << ")::value_type>::decode(" << el << ", v))\n";
+                out << indent << "            " << lhs << ".insert(v);\n";
+            }
+            out << indent << "}\n";
+            continue;
+        }
+        // std::unordered_map<std::string, V> (issue #451 unordered_map/set slice)
+        // — rebuild the map entry-by-entry from the YAML mapping. A missing /
+        // non-map node leaves the map at its default (.clear() is inside the
+        // IsMap guard). Mirrors the vector-element decode (Float / Enum / generic
+        // YAML::convert<>), reading each entry's key via entry.first and value via
+        // entry.second (the standard yaml-cpp map-iteration shape already used by
+        // the hand-written ItemInstance::CustomData blocks in this file).
+        if (f.isMap)
+        {
+            const std::string mn = "mapNode" + std::to_string(depth);
+            const std::string entry = "entry" + std::to_string(depth);
+            out << indent << "if (auto " << mn << " = " << key << "; " << mn << " && " << mn << ".IsMap())\n";
+            out << indent << "{\n";
+            out << indent << "    " << lhs << ".clear();\n";
+            out << indent << "    for (auto const& " << entry << " : " << mn << ")\n";
+            out << indent << "    {\n";
+            out << indent << "        const std::string k" << depth << " = " << entry << ".first.as<std::string>();\n";
+            if (f.type == PropType::Float)
+            {
+                out << indent << "        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(" << entry
+                    << ".second, v))\n";
+                out << indent << "            " << lhs << "[k" << depth << "] = v;\n";
+            }
+            else if (f.type == PropType::Enum)
+            {
+                out << indent << "        if (int ev; ::YAML::convert<int>::decode(" << entry << ".second, ev))\n";
+                out << indent << "            " << lhs << "[k" << depth << "] = static_cast<decltype(" << lhs
+                    << ")::mapped_type>(ev);\n";
+            }
+            else
+            {
+                out << indent << "        if (decltype(" << lhs << ")::mapped_type v{}; ::YAML::convert<decltype("
+                    << lhs << ")::mapped_type>::decode(" << entry << ".second, v))\n";
+                out << indent << "            " << lhs << "[k" << depth << "] = v;\n";
+            }
+            out << indent << "    }\n";
+            out << indent << "}\n";
             continue;
         }
         // std::vector<E> of a trivial element — rebuild the sequence element-by-element.
