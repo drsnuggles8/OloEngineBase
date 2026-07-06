@@ -147,19 +147,39 @@ namespace OloEngine
         if (!m_Initialized || !m_JoltSystem)
             return;
 
-        // Process contact events
+        PreSimulate();
+
+        const u32 steps = BeginSteps(deltaTime);
+        for (u32 stepIndex = 0; stepIndex < steps; ++stepIndex)
+        {
+            Step(m_FixedTimeStep);
+        }
+
+        // Synchronize transforms after simulation
+        SynchronizeTransforms();
+    }
+
+    void JoltScene::PreSimulate()
+    {
+        // Process contact events queued by the previous frame's world update.
+        // GAME THREAD: handlers route through Scene::OnContactEvent, which may
+        // grow script/registry access.
         if (m_ContactListener)
         {
             m_ContactListener->ProcessContactEvents();
         }
+    }
+
+    u32 JoltScene::BeginSteps(f32 deltaTime)
+    {
+        if (!m_Initialized || !m_JoltSystem)
+            return 0;
 
         // Fixed timestep simulation with accumulator
         m_Accumulator += deltaTime;
 
-        // Prevent "spiral of death" by capping simulation steps per frame
-        u32 stepsExecuted = 0;
-
-        // If accumulator exceeds maximum, clamp it and log the skip
+        // Prevent "spiral of death" by capping simulation steps per frame:
+        // if the accumulator exceeds the maximum, clamp it and log the skip.
         if (f32 maxAccumulator = static_cast<f32>(s_MaxStepsPerFrame) * m_FixedTimeStep; m_Accumulator > maxAccumulator)
         {
             f32 skippedTime = m_Accumulator - maxAccumulator;
@@ -167,18 +187,25 @@ namespace OloEngine
             OLO_CORE_WARN("Physics timestep accumulator clamped! Skipped {0} seconds to prevent spiral of death", skippedTime);
         }
 
-        while (m_Accumulator >= m_FixedTimeStep && stepsExecuted < s_MaxStepsPerFrame)
+        // Authorize and CONSUME the fixed steps this frame's delta affords —
+        // the caller runs exactly this many Step()s (or phase triplets).
+        u32 steps = 0;
+        while (m_Accumulator >= m_FixedTimeStep && steps < s_MaxStepsPerFrame)
         {
-            Step(m_FixedTimeStep);
             m_Accumulator -= m_FixedTimeStep;
-            ++stepsExecuted;
+            ++steps;
         }
-
-        // Synchronize transforms after simulation
-        SynchronizeTransforms();
+        return steps;
     }
 
     void JoltScene::Step(f32 fixedTimeStep)
+    {
+        StepCharacterAndVehiclePhase(fixedTimeStep);
+        StepWorldPhase(fixedTimeStep);
+        StepJointBreakPhase(fixedTimeStep);
+    }
+
+    void JoltScene::StepCharacterAndVehiclePhase(f32 fixedTimeStep)
     {
         if (!m_JoltSystem)
             return;
@@ -196,9 +223,15 @@ namespace OloEngine
         }
 
         // Push authored driver input into each vehicle controller before the
-        // update, so the VehicleConstraint step listener (which runs inside
-        // Update below) acts on this frame's throttle / steering / brake.
+        // world update, so the VehicleConstraint step listener (which runs inside
+        // StepWorldPhase's Update) acts on this frame's throttle / steering / brake.
         UpdateVehicleControllers();
+    }
+
+    void JoltScene::StepWorldPhase(f32 fixedTimeStep)
+    {
+        if (!m_JoltSystem)
+            return;
 
         // Step the physics simulation
         JPH::EPhysicsUpdateError error = m_JoltSystem->Update(
@@ -239,15 +272,24 @@ namespace OloEngine
             m_PhysicsUpdateErrorRepeatCount = 0;
         }
 
-        // Post-simulate character controllers
+        // Post-simulate character controllers — pure Jolt-internal state
+        // (displacement/rotation reset + angular-velocity derivation), so it is
+        // part of the worker-safe phase.
         for (auto& characterController : m_CharacterControllersToUpdate)
         {
             characterController->PostSimulate();
         }
+    }
+
+    void JoltScene::StepJointBreakPhase(f32 fixedTimeStep)
+    {
+        if (!m_JoltSystem)
+            return;
 
         // Break any joint whose accumulated constraint impulse this step exceeded
-        // its authored threshold. Done here (per fixed step) because the lambdas
-        // are per-step state that the next Update() overwrites.
+        // its authored threshold. Per fixed step because the lambdas are per-step
+        // state that the next world update overwrites — the async split runs it
+        // on the game thread at the fence, before any next kick.
         BreakOverstressedJoints(fixedTimeStep);
     }
 

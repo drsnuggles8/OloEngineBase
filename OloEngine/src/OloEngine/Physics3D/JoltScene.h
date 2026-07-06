@@ -56,9 +56,49 @@ namespace OloEngine
             return m_Initialized;
         }
 
-        // Simulation
+        // Simulation.
+        //
+        // Simulate() is the synchronous whole-frame tick (editor Simulate mode,
+        // and the scheduler's sequential fallback). It is composed of the phase
+        // methods below, which the runtime gameplay scheduler also drives
+        // directly so the ECS-free world phase can run inside an engine task
+        // while game-thread systems execute in the physics shadow (issue #453):
+        //
+        //   PreSimulate()                       — GAME THREAD. Drains the queued
+        //       contact events into gameplay (Scene::OnContactEvent) — handlers
+        //       may grow script/registry access, so this must never move off the
+        //       game thread.
+        //   BeginSteps(dt) -> N                 — GAME THREAD. Advances the fixed-
+        //       step accumulator (with the spiral-of-death clamp) and CONSUMES
+        //       the time for the N steps it authorizes this frame.
+        //   Step(fixedDt), N times              — one full fixed step, composed of:
+        //       StepCharacterAndVehiclePhase()  — GAME THREAD. Character
+        //           controllers Pre/Simulate + vehicle driver-input push; both
+        //           read the ECS registry (TransformComponent, VehicleComponent,
+        //           entity lookups) and character contact callbacks fire here.
+        //       StepWorldPhase()                — WORKER-SAFE. The Jolt world
+        //           update (whose jobs already fan out to the task pool), the
+        //           #281 outstanding-task drain, error throttling, and character
+        //           PostSimulate (pure Jolt-internal state). Touches NO ECS
+        //           state; Jolt contact callbacks only enqueue under a mutex.
+        //       StepJointBreakPhase()           — GAME THREAD. Break-impulse scan
+        //           (reads PhysicsJoint3DComponent, publishes JointBrokeEvent,
+        //           destroys constraints). Must run before the NEXT world update
+        //           overwrites the per-step constraint impulses.
+        //   SynchronizeTransforms()             — GAME THREAD. Writes body poses
+        //       back to ECS TransformComponents (declared further below).
+        //
+        // The async single-step split (kick: char/vehicle phase → task: world
+        // phase → fence: joint-break + transform sync) is exactly equivalent to
+        // Step() when N == 1; Scene::KickPhysicsStep falls back to whole-frame
+        // synchronous stepping for N != 1 (idle or hitch catch-up frames).
         void Simulate(f32 deltaTime);
+        void PreSimulate();
+        [[nodiscard]] u32 BeginSteps(f32 deltaTime);
         void Step(f32 fixedTimeStep);
+        void StepCharacterAndVehiclePhase(f32 fixedTimeStep);
+        void StepWorldPhase(f32 fixedTimeStep);
+        void StepJointBreakPhase(f32 fixedTimeStep);
 
         // Gravity
         glm::vec3 GetGravity() const;

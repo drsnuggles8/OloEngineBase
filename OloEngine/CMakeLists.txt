@@ -105,6 +105,13 @@ target_compile_definitions(OloEngine PRIVATE
 						YAML_CPP_STATIC_DEFINE
 						OLO_ENGINE_VERSION="${CMAKE_PROJECT_VERSION}"
 )
+# EnTT's type_index family counter is a plain integer unless ENTT_USE_ATOMIC is
+# defined; gameplay systems marked Parallelizable (issue #453) first-touch
+# component types from worker tasks, and a racing non-atomic counter can hand two
+# types the same id — corrupting every registry's pool mapping process-wide (the
+# entt "Unexpected type" assert). PUBLIC: every TU that includes entt.hpp must
+# agree on ENTT_MAYBE_ATOMIC or the inline definitions violate ODR.
+target_compile_definitions(OloEngine PUBLIC ENTT_USE_ATOMIC)
 olo_set_common_definitions(OloEngine)
 
 target_include_directories(OloEngine PUBLIC
