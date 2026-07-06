@@ -165,10 +165,24 @@ namespace OloEngine::Tests
             }
 
             sizet start = matches[0];
+
+            // Bounds-check before reading dataSize: a typeHash match at the very end of
+            // the buffer would otherwise read the size field out of range.
+            sizet sizeFieldEnd = start + sizeof(u32) + sizeof(u32);
+            EXPECT_LE(sizeFieldEnd, buffer.size()) << "Component frame header runs past the end of the buffer";
+            if (sizeFieldEnd > buffer.size())
+            {
+                return { 0, 0 };
+            }
+
             u32 dataSize = 0;
             std::memcpy(&dataSize, buffer.data() + start + sizeof(u32), sizeof(u32));
-            sizet end = start + sizeof(u32) + sizeof(u32) + dataSize;
-            EXPECT_LE(end, buffer.size());
+            sizet end = sizeFieldEnd + dataSize;
+            EXPECT_LE(end, buffer.size()) << "Component payload runs past the end of the buffer";
+            if (end > buffer.size())
+            {
+                return { 0, 0 };
+            }
             return { start, end };
         }
     } // namespace

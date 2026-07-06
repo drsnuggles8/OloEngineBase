@@ -4,6 +4,7 @@
 #include "OloEngine/Serialization/FileStream.h"
 #include "OloEngine/Core/Log.h"
 #include <chrono>
+#include <format>
 
 namespace OloEngine
 {
@@ -138,8 +139,8 @@ namespace OloEngine
             OLO_CORE_ERROR("AssetPack::Load - Unsupported version. Supported range: [{}, {}], Got: {}",
                            AssetPackFile::MinSupportedVersion, AssetPackFile::Version, m_AssetPackFile.Header.Version);
             return AssetPackLoadResult(AssetPackLoadError::UnsupportedVersion,
-                                       "Unsupported pack version. Supported range: [" + std::to_string(AssetPackFile::MinSupportedVersion) +
-                                           ", " + std::to_string(AssetPackFile::Version) + "], Got: " + std::to_string(m_AssetPackFile.Header.Version));
+                                       std::format("Unsupported pack version. Supported range: [{}, {}], Got: {}",
+                                                   AssetPackFile::MinSupportedVersion, AssetPackFile::Version, m_AssetPackFile.Header.Version));
         }
 
         // Get file size for bounds checking

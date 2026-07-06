@@ -217,6 +217,12 @@ TEST_F(AssetPackTest, LoadFailsWithWrongVersion)
 
 TEST_F(AssetPackTest, LoadFailsWithVersionBelowMinSupported)
 {
+    // Guard against underflow: if MinSupportedVersion were ever 0, "- 1" would wrap
+    // to UINT32_MAX and this test would accidentally exercise the "too new" branch
+    // instead of the "too old" branch it's meant to cover.
+    static_assert(AssetPackFile::MinSupportedVersion > 0,
+                  "Test requires a positive MinSupportedVersion to subtract 1 without underflow");
+
     AssetPackFile::FileHeader header;
     header.Version = AssetPackFile::MinSupportedVersion - 1;
     header.IndexOffset = sizeof(AssetPackFile::FileHeader);

@@ -61,6 +61,9 @@ namespace OloEngine
     // TerrainComponent / IKTargetComponent in SaveGameComponentSerializer.cpp for the
     // pattern). Bump this only if a version is deliberately dropped from support.
     static constexpr u32 kMinSupportedSaveGameFormatVersion = 1;
+    static_assert(kMinSupportedSaveGameFormatVersion <= kSaveGameFormatVersion,
+                  "kMinSupportedSaveGameFormatVersion must not exceed kSaveGameFormatVersion, or IsValid() "
+                  "would reject every FormatVersion, including the current one");
 
     // Compression flags (stored in Header.Flags)
     enum class SaveGameCompression : u32
