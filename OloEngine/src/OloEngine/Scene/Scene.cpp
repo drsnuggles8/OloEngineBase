@@ -5,10 +5,12 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <string_view>
 #include <unordered_set>
 
 #include "Components.h"
 #include "Prefab.h"
+#include "SystemScheduler.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/InstancePlacementAsset.h"
 #include "OloEngine/Core/Application.h"
@@ -88,6 +90,7 @@
 #include "OloEngine/Gameplay/Quest/QuestSystem.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestDialogueBridge.h"
+#include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
 #include "OloEngine/Gameplay/GameplayEventBus.h"
 #include "OloEngine/Audio/AudioEvents/AudioEventsManager.h"
@@ -149,6 +152,11 @@ namespace OloEngine
         void ComputeClothNormals(const std::vector<glm::vec3>& positions, u32 columns, u32 rows,
                                  std::vector<glm::vec3>& outNormals);
         std::vector<u32> BuildClothGridIndices(u32 columns, u32 rows);
+
+        // Box2D velocity iterations, shared by the synchronous step (StepPhysics)
+        // and the async kick's world-step task so the two can never drift.
+        // TODO: position iterations when Box2D position-iteration support lands.
+        constexpr i32 kPhysics2DVelocityIterations = 6;
     } // namespace
 
     // Underwater test (WATER_FUTURE_IMPROVEMENTS.md §7.2). True when `cameraPos`
@@ -223,6 +231,25 @@ namespace OloEngine
         : m_JoltScene(std::make_unique<JoltScene>(this)), m_GameplayEventBus(std::make_unique<GameplayEventBus>()),
           m_UINavigation(std::make_unique<UINavigation>())
     {
+        // Pre-create every EnTT storage/group the Parallelizable gameplay systems
+        // (issue #453: Abilities, Audio) touch, on the constructing thread. EnTT's
+        // view()/group() lazily CREATE missing storage — a structural mutation of
+        // the registry's pool map — so a first-touch from two concurrent worker
+        // tasks races that map (and, without ENTT_USE_ATOMIC, entt's global
+        // type-index counter), corrupting the type→pool mapping process-wide (the
+        // entt "Unexpected type" assert). With the containers pre-created, the
+        // worker-side view()/group() calls are pure reads of registry structure.
+        // The audio groups were previously first created in InitAudioRuntime,
+        // which headless hosts (dedicated server, Functional tests) never call —
+        // the constructor covers every host. Extend this list when marking
+        // another system Parallelizable (see GetGameplayScheduler's audit table).
+        (void)m_Registry.storage<TransformComponent>();
+        (void)m_Registry.storage<AbilityComponent>();
+        (void)m_Registry.storage<AudioListenerComponent>();
+        (void)m_Registry.storage<AudioSourceComponent>();
+        (void)m_Registry.storage<AudioSoundGraphComponent>();
+        (void)m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>);
+        (void)m_Registry.group<AudioSourceComponent>(entt::get<TransformComponent>);
     }
 
     template<typename T>
@@ -1570,15 +1597,13 @@ namespace OloEngine
 
     void Scene::StepPhysics(Timestep const ts)
     {
-        const i32 velocityIterations = 6;
-        // const i32 positionIterations = 2; // TODO: Use this parameter when implementing position iterations
         // Guard against ticking before OnPhysics2DStart created a world —
         // the Jolt path below already does this; matching it keeps the
         // tick safe for headless tests / minimal scenes that never opt
         // in to 2D physics.
         if (b2World_IsValid(m_PhysicsWorld))
         {
-            b2World_Step(m_PhysicsWorld, ts.GetSeconds(), velocityIterations);
+            b2World_Step(m_PhysicsWorld, ts.GetSeconds(), kPhysics2DVelocityIterations);
         }
 
         // Update 3D physics
@@ -1599,11 +1624,115 @@ namespace OloEngine
             // and scripts/animation/2D-physics tick at different rates; keep
             // them equal (issue #452 follow-up: single shared fixed step).
             m_JoltScene->Simulate(ts.GetSeconds());
+        }
 
-            // Cloth readback (issue #460): pull each soft body's deformed world-space
-            // particle positions into its CPU buffers and recompute smooth normals. This
-            // is GPU-free (no render mesh touched here), so it runs headless / on the
-            // dedicated server; the render pass uploads these to the deforming VBO.
+        PostPhysicsSync();
+    }
+
+    void Scene::KickPhysicsStep(Timestep const ts)
+    {
+        const f32 frameSeconds = ts.GetSeconds();
+
+        if (m_JoltScene)
+        {
+            // Buoyancy forces must be queued BEFORE the world step so Jolt
+            // integrates them this frame (see StepPhysics for the deterministic
+            // m_SimulationTime reasoning — issue #452).
+            BuoyancySystem::OnUpdate(this, m_SimulationTime, frameSeconds);
+            // Contact handlers may grow script/registry access — game thread only.
+            m_JoltScene->PreSimulate();
+            m_PhysicsStepsThisFrame = m_JoltScene->BeginSteps(frameSeconds);
+        }
+        else
+        {
+            m_PhysicsStepsThisFrame = 0;
+        }
+
+        // Async single-step fast path (the production 1:1 fixed-tick case): run
+        // the ECS-reading character/vehicle phase here on the game thread, then
+        // launch the ECS-free world step (Box2D + Jolt world update) as a task.
+        // The physics-shadow systems registered between PhysicsKick and
+        // PhysicsFence execute on the game thread while it runs. High priority:
+        // the fence blocks the rest of the tick on it. With zero workers,
+        // Tasks::Launch executes the body inline right here, which degrades to
+        // the synchronous order.
+        m_PhysicsStepRanAsync = m_JoltScene && m_PhysicsStepsThisFrame == 1 &&
+                                SystemScheduler::IsParallelExecutionEnabled();
+        if (m_PhysicsStepRanAsync)
+        {
+            const f32 fixedDt = m_JoltScene->GetFixedTimeStep();
+            m_JoltScene->StepCharacterAndVehiclePhase(fixedDt);
+            m_PhysicsStepTask = Tasks::Launch(
+                "Scene::PhysicsWorldStep",
+                [this, frameSeconds, fixedDt]
+                {
+                    if (b2World_IsValid(m_PhysicsWorld))
+                    {
+                        b2World_Step(m_PhysicsWorld, frameSeconds, kPhysics2DVelocityIterations);
+                    }
+                    m_JoltScene->StepWorldPhase(fixedDt);
+                },
+                Tasks::ETaskPriority::High);
+        }
+        else
+        {
+            // Synchronous fallback — idle frames (0 steps), hitch catch-up
+            // (N ≥ 2, where the per-sub-step character/world interleave must be
+            // preserved), the sequential kill-switch, or no 3D physics. Stepping
+            // order matches StepPhysics exactly.
+            if (b2World_IsValid(m_PhysicsWorld))
+            {
+                b2World_Step(m_PhysicsWorld, frameSeconds, kPhysics2DVelocityIterations);
+            }
+            if (m_JoltScene)
+            {
+                const f32 fixedDt = m_JoltScene->GetFixedTimeStep();
+                for (u32 stepIndex = 0; stepIndex < m_PhysicsStepsThisFrame; ++stepIndex)
+                {
+                    m_JoltScene->Step(fixedDt);
+                }
+            }
+        }
+    }
+
+    void Scene::FencePhysicsStep()
+    {
+        // Join the in-flight world step. A default (invalid) handle — the
+        // synchronous fallback — waits on nothing.
+        if (m_PhysicsStepTask.IsValid())
+        {
+            m_PhysicsStepTask.Wait();
+            m_PhysicsStepTask = {};
+        }
+
+        if (m_JoltScene)
+        {
+            if (m_PhysicsStepRanAsync)
+            {
+                // The async path defers the joint-break phase here: it reads
+                // components / publishes events (game thread), and the per-step
+                // constraint impulses it consumes must be read before the NEXT
+                // world update overwrites them — i.e. before the next kick.
+                m_JoltScene->StepJointBreakPhase(m_JoltScene->GetFixedTimeStep());
+            }
+            // Write body poses back to the ECS transforms (both paths — the
+            // synchronous fallback stepped the world without syncing).
+            m_JoltScene->SynchronizeTransforms();
+        }
+
+        PostPhysicsSync();
+        m_PhysicsStepRanAsync = false;
+        m_PhysicsStepsThisFrame = 0;
+    }
+
+    void Scene::PostPhysicsSync()
+    {
+        // Cloth readback (issue #460): pull each soft body's deformed world-space
+        // particle positions into its CPU buffers and recompute smooth normals. This
+        // is GPU-free (no render mesh touched here), so it runs headless / on the
+        // dedicated server; the render pass uploads these to the deforming VBO.
+        if (m_JoltScene)
+        {
             for (auto& [entityID, state] : m_ClothRuntime)
             {
                 if (m_JoltScene->GetClothVertices(entityID, state.m_Positions))
@@ -1683,6 +1812,232 @@ namespace OloEngine
         }
     }
 
+    // Named resource channels for the gameplay schedule below — constants, not
+    // ad-hoc string literals at each declaration site, so a channel can never
+    // silently fork into two spellings (the derived edges only connect EXACT
+    // matches; a typo'd channel would just drop its edges without any error).
+    namespace GameplayChannel
+    {
+        // Component-space TransformComponent data (Translation/Rotation/Scale).
+        constexpr std::string_view kLocalTransforms = "LocalTransforms";
+        // Parent-composed world matrices published by PropagateWorldTransforms.
+        // No in-schedule reader today — rendering and external queries consume
+        // it after the tick — but writers/readers declared against it keep the
+        // compose pass ordered after every local-transform mover (WAR edges).
+        constexpr std::string_view kWorldTransforms = "WorldTransforms";
+        // Morph-target weights sampled by the animation systems.
+        constexpr std::string_view kMorphWeights = "MorphWeights";
+        // The rebuilt SceneSpatialIndex.
+        constexpr std::string_view kSpatialIndex = "SpatialIndex";
+        // AI sight-sensing results.
+        constexpr std::string_view kPerception = "Perception";
+        // The in-flight physics world step: written by PhysicsKick (launching the
+        // task), consumed by PhysicsFence (joining it). Any system declaring
+        // NEITHER this channel NOR a physics-touched channel may sit between them
+        // — the physics shadow.
+        constexpr std::string_view kPhysicsInFlight = "PhysicsInFlight";
+    } // namespace GameplayChannel
+
+    SystemScheduler& Scene::GetGameplayScheduler()
+    {
+        // Built once, thread-safe (function-local static) and shared across every
+        // Scene / tick — each exec callback takes the Scene by reference and
+        // captures nothing instance-specific. The derived topological order equals
+        // the registration order below (the tie-break), and every REAL data
+        // dependency is declared (documented inline) so a future reordering that
+        // violates one is caught by the sort instead of silently corrupting a tick.
+        //
+        // ── Deliberate deltas from the pre-#453 hard-coded sequence ────────────
+        // The physics step is split into PhysicsKick / PhysicsFence (UE
+        // TG_DuringPhysics analog): the ECS-free world update runs as an engine
+        // task while the GAME THREAD runs the "physics shadow" — the systems
+        // registered between kick and fence. Shadow systems need NO worker-
+        // thread-safety audit (they stay on the game thread); they only must be
+        // independent of physics state, transforms, and in-flight Jolt queries.
+        //   * Dialogue moved from its historical pre-animation slot into the
+        //     shadow: it touches no transforms, no physics, no animation state
+        //     (typewriter progress + UI entity churn + input — all game-thread).
+        //   * Quest moved from its historical post-AI slot into the shadow: it
+        //     ticks journal timers and publishes bus events; subscribers still
+        //     run on the game thread.
+        // Their shadow placement is tie-break positioning (they have no edges);
+        // the schedule order test pins it, and DependsOn seam tests prove the
+        // shadow legality (no path linking them to either physics node).
+        static SystemScheduler s_Scheduler = []
+        {
+            using namespace GameplayChannel;
+            SystemScheduler sched;
+
+            // Scripts move entities arbitrarily (transforms, velocities): model as
+            // a writer of the local transforms every downstream mover/reader sees.
+            sched.AddSystem("Scripts", [](Scene& s, Timestep ts)
+                            { s.UpdateScripts(ts); })
+                .Writes(kLocalTransforms);
+
+            // Cinematics overwrite authored transforms AFTER scripts so a playing
+            // cutscene wins for the frame (write-after-write on LocalTransforms).
+            sched.AddSystem("Cinematics", [](Scene& s, Timestep ts)
+                            { s.UpdateCinematics(ts); })
+                .Writes(kLocalTransforms);
+
+            // Animation samples skeleton pose + morph weights; it READS the posed
+            // local transforms (read-after-write orders it after cinematics) and
+            // writes the morph weights MorphEval consumes. It does NOT write
+            // entity transforms (bone pose lives in skeleton/component state).
+            sched.AddSystem("Animation", [](Scene& s, Timestep ts)
+                            { s.UpdateAnimation(ts); })
+                .Reads(kLocalTransforms)
+                .Writes(kMorphWeights);
+
+            sched.AddSystem("AnimationGraph", [](Scene& s, Timestep ts)
+                            { s.UpdateAnimationGraphs(ts); })
+                .Reads(kLocalTransforms)
+                .Writes(kMorphWeights);
+
+            // Morph deformation runs after BOTH morph-weight writers (read-after-
+            // write on MorphWeights).
+            sched.AddSystem("MorphEval", [](Scene& s, Timestep)
+                            { s.EvaluateMorphTargets(); })
+                .Reads(kMorphWeights);
+
+            // Kick the physics step: buoyancy force queueing + contact-event
+            // drain + the ECS-reading character/vehicle phase run here on the
+            // game thread (hence Reads(LocalTransforms)), then the ECS-free
+            // world update (Box2D + Jolt) launches as an engine task —
+            // published as the PhysicsInFlight channel the fence consumes.
+            sched.AddSystem("PhysicsKick", [](Scene& s, Timestep ts)
+                            { s.KickPhysicsStep(ts); })
+                .Reads(kLocalTransforms)
+                .Writes(kPhysicsInFlight);
+
+            // ── The physics shadow ─────────────────────────────────────────────
+            // These run on the GAME THREAD while the world step runs on workers.
+            // A shadow system must not touch transforms, physics state, or issue
+            // Jolt queries (the broadphase is mid-update). Structural registry
+            // changes and bus publishes are fine — the world step never touches
+            // the ECS registry (verified: the ECS-reading phases were hoisted
+            // into kick/fence).
+            sched.AddSystem("Dialogue", [](Scene& s, Timestep ts)
+                            { s.UpdateDialogue(ts); });
+            sched.AddSystem("Quest", [](Scene& s, Timestep ts)
+                            { s.UpdateQuest(ts); });
+
+            // Fence the physics step: join the world-step task, run the joint-
+            // break phase (ECS reads + event publish), and write body poses back
+            // to the ECS transforms — the write declaration is what orders every
+            // downstream transform consumer after the fence.
+            sched.AddSystem("PhysicsFence", [](Scene& s, Timestep)
+                            { s.FencePhysicsStep(); })
+                .Reads(kPhysicsInFlight)
+                .Writes(kLocalTransforms);
+
+            // Compose world matrices once every local-transform mover has run;
+            // publishes WorldTransforms for post-tick consumers (rendering, #499).
+            sched.AddSystem("PropagateTransforms", [](Scene& s, Timestep)
+                            { s.PropagateWorldTransforms(); })
+                .Reads(kLocalTransforms)
+                .Writes(kWorldTransforms);
+
+            // Navigation reads agent positions AND writes them (crowd sync +
+            // manual path following move TransformComponent.Translation). The
+            // write is why it must stay out of the physics shadow, and it gives
+            // SpatialIndex/Audio/Particles/Snow/Inventory their read-after-write
+            // edges. Known consequence (historical behavior, now explicit): nav's
+            // moves compose into world matrices on the NEXT tick's propagate.
+            sched.AddSystem("Navigation", [](Scene& s, Timestep ts)
+                            { s.UpdateNavigation(ts); })
+                .ReadsWrites(kLocalTransforms);
+
+            // Spatial index rebuilds from TransformComponent.Translation — the
+            // read-after-write edge from Navigation (the last transform writer)
+            // replaces the old explicit After("Navigation"), and publishes the
+            // SpatialIndex channel Perception consumes.
+            sched.AddSystem("SpatialIndex", [](Scene& s, Timestep)
+                            { s.UpdateSpatialIndex(); })
+                .Reads(kLocalTransforms)
+                .Writes(kSpatialIndex);
+
+            // Perception queries the spatial index and publishes sight results.
+            // (Its line-of-sight raycasts also require the world step complete —
+            // guaranteed transitively: SpatialIndex reads transforms written by
+            // the fence.)
+            sched.AddSystem("Perception", [](Scene& s, Timestep ts)
+                            { s.UpdatePerception(ts); })
+                .Reads(kSpatialIndex)
+                .Writes(kPerception);
+
+            // AI consumes THIS frame's perception results (the critical seam).
+            sched.AddSystem("AI", [](Scene& s, Timestep ts)
+                            { s.UpdateAI(ts); })
+                .Reads(kPerception);
+
+            // ── Parallelizable() markings — per-system thread-safety audit (issue
+            // #453 parallel slice). The executor guarantees a marked system only
+            // overlaps OTHER marked systems, so the audit question is exactly
+            // "is this body thread-safe against the rest of the marked set?".
+            // Do not flip one on without re-running that audit:
+            //   Abilities  SAFE   — mutates only per-entity AbilityComponent data;
+            //                       no bus, no RNG, no GL, no structural changes.
+            //   Audio      SAFE   — miniaudio setters are internally atomic
+            //                       (single-writer preserved), spatializer uses a
+            //                       lock-free dirty flag; no RNG, no GL, no
+            //                       structural changes. Its EnTT groups/storages
+            //                       (and Abilities') are pre-created in the Scene
+            //                       CONSTRUCTOR — worker-side view()/group()
+            //                       first-touch would be a structural registry
+            //                       mutation; extend that pre-warm list when
+            //                       marking a new system.
+            //   Inventory  UNSAFE — DestroyEntity (structural) + publishes to the
+            //                       non-thread-safe GameplayEventBus. (It IS a
+            //                       candidate for the physics shadow instead, but
+            //                       it reads post-physics transforms for pickup
+            //                       proximity — moving it would change what it
+            //                       observes; the Reads(LocalTransforms) edge
+            //                       below enforces its post-fence slot.)
+            //   Particles  UNSAFE — per-component UseGPU path issues GL compute
+            //                       from inside Update, and sub-emitters draw from
+            //                       the thread_local RNG (worker stream is time-
+            //                       seeded → breaks #452 determinism). CPU-only +
+            //                       reseeded RNG is the follow-up candidate.
+            //   Snow       UNSAFE — GL compute dispatch / SSBO upload
+            //                       (SnowAccumulationSystem::SubmitDeformers,
+            //                       SnowEjectaSystem::EmitAt) must stay on the GL
+            //                       thread.
+            // (Dialogue / Quest run in the physics shadow above — game thread, no
+            // worker audit needed. Navigation / MorphEval are pinned main-thread:
+            // TransformComponent writes / GL vertex-buffer upload.)
+            sched.AddSystem("Inventory", [](Scene& s, Timestep ts)
+                            { s.UpdateInventory(ts); })
+                .Reads(kLocalTransforms);
+            sched.AddSystem("Abilities", [](Scene& s, Timestep ts)
+                            { s.UpdateAbilities(ts); })
+                .Parallelizable();
+
+            // Audio / particles / snow read entity translations/rotations (local
+            // space — the historical behavior) and never move entities, so they
+            // are mutually independent.
+            sched.AddSystem("Audio", [](Scene& s, Timestep ts)
+                            { s.UpdateAudio(ts); })
+                .Reads(kLocalTransforms)
+                .Parallelizable();
+            sched.AddSystem("Particles", [](Scene& s, Timestep ts)
+                            { s.UpdateParticles(ts); })
+                .Reads(kLocalTransforms);
+            sched.AddSystem("SnowDeformers", [](Scene& s, Timestep ts)
+                            { s.UpdateSnowDeformers(ts); })
+                .Reads(kLocalTransforms);
+
+            sched.Build(); // derive order now; throws SystemSchedulerError if the graph is bad
+            return sched;
+        }();
+        return s_Scheduler;
+    }
+
+    const std::vector<std::string>& Scene::GetGameplaySystemOrderForTesting()
+    {
+        return GetGameplayScheduler().GetOrderedNames();
+    }
+
     void Scene::SimulateRuntimeStep(Timestep const ts)
     {
         ++m_SimulationTick;
@@ -1692,171 +2047,180 @@ namespace OloEngine
         // and rollback re-sim (issue #452). At a steady frame rate this tracks
         // wall-time, so wall-clock water visuals and floating bodies stay in sync.
         m_SimulationTime += static_cast<f32>(ts);
+
+        // Run every gameplay system once, in an order DERIVED from the read/write
+        // + before/after constraints each declares (issue #453) rather than from
+        // the source order of these calls. The schedule is built and topologically
+        // sorted once. The physics world step runs as an engine task between the
+        // PhysicsKick and PhysicsFence nodes while the physics-shadow systems
+        // execute on the game thread, and audited systems (Abilities, Audio) run
+        // as worker tasks — see GetGameplayScheduler for the layout, the shadow
+        // rules, and the audit table. Video playback is deliberately NOT a sim
+        // system — it is a presentation concern advanced once per displayed frame
+        // by RenderRuntime, frozen while paused (issue #452).
+        GetGameplayScheduler().Execute(*this, ts);
+    }
+
+    void Scene::UpdateScripts(Timestep ts)
+    {
+        // Update scripts
         {
-            // Update scripts
+            // C# Entity OnUpdate
+            for (auto scriptView = m_Registry.view<ScriptComponent>(); auto e : scriptView)
             {
-                // C# Entity OnUpdate
-                for (auto scriptView = m_Registry.view<ScriptComponent>(); auto e : scriptView)
+                Entity entity = { e, this };
+                ScriptEngine::OnUpdateEntity(entity, ts);
+            }
+
+            // Lua Entity OnUpdate
+            for (auto luaView = m_Registry.view<LuaScriptComponent>(); auto e : luaView)
+            {
+                if (auto const& lsc = luaView.get<LuaScriptComponent>(e); !lsc.ScriptFile.empty())
                 {
                     Entity entity = { e, this };
-                    ScriptEngine::OnUpdateEntity(entity, ts);
-                }
-
-                // Lua Entity OnUpdate
-                for (auto luaView = m_Registry.view<LuaScriptComponent>(); auto e : luaView)
-                {
-                    if (auto const& lsc = luaView.get<LuaScriptComponent>(e); !lsc.ScriptFile.empty())
-                    {
-                        Entity entity = { e, this };
-                        LuaScriptEngine::OnUpdateEntity(entity, ts);
-                    }
+                    LuaScriptEngine::OnUpdateEntity(entity, ts);
                 }
             }
+        }
+    }
 
-            // Advance cinematic sequences. Runs after scripts so a playing
-            // cutscene's authored transforms / camera win over script motion
-            // for the frame, and before animation/physics so downstream
-            // systems see the posed entities.
-            CinematicSystem::Update(*this, ts);
+    void Scene::UpdateCinematics(Timestep ts)
+    {
+        // Advance cinematic sequences. Runs after scripts so a playing
+        // cutscene's authored transforms / camera win over script motion
+        // for the frame, and before animation/physics so downstream
+        // systems see the posed entities.
+        CinematicSystem::Update(*this, ts);
+    }
 
-            // Update dialogue system
-            if (m_DialogueSystem)
+    void Scene::UpdateDialogue(Timestep ts)
+    {
+        // Update dialogue system
+        if (m_DialogueSystem)
+        {
+            OLO_PROFILE_SCOPE("DialogueSystem::Update");
+            m_DialogueSystem->Update(ts);
+        }
+    }
+
+    void Scene::UpdateAnimation(Timestep ts)
+    {
+        // Update animations. Full-owning group over AnimationStateComponent +
+        // SkeletonComponent (neither is shared with the physics/particle hot
+        // loops, so both pools are owned — issue #443 ownership map).
+        {
+            auto animView = m_Registry.group<AnimationStateComponent, SkeletonComponent>();
+            for (auto e : animView)
             {
-                OLO_PROFILE_SCOPE("DialogueSystem::Update");
-                m_DialogueSystem->Update(ts);
-            }
+                auto& animState = animView.get<AnimationStateComponent>(e);
+                auto& skelComp = animView.get<SkeletonComponent>(e);
 
-            // Update animations. Full-owning group over AnimationStateComponent +
-            // SkeletonComponent (neither is shared with the physics/particle hot
-            // loops, so both pools are owned — issue #443 ownership map).
-            {
-                auto animView = m_Registry.group<AnimationStateComponent, SkeletonComponent>();
-                for (auto e : animView)
+                if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
                 {
-                    auto& animState = animView.get<AnimationStateComponent>(e);
-                    auto& skelComp = animView.get<SkeletonComponent>(e);
+                    IKTargetComponent tempIk;
+                    Entity entity = { e, this };
+                    const IKTargetComponent* ikTarget = ResolveIKTargets(entity, tempIk) ? &tempIk : nullptr;
+                    Animation::SpringBoneState* springState = nullptr;
+                    const SpringBoneComponent* springBone = ResolveSpringBone(entity, springState);
+                    Animation::NoiseAnimationState* noiseState = nullptr;
+                    const NoiseAnimationComponent* noise = ResolveNoiseAnimation(entity, noiseState);
+                    auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
+                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform, springBone, springState, noise, noiseState);
 
-                    if (animState.m_IsPlaying && animState.m_CurrentClip && skelComp.m_Skeleton)
+                    // Sample morph target keyframes from the current animation clip
+                    if (!animState.m_CurrentClip->MorphKeyframes.empty())
                     {
-                        IKTargetComponent tempIk;
-                        Entity entity = { e, this };
-                        const IKTargetComponent* ikTarget = ResolveIKTargets(entity, tempIk) ? &tempIk : nullptr;
-                        Animation::SpringBoneState* springState = nullptr;
-                        const SpringBoneComponent* springBone = ResolveSpringBone(entity, springState);
-                        Animation::NoiseAnimationState* noiseState = nullptr;
-                        const NoiseAnimationComponent* noise = ResolveNoiseAnimation(entity, noiseState);
-                        auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
-                        Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform, springBone, springState, noise, noiseState);
-
-                        // Sample morph target keyframes from the current animation clip
-                        if (!animState.m_CurrentClip->MorphKeyframes.empty())
+                        if (entity.HasComponent<MorphTargetComponent>())
                         {
-                            if (entity.HasComponent<MorphTargetComponent>())
-                            {
-                                auto& morphComp = entity.GetComponent<MorphTargetComponent>();
-                                MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
-                            }
+                            auto& morphComp = entity.GetComponent<MorphTargetComponent>();
+                            MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
                         }
                     }
                 }
-
-                // Handle morph-only animation (entities with AnimationState but no Skeleton)
-                auto morphAnimView = m_Registry.view<AnimationStateComponent, MorphTargetComponent>(entt::exclude<SkeletonComponent>);
-                for (auto e : morphAnimView)
-                {
-                    auto& animState = morphAnimView.get<AnimationStateComponent>(e);
-                    if (!animState.m_IsPlaying || !animState.m_CurrentClip)
-                        continue;
-
-                    // Advance time for morph-only entities
-                    animState.m_CurrentTime += ts.GetSeconds();
-                    if (const float duration = animState.m_CurrentClip->Duration; duration > 0.0f && animState.m_CurrentTime > duration)
-                    {
-                        animState.m_CurrentTime -= static_cast<int>(animState.m_CurrentTime / duration) * duration;
-                    }
-
-                    if (!animState.m_CurrentClip->MorphKeyframes.empty())
-                    {
-                        auto& morphComp = morphAnimView.get<MorphTargetComponent>(e);
-                        MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
-                    }
-                }
             }
 
-            // Update animation graphs
+            // Handle morph-only animation (entities with AnimationState but no Skeleton)
+            auto morphAnimView = m_Registry.view<AnimationStateComponent, MorphTargetComponent>(entt::exclude<SkeletonComponent>);
+            for (auto e : morphAnimView)
             {
-                OLO_PROFILE_SCOPE("Animation Graph Update");
-                auto graphView = m_Registry.view<AnimationGraphComponent, SkeletonComponent>();
-                for (auto e : graphView)
+                auto& animState = morphAnimView.get<AnimationStateComponent>(e);
+                if (!animState.m_IsPlaying || !animState.m_CurrentClip)
+                    continue;
+
+                // Advance time for morph-only entities
+                animState.m_CurrentTime += ts.GetSeconds();
+                if (const float duration = animState.m_CurrentClip->Duration; duration > 0.0f && animState.m_CurrentTime > duration)
                 {
-                    auto& graphComp = graphView.get<AnimationGraphComponent>(e);
-                    auto& skelComp = graphView.get<SkeletonComponent>(e);
+                    animState.m_CurrentTime -= static_cast<int>(animState.m_CurrentTime / duration) * duration;
+                }
 
-                    if (!skelComp.m_Skeleton)
-                    {
-                        continue;
-                    }
+                if (!animState.m_CurrentClip->MorphKeyframes.empty())
+                {
+                    auto& morphComp = morphAnimView.get<MorphTargetComponent>(e);
+                    MorphTargetSystem::SampleMorphKeyframes(animState.m_CurrentClip, animState.m_CurrentTime, morphComp);
+                }
+            }
+        }
+    }
 
-                    // Lazy-load RuntimeGraph from asset if not yet initialized
-                    if (!graphComp.RuntimeGraph && graphComp.AnimationGraphAssetHandle != 0)
+    void Scene::UpdateAnimationGraphs(Timestep ts)
+    {
+        // Update animation graphs
+        {
+            OLO_PROFILE_SCOPE("Animation Graph Update");
+            auto graphView = m_Registry.view<AnimationGraphComponent, SkeletonComponent>();
+            for (auto e : graphView)
+            {
+                auto& graphComp = graphView.get<AnimationGraphComponent>(e);
+                auto& skelComp = graphView.get<SkeletonComponent>(e);
+
+                if (!skelComp.m_Skeleton)
+                {
+                    continue;
+                }
+
+                // Lazy-load RuntimeGraph from asset if not yet initialized
+                if (!graphComp.RuntimeGraph && graphComp.AnimationGraphAssetHandle != 0)
+                {
+                    if (auto graphAsset = AssetManager::GetAsset<AnimationGraphAsset>(graphComp.AnimationGraphAssetHandle))
                     {
-                        if (auto graphAsset = AssetManager::GetAsset<AnimationGraphAsset>(graphComp.AnimationGraphAssetHandle))
+                        auto templateGraph = graphAsset->GetGraph();
+                        if (templateGraph)
                         {
-                            auto templateGraph = graphAsset->GetGraph();
-                            if (templateGraph)
-                            {
-                                graphComp.RuntimeGraph = templateGraph->Clone();
+                            graphComp.RuntimeGraph = templateGraph->Clone();
 
-                                // Backfill missing parameters from graph defaults without clobbering existing values
-                                if (graphComp.Parameters.GetAll().empty())
+                            // Backfill missing parameters from graph defaults without clobbering existing values
+                            if (graphComp.Parameters.GetAll().empty())
+                            {
+                                graphComp.Parameters = graphComp.RuntimeGraph->Parameters;
+                            }
+                            else
+                            {
+                                for (auto const& [name, param] : graphComp.RuntimeGraph->Parameters.GetAll())
                                 {
-                                    graphComp.Parameters = graphComp.RuntimeGraph->Parameters;
-                                }
-                                else
-                                {
-                                    for (auto const& [name, param] : graphComp.RuntimeGraph->Parameters.GetAll())
+                                    if (!graphComp.Parameters.HasParameter(name))
                                     {
-                                        if (!graphComp.Parameters.HasParameter(name))
+                                        switch (param.ParamType)
                                         {
-                                            switch (param.ParamType)
-                                            {
-                                                case AnimationParameterType::Float:
-                                                    graphComp.Parameters.DefineFloat(name, param.FloatValue);
-                                                    break;
-                                                case AnimationParameterType::Int:
-                                                    graphComp.Parameters.DefineInt(name, param.IntValue);
-                                                    break;
-                                                case AnimationParameterType::Bool:
-                                                    graphComp.Parameters.DefineBool(name, param.BoolValue);
-                                                    break;
-                                                case AnimationParameterType::Trigger:
-                                                    graphComp.Parameters.DefineTrigger(name);
-                                                    break;
-                                            }
+                                            case AnimationParameterType::Float:
+                                                graphComp.Parameters.DefineFloat(name, param.FloatValue);
+                                                break;
+                                            case AnimationParameterType::Int:
+                                                graphComp.Parameters.DefineInt(name, param.IntValue);
+                                                break;
+                                            case AnimationParameterType::Bool:
+                                                graphComp.Parameters.DefineBool(name, param.BoolValue);
+                                                break;
+                                            case AnimationParameterType::Trigger:
+                                                graphComp.Parameters.DefineTrigger(name);
+                                                break;
                                         }
                                     }
                                 }
-                                graphComp.RuntimeGraph->Start();
-
-                                // Resolve clip name references to actual clip pointers from the entity's model
-                                Entity entity = { e, this };
-                                if (entity.HasComponent<AnimationStateComponent>())
-                                {
-                                    auto const& animState = entity.GetComponent<AnimationStateComponent>();
-                                    if (!animState.m_AvailableClips.empty())
-                                    {
-                                        graphComp.RuntimeGraph->ResolveClips(animState.m_AvailableClips);
-                                    }
-                                }
                             }
-                        }
-                    }
+                            graphComp.RuntimeGraph->Start();
 
-                    if (graphComp.RuntimeGraph)
-                    {
-                        // Retry clip resolution if clips became available after graph init
-                        if (graphComp.RuntimeGraph->HasUnresolvedClips())
-                        {
+                            // Resolve clip name references to actual clip pointers from the entity's model
                             Entity entity = { e, this };
                             if (entity.HasComponent<AnimationStateComponent>())
                             {
@@ -1867,186 +2231,212 @@ namespace OloEngine
                                 }
                             }
                         }
+                    }
+                }
 
-                        // Ensure the graph has been started
-                        for (auto& layer : graphComp.RuntimeGraph->Layers)
+                if (graphComp.RuntimeGraph)
+                {
+                    // Retry clip resolution if clips became available after graph init
+                    if (graphComp.RuntimeGraph->HasUnresolvedClips())
+                    {
+                        Entity entity = { e, this };
+                        if (entity.HasComponent<AnimationStateComponent>())
                         {
-                            if (layer.StateMachine && !layer.StateMachine->HasStarted())
+                            auto const& animState = entity.GetComponent<AnimationStateComponent>();
+                            if (!animState.m_AvailableClips.empty())
                             {
-                                graphComp.RuntimeGraph->Start();
-                                break;
+                                graphComp.RuntimeGraph->ResolveClips(animState.m_AvailableClips);
                             }
                         }
-                        IKTargetComponent graphTempIk;
-                        Entity graphEntity = { e, this };
-                        const IKTargetComponent* graphIkTarget = ResolveIKTargets(graphEntity, graphTempIk) ? &graphTempIk : nullptr;
-                        Animation::SpringBoneState* graphSpringState = nullptr;
-                        const SpringBoneComponent* graphSpringBone = ResolveSpringBone(graphEntity, graphSpringState);
-                        Animation::NoiseAnimationState* graphNoiseState = nullptr;
-                        const NoiseAnimationComponent* graphNoise = ResolveNoiseAnimation(graphEntity, graphNoiseState);
-                        auto const& graphEntityTransform = graphEntity.GetComponent<TransformComponent>().GetTransform();
-                        MorphTargetComponent* graphMorph = graphEntity.HasComponent<MorphTargetComponent>()
-                                                               ? &graphEntity.GetComponent<MorphTargetComponent>()
-                                                               : nullptr;
-                        Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds(), graphIkTarget, graphEntityTransform, graphSpringBone, graphSpringState, graphNoise, graphNoiseState, graphMorph);
                     }
-                }
-            }
 
-            // Evaluate morph targets for all entities with active weights.
-            // Runs after BOTH the AnimationStateComponent and animation-graph
-            // updates so morph weights sampled from either path this frame are
-            // deformed this same frame (no one-frame lag). Morph deformation
-            // happens before skeletal skinning (morph first, then skin).
-            {
-                OLO_PROFILE_SCOPE("Morph Target Evaluation");
-                auto morphView = m_Registry.view<MorphTargetComponent, MeshComponent>();
-                for (auto e : morphView)
-                {
-                    EvaluateEntityMorphTargets(morphView.get<MorphTargetComponent>(e), morphView.get<MeshComponent>(e));
-                }
-            }
-
-            // Physics: 2D + 3D step and transform sync (shared with the other
-            // runtime/simulate tick — see Scene::StepPhysics).
-            StepPhysics(ts);
-
-            // Compose parent-chain world matrices now that scripts, animation,
-            // and physics have all finished moving local transforms this tick,
-            // but before navigation/AI/audio/particles/render read them (#499).
-            PropagateWorldTransforms();
-
-            // Update navigation / pathfinding
-            NavigationSystem::OnUpdate(this, ts.GetSeconds());
-
-            // Rebuild the spatial acceleration structure now that scripts,
-            // physics and navigation have finished moving entities this tick,
-            // but before any query consumer runs. Keep this a single helper call
-            // so the insertion point stays obvious if a later fixed-timestep
-            // change (issue #452) reshuffles the tick ordering.
-            UpdateSpatialIndex();
-
-            // Refresh AI sight perception before AI decisions so behavior trees /
-            // FSMs / GOAP see fresh sensor data the same frame. Uses the spatial
-            // index above for an O(local) proximity query instead of an O(n)
-            // scan over every perceptible entity.
-            PerceptionSystem::OnUpdate(this, ts.GetSeconds());
-
-            // Update AI (behavior trees and state machines)
-            AISystem::OnUpdate(this, ts.GetSeconds());
-
-            // Update inventory system (pickups, despawn)
-            InventorySystem::OnUpdate(this, ts.GetSeconds());
-
-            // Update quest system (timers, conditions)
-            QuestSystem::OnUpdate(this, ts.GetSeconds());
-
-            // Update gameplay ability system (abilities, effects, cooldowns)
-            GameplayAbilitySystem::OnUpdate(this, ts.GetSeconds());
-
-            auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>);
-            for (auto&& [e, ac, tc] : listenerView.each())
-            {
-                if (ac.Active)
-                {
-                    const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
-                    const glm::vec3 forward = SafeAudioBasis(glm::vec3(inverted[2]), glm::vec3(0.0f, 0.0f, 1.0f));
-                    ac.Listener->SetPosition(tc.Translation);
-                    ac.Listener->SetDirection(-forward);
-                    // Keep the 3D spatializer's listener in sync each frame so SoundGraph voices
-                    // pan/attenuate relative to the live listener pose (issue #424).
-                    if (auto* spatializer = AudioEngine::GetSpatializer())
+                    // Ensure the graph has been started
+                    for (auto& layer : graphComp.RuntimeGraph->Layers)
                     {
-                        Audio::Transform listenerTransform;
-                        listenerTransform.Position = tc.Translation;
-                        listenerTransform.Orientation = -forward;
-                        listenerTransform.Up = SafeAudioBasis(glm::vec3(inverted[1]), glm::vec3(0.0f, 1.0f, 0.0f));
-                        spatializer->UpdateListener(listenerTransform);
+                        if (layer.StateMachine && !layer.StateMachine->HasStarted())
+                        {
+                            graphComp.RuntimeGraph->Start();
+                            break;
+                        }
                     }
+                    IKTargetComponent graphTempIk;
+                    Entity graphEntity = { e, this };
+                    const IKTargetComponent* graphIkTarget = ResolveIKTargets(graphEntity, graphTempIk) ? &graphTempIk : nullptr;
+                    Animation::SpringBoneState* graphSpringState = nullptr;
+                    const SpringBoneComponent* graphSpringBone = ResolveSpringBone(graphEntity, graphSpringState);
+                    Animation::NoiseAnimationState* graphNoiseState = nullptr;
+                    const NoiseAnimationComponent* graphNoise = ResolveNoiseAnimation(graphEntity, graphNoiseState);
+                    auto const& graphEntityTransform = graphEntity.GetComponent<TransformComponent>().GetTransform();
+                    MorphTargetComponent* graphMorph = graphEntity.HasComponent<MorphTargetComponent>()
+                                                           ? &graphEntity.GetComponent<MorphTargetComponent>()
+                                                           : nullptr;
+                    Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds(), graphIkTarget, graphEntityTransform, graphSpringBone, graphSpringState, graphNoise, graphNoiseState, graphMorph);
+                }
+            }
+        }
+    }
+
+    void Scene::EvaluateMorphTargets()
+    {
+        // Evaluate morph targets for all entities with active weights.
+        // Runs after BOTH the AnimationStateComponent and animation-graph
+        // updates so morph weights sampled from either path this frame are
+        // deformed this same frame (no one-frame lag). Morph deformation
+        // happens before skeletal skinning (morph first, then skin).
+        {
+            OLO_PROFILE_SCOPE("Morph Target Evaluation");
+            auto morphView = m_Registry.view<MorphTargetComponent, MeshComponent>();
+            for (auto e : morphView)
+            {
+                EvaluateEntityMorphTargets(morphView.get<MorphTargetComponent>(e), morphView.get<MeshComponent>(e));
+            }
+        }
+    }
+
+    void Scene::UpdateNavigation(Timestep ts)
+    {
+        // Update navigation / pathfinding
+        NavigationSystem::OnUpdate(this, ts.GetSeconds());
+    }
+
+    void Scene::UpdatePerception(Timestep ts)
+    {
+        // Refresh AI sight perception before AI decisions so behavior trees /
+        // FSMs / GOAP see fresh sensor data the same frame. Uses the spatial
+        // index above for an O(local) proximity query instead of an O(n)
+        // scan over every perceptible entity.
+        PerceptionSystem::OnUpdate(this, ts.GetSeconds());
+    }
+
+    void Scene::UpdateAI(Timestep ts)
+    {
+        // Update AI (behavior trees and state machines)
+        AISystem::OnUpdate(this, ts.GetSeconds());
+    }
+
+    void Scene::UpdateInventory(Timestep ts)
+    {
+        // Update inventory system (pickups, despawn)
+        InventorySystem::OnUpdate(this, ts.GetSeconds());
+    }
+
+    void Scene::UpdateQuest(Timestep ts)
+    {
+        // Update quest system (timers, conditions)
+        QuestSystem::OnUpdate(this, ts.GetSeconds());
+    }
+
+    void Scene::UpdateAbilities(Timestep ts)
+    {
+        // Update gameplay ability system (abilities, effects, cooldowns)
+        GameplayAbilitySystem::OnUpdate(this, ts.GetSeconds());
+    }
+
+    void Scene::UpdateAudio(Timestep ts)
+    {
+        auto listenerView = m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>);
+        for (auto&& [e, ac, tc] : listenerView.each())
+        {
+            if (ac.Active)
+            {
+                const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
+                const glm::vec3 forward = SafeAudioBasis(glm::vec3(inverted[2]), glm::vec3(0.0f, 0.0f, 1.0f));
+                ac.Listener->SetPosition(tc.Translation);
+                ac.Listener->SetDirection(-forward);
+                // Keep the 3D spatializer's listener in sync each frame so SoundGraph voices
+                // pan/attenuate relative to the live listener pose (issue #424).
+                if (auto* spatializer = AudioEngine::GetSpatializer())
+                {
+                    Audio::Transform listenerTransform;
+                    listenerTransform.Position = tc.Translation;
+                    listenerTransform.Orientation = -forward;
+                    listenerTransform.Up = SafeAudioBasis(glm::vec3(inverted[1]), glm::vec3(0.0f, 1.0f, 0.0f));
+                    spatializer->UpdateListener(listenerTransform);
+                }
+                break;
+            }
+        }
+
+        auto sourceView = m_Registry.group<AudioSourceComponent>(entt::get<TransformComponent>);
+        for (auto&& [e, ac, tc] : sourceView.each())
+        {
+            if (ac.Source)
+            {
+                Entity entity = { e, this };
+                const glm::mat4 inverted = glm::inverse(entity.GetLocalTransform());
+                const glm::vec3 forward = SafeAudioBasis(glm::vec3(inverted[2]), glm::vec3(0.0f, 0.0f, 1.0f));
+                ac.Source->SetPosition(tc.Translation);
+                ac.Source->SetDirection(forward);
+            }
+        }
+
+        // Drive 3D position/orientation for SoundGraph voices (issue #424). Mirrors the
+        // AudioSource loop above; SetLocation/SetOrientation route into the per-voice
+        // spatializer node, which no-ops until the voice actually hosts one.
+        for (auto sgView = m_Registry.view<AudioSoundGraphComponent, TransformComponent>(); auto&& [e, sgc, tc] : sgView.each())
+        {
+            if (sgc.Sound)
+            {
+                const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
+                const glm::vec3 forward = SafeAudioBasis(glm::vec3(inverted[2]), glm::vec3(0.0f, 0.0f, 1.0f));
+                const glm::vec3 up = SafeAudioBasis(glm::vec3(inverted[1]), glm::vec3(0.0f, 1.0f, 0.0f));
+                sgc.Sound->SetLocation(tc.Translation);
+                sgc.Sound->SetOrientation(forward, up);
+            }
+        }
+
+        // Process audio events queue
+        if (m_AudioEventsManager)
+        {
+            m_AudioEventsManager->Update(ts);
+        }
+    }
+
+    void Scene::UpdateParticles(Timestep ts)
+    {
+        // Update particle systems
+        {
+            // Quick camera position lookup for LOD
+            glm::vec3 camPos(0.0f);
+            for (const auto camView = m_Registry.view<TransformComponent, CameraComponent>(); const auto camEntity : camView)
+            {
+                const auto& [camTransform, cam] = camView.get<TransformComponent, CameraComponent>(camEntity);
+                if (cam.Primary)
+                {
+                    camPos = camTransform.Translation;
                     break;
                 }
             }
 
-            auto sourceView = m_Registry.group<AudioSourceComponent>(entt::get<TransformComponent>);
-            for (auto&& [e, ac, tc] : sourceView.each())
+            // Partial-owning group: owns ParticleSystemComponent, borrows
+            // TransformComponent (issue #443 ownership map).
+            for (auto psGroup = m_Registry.group<ParticleSystemComponent>(entt::get<TransformComponent>); auto entity : psGroup)
             {
-                if (ac.Source)
-                {
-                    Entity entity = { e, this };
-                    const glm::mat4 inverted = glm::inverse(entity.GetLocalTransform());
-                    const glm::vec3 forward = SafeAudioBasis(glm::vec3(inverted[2]), glm::vec3(0.0f, 0.0f, 1.0f));
-                    ac.Source->SetPosition(tc.Translation);
-                    ac.Source->SetDirection(forward);
-                }
-            }
+                const auto& transform = psGroup.get<TransformComponent>(entity);
+                auto& psc = psGroup.get<ParticleSystemComponent>(entity);
+                // Provide Jolt scene for raycast collision
+                psc.System.SetJoltScene(m_JoltScene.get());
+                psc.System.UpdateLOD(camPos, transform.Translation);
 
-            // Drive 3D position/orientation for SoundGraph voices (issue #424). Mirrors the
-            // AudioSource loop above; SetLocation/SetOrientation route into the per-voice
-            // spatializer node, which no-ops until the voice actually hosts one.
-            for (auto sgView = m_Registry.view<AudioSoundGraphComponent, TransformComponent>(); auto&& [e, sgc, tc] : sgView.each())
-            {
-                if (sgc.Sound)
+                // Compute parent velocity for velocity inheritance
+                glm::vec3 parentVelocity(0.0f);
+                if (std::abs(psc.System.VelocityInheritance) > 1e-6f && ts > 0.0f)
                 {
-                    const glm::mat4 inverted = glm::inverse(Entity(e, this).GetLocalTransform());
-                    const glm::vec3 forward = SafeAudioBasis(glm::vec3(inverted[2]), glm::vec3(0.0f, 0.0f, 1.0f));
-                    const glm::vec3 up = SafeAudioBasis(glm::vec3(inverted[1]), glm::vec3(0.0f, 1.0f, 0.0f));
-                    sgc.Sound->SetLocation(tc.Translation);
-                    sgc.Sound->SetOrientation(forward, up);
-                }
-            }
-
-            // Process audio events queue
-            if (m_AudioEventsManager)
-            {
-                m_AudioEventsManager->Update(ts);
-            }
-
-            // Update particle systems
-            {
-                // Quick camera position lookup for LOD
-                glm::vec3 camPos(0.0f);
-                for (const auto camView = m_Registry.view<TransformComponent, CameraComponent>(); const auto camEntity : camView)
-                {
-                    const auto& [camTransform, cam] = camView.get<TransformComponent, CameraComponent>(camEntity);
-                    if (cam.Primary)
-                    {
-                        camPos = camTransform.Translation;
-                        break;
-                    }
+                    parentVelocity = (transform.Translation - psc.System.GetEmitterPosition()) / static_cast<f32>(ts);
                 }
 
-                // Partial-owning group: owns ParticleSystemComponent, borrows
-                // TransformComponent (issue #443 ownership map).
-                for (auto psGroup = m_Registry.group<ParticleSystemComponent>(entt::get<TransformComponent>); auto entity : psGroup)
-                {
-                    const auto& transform = psGroup.get<TransformComponent>(entity);
-                    auto& psc = psGroup.get<ParticleSystemComponent>(entity);
-                    // Provide Jolt scene for raycast collision
-                    psc.System.SetJoltScene(m_JoltScene.get());
-                    psc.System.UpdateLOD(camPos, transform.Translation);
+                psc.System.Update(ts, transform.Translation, parentVelocity, transform.GetRotation());
 
-                    // Compute parent velocity for velocity inheritance
-                    glm::vec3 parentVelocity(0.0f);
-                    if (std::abs(psc.System.VelocityInheritance) > 1e-6f && ts > 0.0f)
-                    {
-                        parentVelocity = (transform.Translation - psc.System.GetEmitterPosition()) / static_cast<f32>(ts);
-                    }
-
-                    psc.System.Update(ts, transform.Translation, parentVelocity, transform.GetRotation());
-
-                    // Process sub-emitter triggers for child systems
-                    ProcessChildSubEmitters(psc, ts, transform.Translation);
-                }
+                // Process sub-emitter triggers for child systems
+                ProcessChildSubEmitters(psc, ts, transform.Translation);
             }
-
-            // Video playback is a presentation concern (frame decode + GPU upload +
-            // material albedo binding), not simulation: it is advanced once per
-            // displayed frame at display rate by RenderRuntime, frozen while paused,
-            // rather than 0..N times here in the fixed-step body (issue #452).
-
-            // Process snow deformer entities — submit deformation stamps and emit ejecta
-            ProcessSnowDeformers(ts, m_RuntimeSnowPrevPositions);
         }
+    }
+
+    void Scene::UpdateSnowDeformers(Timestep ts)
+    {
+        // Process snow deformer entities — submit deformation stamps and emit ejecta
+        ProcessSnowDeformers(ts, m_RuntimeSnowPrevPositions);
     }
 
     void Scene::RenderRuntime(Timestep const ts)

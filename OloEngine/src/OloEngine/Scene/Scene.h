@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Task/Task.h"
 #include "OloEngine/Containers/Map.h"
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
@@ -43,6 +44,7 @@ namespace OloEngine
     class DialogueSystem;
     class GameplayEventBus;
     class UINavigation;
+    class SystemScheduler;
 
     namespace Animation
     {
@@ -630,12 +632,77 @@ namespace OloEngine
         void RenderRuntime(Timestep ts);
         // Step 2D (Box2D) + 3D (Jolt, incl. m_SimulationTime-driven buoyancy)
         // physics one tick and sync the results back onto the ECS transforms
-        // (Rigidbody2D / Rigidbody3D / CharacterController3D). Shared by the
-        // runtime tick (SimulateRuntimeStep) and editor Simulate-mode tick
-        // (OnUpdateSimulation) so the two never drift. The caller advances
+        // (Rigidbody2D / Rigidbody3D / CharacterController3D). This is the
+        // SYNCHRONOUS whole-step path, used by the editor Simulate-mode tick
+        // (OnUpdateSimulation). The runtime gameplay schedule instead drives the
+        // kick/fence split below so the ECS-free world step can overlap the
+        // physics-shadow systems; both paths share PostPhysicsSync and the
+        // JoltScene phase methods, so they cannot drift. The caller advances
         // m_SimulationTime before calling.
         void StepPhysics(Timestep ts);
 
+        // ── Async physics split (issue #453, UE TG_DuringPhysics analog) ────────
+        // KickPhysicsStep — GAME THREAD. Queues buoyancy forces, drains queued
+        //   contact events, advances the fixed-step accumulator, runs the ECS-
+        //   reading character/vehicle phase, then launches the ECS-free world
+        //   step (Box2D + Jolt world update) as an engine task. Falls back to
+        //   fully-synchronous stepping when the frame authorizes != 1 fixed step
+        //   (idle / hitch catch-up), when parallel execution is disabled, or
+        //   when there is no 3D physics scene — the fallback is bit-identical to
+        //   StepPhysics' stepping order.
+        // FencePhysicsStep — GAME THREAD. Joins the in-flight world step, runs
+        //   the joint-break phase (ECS reads + event publish, per-step impulse
+        //   state must be consumed before the next world update), writes body
+        //   poses back to the ECS transforms, and runs PostPhysicsSync. Every
+        //   downstream transform consumer is ordered after this node by the
+        //   derived graph. Between kick and fence, only the physics-shadow
+        //   systems (see GetGameplayScheduler) run — on the game thread, so they
+        //   need no worker-thread-safety audit, only physics-independence.
+        void KickPhysicsStep(Timestep ts);
+        void FencePhysicsStep();
+        // Cloth readback + Box2D / Jolt rigid-body / character-controller ECS
+        // transform sync — the tail shared verbatim by StepPhysics (sync path)
+        // and FencePhysicsStep (async path).
+        void PostPhysicsSync();
+
+        // ── Gameplay systems that make up one SimulateRuntimeStep tick ──────────
+        // Each is one node in the declarative dependency graph (issue #453); the
+        // execution order is DERIVED from the read/write + before/after
+        // constraints declared in GetGameplayScheduler(), not from the order these
+        // are called here. Bodies are the historical hard-coded blocks, moved out
+        // of SimulateRuntimeStep verbatim so the derived sequential run is a
+        // bit-for-bit no-op. See SystemScheduler.h.
+        void UpdateScripts(Timestep ts);         // C# + Lua entity OnUpdate
+        void UpdateCinematics(Timestep ts);      // authored sequence playback
+        void UpdateDialogue(Timestep ts);        // dialogue runner
+        void UpdateAnimation(Timestep ts);       // skeletal + morph-only sampling
+        void UpdateAnimationGraphs(Timestep ts); // animation state machines
+        void EvaluateMorphTargets();             // deform meshes from morph weights
+        void UpdateNavigation(Timestep ts);      // pathfinding / crowds
+        void UpdatePerception(Timestep ts);      // AI sight sensing
+        void UpdateAI(Timestep ts);              // behavior trees / FSM / GOAP
+        void UpdateInventory(Timestep ts);       // pickups / despawn
+        void UpdateQuest(Timestep ts);           // quest timers / conditions
+        void UpdateAbilities(Timestep ts);       // gameplay ability system
+        void UpdateAudio(Timestep ts);           // listener/source pose sync + events
+        void UpdateParticles(Timestep ts);       // particle systems + sub-emitters
+        void UpdateSnowDeformers(Timestep ts);   // snow deformation stamps + ejecta
+
+      public:
+        // The process-wide gameplay system schedule. Built once (thread-safe
+        // function-local static), shared across every Scene / tick because each
+        // system's exec callback takes the Scene by reference and captures nothing
+        // instance-specific. Building it derives the execution order and throws
+        // SystemSchedulerError if the authored graph is cyclic or references an
+        // unknown system. Public for tests / diagnostics (DependsOn seam queries);
+        // the systems it runs are still private Scene members.
+        static SystemScheduler& GetGameplayScheduler();
+
+        // The derived gameplay-system execution order, for tests / diagnostics.
+        // Proves the scheduler reproduces the historical hard-coded sequence.
+        static const std::vector<std::string>& GetGameplaySystemOrderForTesting();
+
+      private:
       private:
         entt::registry m_Registry;
         u32 m_ViewportWidth = 0;
@@ -694,6 +761,17 @@ namespace OloEngine
 
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;
+
+        // In-flight async physics world step (issue #453): launched by
+        // KickPhysicsStep, joined by FencePhysicsStep within the SAME tick — it
+        // never outlives a SimulateRuntimeStep call, so no teardown handling is
+        // needed. Invalid whenever the kick took the synchronous fallback.
+        Tasks::TTask<void> m_PhysicsStepTask;
+        // Fixed steps the current frame authorized (BeginSteps) and whether the
+        // kick launched the world step asynchronously — the fence uses these to
+        // run the deferred joint-break phase only on the async single-step path.
+        u32 m_PhysicsStepsThisFrame = 0;
+        bool m_PhysicsStepRanAsync = false;
 
         // Cloth soft-body runtime state (issue #460), keyed by the owning ClothComponent
         // entity. Built at OnPhysics3DStart, torn down at OnPhysics3DStop; never serialized

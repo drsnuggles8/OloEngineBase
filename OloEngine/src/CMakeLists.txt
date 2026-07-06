@@ -953,6 +953,8 @@
 		"OloEngine/Scene/SceneSerializer.h"
 		"OloEngine/Scene/SpatialAcceleration.cpp"
 		"OloEngine/Scene/SpatialAcceleration.h"
+		"OloEngine/Scene/SystemScheduler.cpp"
+		"OloEngine/Scene/SystemScheduler.h"
 		"OloEngine/Scene/ModelImporter.cpp"
 		"OloEngine/Scene/ModelImporter.h"
 

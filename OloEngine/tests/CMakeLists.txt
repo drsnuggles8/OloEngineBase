@@ -334,6 +334,8 @@ add_executable(OloEngine-Tests
 		# TransformComponent Tests
 		TransformComponentTest.cpp
 		Scene/WorldTransformPropagationBenchmarkTest.cpp
+		# System scheduler dependency-graph derivation (issue #453)
+		Scene/SystemSchedulerTest.cpp
 		# Physics3D mesh mass-properties (divergence-theorem volume + centroid)
 		JoltShapesMeshMassPropertiesTest.cpp
 		# Physics3D cloth soft-body shared-settings contract (issue #460)
