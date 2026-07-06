@@ -1488,6 +1488,9 @@ namespace OloEngine
             return *this;
         }
 
+        AudioSourceComponent(AudioSourceComponent&&) noexcept = default;
+        auto operator=(AudioSourceComponent&&) noexcept -> AudioSourceComponent& = default;
+
         [[nodiscard]] AudioSourceConfig& GetConfig() noexcept
         {
             return m_Cold->Config;

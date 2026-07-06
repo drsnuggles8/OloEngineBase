@@ -1719,28 +1719,34 @@ namespace OloEngine
             auto& config = src.GetConfig();
             std::string audioFilepath;
             TrySet(audioFilepath, audioSourceComponent["Filepath"]);
-            TrySet(config.VolumeMultiplier, audioSourceComponent["VolumeMultiplier"]);
-            TrySet(config.PitchMultiplier, audioSourceComponent["PitchMultiplier"]);
             TrySet(config.PlayOnAwake, audioSourceComponent["PlayOnAwake"]);
             TrySet(config.Looping, audioSourceComponent["Looping"]);
             TrySet(config.Spatialization, audioSourceComponent["Spatialization"]);
             TrySetEnum(config.AttenuationModel, audioSourceComponent["AttenuationModel"]);
-            TrySet(config.RollOff, audioSourceComponent["RollOff"]);
-            TrySet(config.MinGain, audioSourceComponent["MinGain"]);
-            TrySet(config.MaxGain, audioSourceComponent["MaxGain"]);
-            TrySet(config.MinDistance, audioSourceComponent["MinDistance"]);
-            TrySet(config.MaxDistance, audioSourceComponent["MaxDistance"]);
-            TrySet(config.ConeInnerAngle, audioSourceComponent["ConeInnerAngle"]);
-            TrySet(config.ConeOuterAngle, audioSourceComponent["ConeOuterAngle"]);
-            TrySet(config.ConeOuterGain, audioSourceComponent["ConeOuterGain"]);
-            TrySet(config.DopplerFactor, audioSourceComponent["DopplerFactor"]);
 
-            // DSP parameters: load + sanitize in one step to prevent drift
+            // Load + sanitize in one step to prevent drift — ranges mirror
+            // SaveGameComponentSerializer::SerializeAudioSourceConfig exactly,
+            // since both paths feed the same miniaudio-backed AudioSourceConfig.
             auto TrySetDsp = [&audioSourceComponent](f32& field, const char* key, f32 lo, f32 hi, f32 fallback)
             {
                 TrySet(field, audioSourceComponent[key]);
                 SanitizeFloat(field, lo, hi, fallback);
             };
+            TrySetDsp(config.VolumeMultiplier, "VolumeMultiplier", 0.0f, 10.0f, 1.0f);
+            TrySetDsp(config.PitchMultiplier, "PitchMultiplier", 0.0f, 10.0f, 1.0f);
+            TrySetDsp(config.RollOff, "RollOff", 0.0f, 100.0f, 1.0f);
+            TrySetDsp(config.MinGain, "MinGain", 0.0f, 1.0f, 0.0f);
+            TrySetDsp(config.MaxGain, "MaxGain", 0.0f, 1.0f, 1.0f);
+            TrySetDsp(config.MinDistance, "MinDistance", 0.0f, 1e6f, 0.3f);
+            TrySetDsp(config.MaxDistance, "MaxDistance", 0.0f, 1e6f, 1000.0f);
+            if (config.MinDistance > config.MaxDistance)
+            {
+                config.MinDistance = config.MaxDistance;
+            }
+            TrySetDsp(config.ConeInnerAngle, "ConeInnerAngle", 0.0f, glm::radians(360.0f), glm::radians(360.0f));
+            TrySetDsp(config.ConeOuterAngle, "ConeOuterAngle", 0.0f, glm::radians(360.0f), glm::radians(360.0f));
+            TrySetDsp(config.ConeOuterGain, "ConeOuterGain", 0.0f, 1.0f, 0.0f);
+            TrySetDsp(config.DopplerFactor, "DopplerFactor", 0.0f, 10.0f, 1.0f);
             TrySetDsp(config.Spread, "Spread", 0.0f, 1.0f, 1.0f);
             TrySetDsp(config.Focus, "Focus", 0.0f, 1.0f, 1.0f);
             TrySetDsp(config.LowPassCutoff, "LowPassCutoff", 0.0f, 1.0f, 1.0f);

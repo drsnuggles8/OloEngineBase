@@ -3894,6 +3894,23 @@ namespace OloEngine
             ImGui::TextDisabled("Built at play; bones missing a body get a dynamic one."); });
 
         // Audio Components
+
+        // Resolves component's StartEvent against the registry and updates StartCommandID
+        // accordingly (clears it if unresolved or no registry is available). Shared by every
+        // start-event edit path below so they can't drift out of sync with each other.
+        static auto ResolveStartCommandID = [](AudioSourceComponent& component, Audio::AudioCommandRegistry* registry)
+        {
+            if (registry)
+            {
+                if (auto resolved = Audio::CommandID::FromString(component.GetStartEvent()); registry->Contains(resolved))
+                {
+                    component.SetStartCommandID(resolved);
+                    return;
+                }
+            }
+            component.SetStartCommandID({});
+        };
+
         DrawComponent<AudioSourceComponent>("Audio Source", entity, [this](auto& component)
                                             {
             ImGui::Text("Audio Source: %s", component.Source ? "Loaded" : "None");
@@ -4002,21 +4019,7 @@ namespace OloEngine
                 component.SetUseEventSystem(useEventSystem);
                 if (useEventSystem && !prev)
                 {
-                    if (auto* reg = m_Context->GetAudioCommandRegistry())
-                    {
-                        if (auto resolved = Audio::CommandID::FromString(component.GetStartEvent()); reg->Contains(resolved))
-                        {
-                            component.SetStartCommandID(resolved);
-                        }
-                        else
-                        {
-                            component.SetStartCommandID({});
-                        }
-                    }
-                    else
-                    {
-                        component.SetStartCommandID({});
-                    }
+                    ResolveStartCommandID(component, m_Context->GetAudioCommandRegistry());
                 }
             }
             if (component.GetUseEventSystem())
@@ -4026,21 +4029,7 @@ namespace OloEngine
                 if (ImGui::InputText("Start Event##AudioSource", eventBuf, sizeof(eventBuf)))
                 {
                     component.SetStartEvent(eventBuf);
-                    if (auto* reg = m_Context->GetAudioCommandRegistry())
-                    {
-                        if (auto resolved = Audio::CommandID::FromString(component.GetStartEvent()); reg->Contains(resolved))
-                        {
-                            component.SetStartCommandID(resolved);
-                        }
-                        else
-                        {
-                            component.SetStartCommandID({});
-                        }
-                    }
-                    else
-                    {
-                        component.SetStartCommandID({});
-                    }
+                    ResolveStartCommandID(component, m_Context->GetAudioCommandRegistry());
                 }
 
                 // Validate against registry if available; re-resolve stale IDs
