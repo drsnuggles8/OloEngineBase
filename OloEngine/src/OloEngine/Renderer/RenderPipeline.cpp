@@ -1359,14 +1359,15 @@ namespace OloEngine
                     // / Velocity transient descriptors, so the transient pool now
                     // holds stale reduced-size (and paired stale full-size)
                     // framebuffers/textures. Unlike a genuine viewport resize this
-                    // path never reaches RenderGraph::Resize, so evict the pool here
-                    // too — otherwise the alias-group resolver can hand a stale
-                    // transient to a downstream pass for the first ~2 frames after
-                    // the transition, rendering a black scene (issue #563; the
-                    // render-graph half of #549). Safe here: PopulateBlackboard runs
-                    // before this frame's MaterializeTransientResources acquires, and
-                    // the previous frame's ReleaseAll already returned everything.
-                    graph.GetTransientPool().Clear();
+                    // path never reaches RenderGraph::Resize, so route through the
+                    // graph's node-resize eviction chokepoint — otherwise the
+                    // alias-group resolver can hand a stale transient to a downstream
+                    // pass for the first ~2 frames after the transition, rendering a
+                    // black scene (issue #563; the render-graph half of #549). Safe
+                    // here: PopulateBlackboard runs before this frame's
+                    // MaterializeTransientResources acquires, and the previous
+                    // frame's ReleaseAll already returned everything.
+                    graph.NotifyNodeFramebufferResized();
                 }
             }
         }

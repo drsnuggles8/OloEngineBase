@@ -2994,7 +2994,7 @@ namespace OloEngine
         // churn the pool.
         if (dimensionsChanged || anyNodeResized)
         {
-            m_TransientPool.Clear();
+            NotifyNodeFramebufferResized();
         }
 
         // Physical resize resets render viewport overrides on all FBOs.
