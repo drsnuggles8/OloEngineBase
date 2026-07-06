@@ -44,6 +44,24 @@ namespace OloEngine
     std::unordered_map<u32, SaveGameSerializeFn> SaveGameComponentSerializer::s_Registry;
 
     // ========================================================================
+    // Helper: per-field format-version gating (issue #454)
+    // ========================================================================
+    //
+    // Save-game archives are fixed-order binary: every field is read/written
+    // unconditionally in sequence, so a field appended after the component's
+    // format was first shipped must be gated behind the version it was
+    // introduced in, or an older save desyncs every read that follows it.
+    // Saving always writes the current (full) layout -- IsSaving() short-
+    // circuits the check -- only loading gates on the archive's recorded
+    // FormatVersion (SaveGameSerializer::RestoreSceneState plumbs the save's
+    // header FormatVersion into FArchive::ArArchiveVersion before any
+    // component is deserialized).
+    static bool HasFieldsSince(const FArchive& ar, u32 introducedInVersion)
+    {
+        return ar.IsSaving() || ar.GetArchiveVersion() >= introducedInVersion;
+    }
+
+    // ========================================================================
     // Helper: ColliderMaterial
     // ========================================================================
 
@@ -1583,54 +1601,62 @@ namespace OloEngine
         ar << c.m_VoxelEnabled << c.m_VoxelSize;
 
         // ── Format v3: procedural height-field shaping + auto-material rules ──
-        // Appended at the end; kSaveGameFormatVersion was bumped 2→3, so any
-        // pre-v3 archive is rejected by the header check before reaching here.
-        ar << c.m_HeightShaping.RidgeBlend << c.m_HeightShaping.WarpStrength << c.m_HeightShaping.WarpFrequency;
-        ar << c.m_HeightShaping.TerraceSteps << c.m_HeightShaping.TerraceSharpness << c.m_HeightShaping.HeightExponent;
-        ar << c.m_AutoMaterial << c.m_SplatmapGenResolution;
+        // Appended at the end when kSaveGameFormatVersion was bumped 2→3. A save
+        // written before v3 has none of these bytes, so loading one leaves the
+        // fields at their constructor defaults (empty m_LayerRules included).
+        if (HasFieldsSince(ar, 3))
+        {
+            ar << c.m_HeightShaping.RidgeBlend << c.m_HeightShaping.WarpStrength << c.m_HeightShaping.WarpFrequency;
+            ar << c.m_HeightShaping.TerraceSteps << c.m_HeightShaping.TerraceSharpness << c.m_HeightShaping.HeightExponent;
+            ar << c.m_AutoMaterial << c.m_SplatmapGenResolution;
 
-        u32 ruleCount = static_cast<u32>(c.m_LayerRules.size());
-        ar << ruleCount;
-        if (ar.IsLoading())
-        {
-            u32 clampedRules = std::min(ruleCount, 256u);
-            c.m_LayerRules.resize(clampedRules);
-            for (u32 i = 0; i < clampedRules; ++i)
+            u32 ruleCount = static_cast<u32>(c.m_LayerRules.size());
+            ar << ruleCount;
+            if (ar.IsLoading())
             {
-                SerializeTerrainLayerRule(ar, c.m_LayerRules[i]);
-                if (ar.IsError())
+                u32 clampedRules = std::min(ruleCount, 256u);
+                c.m_LayerRules.resize(clampedRules);
+                for (u32 i = 0; i < clampedRules; ++i)
                 {
-                    return;
+                    SerializeTerrainLayerRule(ar, c.m_LayerRules[i]);
+                    if (ar.IsError())
+                    {
+                        return;
+                    }
+                }
+                // Drain any excess entries to keep the stream aligned.
+                for (u32 i = clampedRules; i < ruleCount; ++i)
+                {
+                    TerrainLayerRule discard{};
+                    SerializeTerrainLayerRule(ar, discard);
+                    if (ar.IsError())
+                    {
+                        return;
+                    }
                 }
             }
-            // Drain any excess entries to keep the stream aligned.
-            for (u32 i = clampedRules; i < ruleCount; ++i)
+            else
             {
-                TerrainLayerRule discard{};
-                SerializeTerrainLayerRule(ar, discard);
-                if (ar.IsError())
+                for (u32 i = 0; i < ruleCount; ++i)
                 {
-                    return;
+                    SerializeTerrainLayerRule(ar, c.m_LayerRules[i]);
                 }
-            }
-        }
-        else
-        {
-            for (u32 i = 0; i < ruleCount; ++i)
-            {
-                SerializeTerrainLayerRule(ar, c.m_LayerRules[i]);
             }
         }
 
         // ── Format v5: hydraulic-erosion generation post-pass iteration count ──
-        // Appended at the end; kSaveGameFormatVersion was bumped 4→5, so any
-        // pre-v5 archive is rejected by the header check before reaching here.
-        ar << c.m_ProceduralErosionIterations;
+        // Appended at the end when kSaveGameFormatVersion was bumped 4→5.
+        if (HasFieldsSince(ar, 5))
+        {
+            ar << c.m_ProceduralErosionIterations;
+        }
 
         // ── Format v6: static height-field collision toggle (issue #428) ──
-        // Appended at the end; kSaveGameFormatVersion was bumped 5→6, so any
-        // pre-v6 archive is rejected by the header check before reaching here.
-        ar << c.m_CollisionEnabled;
+        // Appended at the end when kSaveGameFormatVersion was bumped 5→6.
+        if (HasFieldsSince(ar, 6))
+        {
+            ar << c.m_CollisionEnabled;
+        }
 
         if (ar.IsLoading())
         {
@@ -2322,14 +2348,18 @@ namespace OloEngine
         ar << c.LimbTargetEntity;
 
         // ── Format v4: Chain IK (FABRIK full-chain) section ──
-        // Appended at the end; kSaveGameFormatVersion was bumped 3→4, so any
-        // pre-v4 archive is rejected by the header check before reaching here.
-        ar << c.ChainIKEnabled << c.ChainBoneIndex;
-        ar << c.ChainTarget.x << c.ChainTarget.y << c.ChainTarget.z;
-        ar << c.ChainPoleVector.x << c.ChainPoleVector.y << c.ChainPoleVector.z;
-        ar << c.ChainLength << c.ChainIterations;
-        ar << c.ChainTolerance << c.ChainWeight;
-        ar << c.ChainTargetEntity;
+        // Appended at the end when kSaveGameFormatVersion was bumped 3→4. A
+        // save written before v4 has none of these bytes; loading one leaves
+        // the Chain* fields at their constructor defaults, sanitized below.
+        if (HasFieldsSince(ar, 4))
+        {
+            ar << c.ChainIKEnabled << c.ChainBoneIndex;
+            ar << c.ChainTarget.x << c.ChainTarget.y << c.ChainTarget.z;
+            ar << c.ChainPoleVector.x << c.ChainPoleVector.y << c.ChainPoleVector.z;
+            ar << c.ChainLength << c.ChainIterations;
+            ar << c.ChainTolerance << c.ChainWeight;
+            ar << c.ChainTargetEntity;
+        }
 
         if (!ar.IsSaving())
         {

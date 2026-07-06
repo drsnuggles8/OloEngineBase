@@ -70,6 +70,36 @@ TEST(SaveGameHeaderTest, InvalidMagic)
     EXPECT_FALSE(header.IsValid());
 }
 
+// A save written by an older (but still supported) schema version must be
+// accepted, not rejected outright — the component deserializer gates any
+// field added after that version (issue #454). Only versions outside
+// [kMinSupportedSaveGameFormatVersion, kSaveGameFormatVersion] are invalid.
+TEST(SaveGameHeaderTest, OlderSupportedFormatVersionIsValid)
+{
+    static_assert(kSaveGameFormatVersion > kMinSupportedSaveGameFormatVersion,
+                  "Test requires at least one version below current to be supported");
+
+    SaveGameHeader header;
+    header.FormatVersion = kSaveGameFormatVersion - 1;
+    EXPECT_TRUE(header.IsValid());
+}
+
+TEST(SaveGameHeaderTest, FormatVersionBelowMinSupportedIsInvalid)
+{
+    SaveGameHeader header;
+    header.FormatVersion = kMinSupportedSaveGameFormatVersion - 1;
+    EXPECT_FALSE(header.IsValid());
+}
+
+TEST(SaveGameHeaderTest, FormatVersionAboveCurrentIsInvalid)
+{
+    // A save written by a newer engine than this build must be rejected —
+    // this build doesn't know its layout and guessing would corrupt data.
+    SaveGameHeader header;
+    header.FormatVersion = kSaveGameFormatVersion + 1;
+    EXPECT_FALSE(header.IsValid());
+}
+
 // ========================================================================
 // Metadata Serialization
 // ========================================================================

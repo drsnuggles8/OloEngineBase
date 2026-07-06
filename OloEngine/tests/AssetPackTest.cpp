@@ -201,6 +201,8 @@ TEST_F(AssetPackTest, LoadSucceedsWithZeroSceneCount)
 
 TEST_F(AssetPackTest, LoadFailsWithWrongVersion)
 {
+    // A version newer than this build understands must still be rejected outright —
+    // there's no way to safely guess a future/unknown layout (issue #454).
     AssetPackFile::FileHeader header;
     header.Version = 999;
     header.IndexOffset = sizeof(AssetPackFile::FileHeader);
@@ -211,6 +213,41 @@ TEST_F(AssetPackTest, LoadFailsWithWrongVersion)
 
     EXPECT_FALSE(result.Success);
     EXPECT_EQ(result.ErrorCode, AssetPackLoadError::UnsupportedVersion);
+}
+
+TEST_F(AssetPackTest, LoadFailsWithVersionBelowMinSupported)
+{
+    AssetPackFile::FileHeader header;
+    header.Version = AssetPackFile::MinSupportedVersion - 1;
+    header.IndexOffset = sizeof(AssetPackFile::FileHeader);
+    WriteMinimalPack(header, 1, 0);
+
+    auto pack = Ref<AssetPack>::Create();
+    auto result = pack->Load(m_TempPath);
+
+    EXPECT_FALSE(result.Success);
+    EXPECT_EQ(result.ErrorCode, AssetPackLoadError::UnsupportedVersion);
+}
+
+TEST_F(AssetPackTest, LoadSucceedsWithOlderSupportedVersion)
+{
+    // A pack in [MinSupportedVersion, Version) is accepted and migrated in place
+    // instead of being rejected outright (issue #454) — locks in the forward-compat
+    // policy for the next real AssetPackFile::Version bump.
+    static_assert(AssetPackFile::Version > AssetPackFile::MinSupportedVersion,
+                  "Test requires at least one version below current to be supported");
+
+    AssetPackFile::FileHeader header;
+    header.Version = AssetPackFile::Version - 1;
+    header.IndexOffset = sizeof(AssetPackFile::FileHeader);
+    WriteMinimalPack(header, 1, 0);
+
+    auto pack = Ref<AssetPack>::Create();
+    auto result = pack->Load(m_TempPath);
+
+    EXPECT_TRUE(result.Success) << "Error: " << result.ErrorMessage;
+    EXPECT_TRUE(pack->IsLoaded());
+    EXPECT_EQ(pack->GetAllAssetInfos().size(), 1u);
 }
 
 TEST_F(AssetPackTest, LoadFailsWithIndexOffsetBeyondFileSize)

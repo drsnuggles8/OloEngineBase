@@ -13,6 +13,19 @@ namespace OloEngine
         static constexpr u32 MagicNumber = 0x504C4F4F; // "OLOO" in little endian
         static constexpr u32 Version = 3;
 
+        // Oldest FileHeader::Version this build will still load (issue #454). A pack
+        // built by a newer engine (Header.Version > Version) is rejected outright --
+        // this build doesn't know its layout and guessing would corrupt asset data.
+        // A pack in [MinSupportedVersion, Version) is accepted; AssetPack::Load runs it
+        // through MigrateAssetPackIndex (a no-op today, same shape as
+        // SceneSerializer's MigrateSceneYAML / SaveGame's per-field HasFieldsSince gate)
+        // so the next version bump has a place to add real migration instead of quietly
+        // misreading old field layouts. If a future version adds/removes a fixed-layout
+        // field in AssetInfo/SceneInfo/IndexTable, gate that read behind
+        // `Header.Version >= <version it was introduced in>` at the read site in
+        // AssetPack::Load, mirroring SaveGameComponentSerializer's HasFieldsSince pattern.
+        static constexpr u32 MinSupportedVersion = 1;
+
         struct AssetInfo
         {
             AssetHandle Handle;

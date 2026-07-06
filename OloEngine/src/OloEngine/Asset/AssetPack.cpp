@@ -13,6 +13,35 @@ namespace OloEngine
         delete ptr;
     }
 
+    // ---------------------------------------------------------------------
+    // Asset-pack index versioning (issue #454)
+    // ---------------------------------------------------------------------
+    // Placeholder for an ordered migration chain applied to the in-memory
+    // AssetPackFile once its (currently fixed-layout) index has been read.
+    // Empty today -- AssetPackFile::Version has never changed, so there is no
+    // older on-disk layout to convert -- but this is where a future version
+    // bump adds a step once AssetPack::Load has been updated to read that
+    // older layout (see the comment on AssetPackFile::MinSupportedVersion).
+    static void MigrateAssetPackIndex([[maybe_unused]] AssetPackFile& file, u32 fromVersion)
+    {
+        if (fromVersion >= AssetPackFile::Version)
+        {
+            return;
+        }
+
+        OLO_CORE_INFO("AssetPack: migrating pack index from version {} to {}", fromVersion, AssetPackFile::Version);
+
+        for (u32 v = fromVersion; v < AssetPackFile::Version; ++v)
+        {
+            switch (v)
+            {
+                // case 2: Migrate_V2_to_V3(file); break;
+                default:
+                    break;
+            }
+        }
+    }
+
     AssetPackLoadResult AssetPack::Load(const std::filesystem::path& path)
     {
         auto startTime = std::chrono::high_resolution_clock::now();
@@ -99,14 +128,18 @@ namespace OloEngine
                                        "Invalid magic number. This is not a valid asset pack file.");
         }
 
-        // Validate version
-        if (m_AssetPackFile.Header.Version != AssetPackFile::Version)
+        // Validate version. A pack from a newer engine (Version > current) is rejected
+        // outright -- this build doesn't know its layout. A pack in
+        // [MinSupportedVersion, Version) is accepted and migrated below instead of being
+        // rejected outright (issue #454); see AssetPackFile::MinSupportedVersion.
+        if (m_AssetPackFile.Header.Version > AssetPackFile::Version ||
+            m_AssetPackFile.Header.Version < AssetPackFile::MinSupportedVersion)
         {
-            OLO_CORE_ERROR("AssetPack::Load - Unsupported version. Expected: {}, Got: {}",
-                           AssetPackFile::Version, m_AssetPackFile.Header.Version);
+            OLO_CORE_ERROR("AssetPack::Load - Unsupported version. Supported range: [{}, {}], Got: {}",
+                           AssetPackFile::MinSupportedVersion, AssetPackFile::Version, m_AssetPackFile.Header.Version);
             return AssetPackLoadResult(AssetPackLoadError::UnsupportedVersion,
-                                       "Unsupported pack version. Expected: " + std::to_string(AssetPackFile::Version) +
-                                           ", Got: " + std::to_string(m_AssetPackFile.Header.Version));
+                                       "Unsupported pack version. Supported range: [" + std::to_string(AssetPackFile::MinSupportedVersion) +
+                                           ", " + std::to_string(AssetPackFile::Version) + "], Got: " + std::to_string(m_AssetPackFile.Header.Version));
         }
 
         // Get file size for bounds checking
@@ -396,6 +429,9 @@ namespace OloEngine
             return AssetPackLoadResult(AssetPackLoadError::CorruptIndex,
                                        "Failed to read asset index table: " + std::string(e.what()));
         }
+
+        // Migrate the in-memory index if it came from an older pack version (no-op today).
+        MigrateAssetPackIndex(m_AssetPackFile, m_AssetPackFile.Header.Version);
 
         // All validations passed, safe to update object state
         m_PackPath = path;

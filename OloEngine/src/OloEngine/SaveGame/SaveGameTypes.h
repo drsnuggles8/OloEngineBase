@@ -54,6 +54,14 @@ namespace OloEngine
     static constexpr u32 kSaveGameFormatVersion = 6;  // v6: TerrainComponent gained the static height-field collision toggle (issue #428)
     static constexpr u32 kSaveGameHeaderSize = 128;
 
+    // Oldest FormatVersion this build will still load. Every version from here up to
+    // kSaveGameFormatVersion is accepted and migrated on load (issue #454) -- component
+    // Serialize() overloads gate any field added after v1 behind
+    // `ar.IsSaving() || ar.GetArchiveVersion() >= <version it was introduced in>` (see
+    // TerrainComponent / IKTargetComponent in SaveGameComponentSerializer.cpp for the
+    // pattern). Bump this only if a version is deliberately dropped from support.
+    static constexpr u32 kMinSupportedSaveGameFormatVersion = 1;
+
     // Compression flags (stored in Header.Flags)
     enum class SaveGameCompression : u32
     {
@@ -83,9 +91,16 @@ namespace OloEngine
 
         u8 Reserved[128 - 80] = {}; // Padding to exactly 128 bytes
 
+        // A save is structurally valid if it carries the right magic and its FormatVersion
+        // falls within the range this build knows how to read. A version below the
+        // supported floor or above the current version (written by a newer build than
+        // this one) is rejected outright; anything in between is loaded and migrated
+        // field-by-field by the per-component Serialize() overloads (issue #454).
         [[nodiscard]] bool IsValid() const
         {
-            return Magic == kSaveGameMagic && FormatVersion == kSaveGameFormatVersion;
+            return Magic == kSaveGameMagic &&
+                   FormatVersion >= kMinSupportedSaveGameFormatVersion &&
+                   FormatVersion <= kSaveGameFormatVersion;
         }
 
         // Check whether the save was produced by a compatible engine version

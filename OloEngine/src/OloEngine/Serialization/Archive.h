@@ -105,6 +105,7 @@ namespace OloEngine
             ArSerializingDefaults = ArchiveStatusToCopy.ArSerializingDefaults;
             ArPortFlags = ArchiveStatusToCopy.ArPortFlags;
             ArMaxSerializeSize = ArchiveStatusToCopy.ArMaxSerializeSize;
+            ArArchiveVersion = ArchiveStatusToCopy.ArArchiveVersion;
         }
 
       public:
@@ -401,6 +402,22 @@ namespace OloEngine
             return ArIsSaveGame;
         }
 
+        // Returns the on-disk format version this archive is reading/writing.
+        // Defaults to 0 (unset). Loaders that support versioned migration (save-game,
+        // asset-pack) set this to the file's recorded header version before serializing
+        // fields, so per-field reads can gate on `ArArchiveVersion >= introducedInVersion`
+        // to stay compatible with data written by an older schema.
+        [[nodiscard]] u32 GetArchiveVersion() const
+        {
+            return ArArchiveVersion;
+        }
+
+        // Sets the on-disk format version this archive is reading/writing.
+        void SetArchiveVersion(u32 InVersion)
+        {
+            ArArchiveVersion = InVersion;
+        }
+
         // Whether or not this archive is serializing data being sent/received by the netcode
         [[nodiscard]] bool IsNetArchive() const
         {
@@ -460,6 +477,7 @@ namespace OloEngine
             ArSerializingDefaults = 0;
             ArPortFlags = 0;
             ArMaxSerializeSize = 0;
+            ArArchiveVersion = 0;
         }
 
         // ========================================================================
@@ -601,6 +619,9 @@ namespace OloEngine
 
         // Max size of data that this archive is allowed to serialize.
         i64 ArMaxSerializeSize = 0;
+
+        // On-disk format version for archives that support versioned migration.
+        u32 ArArchiveVersion = 0;
     };
 
     // ============================================================================
@@ -637,6 +658,7 @@ namespace OloEngine
         using FArchiveState::DoIntraPropertyDelta;
         using FArchiveState::ForceByteSwapping;
         using FArchiveState::GetArchiveName;
+        using FArchiveState::GetArchiveVersion;
         using FArchiveState::GetError;
         using FArchiveState::GetInnermostState;
         using FArchiveState::GetMaxSerializeSize;
@@ -667,6 +689,7 @@ namespace OloEngine
         using FArchiveState::RequiresLocalizationGather;
         using FArchiveState::Reset;
         using FArchiveState::SetArchiveState;
+        using FArchiveState::SetArchiveVersion;
         using FArchiveState::SetByteSwapping;
         using FArchiveState::SetCriticalError;
         using FArchiveState::SetError;
