@@ -342,6 +342,8 @@ add_executable(OloEngine-Tests
 		StaticMeshColliderGenerationTest.cpp
 		# CrashReporter / platform handlers (Windows SEH + Linux signal hooks)
 		Debug/CrashReporterTest.cpp
+		# RendererProfiler frame-time/CPU/GPU-wait alignment (#519)
+		Debug/RendererProfilerTest.cpp
 		# Gameplay Ability Tests
 		Gameplay/GameplayAbilityTest.cpp
 		# Content Browser Tests

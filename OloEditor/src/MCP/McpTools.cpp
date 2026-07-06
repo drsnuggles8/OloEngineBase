@@ -465,7 +465,14 @@ namespace OloEngine::MCP
         {
             Json j = server.MarshalRead([]() -> Json
                                         {
-                const RendererProfiler::FrameData& f = RendererProfiler::GetInstance().GetCurrentFrameData();
+                // GetLastCompletedFrameData(), not GetCurrentFrameData(): the
+                // latter's FrameTime is only a live estimate carried over
+                // from the previous frame, while CPUTime/GPUTime describe the
+                // in-progress frame — mixing them could read as cpuMs >
+                // frameTimeMs whenever frame times swing (#519). The
+                // "completed" snapshot keeps every field describing the same
+                // finished frame, at the cost of up to one frame of latency.
+                const RendererProfiler::FrameData& f = RendererProfiler::GetInstance().GetLastCompletedFrameData();
                 Json o;
                 o["fps"] = f.m_FrameTime > 0.0 ? Round2(1000.0 / f.m_FrameTime) : 0.0;
                 o["frameTimeMs"] = Round2(f.m_FrameTime);
@@ -643,7 +650,9 @@ namespace OloEngine::MCP
                         cpuPasses.push_back(PassTimings::CpuPassEntry{ timing.NodeName, timing.CpuMs });
                 }
 
-                const RendererProfiler::FrameData& f = RendererProfiler::GetInstance().GetCurrentFrameData();
+                // See Handle_PerfSnapshot: use the last fully-completed frame
+                // so frameTimeMs/cpuMs/gpuWaitMs all describe the same frame.
+                const RendererProfiler::FrameData& f = RendererProfiler::GetInstance().GetLastCompletedFrameData();
                 PassTimings::FrameTotals totals;
                 totals.FrameTimeMs = f.m_FrameTime;
                 totals.CpuMs = f.m_CPUTime;
@@ -4344,8 +4353,12 @@ namespace OloEngine::MCP
                 "frames after issue) and its CPU dispatch time from the live graph. ScenePass "
                 "additionally reports subPasses splitting its GPU time into DepthPrepass vs Color (no "
                 "DepthPrepass sub-entry = depth prepass off; sub-pass times are inside the parent's gpuMs, "
-                "not additional). Frame totals include gpuWaitMs (CPU blocked on the GPU fence — the direct "
-                "GPU-bound signal); unattributedGpuMs is frame GPU time spent between/outside the timed passes.";
+                "not additional). Frame totals include gpuWaitMs (CPU blocked on the GPU fence AND any "
+                "SwapBuffers/vsync stall — the direct GPU-bound signal); unattributedGpuMs is frame GPU time "
+                "spent between/outside the timed passes. Check gpuResultsStale before trusting the numbers on "
+                "very long/GPU-backlogged frames: true means the GPU fell behind far enough that a timestamp "
+                "slot was dropped rather than resolved, so gpuMs/passes describe an old, possibly "
+                "unrepresentative frame.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema = Schema::Object()
                                     .Prop("frame", Schema::Object()
@@ -4364,6 +4377,7 @@ namespace OloEngine::MCP
                                     .Prop("passGpuTotalMs", Schema::Number())
                                     .Prop("unattributedGpuMs", Schema::Number())
                                     .Prop("gpuResultsAgeFrames", Schema::Int().Min(0).Desc("How many frames old the GPU numbers are (results resolve 1-3 frames after issue)."))
+                                    .Prop("gpuResultsStale", Schema::Bool().Desc("True when gpuResultsAgeFrames is at or beyond the timer pool's slot count — a slot was dropped rather than resolved, so gpuMs/passes are from a stale frame."))
                                     .Required({ "frame", "passes", "passGpuTotalMs" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfPassTimings;

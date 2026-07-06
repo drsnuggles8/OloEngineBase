@@ -28,6 +28,12 @@ namespace OloEngine::MCP::PassTimings
 {
     using Json = nlohmann::json;
 
+    // Matches GPUPassTimerPool::kSlotCount — the number of in-flight
+    // timestamp slots. An age at or beyond this means a slot was dropped
+    // (GPU fell more than a full ring's worth of frames behind) rather than
+    // the normal 1-3 frame resolve latency.
+    inline constexpr u64 kGpuResultsStaleThreshold = 4;
+
     // One render-graph pass's GPU time (execution order preserved).
     struct GpuPassEntry
     {
@@ -151,6 +157,15 @@ namespace OloEngine::MCP::PassTimings
         // edges by a timestamp tick.
         o["unattributedGpuMs"] = Round3(totals.GpuMs > passGpuTotal ? totals.GpuMs - passGpuTotal : 0.0);
         o["gpuResultsAgeFrames"] = totals.GpuResultsAgeFrames;
+        // GPUPassTimerPool has kGpuResultsStaleThreshold in-flight timestamp
+        // slots; normal steady-state results lag 1-3 frames behind. An age at
+        // or beyond that means the GPU fell far enough behind that a slot was
+        // dropped rather than resolved (or nothing has resolved recently at
+        // all) — the numbers above are from an old, possibly no-longer-
+        // representative frame. Surfaced explicitly (issue #519) so a caller
+        // doesn't have to know to compare gpuResultsAgeFrames against the
+        // pool's slot count themselves.
+        o["gpuResultsStale"] = totals.GpuResultsAgeFrames >= kGpuResultsStaleThreshold;
         return o;
     }
 } // namespace OloEngine::MCP::PassTimings

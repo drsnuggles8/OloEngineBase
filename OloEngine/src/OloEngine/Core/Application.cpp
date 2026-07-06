@@ -12,6 +12,7 @@
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
@@ -19,6 +20,7 @@
 #include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Task/NamedThreads.h"
 
+#include <chrono>
 #include <stdexcept>
 #include <ranges>
 #include <thread>
@@ -335,9 +337,23 @@ namespace OloEngine
                 OloEngine::ImGuiLayer::End();
             }
 
+            // Timed separately from the FRAMEMARK scope: SwapBuffers is the
+            // real GPU-sync point for a windowed app (vsync, or the driver
+            // throttling submission when the GPU is behind) and previously
+            // wasn't attributed to gpuWaitMs at all — only the
+            // FrameResourceManager fence wait was, which left gpuWaitMs
+            // reading ~0 even when clearly GPU-bound (#519). EndFrame() has
+            // already finalized this frame's numbers by the time SwapBuffers
+            // returns, so the wait is handed to the profiler and patched into
+            // this already-recorded frame at the next BeginFrame() (see
+            // RendererProfiler::BeginFrame()).
+            const auto swapStart = std::chrono::high_resolution_clock::now();
             OLO_PROFILE_FRAMEMARK_START("Window SwapBuffers");
             m_Window->SwapBuffers();
             OLO_PROFILE_FRAMEMARK_END("Window SwapBuffers");
+            const auto swapEnd = std::chrono::high_resolution_clock::now();
+            RendererProfiler::GetInstance().AddPostFrameGPUWaitTime(
+                std::chrono::duration<f64, std::milli>(swapEnd - swapStart).count());
 
             // Frame-rate cap (issue #456). Placed AFTER SwapBuffers so it only
             // sleeps for the budget vsync (if on) didn't already consume — no

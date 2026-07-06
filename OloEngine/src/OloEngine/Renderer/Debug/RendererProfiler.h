@@ -206,13 +206,44 @@ namespace OloEngine
             m_CurrentFrame.m_GPUWaitTime += timeMs;
         }
 
+        // @brief Accumulate CPU time spent blocked on GPU/present sync that
+        // happens AFTER this frame's EndFrame() has already run — e.g. the
+        // SwapBuffers() call, which can block on vsync or on the driver
+        // throttling a GPU-bound app. EndFrame() has already finalized this
+        // frame's CPUTime/GPUWaitTime/history entry by the time SwapBuffers
+        // returns, so the wait recorded here is patched into that
+        // already-recorded frame at the START of the NEXT BeginFrame() (the
+        // only point where it's known) instead of being silently dropped.
+        // See BeginFrame() for why. Fixes gpuWaitMs reading ~0 while clearly
+        // GPU-bound (#519).
+        void AddPostFrameGPUWaitTime(f64 timeMs)
+        {
+            m_PendingPostFrameGPUWaitTime += timeMs;
+        }
+
         // @brief Render the profiler UI
         void RenderUI(bool* open = nullptr);
 
-        // @brief Get current frame data
+        // @brief Get current (in-progress) frame data. FrameTime here is a
+        // LIVE ESTIMATE carried over from the previous frame's measurement —
+        // fine for a live-updating UI, but do NOT use this for a snapshot
+        // that must be internally self-consistent (its CPUTime/GPUTime
+        // describe the in-progress frame while FrameTime describes the
+        // previous one). Use GetLastCompletedFrameData() for that.
         const FrameData& GetCurrentFrameData() const
         {
             return m_CurrentFrame;
+        }
+
+        // @brief Get the most recently fully-finalized frame: FrameTime,
+        // CPUTime, GPUTime and GPUWaitTime all describe the SAME completed
+        // frame (unlike GetCurrentFrameData(), whose FrameTime is only a
+        // live estimate — see there). Lags the in-progress frame by up to
+        // one frame. Use this for any external snapshot that must not mix
+        // measurements from different frames, e.g. the MCP perf tools (#519).
+        const FrameData& GetLastCompletedFrameData() const
+        {
+            return m_LastCompletedFrame;
         }
 
         // @brief Get performance counter
@@ -363,7 +394,8 @@ namespace OloEngine
 
         // Data storage
         FrameData m_CurrentFrame;
-        FrameData m_PreviousFrame;
+        FrameData m_PreviousFrame;      // raw EndFrame() output for the last frame; FrameTime/GPUWaitTime unpatched until the next BeginFrame()
+        FrameData m_LastCompletedFrame; // fully patched, self-consistent snapshot — see GetLastCompletedFrameData()
         std::unordered_map<MetricType, PerformanceCounter> m_Counters;
         std::unordered_map<std::string, PerformanceCounter> m_CustomTimings;
 
@@ -371,10 +403,13 @@ namespace OloEngine
         static constexpr u32 OLO_FRAME_HISTORY_SIZE = 300; // 5 seconds at 60fps
         std::vector<FrameData> m_FrameHistory;
         u32 m_HistoryIndex = 0;
+        u32 m_LastWrittenHistoryIndex = 0; // slot EndFrame() last wrote; patched in place by the next BeginFrame()
 
         // Frame timing
         std::chrono::high_resolution_clock::time_point m_FrameStartTime;
         std::chrono::high_resolution_clock::time_point m_LastFrameTime;
+        bool m_HasCompletedFrame = false;        // true once at least one EndFrame() has run — guards the BeginFrame() patch step
+        f64 m_PendingPostFrameGPUWaitTime = 0.0; // accumulated via AddPostFrameGPUWaitTime() since the last EndFrame()
 
         // Configuration
         f32 m_TargetFrameRate = 60.0f;
