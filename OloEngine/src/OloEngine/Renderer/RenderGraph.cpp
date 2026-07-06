@@ -2946,9 +2946,24 @@ namespace OloEngine
         m_PhysicalWidth = width;
         m_PhysicalHeight = height;
 
+        // Resize every node's framebuffer, tracking whether ANY node actually
+        // changed size. A node can change size here even when the display
+        // (physical) dimensions did not: a prior FSR1 scene-band render
+        // (Upscale != Off shrinks the ScenePass / AO targets below display res —
+        // see RenderPipeline::PopulateBlackboard) leaves those nodes reduced, and
+        // this loop restores them to full display res. That must still evict the
+        // pool (below), or its stale reduced-size transients leak into the next
+        // frames — see the Clear() comment.
+        bool anyNodeResized = false;
         for (auto& [name, node] : m_NodeLookup)
         {
+            const auto& beforeSpec = node->GetFramebufferSpecification();
+            const u32 beforeW = beforeSpec.Width;
+            const u32 beforeH = beforeSpec.Height;
             node->ResizeFramebuffer(width, height);
+            const auto& afterSpec = node->GetFramebufferSpecification();
+            if (afterSpec.Width != beforeW || afterSpec.Height != beforeH)
+                anyNodeResized = true;
         }
 
         // Evict cached transient framebuffers / textures whose dimensions are
@@ -2964,7 +2979,20 @@ namespace OloEngine
         // safe here because Resize() runs in OnUpdate before the frame's
         // rendering begins; the previous frame's ReleaseAll has already
         // returned everything to the pool.
-        if (dimensionsChanged)
+        //
+        // We clear when the display dims changed OR any node's framebuffer
+        // actually resized — NOT only on a display-dimension change. The latter
+        // misses the case where the display size is unchanged but a node was
+        // restored from a reduced FSR1 scene band to full res (a forward
+        // Upscale-off transition inside one process), which leaves the pool
+        // holding stale reduced-size (and paired stale full-size) transients
+        // whose alias groups get handed to a downstream pass for the first
+        // frames after the transition — the order-dependent black-scene-for-
+        // ~2-frames regression of issue #563. A genuinely idle resize (the
+        // editor re-emitting the same viewport size with no node actually
+        // changing size) still skips the Clear, so steady-state frames don't
+        // churn the pool.
+        if (dimensionsChanged || anyNodeResized)
         {
             m_TransientPool.Clear();
         }

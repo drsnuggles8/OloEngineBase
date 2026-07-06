@@ -1351,6 +1351,22 @@ namespace OloEngine
                         pipeline.SceneCompositePasses.SSAO->ResizeFramebuffer(sceneW, sceneH);
                     if (pipeline.SceneCompositePasses.GTAO)
                         pipeline.SceneCompositePasses.GTAO->ResizeFramebuffer(sceneW, sceneH);
+
+                    // The scene-band size just changed WITHOUT a window/viewport
+                    // resize (a runtime FSR1 Upscale-mode toggle: e.g. Performance
+                    // -> Off restores the ScenePass / AO targets to full display
+                    // res). That changes the SceneColor / SceneDepth / SceneNormals
+                    // / Velocity transient descriptors, so the transient pool now
+                    // holds stale reduced-size (and paired stale full-size)
+                    // framebuffers/textures. Unlike a genuine viewport resize this
+                    // path never reaches RenderGraph::Resize, so evict the pool here
+                    // too — otherwise the alias-group resolver can hand a stale
+                    // transient to a downstream pass for the first ~2 frames after
+                    // the transition, rendering a black scene (issue #563; the
+                    // render-graph half of #549). Safe here: PopulateBlackboard runs
+                    // before this frame's MaterializeTransientResources acquires, and
+                    // the previous frame's ReleaseAll already returned everything.
+                    graph.GetTransientPool().Clear();
                 }
             }
         }

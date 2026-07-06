@@ -494,4 +494,91 @@ namespace OloEngine::Tests
             << "runtime Upscale switch made the GTAO-lit frame substantially darker than native (native="
             << nativeMean << " up=" << upMean << ") — see EASU_GTAONative.png / EASU_GTAOPerformance.png";
     }
+
+    // Guard for issue #563 (the render-graph half of #549): a forward FSR1
+    // Upscale -> Off transition must NOT leave the scene black for the short
+    // warm-up a temporal-sensitive visual test reads back.
+    //
+    // An FSR1 render shrinks the ScenePass / AO scene-band framebuffers below
+    // display res and pools reduced-size SceneColor / SceneDepth / SceneNormals /
+    // Velocity transients. When the band is later restored to full res by a
+    // viewport-resize event whose DISPLAY size is UNCHANGED (exactly what happens
+    // when the next full-size scene is entered in one process — e.g. a following
+    // visual test's EnableRendering -> OnWindowResize -> RenderGraph::Resize),
+    // the old display-size-gated pool eviction did not fire. The pool kept the
+    // stale reduced-size transients and the alias-group resolver handed one to
+    // the scene chain for the first frames after the transition — a black scene.
+    // This models the real order-dependent CAS-after-EASU shuffle failure (which
+    // enters CAS's full-size scene right after an FSR1 render) deterministically
+    // in one fixture, via the same-display-size ResizeRenderTarget below.
+    //
+    // Frame 0 after any scene/config change is a legitimate warm-up frame (black
+    // even in isolation, which the pipeline's ~1-frame temporal latency explains);
+    // the regression was that frame 1 was ALSO black. So warm exactly two frames
+    // (the minimum a temporal-sensitive victim like CASVisualEvidenceTest uses)
+    // after the transition and assert the composited frame is not black. SKIPs
+    // without a GL 4.6 context.
+    TEST_F(EASUVisualEvidenceTest, ForwardUpscaleOffTransitionKeepsSceneVisible)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 7.0f, 16.0f }, 0.0f, 0.32f);
+
+        auto& pp = Renderer3D::GetPostProcessSettings();
+
+        // Mimic the producer's full render history so the transient pool ends up
+        // in the same stale state the real cross-test ordering produces: a native
+        // (full-res) render pools full-size SceneColor transients, then an FSR1
+        // Performance render shrinks the band and pools reduced-size ones.
+        pp.Upscale = UpscaleMode::Off;
+        pp.RCASSharpness = 0.6f;
+        RunEditorFrames(camera, 3);
+
+        pp.Upscale = UpscaleMode::Performance;
+        RunEditorFrames(camera, 3);
+
+        // Back to native, then re-enter the full-size scene via a same-display-
+        // size viewport resize (mimicking the next visual test's EnableRendering
+        // -> OnWindowResize). This restores the reduced band to full res through
+        // RenderGraph::Resize WITHOUT a display-dimension change — the arm that
+        // the old display-only pool eviction missed and that leaves stale
+        // reduced-size transients in the pool.
+        pp.Upscale = UpscaleMode::Off;
+        ResizeRenderTarget(kWidth, kHeight);
+
+        // Warm only two frames after the transition. Frame 1 must carry scene
+        // content, not the stale-transient black.
+        RunEditorFrames(camera, 2);
+
+        auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
+        if (!fb)
+            fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
+        ASSERT_TRUE(fb) << "No composited framebuffer after the upscale-off transition";
+
+        std::vector<u8> px;
+        ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, px);
+        ASSERT_EQ(px.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
+
+        const f64 meanLuma = MeanLuma(px);
+        EXPECT_GT(meanLuma, 20.0)
+            << "scene rendered (near-)black on the 2-frame warm-up after a forward FSR1 "
+               "Upscale->Off transition (#563): mean luma="
+            << meanLuma
+            << ". The render-graph transient pool likely kept a stale reduced-size "
+               "framebuffer across the scene-band resize.";
+    }
 } // namespace OloEngine::Tests

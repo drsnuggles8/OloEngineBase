@@ -75,6 +75,36 @@ class StubRenderPass : public RenderGraphNode
     u32 m_ExecuteCount = 0;
 };
 
+// A stub whose framebuffer spec starts at an arbitrary (possibly reduced) size
+// and is updated by ResizeFramebuffer, so GetFramebufferSpecification() reflects
+// the current size — used to exercise RenderGraph::Resize's node-size-change
+// detection (issue #563: a node restored from a reduced FSR1 scene band to full
+// res while the display size is unchanged must still evict the transient pool).
+class ResizableStubPass : public RenderGraphNode
+{
+  public:
+    ResizableStubPass(const std::string& name, u32 width, u32 height)
+    {
+        m_Name = name;
+        m_FramebufferSpec.Width = width;
+        m_FramebufferSpec.Height = height;
+    }
+
+    void Init(const FramebufferSpecification& /*spec*/) override {}
+    void Execute(RGCommandContext& /*context*/) override {}
+    [[nodiscard]] Ref<Framebuffer> GetTarget() const override
+    {
+        return nullptr;
+    }
+    void SetupFramebuffer(u32 /*w*/, u32 /*h*/) override {}
+    void ResizeFramebuffer(u32 width, u32 height) override
+    {
+        m_FramebufferSpec.Width = width;
+        m_FramebufferSpec.Height = height;
+    }
+    void OnReset() override {}
+};
+
 class CallbackStyleStubPass : public RenderGraphNode
 {
   public:
@@ -4625,6 +4655,85 @@ TEST(RenderGraphTransientPool, ResizeEvictsStalePoolEntries)
     EXPECT_EQ(idle.TexturePoolSize, beforeNoOp.TexturePoolSize)
         << "Same-dimension resize must not churn the texture pool.";
     EXPECT_EQ(idle.BufferPoolSize, beforeNoOp.BufferPoolSize);
+}
+
+TEST(RenderGraphTransientPool, ResizeEvictsPoolWhenNodeResizedButDisplayUnchanged)
+{
+    // Regression for issue #563 (the render-graph half of #549): a forward FSR1
+    // Upscale-off transition restores the ScenePass / AO scene-band framebuffers
+    // from a reduced render resolution back to full display res. When that
+    // happens via a window/viewport resize event whose DISPLAY size is unchanged
+    // (e.g. re-entering a full-size scene after a prior test/frame left the band
+    // reduced), the old display-size-gated pool eviction did NOT fire, so the
+    // transient pool kept stale reduced-size (and paired stale full-size)
+    // framebuffers. The alias-group resolver then handed one to the scene chain
+    // for the first ~2 frames after the transition, rendering a black scene.
+    //
+    // The fix evicts the pool whenever the display dims changed OR any node's
+    // framebuffer actually resized. This pins the "node resized while display
+    // size unchanged" arm — the one the display-only gate missed. Needs a live
+    // GL backend to populate the pool with real Acquire+ReleaseAll cycles.
+    if (RendererAPI::GetAPI() == RendererAPI::API::None)
+        GTEST_SKIP() << "TransientPool eviction requires an active rendering backend";
+
+    OloEngine::Tests::RenderPropertyFixture::IsGpuAvailable();
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    RenderGraph graph;
+    graph.SetTransientPoolMaxBucketSize(2u);
+
+    // Establish the display size (clears the empty pool as a side effect).
+    graph.Resize(1280, 720);
+
+    // Register a node, then shrink it to a REDUCED scene band (half res) — as an
+    // FSR1 Performance render does via RenderPipeline::PopulateBlackboard's
+    // ScenePass->ResizeFramebuffer. (AddNode itself syncs the node to the current
+    // display size, so the reduction must happen explicitly afterwards, exactly
+    // as the runtime upscale path does.)
+    auto reducedNode = Ref<ResizableStubPass>::Create("ReducedSceneBand", 1280u, 720u);
+    graph.AddNode(reducedNode.As<RenderGraphNode>());
+    reducedNode->ResizeFramebuffer(640u, 360u);
+    ASSERT_EQ(reducedNode->GetFramebufferSpecification().Width, 640u)
+        << "Sanity: node should be reduced to the FSR1 scene band before the restoring resize.";
+
+    // Seed both pool buckets at the reduced size, mimicking the reduced-band
+    // transients pooled during the upscale render.
+    {
+        TransientPool& pool = graph.GetTransientPool();
+
+        TextureSpecification texSpec;
+        texSpec.Width = 640;
+        texSpec.Height = 360;
+        texSpec.Format = ImageFormat::RGBA8;
+        (void)pool.AcquireTexture(texSpec);
+
+        FramebufferSpecification fbSpec;
+        fbSpec.Width = 640;
+        fbSpec.Height = 360;
+        fbSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+        (void)pool.AcquireFramebuffer(fbSpec);
+
+        pool.ReleaseAll();
+    }
+
+    const auto before = graph.GetTransientPool().GetStats();
+    ASSERT_GT(before.FramebufferPoolSize, 0u)
+        << "Sanity: ReleaseAll should have parked the reduced-size framebuffer in its bucket.";
+    ASSERT_GT(before.TexturePoolSize, 0u)
+        << "Sanity: ReleaseAll should have parked the reduced-size texture in its bucket.";
+
+    // SAME display dimensions as the seeding Resize above — but this restores the
+    // reduced node to full res, so the pool MUST be evicted even though the
+    // display size did not change.
+    graph.Resize(1280, 720);
+
+    const auto after = graph.GetTransientPool().GetStats();
+    EXPECT_EQ(after.FramebufferPoolSize, 0u)
+        << "A resize that restores a reduced-band node to full res must evict the "
+           "transient framebuffer pool even when the display size is unchanged (#563).";
+    EXPECT_EQ(after.TexturePoolSize, 0u)
+        << "A resize that restores a reduced-band node to full res must evict the "
+           "transient texture pool even when the display size is unchanged (#563).";
 }
 
 TEST(RenderGraphTransientPool, UnreachableTransientResourceIsNotPlannedForAllocation)
