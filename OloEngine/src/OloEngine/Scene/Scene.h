@@ -22,6 +22,7 @@
 #include <vector>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <box2d/id.h>
 
 #pragma warning(push)
@@ -111,6 +112,37 @@ namespace OloEngine
         {
             return m_SimulationTick;
         }
+
+        // ── Render interpolation (issue #502) ───────────────────────────────
+        // Decouples the display rate from the fixed simulation tick. When
+        // enabled, OnUpdateRuntimeFixed keeps the two most recent fixed-tick
+        // states and RenderRuntime draws an interpolated pose using
+        // alpha = accumulator / fixedStep as the blend factor, so motion stays
+        // smooth even when the refresh rate isn't a multiple of the sim rate
+        // (e.g. 60 Hz sim on a 144 Hz display). Purely a presentation concern:
+        // it never mutates the persisted simulation state (poses are overwritten
+        // for the draw then restored), so it does NOT affect determinism (#484).
+        // On by default; the editor exposes a toggle.
+        void SetRenderInterpolationEnabled(bool enabled)
+        {
+            m_RenderInterpolationEnabled = enabled;
+        }
+        [[nodiscard("Store this!")]] bool IsRenderInterpolationEnabled() const
+        {
+            return m_RenderInterpolationEnabled;
+        }
+        // The blend factor used for the most recent render, in [0, 1]:
+        // accumulator / fixedStep after the last OnUpdateRuntimeFixed call.
+        [[nodiscard("Store this!")]] f32 GetRenderInterpolationAlpha() const
+        {
+            return m_RenderInterpAlpha;
+        }
+        // The interpolated LOCAL transform matrix rendering would use for
+        // `entity` this frame (lerp of the last two fixed-tick poses at the
+        // current alpha). Falls back to the entity's live transform when
+        // interpolation is disabled, no snapshot pair exists yet, or the entity
+        // isn't present in both snapshots. Exposed for tests / diagnostics.
+        [[nodiscard]] glm::mat4 GetInterpolatedLocalTransform(entt::entity entity) const;
 
         [[nodiscard]] u32 GetViewportWidth() const
         {
@@ -630,6 +662,28 @@ namespace OloEngine
         void UpdateStreaming();
         void SimulateRuntimeStep(Timestep ts);
         void RenderRuntime(Timestep ts);
+
+        // ── Render interpolation snapshots (issue #502) ─────────────────────
+        // A per-entity local-transform pose captured at a fixed-tick boundary.
+        // Deliberately NOT named *Component so it never gets swept into the
+        // generated ECS/serializer tuples — it is transient render state.
+        struct InterpTransform
+        {
+            glm::vec3 Translation{ 0.0f };
+            glm::quat Rotation{ 1.0f, 0.0f, 0.0f, 0.0f };
+            glm::vec3 Scale{ 1.0f };
+        };
+        // Snapshot every entity's live local TransformComponent into `out`
+        // (clearing prior contents). Keyed by the raw entt entity id.
+        void CaptureLocalTransforms(std::unordered_map<u32, InterpTransform>& out);
+        // Compose the interpolated pose for `entity` at the current alpha into
+        // `out`. Returns false (leaving `out` untouched) when interpolation is
+        // inactive or the entity lacks a snapshot pair — callers then use the
+        // live transform. `interpolate` short-circuits the enable/snapshot gate.
+        [[nodiscard]] bool ComputeInterpolatedLocal(entt::entity entity, InterpTransform& out) const;
+        // True when this frame should render interpolated poses: the toggle is
+        // on, a snapshot pair exists, and the blend factor is meaningfully < 1.
+        [[nodiscard]] bool ShouldInterpolateThisFrame() const;
         // Step 2D (Box2D) + 3D (Jolt, incl. m_SimulationTime-driven buoyancy)
         // physics one tick and sync the results back onto the ECS transforms
         // (Rigidbody2D / Rigidbody3D / CharacterController3D). This is the
@@ -720,6 +774,17 @@ namespace OloEngine
         // once per SimulateRuntimeStep.
         f32 m_FixedTimeAccumulator = 0.0f;
         u64 m_SimulationTick = 0;
+        // Render interpolation (issue #502). The two most recent fixed-tick
+        // local-transform poses (m_InterpPrev = one tick behind m_InterpCurr),
+        // the blend factor for the last render (accumulator / fixedDt), whether
+        // a valid snapshot pair exists yet, and the enable toggle (on by
+        // default). Maps are keyed by the raw entt entity id; cleared/refilled
+        // each capture so destroyed entities drop out naturally.
+        std::unordered_map<u32, InterpTransform> m_InterpPrev;
+        std::unordered_map<u32, InterpTransform> m_InterpCurr;
+        f32 m_RenderInterpAlpha = 0.0f;
+        bool m_HasInterpSnapshots = false;
+        bool m_RenderInterpolationEnabled = true;
         // Deterministic simulation clock (seconds), advanced by exactly `ts` per
         // sim tick, used for time-driven physics (buoyancy wave phase) so it is
         // reproducible across frame pacings / rollback instead of wall-clock.

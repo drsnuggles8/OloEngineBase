@@ -102,6 +102,7 @@
 #include "OloEngine/Project/Project.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <ranges>
 
 // Box2D
@@ -863,6 +864,12 @@ namespace OloEngine
         m_SimulationTick = 0;
         m_FixedTimeAccumulator = 0.0f;
         m_SimulationTime = 0.0f;
+        // Discard interpolation snapshots so the first rendered frame of a fresh
+        // run draws the exact tick-0 pose (no blend from a stale prior run).
+        m_InterpPrev.clear();
+        m_InterpCurr.clear();
+        m_HasInterpSnapshots = false;
+        m_RenderInterpAlpha = 0.0f;
         RandomUtils::SetGlobalSeed(Application::Get().GetRandomSeed());
 
         // Unified diagnostics timeline (#306 item B): the single authoritative fire for
@@ -1141,6 +1148,10 @@ namespace OloEngine
         m_SimulationTick = 0;
         m_FixedTimeAccumulator = 0.0f;
         m_SimulationTime = 0.0f;
+        m_InterpPrev.clear();
+        m_InterpCurr.clear();
+        m_HasInterpSnapshots = false;
+        m_RenderInterpAlpha = 0.0f;
 
         OnPhysics2DStart();
         OnPhysics3DStart();
@@ -1567,14 +1578,108 @@ namespace OloEngine
                 u32 steps = 0;
                 while (m_FixedTimeAccumulator >= fixedDt && steps < kMaxFixedStepsPerFrame)
                 {
+                    // Render interpolation (issue #502): snapshot the live local
+                    // transforms into m_InterpPrev BEFORE each step so, after the
+                    // loop, m_InterpPrev holds the state one tick behind the final
+                    // step and m_InterpCurr (captured below) holds the post-step
+                    // state. RenderRuntime blends between them by alpha. Skipped
+                    // entirely when interpolation is off. The overwrite each
+                    // iteration is intentional — only the pre-last-step pose
+                    // survives, which is exactly the "previous" state to blend from.
+                    if (m_RenderInterpolationEnabled)
+                    {
+                        CaptureLocalTransforms(m_InterpPrev);
+                    }
                     SimulateRuntimeStep(fixedDt);
                     m_FixedTimeAccumulator -= fixedDt;
                     ++steps;
                 }
+
+                // Publish the fresh "current" pose and the blend factor for the
+                // render below. Only when a step actually ran this frame — an
+                // idle frame (accumulator < fixedDt) keeps the existing pair and
+                // just advances alpha, which is what fills the gap between ticks.
+                if (steps > 0 && m_RenderInterpolationEnabled)
+                {
+                    CaptureLocalTransforms(m_InterpCurr);
+                    m_HasInterpSnapshots = true;
+                }
+
+                // Blend factor for this frame's render: how far the leftover
+                // accumulator has advanced toward the next fixed tick, in [0, 1].
+                // Paused / fixedDt<=0 frames leave it untouched (last value), so a
+                // paused view shows the frozen pose it last rendered.
+                m_RenderInterpAlpha = std::clamp(m_FixedTimeAccumulator / fixedDt, 0.0f, 1.0f);
             }
         }
 
         RenderRuntime(safeFrameTs);
+    }
+
+    void Scene::CaptureLocalTransforms(std::unordered_map<u32, InterpTransform>& out)
+    {
+        out.clear();
+        auto view = m_Registry.view<TransformComponent>();
+        out.reserve(view.size());
+        for (auto entity : view)
+        {
+            const auto& tc = view.get<TransformComponent>(entity);
+            out.emplace(static_cast<u32>(std::to_underlying(entity)),
+                        InterpTransform{ tc.Translation, tc.GetRotation(), tc.Scale });
+        }
+    }
+
+    bool Scene::ShouldInterpolateThisFrame() const
+    {
+        // No point blending when the toggle is off, we have no prior state to
+        // blend from, or we're sitting exactly on a tick boundary (alpha == 0
+        // renders the current pose verbatim, so skip the overwrite cost).
+        return m_RenderInterpolationEnabled && m_HasInterpSnapshots && m_RenderInterpAlpha > 0.0f;
+    }
+
+    bool Scene::ComputeInterpolatedLocal(entt::entity entity, InterpTransform& out) const
+    {
+        if (!m_RenderInterpolationEnabled || !m_HasInterpSnapshots)
+        {
+            return false;
+        }
+
+        const auto id = static_cast<u32>(std::to_underlying(entity));
+        const auto prevIt = m_InterpPrev.find(id);
+        const auto currIt = m_InterpCurr.find(id);
+        // An entity present in only one snapshot (spawned or destroyed between
+        // the two ticks) has no meaningful blend — render it at its live pose.
+        if (prevIt == m_InterpPrev.end() || currIt == m_InterpCurr.end())
+        {
+            return false;
+        }
+
+        const InterpTransform& prev = prevIt->second;
+        const InterpTransform& curr = currIt->second;
+        const f32 a = m_RenderInterpAlpha;
+
+        out.Translation = glm::mix(prev.Translation, curr.Translation, a);
+        out.Scale = glm::mix(prev.Scale, curr.Scale, a);
+        // Shortest-arc quaternion blend so a near-180° tick doesn't spin the
+        // long way. glm::slerp normalizes and picks the shorter hemisphere.
+        out.Rotation = glm::slerp(prev.Rotation, curr.Rotation, a);
+        return true;
+    }
+
+    glm::mat4 Scene::GetInterpolatedLocalTransform(entt::entity entity) const
+    {
+        if (InterpTransform interp; ComputeInterpolatedLocal(entity, interp))
+        {
+            return glm::translate(glm::mat4(1.0f), interp.Translation) *
+                   glm::toMat4(interp.Rotation) *
+                   glm::scale(glm::mat4(1.0f), interp.Scale);
+        }
+        // Fall back to the live local transform.
+        if (auto const* tc = m_Registry.try_get<TransformComponent>(entity))
+        {
+            return tc->GetTransform();
+        }
+        return glm::mat4(1.0f);
     }
 
     void Scene::UpdateStreaming()
@@ -2455,6 +2560,11 @@ namespace OloEngine
         // Find the primary camera
         Camera const* mainCamera = nullptr;
         glm::mat4 cameraTransform;
+        // Remember the primary camera entity + whether it's the live fly-cam so
+        // the render-interpolation pass (below) can blend a gameplay camera's
+        // view but leave the display-rate fly-cam untouched (issue #502).
+        entt::entity primaryCameraEntity = entt::null;
+        bool primaryCameraIsFlyCam = false;
         {
             for (const auto view = m_Registry.view<TransformComponent, CameraComponent>(); const auto entity : view)
             {
@@ -2526,8 +2636,71 @@ namespace OloEngine
 
                     mainCamera = &camera.Camera;
                     cameraTransform = transform.GetTransform();
+                    primaryCameraEntity = entity;
+                    primaryCameraIsFlyCam = camera.RuntimeControl;
                     break;
                 }
+            }
+        }
+
+        // ── Render interpolation (issue #502) ───────────────────────────────
+        // Overwrite every entity's live local transform with the pose blended
+        // between the last two fixed-tick snapshots (alpha = accumulator /
+        // fixedStep), recompose world matrices, render, then restore the
+        // authoritative poses at the end of the frame. This makes EVERY render
+        // read — GetWorldTransform (world matrices) AND the direct
+        // TransformComponent::GetTransform() reads in RenderScene3D — see the
+        // interpolated pose without threading alpha through every draw call. The
+        // simulation state itself is untouched (restored before this function
+        // returns), so determinism (#484) is preserved and any post-render
+        // consumer this frame (SaveGameManager::Tick, editor gizmos) still reads
+        // the exact fixed-tick pose.
+        //
+        // The primary camera is excluded from the overwrite: its live local may
+        // have diverged from the snapshot this frame (the fly-cam mutates it at
+        // display rate above), so restoring from the snapshot would erase that
+        // movement. A gameplay (non-fly) camera is instead blended directly into
+        // cameraTransform so the VIEW interpolates without an ECS round-trip.
+        const bool interpolateThisFrame = ShouldInterpolateThisFrame();
+        // Full-component copies (not just TRS): TransformComponent's Rotation /
+        // RotationEuler are private and SetRotation() re-derives the Euler
+        // representation, so restoring via the setter could drift RotationEuler
+        // even when the quat is bit-identical. Copying the whole component and
+        // assigning it back restores every field — incl. the private Euler and
+        // the matrix cache — exactly, guaranteeing zero simulation-state drift.
+        std::vector<std::pair<entt::entity, TransformComponent>> restorePoses;
+        if (interpolateThisFrame)
+        {
+            if (mainCamera && !primaryCameraIsFlyCam)
+            {
+                cameraTransform = GetInterpolatedLocalTransform(primaryCameraEntity);
+            }
+
+            for (const auto view = m_Registry.view<TransformComponent>(); const auto entity : view)
+            {
+                if (entity == primaryCameraEntity)
+                {
+                    continue;
+                }
+                InterpTransform interp;
+                if (!ComputeInterpolatedLocal(entity, interp))
+                {
+                    continue;
+                }
+                auto& tc = view.get<TransformComponent>(entity);
+                // Save the authoritative pose before overwriting so it can be
+                // restored verbatim after the draw.
+                restorePoses.emplace_back(entity, tc);
+                tc.Translation = interp.Translation;
+                tc.Scale = interp.Scale;
+                tc.SetRotation(interp.Rotation);
+            }
+
+            // Recompose parent-chain world matrices from the interpolated locals
+            // so GetWorldTransform() reads see the blended pose.
+            if (!restorePoses.empty())
+            {
+                PropagateWorldTransforms();
             }
         }
 
@@ -2681,6 +2854,21 @@ namespace OloEngine
             // next frame re-seeds `prevAnimationTime == animationTime`
             // instead of using whatever timestamp was last recorded.
             m_LastAnimationTime = -1.0f;
+        }
+
+        // Restore the authoritative fixed-tick poses overwritten for the
+        // interpolated draw above, then recompose world matrices so any
+        // post-render reader this frame sees the exact simulation state (#502).
+        if (!restorePoses.empty())
+        {
+            for (const auto& [entity, pose] : restorePoses)
+            {
+                if (auto* tc = m_Registry.try_get<TransformComponent>(entity))
+                {
+                    *tc = pose;
+                }
+            }
+            PropagateWorldTransforms();
         }
     }
 

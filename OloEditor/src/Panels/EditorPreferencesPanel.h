@@ -54,6 +54,12 @@ namespace OloEngine
         u32 FrameRateCap = 0;
         f32 FrameTimeSmoothing = 1.0f;
 
+        // Render interpolation (#502). When true, Play/runtime rendering blends
+        // between the two most recent fixed-tick poses (alpha = accumulator /
+        // fixedStep) so motion stays smooth at non-multiple refresh rates. Purely
+        // presentational — never affects simulation determinism. On by default.
+        bool RenderInterpolation = true;
+
         // Physics debug
         bool CapturePhysicsOnPlay = false;
 
