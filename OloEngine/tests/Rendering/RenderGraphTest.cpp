@@ -7230,6 +7230,68 @@ TEST(RenderGraphTransientPool, PhaseD_MRTEstimatedBytesAreCorrect)
         << "RGBA16F+RG16F+Depth MRT estimated bytes must sum to 16 bytes/px";
 }
 
+// Regression test for issue #547: a pass that seeds an MRT purely through
+// attachment-view writes (mirroring OITPreparePass writing OITAccum /
+// OITRevealage without ever writing the parent OITBuffer directly) must
+// still extend the parent framebuffer's transient lifetime back to that
+// write. Before the fix, RGBuilder::Write() had no FindAttachmentViewParent
+// propagation (unlike Read()), so the parent's FirstPassIndex was set by the
+// first pass that *read* an attachment view, silently excluding the earlier
+// writer.
+TEST(RenderGraphTransientPool, AttachmentViewOnlyWriteExtendsParentFramebufferLifetime)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc mrtDesc;
+    mrtDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    mrtDesc.Width = 640;
+    mrtDesc.Height = 360;
+    mrtDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
+
+    const auto oitHandle = graph.DeclareTransientFramebuffer("OITBufferTest", mrtDesc);
+    const auto accumView = graph.CreateFramebufferAttachmentView("OITAccumTest", oitHandle, 0u);
+    const auto revealageView = graph.CreateFramebufferAttachmentView("OITRevealageTest", oitHandle, 1u);
+    ASSERT_TRUE(accumView.IsValid());
+    ASSERT_TRUE(revealageView.IsValid());
+
+    // Mirrors OITPreparePass: seeds the MRT purely through attachment-view
+    // writes, never writing the parent framebuffer handle directly.
+    AddSetupNode(graph, "PrepPass", [accumView, revealageView](RGBuilder& builder)
+                 {
+                     builder.Write(accumView, RGWriteUsage::Clear);
+                     builder.Write(revealageView, RGWriteUsage::Clear); });
+
+    // Mirrors OITResolvePass/DecalRenderPass: samples the attachment views
+    // as textures. Read() already propagates to the parent, so this alone
+    // (without the Write-side fix) would make the parent's FirstPassIndex
+    // resolve to this pass instead of the earlier PrepPass.
+    AddSetupNode(graph, "ResolvePass", [accumView, revealageView](RGBuilder& builder)
+                 {
+                     [[maybe_unused]] const auto accumRead = builder.Read(accumView, RGReadUsage::ShaderSample);
+                     [[maybe_unused]] const auto revealageRead = builder.Read(revealageView, RGReadUsage::ShaderSample); });
+
+    graph.AddExecutionDependency("PrepPass", "ResolvePass");
+    graph.SetFinalPass("ResolvePass");
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto hazards = graph.ValidateCompiledResourceHazards();
+    EXPECT_TRUE(hazards.empty());
+
+    const auto& plan = graph.GetTransientPlan();
+    const auto it = std::ranges::find_if(plan,
+                                         [](const RenderGraph::TransientPlanEntry& e)
+                                         { return e.Resource == "OITBufferTest"; });
+    ASSERT_NE(it, plan.end());
+    EXPECT_TRUE(it->Reachable);
+    EXPECT_TRUE(it->WillAllocate);
+    EXPECT_EQ(it->FirstPass, "PrepPass")
+        << "Parent framebuffer's FirstPassIndex must be the pass that seeds it via "
+           "attachment-view writes, not the later pass that only reads the views";
+    EXPECT_EQ(it->LastPass, "ResolvePass");
+}
+
 // =============================================================================
 // Phase D Slice 8 — Post-process chain outputs as transient FBs
 //

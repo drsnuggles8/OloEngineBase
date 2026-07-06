@@ -43,6 +43,12 @@ namespace OloEngine::RenderGraphTransientPlanner
         const std::unordered_map<std::string, RGResourceDesc>& TransientResourceDescs;
         std::span<const std::string> ExecutionOrder;
         const std::unordered_map<std::string, std::vector<RGAccessDeclaration>>& PassAccessDeclarations;
+        // Parent framebuffers whose lifetime a pass extends via an
+        // attachment-view write, without a hazard-tracked access declaration
+        // (RGBuilder::GetDeclaredLifetimeExtensions — see the comment in
+        // RGBuilder::Write for why this is kept separate from
+        // PassAccessDeclarations).
+        const std::unordered_map<std::string, std::vector<std::string>>& PassLifetimeExtensions;
         std::function<bool(const std::string&)> IsPassReachable;
         std::function<bool(std::string_view)> IsExternallyBackedTransientResource;
     };
