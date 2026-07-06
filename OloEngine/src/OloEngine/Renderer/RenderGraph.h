@@ -660,6 +660,21 @@ namespace OloEngine
             return m_TransientPool;
         }
 
+        // Single chokepoint for the "a graph node's framebuffer changed size =>
+        // the transient pool must be evicted" rule (issue #563). The pool keys
+        // its buckets by full spec (incl. width/height), so any node resize can
+        // leave stale-size (and paired stale-size) transients that the
+        // alias-group resolver then hands to a downstream pass. Resize() calls
+        // this after its node-resize loop; call sites that resize a node's
+        // framebuffer OUT OF BAND — without going through Resize(), e.g.
+        // RenderPipeline's FSR1 scene-band resize on a runtime Upscale-mode
+        // toggle — must call this instead of reaching into GetTransientPool()
+        // directly, so every direct-resize path shares one eviction decision.
+        void NotifyNodeFramebufferResized()
+        {
+            m_TransientPool.Clear();
+        }
+
         // -------------------------------------------------------------------
         // Builder support for transient resource allocation
         // -------------------------------------------------------------------
