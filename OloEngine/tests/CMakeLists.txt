@@ -208,6 +208,11 @@ add_executable(OloEngine-Tests
 		# loop. Header-only host helper (McpHeadlessHost.h); pulls in the real MCP
 		# tools (McpTools.cpp + McpScriptApi.cpp) added to the source list below.
 		Rendering/PropertyTests/McpHeadlessAttachTest.cpp
+		# Pins the #519 "first perf-lever write after scene load doesn't take
+		# effect" settle-wait fix: olo_renderer_settings_set now waits out the
+		# render-budget throttle transient before returning. Same McpHeadlessHost
+		# infra as McpHeadlessAttachTest.cpp above.
+		Rendering/PropertyTests/McpPerfSettleTest.cpp
 		Rendering/PropertyTests/VideoOverlayVisualEvidenceTest.cpp
 		Rendering/PropertyTests/AutoExposureEvidenceTest.cpp
 		Rendering/PropertyTests/TestFailureCapture.cpp

@@ -3689,6 +3689,32 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
+
+            // Settle before returning (#519 "first perf-lever write right after
+            // scene load doesn't take effect on the GPU"). A lever flip right
+            // after a heavy scene load lands while the editor's render-budget
+            // throttle is still skipping frames — the just-blocked main thread
+            // reports a huge timestep for the next OnUpdate, which trips
+            // skipRender for a beat. While throttled, Renderer3D::BeginScene
+            // never runs, so RendererProfiler::BeginFrame/EndFrame don't either:
+            // GetLastCompletedFrameData() (what olo_perf_snapshot reads) stays
+            // frozen on whatever rendered before the write, making the change
+            // invisible until an unrelated later frame finally renders. Waiting
+            // out the same throttle/resize transient the screenshot tools
+            // already respect (AwaitRenderedFrames/IsCaptureUnready) guarantees
+            // at least a couple of real frames have executed with the new
+            // setting by the time this call returns, so an immediately
+            // following olo_perf_snapshot reads live data instead of a stale
+            // pre-change frame.
+            constexpr int kSettingsSettleFrames = 2;
+            if (server.Context().GetFrameIndex)
+            {
+                const u64 baseFrame = server.MarshalRead([&server]() -> Json
+                                                         { return Json{ { "frame", server.Context().GetFrameIndex() } }; })
+                                          .value("frame", static_cast<u64>(0));
+                AwaitRenderedFrames(server, baseFrame, kSettingsSettleFrames);
+            }
+
             return ToolResult::Text(result.dump(2));
         }
 
@@ -3751,6 +3777,29 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
+
+            // Settle before returning (#519 "first perf-lever write right after
+            // scene load doesn't take effect on the GPU"). The load above ran
+            // synchronously inside the MarshalRead job, blocking the main-thread
+            // frame pump for however long it took; the very next OnUpdate sees
+            // that stall as an inflated timestep and trips the render-budget
+            // throttle for a beat, during which Renderer3D::BeginScene (and so
+            // RendererProfiler::BeginFrame/EndFrame) never runs. A caller that
+            // immediately writes a renderer setting and reads back
+            // olo_perf_snapshot in that window sees stale pre-load data, not the
+            // new state — Handle_RendererSettingsSet settles on its own end too,
+            // but waiting here as well means a plain scene-load caller (no
+            // follow-up settings write) also gets a scene that has actually
+            // rendered before the tool returns.
+            constexpr int kPostLoadSettleFrames = 2;
+            if (server.Context().GetFrameIndex)
+            {
+                const u64 baseFrame = server.MarshalRead([&server]() -> Json
+                                                         { return Json{ { "frame", server.Context().GetFrameIndex() } }; })
+                                          .value("frame", static_cast<u64>(0));
+                AwaitRenderedFrames(server, baseFrame, kPostLoadSettleFrames);
+            }
+
             return ToolResult::Text(result.dump(2));
         }
 
