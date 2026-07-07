@@ -1370,6 +1370,7 @@ namespace OloEngine
         // 1 = full strength). Applied as a uniform per-body force by ClothWindSystem, scaled
         // by m_Mass (issue #460, wind-coupling slice).
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 m_WindInfluence = 1.0f;
 
         // Build the soft body at runtime start when true (mirrors RagdollComponent::m_Enabled).

@@ -46,15 +46,21 @@ namespace OloEngine
             if (!cloth.m_Enabled)
                 continue;
 
-            const UUID entityID = entity.GetUUID();
-            if (!jolt->HasClothBody(entityID))
-                continue;
-
             const f32 influence = std::isfinite(cloth.m_WindInfluence) ? std::clamp(cloth.m_WindInfluence, 0.0f, 1.0f) : 0.0f;
             if (influence <= 0.0f)
                 continue;
 
-            const glm::vec3 worldPos = glm::vec3(entity.GetWorldTransform()[3]);
+            const UUID entityID = entity.GetUUID();
+
+            // Live Jolt body position, not entity.GetWorldTransform() — the cached
+            // WorldTransformComponent is refreshed by the PropagateTransforms scheduler node,
+            // which runs AFTER PhysicsKick/PhysicsFence this same tick, so it would be one
+            // physics tick stale for a moving/reparented cloth (issue #460 wind-coupling
+            // slice). This single lookup also replaces the separate HasClothBody existence
+            // check that used to precede it — a cloth with no live body simply fails here.
+            glm::vec3 worldPos;
+            if (!jolt->GetClothWorldPosition(entityID, worldPos))
+                continue;
             if (!std::isfinite(worldPos.x) || !std::isfinite(worldPos.y) || !std::isfinite(worldPos.z))
                 continue;
 

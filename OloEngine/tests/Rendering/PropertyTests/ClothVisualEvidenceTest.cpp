@@ -336,15 +336,20 @@ namespace OloEngine::Tests
 
     TEST_F(ClothWindScene, WindVisiblyBillowsHangingClothSideways)
     {
+        auto averageX = [](const std::vector<glm::vec3>& positions) -> f32
+        {
+            f32 sum = 0.0f;
+            for (const glm::vec3& p : positions)
+                sum += p.x;
+            return positions.empty() ? 0.0f : sum / static_cast<f32>(positions.size());
+        };
+
         const UUID clothID = m_Cloth.GetUUID();
 
         const std::vector<glm::vec3>* initial = GetScene().GetClothVertexPositions(clothID);
         ASSERT_NE(initial, nullptr) << "cloth soft body was not created / has no readback";
         ASSERT_GT(initial->size(), 0u);
-        f32 startAvgX = 0.0f;
-        for (const glm::vec3& p : *initial)
-            startAvgX += p.x;
-        startAvgX /= static_cast<f32>(initial->size());
+        const f32 startAvgX = averageX(*initial);
 
         // ~1.5 s of simulation — enough for a clean, visible billow without the
         // sheet fully winding up into a twisted/edge-on silhouette.
@@ -385,10 +390,7 @@ namespace OloEngine::Tests
         // downwind (+X) from where it spawned, under the real Jolt simulation.
         const std::vector<glm::vec3>* settled = GetScene().GetClothVertexPositions(clothID);
         ASSERT_NE(settled, nullptr);
-        f32 endAvgX = 0.0f;
-        for (const glm::vec3& p : *settled)
-            endAvgX += p.x;
-        endAvgX /= static_cast<f32>(settled->size());
+        const f32 endAvgX = averageX(*settled);
         EXPECT_GT(endAvgX - startAvgX, 0.05f)
             << "cloth did not billow sideways under wind; start=" << startAvgX << " end=" << endAvgX;
     }

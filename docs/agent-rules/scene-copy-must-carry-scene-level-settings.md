@@ -10,11 +10,19 @@ a gameplay system that reads one of them via `Scene::GetXSettings()`.
 `OnSceneSimulate()` calls to build the runtime scene from the authored editor
 scene. Before this fix it copied entities (`CopyComponent(AllComponents{},
 ...)`), the viewport size, and `m_StreamingSettings` — and **nothing else**.
-`m_PostProcessSettings`, `m_FogSettings`, `m_WindSettings`,
+`m_PostProcessSettings`, `m_FogSettings`, `m_WindSettings`, `m_SnowSettings`,
 `m_SnowAccumulationSettings`, `m_SnowEjectaSettings`, and
 `m_PrecipitationSettings` were left at their default-constructed values on
 the new (`Ref<Scene>::Create()`) copy, silently discarding whatever the
 authored scene had.
+
+**Even the fix that added this doc initially missed one:** the first pass
+copied six of the seven — `m_SnowSettings` was overlooked (easy to conflate
+with the similarly-named `m_SnowAccumulationSettings`/`m_SnowEjectaSettings`
+it sits next to in `Scene.h`) and was only caught by a subsequent
+`/code-review` pass, not by any test. This is the exact hand-maintained-list
+failure mode the "Guard" section below warns about, demonstrated within the
+same PR that introduced the warning.
 
 `ClothWindSystem::OnUpdate` reads `scene->GetWindSettings()` once per physics
 tick (the same pattern `BuoyancySystem` uses for its own scene-level data).
@@ -43,8 +51,8 @@ mirroring `BuoyancySystem`/`ClothWindSystem` — hits this gap.
 
 **Every scene-level settings member added to `Scene.h` must be copied in
 `Scene::Copy()`, not just registered as a `Get/SetXSettings()` accessor
-pair.** When you add a tenth settings struct, add its copy line right next to
-the other six — there is no reflection/enumeration doing this for you (unlike
+pair.** When you add the next settings struct, add its copy line right next to
+the other seven — there is no reflection/enumeration doing this for you (unlike
 the ECS component tuple, which OloHeaderTool generates; scene-level settings
 are hand-maintained). If you're building a new system that reads
 `Scene::GetXSettings()` from gameplay code, don't assume "it works in my
@@ -55,9 +63,10 @@ the headless suite.
 ## Guard
 
 No automated guard exists for this today — `Scene::Copy()`'s completeness
-isn't covered by a test, and the six settings structs it now copies were
-fixed all at once rather than one at a time with individual coverage. A
-reasonable follow-up: a test that authors non-default values on every
-scene-level settings struct, runs it through `Scene::Copy()`, and asserts
-the copy matches the source field-for-field (structural, so a future
-thirteenth settings struct fails loudly if its copy line is forgotten).
+isn't covered by a test, and the seven settings structs it now copies were
+fixed in two passes (six, then `m_SnowSettings`) rather than one at a time
+with individual coverage. A reasonable follow-up: a test that authors
+non-default values on every scene-level settings struct, runs it through
+`Scene::Copy()`, and asserts the copy matches the source field-for-field
+(structural, so the next settings struct fails loudly if its copy line is
+forgotten).

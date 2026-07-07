@@ -90,7 +90,7 @@ if (auto node = entity["ClothComponent"]; node)
     comp.m_Iterations = node["Iterations"].as<u32>(comp.m_Iterations);
     comp.m_Attachment = static_cast<decltype(comp.m_Attachment)>(node["Attachment"].as<int>(static_cast<int>(comp.m_Attachment)));
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WindInfluence"], v))
-        comp.m_WindInfluence = v;
+        comp.m_WindInfluence = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
 }
 

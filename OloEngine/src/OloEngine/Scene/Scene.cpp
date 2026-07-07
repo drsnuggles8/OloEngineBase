@@ -381,6 +381,7 @@ namespace OloEngine
         newScene->m_PostProcessSettings = other->m_PostProcessSettings;
         newScene->m_FogSettings = other->m_FogSettings;
         newScene->m_WindSettings = other->m_WindSettings;
+        newScene->m_SnowSettings = other->m_SnowSettings;
         newScene->m_SnowAccumulationSettings = other->m_SnowAccumulationSettings;
         newScene->m_SnowEjectaSettings = other->m_SnowEjectaSettings;
         newScene->m_PrecipitationSettings = other->m_PrecipitationSettings;

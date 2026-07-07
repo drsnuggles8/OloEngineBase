@@ -1055,6 +1055,7 @@ namespace OloEngine
         ar << c.m_Compliance << c.m_BendCompliance << c.m_LinearDamping << c.m_Pressure;
         ar << c.m_Iterations;
         ar << c.m_Attachment;
+        ar << c.m_WindInfluence;
         ar << c.m_Enabled;
 
         // Sanitize untrusted on-disk values (mirrors SceneSerializer / the clamps in
@@ -1077,6 +1078,7 @@ namespace OloEngine
             c.m_Pressure = std::isfinite(c.m_Pressure) ? std::max(0.0f, c.m_Pressure) : 0.0f;
             if (c.m_Attachment < ClothAttachment::None || c.m_Attachment > ClothAttachment::LeftEdge)
                 c.m_Attachment = ClothAttachment::TopEdge;
+            c.m_WindInfluence = std::isfinite(c.m_WindInfluence) ? std::clamp(c.m_WindInfluence, 0.0f, 1.0f) : 1.0f;
         }
     }
 
