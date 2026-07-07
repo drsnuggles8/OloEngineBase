@@ -28,6 +28,8 @@ layout(std140, binding = 0) uniform CameraMatrices
     vec3 u_CameraPosition;
     float _padding0;
     mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
+    float _padding1;
 };
 
 #include "include/InstanceBlock_Vertex.glsl"
@@ -79,8 +81,10 @@ void main()
     vec3 rotatedPosPrev = rotatedPos;
     if (windEnabled())
     {
-        vec3 bladeWorldPos     = (u_Model     * vec4(a_PositionScale.xyz, 1.0)).xyz;
-        vec3 bladeWorldPosPrev = (u_PrevModel * vec4(a_PositionScale.xyz, 1.0)).xyz;
+        // Camera-relative (issue #429): u_Model is render-relative; the wind
+        // field is world-anchored, so add the render origin back.
+        vec3 bladeWorldPos     = (u_Model     * vec4(a_PositionScale.xyz, 1.0)).xyz + u_RenderOrigin;
+        vec3 bladeWorldPosPrev = (u_PrevModel * vec4(a_PositionScale.xyz, 1.0)).xyz + u_RenderOrigin;
         vec3 windVel     = analyticalWind(bladeWorldPos);
         vec3 windVelPrev = analyticalWindAtTime(bladeWorldPosPrev, windPrevTime());
         rotatedPos.xyz     += windVel     * u_WindStrength * windInfluence * 0.1;
@@ -132,6 +136,8 @@ layout(std140, binding = 0) uniform CameraMatrices
     vec3 u_CameraPosition;
     float _padding0;
     mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
+    float _padding1;
 };
 
 layout(std140, binding = 12) uniform FoliageParams

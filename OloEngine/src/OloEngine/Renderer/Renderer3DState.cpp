@@ -8,6 +8,8 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Scene.h"
 
+#include <glm/gtc/matrix_transform.hpp>
+
 namespace OloEngine
 {
     namespace
@@ -105,18 +107,24 @@ namespace OloEngine
             constexpr u32 headerSize = 4 * sizeof(i32); // LightCount, MaxLights, ShadowCasterCount, DirectionalLightCount
             const u32 uploadSize = headerSize + static_cast<u32>(activeLightCount) * static_cast<u32>(sizeof(UBOStructures::MultiLightData));
 
-            // Ensure the GPU header reflects the clamped count (the caller may
-            // have set data.LightCount to a value exceeding MAX_LIGHTS).
-            if (data.LightCount != activeLightCount)
+            // Camera-relative (issue #429): light positions are world-space, but
+            // the lit pass evaluates lightDir = lightPos - worldPos with a
+            // render-relative worldPos, so shift the active lights' positions by
+            // the render origin. Directional lights (Position.w == 0) do not use
+            // Position, so shifting their xyz is harmless. Always route through a
+            // temp copy (the shift and/or the count fixup both need one); at the
+            // origin the subtraction is a no-op and the bytes are identical to
+            // before. Point/spot Position.w (the type tag) is preserved.
+            const glm::vec3 origin = s_Data.RenderOrigin;
+            UBOStructures::MultiLightUBO temp = data;
+            temp.LightCount = activeLightCount;
+            for (i32 i = 0; i < activeLightCount; ++i)
             {
-                UBOStructures::MultiLightUBO temp = data;
-                temp.LightCount = activeLightCount;
-                s_Data.MultiLightBuffer->SetData(&temp, uploadSize);
+                temp.Lights[i].Position.x -= origin.x;
+                temp.Lights[i].Position.y -= origin.y;
+                temp.Lights[i].Position.z -= origin.z;
             }
-            else
-            {
-                s_Data.MultiLightBuffer->SetData(&data, uploadSize);
-            }
+            s_Data.MultiLightBuffer->SetData(&temp, uploadSize);
         }
     }
 
@@ -127,7 +135,16 @@ namespace OloEngine
 
         if (s_Data.LightProbeVolumeUBO)
         {
-            s_Data.LightProbeVolumeUBO->SetData(&uboData, ShaderBindingLayout::LightProbeVolumeUBO::GetSize());
+            // Camera-relative (issue #429): the probe-grid lookup indexes by
+            // (worldPos - BoundsMin)/spacing with a render-relative worldPos, so
+            // shift the world-space AABB corners by the render origin. The grid
+            // spacing/dimensions are unchanged, so every probe's implicit sample
+            // position shifts consistently and the indexing is invariant. No-op
+            // at the origin.
+            ShaderBindingLayout::LightProbeVolumeUBO shifted = uboData;
+            shifted.BoundsMin -= glm::vec4(s_Data.RenderOrigin, 0.0f);
+            shifted.BoundsMax -= glm::vec4(s_Data.RenderOrigin, 0.0f);
+            s_Data.LightProbeVolumeUBO->SetData(&shifted, ShaderBindingLayout::LightProbeVolumeUBO::GetSize());
         }
 
         if (shData && shDataSize > 0)
@@ -168,6 +185,16 @@ namespace OloEngine
 
         if (s_Data.UnderwaterFogBuffer)
         {
+            // Camera-relative (issue #429): the underwater-fog / caustic pass
+            // reconstructs a world position from the scene depth via its OWN
+            // world-space InverseViewProjection. Because the depth was written by
+            // the render-relative geometry (ndc = VP_rel * worldPos_rel),
+            //   inverse(VP_world) * ndc == translate(O) * worldPos_rel == worldPos_ABSOLUTE,
+            // so the reconstruction lands in absolute world space *for free* — the
+            // caustic/god-ray patterns and the water-surface-height compare are
+            // therefore correct with NO shift here (keep CameraPos / WaterSurfaceY
+            // / InverseViewProjection in world space). Depth-based fog is a
+            // difference, so it is invariant either way.
             s_Data.UnderwaterFogBuffer->SetData(&data, UnderwaterFogUBOData::GetSize());
         }
     }

@@ -27,6 +27,8 @@ layout(std140, binding = 0) uniform CameraMatrices
     // Previous-frame VP for scene FB RT3 velocity. Wind displacement is
     // time-varying and not reprojected; camera + per-object motion only.
     mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
+    float _padding1;
 };
 
 // Model UBO (binding 3)
@@ -93,8 +95,10 @@ void main()
     if (windEnabled())
     {
         // Sample wind field at blade root world position
-        vec3 bladeWorldPos = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz;
-        vec3 bladeWorldPosPrev = (u_PrevModel * vec4(a_PositionScale.xyz, 1.0)).xyz;
+        // Camera-relative (issue #429): u_Model is render-relative, so add the
+        // render origin back — the wind field is anchored in absolute world.
+        vec3 bladeWorldPos = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz + u_RenderOrigin;
+        vec3 bladeWorldPosPrev = (u_PrevModel * vec4(a_PositionScale.xyz, 1.0)).xyz + u_RenderOrigin;
         vec3 windVel = analyticalWind(bladeWorldPos); // Fast analytical path for vertex shader
         vec3 windVelPrev = analyticalWindAtTime(bladeWorldPosPrev, windPrevTime());
         // Displace blade tip along wind direction, scaled by per-layer strength
@@ -157,6 +161,8 @@ layout(std140, binding = 0) uniform CameraMatrices
     vec3 u_CameraPosition;
     float _padding0;
     mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
+    float _padding1;
 };
 
 // Multi-light UBO (binding 5)

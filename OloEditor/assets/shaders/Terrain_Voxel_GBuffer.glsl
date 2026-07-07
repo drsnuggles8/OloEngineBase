@@ -22,6 +22,10 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    // Camera-relative (issue #429): full tail so u_RenderOrigin is at offset 272.
+    mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin;
+    float _padding1;
 };
 
 #include "include/InstanceBlock_Vertex.glsl"
@@ -45,6 +49,20 @@ void main()
 // for the location=4 picking write. SPIR-V link validation requires the
 // padding fields to match the vertex declaration exactly.
 #include "include/InstanceBlock.glsl"
+
+// Camera block (binding 0) — the fragment only needs u_RenderOrigin (issue
+// #429) to rebuild the absolute world position for the world-anchored triplanar
+// tiling; it must mirror the vertex-stage block for SPIR-V link validation.
+layout(std140, binding = 0) uniform CameraMatrices {
+    mat4 u_ViewProjection;
+    mat4 u_View;
+    mat4 u_Projection;
+    vec3 u_CameraPosition;
+    float _padding0;
+    mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin;
+    float _padding1;
+};
 
 layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_WorldSizeAndHeightScale;
@@ -96,24 +114,25 @@ void main()
     if (tiling < 0.001)
         tiling = 0.1;
 
-    vec4 albedoX = texture(u_TerrainAlbedoArray, vec3(v_WorldPos.yz * tiling, 0.0));
-    vec4 albedoY = texture(u_TerrainAlbedoArray, vec3(v_WorldPos.xz * tiling, 0.0));
-    vec4 albedoZ = texture(u_TerrainAlbedoArray, vec3(v_WorldPos.xy * tiling, 0.0));
+    vec3 wpTri = v_WorldPos + u_RenderOrigin; // camera-relative: world-anchored tiling (issue #429)
+    vec4 albedoX = texture(u_TerrainAlbedoArray, vec3(wpTri.yz * tiling, 0.0));
+    vec4 albedoY = texture(u_TerrainAlbedoArray, vec3(wpTri.xz * tiling, 0.0));
+    vec4 albedoZ = texture(u_TerrainAlbedoArray, vec3(wpTri.xy * tiling, 0.0));
     vec3 albedo = albedoX.rgb * triWeights.x
                 + albedoY.rgb * triWeights.y
                 + albedoZ.rgb * triWeights.z;
 
-    vec4 armX = texture(u_TerrainARMArray, vec3(v_WorldPos.yz * tiling, 0.0));
-    vec4 armY = texture(u_TerrainARMArray, vec3(v_WorldPos.xz * tiling, 0.0));
-    vec4 armZ = texture(u_TerrainARMArray, vec3(v_WorldPos.xy * tiling, 0.0));
+    vec4 armX = texture(u_TerrainARMArray, vec3(wpTri.yz * tiling, 0.0));
+    vec4 armY = texture(u_TerrainARMArray, vec3(wpTri.xz * tiling, 0.0));
+    vec4 armZ = texture(u_TerrainARMArray, vec3(wpTri.xy * tiling, 0.0));
     vec4 arm = armX * triWeights.x + armY * triWeights.y + armZ * triWeights.z;
     float ao = arm.r;
     float roughness = arm.g;
     float metallic = arm.b;
 
-    vec3 normX = texture(u_TerrainNormalArray, vec3(v_WorldPos.yz * tiling, 0.0)).rgb * 2.0 - 1.0;
-    vec3 normY = texture(u_TerrainNormalArray, vec3(v_WorldPos.xz * tiling, 0.0)).rgb * 2.0 - 1.0;
-    vec3 normZ = texture(u_TerrainNormalArray, vec3(v_WorldPos.xy * tiling, 0.0)).rgb * 2.0 - 1.0;
+    vec3 normX = texture(u_TerrainNormalArray, vec3(wpTri.yz * tiling, 0.0)).rgb * 2.0 - 1.0;
+    vec3 normY = texture(u_TerrainNormalArray, vec3(wpTri.xz * tiling, 0.0)).rgb * 2.0 - 1.0;
+    vec3 normZ = texture(u_TerrainNormalArray, vec3(wpTri.xy * tiling, 0.0)).rgb * 2.0 - 1.0;
     vec3 triNormal = normalize(normX * triWeights.x + normY * triWeights.y + normZ * triWeights.z);
 
     // Build TBN from world normal and apply tangent-space normal map

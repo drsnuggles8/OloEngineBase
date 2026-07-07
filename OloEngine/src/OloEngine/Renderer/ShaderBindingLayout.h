@@ -31,6 +31,17 @@ namespace OloEngine
             // CameraMatrices block that stops at _padding0; std140 allows
             // the C++-side buffer to carry extra trailing bytes.
             glm::mat4 PrevViewProjection;
+            // Camera-relative render origin (issue #429). Geometry is uploaded
+            // with world positions shifted by this, so the worldPos a shader
+            // sees is *relative*. Lighting/fog differences are invariant, but a
+            // shader that samples an ABSOLUTE-world *pattern* (triplanar tiling,
+            // procedural noise, world-anchored wave phase) must add this back:
+            // absWorldPos = relativeWorldPos + u_RenderOrigin. Appended after
+            // PrevViewProjection so existing shaders that stop earlier are
+            // unaffected (std140 trailing-byte tolerance). Zero within the first
+            // grid cell, so the add-back is a no-op near origin.
+            glm::vec3 RenderOrigin = glm::vec3(0.0f);
+            f32 _padding1 = 0.0f;
 
             static constexpr u32 GetSize()
             {
@@ -42,10 +53,12 @@ namespace OloEngine
         // CameraMatrices block. A drift (ABI change, padding tweak, extra
         // field) fails compile-time instead of producing silently-wrong
         // matrices at runtime. Expected: 3*mat4(192) + vec3+pad(16) +
-        // mat4(64) = 272 B. Alignment is not asserted: GLM mat4 is not
-        // 16-byte-aligned by default, but the C++-side SetData() call
-        // uploads the raw byte buffer so only total size matters.
-        static_assert(sizeof(CameraUBO) == 272, "CameraUBO std140 size drifted from GLSL expectation (272 B)");
+        // mat4(64) + vec3+pad(16) = 288 B (the trailing vec3 is the
+        // camera-relative render origin, issue #429). Alignment is not
+        // asserted: GLM mat4 is not 16-byte-aligned by default, but the
+        // C++-side SetData() call uploads the raw byte buffer so only total
+        // size matters.
+        static_assert(sizeof(CameraUBO) == 288, "CameraUBO std140 size drifted from GLSL expectation (288 B)");
 
         // @brief Per-light record in the multi-light UBO (binding 5). Packed
         // by Scene::ProcessScene3DSharedLogic; decoded in PBRCommon.glsl /
@@ -1054,6 +1067,8 @@ layout(std140, binding = 0) uniform CameraMatrices {
     vec3 u_CameraPosition;
     float _padding0;
     mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin;
+    float _padding1;
 };)";
         }
 

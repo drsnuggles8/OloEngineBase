@@ -44,6 +44,12 @@ layout(std140, binding = 0) uniform CameraMatrices {
     vec3 u_CameraPosition;
     float _padding0;
     mat4 u_PrevViewProjection;
+    // Camera-relative render origin (issue #429): geometry is drawn relative to
+    // it, so add it back to reconstruct absolute world position for the
+    // world-anchored PATTERNS below (triplanar tiling, snow clipmap, editor
+    // brush, snow height). Zero within the first grid cell → no-op near origin.
+    vec3 u_RenderOrigin;
+    float _padding1;
 };
 
 // Terrain UBO (binding 10)
@@ -124,6 +130,12 @@ layout(std140, binding = 0) uniform CameraMatrices {
     // world-static, so this plus the current v_WorldPos gives exact
     // per-pixel camera-motion velocity for TAA.
     mat4 u_PrevViewProjection;
+    // Camera-relative render origin (issue #429): geometry is drawn relative to
+    // it, so add it back to reconstruct absolute world position for the
+    // world-anchored PATTERNS below (triplanar tiling, snow clipmap, editor
+    // brush, snow height). Zero within the first grid cell → no-op near origin.
+    vec3 u_RenderOrigin;
+    float _padding1;
 };
 
 // Model UBO (binding 3)
@@ -189,8 +201,10 @@ void main()
         // Convert world XZ to clipmap UV (ring 0)
         vec2 clipCenter = u_ClipmapCenterAndExtent[0].xy;
         float clipExtent = u_ClipmapCenterAndExtent[0].z;
-        // Compute world position for this vertex
-        vec3 worldP = (u_Model * vec4(pos, 1.0)).xyz;
+        // Compute world position for this vertex. u_Model is render-relative
+        // (issue #429), so add the render origin back for the world-anchored
+        // snow clipmap lookup (clipCenter is absolute world).
+        vec3 worldP = (u_Model * vec4(pos, 1.0)).xyz + u_RenderOrigin;
         vec2 snowUV = (worldP.xz - clipCenter) / clipExtent + 0.5;
         if (snowUV.x >= 0.0 && snowUV.x <= 1.0 && snowUV.y >= 0.0 && snowUV.y <= 1.0)
         {
@@ -242,6 +256,12 @@ layout(std140, binding = 0) uniform CameraMatrices {
     vec3 u_CameraPosition;
     float _padding0;
     mat4 u_PrevViewProjection;
+    // Camera-relative render origin (issue #429): geometry is drawn relative to
+    // it, so add it back to reconstruct absolute world position for the
+    // world-anchored PATTERNS below (triplanar tiling, snow clipmap, editor
+    // brush, snow height). Zero within the first grid cell → no-op near origin.
+    vec3 u_RenderOrigin;
+    float _padding1;
 };
 
 // Multi-Light UBO (binding 5)
@@ -432,6 +452,9 @@ vec4 sampleLayerARM(int layer, vec2 uv)
 // Triplanar sampling for steep slopes
 vec4 triplanarSampleAlbedo(int layer, vec3 worldPos, vec3 blendWeights)
 {
+    // Camera-relative (issue #429): triplanar tiling is world-anchored, so
+    // rebuild the absolute world position from the render-relative input.
+    worldPos += u_RenderOrigin;
     float tiling = getLayerTiling(layer);
     vec4 xProj = texture(u_TerrainAlbedoArray, vec3(worldPos.yz * tiling, float(layer)));
     vec4 yProj = texture(u_TerrainAlbedoArray, vec3(worldPos.xz * tiling, float(layer)));
@@ -441,6 +464,7 @@ vec4 triplanarSampleAlbedo(int layer, vec3 worldPos, vec3 blendWeights)
 
 vec3 triplanarSampleNormal(int layer, vec3 worldPos, vec3 blendWeights)
 {
+    worldPos += u_RenderOrigin; // camera-relative: world-anchored tiling (issue #429)
     float tiling = getLayerTiling(layer);
     vec3 xNorm = texture(u_TerrainNormalArray, vec3(worldPos.yz * tiling, float(layer))).rgb * 2.0 - 1.0;
     vec3 yNorm = texture(u_TerrainNormalArray, vec3(worldPos.xz * tiling, float(layer))).rgb * 2.0 - 1.0;
@@ -450,6 +474,7 @@ vec3 triplanarSampleNormal(int layer, vec3 worldPos, vec3 blendWeights)
 
 vec4 triplanarSampleARM(int layer, vec3 worldPos, vec3 blendWeights)
 {
+    worldPos += u_RenderOrigin; // camera-relative: world-anchored tiling (issue #429)
     float tiling = getLayerTiling(layer);
     vec4 xARM = texture(u_TerrainARMArray, vec3(worldPos.yz * tiling, float(layer)));
     vec4 yARM = texture(u_TerrainARMArray, vec3(worldPos.xz * tiling, float(layer)));
@@ -464,6 +489,11 @@ vec4 triplanarSampleARM(int layer, vec3 worldPos, vec3 blendWeights)
 void main()
 {
     vec3 N = normalize(v_Normal);
+    // Camera-relative (issue #429): v_WorldPos is render-relative. Rebuild the
+    // absolute world position for the world-anchored patterns below (editor
+    // brush, snow height/clipmap/noise). Lighting/shadow/velocity below keep
+    // the relative v_WorldPos (they are differences / relative-matrix products).
+    vec3 worldPosAbs = v_WorldPos + u_RenderOrigin;
     int layerCount = int(u_TerrainParams.z);
     float triplanarSharpness = u_TerrainParams.w;
 
@@ -686,7 +716,7 @@ void main()
         float brushRadius = u_BrushPosAndRadius.w;
         float falloff = u_BrushParams.y;
 
-        float dist = length(v_WorldPos.xz - brushCenter.xz);
+        float dist = length(worldPosAbs.xz - brushCenter.xz);
         float normalizedDist = dist / max(brushRadius, 0.001);
 
         if (normalizedDist < 1.0)
@@ -715,7 +745,7 @@ void main()
     if (u_SnowFlags.x > 0.5)
     {
         vec3 worldNormal = normalize(v_Normal);
-        snowWeight = computeSnowWeight(v_WorldPos.y, worldNormal,
+        snowWeight = computeSnowWeight(worldPosAbs.y, worldNormal,
                                        u_SnowCoverageParams.x, u_SnowCoverageParams.y,
                                        u_SnowCoverageParams.z, u_SnowCoverageParams.w,
                                        u_SnowFlags.y);
@@ -725,7 +755,7 @@ void main()
         {
             vec2 clipCenterFS = u_ClipmapCenterAndExtentFS[0].xy;
             float clipExtentFS = u_ClipmapCenterAndExtentFS[0].z;
-            vec2 snowUVFS = (v_WorldPos.xz - clipCenterFS) / clipExtentFS + 0.5;
+            vec2 snowUVFS = (worldPosAbs.xz - clipCenterFS) / clipExtentFS + 0.5;
             if (snowUVFS.x >= 0.0 && snowUVFS.x <= 1.0 && snowUVFS.y >= 0.0 && snowUVFS.y <= 1.0)
             {
                 float accumulatedDepth = texture(u_SnowDepthMapFS, snowUVFS).r;
@@ -747,7 +777,7 @@ void main()
             float sparkleScale = u_SnowSparkleParams.z;
             float normalPerturbStr = u_SnowSparkleParams.w;
 
-            vec3 snowN = perturbSnowNormal(N, v_WorldPos, normalPerturbStr);
+            vec3 snowN = perturbSnowNormal(N, worldPosAbs, normalPerturbStr);
 
             vec3 snowLo = vec3(0.0);
             for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
@@ -774,7 +804,7 @@ void main()
 
                 vec3 contrib = snowBRDF(snowN, V, L, snowAlbedo, snowRoughness,
                                         sssColor, sssIntensity, sparkleIntensity,
-                                        sparkleDensity, sparkleScale, v_WorldPos);
+                                        sparkleDensity, sparkleScale, worldPosAbs);
                 snowLo += contrib * lightColor * attenuation;
             }
 

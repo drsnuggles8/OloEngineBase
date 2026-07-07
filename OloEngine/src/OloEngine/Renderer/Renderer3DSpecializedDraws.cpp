@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
@@ -111,6 +112,13 @@ namespace OloEngine
         cmd->vertexArrayID = va->GetRendererID();
         cmd->indexCount = s_Data.DecalCubeMesh->GetIndexCount();
         cmd->shaderRendererID = decalShader->GetRendererID();
+        // Camera-relative (issue #429): the decal cube's model matrix goes up
+        // through UploadModelInstance, which shifts it by the render origin, so
+        // the rendered box is in render-relative space (correct screen position
+        // under the relative view-projection). The shader reconstructs the
+        // fragment's world position from depth via inverseViewProjection — which
+        // is the *world* inverse-VP and so yields an *absolute* world position —
+        // then maps it into the decal box with the world-space inverseDecalTransform.
         cmd->decalTransform = decalTransform;
         cmd->inverseDecalTransform = inverseDecalTransform;
         cmd->inverseViewProjection = s_Data.InverseViewProjectionMatrix;

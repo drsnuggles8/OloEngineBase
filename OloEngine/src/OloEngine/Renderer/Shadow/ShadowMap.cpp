@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
+#include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -331,7 +332,7 @@ namespace OloEngine
         m_PointLightFaceMatrices[index][5] = proj * glm::lookAt(position, position + glm::vec3(0, 0, -1), glm::vec3(0, -1, 0)); // -Z
     }
 
-    void ShadowMap::UploadUBO()
+    void ShadowMap::UploadUBO(const glm::vec3& renderOrigin)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -349,6 +350,21 @@ namespace OloEngine
             m_Settings.MaxShadowDistance);
         data.ShadowMapResolution = static_cast<i32>(m_Settings.Resolution);
         data.SoftShadowMode = m_Settings.SoftShadows ? 1 : 0;
+
+        // Camera-relative (issue #429): the lit pass samples shadows using the
+        // fragment's render-relative world position, so the light-space matrices
+        // must map relative world -> light clip (multiply by translate(origin)),
+        // and the point-light positions (used for cube depth compare) must be
+        // relative too. m_UBOData stays world-space; the shadow render pass
+        // applies the identical shift to the same matrices + casters, keeping
+        // rendered depth and sampled depth in the same space. No-op near origin.
+        for (u32 c = 0; c < MAX_CSM_CASCADES; ++c)
+            data.DirectionalLightSpaceMatrices[c] = MakeViewProjectionRelative(m_UBOData.DirectionalLightSpaceMatrices[c], renderOrigin);
+        for (u32 s = 0; s < MAX_SPOT_SHADOWS; ++s)
+            data.SpotLightSpaceMatrices[s] = MakeViewProjectionRelative(m_UBOData.SpotLightSpaceMatrices[s], renderOrigin);
+        for (u32 p = 0; p < MAX_POINT_SHADOWS; ++p)
+            data.PointLightShadowParams[p] = glm::vec4(glm::vec3(m_UBOData.PointLightShadowParams[p]) - renderOrigin,
+                                                       m_UBOData.PointLightShadowParams[p].w);
 
         m_ShadowUBO->SetData(&data, UBOStructures::ShadowUBO::GetSize());
         // Re-establish binding point 6 every frame to guard against

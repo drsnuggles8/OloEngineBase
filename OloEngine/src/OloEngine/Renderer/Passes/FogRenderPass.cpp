@@ -184,7 +184,7 @@ namespace OloEngine
         // (Renderer2D / ParticleBatchRenderer style) can be left bound at slot 0,
         // which makes those reads out-of-bounds (origin-centred scenes survive
         // only because robust-access OOB reads return 0 ≈ the true camera). Pin
-        // the full 272-byte UBO here so off-origin worlds fog correctly.
+        // the full 288-byte UBO here so off-origin worlds fog correctly.
         if (m_CameraUBO)
             m_CameraUBO->Bind();
 

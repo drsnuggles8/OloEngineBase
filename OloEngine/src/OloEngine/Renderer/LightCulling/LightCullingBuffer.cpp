@@ -1,5 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/LightCulling/LightCullingBuffer.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+
+#include <vector>
 
 namespace OloEngine
 {
@@ -68,35 +71,51 @@ namespace OloEngine
         m_SpotLightCount = static_cast<u32>(spotLights.size());
         m_SphereAreaLightCount = static_cast<u32>(sphereAreaLights.size());
 
+        // Camera-relative (issue #429): the Forward+ tile culling and lighting
+        // evaluate positions against the render-relative worldPos, so shift each
+        // light's world position (PositionAndRadius.xyz) by the render origin
+        // before upload. Shift into local copies since the inputs are const.
+        // Near origin the origin is (0,0,0) and these copies are byte-identical.
+        const glm::vec3 origin = Renderer3D::GetRenderOrigin();
+
         if (m_PointLightCount > 0 && m_PointLightSSBO)
         {
+            std::vector<GPUPointLight> shifted(pointLights);
+            for (auto& light : shifted)
+                light.PositionAndRadius -= glm::vec4(origin, 0.0f);
             // Resize if needed
             const u32 requiredSize = m_PointLightCount * sizeof(GPUPointLight);
             if (requiredSize > m_PointLightSSBO->GetSize())
             {
                 m_PointLightSSBO->Resize(requiredSize);
             }
-            m_PointLightSSBO->SetData(pointLights.data(), requiredSize);
+            m_PointLightSSBO->SetData(shifted.data(), requiredSize);
         }
 
         if (m_SpotLightCount > 0 && m_SpotLightSSBO)
         {
+            std::vector<GPUSpotLight> shifted(spotLights);
+            for (auto& light : shifted)
+                light.PositionAndRadius -= glm::vec4(origin, 0.0f);
             const u32 requiredSize = m_SpotLightCount * sizeof(GPUSpotLight);
             if (requiredSize > m_SpotLightSSBO->GetSize())
             {
                 m_SpotLightSSBO->Resize(requiredSize);
             }
-            m_SpotLightSSBO->SetData(spotLights.data(), requiredSize);
+            m_SpotLightSSBO->SetData(shifted.data(), requiredSize);
         }
 
         if (m_SphereAreaLightCount > 0 && m_SphereAreaLightSSBO)
         {
+            std::vector<GPUSphereAreaLight> shifted(sphereAreaLights);
+            for (auto& light : shifted)
+                light.PositionAndRadius -= glm::vec4(origin, 0.0f);
             const u32 requiredSize = m_SphereAreaLightCount * sizeof(GPUSphereAreaLight);
             if (requiredSize > m_SphereAreaLightSSBO->GetSize())
             {
                 m_SphereAreaLightSSBO->Resize(requiredSize);
             }
-            m_SphereAreaLightSSBO->SetData(sphereAreaLights.data(), requiredSize);
+            m_SphereAreaLightSSBO->SetData(shifted.data(), requiredSize);
         }
     }
 

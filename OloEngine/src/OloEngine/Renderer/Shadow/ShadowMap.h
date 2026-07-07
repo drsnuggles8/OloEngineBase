@@ -80,8 +80,14 @@ namespace OloEngine
             const glm::vec3& position,
             f32 range);
 
-        // Upload all shadow data to the UBO
-        void UploadUBO();
+        // Upload all shadow data to the UBO. The light-space matrices and point
+        // positions are stored world-space; they are shifted into camera-
+        // relative space (issue #429) by `renderOrigin` on upload so the shadow
+        // sampling in the lit pass matches the render-relative world positions.
+        // The shadow *render* pass applies the same shift to the same matrices
+        // and to the casters, so the two stay consistent. Pass
+        // Renderer3D::GetRenderOrigin(); (0,0,0) is a no-op near origin.
+        void UploadUBO(const glm::vec3& renderOrigin = glm::vec3(0.0f));
 
         // Bind the CSM texture array to the shadow texture slot
         void BindCSMTexture(u32 slot = ShaderBindingLayout::TEX_SHADOW) const;

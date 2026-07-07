@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -62,6 +63,10 @@ namespace OloEngine
         // reconstruction, motion blur).
         glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
         glm::vec3 ViewPos = glm::vec3(0.0f);
+        // Camera-relative render origin for this frame (issue #429). The view /
+        // view-projection / position above stay world-space; camera-UBO packing
+        // subtracts this origin so the GPU renders near 0. (0,0,0) near origin.
+        glm::vec3 RenderOrigin = glm::vec3(0.0f);
 
         u32 CurrentBoundShaderID = 0;
         u32 CurrentBoundVAO = 0;
@@ -758,10 +763,19 @@ namespace OloEngine
             if (!instanceBuffer)
                 return;
 
+            // Camera-relative (issue #429): shift the world transform (and its
+            // previous-frame counterpart, for motion vectors) into render-
+            // relative space before upload. This one choke point covers every
+            // single-instance mesh path — main, depth-only, quad, terrain,
+            // voxel. The normal matrix is translation-invariant so it is
+            // uploaded unchanged. Near origin the origin is (0,0,0) and this is
+            // a no-op.
+            const glm::vec3 origin = Renderer3D::GetRenderOrigin();
+
             InstanceData inst;
-            inst.Transform = modelData.Model;
+            inst.Transform = MakeModelRelative(modelData.Model, origin);
             inst.Normal = modelData.Normal;
-            inst.PrevTransform = modelData.PrevModel;
+            inst.PrevTransform = MakeModelRelative(modelData.PrevModel, origin);
             inst.EntityID = modelData.EntityID;
             // Color / Custom keep their defaults (white tint, 0) — the explicit
             // instancing path populates them in Phase 3.
@@ -910,6 +924,16 @@ namespace OloEngine
         s_Data.ViewPos = viewPos;
     }
 
+    void CommandDispatch::SetRenderOrigin(const glm::vec3& origin)
+    {
+        s_Data.RenderOrigin = origin;
+    }
+
+    const glm::vec3& CommandDispatch::GetRenderOrigin()
+    {
+        return s_Data.RenderOrigin;
+    }
+
     void CommandDispatch::UploadCameraUBO()
     {
         if (!s_Data.CameraUBO)
@@ -919,13 +943,26 @@ namespace OloEngine
         // from VP * inverse(View) so callers only have to set the three matrices
         // + position via Set*. PrevViewProjection comes from the true previous
         // frame propagated by Renderer3D (no aliasing of the current VP).
+        //
+        // Camera-relative (issue #429): the stored matrices are world-space, so
+        // rebuild the view / view-projection about the render origin and supply
+        // the camera position relative to it before upload. This one path covers
+        // the shared re-upload *and* the planar-reflection mirror camera (which
+        // sets world mirror matrices via Set* then calls this).
+        const glm::vec3 origin = s_Data.RenderOrigin;
+        const glm::mat4 relView = MakeViewRelative(s_Data.ViewMatrix, origin);
+        // Projection is translation-free, so it is identical whether taken from
+        // the world or relative VP — derive it once for the UBO's Projection.
+        const glm::mat4 projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
+
         ShaderBindingLayout::CameraUBO cameraData{};
-        cameraData.ViewProjection = s_Data.ViewProjectionMatrix;
-        cameraData.View = s_Data.ViewMatrix;
-        cameraData.Projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
-        cameraData.Position = s_Data.ViewPos;
+        cameraData.ViewProjection = projection * relView;
+        cameraData.View = relView;
+        cameraData.Projection = projection;
+        cameraData.Position = MakePositionRelative(s_Data.ViewPos, origin);
         cameraData._padding0 = 0.0f;
-        cameraData.PrevViewProjection = s_Data.PrevViewProjectionMatrix;
+        cameraData.PrevViewProjection = MakeViewProjectionRelative(s_Data.PrevViewProjectionMatrix, origin);
+        cameraData.RenderOrigin = origin; // for pattern shaders (triplanar/noise/etc.)
         s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
         BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
     }
@@ -1592,12 +1629,17 @@ namespace OloEngine
             if (scratch.size() < instanceCount)
                 scratch.resize(instanceCount);
 
+            // Camera-relative (issue #429): shift every instance's world
+            // transform (and its prev-frame transform) into render-relative
+            // space. The normal matrix is translation-invariant, so it is still
+            // derived from the world transform. No-op when origin is (0,0,0).
+            const glm::vec3 origin = s_Data.RenderOrigin;
             for (sizet i = 0; i < instanceCount; ++i)
             {
                 InstanceData& inst = scratch[i];
-                inst.Transform = transforms[i];
+                inst.Transform = MakeModelRelative(transforms[i], origin);
                 inst.Normal = glm::transpose(glm::inverse(transforms[i]));
-                inst.PrevTransform = prevTransforms[i];
+                inst.PrevTransform = MakeModelRelative(prevTransforms[i], origin);
                 // Per-source EntityID survives the N-into-1 batch collapse via
                 // FrameDataBuffer's EntityID stream — CommandBucket::BatchCommands
                 // writes one entry per source DrawMeshCommand, and the fragment
@@ -1849,26 +1891,9 @@ namespace OloEngine
             ++s_Data.Stats.ShaderBinds;
         }
 
-        // Upload camera UBO
-        if (s_Data.CameraUBO)
-        {
-            ShaderBindingLayout::CameraUBO cameraData{};
-            cameraData.ViewProjection = s_Data.ViewProjectionMatrix;
-            cameraData.View = s_Data.ViewMatrix;
-            cameraData.Projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
-            cameraData.Position = s_Data.ViewPos;
-            cameraData._padding0 = 0.0f;
-            // Use the true previous-frame VP propagated from
-            // `Renderer3D::BeginScene` — earlier revisions aliased the
-            // current-frame VP here, which silently clobbered history for
-            // every subsequent consumer of CameraUBO (TAA velocity
-            // reconstruction, motion blur). Terrain itself doesn't emit
-            // object motion; per-draw "no rigid motion" is handled via
-            // `ModelUBO::PrevModel` below, not the shared CameraUBO.
-            cameraData.PrevViewProjection = s_Data.PrevViewProjectionMatrix;
-            s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
-        }
+        // Upload camera UBO (camera-relative packing, issue #429 — origin
+        // subtraction happens inside UploadCameraUBO).
+        UploadCameraUBO();
 
         // Upload model matrix UBO
         if (s_Data.ModelInstanceBuffer)
@@ -1956,22 +1981,9 @@ namespace OloEngine
             ++s_Data.Stats.ShaderBinds;
         }
 
-        // Upload camera UBO
-        if (s_Data.CameraUBO)
-        {
-            ShaderBindingLayout::CameraUBO cameraData{};
-            cameraData.ViewProjection = s_Data.ViewProjectionMatrix;
-            cameraData.View = s_Data.ViewMatrix;
-            cameraData.Projection = s_Data.ViewProjectionMatrix * glm::inverse(s_Data.ViewMatrix);
-            cameraData.Position = s_Data.ViewPos;
-            cameraData._padding0 = 0.0f;
-            // True previous-frame VP from Renderer3D::BeginScene — never
-            // alias the current VP into this slot (breaks TAA / motion
-            // blur for every consumer of the shared CameraUBO).
-            cameraData.PrevViewProjection = s_Data.PrevViewProjectionMatrix;
-            s_Data.CameraUBO->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
-            BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
-        }
+        // Upload camera UBO (camera-relative packing, issue #429 — origin
+        // subtraction happens inside UploadCameraUBO).
+        UploadCameraUBO();
 
         // Upload model matrix UBO
         if (s_Data.ModelInstanceBuffer)

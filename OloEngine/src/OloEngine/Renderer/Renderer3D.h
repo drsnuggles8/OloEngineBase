@@ -715,6 +715,36 @@ namespace OloEngine
             return s_Data.ProjectionMatrix;
         }
 
+        // Per-frame camera-relative render origin (issue #429). Every world
+        // position/matrix is uploaded to the GPU relative to this point so the
+        // GPU works with small coordinates far from the world origin. It is the
+        // camera position snapped to a coarse grid (see ComputeRenderOrigin),
+        // so it is exactly (0,0,0) within the first cell — making the whole
+        // feature a no-op near origin — and only changes on cell crossings.
+        // Shadow passes, light uploads, decals, etc. read this to stay in the
+        // same relative space as the main camera. Set once per frame in
+        // RenderPipeline::PrepareFrame.
+        static const glm::vec3& GetRenderOrigin()
+        {
+            return s_Data.RenderOrigin;
+        }
+
+        // Debug / bisect lever for camera-relative rendering (issue #429). When
+        // disabled, the render origin is forced to (0,0,0) every frame, which
+        // makes every origin-relative upload site fall back to the exact
+        // pre-#429 world-space behaviour (large coordinates jitter far from
+        // origin). Default on. Mirrors OLO_GAMEPLAY_SCHEDULER_SEQUENTIAL: it
+        // exists to A/B the feature (e.g. capture before/after visual evidence)
+        // and to isolate a regression, not as a user-facing setting.
+        static void SetCameraRelativeEnabled(bool enabled)
+        {
+            s_Data.CameraRelativeEnabled = enabled;
+        }
+        static bool IsCameraRelativeEnabled()
+        {
+            return s_Data.CameraRelativeEnabled;
+        }
+
         // Global renderer settings (rendering path, culling, debug overlays)
         static RendererSettings& GetRendererSettings()
         {
@@ -1479,9 +1509,25 @@ namespace OloEngine
             Ref<StorageBuffer> LightProbeSHBuffer;
 
             glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
+            // Inverse of the *world* view-projection (issue #429). The depth was
+            // written by render-relative geometry (ndc = VP_rel * worldPos_rel),
+            // and inverse(VP_world) * ndc == worldPos_ABSOLUTE, so depth-recon
+            // consumers (decals, volumetric fog, underwater) get an absolute world
+            // position for free — the same value the pre-#429 pipeline produced,
+            // so their world-space UBO inputs stay unshifted. A consumer whose
+            // *other* inputs are render-relative (deferred lighting: camera /
+            // lights / shadow matrices) must instead subtract u_RenderOrigin from
+            // the reconstructed position in-shader to match. See
+            // docs/agent-rules/camera-relative-rendering.md.
             glm::mat4 InverseViewProjectionMatrix = glm::mat4(1.0f);
             glm::mat4 ViewMatrix = glm::mat4(1.0f);
             glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
+            // Camera-relative render origin for this frame (issue #429); see
+            // GetRenderOrigin(). (0,0,0) within the first grid cell.
+            glm::vec3 RenderOrigin = glm::vec3(0.0f);
+            // Debug lever: when false the render origin is pinned to (0,0,0) so
+            // the renderer reverts to exact pre-#429 world-space behaviour.
+            bool CameraRelativeEnabled = true;
 
             Frustum ViewFrustum;
             bool FrustumCullingEnabled = true;

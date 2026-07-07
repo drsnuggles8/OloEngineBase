@@ -17,6 +17,8 @@ layout(std140, binding = 0) uniform CameraMatrices {
     // fragPos3D is static in world space, so the NDC delta captures exactly
     // the motion induced by the camera.
     mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
+    float _padding1;
 };
 
 layout(location = 0) out vec3 v_NearPoint;
@@ -59,6 +61,8 @@ layout(std140, binding = 0) uniform CameraMatrices {
     vec3 u_CameraPosition;
     float _padding0;
     mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
+    float _padding1;
 };
 
 // Grid settings (hardcoded for now - could be passed via uniform block if needed)
@@ -116,9 +120,15 @@ void main() {
 
     // Only render if the plane intersection is valid (t > 0) and in front of camera
     if (t > 0.0) {
+        // Camera-relative (issue #429): fragPos3D is reconstructed via the
+        // relative inverse-view, so it is render-relative. The grid lines/axes
+        // are world-anchored (lines on integer world coords, coloured axes at
+        // the true world origin), so feed Grid() the absolute world position.
+        // Depth/velocity below keep the relative fragPos3D (relative VP).
+        vec3 fragPos3DAbs = fragPos3D + u_RenderOrigin;
         // Render grid at two scales for better visibility
-        vec4 gridColor = Grid(fragPos3D, c_GridScale, true);
-        gridColor += Grid(fragPos3D, c_GridScale * 0.1, true) * 0.5;
+        vec4 gridColor = Grid(fragPos3DAbs, c_GridScale, true);
+        gridColor += Grid(fragPos3DAbs, c_GridScale * 0.1, true) * 0.5;
 
         // Distance-based fade
         float linearDepth = ComputeLinearDepth(fragPos3D);
