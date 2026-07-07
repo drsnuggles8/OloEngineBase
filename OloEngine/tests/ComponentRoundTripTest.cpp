@@ -1999,12 +1999,14 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
-    // PrefabComponent — exercises the GENERATED std::unordered_set<std::string>
-    // serializer path (#451 unordered_map/set slice). The three override-tracking
-    // sets are populated with MULTIPLE entries each (rather than a single one) so
-    // a bug that only appends/reads the first inserted element would be caught;
-    // the generated code sorts before emit, so this also exercises that the
-    // insertion order doesn't matter for round-trip equality.
+    // PrefabComponent — exercises the hand-written serializer path (issue #444
+    // hot/cold split moved the three override-tracking sets behind a private,
+    // lazily-allocated PrefabOverrideSets pointer, so the component is no
+    // longer codegen-trivial). Sets are populated with MULTIPLE entries each
+    // (rather than a single one) so a bug that only appends/reads the first
+    // inserted element would be caught; the hand-written serializer still
+    // sorts before emit, so this also exercises that insertion order doesn't
+    // matter for round-trip equality.
     // -------------------------------------------------------------------------
     TEST(ComponentRoundTrip, PrefabComponentSurvivesYAMLRoundTrip)
     {
@@ -2021,9 +2023,9 @@ namespace OloEngine::Tests
             auto& pc = entity.AddComponent<PrefabComponent>();
             pc.m_PrefabID = expectedPrefabID;
             pc.m_PrefabEntityID = expectedPrefabEntityID;
-            pc.m_OverriddenComponents = expectedOverridden;
-            pc.m_AddedComponents = expectedAdded;
-            pc.m_RemovedComponents = expectedRemoved;
+            pc.SetOverriddenComponents(expectedOverridden);
+            pc.SetAddedComponents(expectedAdded);
+            pc.SetRemovedComponents(expectedRemoved);
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -2037,9 +2039,9 @@ namespace OloEngine::Tests
         const auto& pc = restored.GetComponent<PrefabComponent>();
         EXPECT_EQ(static_cast<u64>(pc.m_PrefabID), static_cast<u64>(expectedPrefabID));
         EXPECT_EQ(static_cast<u64>(pc.m_PrefabEntityID), static_cast<u64>(expectedPrefabEntityID));
-        EXPECT_EQ(pc.m_OverriddenComponents, expectedOverridden);
-        EXPECT_EQ(pc.m_AddedComponents, expectedAdded);
-        EXPECT_EQ(pc.m_RemovedComponents, expectedRemoved);
+        EXPECT_EQ(pc.GetOverriddenComponents(), expectedOverridden);
+        EXPECT_EQ(pc.GetAddedComponents(), expectedAdded);
+        EXPECT_EQ(pc.GetRemovedComponents(), expectedRemoved);
     }
 
     // -------------------------------------------------------------------------
@@ -2260,12 +2262,12 @@ namespace OloEngine::Tests
             auto scene = Scene::Create();
             Entity entity = scene->CreateEntity(kTestTag);
             auto& as = entity.AddComponent<AudioSourceComponent>();
-            as.Config.VolumeMultiplier = expectedVolume;
-            as.Config.PitchMultiplier = expectedPitch;
-            as.Config.Looping = expectedLooping;
-            as.Config.MinDistance = expectedMinDistance;
-            as.Config.MaxDistance = expectedMaxDistance;
-            as.SoundConfigHandle = expectedPreset;
+            as.GetConfig().VolumeMultiplier = expectedVolume;
+            as.GetConfig().PitchMultiplier = expectedPitch;
+            as.GetConfig().Looping = expectedLooping;
+            as.GetConfig().MinDistance = expectedMinDistance;
+            as.GetConfig().MaxDistance = expectedMaxDistance;
+            as.SetSoundConfigHandle(expectedPreset);
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -2277,12 +2279,12 @@ namespace OloEngine::Tests
         ASSERT_TRUE(restored.HasComponent<AudioSourceComponent>());
 
         const auto& as = restored.GetComponent<AudioSourceComponent>();
-        EXPECT_NEAR(as.Config.VolumeMultiplier, expectedVolume, kFloatEpsilon);
-        EXPECT_NEAR(as.Config.PitchMultiplier, expectedPitch, kFloatEpsilon);
-        EXPECT_EQ(as.Config.Looping, expectedLooping);
-        EXPECT_NEAR(as.Config.MinDistance, expectedMinDistance, kFloatEpsilon);
-        EXPECT_NEAR(as.Config.MaxDistance, expectedMaxDistance, kFloatEpsilon);
-        EXPECT_EQ(as.SoundConfigHandle, expectedPreset)
+        EXPECT_NEAR(as.GetConfig().VolumeMultiplier, expectedVolume, kFloatEpsilon);
+        EXPECT_NEAR(as.GetConfig().PitchMultiplier, expectedPitch, kFloatEpsilon);
+        EXPECT_EQ(as.GetConfig().Looping, expectedLooping);
+        EXPECT_NEAR(as.GetConfig().MinDistance, expectedMinDistance, kFloatEpsilon);
+        EXPECT_NEAR(as.GetConfig().MaxDistance, expectedMaxDistance, kFloatEpsilon);
+        EXPECT_EQ(as.GetSoundConfigHandle(), expectedPreset)
             << "SoundConfigHandle dropped on scene YAML round-trip — check SceneSerializer emit/read.";
     }
 
@@ -2337,7 +2339,7 @@ namespace OloEngine::Tests
             // firstYaml/secondYaml differ.
             Entity prefabInstance = scene->CreateEntity("PrefabInstance");
             auto& pc = prefabInstance.AddComponent<PrefabComponent>(UUID(0xAAAAULL), UUID(0xBBBBULL));
-            pc.m_OverriddenComponents = { "TransformComponent", "SpriteRendererComponent" };
+            pc.SetOverriddenComponents({ "TransformComponent", "SpriteRendererComponent" });
 
             return scene;
         };
@@ -2427,10 +2429,10 @@ namespace OloEngine::Tests
             Entity src = scene->CreateEntity("AudioSrc");
             {
                 auto& s = src.AddComponent<AudioSourceComponent>();
-                s.Config.VolumeMultiplier = 0.6f;
-                s.Config.Looping = true;
-                s.Config.MinDistance = 2.0f;
-                s.Config.MaxDistance = 25.0f;
+                s.GetConfig().VolumeMultiplier = 0.6f;
+                s.GetConfig().Looping = true;
+                s.GetConfig().MinDistance = 2.0f;
+                s.GetConfig().MaxDistance = 25.0f;
             }
             Entity listener = scene->CreateEntity("AudioListen");
             {

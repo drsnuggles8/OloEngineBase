@@ -540,9 +540,9 @@ namespace OloEngine
                 if (ac.Source)
                 {
                     const auto& tc = entity.GetComponent<TransformComponent>();
-                    ac.Source->SetConfig(ac.Config);
+                    ac.Source->SetConfig(ac.GetConfig());
                     ac.Source->SetPosition(tc.Translation);
-                    if (ac.Config.PlayOnAwake)
+                    if (ac.GetConfig().PlayOnAwake)
                     {
                         ac.Source->Play();
                     }

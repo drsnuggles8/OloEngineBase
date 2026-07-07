@@ -2092,58 +2092,61 @@ namespace OloEngine
 
         // --- AudioSourceComponent ---
         lua.new_usertype<AudioSourceComponent>("AudioSourceComponent", "volume", sol::property([](const AudioSourceComponent& c)
-                                                                                               { return c.Config.VolumeMultiplier; }, [](AudioSourceComponent& c, f32 v)
+                                                                                               { return c.GetConfig().VolumeMultiplier; }, [](AudioSourceComponent& c, f32 v)
                                                                                                {
                     if (!std::isfinite(v)) v = 1.0f;
                     v = std::clamp(v, 0.0f, 2.0f);
-                    c.Config.VolumeMultiplier = v;
+                    c.GetConfig().VolumeMultiplier = v;
                     if (c.Source) { c.Source->SetVolume(v); } }),
                                                "pitch", sol::property([](const AudioSourceComponent& c)
-                                                                      { return c.Config.PitchMultiplier; }, [](AudioSourceComponent& c, f32 v)
+                                                                      { return c.GetConfig().PitchMultiplier; }, [](AudioSourceComponent& c, f32 v)
                                                                       {
                     if (!std::isfinite(v)) v = 1.0f;
                     v = std::clamp(v, 0.1f, 3.0f);
-                    c.Config.PitchMultiplier = v;
+                    c.GetConfig().PitchMultiplier = v;
                     if (c.Source) { c.Source->SetPitch(v); } }),
                                                "playOnAwake", sol::property([](const AudioSourceComponent& c)
-                                                                            { return c.Config.PlayOnAwake; }, [](AudioSourceComponent& c, bool v)
-                                                                            { c.Config.PlayOnAwake = v; }),
+                                                                            { return c.GetConfig().PlayOnAwake; }, [](AudioSourceComponent& c, bool v)
+                                                                            { c.GetConfig().PlayOnAwake = v; }),
                                                "looping", sol::property([](const AudioSourceComponent& c)
-                                                                        { return c.Config.Looping; }, [](AudioSourceComponent& c, bool v)
+                                                                        { return c.GetConfig().Looping; }, [](AudioSourceComponent& c, bool v)
                                                                         {
-                    c.Config.Looping = v;
+                    c.GetConfig().Looping = v;
                     if (c.Source) { c.Source->SetLooping(v); } }),
                                                "spatialization", sol::property([](const AudioSourceComponent& c)
-                                                                               { return c.Config.Spatialization; }, [](AudioSourceComponent& c, bool v)
+                                                                               { return c.GetConfig().Spatialization; }, [](AudioSourceComponent& c, bool v)
                                                                                {
-                    c.Config.Spatialization = v;
+                    c.GetConfig().Spatialization = v;
                     if (c.Source) { c.Source->SetSpatialization(v); } }),
-                                               "useEventSystem", &AudioSourceComponent::UseEventSystem, "startEvent", sol::property([](const AudioSourceComponent& c)
-                                                                                                                                    { return c.StartEvent; }, [](AudioSourceComponent& c, const std::string& v)
-                                                                                                                                    {
-                    c.StartEvent = v;
-                    c.StartCommandID = Audio::CommandID::FromString(v); }),
+                                               "useEventSystem", sol::property([](const AudioSourceComponent& c)
+                                                                               { return c.GetUseEventSystem(); }, [](AudioSourceComponent& c, bool v)
+                                                                               { c.SetUseEventSystem(v); }),
+                                               "startEvent", sol::property([](const AudioSourceComponent& c)
+                                                                           { return c.GetStartEvent(); }, [](AudioSourceComponent& c, const std::string& v)
+                                                                           {
+                    c.SetStartEvent(v);
+                    c.SetStartCommandID(Audio::CommandID::FromString(v)); }),
                                                "isPlaying", [](const AudioSourceComponent& c) -> bool
                                                {
-                if (c.UseEventSystem && c.ActiveEventID != 0)
+                if (c.GetUseEventSystem() && c.ActiveEventID != 0)
                 {
                     return Audio::AudioPlayback::IsEventActive(c.ActiveEventID);
                 }
                 return c.Source && c.Source->IsPlaying(); }, "Play", [](AudioSourceComponent& c, sol::optional<u64> ownerUUID)
                                                {
-                if (c.UseEventSystem && c.StartCommandID.IsValid())
+                if (c.GetUseEventSystem() && c.GetStartCommandID().IsValid())
                 {
                     if (c.ActiveEventID != 0)
                     {
                         Audio::AudioPlayback::StopEvent(c.ActiveEventID);
                     }
                     u64 objectID = ownerUUID.value_or(0);
-                    c.ActiveEventID = Audio::AudioPlayback::PostTrigger(c.StartCommandID, objectID);
+                    c.ActiveEventID = Audio::AudioPlayback::PostTrigger(c.GetStartCommandID(), objectID);
                     return;
                 }
                 if (c.Source) { c.Source->Play(); } }, "Stop", [](AudioSourceComponent& c)
                                                {
-                if (c.UseEventSystem && c.ActiveEventID != 0)
+                if (c.GetUseEventSystem() && c.ActiveEventID != 0)
                 {
                     Audio::AudioPlayback::StopEvent(c.ActiveEventID);
                     c.ActiveEventID = 0;
@@ -2151,14 +2154,14 @@ namespace OloEngine
                 }
                 if (c.Source) { c.Source->Stop(); } }, "Pause", [](AudioSourceComponent& c)
                                                {
-                if (c.UseEventSystem && c.ActiveEventID != 0)
+                if (c.GetUseEventSystem() && c.ActiveEventID != 0)
                 {
                     Audio::AudioPlayback::PauseEvent(c.ActiveEventID);
                     return;
                 }
                 if (c.Source) { c.Source->Pause(); } }, "UnPause", [](AudioSourceComponent& c)
                                                {
-                if (c.UseEventSystem && c.ActiveEventID != 0)
+                if (c.GetUseEventSystem() && c.ActiveEventID != 0)
                 {
                     Audio::AudioPlayback::ResumeEvent(c.ActiveEventID);
                     return;
@@ -2166,71 +2169,71 @@ namespace OloEngine
                 if (c.Source) { c.Source->UnPause(); } },
                                                // --- Spatial audio properties ---
                                                "attenuationModel", sol::property([](const AudioSourceComponent& c)
-                                                                                 { return std::to_underlying(c.Config.AttenuationModel); }, [](AudioSourceComponent& c, int v)
+                                                                                 { return std::to_underlying(c.GetConfig().AttenuationModel); }, [](AudioSourceComponent& c, int v)
                                                                                  {
                     if (v < 0 || v > std::to_underlying(AttenuationModelType::Exponential)) return;
-                    c.Config.AttenuationModel = static_cast<AttenuationModelType>(v);
-                    if (c.Source) { c.Source->SetAttenuationModel(c.Config.AttenuationModel); } }),
+                    c.GetConfig().AttenuationModel = static_cast<AttenuationModelType>(v);
+                    if (c.Source) { c.Source->SetAttenuationModel(c.GetConfig().AttenuationModel); } }),
                                                "rollOff", sol::property([](const AudioSourceComponent& c)
-                                                                        { return c.Config.RollOff; }, [](AudioSourceComponent& c, f32 v)
+                                                                        { return c.GetConfig().RollOff; }, [](AudioSourceComponent& c, f32 v)
                                                                         {
                     if (!std::isfinite(v)) v = 1.0f;
                     v = std::max(v, 0.0f);
-                    c.Config.RollOff = v;
+                    c.GetConfig().RollOff = v;
                     if (c.Source) { c.Source->SetRollOff(v); } }),
                                                "minGain", sol::property([](const AudioSourceComponent& c)
-                                                                        { return c.Config.MinGain; }, [](AudioSourceComponent& c, f32 v)
+                                                                        { return c.GetConfig().MinGain; }, [](AudioSourceComponent& c, f32 v)
                                                                         {
                     if (!std::isfinite(v)) v = 0.0f;
                     v = std::max(v, 0.0f);
-                    c.Config.MinGain = v;
-                    if (c.Config.MinGain > c.Config.MaxGain) c.Config.MaxGain = c.Config.MinGain;
-                    if (c.Source) { c.Source->SetMinGain(c.Config.MinGain); c.Source->SetMaxGain(c.Config.MaxGain); } }),
+                    c.GetConfig().MinGain = v;
+                    if (c.GetConfig().MinGain > c.GetConfig().MaxGain) c.GetConfig().MaxGain = c.GetConfig().MinGain;
+                    if (c.Source) { c.Source->SetMinGain(c.GetConfig().MinGain); c.Source->SetMaxGain(c.GetConfig().MaxGain); } }),
                                                "maxGain", sol::property([](const AudioSourceComponent& c)
-                                                                        { return c.Config.MaxGain; }, [](AudioSourceComponent& c, f32 v)
+                                                                        { return c.GetConfig().MaxGain; }, [](AudioSourceComponent& c, f32 v)
                                                                         {
                     if (!std::isfinite(v)) v = 1.0f;
                     v = std::clamp(v, 0.0f, 1.0f);
-                    c.Config.MaxGain = v;
-                    if (c.Config.MinGain > c.Config.MaxGain) c.Config.MinGain = c.Config.MaxGain;
-                    if (c.Source) { c.Source->SetMinGain(c.Config.MinGain); c.Source->SetMaxGain(c.Config.MaxGain); } }),
+                    c.GetConfig().MaxGain = v;
+                    if (c.GetConfig().MinGain > c.GetConfig().MaxGain) c.GetConfig().MinGain = c.GetConfig().MaxGain;
+                    if (c.Source) { c.Source->SetMinGain(c.GetConfig().MinGain); c.Source->SetMaxGain(c.GetConfig().MaxGain); } }),
                                                "minDistance", sol::property([](const AudioSourceComponent& c)
-                                                                            { return c.Config.MinDistance; }, [](AudioSourceComponent& c, f32 v)
+                                                                            { return c.GetConfig().MinDistance; }, [](AudioSourceComponent& c, f32 v)
                                                                             {
                     if (!std::isfinite(v)) v = 0.3f;
                     v = std::max(v, 0.0f);
-                    c.Config.MinDistance = v;
-                    if (c.Config.MinDistance > c.Config.MaxDistance) c.Config.MaxDistance = c.Config.MinDistance;
-                    if (c.Source) { c.Source->SetMinDistance(v); c.Source->SetMaxDistance(c.Config.MaxDistance); } }),
+                    c.GetConfig().MinDistance = v;
+                    if (c.GetConfig().MinDistance > c.GetConfig().MaxDistance) c.GetConfig().MaxDistance = c.GetConfig().MinDistance;
+                    if (c.Source) { c.Source->SetMinDistance(v); c.Source->SetMaxDistance(c.GetConfig().MaxDistance); } }),
                                                "maxDistance", sol::property([](const AudioSourceComponent& c)
-                                                                            { return c.Config.MaxDistance; }, [](AudioSourceComponent& c, f32 v)
+                                                                            { return c.GetConfig().MaxDistance; }, [](AudioSourceComponent& c, f32 v)
                                                                             {
                     if (!std::isfinite(v)) v = 1000.0f;
                     v = std::max(v, 0.0f);
-                    c.Config.MaxDistance = v;
-                    if (c.Config.MinDistance > c.Config.MaxDistance) c.Config.MinDistance = c.Config.MaxDistance;
-                    if (c.Source) { c.Source->SetMaxDistance(v); c.Source->SetMinDistance(c.Config.MinDistance); } }),
+                    c.GetConfig().MaxDistance = v;
+                    if (c.GetConfig().MinDistance > c.GetConfig().MaxDistance) c.GetConfig().MinDistance = c.GetConfig().MaxDistance;
+                    if (c.Source) { c.Source->SetMaxDistance(v); c.Source->SetMinDistance(c.GetConfig().MinDistance); } }),
                                                "coneInnerAngle", sol::property([](const AudioSourceComponent& c)
-                                                                               { return c.Config.ConeInnerAngle; }, [](AudioSourceComponent& c, f32 v)
+                                                                               { return c.GetConfig().ConeInnerAngle; }, [](AudioSourceComponent& c, f32 v)
                                                                                {
                     if (!std::isfinite(v)) v = glm::radians(360.0f);
                     v = std::clamp(v, 0.0f, glm::radians(360.0f));
-                    c.Config.ConeInnerAngle = v;
-                    if (c.Source) { c.Source->SetCone(c.Config.ConeInnerAngle, c.Config.ConeOuterAngle, c.Config.ConeOuterGain); } }),
+                    c.GetConfig().ConeInnerAngle = v;
+                    if (c.Source) { c.Source->SetCone(c.GetConfig().ConeInnerAngle, c.GetConfig().ConeOuterAngle, c.GetConfig().ConeOuterGain); } }),
                                                "coneOuterAngle", sol::property([](const AudioSourceComponent& c)
-                                                                               { return c.Config.ConeOuterAngle; }, [](AudioSourceComponent& c, f32 v)
+                                                                               { return c.GetConfig().ConeOuterAngle; }, [](AudioSourceComponent& c, f32 v)
                                                                                {
                     if (!std::isfinite(v)) v = glm::radians(360.0f);
                     v = std::clamp(v, 0.0f, glm::radians(360.0f));
-                    c.Config.ConeOuterAngle = v;
-                    if (c.Source) { c.Source->SetCone(c.Config.ConeInnerAngle, c.Config.ConeOuterAngle, c.Config.ConeOuterGain); } }),
+                    c.GetConfig().ConeOuterAngle = v;
+                    if (c.Source) { c.Source->SetCone(c.GetConfig().ConeInnerAngle, c.GetConfig().ConeOuterAngle, c.GetConfig().ConeOuterGain); } }),
                                                "coneOuterGain", sol::property([](const AudioSourceComponent& c)
-                                                                              { return c.Config.ConeOuterGain; }, [](AudioSourceComponent& c, f32 v)
+                                                                              { return c.GetConfig().ConeOuterGain; }, [](AudioSourceComponent& c, f32 v)
                                                                               {
                     if (!std::isfinite(v)) v = 0.0f;
                     v = std::max(v, 0.0f);
-                    c.Config.ConeOuterGain = v;
-                    if (c.Source) { c.Source->SetCone(c.Config.ConeInnerAngle, c.Config.ConeOuterAngle, c.Config.ConeOuterGain); } }),
+                    c.GetConfig().ConeOuterGain = v;
+                    if (c.Source) { c.Source->SetCone(c.GetConfig().ConeInnerAngle, c.GetConfig().ConeOuterAngle, c.GetConfig().ConeOuterGain); } }),
                                                "SetCone", [](AudioSourceComponent& c, f32 innerAngle, f32 outerAngle, f32 outerGain)
                                                {
                     if (!std::isfinite(innerAngle)) { innerAngle = glm::radians(360.0f); }
@@ -2239,15 +2242,15 @@ namespace OloEngine
                     innerAngle = std::clamp(innerAngle, 0.0f, glm::radians(360.0f));
                     outerAngle = std::clamp(outerAngle, 0.0f, glm::radians(360.0f));
                     outerGain = std::max(outerGain, 0.0f);
-                    c.Config.ConeInnerAngle = innerAngle;
-                    c.Config.ConeOuterAngle = outerAngle;
-                    c.Config.ConeOuterGain = outerGain;
+                    c.GetConfig().ConeInnerAngle = innerAngle;
+                    c.GetConfig().ConeOuterAngle = outerAngle;
+                    c.GetConfig().ConeOuterGain = outerGain;
                     if (c.Source) { c.Source->SetCone(innerAngle, outerAngle, outerGain); } }, "dopplerFactor", sol::property([](const AudioSourceComponent& c)
-                                                                                   { return c.Config.DopplerFactor; }, [](AudioSourceComponent& c, f32 v)
+                                                                                   { return c.GetConfig().DopplerFactor; }, [](AudioSourceComponent& c, f32 v)
                                                                                    {
                     if (!std::isfinite(v)) v = 1.0f;
                     v = std::max(v, 0.0f);
-                    c.Config.DopplerFactor = v;
+                    c.GetConfig().DopplerFactor = v;
                     if (c.Source) { c.Source->SetDopplerFactor(v); } }));
 
         // --- AudioListenerComponent ---

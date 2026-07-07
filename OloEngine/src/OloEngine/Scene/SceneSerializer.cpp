@@ -1716,49 +1716,61 @@ namespace OloEngine
         if (const auto& audioSourceComponent = entity["AudioSourceComponent"])
         {
             auto& src = deserializedEntity.AddComponent<AudioSourceComponent>();
+            auto& config = src.GetConfig();
             std::string audioFilepath;
             TrySet(audioFilepath, audioSourceComponent["Filepath"]);
-            TrySet(src.Config.VolumeMultiplier, audioSourceComponent["VolumeMultiplier"]);
-            TrySet(src.Config.PitchMultiplier, audioSourceComponent["PitchMultiplier"]);
-            TrySet(src.Config.PlayOnAwake, audioSourceComponent["PlayOnAwake"]);
-            TrySet(src.Config.Looping, audioSourceComponent["Looping"]);
-            TrySet(src.Config.Spatialization, audioSourceComponent["Spatialization"]);
-            TrySetEnum(src.Config.AttenuationModel, audioSourceComponent["AttenuationModel"]);
-            TrySet(src.Config.RollOff, audioSourceComponent["RollOff"]);
-            TrySet(src.Config.MinGain, audioSourceComponent["MinGain"]);
-            TrySet(src.Config.MaxGain, audioSourceComponent["MaxGain"]);
-            TrySet(src.Config.MinDistance, audioSourceComponent["MinDistance"]);
-            TrySet(src.Config.MaxDistance, audioSourceComponent["MaxDistance"]);
-            TrySet(src.Config.ConeInnerAngle, audioSourceComponent["ConeInnerAngle"]);
-            TrySet(src.Config.ConeOuterAngle, audioSourceComponent["ConeOuterAngle"]);
-            TrySet(src.Config.ConeOuterGain, audioSourceComponent["ConeOuterGain"]);
-            TrySet(src.Config.DopplerFactor, audioSourceComponent["DopplerFactor"]);
+            TrySet(config.PlayOnAwake, audioSourceComponent["PlayOnAwake"]);
+            TrySet(config.Looping, audioSourceComponent["Looping"]);
+            TrySet(config.Spatialization, audioSourceComponent["Spatialization"]);
+            TrySetEnum(config.AttenuationModel, audioSourceComponent["AttenuationModel"]);
 
-            // DSP parameters: load + sanitize in one step to prevent drift
+            // Load + sanitize in one step to prevent drift — ranges mirror
+            // SaveGameComponentSerializer::SerializeAudioSourceConfig exactly,
+            // since both paths feed the same miniaudio-backed AudioSourceConfig.
             auto TrySetDsp = [&audioSourceComponent](f32& field, const char* key, f32 lo, f32 hi, f32 fallback)
             {
                 TrySet(field, audioSourceComponent[key]);
                 SanitizeFloat(field, lo, hi, fallback);
             };
-            TrySetDsp(src.Config.Spread, "Spread", 0.0f, 1.0f, 1.0f);
-            TrySetDsp(src.Config.Focus, "Focus", 0.0f, 1.0f, 1.0f);
-            TrySetDsp(src.Config.LowPassCutoff, "LowPassCutoff", 0.0f, 1.0f, 1.0f);
-            TrySetDsp(src.Config.HighPassCutoff, "HighPassCutoff", 0.0f, 1.0f, 0.0f);
-            TrySetDsp(src.Config.ReverbSend, "ReverbSend", 0.0f, 1.0f, 0.0f);
+            TrySetDsp(config.VolumeMultiplier, "VolumeMultiplier", 0.0f, 10.0f, 1.0f);
+            TrySetDsp(config.PitchMultiplier, "PitchMultiplier", 0.0f, 10.0f, 1.0f);
+            TrySetDsp(config.RollOff, "RollOff", 0.0f, 100.0f, 1.0f);
+            TrySetDsp(config.MinGain, "MinGain", 0.0f, 1.0f, 0.0f);
+            TrySetDsp(config.MaxGain, "MaxGain", 0.0f, 1.0f, 1.0f);
+            TrySetDsp(config.MinDistance, "MinDistance", 0.0f, 1e6f, 0.3f);
+            TrySetDsp(config.MaxDistance, "MaxDistance", 0.0f, 1e6f, 1000.0f);
+            if (config.MinDistance > config.MaxDistance)
+            {
+                config.MinDistance = config.MaxDistance;
+            }
+            TrySetDsp(config.ConeInnerAngle, "ConeInnerAngle", 0.0f, glm::radians(360.0f), glm::radians(360.0f));
+            TrySetDsp(config.ConeOuterAngle, "ConeOuterAngle", 0.0f, glm::radians(360.0f), glm::radians(360.0f));
+            TrySetDsp(config.ConeOuterGain, "ConeOuterGain", 0.0f, 1.0f, 0.0f);
+            TrySetDsp(config.DopplerFactor, "DopplerFactor", 0.0f, 10.0f, 1.0f);
+            TrySetDsp(config.Spread, "Spread", 0.0f, 1.0f, 1.0f);
+            TrySetDsp(config.Focus, "Focus", 0.0f, 1.0f, 1.0f);
+            TrySetDsp(config.LowPassCutoff, "LowPassCutoff", 0.0f, 1.0f, 1.0f);
+            TrySetDsp(config.HighPassCutoff, "HighPassCutoff", 0.0f, 1.0f, 0.0f);
+            TrySetDsp(config.ReverbSend, "ReverbSend", 0.0f, 1.0f, 0.0f);
 
             if (const auto handleNode = audioSourceComponent["SoundConfigHandle"])
-                src.SoundConfigHandle = handleNode.as<u64>(0);
+                src.SetSoundConfigHandle(AssetHandle(handleNode.as<u64>(0)));
 
-            TrySet(src.UseEventSystem, audioSourceComponent["UseEventSystem"]);
-            TrySet(src.StartEvent, audioSourceComponent["StartEvent"]);
-            if (!src.StartEvent.empty())
+            bool useEventSystem = false;
+            TrySet(useEventSystem, audioSourceComponent["UseEventSystem"]);
+            src.SetUseEventSystem(useEventSystem);
+
+            std::string startEvent;
+            TrySet(startEvent, audioSourceComponent["StartEvent"]);
+            src.SetStartEvent(startEvent);
+            if (!startEvent.empty())
             {
                 // Always derive CommandID from StartEvent — StartEvent is the single source of truth
-                src.StartCommandID = Audio::CommandID::FromString(src.StartEvent);
+                src.SetStartCommandID(Audio::CommandID::FromString(startEvent));
             }
             else if (const auto cmdIDNode = audioSourceComponent["StartCommandID"])
             {
-                src.StartCommandID = Audio::CommandID(cmdIDNode.as<u32>(0));
+                src.SetStartCommandID(Audio::CommandID(cmdIDNode.as<u32>(0)));
             }
             else
             {
@@ -1777,9 +1789,16 @@ namespace OloEngine
         {
             auto& src = deserializedEntity.AddComponent<AudioListenerComponent>();
             TrySet(src.Active, audioListenerComponent["Active"]);
-            TrySet(src.Config.ConeInnerAngle, audioListenerComponent["ConeInnerAngle"]);
-            TrySet(src.Config.ConeOuterAngle, audioListenerComponent["ConeOuterAngle"]);
-            TrySet(src.Config.ConeOuterGain, audioListenerComponent["ConeOuterGain"]);
+            // Load + sanitize in one step to prevent drift — cone angles are radians (miniaudio units),
+            // matching the AudioSourceComponent path and AudioListenerConfig's defaults.
+            auto TrySetDsp = [&audioListenerComponent](f32& field, const char* key, f32 lo, f32 hi, f32 fallback)
+            {
+                TrySet(field, audioListenerComponent[key]);
+                SanitizeFloat(field, lo, hi, fallback);
+            };
+            TrySetDsp(src.Config.ConeInnerAngle, "ConeInnerAngle", 0.0f, glm::radians(360.0f), glm::radians(360.0f));
+            TrySetDsp(src.Config.ConeOuterAngle, "ConeOuterAngle", 0.0f, glm::radians(360.0f), glm::radians(360.0f));
+            TrySetDsp(src.Config.ConeOuterGain, "ConeOuterGain", 0.0f, 1.0f, 0.0f);
         }
 
         if (const auto& soundGraphComponent = entity["AudioSoundGraphComponent"])
@@ -2357,10 +2376,30 @@ namespace OloEngine
                 cc3d.m_Material.SetRestitution(cc3dComponent["Restitution"].as<f32>());
         }
 
-        // PrefabComponent: auto-generated (issue #451 unordered_map/set slice) — see
-        // Scene/Generated/SceneDeserializeComponents.Generated.inl. Its three
-        // std::unordered_set<std::string> override-tracking fields are now a
-        // codegen-recognised trivial type.
+        // PrefabComponent: hand-written (issue #444 hot/cold split) — the three
+        // override-tracking sets now live behind PrefabComponent's private,
+        // lazily-allocated PrefabOverrideSets pointer, so the codegen classifies
+        // the component non-trivial and skips it. Kept under this ONE
+        // "PrefabComponent" key (unchanged since before #451) rather than a
+        // second sub-map, so the on-disk scene format doesn't change.
+        if (auto node = entity["PrefabComponent"]; node)
+        {
+            auto& comp = deserializedEntity.AddComponent<PrefabComponent>();
+            comp.m_PrefabID = node["PrefabID"].as<u64>(static_cast<u64>(comp.m_PrefabID));
+            comp.m_PrefabEntityID = node["PrefabEntityID"].as<u64>(static_cast<u64>(comp.m_PrefabEntityID));
+            if (auto seqNode = node["OverriddenComponents"]; seqNode && seqNode.IsSequence())
+                for (auto const& e : seqNode)
+                    if (std::string v; ::YAML::convert<std::string>::decode(e, v))
+                        comp.MarkComponentOverridden(v);
+            if (auto seqNode = node["AddedComponents"]; seqNode && seqNode.IsSequence())
+                for (auto const& e : seqNode)
+                    if (std::string v; ::YAML::convert<std::string>::decode(e, v))
+                        comp.MarkComponentAdded(v);
+            if (auto seqNode = node["RemovedComponents"]; seqNode && seqNode.IsSequence())
+                for (auto const& e : seqNode)
+                    if (std::string v; ::YAML::convert<std::string>::decode(e, v))
+                        comp.MarkComponentRemoved(v);
+        }
 
         if (auto mc3dComponent = entity["MeshCollider3DComponent"]; mc3dComponent)
         {
@@ -3785,35 +3824,36 @@ namespace OloEngine
             out << YAML::BeginMap; // AudioSourceComponent
 
             const auto& audioSourceComponent = entity.GetComponent<AudioSourceComponent>();
+            const auto& config = audioSourceComponent.GetConfig();
             std::string f = (audioSourceComponent.Source ? Project::GetAssetRelativeFileSystemPath(audioSourceComponent.Source->GetPath()).string().c_str() : "");
             out << YAML::Key << "Filepath" << YAML::Value << f.c_str();
-            out << YAML::Key << "VolumeMultiplier" << YAML::Value << audioSourceComponent.Config.VolumeMultiplier;
-            out << YAML::Key << "PitchMultiplier" << YAML::Value << audioSourceComponent.Config.PitchMultiplier;
-            out << YAML::Key << "PlayOnAwake" << YAML::Value << audioSourceComponent.Config.PlayOnAwake;
-            out << YAML::Key << "Looping" << YAML::Value << audioSourceComponent.Config.Looping;
-            out << YAML::Key << "Spatialization" << YAML::Value << audioSourceComponent.Config.Spatialization;
-            out << YAML::Key << "AttenuationModel" << YAML::Value << (int)audioSourceComponent.Config.AttenuationModel;
-            out << YAML::Key << "RollOff" << YAML::Value << audioSourceComponent.Config.RollOff;
-            out << YAML::Key << "MinGain" << YAML::Value << audioSourceComponent.Config.MinGain;
-            out << YAML::Key << "MaxGain" << YAML::Value << audioSourceComponent.Config.MaxGain;
-            out << YAML::Key << "MinDistance" << YAML::Value << audioSourceComponent.Config.MinDistance;
-            out << YAML::Key << "MaxDistance" << YAML::Value << audioSourceComponent.Config.MaxDistance;
-            out << YAML::Key << "ConeInnerAngle" << YAML::Value << audioSourceComponent.Config.ConeInnerAngle;
-            out << YAML::Key << "ConeOuterAngle" << YAML::Value << audioSourceComponent.Config.ConeOuterAngle;
-            out << YAML::Key << "ConeOuterGain" << YAML::Value << audioSourceComponent.Config.ConeOuterGain;
-            out << YAML::Key << "DopplerFactor" << YAML::Value << audioSourceComponent.Config.DopplerFactor;
-            out << YAML::Key << "Spread" << YAML::Value << audioSourceComponent.Config.Spread;
-            out << YAML::Key << "Focus" << YAML::Value << audioSourceComponent.Config.Focus;
-            out << YAML::Key << "LowPassCutoff" << YAML::Value << audioSourceComponent.Config.LowPassCutoff;
-            out << YAML::Key << "HighPassCutoff" << YAML::Value << audioSourceComponent.Config.HighPassCutoff;
-            out << YAML::Key << "ReverbSend" << YAML::Value << audioSourceComponent.Config.ReverbSend;
-            out << YAML::Key << "SoundConfigHandle" << YAML::Value << static_cast<u64>(audioSourceComponent.SoundConfigHandle);
-            out << YAML::Key << "UseEventSystem" << YAML::Value << audioSourceComponent.UseEventSystem;
-            out << YAML::Key << "StartEvent" << YAML::Value << audioSourceComponent.StartEvent;
+            out << YAML::Key << "VolumeMultiplier" << YAML::Value << config.VolumeMultiplier;
+            out << YAML::Key << "PitchMultiplier" << YAML::Value << config.PitchMultiplier;
+            out << YAML::Key << "PlayOnAwake" << YAML::Value << config.PlayOnAwake;
+            out << YAML::Key << "Looping" << YAML::Value << config.Looping;
+            out << YAML::Key << "Spatialization" << YAML::Value << config.Spatialization;
+            out << YAML::Key << "AttenuationModel" << YAML::Value << (int)config.AttenuationModel;
+            out << YAML::Key << "RollOff" << YAML::Value << config.RollOff;
+            out << YAML::Key << "MinGain" << YAML::Value << config.MinGain;
+            out << YAML::Key << "MaxGain" << YAML::Value << config.MaxGain;
+            out << YAML::Key << "MinDistance" << YAML::Value << config.MinDistance;
+            out << YAML::Key << "MaxDistance" << YAML::Value << config.MaxDistance;
+            out << YAML::Key << "ConeInnerAngle" << YAML::Value << config.ConeInnerAngle;
+            out << YAML::Key << "ConeOuterAngle" << YAML::Value << config.ConeOuterAngle;
+            out << YAML::Key << "ConeOuterGain" << YAML::Value << config.ConeOuterGain;
+            out << YAML::Key << "DopplerFactor" << YAML::Value << config.DopplerFactor;
+            out << YAML::Key << "Spread" << YAML::Value << config.Spread;
+            out << YAML::Key << "Focus" << YAML::Value << config.Focus;
+            out << YAML::Key << "LowPassCutoff" << YAML::Value << config.LowPassCutoff;
+            out << YAML::Key << "HighPassCutoff" << YAML::Value << config.HighPassCutoff;
+            out << YAML::Key << "ReverbSend" << YAML::Value << config.ReverbSend;
+            out << YAML::Key << "SoundConfigHandle" << YAML::Value << static_cast<u64>(audioSourceComponent.GetSoundConfigHandle());
+            out << YAML::Key << "UseEventSystem" << YAML::Value << audioSourceComponent.GetUseEventSystem();
+            out << YAML::Key << "StartEvent" << YAML::Value << audioSourceComponent.GetStartEvent();
             // Derive CommandID from StartEvent to keep YAML consistent
-            auto derivedCmdID = audioSourceComponent.StartEvent.empty()
-                                    ? audioSourceComponent.StartCommandID
-                                    : Audio::CommandID::FromString(audioSourceComponent.StartEvent);
+            auto derivedCmdID = audioSourceComponent.GetStartEvent().empty()
+                                    ? audioSourceComponent.GetStartCommandID()
+                                    : Audio::CommandID::FromString(audioSourceComponent.GetStartEvent());
             out << YAML::Key << "StartCommandID" << YAML::Value << derivedCmdID.ID;
 
             out << YAML::EndMap; // AudioSourceComponent
@@ -4243,8 +4283,41 @@ namespace OloEngine
             out << YAML::EndMap; // CapsuleCollider3DComponent
         }
 
-        // PrefabComponent: auto-generated (issue #451 unordered_map/set slice) — see
-        // Scene/Generated/SceneSerializeComponents.Generated.inl.
+        // PrefabComponent: hand-written (issue #444 hot/cold split) — see the
+        // matching comment in DeserializeEntityComponents above.
+        if (entity.HasComponent<PrefabComponent>())
+        {
+            out << YAML::Key << "PrefabComponent";
+            out << YAML::BeginMap; // PrefabComponent
+            auto const& comp = entity.GetComponent<PrefabComponent>();
+            out << YAML::Key << "PrefabID" << YAML::Value << static_cast<u64>(comp.m_PrefabID);
+            out << YAML::Key << "PrefabEntityID" << YAML::Value << static_cast<u64>(comp.m_PrefabEntityID);
+            {
+                std::vector<std::string> sorted(comp.GetOverriddenComponents().begin(), comp.GetOverriddenComponents().end());
+                std::ranges::sort(sorted);
+                out << YAML::Key << "OverriddenComponents" << YAML::Value << YAML::BeginSeq;
+                for (auto const& e : sorted)
+                    out << e;
+                out << YAML::EndSeq;
+            }
+            {
+                std::vector<std::string> sorted(comp.GetAddedComponents().begin(), comp.GetAddedComponents().end());
+                std::ranges::sort(sorted);
+                out << YAML::Key << "AddedComponents" << YAML::Value << YAML::BeginSeq;
+                for (auto const& e : sorted)
+                    out << e;
+                out << YAML::EndSeq;
+            }
+            {
+                std::vector<std::string> sorted(comp.GetRemovedComponents().begin(), comp.GetRemovedComponents().end());
+                std::ranges::sort(sorted);
+                out << YAML::Key << "RemovedComponents" << YAML::Value << YAML::BeginSeq;
+                for (auto const& e : sorted)
+                    out << e;
+                out << YAML::EndSeq;
+            }
+            out << YAML::EndMap; // PrefabComponent
+        }
 
         if (entity.HasComponent<MeshCollider3DComponent>())
         {

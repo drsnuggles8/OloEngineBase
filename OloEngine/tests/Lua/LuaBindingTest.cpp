@@ -1050,21 +1050,21 @@ TEST_F(LuaBindingTest, AudioSourceComponent_BasicProperties)
     lua["a"] = &audio;
 
     lua.script("a.volume = 0.5");
-    EXPECT_FLOAT_EQ(audio.Config.VolumeMultiplier, 0.5f);
+    EXPECT_FLOAT_EQ(audio.GetConfig().VolumeMultiplier, 0.5f);
 
     lua.script("a.pitch = 1.5");
-    EXPECT_FLOAT_EQ(audio.Config.PitchMultiplier, 1.5f);
+    EXPECT_FLOAT_EQ(audio.GetConfig().PitchMultiplier, 1.5f);
 
     lua.script("a.playOnAwake = false; a.looping = true; a.spatialization = true");
-    EXPECT_FALSE(audio.Config.PlayOnAwake);
-    EXPECT_TRUE(audio.Config.Looping);
-    EXPECT_TRUE(audio.Config.Spatialization);
+    EXPECT_FALSE(audio.GetConfig().PlayOnAwake);
+    EXPECT_TRUE(audio.GetConfig().Looping);
+    EXPECT_TRUE(audio.GetConfig().Spatialization);
 
     lua.script("a.useEventSystem = true");
-    EXPECT_TRUE(audio.UseEventSystem);
+    EXPECT_TRUE(audio.GetUseEventSystem());
 
     lua.script("a.startEvent = 'PlayFootsteps'");
-    EXPECT_EQ(audio.StartEvent, "PlayFootsteps");
+    EXPECT_EQ(audio.GetStartEvent(), "PlayFootsteps");
 }
 
 TEST_F(LuaBindingTest, AudioSourceComponent_VolumeClamping)
@@ -1073,10 +1073,10 @@ TEST_F(LuaBindingTest, AudioSourceComponent_VolumeClamping)
     lua["a"] = &audio;
 
     lua.script("a.volume = 5.0");
-    EXPECT_FLOAT_EQ(audio.Config.VolumeMultiplier, 2.0f); // clamped to max
+    EXPECT_FLOAT_EQ(audio.GetConfig().VolumeMultiplier, 2.0f); // clamped to max
 
     lua.script("a.volume = -1.0");
-    EXPECT_FLOAT_EQ(audio.Config.VolumeMultiplier, 0.0f); // clamped to min
+    EXPECT_FLOAT_EQ(audio.GetConfig().VolumeMultiplier, 0.0f); // clamped to min
 }
 
 TEST_F(LuaBindingTest, AudioSourceComponent_PitchClamping)
@@ -1085,10 +1085,10 @@ TEST_F(LuaBindingTest, AudioSourceComponent_PitchClamping)
     lua["a"] = &audio;
 
     lua.script("a.pitch = 10.0");
-    EXPECT_FLOAT_EQ(audio.Config.PitchMultiplier, 3.0f); // clamped to max
+    EXPECT_FLOAT_EQ(audio.GetConfig().PitchMultiplier, 3.0f); // clamped to max
 
     lua.script("a.pitch = 0.01");
-    EXPECT_FLOAT_EQ(audio.Config.PitchMultiplier, 0.1f); // clamped to min
+    EXPECT_FLOAT_EQ(audio.GetConfig().PitchMultiplier, 0.1f); // clamped to min
 }
 
 TEST_F(LuaBindingTest, AudioSourceComponent_SpatialProperties)
@@ -1098,34 +1098,34 @@ TEST_F(LuaBindingTest, AudioSourceComponent_SpatialProperties)
 
     // AttenuationModel (enum as int)
     lua.script("a.attenuationModel = 2"); // Linear
-    EXPECT_EQ(audio.Config.AttenuationModel, AttenuationModelType::Linear);
+    EXPECT_EQ(audio.GetConfig().AttenuationModel, AttenuationModelType::Linear);
 
     auto result = lua.script("return a.attenuationModel");
     EXPECT_EQ(result.get<int>(), 2);
 
     // RollOff
     lua.script("a.rollOff = 2.5");
-    EXPECT_FLOAT_EQ(audio.Config.RollOff, 2.5f);
+    EXPECT_FLOAT_EQ(audio.GetConfig().RollOff, 2.5f);
 
     // Gain range
     lua.script("a.minGain = 0.1; a.maxGain = 0.9");
-    EXPECT_FLOAT_EQ(audio.Config.MinGain, 0.1f);
-    EXPECT_FLOAT_EQ(audio.Config.MaxGain, 0.9f);
+    EXPECT_FLOAT_EQ(audio.GetConfig().MinGain, 0.1f);
+    EXPECT_FLOAT_EQ(audio.GetConfig().MaxGain, 0.9f);
 
     // Distance range
     lua.script("a.minDistance = 1.0; a.maxDistance = 500.0");
-    EXPECT_FLOAT_EQ(audio.Config.MinDistance, 1.0f);
-    EXPECT_FLOAT_EQ(audio.Config.MaxDistance, 500.0f);
+    EXPECT_FLOAT_EQ(audio.GetConfig().MinDistance, 1.0f);
+    EXPECT_FLOAT_EQ(audio.GetConfig().MaxDistance, 500.0f);
 
     // Cone angles
     lua.script("a.coneInnerAngle = 1.57; a.coneOuterAngle = 3.14; a.coneOuterGain = 0.2");
-    EXPECT_NEAR(audio.Config.ConeInnerAngle, 1.57f, 1e-5f);
-    EXPECT_NEAR(audio.Config.ConeOuterAngle, 3.14f, 1e-5f);
-    EXPECT_FLOAT_EQ(audio.Config.ConeOuterGain, 0.2f);
+    EXPECT_NEAR(audio.GetConfig().ConeInnerAngle, 1.57f, 1e-5f);
+    EXPECT_NEAR(audio.GetConfig().ConeOuterAngle, 3.14f, 1e-5f);
+    EXPECT_FLOAT_EQ(audio.GetConfig().ConeOuterGain, 0.2f);
 
     // Doppler
     lua.script("a.dopplerFactor = 2.0");
-    EXPECT_FLOAT_EQ(audio.Config.DopplerFactor, 2.0f);
+    EXPECT_FLOAT_EQ(audio.GetConfig().DopplerFactor, 2.0f);
 }
 
 TEST_F(LuaBindingTest, AudioSourceComponent_NaNSafety)
@@ -1135,22 +1135,22 @@ TEST_F(LuaBindingTest, AudioSourceComponent_NaNSafety)
 
     // NaN should reset to defaults
     lua.script("a.volume = 0/0"); // NaN
-    EXPECT_FLOAT_EQ(audio.Config.VolumeMultiplier, 1.0f);
+    EXPECT_FLOAT_EQ(audio.GetConfig().VolumeMultiplier, 1.0f);
 
     lua.script("a.pitch = 0/0");
-    EXPECT_FLOAT_EQ(audio.Config.PitchMultiplier, 1.0f);
+    EXPECT_FLOAT_EQ(audio.GetConfig().PitchMultiplier, 1.0f);
 
     lua.script("a.rollOff = 0/0");
-    EXPECT_FLOAT_EQ(audio.Config.RollOff, 1.0f);
+    EXPECT_FLOAT_EQ(audio.GetConfig().RollOff, 1.0f);
 
     lua.script("a.dopplerFactor = 0/0");
-    EXPECT_FLOAT_EQ(audio.Config.DopplerFactor, 1.0f);
+    EXPECT_FLOAT_EQ(audio.GetConfig().DopplerFactor, 1.0f);
 
     lua.script("a.minDistance = 0/0");
-    EXPECT_FLOAT_EQ(audio.Config.MinDistance, 0.3f);
+    EXPECT_FLOAT_EQ(audio.GetConfig().MinDistance, 0.3f);
 
     lua.script("a.maxDistance = 0/0");
-    EXPECT_FLOAT_EQ(audio.Config.MaxDistance, 1000.0f);
+    EXPECT_FLOAT_EQ(audio.GetConfig().MaxDistance, 1000.0f);
 }
 
 // --- AudioListenerComponent ---

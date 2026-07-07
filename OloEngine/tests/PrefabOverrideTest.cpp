@@ -58,9 +58,9 @@ TEST_F(PrefabOverrideTest, PrefabComponent_DefaultHasNoOverrides)
 {
     PrefabComponent pc;
     EXPECT_FALSE(pc.HasAnyOverrides());
-    EXPECT_TRUE(pc.m_OverriddenComponents.empty());
-    EXPECT_TRUE(pc.m_AddedComponents.empty());
-    EXPECT_TRUE(pc.m_RemovedComponents.empty());
+    EXPECT_TRUE(pc.GetOverriddenComponents().empty());
+    EXPECT_TRUE(pc.GetAddedComponents().empty());
+    EXPECT_TRUE(pc.GetRemovedComponents().empty());
 }
 
 TEST_F(PrefabOverrideTest, PrefabComponent_MarkAndQueryOverride)
@@ -86,8 +86,8 @@ TEST_F(PrefabOverrideTest, PrefabComponent_ClearAllOverrides)
 {
     PrefabComponent pc{ UUID{}, UUID{} };
     pc.MarkComponentOverridden("TransformComponent");
-    pc.m_AddedComponents.insert("ScriptComponent");
-    pc.m_RemovedComponents.insert("CameraComponent");
+    pc.MarkComponentAdded("ScriptComponent");
+    pc.MarkComponentRemoved("CameraComponent");
     EXPECT_TRUE(pc.HasAnyOverrides());
 
     pc.ClearAllOverrides();
@@ -97,11 +97,11 @@ TEST_F(PrefabOverrideTest, PrefabComponent_ClearAllOverrides)
 TEST_F(PrefabOverrideTest, PrefabComponent_AddedAndRemoved)
 {
     PrefabComponent pc{ UUID{}, UUID{} };
-    pc.m_AddedComponents.insert("ScriptComponent");
+    pc.MarkComponentAdded("ScriptComponent");
     EXPECT_TRUE(pc.IsComponentAdded("ScriptComponent"));
     EXPECT_FALSE(pc.IsComponentRemoved("ScriptComponent"));
 
-    pc.m_RemovedComponents.insert("CameraComponent");
+    pc.MarkComponentRemoved("CameraComponent");
     EXPECT_TRUE(pc.IsComponentRemoved("CameraComponent"));
     EXPECT_FALSE(pc.IsComponentAdded("CameraComponent"));
 }
@@ -422,7 +422,7 @@ TEST_F(PrefabOverrideTest, Prefab_UpdateInstance_SkipsRemovedComponents)
     // Remove the component on the instance and mark it as removed
     instance.RemoveComponent<SpriteRendererComponent>();
     auto& pc = instance.GetComponent<PrefabComponent>();
-    pc.m_RemovedComponents.insert("SpriteRendererComponent");
+    pc.MarkComponentRemoved("SpriteRendererComponent");
 
     // Update should NOT re-add the removed component
     prefab->UpdateInstanceFromPrefab(instance);
@@ -443,7 +443,7 @@ TEST_F(PrefabOverrideTest, Prefab_ApplyRemovedComponent_RemovesFromPrefab)
     // Remove the component on the instance and mark as removed
     instance.RemoveComponent<SpriteRendererComponent>();
     auto& pc = instance.GetComponent<PrefabComponent>();
-    pc.m_RemovedComponents.insert("SpriteRendererComponent");
+    pc.MarkComponentRemoved("SpriteRendererComponent");
 
     // Apply the removal to the prefab
     bool applied = prefab->ApplyComponentToPrefab(instance, "SpriteRendererComponent");
@@ -642,8 +642,8 @@ TEST_F(PrefabOverrideTest, PrefabComponent_ClearComponentOverride_ClearsAllSets)
 {
     PrefabComponent pc;
     pc.MarkComponentOverridden("TransformComponent");
-    pc.m_AddedComponents.insert("TransformComponent");
-    pc.m_RemovedComponents.insert("TransformComponent");
+    pc.MarkComponentAdded("TransformComponent");
+    pc.MarkComponentRemoved("TransformComponent");
 
     pc.ClearComponentOverride("TransformComponent");
 
