@@ -227,9 +227,14 @@ namespace OloEngine
         const Timer timer;
 
         OLO_CORE_INFO("Compiling shader '{}' from '{}'", m_Name, filepath);
-        CompileOrGetVulkanBinaries(shaderSources);
-
-        if (Utils::IsAmdGpu())
+        if (!CompileOrGetVulkanBinaries(shaderSources))
+        {
+            // A user-authored GLSL syntax/compile error is not an engineering
+            // invariant violation — surface it as a Failed shader instead of
+            // crashing the editor (issue #568). Already logged via OLO_CORE_CRITICAL.
+            m_CompilationStatus = ShaderCompilationStatus::Failed;
+        }
+        else if (Utils::IsAmdGpu())
         {
             std::string fullVersion(reinterpret_cast<const char*>(glGetString(GL_VERSION)));
 
@@ -249,10 +254,13 @@ namespace OloEngine
                 {
                     CreateProgramForAmd();
                 }
+                else if (CompileOrGetOpenGLBinaries())
+                {
+                    CreateProgram();
+                }
                 else
                 {
-                    CompileOrGetOpenGLBinaries();
-                    CreateProgram();
+                    m_CompilationStatus = ShaderCompilationStatus::Failed;
                 }
             }
             else
@@ -260,10 +268,13 @@ namespace OloEngine
                 OLO_CORE_ERROR("Could not find driver version in string: '{0}'", fullVersion);
             }
         }
+        else if (CompileOrGetOpenGLBinaries())
+        {
+            CreateProgram();
+        }
         else
         {
-            CompileOrGetOpenGLBinaries();
-            CreateProgram();
+            m_CompilationStatus = ShaderCompilationStatus::Failed;
         }
         const f64 compilationTime = timer.ElapsedMillis();
 
@@ -307,14 +318,22 @@ namespace OloEngine
         {
             // AMD path: compile GLSL source strings directly (no SPIR-V)
             m_OriginalSourceCode = sources;
-            CompileOrGetVulkanBinaries(sources);
-            CreateProgramForAmd();
+            if (CompileOrGetVulkanBinaries(sources))
+            {
+                CreateProgramForAmd();
+            }
+            else
+            {
+                m_CompilationStatus = ShaderCompilationStatus::Failed;
+            }
+        }
+        else if (CompileOrGetVulkanBinaries(sources) && CompileOrGetOpenGLBinaries())
+        {
+            CreateProgram();
         }
         else
         {
-            CompileOrGetVulkanBinaries(sources);
-            CompileOrGetOpenGLBinaries();
-            CreateProgram();
+            m_CompilationStatus = ShaderCompilationStatus::Failed;
         }
 
         // Source-string shaders (boot/fallback) must be ready immediately —
@@ -634,7 +653,7 @@ namespace OloEngine
         return shaderSources;
     }
 
-    void OpenGLShader::CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources)
+    bool OpenGLShader::CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources)
     {
         glCreateProgram();
 
@@ -676,12 +695,17 @@ namespace OloEngine
             static_cast<i32>(stageSourcePairs.size()),
             [this, &hasError, &stageSourcePairs, &results, &cacheDirectory, &disableCache](i32 index)
             {
-                if (hasError.load(std::memory_order_relaxed))
-                    return; // Early exit if another stage failed
-
+                // Record the stage before the early-out below so the collect loop can
+                // still identify (and log) this result even if this task never runs —
+                // the default-constructed CompilationResult::Stage is 0, which isn't a
+                // valid GLenum and would otherwise hit GLShaderStageToString's own
+                // switch-default assert when logging the failure.
                 const auto& [stage, source] = stageSourcePairs[index];
                 CompilationResult& result = results[index];
                 result.Stage = stage;
+
+                if (hasError.load(std::memory_order_relaxed))
+                    return; // Early exit if another stage failed
 
                 const std::filesystem::path shaderFilePath = m_FilePath;
                 const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + Utils::GLShaderStageCachedVulkanFileExtension(stage));
@@ -740,14 +764,21 @@ namespace OloEngine
                 result.NeedsCache = !disableCache;
             });
 
-        // Collect results and write cache (sequential to avoid map race conditions)
+        // Collect results and write cache (sequential to avoid map race conditions).
+        // This loop itself is single-threaded (ParallelFor above already joined all
+        // workers), so accumulating into a plain local bool is race-free — the
+        // subtlety is only that a later *successful* stage must not make the overall
+        // result look like a success after an earlier stage failed.
+        bool anyStageFailed = false;
         for (const auto& result : results)
         {
             if (!result.Success)
             {
+                // A stage that never ran because an earlier stage already tripped
+                // |hasError| carries an empty ErrorMessage — still a real failure.
                 OLO_CORE_CRITICAL("[OpenGL] SPIR-V compilation failed for '{}' (stage {}): {}",
                                   m_FilePath, Utils::GLShaderStageToString(result.Stage), result.ErrorMessage);
-                OLO_CORE_VERIFY(false, "Shader SPIR-V compilation failure");
+                anyStageFailed = true;
                 continue;
             }
 
@@ -767,13 +798,18 @@ namespace OloEngine
             }
         }
 
+        if (anyStageFailed)
+            return false;
+
         for (auto&& [stage, data] : shaderData)
         {
             Reflect(stage, data);
         }
+
+        return true;
     }
 
-    void OpenGLShader::CompileOrGetOpenGLBinaries()
+    bool OpenGLShader::CompileOrGetOpenGLBinaries()
     {
         auto& shaderData = m_OpenGLSPIRV;
 
@@ -812,12 +848,14 @@ namespace OloEngine
             static_cast<i32>(stageSpirvPairs.size()),
             [this, &hasError, &stageSpirvPairs, &results, &cacheDirectory, &disableCache](i32 index)
             {
-                if (hasError.load(std::memory_order_relaxed))
-                    return;
-
+                // Record the stage before the early-out below — see the matching
+                // comment in CompileOrGetVulkanBinaries's ParallelFor lambda.
                 const auto& [stage, vulkanSpirv] = stageSpirvPairs[index];
                 OpenGLCompilationResult& result = results[index];
                 result.Stage = stage;
+
+                if (hasError.load(std::memory_order_relaxed))
+                    return;
 
                 const std::filesystem::path shaderFilePath = m_FilePath;
                 const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + Utils::GLShaderStageCachedOpenGLFileExtension(stage));
@@ -917,14 +955,16 @@ namespace OloEngine
                 result.NeedsCache = !disableCache;
             });
 
-        // Collect results and write cache (sequential)
+        // Collect results and write cache (sequential). Single-threaded here too
+        // (ParallelFor above already joined), so this bool accumulation is race-free.
+        bool anyStageFailed = false;
         for (const auto& result : results)
         {
             if (!result.Success)
             {
                 OLO_CORE_CRITICAL("[OpenGL] SPIR-V cross-compilation failed for '{}' (stage {}): {}",
                                   m_FilePath, Utils::GLShaderStageToString(result.Stage), result.ErrorMessage);
-                OLO_CORE_VERIFY(false, "Shader SPIR-V cross-compilation failure");
+                anyStageFailed = true;
                 continue;
             }
 
@@ -947,6 +987,8 @@ namespace OloEngine
                 }
             }
         }
+
+        return !anyStageFailed;
     }
 
     void OpenGLShader::FinalizeProgram(GLenum const& program, const std::unordered_map<GLenum, std::vector<u32>>& spirvMap)
@@ -1062,7 +1104,6 @@ namespace OloEngine
             std::vector<GLchar> infoLog(maxLength);
             glGetProgramInfoLog(program, maxLength, &maxLength, infoLog.data());
             OLO_CORE_CRITICAL("[OpenGL] Shader linking failed for '{}':\n{}", m_FilePath, infoLog.data());
-            OLO_CORE_VERIFY(false, "Shader program linking failure");
 
             glDeleteProgram(program);
 
@@ -1294,7 +1335,6 @@ namespace OloEngine
             glGetProgramInfoLog(program, maxLength, &maxLength, &infoLog[0]);
 
             OLO_CORE_CRITICAL("[OpenGL] Shader link failure for '{}': {}", filePath, infoLog.data());
-            OLO_CORE_VERIFY(false, "Shader program linking failure");
             return false;
         }
         return true;
@@ -1326,7 +1366,14 @@ namespace OloEngine
         program = glCreateProgram();
 
         std::array<u32, 2> glShadersIDs{};
-        CompileOpenGLBinariesForAmd(program, glShadersIDs);
+        if (!CompileOpenGLBinariesForAmd(program, glShadersIDs))
+        {
+            // CompileOpenGLBinariesForAmd already cleaned up any shaders it attached
+            // before failing; |program| itself is still ours to delete.
+            glDeleteProgram(program);
+            m_CompilationStatus = ShaderCompilationStatus::Failed;
+            return;
+        }
         // Required by spec for glGetProgramBinary; prevents Mesa/radeonsi crash.
         glProgramParameteri(program, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
         glLinkProgram(program);
@@ -1374,7 +1421,7 @@ namespace OloEngine
         m_CompilationStatus = ShaderCompilationStatus::Ready;
     }
 
-    void OpenGLShader::CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const
+    bool OpenGLShader::CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const
     {
         int glShaderIDIndex = 0;
         for (auto&& [stage, spirv] : m_VulkanSPIRV)
@@ -1425,12 +1472,22 @@ namespace OloEngine
 
                 OLO_CORE_CRITICAL("[OpenGL] Shader compilation failed for '{}' (stage {}): {}",
                                   m_FilePath, Utils::GLShaderStageToString(stage), infoLog.data());
-                OLO_CORE_VERIFY(false, "Shader source compilation failure");
-                return;
+
+                // Clean up any stages already compiled+attached during this call so the
+                // caller is left with a clean, empty |program| rather than a partially
+                // attached one it doesn't know about.
+                for (int i = 0; i < glShaderIDIndex; ++i)
+                {
+                    glDetachShader(program, glShadersIDs[i]);
+                    glDeleteShader(glShadersIDs[i]);
+                }
+                glShadersIDs.fill(0);
+                return false;
             }
             glAttachShader(program, shader);
             glShadersIDs[glShaderIDIndex++] = shader;
         }
+        return true;
     }
 
     void OpenGLShader::Reflect(const GLenum stage, const std::vector<u32>& shaderData)
@@ -1532,15 +1589,24 @@ namespace OloEngine
 
         try
         {
-            CompileOrGetVulkanBinaries(shaderSources);
-            if (Utils::IsAmdGpu())
+            if (!CompileOrGetVulkanBinaries(shaderSources))
+            {
+                // Broken GLSL in the edited file — already logged via
+                // OLO_CORE_CRITICAL. Fall through to Failed; the restore-old-program
+                // block below keeps the previously-working shader bound (issue #568).
+                m_CompilationStatus = ShaderCompilationStatus::Failed;
+            }
+            else if (Utils::IsAmdGpu())
             {
                 CreateProgramForAmd();
             }
+            else if (CompileOrGetOpenGLBinaries())
+            {
+                CreateProgram();
+            }
             else
             {
-                CompileOrGetOpenGLBinaries();
-                CreateProgram();
+                m_CompilationStatus = ShaderCompilationStatus::Failed;
             }
 
             // For hot-reload we want synchronous completion so the new shader

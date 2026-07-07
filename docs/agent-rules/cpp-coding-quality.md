@@ -251,3 +251,35 @@ If a feature-gate ever seems mysteriously inert on Windows, check for a bare `__
 A render pass that publishes a raw GL name (`u32` texture/buffer id) into process-wide renderer state (`Renderer3D::Set*TextureID`) **must not rely on its own `Execute()` to clear it** — the render graph can cull the pass entirely, so its "clear at top of Execute" never runs and last frame's (or last *test's*) id survives while the owning framebuffer is deleted by a resize/rebuild. Any consumer that binds the published id then re-binds a dead name: `GL_INVALID_OPERATION "<texture> is not a valid texture name"`, every frame, with visually-correct output (issue #505 — `WaterSurfaceDepthTextureID` / `PlanarReflectionTextureID`, consumed by `ToneMapRenderPass`).
 
 Rule: a raw-id publication is **per-frame state** — reset it in `RenderPipeline::PrepareFrame` (BeginScene) alongside the other per-frame rotations, and let the executing pass re-publish. Holding a `Ref<Texture>` instead sidesteps the dangling-name problem but extends resource lifetime; the per-frame reset is the default. Debugging technique that pins this class of bug in minutes: the GL debug context is synchronous in Debug builds, so `OpenGLMessageCallback` logs a `std::stacktrace` for every ERROR-type message — the offending `glBindTextureUnit` call site is in the log with file:line.
+
+---
+
+## 12. `ParallelFor` result structs: populate identifying fields *before* the early-exit check, not after
+
+A `ParallelFor` "collect results" pattern — a per-task lambda that writes into `results[index]`, guarded by `if (hasError.load()) return;` at the top to stop new work once any task has failed — must assign the result's identifying field (the enum/key the sequential collect loop uses to label a failure, e.g. a `GLenum Stage`) **before** that early-exit check, not after:
+
+```cpp
+// BAD — early-exit skips the Stage assignment; results[index].Stage stays
+// default-constructed (0) if this task never runs the real work below.
+[&](i32 index)
+{
+    if (hasError.load(std::memory_order_relaxed))
+        return;
+    const auto& [stage, source] = pairs[index];
+    results[index].Stage = stage;   // never reached on early-exit
+    ...
+};
+
+// GOOD — the identifying field is set unconditionally, so a task that
+// never runs its real work still leaves a labelled (if empty) result.
+[&](i32 index)
+{
+    const auto& [stage, source] = pairs[index];
+    results[index].Stage = stage;   // always runs
+    if (hasError.load(std::memory_order_relaxed))
+        return;
+    ...
+};
+```
+
+Why this matters: once one task fails and sets `hasError`, every other in-flight/not-yet-started task takes the early-exit path and its `results[index]` stays default-constructed. If the sequential collect loop then logs *every* failed result (not just the first) — including a task that never ran — it uses that default field value, e.g. `GLShaderStageToString(0)`. A "stage" switch/lookup helper with an `OLO_CORE_ASSERT(false)`/no default case in its fallback branch then crashes on a value that was never a real shader stage, not because the original failure was mishandled, but because a *second*, unrelated result's bookkeeping field was never populated. This exact bug shipped alongside the fix for issue #568: replacing a fail-fast `OLO_CORE_VERIFY(false, ...)` with a "log every failure, don't stop at the first" collect loop made the sequential loop actually reach the second (never-run) result for the first time — previously the immediate crash on the first failure masked it. Any refactor from "crash/return on the first failure" to "collect and report every failure" in a `ParallelFor`-based aggregation needs the same audit: check every field the collect loop reads is populated on **every** path through the per-task lambda, including the early-exit one.

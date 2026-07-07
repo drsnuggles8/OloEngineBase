@@ -152,11 +152,17 @@ namespace OloEngine
         static std::string ProcessIncludesInternal(const std::string& source, const std::string& directory, std::unordered_set<std::string>& includedFiles);
         std::unordered_map<GLenum, std::string> PreProcess(std::string_view source);
 
-        void CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources);
-        void CompileOrGetOpenGLBinaries();
+        // Returns false if any shader stage failed to compile (already logged via
+        // OLO_CORE_CRITICAL). Callers must not proceed to link/finalize on failure —
+        // set m_CompilationStatus to Failed and bail instead (see issue #568).
+        [[nodiscard]] bool CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources);
+        [[nodiscard]] bool CompileOrGetOpenGLBinaries();
         void CreateProgram();
 
-        void CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const;
+        // Returns false if any stage failed to compile; any shader objects already
+        // attached to |program| during this call are detached/deleted before
+        // returning so the caller is left with a clean, empty program.
+        [[nodiscard]] bool CompileOpenGLBinariesForAmd(GLenum const& program, std::array<u32, 2>& glShadersIDs) const;
         void CreateProgramForAmd();
 
         void Reflect(GLenum stage, const std::vector<u32>& shaderData);
