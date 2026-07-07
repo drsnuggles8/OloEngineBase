@@ -33,9 +33,11 @@
 //   2. The raw sim pose visibly stair-steps (some 0-deltas, some 1-deltas) — the
 //      judder present without interpolation, proving the interpolation is what
 //      smooths #1 rather than the sim already being smooth.
-//   3. Interpolation ON vs OFF produces a bit-identical raw sim trajectory —
-//      the render blend never mutates persisted simulation state, so determinism
-//      (#484) is not regressed.
+//   3. With interpolation ON, the raw (persisted) sim pose equals the fixed-tick
+//      count EXACTLY on every frame — even mid-blend frames. The mover reads and
+//      increments its own translation, so any leak of a fractional interpolated
+//      pose into persisted state would drift it off the integer sequence. This is
+//      the determinism guard: the render blend never mutates sim state (#484).
 // =============================================================================
 
 #include "Functional/FunctionalTest.h"
@@ -75,7 +77,9 @@ local script = {}
 function script.OnUpdate(entityID, ts)
     local id = math.tointeger(entityID) or 0
     local p = entity_utils.get_translation(id)
-    entity_utils.set_translation(id, vec3.new(p.x + 1, 0, 0))
+    -- Preserve y/z (only x is the mover) so the fixture stays correct even if
+    -- reused with a non-zero starting pose.
+    entity_utils.set_translation(id, vec3.new(p.x + 1, p.y, p.z))
 end
 return script
 )";

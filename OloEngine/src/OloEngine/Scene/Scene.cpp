@@ -1555,6 +1555,13 @@ namespace OloEngine
                     --m_StepFrames;
                     SimulateRuntimeStep(fixedDt);
                 }
+
+                // Render the live (frozen or just-stepped) pose exactly while
+                // paused — force alpha to 0 so ShouldInterpolateThisFrame() is
+                // false. Without this the stale pre-pause alpha/snapshot pair
+                // would make RenderRuntime blend BACKWARD toward the previous
+                // tick, and a single-step advance would be invisible (issue #502).
+                m_RenderInterpAlpha = 0.0f;
             }
             else
             {
@@ -1670,8 +1677,11 @@ namespace OloEngine
     {
         if (InterpTransform interp; ComputeInterpolatedLocal(entity, interp))
         {
+            // glm::mat4_cast (not toMat4): mat4_cast is declared in
+            // <glm/gtc/quaternion.hpp>, which this file includes explicitly, so
+            // the quaternion→matrix dependency isn't a transitive include.
             return glm::translate(glm::mat4(1.0f), interp.Translation) *
-                   glm::toMat4(interp.Rotation) *
+                   glm::mat4_cast(interp.Rotation) *
                    glm::scale(glm::mat4(1.0f), interp.Scale);
         }
         // Fall back to the live local transform.
@@ -2665,10 +2675,20 @@ namespace OloEngine
         // Full-component copies (not just TRS): TransformComponent's Rotation /
         // RotationEuler are private and SetRotation() re-derives the Euler
         // representation, so restoring via the setter could drift RotationEuler
-        // even when the quat is bit-identical. Copying the whole component and
-        // assigning it back restores every field — incl. the private Euler and
-        // the matrix cache — exactly, guaranteeing zero simulation-state drift.
-        std::vector<std::pair<entt::entity, TransformComponent>> restorePoses;
+        // even when the quat is bit-identical (and the serializer persists the
+        // Euler — see SceneSerializer). Copying the whole component and assigning
+        // it back restores every field — incl. the private Euler and the matrix
+        // cache — exactly, guaranteeing zero simulation-state drift.
+        //
+        // A function-local `static thread_local` scratch buffer, cleared (not
+        // reallocated) each frame, so the hot render path doesn't heap-allocate a
+        // fresh vector per frame — the same "reuse capacity" intent as
+        // PropagateWorldTransforms' m_TransformOrder buffers. It can't be a Scene
+        // member because TransformComponent is incomplete in Scene.h (which
+        // deliberately doesn't include the heavy Components.h); render is
+        // synchronous per game thread, so a per-thread reused buffer is safe.
+        static thread_local std::vector<std::pair<entt::entity, TransformComponent>> restorePoses;
+        restorePoses.clear();
         if (interpolateThisFrame)
         {
             if (mainCamera && !primaryCameraIsFlyCam)
@@ -2869,6 +2889,7 @@ namespace OloEngine
                 }
             }
             PropagateWorldTransforms();
+            restorePoses.clear();
         }
     }
 

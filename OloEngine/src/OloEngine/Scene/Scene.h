@@ -126,6 +126,13 @@ namespace OloEngine
         void SetRenderInterpolationEnabled(bool enabled)
         {
             m_RenderInterpolationEnabled = enabled;
+            // Drop the cached snapshot pair when disabling so re-enabling doesn't
+            // blend from a stale pose before the next fresh capture — until then
+            // ShouldInterpolateThisFrame() falls back to the live pose.
+            if (!enabled)
+            {
+                m_HasInterpSnapshots = false;
+            }
         }
         [[nodiscard("Store this!")]] bool IsRenderInterpolationEnabled() const
         {
@@ -676,13 +683,15 @@ namespace OloEngine
         // Snapshot every entity's live local TransformComponent into `out`
         // (clearing prior contents). Keyed by the raw entt entity id.
         void CaptureLocalTransforms(std::unordered_map<u32, InterpTransform>& out);
-        // Compose the interpolated pose for `entity` at the current alpha into
-        // `out`. Returns false (leaving `out` untouched) when interpolation is
-        // inactive or the entity lacks a snapshot pair — callers then use the
-        // live transform. `interpolate` short-circuits the enable/snapshot gate.
+        // Compose the interpolated pose for `entity` at the current alpha
+        // (m_RenderInterpAlpha) into `out`. Returns false (leaving `out`
+        // untouched) when interpolation is disabled, no snapshot pair exists, or
+        // the entity is absent from one of the snapshots — callers then use the
+        // live transform.
         [[nodiscard]] bool ComputeInterpolatedLocal(entt::entity entity, InterpTransform& out) const;
         // True when this frame should render interpolated poses: the toggle is
-        // on, a snapshot pair exists, and the blend factor is meaningfully < 1.
+        // on, a snapshot pair exists, and m_RenderInterpAlpha > 0.0f (alpha == 0
+        // renders the current pose verbatim, so the overwrite is skipped).
         [[nodiscard]] bool ShouldInterpolateThisFrame() const;
         // Step 2D (Box2D) + 3D (Jolt, incl. m_SimulationTime-driven buoyancy)
         // physics one tick and sync the results back onto the ECS transforms
