@@ -25,6 +25,21 @@
 // double-emit, so a new trivial component is auto-serialized and a new complex
 // one fails the coverage test until hand-written.
 
+if (entity.HasComponent<BuoyancyComponent>())
+{
+    out << YAML::Key << "BuoyancyComponent";
+    out << YAML::BeginMap; // BuoyancyComponent
+    auto const& comp = entity.GetComponent<BuoyancyComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::Key << "ProbeExtents" << YAML::Value << comp.m_ProbeExtents;
+    out << YAML::Key << "FluidDensity" << YAML::Value << comp.m_FluidDensity;
+    out << YAML::Key << "BuoyancyScale" << YAML::Value << comp.m_BuoyancyScale;
+    out << YAML::Key << "LinearDrag" << YAML::Value << comp.m_LinearDrag;
+    out << YAML::Key << "AngularDrag" << YAML::Value << comp.m_AngularDrag;
+    out << YAML::Key << "SubmergenceRamp" << YAML::Value << comp.m_SubmergenceRamp;
+    out << YAML::EndMap; // BuoyancyComponent
+}
+
 if (entity.HasComponent<CharacterController3DComponent>())
 {
     out << YAML::Key << "CharacterController3DComponent";
@@ -215,6 +230,25 @@ if (entity.HasComponent<NetworkLODComponent>())
     auto const& comp = entity.GetComponent<NetworkLODComponent>();
     out << YAML::Key << "Level" << YAML::Value << static_cast<int>(comp.Level);
     out << YAML::EndMap; // NetworkLODComponent
+}
+
+if (entity.HasComponent<NoiseAnimationComponent>())
+{
+    out << YAML::Key << "NoiseAnimationComponent";
+    out << YAML::BeginMap; // NoiseAnimationComponent
+    auto const& comp = entity.GetComponent<NoiseAnimationComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.Enabled;
+    out << YAML::Key << "EndBoneIndex" << YAML::Value << comp.EndBoneIndex;
+    out << YAML::Key << "ChainLength" << YAML::Value << comp.ChainLength;
+    out << YAML::Key << "Frequency" << YAML::Value << comp.Frequency;
+    out << YAML::Key << "RotationAmplitude" << YAML::Value << comp.RotationAmplitude;
+    out << YAML::Key << "TranslationAmplitude" << YAML::Value << comp.TranslationAmplitude;
+    out << YAML::Key << "Octaves" << YAML::Value << comp.Octaves;
+    out << YAML::Key << "Lacunarity" << YAML::Value << comp.Lacunarity;
+    out << YAML::Key << "Gain" << YAML::Value << comp.Gain;
+    out << YAML::Key << "Seed" << YAML::Value << comp.Seed;
+    out << YAML::Key << "Weight" << YAML::Value << comp.Weight;
+    out << YAML::EndMap; // NoiseAnimationComponent
 }
 
 if (entity.HasComponent<PerceptibleComponent>())

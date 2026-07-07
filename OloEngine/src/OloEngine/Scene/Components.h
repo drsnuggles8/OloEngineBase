@@ -3083,12 +3083,18 @@ namespace OloEngine
         // Local-space half-extents of the buoyancy box (the 8 corners become the
         // submersion probes). Default matches a 1 m cube; pick values close to the
         // body's collider so the displaced-volume estimate is sensible.
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 1000.0f)
         glm::vec3 m_ProbeExtents = { 0.5f, 0.5f, 0.5f };
 
-        f32 m_FluidDensity = 1000.0f;  ///< kg/m^3 (fresh water ~1000). Body floats when its mass < density * boxVolume.
-        f32 m_BuoyancyScale = 1.0f;    ///< global multiplier on the Archimedes force (tuning / artistic control)
-        f32 m_LinearDrag = 0.8f;       ///< submerged linear drag coefficient (damps vertical bobbing)
-        f32 m_AngularDrag = 0.5f;      ///< submerged angular drag coefficient (damps rocking)
+        OLO_SERIALIZE(Clamp, Min = 1.0f, Max = 100000.0f)
+        f32 m_FluidDensity = 1000.0f; ///< kg/m^3 (fresh water ~1000). Body floats when its mass < density * boxVolume.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
+        f32 m_BuoyancyScale = 1.0f; ///< global multiplier on the Archimedes force (tuning / artistic control)
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
+        f32 m_LinearDrag = 0.8f; ///< submerged linear drag coefficient (damps vertical bobbing)
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
+        f32 m_AngularDrag = 0.5f; ///< submerged angular drag coefficient (damps rocking)
+        OLO_SERIALIZE(Clamp, Min = 0.001f, Max = 100.0f)
         f32 m_SubmergenceRamp = 0.25f; ///< metres over which a probe ramps dry -> fully wet (smooths the waterline)
     };
 

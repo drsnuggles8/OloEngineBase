@@ -1013,14 +1013,20 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 //
 // Each entry is a trivial component whose hand-written block does something the
 // plain round-trip generator must NOT silently drop:
-//   * BuoyancyComponent / SphereAreaLightComponent / SpringBoneComponent /
-//     NoiseAnimationComponent / DialogueComponent / PerceptionComponent /
-//     IKTargetComponent — deserialize clamps / Sanitize()s float (or u32 chain-
-//     length / vector) ranges; auto-generating would relax those guards.
+//   * SphereAreaLightComponent — REJECT-not-clamp semantics (keeps the constructor
+//     default rather than clamping an out-of-bounds value), a different semantic
+//     from OLO_SERIALIZE(Clamp) — see ComponentReflection.h's Clamp doc comment.
+//   * DialogueComponent / PerceptionComponent / IKTargetComponent — deserialize
+//     clamps / Sanitize()s float (or vector) ranges beyond what a per-field Clamp
+//     annotation alone expresses; auto-generating would relax those guards.
 //     (PerceptionComponent also intentionally does NOT restore its runtime-derived
 //     fields — HasVisibleTarget / VisibleTarget / LastKnownPosition / … — on load.)
-//   * SnowDeformerComponent — serialize/deserialize delegate to a hand-written
-//     helper (Serialize/DeserializeSnowDeformerComponent), not a flat field list.
+//     BuoyancyComponent / NoiseAnimationComponent / SpringBoneComponent /
+//     SnowDeformerComponent / FogVolumeComponent / NavAgentComponent MIGRATED off
+//     this set onto OLO_SERIALIZE(Clamp) — the last two, BuoyancyComponent and
+//     NoiseAnimationComponent, by the vec3-Clamp follow-up slice (their
+//     SanitizeVec3Clamped-equivalent bounds are now per-field
+//     OLO_SERIALIZE(Clamp, Min=…, Max=…) annotations on the glm::vec3 members).
 //   * ScriptComponent — serializes the C# ScriptField map owned by ScriptEngine,
 //     not just its ClassName member (the parser only sees ClassName).
 //   * VehicleComponent — has a runtime-only RuntimeVehicleToken field the
@@ -1147,7 +1153,6 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 // listing one here while ALSO leaving (or removing) its hand-written block is a
 // loud test failure, never a silent double-emit / drop.
 static const std::set<std::string> kComponentsCustomSerialize = {
-    "BuoyancyComponent",
     "CinematicComponent",
     "DecalComponent",
     "DialogueComponent",
@@ -1159,7 +1164,6 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "MeshComponent",
     "ModelComponent",
     "NavMeshBoundsComponent",
-    "NoiseAnimationComponent",
     "NoiseAnimationStateComponent",
     "PerceptionComponent",
     "PhaseComponent",
@@ -1293,10 +1297,12 @@ struct SerField
 
     // OLO_SERIALIZE(Clamp, Min=…, Max=…) — issue #451's Clamp slice. When set, the
     // generated deserialize ranges the read value into [clampMin, clampMax] (both
-    // set) or applies a one-sided std::max/std::min (only one set). Only ever set
-    // for a scalar (non-vector) Float/Int/UInt/SmallInt/SmallUInt/Enum field —
-    // ParseComponentFields fails the whole component non-trivial if Clamp is
-    // requested on any other type rather than silently dropping it.
+    // set) or applies a one-sided std::max/std::min (only one set). Set for a
+    // scalar Float/Int/UInt/SmallInt/SmallUInt/Enum field, or (the vec3-Clamp
+    // follow-up slice) a glm::vec3 field — clamped per-component via glm::clamp/
+    // glm::max/glm::min instead of std::clamp. ParseComponentFields fails the
+    // whole component non-trivial if Clamp is requested on any other type rather
+    // than silently dropping it.
     bool hasClamp{ false };
     std::optional<std::string> clampMin;
     std::optional<std::string> clampMax;
@@ -2124,14 +2130,16 @@ static ComponentSerInfo ParseComponentFields(std::string body,
             ambiguous = true;
             continue;
         }
-        // Clamp (issue #451) is only supported on scalar Float/Int/UInt/SmallInt/
-        // SmallUInt/Enum fields — requesting it on any other type (Vec*/Struct/…),
-        // or with neither Min nor Max given, marks the whole component non-trivial
-        // rather than silently dropping the annotation (ambiguity fails safe, same
+        // Clamp (issue #451) is supported on scalar Float/Int/UInt/SmallInt/
+        // SmallUInt/Enum fields, and — the vec3-Clamp follow-up slice — glm::vec3
+        // (clamped per-component, mirroring the hand-written SanitizeVec3Clamped
+        // idiom). Requesting it on any other type (Vec2/Vec4/Struct/…), or with
+        // neither Min nor Max given, marks the whole component non-trivial rather
+        // than silently dropping the annotation (ambiguity fails safe, same
         // discipline as every other unsupported construct in this parser).
         static const std::set<PropType> kClampEligible = {
             PropType::Float, PropType::Int, PropType::UInt,
-            PropType::SmallInt, PropType::SmallUInt, PropType::Enum
+            PropType::SmallInt, PropType::SmallUInt, PropType::Enum, PropType::Vec3
         };
         if (fieldHasClamp && (!kClampEligible.contains(pt) || (!fieldClampMin && !fieldClampMax)))
         {
@@ -2447,6 +2455,24 @@ static std::string ApplyClamp(const std::string& expr, const std::string& castTy
     return expr;
 }
 
+// Wrap a glm::vec3 deserialize expression `expr` in a PER-COMPONENT range clamp
+// per the field's Clamp annotation (issue #451's vec3-Clamp slice) — mirrors the
+// hand-written SanitizeVec3Clamped idiom, applied AFTER the plain `.as<glm::vec3>`
+// read (which already finiteness-validates the whole vector, falling back to the
+// pre-existing value on any non-finite component — see DecodeVec3). glm::clamp /
+// glm::max / glm::min have vector-vs-scalar overloads that broadcast the scalar
+// bound across all three components, matching std::clamp/max/min per component.
+static std::string ApplyVec3Clamp(const std::string& expr, const SerField& f)
+{
+    if (f.clampMin && f.clampMax)
+        return "glm::clamp(" + expr + ", glm::vec3(" + *f.clampMin + "), glm::vec3(" + *f.clampMax + "))";
+    if (f.clampMin)
+        return "glm::max(" + expr + ", glm::vec3(" + *f.clampMin + "))";
+    if (f.clampMax)
+        return "glm::min(" + expr + ", glm::vec3(" + *f.clampMax + "))";
+    return expr;
+}
+
 // The element loop / temp variable base name for depth `d`. Depth 0 keeps the
 // legacy names (`e`, `seqNode`) so the generated .inl for the pre-existing
 // scalar/primitive-vector components is byte-for-byte unchanged; deeper nesting
@@ -2759,7 +2785,14 @@ static void EmitDeserializeFields(std::ostream& out, const std::vector<SerField>
                 out << indent << lhs << " = " << key << ".as<glm::vec2>(" << lhs << ");\n";
                 break;
             case PropType::Vec3:
+                // A Clamp annotation (issue #451's vec3-Clamp slice) ranges each
+                // component of the decoded value into [Min, Max] AFTER the finite-
+                // validated read — mirrors the hand-written SanitizeVec3Clamped
+                // idiom (component-wise fallback-then-clamp), applied here as a
+                // separate clamp step on top of DecodeVec3's whole-vector fallback.
                 out << indent << lhs << " = " << key << ".as<glm::vec3>(" << lhs << ");\n";
+                if (f.hasClamp)
+                    out << indent << lhs << " = " << ApplyVec3Clamp(lhs, f) << ";\n";
                 break;
             case PropType::Vec4:
                 out << indent << lhs << " = " << key << ".as<glm::vec4>(" << lhs << ");\n";

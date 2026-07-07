@@ -25,6 +25,24 @@
 // double-emit, so a new trivial component is auto-serialized and a new complex
 // one fails the coverage test until hand-written.
 
+if (auto node = entity["BuoyancyComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<BuoyancyComponent>();
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    comp.m_ProbeExtents = node["ProbeExtents"].as<glm::vec3>(comp.m_ProbeExtents);
+    comp.m_ProbeExtents = glm::clamp(comp.m_ProbeExtents, glm::vec3(0.01f), glm::vec3(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FluidDensity"], v))
+        comp.m_FluidDensity = std::clamp(v, static_cast<f32>(1.0f), static_cast<f32>(100000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["BuoyancyScale"], v))
+        comp.m_BuoyancyScale = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LinearDrag"], v))
+        comp.m_LinearDrag = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["AngularDrag"], v))
+        comp.m_AngularDrag = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SubmergenceRamp"], v))
+        comp.m_SubmergenceRamp = std::clamp(v, static_cast<f32>(0.001f), static_cast<f32>(100.0f));
+}
+
 if (auto node = entity["CharacterController3DComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<CharacterController3DComponent>();
@@ -204,6 +222,28 @@ if (auto node = entity["NetworkLODComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<NetworkLODComponent>();
     comp.Level = static_cast<decltype(comp.Level)>(node["Level"].as<int>(static_cast<int>(comp.Level)));
+}
+
+if (auto node = entity["NoiseAnimationComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<NoiseAnimationComponent>();
+    comp.Enabled = node["Enabled"].as<bool>(comp.Enabled);
+    comp.EndBoneIndex = node["EndBoneIndex"].as<u32>(comp.EndBoneIndex);
+    comp.ChainLength = std::max(node["ChainLength"].as<u32>(comp.ChainLength), static_cast<u32>(1u));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Frequency"], v))
+        comp.Frequency = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1e4f));
+    comp.RotationAmplitude = node["RotationAmplitude"].as<glm::vec3>(comp.RotationAmplitude);
+    comp.RotationAmplitude = glm::clamp(comp.RotationAmplitude, glm::vec3(-6.2832f), glm::vec3(6.2832f));
+    comp.TranslationAmplitude = node["TranslationAmplitude"].as<glm::vec3>(comp.TranslationAmplitude);
+    comp.TranslationAmplitude = glm::clamp(comp.TranslationAmplitude, glm::vec3(-1e4f), glm::vec3(1e4f));
+    comp.Octaves = std::clamp(node["Octaves"].as<u32>(comp.Octaves), static_cast<u32>(1u), static_cast<u32>(8u));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Lacunarity"], v))
+        comp.Lacunarity = std::clamp(v, static_cast<f32>(1.0f), static_cast<f32>(8.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Gain"], v))
+        comp.Gain = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    comp.Seed = node["Seed"].as<u32>(comp.Seed);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Weight"], v))
+        comp.Weight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
 }
 
 if (auto node = entity["PerceptibleComponent"]; node)

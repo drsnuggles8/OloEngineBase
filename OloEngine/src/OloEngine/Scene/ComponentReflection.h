@@ -52,16 +52,18 @@
 //           [Min, Max] (both given), or applies a one-sided std::max/std::min (only
 //           one given). Mirrors the SanitizeFloat/std::clamp idiom every hand-written
 //           clamp-only component already used, so the generated block reproduces the
-//           same result for valid data. Only scalar Float/Int/UInt/SmallInt/
-//           SmallUInt/Enum fields support Clamp today (Vec*/vector-of-T clamping is a
-//           follow-up) — requesting it on any other type marks the whole component
-//           non-trivial (fail-safe) rather than silently dropping the annotation.
+//           same result for valid data. Scalar Float/Int/UInt/SmallInt/SmallUInt/Enum
+//           fields and glm::vec3 (clamped per-component) support Clamp today
+//           (Vec2/Vec4/vector-of-T clamping remain a follow-up) — requesting it on
+//           any other type marks the whole component non-trivial (fail-safe) rather
+//           than silently dropping the annotation.
 //           Note this is CLAMP-to-range, not REJECT-out-of-range: a component whose
 //           hand-written deserialize instead *rejects* an out-of-bounds value (keeps
 //           the constructor default rather than clamping to the bound) is a different
 //           semantic and must stay hand-written.
 //   Min   — Clamp lower bound, e.g. Min = 0.0f. Emitted as a static_cast to the
-//           field's own type, so an int literal is fine for a float field.
+//           field's own type, so an int literal is fine for a float field. For a
+//           glm::vec3 field, broadcast to all three components via glm::vec3(Min).
 //   Max   — Clamp upper bound, e.g. Max = 100.0f.
 //
 // Usage:
@@ -69,6 +71,9 @@
 //   {
 //       OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
 //       f32 m_Density = 0.5f;   // deserialize: m_Density = std::clamp(v, 0.0f, 100.0f)
+//       OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
+//       glm::vec3 m_Extents{ 0.5f, 0.5f, 0.5f };
+//       // deserialize: m_Extents = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1000.0f))
 //   };
 //
 // May co-exist with OLO_PROPERTY on the same field (e.g. a runtime field exposed to

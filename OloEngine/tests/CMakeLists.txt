@@ -276,6 +276,7 @@ add_executable(OloEngine-Tests
 		Serialization/FontAssetPackSerializerTest.cpp
 		Serialization/NestedStructSerializerCodegenTest.cpp
 		Serialization/ContainerSerializerCodegenTest.cpp
+		Serialization/Vec3ClampSerializerCodegenTest.cpp
 		# SaveGame Tests
 		SaveGame/SaveGameFileTest.cpp
 		SaveGame/SaveGameManagerTest.cpp
