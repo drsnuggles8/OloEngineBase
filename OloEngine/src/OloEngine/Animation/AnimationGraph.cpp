@@ -41,7 +41,13 @@ namespace OloEngine
         // Start each bone at its bind-pose local transform so a full-weight
         // Override layer that leaves a bone un-keyed rests it at bind pose
         // rather than blending toward identity.
-        std::vector<BoneTransform> accumulatedTransforms;
+        //
+        // Reuse persistent per-instance scratch (m_ScratchAccumulated /
+        // m_ScratchLayer) instead of Update()-local vectors — see the member
+        // declaration comment in AnimationGraph.h. Every callee below only
+        // ever resize()s these, so after the first tick / bone-count change
+        // this loop performs zero heap allocations (issue #445).
+        std::vector<BoneTransform>& accumulatedTransforms = m_ScratchAccumulated;
         BlendTree::FillBindPose(ctx, boneCount, accumulatedTransforms);
 
         // Evaluate each layer bottom-to-top
@@ -52,7 +58,7 @@ namespace OloEngine
                 continue;
             }
 
-            std::vector<BoneTransform> layerTransforms;
+            std::vector<BoneTransform>& layerTransforms = m_ScratchLayer;
             layer.StateMachine->Update(dt, Parameters, boneCount, ctx, layerTransforms);
 
             if (layerTransforms.size() < boneCount)
