@@ -2,9 +2,12 @@
 
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Renderer/AnimatedModel.h"
 
 #include <filesystem>
 #include <functional>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <yaml-cpp/yaml.h>
@@ -52,5 +55,15 @@ namespace OloEngine
         Entity DeserializeEntity(u64 uuid, const std::string& name, const YAML::Node& entityNode);
 
         Ref<Scene> m_Scene;
+
+        // Dedup cache for AnimatedModel loads within a single Deserialize() /
+        // DeserializeFromYAML() / DeserializeAdditive() call, keyed by resolved
+        // absolute source path (issue #525 cheap-wins slice). Many entities in a
+        // crowd scene share the same rigged-character source file; without this,
+        // each one re-runs Assimp import + allocates a fresh MeshSource/GPU-buffer
+        // graph. The model/mesh data is shared via Ref<AnimatedModel>; per-entity
+        // playback state (AnimationStateComponent) is still populated freshly for
+        // every entity, so animations stay independent per entity.
+        std::unordered_map<std::string, Ref<AnimatedModel>> m_AnimatedModelCache;
     };
 } // namespace OloEngine

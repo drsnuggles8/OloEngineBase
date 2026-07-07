@@ -1601,7 +1601,8 @@ namespace OloEngine
         return Static;
     }
 
-    static void DeserializeEntityComponents(Entity& deserializedEntity, const YAML::Node& entity)
+    static void DeserializeEntityComponents(Entity& deserializedEntity, const YAML::Node& entity,
+                                            std::unordered_map<std::string, Ref<AnimatedModel>>& animatedModelCache)
     {
         if (auto transformComponent = entity["TransformComponent"]; transformComponent)
         {
@@ -2883,7 +2884,24 @@ namespace OloEngine
                     auto absolutePath = assetDirectory / relativePath;
                     anim.m_SourceFilePath = absolutePath.string();
 
-                    auto animatedModel = Ref<AnimatedModel>::Create(anim.m_SourceFilePath);
+                    // Dedup: many entities in a crowd scene share the same source
+                    // path (issue #525 cheap-wins slice). Reuse the already-loaded
+                    // AnimatedModel instead of re-running Assimp import + allocating
+                    // a fresh MeshSource/GPU-buffer graph per entity. The model/mesh
+                    // data is shared; PopulateAnimatedEntity only reads from it and
+                    // writes into this entity's own components, so per-entity
+                    // playback state (below) stays independent.
+                    Ref<AnimatedModel> animatedModel;
+                    if (auto cacheIt = animatedModelCache.find(anim.m_SourceFilePath); cacheIt != animatedModelCache.end())
+                    {
+                        animatedModel = cacheIt->second;
+                    }
+                    else
+                    {
+                        animatedModel = Ref<AnimatedModel>::Create(anim.m_SourceFilePath);
+                        animatedModelCache.emplace(anim.m_SourceFilePath, animatedModel);
+                    }
+
                     if (animatedModel)
                     {
                         // Reload MeshComponent / SkeletonComponent / AnimationStateComponent /
@@ -5917,7 +5935,7 @@ namespace OloEngine
         Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
         try
         {
-            DeserializeEntityComponents(deserializedEntity, entityNode);
+            DeserializeEntityComponents(deserializedEntity, entityNode, m_AnimatedModelCache);
         }
         catch (...)
         {
@@ -6424,6 +6442,17 @@ namespace OloEngine
             auto entities = data["Entities"];
             if (entities && entities.IsSequence())
             {
+                // Pre-size the entity pool and the 3 components every entity gets
+                // (Scene::CreateEntityWithUUID) so none of them reallocate mid-load
+                // for large scenes (issue #525 cheap-wins slice). Reserve is safe to
+                // call regardless of EnTT owning-group membership — it resizes the
+                // existing storage without touching group ordering.
+                const sizet entityCount = entities.size();
+                m_Scene->m_Registry.storage<entt::entity>().reserve(entityCount);
+                m_Scene->m_Registry.storage<IDComponent>().reserve(entityCount);
+                m_Scene->m_Registry.storage<TransformComponent>().reserve(entityCount);
+                m_Scene->m_Registry.storage<TagComponent>().reserve(entityCount);
+
                 for (auto entity : entities)
                 {
                     try
@@ -6494,6 +6523,19 @@ namespace OloEngine
         }
 
         createdUUIDs.reserve(entitiesNode.size());
+
+        // Same reserve rationale as the primary Deserialize path above (issue #525):
+        // pre-size the entity pool plus the 3 always-added components so additive
+        // loads of large scenes don't reallocate mid-load. This grows existing
+        // storage (entities may already be present), so it's a strict upper bound,
+        // not exact — still avoids the repeated-reallocation cost.
+        {
+            const sizet additionalCount = entitiesNode.size();
+            m_Scene->m_Registry.storage<entt::entity>().reserve(m_Scene->m_Registry.storage<entt::entity>().size() + additionalCount);
+            m_Scene->m_Registry.storage<IDComponent>().reserve(m_Scene->m_Registry.storage<IDComponent>().size() + additionalCount);
+            m_Scene->m_Registry.storage<TransformComponent>().reserve(m_Scene->m_Registry.storage<TransformComponent>().size() + additionalCount);
+            m_Scene->m_Registry.storage<TagComponent>().reserve(m_Scene->m_Registry.storage<TagComponent>().size() + additionalCount);
+        }
 
         for (auto entity : entitiesNode)
         {
