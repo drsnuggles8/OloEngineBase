@@ -2847,26 +2847,6 @@ namespace OloEngine
             DeserializeWaterComponent(water, waterComponent);
         }
 
-        if (auto buoyancyComponent = entity["BuoyancyComponent"]; buoyancyComponent)
-        {
-            auto& buoyancy = deserializedEntity.AddComponent<BuoyancyComponent>();
-            buoyancy.m_Enabled = buoyancyComponent["Enabled"].as<bool>(buoyancy.m_Enabled);
-            buoyancy.m_ProbeExtents = buoyancyComponent["ProbeExtents"].as<glm::vec3>(buoyancy.m_ProbeExtents);
-            buoyancy.m_FluidDensity = buoyancyComponent["FluidDensity"].as<f32>(buoyancy.m_FluidDensity);
-            buoyancy.m_BuoyancyScale = buoyancyComponent["BuoyancyScale"].as<f32>(buoyancy.m_BuoyancyScale);
-            buoyancy.m_LinearDrag = buoyancyComponent["LinearDrag"].as<f32>(buoyancy.m_LinearDrag);
-            buoyancy.m_AngularDrag = buoyancyComponent["AngularDrag"].as<f32>(buoyancy.m_AngularDrag);
-            buoyancy.m_SubmergenceRamp = buoyancyComponent["SubmergenceRamp"].as<f32>(buoyancy.m_SubmergenceRamp);
-
-            // Validate every float read from YAML (project rule).
-            SanitizeVec3Clamped(buoyancy.m_ProbeExtents, 0.01f, 1000.0f, { 0.5f, 0.5f, 0.5f });
-            SanitizeFloat(buoyancy.m_FluidDensity, 1.0f, 100000.0f, 1000.0f);
-            SanitizeFloat(buoyancy.m_BuoyancyScale, 0.0f, 1000.0f, 1.0f);
-            SanitizeFloat(buoyancy.m_LinearDrag, 0.0f, 1000.0f, 0.8f);
-            SanitizeFloat(buoyancy.m_AngularDrag, 0.0f, 1000.0f, 0.5f);
-            SanitizeFloat(buoyancy.m_SubmergenceRamp, 0.001f, 100.0f, 0.25f);
-        }
-
         if (auto decalComponent = entity["DecalComponent"]; decalComponent)
         {
             DeserializeDecalComponent(deserializedEntity, decalComponent);
@@ -3664,32 +3644,6 @@ namespace OloEngine
             SanitizeFloat(ik.LimbWeight, 0.0f, 1.0f, 1.0f);
             SanitizeFloat(ik.ChainTolerance, 0.0f, 10.0f, 0.001f);
             SanitizeFloat(ik.ChainWeight, 0.0f, 1.0f, 1.0f);
-        }
-
-        if (auto noiseNode = entity["NoiseAnimationComponent"]; noiseNode)
-        {
-            auto& noise = deserializedEntity.AddComponent<NoiseAnimationComponent>();
-            TrySet(noise.Enabled, noiseNode["Enabled"]);
-            TrySet(noise.EndBoneIndex, noiseNode["EndBoneIndex"]);
-            TrySet(noise.ChainLength, noiseNode["ChainLength"]);
-            TrySet(noise.Frequency, noiseNode["Frequency"]);
-            TrySet(noise.RotationAmplitude, noiseNode["RotationAmplitude"]);
-            TrySet(noise.TranslationAmplitude, noiseNode["TranslationAmplitude"]);
-            TrySet(noise.Octaves, noiseNode["Octaves"]);
-            TrySet(noise.Lacunarity, noiseNode["Lacunarity"]);
-            TrySet(noise.Gain, noiseNode["Gain"]);
-            TrySet(noise.Seed, noiseNode["Seed"]);
-            TrySet(noise.Weight, noiseNode["Weight"]);
-
-            // Sanitize float/vector fields — replace NaN/Inf with defaults and clamp to valid ranges
-            noise.ChainLength = std::max(1u, noise.ChainLength);
-            noise.Octaves = std::clamp(noise.Octaves, 1u, 8u);
-            SanitizeFloat(noise.Frequency, 0.0f, 1e4f, 1.0f);
-            SanitizeVec3Clamped(noise.RotationAmplitude, -6.2832f, 6.2832f, glm::vec3(0.08f));
-            SanitizeVec3Clamped(noise.TranslationAmplitude, -1e4f, 1e4f, glm::vec3(0.0f));
-            SanitizeFloat(noise.Lacunarity, 1.0f, 8.0f, 2.0f);
-            SanitizeFloat(noise.Gain, 0.0f, 1.0f, 0.5f);
-            SanitizeFloat(noise.Weight, 0.0f, 1.0f, 1.0f);
         }
 
         // Auto-generated trivial-component deserialize blocks (OloHeaderTool, issue
@@ -5014,23 +4968,6 @@ namespace OloEngine
             out << YAML::EndMap; // WaterComponent
         }
 
-        if (entity.HasComponent<BuoyancyComponent>())
-        {
-            out << YAML::Key << "BuoyancyComponent";
-            out << YAML::BeginMap;
-
-            auto const& buoyancy = entity.GetComponent<BuoyancyComponent>();
-            out << YAML::Key << "Enabled" << YAML::Value << buoyancy.m_Enabled;
-            out << YAML::Key << "ProbeExtents" << YAML::Value << buoyancy.m_ProbeExtents;
-            out << YAML::Key << "FluidDensity" << YAML::Value << buoyancy.m_FluidDensity;
-            out << YAML::Key << "BuoyancyScale" << YAML::Value << buoyancy.m_BuoyancyScale;
-            out << YAML::Key << "LinearDrag" << YAML::Value << buoyancy.m_LinearDrag;
-            out << YAML::Key << "AngularDrag" << YAML::Value << buoyancy.m_AngularDrag;
-            out << YAML::Key << "SubmergenceRamp" << YAML::Value << buoyancy.m_SubmergenceRamp;
-
-            out << YAML::EndMap; // BuoyancyComponent
-        }
-
         if (entity.HasComponent<DecalComponent>())
         {
             out << YAML::Key << "DecalComponent";
@@ -5815,27 +5752,6 @@ namespace OloEngine
             }
 
             out << YAML::EndMap; // IKTargetComponent
-        }
-
-        if (entity.HasComponent<NoiseAnimationComponent>())
-        {
-            out << YAML::Key << "NoiseAnimationComponent";
-            out << YAML::BeginMap;
-
-            auto const& noise = entity.GetComponent<NoiseAnimationComponent>();
-            out << YAML::Key << "Enabled" << YAML::Value << noise.Enabled;
-            out << YAML::Key << "EndBoneIndex" << YAML::Value << noise.EndBoneIndex;
-            out << YAML::Key << "ChainLength" << YAML::Value << noise.ChainLength;
-            out << YAML::Key << "Frequency" << YAML::Value << noise.Frequency;
-            out << YAML::Key << "RotationAmplitude" << YAML::Value << noise.RotationAmplitude;
-            out << YAML::Key << "TranslationAmplitude" << YAML::Value << noise.TranslationAmplitude;
-            out << YAML::Key << "Octaves" << YAML::Value << noise.Octaves;
-            out << YAML::Key << "Lacunarity" << YAML::Value << noise.Lacunarity;
-            out << YAML::Key << "Gain" << YAML::Value << noise.Gain;
-            out << YAML::Key << "Seed" << YAML::Value << noise.Seed;
-            out << YAML::Key << "Weight" << YAML::Value << noise.Weight;
-
-            out << YAML::EndMap; // NoiseAnimationComponent
         }
 
         // Auto-generated trivial-component serialize blocks (OloHeaderTool, issue #380).
