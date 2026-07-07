@@ -266,6 +266,7 @@ namespace OloEngine
             else
             {
                 OLO_CORE_ERROR("Could not find driver version in string: '{0}'", fullVersion);
+                m_CompilationStatus = ShaderCompilationStatus::Failed;
             }
         }
         else if (CompileOrGetOpenGLBinaries())
@@ -655,8 +656,6 @@ namespace OloEngine
 
     bool OpenGLShader::CompileOrGetVulkanBinaries(const std::unordered_map<GLenum, std::string>& shaderSources)
     {
-        glCreateProgram();
-
         // Store original preprocessed source code for debugging
         m_OriginalSourceCode = shaderSources;
 
