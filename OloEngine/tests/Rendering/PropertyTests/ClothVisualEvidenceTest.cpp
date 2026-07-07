@@ -64,12 +64,12 @@ namespace OloEngine::Tests
             return 0.2126f * r + 0.7152f * g + 0.0722f * b;
         }
 
-        fs::path VisualOutputPath()
+        fs::path VisualOutputPath(const char* filename = "Cloth_VisualEvidence.png")
         {
             fs::path dir = fs::path("assets") / "tests" / "visual";
             std::error_code ec;
             fs::create_directories(dir, ec);
-            return dir / "Cloth_VisualEvidence.png";
+            return dir / filename;
         }
     } // namespace
 
@@ -365,9 +365,7 @@ namespace OloEngine::Tests
         ASSERT_EQ(px.size(), static_cast<std::size_t>(width) * height * 4u);
 
         // Always write the PNG first so the artifact survives a later failed assert.
-        fs::path out = fs::path("assets") / "tests" / "visual" / "Cloth_WindVisualEvidence.png";
-        std::error_code ec;
-        fs::create_directories(out.parent_path(), ec);
+        const fs::path out = VisualOutputPath("Cloth_WindVisualEvidence.png");
         const int wrote = ::stbi_write_png(out.string().c_str(),
                                            static_cast<int>(width), static_cast<int>(height),
                                            4, px.data(), static_cast<int>(width) * 4);

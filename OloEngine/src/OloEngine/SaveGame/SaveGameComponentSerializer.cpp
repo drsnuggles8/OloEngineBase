@@ -1055,8 +1055,16 @@ namespace OloEngine
         ar << c.m_Compliance << c.m_BendCompliance << c.m_LinearDamping << c.m_Pressure;
         ar << c.m_Iterations;
         ar << c.m_Attachment;
-        ar << c.m_WindInfluence;
         ar << c.m_Enabled;
+
+        // ── Format v7: wind-coupling influence scalar (issue #460) ──
+        // Appended at the end when kSaveGameFormatVersion was bumped 6→7. A save written
+        // before v7 has none of these bytes, so loading one leaves m_WindInfluence at its
+        // constructor default (1.0 — full wind).
+        if (HasFieldsSince(ar, 7))
+        {
+            ar << c.m_WindInfluence;
+        }
 
         // Sanitize untrusted on-disk values (mirrors SceneSerializer / the clamps in
         // JoltShapes::CreateClothSharedSettings) so a corrupt archive can't blow up the

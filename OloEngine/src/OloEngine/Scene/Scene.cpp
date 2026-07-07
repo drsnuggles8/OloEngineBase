@@ -650,6 +650,18 @@ namespace OloEngine
             }
         }
 
+        // Same deal for a cloth soft body (issue #460) — keyed by entity UUID, no
+        // Rigidbody3DComponent, and m_ClothRuntime is only rebuilt in bulk at
+        // OnPhysics3DStart, not per-entity-destroy. Without this, destroying a cloth
+        // entity mid-Play would leak its Jolt soft body AND leave a stale UUID in
+        // m_ClothRuntime that the render pass's GetEntityByUUID(entityID) call would
+        // assert on the next frame.
+        if (m_JoltScene && entity.HasComponent<ClothComponent>())
+        {
+            m_JoltScene->DestroyClothBody(entityUUID);
+            m_ClothRuntime.erase(entityUUID);
+        }
+
         m_Registry.destroy(entity);
         m_EntityMap.Remove(entityUUID);
 
@@ -6409,7 +6421,19 @@ namespace OloEngine
                 // shared default (mirrors the MeshComponent path above). Force TwoSided:
                 // a cloth is a thin sheet, so both faces must draw — otherwise back-facing
                 // triangles are culled and the drape looks torn / invisible from behind.
-                Entity clothEntity = GetEntityByUUID(entityID);
+                //
+                // TryGetEntityWithUUID, not GetEntityByUUID: the latter asserts on a
+                // missing UUID. DestroyEntity now erases the matching m_ClothRuntime
+                // entry when a cloth-carrying entity is destroyed (see above), so this
+                // should be unreachable in practice — but a raw m_Registry.destroy()
+                // elsewhere, or a future change that bypasses DestroyEntity, would
+                // otherwise turn a stale UUID into a hard crash in this render loop
+                // rather than a silently-skipped cloth.
+                Entity clothEntity;
+                if (auto maybeEntity = TryGetEntityWithUUID(entityID); maybeEntity)
+                    clothEntity = *maybeEntity;
+                else
+                    continue; // owning entity is gone; don't render an orphaned cloth mesh
                 // Convert entt entity to int for entity ID picking (same convention as the
                 // MeshComponent pass above) — without this the cloth never participates in
                 // mouse-picking/hover/selection-outline (issue #460 wind-coupling slice,
