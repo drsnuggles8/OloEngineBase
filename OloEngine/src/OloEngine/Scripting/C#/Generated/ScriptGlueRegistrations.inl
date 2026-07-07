@@ -155,6 +155,8 @@ OLO_ADD_INTERNAL_CALL(ClothComponent_GetPressure);
 OLO_ADD_INTERNAL_CALL(ClothComponent_SetPressure);
 OLO_ADD_INTERNAL_CALL(ClothComponent_GetIterations);
 OLO_ADD_INTERNAL_CALL(ClothComponent_SetIterations);
+OLO_ADD_INTERNAL_CALL(ClothComponent_GetWindInfluence);
+OLO_ADD_INTERNAL_CALL(ClothComponent_SetWindInfluence);
 OLO_ADD_INTERNAL_CALL(ClothComponent_GetEnabled);
 OLO_ADD_INTERNAL_CALL(ClothComponent_SetEnabled);
 

@@ -592,6 +592,20 @@ namespace OloEngine
         return true;
     }
 
+    void JoltScene::ApplyClothWindForce(UUID entityID, const glm::vec3& force)
+    {
+        if (!m_JoltSystem)
+            return;
+        if (!std::isfinite(force.x) || !std::isfinite(force.y) || !std::isfinite(force.z))
+            return;
+
+        auto it = m_Cloths.find(entityID);
+        if (it == m_Cloths.end() || it->second.m_BodyID.IsInvalid())
+            return;
+
+        m_JoltSystem->GetBodyInterface().AddForce(it->second.m_BodyID, JPH::Vec3(force.x, force.y, force.z));
+    }
+
     Ref<JoltCharacterController> JoltScene::CreateCharacterController(Entity entity, const ContactCallbackFn& contactCallback)
     {
         if (!entity || !m_Initialized)

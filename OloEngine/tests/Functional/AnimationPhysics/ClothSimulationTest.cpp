@@ -16,6 +16,13 @@
 //
 // Headless: the soft body + vertex readback are GPU-free (JoltScene::GetClothVertices),
 // so no GL context is needed. The on-screen drape is covered by the editor visual pass.
+//
+// A third test (ClothWindTest, below) pins the wind-coupling slice (issue #460, second
+// slice): ClothWindSystem samples WindSystem::GetWindAtPoint and queues it as a uniform
+// per-body force on the cloth's Jolt soft body (JoltScene::ApplyClothWindForce), scaled by
+// ClothComponent::m_WindInfluence. Two pinned cloths sit side by side under the same
+// scene-level WindSettings, one with m_WindInfluence = 0 (a no-wind control) and one with
+// m_WindInfluence = 1 — proving the effect is driven by the field, not just "wind exists".
 // =============================================================================
 
 #include "Functional/FunctionalTest.h"
@@ -179,4 +186,93 @@ TEST_F(ClothHangsFromPinnedEdgeTest, PinnedEdgeHoldsWhileFreePartSags)
     // A hanging sheet has NOT free-fallen: it stays anchored, so its lowest point is
     // bounded by roughly the cloth height below the pin (not off to -infinity).
     EXPECT_GT(end.minY, kClothY - 6.0f) << "cloth appears to have detached / free-fallen; minY=" << end.minY;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Two pinned cloths side by side (separated along Z so their soft bodies never
+// touch) under the same strong, steady sideways wind. One has m_WindInfluence = 0
+// (a no-wind control — same WindSettings apply to the whole scene, but the field
+// should make this cloth ignore it), the other m_WindInfluence = 1. Proves wind
+// coupling is real: the full-influence cloth billows sideways in the wind
+// direction while the zero-influence control hangs straight down under gravity
+// alone (issue #460, wind-coupling slice).
+// ─────────────────────────────────────────────────────────────────────────────
+class ClothWindTest : public FunctionalTest
+{
+  protected:
+    void BuildScene() override
+    {
+        WindSettings& wind = GetScene().GetWindSettings();
+        wind.Enabled = true;
+        wind.Direction = { 1.0f, 0.0f, 0.0f };
+        wind.Speed = 40.0f;
+        wind.GustStrength = 0.0f; // deterministic — no sinusoidal modulation
+
+        auto makeCloth = [this](const char* name, f32 zOffset, f32 windInfluence) -> Entity
+        {
+            Entity e = GetScene().CreateEntity(name);
+            e.GetComponent<TransformComponent>().Translation = { 0.0f, kClothY, zOffset };
+            auto& cloth = e.AddComponent<ClothComponent>();
+            cloth.m_Columns = 12;
+            cloth.m_Rows = 12;
+            cloth.m_Width = 3.0f;
+            cloth.m_Height = 3.0f;
+            cloth.m_Mass = 1.0f;
+            cloth.m_Attachment = ClothAttachment::TopEdge;
+            cloth.m_WindInfluence = windInfluence;
+            cloth.m_Enabled = true;
+            return e;
+        };
+
+        m_NoWindCloth = makeCloth("NoWindCloth", -4.0f, 0.0f);
+        m_WindCloth = makeCloth("WindCloth", 4.0f, 1.0f);
+
+        EnablePhysics3D();
+    }
+
+    static f32 AverageX(const std::vector<glm::vec3>& positions)
+    {
+        f32 sum = 0.0f;
+        for (const glm::vec3& p : positions)
+            sum += p.x;
+        return positions.empty() ? 0.0f : sum / static_cast<f32>(positions.size());
+    }
+
+    static constexpr f32 kClothY = 6.0f;
+
+    Entity m_NoWindCloth;
+    Entity m_WindCloth;
+};
+
+TEST_F(ClothWindTest, WindInfluenceDrivesSidewaysBillowRelativeToNoWindControl)
+{
+    const UUID noWindID = m_NoWindCloth.GetUUID();
+    const UUID windID = m_WindCloth.GetUUID();
+
+    TickFor(4.0f);
+
+    const std::vector<glm::vec3>* noWindVerts = GetScene().GetClothVertexPositions(noWindID);
+    const std::vector<glm::vec3>* windVerts = GetScene().GetClothVertexPositions(windID);
+    ASSERT_NE(noWindVerts, nullptr) << "no-wind control cloth has no live soft body";
+    ASSERT_NE(windVerts, nullptr) << "wind-driven cloth has no live soft body";
+
+    const VertBounds noWindBounds = ComputeBounds(*noWindVerts);
+    const VertBounds windBounds = ComputeBounds(*windVerts);
+    EXPECT_TRUE(noWindBounds.allFinite) << "no-wind cloth vertices contain NaN/Inf";
+    EXPECT_TRUE(windBounds.allFinite) << "wind-driven cloth vertices contain NaN/Inf";
+
+    // Both pinned edges should still hold near the spawn height regardless of wind.
+    EXPECT_GT(noWindBounds.maxY, kClothY - 0.5f) << "no-wind cloth's pinned edge fell";
+    EXPECT_GT(windBounds.maxY, kClothY - 0.5f) << "wind-driven cloth's pinned edge fell";
+
+    const f32 noWindAvgX = AverageX(*noWindVerts);
+    const f32 windAvgX = AverageX(*windVerts);
+
+    // The zero-influence control hangs straight down under a symmetric pinned edge —
+    // its average X should stay near its spawn X (0).
+    EXPECT_NEAR(noWindAvgX, 0.0f, 0.5f) << "m_WindInfluence = 0 cloth still drifted sideways; avgX=" << noWindAvgX;
+    // The full-influence cloth must billow measurably downwind (+X) relative to the control.
+    EXPECT_GT(windAvgX - noWindAvgX, 0.35f)
+        << "m_WindInfluence = 1 cloth did not billow sideways relative to the no-wind control; "
+        << "windAvgX=" << windAvgX << " noWindAvgX=" << noWindAvgX;
 }

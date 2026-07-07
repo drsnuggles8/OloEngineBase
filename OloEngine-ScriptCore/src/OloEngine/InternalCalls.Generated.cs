@@ -306,6 +306,10 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void ClothComponent_SetIterations(ulong entityID, uint value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float ClothComponent_GetWindInfluence(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ClothComponent_SetWindInfluence(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool ClothComponent_GetEnabled(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void ClothComponent_SetEnabled(ulong entityID, bool value);

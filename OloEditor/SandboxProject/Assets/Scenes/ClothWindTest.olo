@@ -1,0 +1,125 @@
+Scene: ClothWindTest
+WindSettings:
+  Enabled: true
+  Direction: [1, 0, 0.2]
+  Speed: 25
+  GustStrength: 0.4
+  GustFrequency: 0.8
+  TurbulenceIntensity: 0.5
+  TurbulenceScale: 0.1
+  GridWorldSize: 200
+  GridResolution: 128
+Entities:
+  - Entity: 948000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 6, 15]
+      Rotation: [-0.3, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 1.0471976
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: false
+      FlySpeed: 5
+  - Entity: 948000000000002
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 10, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.3, -0.6, -0.75]
+      Color: [1, 0.95, 0.9]
+      Intensity: 3
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.1
+      MaxShadowDistance: 200
+      CascadeSplitLambda: 0.95
+      CascadeDebugVisualization: false
+  - Entity: 948000000000003
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [30, 0.1, 30]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.35, 0.3]
+      Metallic: 0
+      Roughness: 0.95
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 0
+      LinearDrag: 0
+      AngularDrag: 0
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [15, 0.05, 15]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.6
+      Restitution: 0.1
+  - Entity: 948000000000004
+    TagComponent:
+      Tag: Wind Cloth
+    TransformComponent:
+      Translation: [-6, 5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ClothComponent:
+      Columns: 20
+      Rows: 20
+      Width: 3
+      Height: 3
+      Mass: 1
+      Compliance: 0
+      BendCompliance: 0.001
+      LinearDamping: 0.1
+      Pressure: 0
+      Iterations: 6
+      Attachment: 1
+      WindInfluence: 1
+      Enabled: true
+    MaterialComponent:
+      AlbedoColor: [0.9, 0.35, 0.1]
+      Metallic: 0
+      Roughness: 0.8
+  - Entity: 948000000000005
+    TagComponent:
+      Tag: No-Wind Control Cloth
+    TransformComponent:
+      Translation: [6, 5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ClothComponent:
+      Columns: 20
+      Rows: 20
+      Width: 3
+      Height: 3
+      Mass: 1
+      Compliance: 0
+      BendCompliance: 0.001
+      LinearDamping: 0.1
+      Pressure: 0
+      Iterations: 6
+      Attachment: 1
+      WindInfluence: 0
+      Enabled: true
+    MaterialComponent:
+      AlbedoColor: [0.15, 0.4, 0.9]
+      Metallic: 0
+      Roughness: 0.8

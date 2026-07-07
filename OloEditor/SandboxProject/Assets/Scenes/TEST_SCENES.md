@@ -110,6 +110,47 @@ persisting in Edit mode or with the component disabled.
 
 ---
 
+## Physics / Cloth
+
+### [ClothTest.olo](ClothTest.olo)
+
+**Purpose**: Validate the base Jolt soft-body cloth pipeline (issue #460, first
+slice) — gravity draping and soft-vs-rigid collision, no wind.
+**Contents**: A ground plane and two cloths at `[±2.5, 5, 0]` — "Hanging Cloth"
+(`Attachment: TopEdge`, pinned along its top row) and "Falling Cloth"
+(`Attachment: None`, free-falls onto the ground).
+**Important**: cloth only renders in **Play mode** (its deforming mesh is
+built at runtime start) — press Play to see it.
+**Pass**: the hanging cloth settles into a draped curtain, pinned edge held
+near its spawn height; the falling cloth drops and rests flat on the ground
+without tunnelling through it.
+**Fail**: either cloth passes through the ground; the hanging cloth's pinned
+edge drifts far from its spawn height; NaN/degenerate geometry.
+
+### [ClothWindTest.olo](ClothWindTest.olo)
+
+**Purpose**: Validate wind coupling on cloth soft bodies (issue #460,
+wind-coupling slice) — `WindSystem`'s analytical wind field applied as a
+force via `ClothWindSystem` / `JoltScene::ApplyClothWindForce`.
+**Contents**: A ground plane, a strong steady `WindSettings` field
+(`Direction [1, 0, 0.2]`, `Speed 25`, gust on), and two `TopEdge`-pinned
+cloths side by side: orange **"Wind Cloth"** (`WindInfluence: 1`, full
+response) and blue **"No-Wind Control Cloth"** (`WindInfluence: 0`, ignores
+the field entirely) — the pairing makes the wind's effect legible by direct
+A/B rather than trusting a single cloth's motion in isolation.
+**Important**: cloth only renders in **Play mode** — press Play to see it.
+Let it run a few seconds so both cloths finish their initial gravity-driven
+fold from a flat spawn pose before judging the wind response.
+**Pass**: the orange cloth visibly billows/twists sideways in the wind
+direction; the blue control hangs as a flat, undisturbed rectangle from its
+pinned edge, unaffected by the same wind field.
+**Fail**: both cloths behave identically (wind not applied, or
+`WindInfluence` not respected — check `Scene::Copy()` carried `WindSettings`
+into the Play-mode scene copy); the orange cloth doesn't move at all; NaN/
+degenerate geometry.
+
+---
+
 ## Suggested test order
 
 1. **PBRReference** — lightest scene, validates basic PBR + IBL. Broken here → everything else broken.
@@ -118,6 +159,8 @@ persisting in Edit mode or with the component disabled.
 4. **SponzaForwardPlus** — switch path, stress the light culling.
 5. **SponzaDeferred** — switch path again, validate the G-Buffer matches.
 6. **AnimationNoiseTest** — procedural animation; press **Play** and confirm the two characters sway smoothly and independently.
+7. **ClothTest** — soft-body cloth under gravity; press **Play** and confirm the hanging cloth drapes and the falling cloth lands on the ground.
+8. **ClothWindTest** — cloth + wind; press **Play**, wait a few seconds, and confirm the wind cloth billows while the no-wind control stays flat.
 
 ---
 

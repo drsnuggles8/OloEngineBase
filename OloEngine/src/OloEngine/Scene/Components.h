@@ -1366,6 +1366,12 @@ namespace OloEngine
         OLO_PROPERTY()
         ClothAttachment m_Attachment = ClothAttachment::TopEdge;
 
+        // How strongly the scene's WindSystem pushes this cloth (0 = ignores wind entirely,
+        // 1 = full strength). Applied as a uniform per-body force by ClothWindSystem, scaled
+        // by m_Mass (issue #460, wind-coupling slice).
+        OLO_PROPERTY()
+        f32 m_WindInfluence = 1.0f;
+
         // Build the soft body at runtime start when true (mirrors RagdollComponent::m_Enabled).
         OLO_PROPERTY()
         bool m_Enabled = true;

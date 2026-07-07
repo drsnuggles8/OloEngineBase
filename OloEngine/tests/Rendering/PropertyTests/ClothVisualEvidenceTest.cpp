@@ -246,4 +246,150 @@ namespace OloEngine::Tests
         clothFellBelow("HangingCloth", 4.0f); // pinned edge holds ~4.5, free part sags below 4.0
         clothFellBelow("FallingCloth", 2.0f); // free cloth drops well down toward the floor
     }
+
+    // -------------------------------------------------------------------------
+    // ClothWindScene — a single pinned cloth under a strong, steady sideways wind,
+    // proving the WindSystem -> ClothWindSystem -> Jolt soft-body force coupling
+    // visually (issue #460, wind-coupling slice). Companion to ClothScene above,
+    // which only exercises gravity; the billow/displacement behaviour itself is
+    // pinned headlessly by ClothWindTest in ClothSimulationTest.cpp — this adds
+    // the on-screen proof.
+    // -------------------------------------------------------------------------
+    class ClothWindScene : public RendererAttachedTest
+    {
+      protected:
+        void BuildScene() override
+        {
+            Scene& scene = GetScene();
+
+            // Same camera framing as ClothScene above (proven to light/frame a hanging
+            // TopEdge cloth well).
+            Entity camera = scene.CreateEntity("Camera");
+            {
+                auto& tc = camera.GetComponent<TransformComponent>();
+                tc.Translation = { 0.0f, 5.0f, 10.0f };
+                tc.SetRotationEuler({ -0.35f, 0.0f, 0.0f });
+            }
+            auto& cameraComp = camera.AddComponent<CameraComponent>();
+            cameraComp.Primary = true;
+            cameraComp.Camera.SetProjectionType(SceneCamera::ProjectionType::Perspective);
+
+            Entity light = scene.CreateEntity("KeyLight");
+            light.GetComponent<TransformComponent>().Translation = { 3.0f, 8.0f, 6.0f };
+            auto& dir = light.AddComponent<DirectionalLightComponent>();
+            // Brighter and more forward-facing than ClothScene's overhead-biased light.
+            // This single-cloth scene renders essentially unlit black with EITHER
+            // ClothScene's light alone OR the ground plane below alone (confirmed by A/B
+            // screenshot — issue #460 wind-coupling slice); both this light tweak AND the
+            // ground are needed together to light a lone hanging cloth's vertical face.
+            dir.m_Direction = glm::normalize(glm::vec3(-0.3f, -0.6f, -0.75f));
+            dir.m_Color = { 1.0f, 0.97f, 0.9f };
+            dir.m_Intensity = 3.0f;
+
+            // Ground: not for the cloth to physically rest on (no collider here; this
+            // cloth never reaches the floor) but required alongside the light tweak above
+            // for correct lighting — see the note there. Dark, deliberately unremarkable
+            // material so it doesn't compete with the cloth for visual attention.
+            Entity ground = scene.CreateEntity("Ground");
+            {
+                auto& tc = ground.GetComponent<TransformComponent>();
+                tc.Translation = { 0.0f, 0.0f, 0.0f };
+                tc.Scale = { 12.0f, 0.1f, 12.0f };
+                if (Ref<Mesh> plane = MeshPrimitives::CreateCube(); plane)
+                    ground.AddComponent<MeshComponent>(plane->GetMeshSource());
+                ground.AddComponent<MaterialComponent>().m_Material.SetBaseColorFactor({ 0.12f, 0.13f, 0.15f, 1.0f });
+            }
+
+            // Moderate, steady sideways wind (+X world == screen-horizontal from this
+            // camera). No gust noise so the billow reads as a clean, deterministic shift.
+            WindSettings& wind = scene.GetWindSettings();
+            wind.Enabled = true;
+            wind.Direction = { 1.0f, 0.0f, 0.0f };
+            wind.Speed = 10.0f;
+            wind.GustStrength = 0.0f;
+
+            // A single hanging cloth, pinned along its top edge (same attachment as
+            // ClothScene's proven-good drape), centred so it has room to billow sideways
+            // on screen. A saturated orange stays legible even under a grazing key light,
+            // unlike a muted amber which reads as near-black.
+            m_Cloth = scene.CreateEntity("WindCloth");
+            m_Cloth.GetComponent<TransformComponent>().Translation = { 0.0f, 4.5f, 0.0f };
+            auto& c = m_Cloth.AddComponent<ClothComponent>();
+            c.m_Columns = 24;
+            c.m_Rows = 24;
+            c.m_Width = 3.0f;
+            c.m_Height = 3.0f;
+            c.m_Attachment = ClothAttachment::TopEdge;
+            c.m_Iterations = 6;
+            c.m_WindInfluence = 1.0f;
+            m_Cloth.AddComponent<MaterialComponent>().m_Material.SetBaseColorFactor({ 0.95f, 0.5f, 0.05f, 1.0f });
+
+            EnableRendering(kSize, kSize);
+
+            // Build the Jolt soft body + cloth render state (mirrors the runtime start path
+            // the editor's Play button drives). RunFrames then steps + renders it.
+            scene.OnPhysics3DStart();
+        }
+
+        Entity m_Cloth;
+    };
+
+    TEST_F(ClothWindScene, WindVisiblyBillowsHangingClothSideways)
+    {
+        const UUID clothID = m_Cloth.GetUUID();
+
+        const std::vector<glm::vec3>* initial = GetScene().GetClothVertexPositions(clothID);
+        ASSERT_NE(initial, nullptr) << "cloth soft body was not created / has no readback";
+        ASSERT_GT(initial->size(), 0u);
+        f32 startAvgX = 0.0f;
+        for (const glm::vec3& p : *initial)
+            startAvgX += p.x;
+        startAvgX /= static_cast<f32>(initial->size());
+
+        // ~1.5 s of simulation — enough for a clean, visible billow without the
+        // sheet fully winding up into a twisted/edge-on silhouette.
+        RunFrames(90);
+
+        std::vector<u8> px;
+        u32 width = 0;
+        u32 height = 0;
+        ASSERT_TRUE(ReadbackComposite(px, width, height))
+            << "ReadbackComposite failed — UIComposite framebuffer unavailable";
+        EXPECT_EQ(width, kSize);
+        EXPECT_EQ(height, kSize);
+        ASSERT_EQ(px.size(), static_cast<std::size_t>(width) * height * 4u);
+
+        // Always write the PNG first so the artifact survives a later failed assert.
+        fs::path out = fs::path("assets") / "tests" / "visual" / "Cloth_WindVisualEvidence.png";
+        std::error_code ec;
+        fs::create_directories(out.parent_path(), ec);
+        const int wrote = ::stbi_write_png(out.string().c_str(),
+                                           static_cast<int>(width), static_cast<int>(height),
+                                           4, px.data(), static_cast<int>(width) * 4);
+        EXPECT_NE(wrote, 0) << "failed to write wind visual evidence PNG to " << out.string();
+
+        // Contrast contract: a flat/black frame (nothing drawn) has ~zero luminance spread.
+        f32 minLum = 1.0f;
+        f32 maxLum = 0.0f;
+        for (std::size_t i = 0; i < px.size(); i += 4)
+        {
+            const f32 l = LuminanceAt(px, i);
+            minLum = std::min(minLum, l);
+            maxLum = std::max(maxLum, l);
+        }
+        EXPECT_GT(maxLum - minLum, 0.05f)
+            << "rendered frame is nearly flat (min=" << minLum << ", max=" << maxLum
+            << ") — cloth may not have drawn; see " << out.string();
+
+        // Behaviour cross-check (driver-independent): the cloth billowed measurably
+        // downwind (+X) from where it spawned, under the real Jolt simulation.
+        const std::vector<glm::vec3>* settled = GetScene().GetClothVertexPositions(clothID);
+        ASSERT_NE(settled, nullptr);
+        f32 endAvgX = 0.0f;
+        for (const glm::vec3& p : *settled)
+            endAvgX += p.x;
+        endAvgX /= static_cast<f32>(settled->size());
+        EXPECT_GT(endAvgX - startAvgX, 0.05f)
+            << "cloth did not billow sideways under wind; start=" << startAvgX << " end=" << endAvgX;
+    }
 } // namespace OloEngine::Tests
