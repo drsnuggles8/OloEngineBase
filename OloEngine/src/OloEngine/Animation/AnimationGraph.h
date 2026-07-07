@@ -70,5 +70,17 @@ namespace OloEngine
         static glm::mat4 BoneTransformToMatrix(const BoneTransform& transform);
 
         static const std::string s_EmptyString;
+
+        // Per-instance pose-evaluation scratch, reused across Update() calls
+        // (issue #445): every callee here (FillBindPose / StateMachine::Update /
+        // BlendTree::Evaluate) only ever resize()s these, never clears+regrows
+        // from empty, so keeping them as instance storage instead of Update()
+        // locals turns the per-frame allocation into a one-time warm-up cost
+        // (first tick / bone-count change) instead of steady-state heap churn.
+        // Each entity owns its own AnimationGraph instance (Scene.cpp Clone()s
+        // one per entity) and the AnimationGraph/AnimationGraphSystem gameplay
+        // step is not marked .Parallelizable(), so this is safe without locking.
+        std::vector<BoneTransform> m_ScratchAccumulated;
+        std::vector<BoneTransform> m_ScratchLayer;
     };
 } // namespace OloEngine

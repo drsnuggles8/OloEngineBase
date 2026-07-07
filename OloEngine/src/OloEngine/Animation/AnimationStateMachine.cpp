@@ -142,9 +142,12 @@ namespace OloEngine
                 return;
             }
 
-            // Cross-fade between current and target states
-            std::vector<BoneTransform> currentTransforms;
-            std::vector<BoneTransform> targetTransforms;
+            // Cross-fade between current and target states. Reuse persistent
+            // scratch (see the member declaration comment) instead of locals
+            // that would heap-allocate on every ticked frame of the transition.
+            std::vector<BoneTransform>& currentTransforms = m_ScratchCurrentTransforms;
+            std::vector<BoneTransform>& targetTransforms = m_ScratchTargetTransforms;
+            targetTransforms.clear();
 
             {
                 f32 normalizedTime = 0.0f;

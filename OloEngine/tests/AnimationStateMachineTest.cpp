@@ -7,6 +7,8 @@
 #include "OloEngine/Animation/AnimationParameter.h"
 #include "OloEngine/Animation/BlendNode.h"
 #include "OloEngine/Animation/AnimationClip.h"
+#include "OloEngine/Animation/AnimationGraph.h"
+#include "OloEngine/Animation/AnimationLayer.h"
 #include "Animation/AnimationTestHelpers.h"
 
 using namespace OloEngine;
@@ -376,4 +378,194 @@ TEST(AnimationStateMachineTest, CrossFadeBlending)
     sm.Update(0.5f, params, 1, s_Bone0Ctx, bones);
     EXPECT_EQ(sm.GetCurrentStateName(), "Walk");
     EXPECT_FALSE(sm.IsInTransition());
+}
+
+//==============================================================================
+// Scratch-reuse regression tests (issue #445).
+//
+// AnimationStateMachine::Update and AnimationGraph::Update used to build
+// std::vector<BoneTransform> cross-fade / layer-accumulation scratch as
+// function-local variables, heap-allocating on every ticked transition frame
+// (state machine) or every layer of every tick (graph). Both now reuse
+// persistent per-instance scratch members instead. These tests exercise the
+// specific hazard that reuse introduces: stale data from a PREVIOUS
+// transition/layer bleeding into the current one because the buffer was
+// never cleared, only resized. Every Evaluate() path fully overwrites
+// [0, boneCount) rather than only some indices, but this test would break if
+// that invariant is ever violated for a reused buffer, whereas the old
+// fresh-locals code masked the bug entirely (an under-filled local vector is
+// still empty/default rather than stale).
+//==============================================================================
+
+TEST(AnimationStateMachineTest, SequentialCrossFadesDoNotLeakScratchBetweenTransitions)
+{
+    // Idle(x=0) -> Walk(x=10) -> Run(x=20): each clip is distinguishable so a
+    // stale carry-over from the FIRST transition's scratch would show up as a
+    // wrong blended value in the SECOND transition.
+    auto idleClip = CreateTestClip("Idle", 1.0f, glm::vec3(0.0f), glm::vec3(0.0f));
+    auto walkClip = CreateTestClip("Walk", 1.0f, glm::vec3(10.0f, 0.0f, 0.0f), glm::vec3(10.0f, 0.0f, 0.0f));
+    auto runClip = CreateTestClip("Run", 1.0f, glm::vec3(20.0f, 0.0f, 0.0f), glm::vec3(20.0f, 0.0f, 0.0f));
+
+    AnimationStateMachine sm;
+
+    AnimationState idleState;
+    idleState.Name = "Idle";
+    idleState.Clip = idleClip;
+    sm.AddState(idleState);
+
+    AnimationState walkState;
+    walkState.Name = "Walk";
+    walkState.Clip = walkClip;
+    sm.AddState(walkState);
+
+    AnimationState runState;
+    runState.Name = "Run";
+    runState.Clip = runClip;
+    sm.AddState(runState);
+
+    sm.SetDefaultState("Idle");
+
+    AnimationTransition idleToWalk;
+    idleToWalk.SourceState = "Idle";
+    idleToWalk.DestinationState = "Walk";
+    idleToWalk.BlendDuration = 0.2f;
+    TransitionCondition walkCond;
+    walkCond.ParameterName = "Speed";
+    walkCond.Op = TransitionCondition::Comparison::Equal;
+    walkCond.FloatThreshold = 1.0f;
+    idleToWalk.Conditions.push_back(walkCond);
+    sm.AddTransition(idleToWalk);
+
+    AnimationTransition walkToRun;
+    walkToRun.SourceState = "Walk";
+    walkToRun.DestinationState = "Run";
+    walkToRun.BlendDuration = 0.2f;
+    TransitionCondition runCond;
+    runCond.ParameterName = "Speed";
+    runCond.Op = TransitionCondition::Comparison::Equal;
+    runCond.FloatThreshold = 2.0f;
+    walkToRun.Conditions.push_back(runCond);
+    sm.AddTransition(walkToRun);
+
+    AnimationParameterSet params;
+    params.DefineFloat("Speed", 0.0f);
+    sm.Start(params);
+
+    std::vector<BoneTransform> bones;
+
+    // First transition: Idle -> Walk. Complete it fully.
+    params.SetFloat("Speed", 1.0f);
+    sm.Update(0.01f, params, 1, s_Bone0Ctx, bones);
+    ASSERT_TRUE(sm.IsInTransition());
+    sm.Update(0.3f, params, 1, s_Bone0Ctx, bones);
+    ASSERT_EQ(sm.GetCurrentStateName(), "Walk");
+    ASSERT_FALSE(sm.IsInTransition());
+    EXPECT_NEAR(bones[0].Translation.x, 10.0f, 1e-3f) << "settled Walk pose is wrong before the second transition";
+
+    // Second transition: Walk -> Run, reusing the same scratch buffers the
+    // first transition used.
+    params.SetFloat("Speed", 2.0f);
+    sm.Update(0.01f, params, 1, s_Bone0Ctx, bones);
+    ASSERT_TRUE(sm.IsInTransition());
+
+    // Mid-blend: result must be strictly between Walk (10) and Run (20) — a
+    // stale Idle (0) leaking in from the first transition's scratch would
+    // pull this below 10 or otherwise off the Walk/Run blend line.
+    sm.Update(0.1f, params, 1, s_Bone0Ctx, bones);
+    EXPECT_GT(bones[0].Translation.x, 10.0f) << "second transition's blend was polluted by stale scratch data";
+    EXPECT_LT(bones[0].Translation.x, 20.0f) << "second transition's blend was polluted by stale scratch data";
+
+    sm.Update(0.3f, params, 1, s_Bone0Ctx, bones);
+    EXPECT_EQ(sm.GetCurrentStateName(), "Run");
+    EXPECT_FALSE(sm.IsInTransition());
+    EXPECT_NEAR(bones[0].Translation.x, 20.0f, 1e-3f) << "settled Run pose is wrong after the second transition";
+}
+
+// AnimationGraph::Update reuses one persistent accumulation buffer and one
+// persistent per-layer buffer across ALL layers of a tick, and across every
+// subsequent tick. A two-layer graph with a masked override layer is the
+// scenario where a stale layer-scratch value (rather than a freshly-Start()ed
+// layer stream) would show up as wrong output on the un-masked bone.
+TEST(AnimationStateMachineTest, MultiLayerGraphUpdateReusesScratchAcrossLayersAndTicksWithoutBleed)
+{
+    // Two-bone names: Bone0 (base-only) and Bone1 (overridden by layer 2).
+    // AnimationGraph::Update builds its own PoseEvalContext internally.
+    const std::vector<std::string> boneNames = { "Bone0", "Bone1" };
+
+    auto baseClip = Ref<AnimationClip>::Create();
+    baseClip->Name = "Base";
+    baseClip->Duration = 1.0f;
+    {
+        BoneAnimation b0;
+        b0.BoneName = "Bone0";
+        b0.PositionKeys.push_back({ 0.0, glm::vec3(1.0f, 0.0f, 0.0f) });
+        b0.PositionKeys.push_back({ 1.0, glm::vec3(1.0f, 0.0f, 0.0f) });
+        baseClip->BoneAnimations.push_back(b0);
+
+        BoneAnimation b1;
+        b1.BoneName = "Bone1";
+        b1.PositionKeys.push_back({ 0.0, glm::vec3(2.0f, 0.0f, 0.0f) });
+        b1.PositionKeys.push_back({ 1.0, glm::vec3(2.0f, 0.0f, 0.0f) });
+        baseClip->BoneAnimations.push_back(b1);
+    }
+    baseClip->InitializeBoneCache();
+
+    auto overrideClip = Ref<AnimationClip>::Create();
+    overrideClip->Name = "Override";
+    overrideClip->Duration = 1.0f;
+    {
+        BoneAnimation b1;
+        b1.BoneName = "Bone1";
+        b1.PositionKeys.push_back({ 0.0, glm::vec3(50.0f, 0.0f, 0.0f) });
+        b1.PositionKeys.push_back({ 1.0, glm::vec3(50.0f, 0.0f, 0.0f) });
+        overrideClip->BoneAnimations.push_back(b1);
+    }
+    overrideClip->InitializeBoneCache();
+
+    auto graph = Ref<AnimationGraph>::Create();
+
+    AnimationLayer baseLayer;
+    baseLayer.Name = "Base";
+    baseLayer.Weight = 1.0f;
+    baseLayer.StateMachine = Ref<AnimationStateMachine>::Create();
+    AnimationState baseState;
+    baseState.Name = "Base";
+    baseState.Clip = baseClip;
+    baseLayer.StateMachine->AddState(baseState);
+    baseLayer.StateMachine->SetDefaultState("Base");
+    graph->Layers.push_back(std::move(baseLayer));
+
+    AnimationLayer overrideLayer;
+    overrideLayer.Name = "Override";
+    overrideLayer.Weight = 1.0f;
+    overrideLayer.Mode = AnimationLayer::BlendMode::Override;
+    overrideLayer.AffectedBones = { "Bone1" }; // only overrides Bone1
+    overrideLayer.StateMachine = Ref<AnimationStateMachine>::Create();
+    AnimationState overrideState;
+    overrideState.Name = "Override";
+    overrideState.Clip = overrideClip;
+    overrideLayer.StateMachine->AddState(overrideState);
+    overrideLayer.StateMachine->SetDefaultState("Override");
+    graph->Layers.push_back(std::move(overrideLayer));
+
+    graph->Start();
+
+    std::vector<glm::mat4> finalBones;
+    std::vector<i32> parentIndices = { -1, -1 };
+    std::vector<BoneTransform> bindPose; // empty: identity fallback
+
+    auto ExtractX = [](const glm::mat4& m)
+    { return m[3][0]; };
+
+    // Tick several times; the base layer's Bone0 (untouched by the override
+    // layer) and the override layer's Bone1 must both stay correct on EVERY
+    // tick, proving neither the accumulation nor the per-layer scratch
+    // buffer carries stale data forward.
+    for (int i = 0; i < 5; ++i)
+    {
+        graph->Update(0.016f, 2, finalBones, boneNames, parentIndices, bindPose);
+        ASSERT_EQ(finalBones.size(), 2u);
+        EXPECT_NEAR(ExtractX(finalBones[0]), 1.0f, 1e-3f) << "tick " << i << ": base-only Bone0 corrupted";
+        EXPECT_NEAR(ExtractX(finalBones[1]), 50.0f, 1e-3f) << "tick " << i << ": override-layer Bone1 corrupted";
+    }
 }

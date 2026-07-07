@@ -78,5 +78,12 @@ namespace OloEngine
 
         // Cached for GetCurrentStateNormalizedTime
         AnimationParameterSet m_LastParams;
+
+        // Cross-fade scratch, reused across Update() calls while m_InTransition
+        // is true (issue #445) — Evaluate() always resize()s + fully overwrites
+        // these, so reusing them avoids a heap allocation on every ticked frame
+        // of every transition instead of just the steady (non-transitioning) case.
+        std::vector<BoneTransform> m_ScratchCurrentTransforms;
+        std::vector<BoneTransform> m_ScratchTargetTransforms;
     };
 } // namespace OloEngine
