@@ -1789,9 +1789,16 @@ namespace OloEngine
         {
             auto& src = deserializedEntity.AddComponent<AudioListenerComponent>();
             TrySet(src.Active, audioListenerComponent["Active"]);
-            TrySet(src.Config.ConeInnerAngle, audioListenerComponent["ConeInnerAngle"]);
-            TrySet(src.Config.ConeOuterAngle, audioListenerComponent["ConeOuterAngle"]);
-            TrySet(src.Config.ConeOuterGain, audioListenerComponent["ConeOuterGain"]);
+            // Load + sanitize in one step to prevent drift — cone angles are radians (miniaudio units),
+            // matching the AudioSourceComponent path and AudioListenerConfig's defaults.
+            auto TrySetDsp = [&audioListenerComponent](f32& field, const char* key, f32 lo, f32 hi, f32 fallback)
+            {
+                TrySet(field, audioListenerComponent[key]);
+                SanitizeFloat(field, lo, hi, fallback);
+            };
+            TrySetDsp(src.Config.ConeInnerAngle, "ConeInnerAngle", 0.0f, glm::radians(360.0f), glm::radians(360.0f));
+            TrySetDsp(src.Config.ConeOuterAngle, "ConeOuterAngle", 0.0f, glm::radians(360.0f), glm::radians(360.0f));
+            TrySetDsp(src.Config.ConeOuterGain, "ConeOuterGain", 0.0f, 1.0f, 0.0f);
         }
 
         if (const auto& soundGraphComponent = entity["AudioSoundGraphComponent"])

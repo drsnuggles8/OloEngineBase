@@ -3983,14 +3983,19 @@ namespace OloEngine
 
                 ImGui::DragFloat("Roll Off##AudioSource", &config.RollOff, 0.1f, 0.0f, 10.0f);
                 ImGui::DragFloat("Min Gain##AudioSource", &config.MinGain, 0.01f, 0.0f, 1.0f);
-                ImGui::DragFloat("Max Gain##AudioSource", &config.MaxGain, 0.01f, 0.0f, 2.0f);
+                ImGui::DragFloat("Max Gain##AudioSource", &config.MaxGain, 0.01f, 0.0f, 1.0f);
                 ImGui::DragFloat("Min Distance##AudioSource", &config.MinDistance, 0.1f, 0.0f, 100.0f);
                 ImGui::DragFloat("Max Distance##AudioSource", &config.MaxDistance, 1.0f, 0.0f, 1000.0f);
 
                 ImGui::Separator();
                 ImGui::Text("Cone Settings");
-                ImGui::DragFloat("Inner Angle##AudioSource", &config.ConeInnerAngle, 1.0f, 0.0f, 360.0f);
-                ImGui::DragFloat("Outer Angle##AudioSource", &config.ConeOuterAngle, 1.0f, 0.0f, 360.0f);
+                // ConeInnerAngle/ConeOuterAngle are stored in radians (miniaudio units); edit in degrees to match the serializer's radian clamp.
+                f32 coneInnerDegrees = glm::degrees(config.ConeInnerAngle);
+                if (ImGui::DragFloat("Inner Angle##AudioSource", &coneInnerDegrees, 1.0f, 0.0f, 360.0f))
+                    config.ConeInnerAngle = glm::radians(coneInnerDegrees);
+                f32 coneOuterDegrees = glm::degrees(config.ConeOuterAngle);
+                if (ImGui::DragFloat("Outer Angle##AudioSource", &coneOuterDegrees, 1.0f, 0.0f, 360.0f))
+                    config.ConeOuterAngle = glm::radians(coneOuterDegrees);
                 ImGui::DragFloat("Outer Gain##AudioSource", &config.ConeOuterGain, 0.01f, 0.0f, 1.0f);
                 ImGui::DragFloat("Doppler Factor##AudioSource", &config.DopplerFactor, 0.1f, 0.0f, 10.0f);
 
@@ -4073,8 +4078,13 @@ namespace OloEngine
 
             ImGui::Separator();
             ImGui::Text("Cone Settings");
-            ImGui::DragFloat("Inner Angle##AudioListener", &component.Config.ConeInnerAngle, 1.0f, 0.0f, 360.0f);
-            ImGui::DragFloat("Outer Angle##AudioListener", &component.Config.ConeOuterAngle, 1.0f, 0.0f, 360.0f);
+            // ConeInnerAngle/ConeOuterAngle are stored in radians (miniaudio units); edit in degrees to match the serializer's radian clamp.
+            f32 coneInnerDegrees = glm::degrees(component.Config.ConeInnerAngle);
+            if (ImGui::DragFloat("Inner Angle##AudioListener", &coneInnerDegrees, 1.0f, 0.0f, 360.0f))
+                component.Config.ConeInnerAngle = glm::radians(coneInnerDegrees);
+            f32 coneOuterDegrees = glm::degrees(component.Config.ConeOuterAngle);
+            if (ImGui::DragFloat("Outer Angle##AudioListener", &coneOuterDegrees, 1.0f, 0.0f, 360.0f))
+                component.Config.ConeOuterAngle = glm::radians(coneOuterDegrees);
             ImGui::DragFloat("Outer Gain##AudioListener", &component.Config.ConeOuterGain, 0.01f, 0.0f, 1.0f); });
 
         DrawComponent<AudioSoundGraphComponent>("Audio Sound Graph", entity, [](auto& component)
