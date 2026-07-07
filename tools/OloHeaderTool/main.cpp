@@ -2436,23 +2436,40 @@ static std::string SceneWriteExpr(PropType t, const std::string& expr)
     }
 }
 
+// Shared clamp-expression assembler behind ApplyClamp/ApplyVec3Clamp: given the
+// clamp-function namespace prefix ("std::" or "glm::") and the ALREADY-WRAPPED
+// Min/Max bound expressions (a scalar static_cast for ApplyClamp, a glm::vec3(...)
+// broadcast for ApplyVec3Clamp), assembles the same both-bounds -> clamp /
+// one-sided -> max/min / neither -> unchanged branching (issue #451's Clamp
+// annotation: both bounds given -> clamp, one bound given -> max/min, neither
+// given -> returns `expr` unchanged — ParseComponentFields never produces this
+// last case since Clamp requires at least one of Min/Max, but the no-op fallback
+// keeps the callers safe to call unconditionally once they've checked f.hasClamp).
+static std::string AssembleClampExpr(const std::string& expr, const std::string& ns,
+                                     const std::optional<std::string>& wrappedMin,
+                                     const std::optional<std::string>& wrappedMax)
+{
+    if (wrappedMin && wrappedMax)
+        return ns + "clamp(" + expr + ", " + *wrappedMin + ", " + *wrappedMax + ")";
+    if (wrappedMin)
+        return ns + "max(" + expr + ", " + *wrappedMin + ")";
+    if (wrappedMax)
+        return ns + "min(" + expr + ", " + *wrappedMax + ")";
+    return expr;
+}
+
 // Wrap a deserialize value expression `expr` (already of type `castType`, e.g.
 // "f32" / "i32" / "decltype(lhs)") in a range clamp per the field's Clamp
-// annotation (issue #451): both bounds given -> std::clamp, one bound given ->
-// std::max/std::min, neither given -> returns `expr` unchanged (ParseComponentFields
-// never produces this last case — Clamp requires at least one of Min/Max — but the
-// no-op fallback keeps this helper safe to call unconditionally by a caller that
-// already checked f.hasClamp).
+// annotation (issue #451): each bound is cast to the field's own type, so
+// `Min = 0` is fine on a float field.
 static std::string ApplyClamp(const std::string& expr, const std::string& castType, const SerField& f)
 {
-    if (f.clampMin && f.clampMax)
-        return "std::clamp(" + expr + ", static_cast<" + castType + ">(" + *f.clampMin + "), static_cast<" +
-               castType + ">(" + *f.clampMax + "))";
+    std::optional<std::string> wrappedMin, wrappedMax;
     if (f.clampMin)
-        return "std::max(" + expr + ", static_cast<" + castType + ">(" + *f.clampMin + "))";
+        wrappedMin = "static_cast<" + castType + ">(" + *f.clampMin + ")";
     if (f.clampMax)
-        return "std::min(" + expr + ", static_cast<" + castType + ">(" + *f.clampMax + "))";
-    return expr;
+        wrappedMax = "static_cast<" + castType + ">(" + *f.clampMax + ")";
+    return AssembleClampExpr(expr, "std::", wrappedMin, wrappedMax);
 }
 
 // Wrap a glm::vec3 deserialize expression `expr` in a PER-COMPONENT range clamp
@@ -2464,13 +2481,12 @@ static std::string ApplyClamp(const std::string& expr, const std::string& castTy
 // bound across all three components, matching std::clamp/max/min per component.
 static std::string ApplyVec3Clamp(const std::string& expr, const SerField& f)
 {
-    if (f.clampMin && f.clampMax)
-        return "glm::clamp(" + expr + ", glm::vec3(" + *f.clampMin + "), glm::vec3(" + *f.clampMax + "))";
+    std::optional<std::string> wrappedMin, wrappedMax;
     if (f.clampMin)
-        return "glm::max(" + expr + ", glm::vec3(" + *f.clampMin + "))";
+        wrappedMin = "glm::vec3(" + *f.clampMin + ")";
     if (f.clampMax)
-        return "glm::min(" + expr + ", glm::vec3(" + *f.clampMax + "))";
-    return expr;
+        wrappedMax = "glm::vec3(" + *f.clampMax + ")";
+    return AssembleClampExpr(expr, "glm::", wrappedMin, wrappedMax);
 }
 
 // The element loop / temp variable base name for depth `d`. Depth 0 keeps the
