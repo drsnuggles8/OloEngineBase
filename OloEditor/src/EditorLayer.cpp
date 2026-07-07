@@ -2009,6 +2009,13 @@ namespace OloEngine
         Application::Get().SetFrameRateCap(m_Prefs.FrameRateCap);
         Application::Get().SetFrameTimeSmoothing(m_Prefs.FrameTimeSmoothing);
 
+        // Render interpolation (#502): apply live so toggling it in Preferences
+        // takes effect on the running Play session without a restart.
+        if (m_ActiveScene)
+        {
+            m_ActiveScene->SetRenderInterpolationEnabled(m_Prefs.RenderInterpolation);
+        }
+
         auto& physicsSettings = Physics3DSystem::GetSettings();
         physicsSettings.m_CaptureOnPlay = m_Prefs.CapturePhysicsOnPlay;
 
@@ -3154,6 +3161,11 @@ namespace OloEngine
                               cameraEntity.GetName());
             }
         }
+
+        // Apply the render-interpolation preference to the fresh runtime scene
+        // (#502): Play renders interpolated poses between fixed ticks unless the
+        // user disabled it.
+        m_ActiveScene->SetRenderInterpolationEnabled(m_Prefs.RenderInterpolation);
 
         m_ActiveScene->OnRuntimeStart();
 

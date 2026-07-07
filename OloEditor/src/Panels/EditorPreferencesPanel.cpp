@@ -280,6 +280,24 @@ namespace OloEngine
                 ImGui::SetTooltip("EMA weight for the newest frame's delta.\nLower = smoother but laggier. 1.0 disables smoothing.");
             }
         }
+
+        ImGui::Spacing();
+        ImGui::Text("Render Interpolation");
+        ImGui::Separator();
+        ImGui::TextWrapped("Decouple rendering from the fixed simulation tick: the sim runs at a "
+                           "stable fixed rate while each displayed frame renders a pose "
+                           "interpolated between the last two ticks. Keeps motion smooth when the "
+                           "refresh rate isn't a multiple of the sim rate (e.g. 60 Hz sim / 144 Hz "
+                           "display). On by default.");
+        ImGui::Spacing();
+        ImGui::Checkbox("Interpolate render pose between fixed ticks", &m_Draft.RenderInterpolation);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Off = one render per sim tick (may judder at non-multiple refresh rates).\n"
+                              "Purely a presentation blend — never affects simulation determinism.");
+        }
     }
 
     std::filesystem::path EditorPreferencesPanel::GetPrefsPath(const std::filesystem::path& projectDir)
@@ -309,6 +327,7 @@ namespace OloEngine
         out << YAML::Key << "RenderBudgetMs" << YAML::Value << prefs.RenderBudgetMs;
         out << YAML::Key << "FrameRateCap" << YAML::Value << prefs.FrameRateCap;
         out << YAML::Key << "FrameTimeSmoothing" << YAML::Value << prefs.FrameTimeSmoothing;
+        out << YAML::Key << "RenderInterpolation" << YAML::Value << prefs.RenderInterpolation;
         out << YAML::Key << "EnableAutoSave" << YAML::Value << prefs.EnableAutoSave;
         out << YAML::Key << "AutoSaveIntervalSeconds" << YAML::Value << prefs.AutoSaveIntervalSeconds;
         out << YAML::Key << "McpAutoStart" << YAML::Value << prefs.McpAutoStart;
@@ -419,6 +438,8 @@ namespace OloEngine
             if (node["FrameTimeSmoothing"])
                 if (f32 v = node["FrameTimeSmoothing"].as<f32>(); std::isfinite(v))
                     prefs.FrameTimeSmoothing = std::clamp(v, 0.01f, 1.0f);
+            if (node["RenderInterpolation"])
+                prefs.RenderInterpolation = node["RenderInterpolation"].as<bool>();
             if (node["EnableAutoSave"])
                 prefs.EnableAutoSave = node["EnableAutoSave"].as<bool>();
             if (node["AutoSaveIntervalSeconds"])
