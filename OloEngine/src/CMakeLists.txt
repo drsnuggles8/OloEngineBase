@@ -826,6 +826,8 @@
 		"OloEngine/Physics3D/Physics3DSystem.cpp"
 		"OloEngine/Physics3D/BuoyancySystem.h"
 		"OloEngine/Physics3D/BuoyancySystem.cpp"
+		"OloEngine/Physics3D/ClothWindSystem.h"
+		"OloEngine/Physics3D/ClothWindSystem.cpp"
 		"OloEngine/Physics3D/JoltUtils.h"
 		"OloEngine/Physics3D/JoltUtils.cpp"
 		"OloEngine/Physics3D/JoltLayerInterface.h"

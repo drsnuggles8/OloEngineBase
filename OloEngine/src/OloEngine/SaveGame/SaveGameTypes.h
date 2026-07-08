@@ -51,7 +51,7 @@ namespace OloEngine
     // ========================================================================
 
     static constexpr u32 kSaveGameMagic = 0x4F4C4F53; // "OLOS" in little-endian
-    static constexpr u32 kSaveGameFormatVersion = 6;  // v6: TerrainComponent gained the static height-field collision toggle (issue #428)
+    static constexpr u32 kSaveGameFormatVersion = 7;  // v7: ClothComponent gained m_WindInfluence (issue #460 wind-coupling slice)
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

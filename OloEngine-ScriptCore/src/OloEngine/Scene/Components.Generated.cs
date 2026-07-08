@@ -464,6 +464,12 @@ namespace OloEngine
 			set => InternalCalls.ClothComponent_SetIterations(Entity.ID, value);
 		}
 
+		public float WindInfluence
+		{
+			get => InternalCalls.ClothComponent_GetWindInfluence(Entity.ID);
+			set => InternalCalls.ClothComponent_SetWindInfluence(Entity.ID, value);
+		}
+
 		public bool Enabled
 		{
 			get => InternalCalls.ClothComponent_GetEnabled(Entity.ID);

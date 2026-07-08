@@ -1057,6 +1057,15 @@ namespace OloEngine
         ar << c.m_Attachment;
         ar << c.m_Enabled;
 
+        // ── Format v7: wind-coupling influence scalar (issue #460) ──
+        // Appended at the end when kSaveGameFormatVersion was bumped 6→7. A save written
+        // before v7 has none of these bytes, so loading one leaves m_WindInfluence at its
+        // constructor default (1.0 — full wind).
+        if (HasFieldsSince(ar, 7))
+        {
+            ar << c.m_WindInfluence;
+        }
+
         // Sanitize untrusted on-disk values (mirrors SceneSerializer / the clamps in
         // JoltShapes::CreateClothSharedSettings) so a corrupt archive can't blow up the
         // particle count or feed NaNs into Jolt.
@@ -1077,6 +1086,7 @@ namespace OloEngine
             c.m_Pressure = std::isfinite(c.m_Pressure) ? std::max(0.0f, c.m_Pressure) : 0.0f;
             if (c.m_Attachment < ClothAttachment::None || c.m_Attachment > ClothAttachment::LeftEdge)
                 c.m_Attachment = ClothAttachment::TopEdge;
+            c.m_WindInfluence = std::isfinite(c.m_WindInfluence) ? std::clamp(c.m_WindInfluence, 0.0f, 1.0f) : 1.0f;
         }
     }
 

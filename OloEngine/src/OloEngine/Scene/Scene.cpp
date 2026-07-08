@@ -43,6 +43,7 @@
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Physics3D/JoltShapes.h"
 #include "OloEngine/Physics3D/BuoyancySystem.h"
+#include "OloEngine/Physics3D/ClothWindSystem.h"
 #include "OloEngine/UI/UILayoutSystem.h"
 #include "OloEngine/UI/UIRenderer.h"
 #include "OloEngine/UI/UIInputSystem.h"
@@ -368,6 +369,23 @@ namespace OloEngine
         newScene->m_ViewportHeight = other->m_ViewportHeight;
         newScene->m_StreamingSettings = other->m_StreamingSettings;
 
+        // Scene-level (non-ECS) settings authored on the source scene must survive
+        // into the Play/Simulate copy too, or every system that reads them via
+        // Scene::GetXSettings() (not the Renderer3D global mirror set once at load)
+        // silently sees default-constructed values the moment Play starts — e.g.
+        // ClothWindSystem reads Scene::GetWindSettings() each tick, so an authored
+        // WindSettings::Enabled=true was reset to false here, silently disabling
+        // wind coupling for every cloth in Play mode (issue #460 wind-coupling
+        // slice — caught by live-editor verification, not by the headless test
+        // suite, since FunctionalTest never routes through Scene::Copy()).
+        newScene->m_PostProcessSettings = other->m_PostProcessSettings;
+        newScene->m_FogSettings = other->m_FogSettings;
+        newScene->m_WindSettings = other->m_WindSettings;
+        newScene->m_SnowSettings = other->m_SnowSettings;
+        newScene->m_SnowAccumulationSettings = other->m_SnowAccumulationSettings;
+        newScene->m_SnowEjectaSettings = other->m_SnowEjectaSettings;
+        newScene->m_PrecipitationSettings = other->m_PrecipitationSettings;
+
         auto& srcSceneRegistry = other->m_Registry;
         auto& dstSceneRegistry = newScene->m_Registry;
         TMap<UUID, entt::entity> enttMap;
@@ -630,6 +648,18 @@ namespace OloEngine
                 m_JoltScene->DestroyTerrainBody(entityUUID);
                 terrain.m_RuntimeCollisionBodyToken = 0;
             }
+        }
+
+        // Same deal for a cloth soft body (issue #460) — keyed by entity UUID, no
+        // Rigidbody3DComponent, and m_ClothRuntime is only rebuilt in bulk at
+        // OnPhysics3DStart, not per-entity-destroy. Without this, destroying a cloth
+        // entity mid-Play would leak its Jolt soft body AND leave a stale UUID in
+        // m_ClothRuntime that the render pass's GetEntityByUUID(entityID) call would
+        // assert on the next frame.
+        if (m_JoltScene && entity.HasComponent<ClothComponent>())
+        {
+            m_JoltScene->DestroyClothBody(entityUUID);
+            m_ClothRuntime.erase(entityUUID);
         }
 
         m_Registry.destroy(entity);
@@ -1728,6 +1758,10 @@ namespace OloEngine
             // equals wall-time, so floating bodies still track the rendered
             // wave crests (Physics3D/BuoyancySystem, WATER §5.1).
             BuoyancySystem::OnUpdate(this, m_SimulationTime, ts.GetSeconds());
+            // Cloth wind forces have the same "queue before the step" timing
+            // requirement — JPH::BodyInterface::AddForce resets after
+            // PhysicsSystem::Update (issue #460 wind-coupling slice).
+            ClothWindSystem::OnUpdate(this, m_SimulationTime);
             // JoltScene::Simulate runs its OWN fixed-step accumulator at a
             // hardcoded 1/60. This is 1:1 with one gameplay tick only when
             // the canonical fixed dt (Application::GetFixedTimeStep) equals
@@ -1750,6 +1784,8 @@ namespace OloEngine
             // integrates them this frame (see StepPhysics for the deterministic
             // m_SimulationTime reasoning — issue #452).
             BuoyancySystem::OnUpdate(this, m_SimulationTime, frameSeconds);
+            // Cloth wind forces (issue #460 wind-coupling slice) — see StepPhysics.
+            ClothWindSystem::OnUpdate(this, m_SimulationTime);
             // Contact handlers may grow script/registry access — game thread only.
             m_JoltScene->PreSimulate();
             m_PhysicsStepsThisFrame = m_JoltScene->BeginSteps(frameSeconds);
@@ -6385,7 +6421,25 @@ namespace OloEngine
                 // shared default (mirrors the MeshComponent path above). Force TwoSided:
                 // a cloth is a thin sheet, so both faces must draw — otherwise back-facing
                 // triangles are culled and the drape looks torn / invisible from behind.
-                Entity clothEntity = GetEntityByUUID(entityID);
+                //
+                // TryGetEntityWithUUID, not GetEntityByUUID: the latter asserts on a
+                // missing UUID. DestroyEntity now erases the matching m_ClothRuntime
+                // entry when a cloth-carrying entity is destroyed (see above), so this
+                // should be unreachable in practice — but a raw m_Registry.destroy()
+                // elsewhere, or a future change that bypasses DestroyEntity, would
+                // otherwise turn a stale UUID into a hard crash in this render loop
+                // rather than a silently-skipped cloth.
+                Entity clothEntity;
+                if (auto maybeEntity = TryGetEntityWithUUID(entityID); maybeEntity)
+                    clothEntity = *maybeEntity;
+                else
+                    continue; // owning entity is gone; don't render an orphaned cloth mesh
+                // Convert entt entity to int for entity ID picking (same convention as the
+                // MeshComponent pass above) — without this the cloth never participates in
+                // mouse-picking/hover/selection-outline (issue #460 wind-coupling slice,
+                // caught by live-editor verification: clicking a cloth in the Scene
+                // Hierarchy never outlined it in the viewport).
+                const i32 clothPickID = clothEntity ? static_cast<i32>(std::to_underlying(static_cast<entt::entity>(clothEntity))) : -1;
                 Material clothMaterial = (clothEntity && clothEntity.HasComponent<MaterialComponent>())
                                              ? clothEntity.GetComponent<MaterialComponent>().m_Material
                                              : GetDefaultMaterial();
@@ -6438,7 +6492,7 @@ namespace OloEngine
                 }
 
                 auto clothMesh = Ref<Mesh>::Create(state.m_RenderMesh, 0);
-                if (auto* packet = Renderer3D::DrawMesh(clothMesh, glm::mat4(1.0f), clothMaterial, false, -1, nullptr); packet)
+                if (auto* packet = Renderer3D::DrawMesh(clothMesh, glm::mat4(1.0f), clothMaterial, false, clothPickID, nullptr); packet)
                     Renderer3D::SubmitPacket(packet);
             }
         }

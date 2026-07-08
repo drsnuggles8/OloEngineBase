@@ -1420,7 +1420,10 @@ namespace OloEngine
                                                                      { c.m_Iterations = std::clamp(v, 1u, 32u); }),
                                          "attachment", sol::property([](const ClothComponent& c)
                                                                      { return static_cast<int>(std::to_underlying(c.m_Attachment)); }, [](ClothComponent& c, int v)
-                                                                     { if (v >= static_cast<int>(ClothAttachment::None) && v <= static_cast<int>(ClothAttachment::LeftEdge)) c.m_Attachment = static_cast<ClothAttachment>(v); }));
+                                                                     { if (v >= static_cast<int>(ClothAttachment::None) && v <= static_cast<int>(ClothAttachment::LeftEdge)) c.m_Attachment = static_cast<ClothAttachment>(v); }),
+                                         "windInfluence", sol::property([](const ClothComponent& c)
+                                                                        { return c.m_WindInfluence; }, [](ClothComponent& c, f32 v)
+                                                                        { if (std::isfinite(v)) c.m_WindInfluence = std::clamp(v, 0.0f, 1.0f); }));
 
         // --- PrefabComponent ---
         // Read-only window into prefab-instance identity & override state.

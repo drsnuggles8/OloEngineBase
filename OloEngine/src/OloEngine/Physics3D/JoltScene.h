@@ -158,6 +158,25 @@ namespace OloEngine
         // functional tests to assert the cloth drapes / rests on the floor.
         [[nodiscard("cloth vertex readback result must be used")]] bool GetClothVertices(UUID entityID, std::vector<glm::vec3>& outWorldPositions) const;
 
+        // Live world-space centre-of-mass position of a cloth's soft body, read directly from
+        // Jolt (JPH::Body::GetCenterOfMassPosition) rather than the cached ECS
+        // WorldTransformComponent, which can be up to one physics tick stale by the time
+        // ClothWindSystem samples it (PropagateTransforms runs after PhysicsKick/PhysicsFence
+        // in the gameplay scheduler — issue #460 wind-coupling slice). Mirrors how
+        // BuoyancySystem samples a rigid body's live JoltBody::GetPosition() instead of its
+        // ECS transform. Returns false (outPosition untouched) if entityID has no live cloth
+        // body.
+        [[nodiscard("cloth position query result must be used")]] bool GetClothWorldPosition(UUID entityID, glm::vec3& outPosition) const;
+
+        // Queue a uniform whole-body force (Newtons, world space) on a cloth's soft body —
+        // e.g. wind (ClothWindSystem, issue #460). Delegates to JPH::BodyInterface::AddForce,
+        // which the soft-body sub-stepper divides evenly across every particle and resets
+        // after PhysicsSystem::Update, so the caller must queue it before Simulate()/
+        // BeginSteps() runs for the frame it should apply to (same timing contract as
+        // BuoyancySystem's rigid-body forces). No-op if entityID has no cloth body or the
+        // force is non-finite.
+        void ApplyClothWindForce(UUID entityID, const glm::vec3& force);
+
         // Two-body constraint (joint) management. CreateConstraint builds the
         // Jolt constraint for the PhysicsJoint3DComponent on `entity` (both
         // endpoint bodies must already exist) and sets the component's

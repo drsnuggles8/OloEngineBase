@@ -1516,6 +1516,28 @@ static void ClothComponent_SetIterations(UUID entityID, unsigned int value)
     comp.m_Iterations = value;
 }
 
+static float ClothComponent_GetWindInfluence(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ClothComponent>();
+    return comp.m_WindInfluence;
+}
+
+static void ClothComponent_SetWindInfluence(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<ClothComponent>();
+    comp.m_WindInfluence = value;
+}
+
 static bool ClothComponent_GetEnabled(UUID entityID)
 {
     Scene* scene = ScriptEngine::GetSceneContext();
