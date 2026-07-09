@@ -105,13 +105,20 @@ jobs:
           # sonar.cfamily.compile-commands (issue #411 item 2): build-wrapper now
           # emits a standard compile_commands.json alongside its legacy dump inside
           # --out-dir; pointing the analyzer at that file uses the supported,
-          # non-deprecated ingestion path instead of 'build-wrapper-output' (which
-          # also triggers a strict build-wrapper/analyzer version match — the
-          # "generated using build-wrapper version 6.82.1-SNAPSHOT, which does not
-          # match the analyzer version" warning). The build-wrapper install/run
-          # steps above are unchanged: build-wrapper still captures every build
-          # subprocess (including the OloHeaderTool codegen custom target), it just
-          # also produces this file now.
+          # non-deprecated ingestion path instead of 'build-wrapper-output'. The
+          # build-wrapper install/run steps above are unchanged: build-wrapper still
+          # captures every build subprocess (including the OloHeaderTool codegen
+          # custom target), it just also produces this file now. Validated via
+          # workflow_dispatch run 29009983658 (2026-07-09): the deprecation warning
+          # is gone and the analysis is normal-sized (536 CUs, 22433 issues,
+          # EXECUTION SUCCESS). Note: the separate build-wrapper/analyzer
+          # version-mismatch warning ("...does not match the analyzer version...")
+          # is UNRELATED to this property and still fires — it comes from
+          # provenance metadata embedded in the file itself by whichever
+          # build-wrapper build sonarqube-scan-action's install-build-wrapper step
+          # downloads, which doesn't match that same action's bundled analyzer
+          # version. Not fixable from this workflow; see
+          # docs/analysis/sonarqube-rules.md #411 item B for detail.
           args: >
             --define sonar.cfamily.compile-commands=${{ env.BUILD_WRAPPER_OUT_DIR }}/compile_commands.json
             --define sonar.cfamily.threads=4
