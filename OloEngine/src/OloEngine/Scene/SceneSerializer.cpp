@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Scene/SceneBinaryIO.h"
 #include "OloEngine/Core/YAMLConverters.h"
 
 #include "OloEngine/Math/Math.h"
@@ -3742,50 +3743,56 @@ namespace OloEngine
             out << YAML::BeginMap;
             out << YAML::Key << "ClassName" << YAML::Value << scriptComponent.ClassName;
 
-            // Fields
+            // Fields. GetEntityClass returns null when the C# engine isn't
+            // initialised (e.g. a headless load) or the class failed to load —
+            // guard the deref so serialization degrades to "ClassName only"
+            // instead of crashing (previously an SEH null-deref; surfaced by the
+            // #525 write-during-load sidecar path, but the editor save path could
+            // hit it too on a stale/deleted script class).
             Ref<ScriptClass> entityClass = ScriptEngine::GetEntityClass(scriptComponent.ClassName);
-            if (const auto& fields = entityClass->GetFields(); !fields.empty())
-            {
-                out << YAML::Key << "ScriptFields" << YAML::Value;
-                auto& entityFields = ScriptEngine::GetScriptFieldMap(entity);
-                out << YAML::BeginSeq;
-                for (const auto& [name, field] : fields)
+            if (entityClass)
+                if (const auto& fields = entityClass->GetFields(); !fields.empty())
                 {
-                    if (!entityFields.contains(name))
+                    out << YAML::Key << "ScriptFields" << YAML::Value;
+                    auto& entityFields = ScriptEngine::GetScriptFieldMap(entity);
+                    out << YAML::BeginSeq;
+                    for (const auto& [name, field] : fields)
                     {
-                        continue;
+                        if (!entityFields.contains(name))
+                        {
+                            continue;
+                        }
+
+                        out << YAML::BeginMap;
+                        out << YAML::Key << "Name" << YAML::Value << name;
+                        out << YAML::Key << "Type" << YAML::Value << Utils::ScriptFieldTypeToString(field.Type);
+
+                        out << YAML::Key << "Data" << YAML::Value;
+                        ScriptFieldInstance& scriptField = entityFields.at(name);
+
+                        switch (field.Type)
+                        {
+                            WRITE_SCRIPT_FIELD(Float, f32);
+                            WRITE_SCRIPT_FIELD(Double, f64);
+                            WRITE_SCRIPT_FIELD(Bool, bool);
+                            WRITE_SCRIPT_FIELD(Char, char);
+                            WRITE_SCRIPT_FIELD(Byte, i8);
+                            WRITE_SCRIPT_FIELD(Short, i16);
+                            WRITE_SCRIPT_FIELD(Int, i32);
+                            WRITE_SCRIPT_FIELD(Long, i64);
+                            WRITE_SCRIPT_FIELD(UByte, u8);
+                            WRITE_SCRIPT_FIELD(UShort, u16);
+                            WRITE_SCRIPT_FIELD(UInt, u32);
+                            WRITE_SCRIPT_FIELD(ULong, u64);
+                            WRITE_SCRIPT_FIELD(Vector2, glm::vec2);
+                            WRITE_SCRIPT_FIELD(Vector3, glm::vec3);
+                            WRITE_SCRIPT_FIELD(Vector4, glm::vec4);
+                            WRITE_SCRIPT_FIELD(Entity, UUID);
+                        }
+                        out << YAML::EndMap;
                     }
-
-                    out << YAML::BeginMap;
-                    out << YAML::Key << "Name" << YAML::Value << name;
-                    out << YAML::Key << "Type" << YAML::Value << Utils::ScriptFieldTypeToString(field.Type);
-
-                    out << YAML::Key << "Data" << YAML::Value;
-                    ScriptFieldInstance& scriptField = entityFields.at(name);
-
-                    switch (field.Type)
-                    {
-                        WRITE_SCRIPT_FIELD(Float, f32);
-                        WRITE_SCRIPT_FIELD(Double, f64);
-                        WRITE_SCRIPT_FIELD(Bool, bool);
-                        WRITE_SCRIPT_FIELD(Char, char);
-                        WRITE_SCRIPT_FIELD(Byte, i8);
-                        WRITE_SCRIPT_FIELD(Short, i16);
-                        WRITE_SCRIPT_FIELD(Int, i32);
-                        WRITE_SCRIPT_FIELD(Long, i64);
-                        WRITE_SCRIPT_FIELD(UByte, u8);
-                        WRITE_SCRIPT_FIELD(UShort, u16);
-                        WRITE_SCRIPT_FIELD(UInt, u32);
-                        WRITE_SCRIPT_FIELD(ULong, u64);
-                        WRITE_SCRIPT_FIELD(Vector2, glm::vec2);
-                        WRITE_SCRIPT_FIELD(Vector3, glm::vec3);
-                        WRITE_SCRIPT_FIELD(Vector4, glm::vec4);
-                        WRITE_SCRIPT_FIELD(Entity, UUID);
-                    }
-                    out << YAML::EndMap;
+                    out << YAML::EndSeq;
                 }
-                out << YAML::EndSeq;
-            }
 
             out << YAML::EndMap;
         }
@@ -5946,9 +5953,204 @@ namespace OloEngine
         return deserializedEntity;
     }
 
+    // Apply all scene-level settings from a parsed scene document. Extracted from
+    // the (previously duplicated) Deserialize / DeserializeFromYAML bodies so the
+    // binary sidecar fast path can reuse the exact same logic — one source of
+    // truth for how a scene's post-process / weather / streaming settings load.
+    void SceneSerializer::ApplySceneSettings(Scene& scene, const YAML::Node& data)
+    {
+        if (auto ppNode = data["PostProcessSettings"]; ppNode && ppNode.IsMap())
+        {
+            auto& pp = scene.GetPostProcessSettings();
+            TrySetEnum(pp.Tonemap, ppNode["TonemapOperator"]);
+            TrySet(pp.Exposure, ppNode["Exposure"]);
+            TrySet(pp.Gamma, ppNode["Gamma"]);
+            TrySet(pp.BloomEnabled, ppNode["BloomEnabled"]);
+            TrySet(pp.BloomThreshold, ppNode["BloomThreshold"]);
+            TrySet(pp.BloomIntensity, ppNode["BloomIntensity"]);
+            TrySet(pp.BloomIterations, ppNode["BloomIterations"]);
+            TrySet(pp.VignetteEnabled, ppNode["VignetteEnabled"]);
+            TrySet(pp.VignetteIntensity, ppNode["VignetteIntensity"]);
+            TrySet(pp.VignetteSmoothness, ppNode["VignetteSmoothness"]);
+            TrySet(pp.ChromaticAberrationEnabled, ppNode["ChromaticAberrationEnabled"]);
+            TrySet(pp.ChromaticAberrationIntensity, ppNode["ChromaticAberrationIntensity"]);
+            TrySet(pp.FXAAEnabled, ppNode["FXAAEnabled"]);
+            TrySet(pp.DOFEnabled, ppNode["DOFEnabled"]);
+            TrySet(pp.DOFFocusDistance, ppNode["DOFFocusDistance"]);
+            TrySet(pp.DOFFocusRange, ppNode["DOFFocusRange"]);
+            TrySet(pp.DOFBokehRadius, ppNode["DOFBokehRadius"]);
+            TrySet(pp.MotionBlurEnabled, ppNode["MotionBlurEnabled"]);
+            TrySet(pp.MotionBlurStrength, ppNode["MotionBlurStrength"]);
+            TrySet(pp.MotionBlurSamples, ppNode["MotionBlurSamples"]);
+            TrySet(pp.ColorGradingEnabled, ppNode["ColorGradingEnabled"]);
+            TrySet(pp.SSAOEnabled, ppNode["SSAOEnabled"]);
+            TrySet(pp.SSAORadius, ppNode["SSAORadius"]);
+            TrySet(pp.SSAOBias, ppNode["SSAOBias"]);
+            TrySet(pp.SSAOIntensity, ppNode["SSAOIntensity"]);
+            TrySet(pp.SSAOSamples, ppNode["SSAOSamples"]);
+            TrySet(pp.SSAODebugView, ppNode["SSAODebugView"]);
+            TrySet(pp.SSREnabled, ppNode["SSREnabled"]);
+            TrySet(pp.SSRMaxDistance, ppNode["SSRMaxDistance"]);
+            TrySet(pp.SSRThickness, ppNode["SSRThickness"]);
+            TrySet(pp.SSRStride, ppNode["SSRStride"]);
+            TrySet(pp.SSRMaxSteps, ppNode["SSRMaxSteps"]);
+            TrySet(pp.SSRBinarySearchSteps, ppNode["SSRBinarySearchSteps"]);
+            TrySet(pp.SSRIntensity, ppNode["SSRIntensity"]);
+            TrySet(pp.SSRMaxRoughness, ppNode["SSRMaxRoughness"]);
+            TrySet(pp.SSREdgeFade, ppNode["SSREdgeFade"]);
+            TrySet(pp.SSRDebugView, ppNode["SSRDebugView"]);
+            TrySet(pp.SSGIEnabled, ppNode["SSGIEnabled"]);
+            TrySet(pp.SSGIIntensity, ppNode["SSGIIntensity"]);
+            TrySet(pp.SSGIMaxDistance, ppNode["SSGIMaxDistance"]);
+            TrySet(pp.SSGIThickness, ppNode["SSGIThickness"]);
+            TrySet(pp.SSGIStride, ppNode["SSGIStride"]);
+            TrySet(pp.SSGIMaxSteps, ppNode["SSGIMaxSteps"]);
+            TrySet(pp.SSGIRayCount, ppNode["SSGIRayCount"]);
+            TrySet(pp.SSGIEdgeFade, ppNode["SSGIEdgeFade"]);
+            TrySet(pp.SSGIDebugView, ppNode["SSGIDebugView"]);
+            TrySet(pp.ContactShadowEnabled, ppNode["ContactShadowEnabled"]);
+            TrySet(pp.ContactShadowIntensity, ppNode["ContactShadowIntensity"]);
+            TrySet(pp.ContactShadowMaxDistance, ppNode["ContactShadowMaxDistance"]);
+            TrySet(pp.ContactShadowThickness, ppNode["ContactShadowThickness"]);
+            TrySet(pp.ContactShadowStride, ppNode["ContactShadowStride"]);
+            TrySet(pp.ContactShadowMaxSteps, ppNode["ContactShadowMaxSteps"]);
+            TrySet(pp.ContactShadowBias, ppNode["ContactShadowBias"]);
+            TrySet(pp.ContactShadowEdgeFade, ppNode["ContactShadowEdgeFade"]);
+            TrySet(pp.ContactShadowDebugView, ppNode["ContactShadowDebugView"]);
+            TrySet(pp.AutoExposureEnabled, ppNode["AutoExposureEnabled"]);
+            TrySet(pp.AutoExposureMinLogLuminance, ppNode["AutoExposureMinLogLuminance"]);
+            TrySet(pp.AutoExposureMaxLogLuminance, ppNode["AutoExposureMaxLogLuminance"]);
+            TrySet(pp.AutoExposureSpeedUp, ppNode["AutoExposureSpeedUp"]);
+            TrySet(pp.AutoExposureSpeedDown, ppNode["AutoExposureSpeedDown"]);
+            TrySet(pp.AutoExposureCompensation, ppNode["AutoExposureCompensation"]);
+            TrySet(pp.AutoExposureMinExposure, ppNode["AutoExposureMinExposure"]);
+            TrySet(pp.AutoExposureMaxExposure, ppNode["AutoExposureMaxExposure"]);
+            TrySet(pp.CASEnabled, ppNode["CASEnabled"]);
+            TrySet(pp.CASSharpness, ppNode["CASSharpness"]);
+            TrySetEnum(pp.Upscale, ppNode["Upscale"]);
+            TrySet(pp.RCASSharpness, ppNode["RCASSharpness"]);
+
+            // Floats read from YAML must be finite and ordered (min<=max).
+            SanitizeAutoExposure(pp);
+            SanitizeSSR(pp);
+            SanitizeSSGI(pp);
+            SanitizeContactShadow(pp);
+            SanitizeCAS(pp);
+            SanitizeUpscale(pp);
+        }
+
+        DeserializeSnowSettings(data, scene.GetSnowSettings());
+        DeserializeFogSettings(data, scene.GetFogSettings());
+        DeserializeWindSettings(data, scene.GetWindSettings());
+        DeserializeSnowAccumulationSettings(data, scene.GetSnowAccumulationSettings());
+        DeserializeSnowEjectaSettings(data, scene.GetSnowEjectaSettings());
+        DeserializePrecipitationSettings(data, scene.GetPrecipitationSettings());
+
+        if (auto ssNode = data["StreamingSettings"]; ssNode && ssNode.IsMap())
+        {
+            auto& ss = scene.GetStreamingSettings();
+            TrySet(ss.Enabled, ssNode["Enabled"]);
+            TrySet(ss.DefaultLoadRadius, ssNode["DefaultLoadRadius"]);
+            TrySet(ss.DefaultUnloadRadius, ssNode["DefaultUnloadRadius"]);
+            TrySet(ss.MaxLoadedRegions, ssNode["MaxLoadedRegions"]);
+            TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
+
+            SanitizeStreamingSettings(ss);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Binary scene sidecar — per-entity component read/write (issue #525).
+    // Live here (not in SceneBinarySerializer.cpp) because the generated blocks
+    // reference every component type, and this TU already includes all the
+    // component headers the YAML SerializeEntity needs.
+    // ─────────────────────────────────────────────────────────────────────
+
+    // Write the binary-covered component blocks for one entity: the hand-written
+    // TransformComponent block (non-trivial: private euler-synced rotation) plus
+    // the OloHeaderTool-generated blocks, terminated by a 0 ComponentId.
+    void SceneSerializer::WriteEntityComponentsBinary(std::ostream& out, Entity entity)
+    {
+        if (entity.HasComponent<TransformComponent>())
+        {
+            SceneBinIO::WriteU32(out, SceneBinIO::ComponentId("TransformComponent"));
+            auto const& tc = entity.GetComponent<TransformComponent>();
+            SceneBinIO::Write(out, tc.Translation);
+            SceneBinIO::Write(out, tc.GetRotationEuler());
+            SceneBinIO::Write(out, tc.Scale);
+        }
+#include "OloEngine/Scene/Generated/SceneBinaryWriteComponents.Generated.inl"
+        SceneBinIO::WriteU32(out, 0u); // end-of-components sentinel
+    }
+
+    // Read binary component blocks for one just-created entity until the 0
+    // sentinel. Returns false on any short read / bad value / unknown ComponentId
+    // so the caller can roll the whole scene back and fall to YAML.
+    bool SceneSerializer::ReadEntityComponentsBinary(SceneBinIO::Reader& reader, Entity& deserializedEntity)
+    {
+        for (;;)
+        {
+            u32 componentId = 0;
+            if (!SceneBinIO::ReadU32(reader, componentId))
+                return false;
+            if (componentId == 0)
+                break;
+
+            switch (componentId)
+            {
+                case SceneBinIO::ComponentId("TransformComponent"):
+                {
+                    // TransformComponent is always present (added by CreateEntityWithUUID).
+                    auto& tc = deserializedEntity.GetComponent<TransformComponent>();
+                    glm::vec3 translation{ 0.0f };
+                    glm::vec3 euler{ 0.0f };
+                    glm::vec3 scale{ 1.0f };
+                    if (!SceneBinIO::Read(reader, translation) || !SceneBinIO::Read(reader, euler) ||
+                        !SceneBinIO::Read(reader, scale))
+                        return false;
+                    tc.Translation = translation;
+                    tc.SetRotationEuler(euler);
+                    tc.Scale = scale;
+                    break;
+                }
+#include "OloEngine/Scene/Generated/SceneBinaryReadComponents.Generated.inl"
+                default:
+                    return false; // unknown ComponentId — abandon the fast path
+            }
+        }
+        return true;
+    }
+
+    // The set of entt::type_hashes for every component the binary path can store
+    // directly (ID/Tag via the per-entity record header, Transform hand-written,
+    // plus the generated set). An entity is binary-representable iff every
+    // component it carries is in this set; otherwise it round-trips as YAML text.
+    const std::unordered_set<entt::id_type>& SceneSerializer::CoveredComponentIds()
+    {
+        static const std::unordered_set<entt::id_type> s_CoveredIds = []
+        {
+            std::unordered_set<entt::id_type> ids;
+            ids.insert(entt::type_hash<IDComponent>::value());
+            ids.insert(entt::type_hash<TagComponent>::value());
+            ids.insert(entt::type_hash<TransformComponent>::value());
+#include "OloEngine/Scene/Generated/SceneBinaryCoveredComponents.Generated.inl"
+            return ids;
+        }();
+        return s_CoveredIds;
+    }
+
     bool SceneSerializer::Deserialize(const std::filesystem::path& filepath)
     {
         OLO_PROFILE_FUNCTION();
+
+        // Fast path: restore from a fresh, matching binary sidecar and skip
+        // yaml-cpp entirely (issue #525). Falls through to the YAML loader below
+        // on any miss (missing/stale/version-mismatched/corrupt sidecar), leaving
+        // the scene untouched.
+        if (TryLoadBinarySidecar(filepath))
+        {
+            return true;
+        }
 
         YAML::Node data;
         try
@@ -5997,104 +6199,7 @@ namespace OloEngine
 
         try
         {
-            if (auto ppNode = data["PostProcessSettings"]; ppNode && ppNode.IsMap())
-            {
-                auto& pp = m_Scene->GetPostProcessSettings();
-                TrySetEnum(pp.Tonemap, ppNode["TonemapOperator"]);
-                TrySet(pp.Exposure, ppNode["Exposure"]);
-                TrySet(pp.Gamma, ppNode["Gamma"]);
-                TrySet(pp.BloomEnabled, ppNode["BloomEnabled"]);
-                TrySet(pp.BloomThreshold, ppNode["BloomThreshold"]);
-                TrySet(pp.BloomIntensity, ppNode["BloomIntensity"]);
-                TrySet(pp.BloomIterations, ppNode["BloomIterations"]);
-                TrySet(pp.VignetteEnabled, ppNode["VignetteEnabled"]);
-                TrySet(pp.VignetteIntensity, ppNode["VignetteIntensity"]);
-                TrySet(pp.VignetteSmoothness, ppNode["VignetteSmoothness"]);
-                TrySet(pp.ChromaticAberrationEnabled, ppNode["ChromaticAberrationEnabled"]);
-                TrySet(pp.ChromaticAberrationIntensity, ppNode["ChromaticAberrationIntensity"]);
-                TrySet(pp.FXAAEnabled, ppNode["FXAAEnabled"]);
-                TrySet(pp.DOFEnabled, ppNode["DOFEnabled"]);
-                TrySet(pp.DOFFocusDistance, ppNode["DOFFocusDistance"]);
-                TrySet(pp.DOFFocusRange, ppNode["DOFFocusRange"]);
-                TrySet(pp.DOFBokehRadius, ppNode["DOFBokehRadius"]);
-                TrySet(pp.MotionBlurEnabled, ppNode["MotionBlurEnabled"]);
-                TrySet(pp.MotionBlurStrength, ppNode["MotionBlurStrength"]);
-                TrySet(pp.MotionBlurSamples, ppNode["MotionBlurSamples"]);
-                TrySet(pp.ColorGradingEnabled, ppNode["ColorGradingEnabled"]);
-                TrySet(pp.SSAOEnabled, ppNode["SSAOEnabled"]);
-                TrySet(pp.SSAORadius, ppNode["SSAORadius"]);
-                TrySet(pp.SSAOBias, ppNode["SSAOBias"]);
-                TrySet(pp.SSAOIntensity, ppNode["SSAOIntensity"]);
-                TrySet(pp.SSAOSamples, ppNode["SSAOSamples"]);
-                TrySet(pp.SSAODebugView, ppNode["SSAODebugView"]);
-                TrySet(pp.SSREnabled, ppNode["SSREnabled"]);
-                TrySet(pp.SSRMaxDistance, ppNode["SSRMaxDistance"]);
-                TrySet(pp.SSRThickness, ppNode["SSRThickness"]);
-                TrySet(pp.SSRStride, ppNode["SSRStride"]);
-                TrySet(pp.SSRMaxSteps, ppNode["SSRMaxSteps"]);
-                TrySet(pp.SSRBinarySearchSteps, ppNode["SSRBinarySearchSteps"]);
-                TrySet(pp.SSRIntensity, ppNode["SSRIntensity"]);
-                TrySet(pp.SSRMaxRoughness, ppNode["SSRMaxRoughness"]);
-                TrySet(pp.SSREdgeFade, ppNode["SSREdgeFade"]);
-                TrySet(pp.SSRDebugView, ppNode["SSRDebugView"]);
-                TrySet(pp.SSGIEnabled, ppNode["SSGIEnabled"]);
-                TrySet(pp.SSGIIntensity, ppNode["SSGIIntensity"]);
-                TrySet(pp.SSGIMaxDistance, ppNode["SSGIMaxDistance"]);
-                TrySet(pp.SSGIThickness, ppNode["SSGIThickness"]);
-                TrySet(pp.SSGIStride, ppNode["SSGIStride"]);
-                TrySet(pp.SSGIMaxSteps, ppNode["SSGIMaxSteps"]);
-                TrySet(pp.SSGIRayCount, ppNode["SSGIRayCount"]);
-                TrySet(pp.SSGIEdgeFade, ppNode["SSGIEdgeFade"]);
-                TrySet(pp.SSGIDebugView, ppNode["SSGIDebugView"]);
-                TrySet(pp.ContactShadowEnabled, ppNode["ContactShadowEnabled"]);
-                TrySet(pp.ContactShadowIntensity, ppNode["ContactShadowIntensity"]);
-                TrySet(pp.ContactShadowMaxDistance, ppNode["ContactShadowMaxDistance"]);
-                TrySet(pp.ContactShadowThickness, ppNode["ContactShadowThickness"]);
-                TrySet(pp.ContactShadowStride, ppNode["ContactShadowStride"]);
-                TrySet(pp.ContactShadowMaxSteps, ppNode["ContactShadowMaxSteps"]);
-                TrySet(pp.ContactShadowBias, ppNode["ContactShadowBias"]);
-                TrySet(pp.ContactShadowEdgeFade, ppNode["ContactShadowEdgeFade"]);
-                TrySet(pp.ContactShadowDebugView, ppNode["ContactShadowDebugView"]);
-                TrySet(pp.AutoExposureEnabled, ppNode["AutoExposureEnabled"]);
-                TrySet(pp.AutoExposureMinLogLuminance, ppNode["AutoExposureMinLogLuminance"]);
-                TrySet(pp.AutoExposureMaxLogLuminance, ppNode["AutoExposureMaxLogLuminance"]);
-                TrySet(pp.AutoExposureSpeedUp, ppNode["AutoExposureSpeedUp"]);
-                TrySet(pp.AutoExposureSpeedDown, ppNode["AutoExposureSpeedDown"]);
-                TrySet(pp.AutoExposureCompensation, ppNode["AutoExposureCompensation"]);
-                TrySet(pp.AutoExposureMinExposure, ppNode["AutoExposureMinExposure"]);
-                TrySet(pp.AutoExposureMaxExposure, ppNode["AutoExposureMaxExposure"]);
-                TrySet(pp.CASEnabled, ppNode["CASEnabled"]);
-                TrySet(pp.CASSharpness, ppNode["CASSharpness"]);
-                TrySetEnum(pp.Upscale, ppNode["Upscale"]);
-                TrySet(pp.RCASSharpness, ppNode["RCASSharpness"]);
-
-                // Floats read from YAML must be finite and ordered (min<=max).
-                SanitizeAutoExposure(pp);
-                SanitizeSSR(pp);
-                SanitizeSSGI(pp);
-                SanitizeContactShadow(pp);
-                SanitizeCAS(pp);
-                SanitizeUpscale(pp);
-            }
-
-            DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
-            DeserializeFogSettings(data, m_Scene->GetFogSettings());
-            DeserializeWindSettings(data, m_Scene->GetWindSettings());
-            DeserializeSnowAccumulationSettings(data, m_Scene->GetSnowAccumulationSettings());
-            DeserializeSnowEjectaSettings(data, m_Scene->GetSnowEjectaSettings());
-            DeserializePrecipitationSettings(data, m_Scene->GetPrecipitationSettings());
-
-            if (auto ssNode = data["StreamingSettings"]; ssNode && ssNode.IsMap())
-            {
-                auto& ss = m_Scene->GetStreamingSettings();
-                TrySet(ss.Enabled, ssNode["Enabled"]);
-                TrySet(ss.DefaultLoadRadius, ssNode["DefaultLoadRadius"]);
-                TrySet(ss.DefaultUnloadRadius, ssNode["DefaultUnloadRadius"]);
-                TrySet(ss.MaxLoadedRegions, ssNode["MaxLoadedRegions"]);
-                TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
-
-                SanitizeStreamingSettings(ss);
-            }
+            ApplySceneSettings(*m_Scene, data);
 
             if (const auto entities = data["Entities"]; entities && entities.IsSequence())
             {
@@ -6163,6 +6268,12 @@ namespace OloEngine
         }
 
         m_Scene->SetName(std::filesystem::path(filepath).filename().string());
+
+        // Cache the just-loaded scene to a binary sidecar so the next load takes
+        // the fast path above (issue #525). No-op unless the scene is fully
+        // representable in the binary format; `data` is the migrated document,
+        // used to snapshot scene-level settings.
+        WriteBinarySidecar(filepath, data);
 
         return true;
     }
@@ -6340,104 +6451,7 @@ namespace OloEngine
         // throws or null derefs deep in settings/entity helpers.
         try
         {
-            if (auto ppNode = data["PostProcessSettings"]; ppNode && ppNode.IsMap())
-            {
-                auto& pp = m_Scene->GetPostProcessSettings();
-                TrySetEnum(pp.Tonemap, ppNode["TonemapOperator"]);
-                TrySet(pp.Exposure, ppNode["Exposure"]);
-                TrySet(pp.Gamma, ppNode["Gamma"]);
-                TrySet(pp.BloomEnabled, ppNode["BloomEnabled"]);
-                TrySet(pp.BloomThreshold, ppNode["BloomThreshold"]);
-                TrySet(pp.BloomIntensity, ppNode["BloomIntensity"]);
-                TrySet(pp.BloomIterations, ppNode["BloomIterations"]);
-                TrySet(pp.VignetteEnabled, ppNode["VignetteEnabled"]);
-                TrySet(pp.VignetteIntensity, ppNode["VignetteIntensity"]);
-                TrySet(pp.VignetteSmoothness, ppNode["VignetteSmoothness"]);
-                TrySet(pp.ChromaticAberrationEnabled, ppNode["ChromaticAberrationEnabled"]);
-                TrySet(pp.ChromaticAberrationIntensity, ppNode["ChromaticAberrationIntensity"]);
-                TrySet(pp.FXAAEnabled, ppNode["FXAAEnabled"]);
-                TrySet(pp.DOFEnabled, ppNode["DOFEnabled"]);
-                TrySet(pp.DOFFocusDistance, ppNode["DOFFocusDistance"]);
-                TrySet(pp.DOFFocusRange, ppNode["DOFFocusRange"]);
-                TrySet(pp.DOFBokehRadius, ppNode["DOFBokehRadius"]);
-                TrySet(pp.MotionBlurEnabled, ppNode["MotionBlurEnabled"]);
-                TrySet(pp.MotionBlurStrength, ppNode["MotionBlurStrength"]);
-                TrySet(pp.MotionBlurSamples, ppNode["MotionBlurSamples"]);
-                TrySet(pp.ColorGradingEnabled, ppNode["ColorGradingEnabled"]);
-                TrySet(pp.SSAOEnabled, ppNode["SSAOEnabled"]);
-                TrySet(pp.SSAORadius, ppNode["SSAORadius"]);
-                TrySet(pp.SSAOBias, ppNode["SSAOBias"]);
-                TrySet(pp.SSAOIntensity, ppNode["SSAOIntensity"]);
-                TrySet(pp.SSAOSamples, ppNode["SSAOSamples"]);
-                TrySet(pp.SSAODebugView, ppNode["SSAODebugView"]);
-                TrySet(pp.SSREnabled, ppNode["SSREnabled"]);
-                TrySet(pp.SSRMaxDistance, ppNode["SSRMaxDistance"]);
-                TrySet(pp.SSRThickness, ppNode["SSRThickness"]);
-                TrySet(pp.SSRStride, ppNode["SSRStride"]);
-                TrySet(pp.SSRMaxSteps, ppNode["SSRMaxSteps"]);
-                TrySet(pp.SSRBinarySearchSteps, ppNode["SSRBinarySearchSteps"]);
-                TrySet(pp.SSRIntensity, ppNode["SSRIntensity"]);
-                TrySet(pp.SSRMaxRoughness, ppNode["SSRMaxRoughness"]);
-                TrySet(pp.SSREdgeFade, ppNode["SSREdgeFade"]);
-                TrySet(pp.SSRDebugView, ppNode["SSRDebugView"]);
-                TrySet(pp.SSGIEnabled, ppNode["SSGIEnabled"]);
-                TrySet(pp.SSGIIntensity, ppNode["SSGIIntensity"]);
-                TrySet(pp.SSGIMaxDistance, ppNode["SSGIMaxDistance"]);
-                TrySet(pp.SSGIThickness, ppNode["SSGIThickness"]);
-                TrySet(pp.SSGIStride, ppNode["SSGIStride"]);
-                TrySet(pp.SSGIMaxSteps, ppNode["SSGIMaxSteps"]);
-                TrySet(pp.SSGIRayCount, ppNode["SSGIRayCount"]);
-                TrySet(pp.SSGIEdgeFade, ppNode["SSGIEdgeFade"]);
-                TrySet(pp.SSGIDebugView, ppNode["SSGIDebugView"]);
-                TrySet(pp.ContactShadowEnabled, ppNode["ContactShadowEnabled"]);
-                TrySet(pp.ContactShadowIntensity, ppNode["ContactShadowIntensity"]);
-                TrySet(pp.ContactShadowMaxDistance, ppNode["ContactShadowMaxDistance"]);
-                TrySet(pp.ContactShadowThickness, ppNode["ContactShadowThickness"]);
-                TrySet(pp.ContactShadowStride, ppNode["ContactShadowStride"]);
-                TrySet(pp.ContactShadowMaxSteps, ppNode["ContactShadowMaxSteps"]);
-                TrySet(pp.ContactShadowBias, ppNode["ContactShadowBias"]);
-                TrySet(pp.ContactShadowEdgeFade, ppNode["ContactShadowEdgeFade"]);
-                TrySet(pp.ContactShadowDebugView, ppNode["ContactShadowDebugView"]);
-                TrySet(pp.AutoExposureEnabled, ppNode["AutoExposureEnabled"]);
-                TrySet(pp.AutoExposureMinLogLuminance, ppNode["AutoExposureMinLogLuminance"]);
-                TrySet(pp.AutoExposureMaxLogLuminance, ppNode["AutoExposureMaxLogLuminance"]);
-                TrySet(pp.AutoExposureSpeedUp, ppNode["AutoExposureSpeedUp"]);
-                TrySet(pp.AutoExposureSpeedDown, ppNode["AutoExposureSpeedDown"]);
-                TrySet(pp.AutoExposureCompensation, ppNode["AutoExposureCompensation"]);
-                TrySet(pp.AutoExposureMinExposure, ppNode["AutoExposureMinExposure"]);
-                TrySet(pp.AutoExposureMaxExposure, ppNode["AutoExposureMaxExposure"]);
-                TrySet(pp.CASEnabled, ppNode["CASEnabled"]);
-                TrySet(pp.CASSharpness, ppNode["CASSharpness"]);
-                TrySetEnum(pp.Upscale, ppNode["Upscale"]);
-                TrySet(pp.RCASSharpness, ppNode["RCASSharpness"]);
-
-                // Floats read from YAML must be finite and ordered (min<=max).
-                SanitizeAutoExposure(pp);
-                SanitizeSSR(pp);
-                SanitizeSSGI(pp);
-                SanitizeContactShadow(pp);
-                SanitizeCAS(pp);
-                SanitizeUpscale(pp);
-            }
-
-            DeserializeSnowSettings(data, m_Scene->GetSnowSettings());
-            DeserializeFogSettings(data, m_Scene->GetFogSettings());
-            DeserializeWindSettings(data, m_Scene->GetWindSettings());
-            DeserializeSnowAccumulationSettings(data, m_Scene->GetSnowAccumulationSettings());
-            DeserializeSnowEjectaSettings(data, m_Scene->GetSnowEjectaSettings());
-            DeserializePrecipitationSettings(data, m_Scene->GetPrecipitationSettings());
-
-            if (auto ssNode = data["StreamingSettings"]; ssNode && ssNode.IsMap())
-            {
-                auto& ss = m_Scene->GetStreamingSettings();
-                TrySet(ss.Enabled, ssNode["Enabled"]);
-                TrySet(ss.DefaultLoadRadius, ssNode["DefaultLoadRadius"]);
-                TrySet(ss.DefaultUnloadRadius, ssNode["DefaultUnloadRadius"]);
-                TrySet(ss.MaxLoadedRegions, ssNode["MaxLoadedRegions"]);
-                TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
-
-                SanitizeStreamingSettings(ss);
-            }
+            ApplySceneSettings(*m_Scene, data);
 
             auto entities = data["Entities"];
             if (entities && entities.IsSequence())

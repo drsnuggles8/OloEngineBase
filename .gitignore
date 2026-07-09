@@ -97,6 +97,11 @@ docs/agents/
 # OloEngine/tests/scripts/generate_perf_scenes.py.
 OloEditor/SandboxProject/Assets/Scenes/PerfStress/
 
+# Binary scene sidecar caches (issue #525). Derived from a scene's `.olo`/`.yaml`
+# on load to skip yaml-cpp on subsequent loads; regenerated automatically and
+# invalidated when the source changes. Never source-of-truth — do not commit.
+*.scenebin
+
 # Generated per-file test catalogues. Rendered from test_catalogue.json + in-file
 # // OLO_TEST_LAYER markers by OloEngine/tests/scripts/generate_test_catalogue.py.
 # Deliberately NOT committed: the tables change on essentially every test, and a

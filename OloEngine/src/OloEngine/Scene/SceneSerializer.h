@@ -1,13 +1,16 @@
 #pragma once
 
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/SceneBinaryIO.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
 
 #include <filesystem>
 #include <functional>
+#include <ostream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <yaml-cpp/yaml.h>
@@ -46,6 +49,32 @@ namespace OloEngine
         static void SerializeEntity(YAML::Emitter& out, Entity entity);
 
       private:
+        // Apply all scene-level settings (post-process, weather, streaming) from a
+        // parsed scene document node onto a scene. Shared by the YAML deserialize
+        // paths and the binary sidecar fast path so scene settings have a single
+        // source of truth. Never throws on malformed data (falls back to defaults
+        // per-field). Defined in SceneSerializer.cpp alongside the settings helpers.
+        static void ApplySceneSettings(Scene& scene, const YAML::Node& data);
+
+        // Binary sidecar cache (issue #525). TryLoadBinarySidecar restores the
+        // scene from a fresh, matching `<source>.scenebin` and returns true on the
+        // fast path; on any mismatch/corruption it leaves the scene untouched and
+        // returns false so the caller falls back to YAML. WriteBinarySidecar caches
+        // a just-loaded scene, but only when it is fully representable in the binary
+        // format (transform-only entities). Both are defined in
+        // SceneBinarySerializer.cpp. `settingsData` is the parsed (post-migration)
+        // scene document, used to snapshot scene-level settings into the sidecar.
+        [[nodiscard]] bool TryLoadBinarySidecar(const std::filesystem::path& sourcePath);
+        void WriteBinarySidecar(const std::filesystem::path& sourcePath, const YAML::Node& settingsData) const;
+
+        // Per-entity binary component read/write for the sidecar's kBinary records.
+        // Defined in SceneSerializer.cpp (this TU has every component header) and
+        // splice the OloHeaderTool-generated binary blocks. CoveredComponentIds is
+        // the entt::type_hash set the representability check consults.
+        static void WriteEntityComponentsBinary(std::ostream& out, Entity entity);
+        [[nodiscard]] static bool ReadEntityComponentsBinary(SceneBinIO::Reader& reader, Entity& deserializedEntity);
+        [[nodiscard]] static const std::unordered_set<entt::id_type>& CoveredComponentIds();
+
         // Collect all entities sorted by UUID for deterministic serialization order.
         void ForEachEntitySorted(const std::function<void(Entity)>& fn) const;
 
