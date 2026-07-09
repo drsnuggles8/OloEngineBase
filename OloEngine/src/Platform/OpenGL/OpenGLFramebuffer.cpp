@@ -261,6 +261,10 @@ namespace OloEngine
         OLO_CORE_ASSERT(attachmentIndex < m_ColorAttachments.size(),
                         "ClearAttachment: attachment index {} >= count {}", attachmentIndex, m_ColorAttachments.size());
 
+        // See ClearAllAttachments(): a stale bound program would be
+        // revalidated by the driver during this framebuffer clear.
+        Utils::GLClearProgramGuard programGuard;
+
         // Use glClearBufferfv to clear a specific color buffer
         glClearBufferfv(GL_COLOR, static_cast<GLint>(attachmentIndex), glm::value_ptr(value));
     }
@@ -287,6 +291,11 @@ namespace OloEngine
 
     void OpenGLFramebuffer::ClearAllAttachments(const glm::vec4& clearColor, int entityIdClear)
     {
+        // A program left bound by the previous pass would be revalidated
+        // against this framebuffer by the driver during the clears below
+        // (NVIDIA id 131218 vertex-shader recompile) — unbind it for the clears.
+        Utils::GLClearProgramGuard programGuard;
+
         // Only clear depth/stencil if this FBO actually has a depth attachment
         if (m_DepthAttachmentSpecification.TextureFormat != FramebufferTextureFormat::None)
         {

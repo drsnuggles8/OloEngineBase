@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLComputeShader.h"
+#include "Platform/OpenGL/OpenGLDebug.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
@@ -70,6 +71,7 @@ namespace OloEngine
         OLO_SHADER_UNREGISTER(m_RendererID);
 
         u32 programId = m_RendererID;
+        UnregisterGLProgramLabel(programId);
         FrameResourceManager::Get().SubmitForDeletion([programId]()
                                                       { glDeleteProgram(programId); });
     }
@@ -119,6 +121,14 @@ namespace OloEngine
 
         glDetachShader(m_RendererID, shader);
         glDeleteShader(shader);
+
+        // Name the program for GPU debuggers and the debug-callback label
+        // registry (see OpenGLShader::FinalizeProgram for rationale).
+        if (!m_Name.empty())
+        {
+            glObjectLabel(GL_PROGRAM, m_RendererID, -1, m_Name.c_str());
+            RegisterGLProgramLabel(m_RendererID, m_Name);
+        }
 
         // Estimate GPU memory: source size + driver overhead for compiled program
         const sizet estimatedMemory = source.size() + 1024;
@@ -239,6 +249,7 @@ namespace OloEngine
         OLO_SHADER_UNREGISTER(m_RendererID);
 
         u32 oldProgramId = m_RendererID;
+        UnregisterGLProgramLabel(oldProgramId);
         FrameResourceManager::Get().SubmitForDeletion([oldProgramId]()
                                                       { glDeleteProgram(oldProgramId); });
 
