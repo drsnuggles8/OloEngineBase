@@ -5,7 +5,7 @@
 
 namespace OloEngine
 {
-    u32 ParticleEmitter::Update(f32 dt, ParticlePool& pool, const glm::vec3& emitterPosition, f32 rateMultiplier, const glm::quat& emitterRotation)
+    u32 ParticleEmitter::Update(f32 dt, ParticlePool& pool, const glm::vec3& emitterPosition, f32 rateMultiplier, const glm::quat& emitterRotation, FastRandomPCG& rng)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -24,13 +24,12 @@ namespace OloEngine
             u32 emitted = pool.Emit(rateCount);
             for (u32 i = 0; i < emitted; ++i)
             {
-                InitializeParticle(firstSlot + i, pool, emitterPosition, emitterRotation);
+                InitializeParticle(firstSlot + i, pool, emitterPosition, emitterRotation, rng);
             }
             totalEmitted += emitted;
         }
 
         // Burst emission
-        auto& rng = RandomUtils::GetGlobalRandom();
         for (u32 b = m_NextBurstIndex; b < static_cast<u32>(Bursts.size()); ++b)
         {
             const auto& burst = Bursts[b];
@@ -42,7 +41,7 @@ namespace OloEngine
                     u32 emitted = pool.Emit(burst.Count);
                     for (u32 i = 0; i < emitted; ++i)
                     {
-                        InitializeParticle(firstSlot + i, pool, emitterPosition, emitterRotation);
+                        InitializeParticle(firstSlot + i, pool, emitterPosition, emitterRotation, rng);
                     }
                     totalEmitted += emitted;
                 }
@@ -66,12 +65,10 @@ namespace OloEngine
                           { return a.Time < b.Time; });
     }
 
-    void ParticleEmitter::InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition, const glm::quat& emitterRotation) const
+    void ParticleEmitter::InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition, const glm::quat& emitterRotation, FastRandomPCG& rng) const
     {
-        auto& rng = RandomUtils::GetGlobalRandom();
-
         // Use combined sampler to ensure mesh shapes pick position+direction from the same triangle
-        auto emission = SampleEmissionCombined(Shape);
+        auto emission = SampleEmissionCombined(Shape, rng);
         pool.m_Positions[index] = emitterPosition + emitterRotation * emission.Position;
         // Seed prev position to spawn position so the first rendered frame
         // emits zero per-particle motion vector (avoids popping into view

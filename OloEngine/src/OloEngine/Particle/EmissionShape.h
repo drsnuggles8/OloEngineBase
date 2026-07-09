@@ -138,11 +138,11 @@ namespace OloEngine
             if constexpr (std::is_same_v<T, EmitMesh>)    return EmissionShapeType::Mesh; }, shape);
     }
 
-    // Sample a position offset from the emission shape
-    inline glm::vec3 SampleEmissionShape(const EmissionShape& shape)
+    // Sample a position offset from the emission shape. Randomness is drawn
+    // from the caller-supplied `rng` (the owning ParticleSystem's per-system
+    // deterministic stream — issue #452 / #576).
+    inline glm::vec3 SampleEmissionShape(const EmissionShape& shape, FastRandomPCG& rng)
     {
-        auto& rng = RandomUtils::GetGlobalRandom();
-
         return std::visit([&rng](auto&& s) -> glm::vec3
                           {
             using T = std::decay_t<decltype(s)>;
@@ -237,11 +237,10 @@ namespace OloEngine
         return glm::normalize(dir);
     }
 
-    // Get a direction from the emission shape for velocity initialization
-    inline glm::vec3 SampleEmissionDirection(const EmissionShape& shape)
+    // Get a direction from the emission shape for velocity initialization.
+    // Draws from the caller-supplied per-system `rng` (issue #452 / #576).
+    inline glm::vec3 SampleEmissionDirection(const EmissionShape& shape, FastRandomPCG& rng)
     {
-        auto& rng = RandomUtils::GetGlobalRandom();
-
         return std::visit([&rng](auto&& s) -> glm::vec3
                           {
             using T = std::decay_t<decltype(s)>;
@@ -314,7 +313,7 @@ namespace OloEngine
         glm::vec3 Direction{ 0.0f, 1.0f, 0.0f };
     };
 
-    inline EmissionSample SampleEmissionCombined(const EmissionShape& shape)
+    inline EmissionSample SampleEmissionCombined(const EmissionShape& shape, FastRandomPCG& rng)
     {
         EmissionSample sample;
 
@@ -322,7 +321,6 @@ namespace OloEngine
         // Skip the generic SampleEmissionShape call to avoid wasteful double-sampling.
         if (auto* mesh = std::get_if<EmitMesh>(&shape); mesh && mesh->IsValid())
         {
-            auto& rng = RandomUtils::GetGlobalRandom();
             f32 r = rng.GetFloat32InRange(0.0f, mesh->TotalArea);
             auto it = std::ranges::lower_bound(mesh->CumulativeAreas, r);
             u32 triIdx = static_cast<u32>(std::distance(mesh->CumulativeAreas.begin(), it));
@@ -340,8 +338,8 @@ namespace OloEngine
         }
         else
         {
-            sample.Position = SampleEmissionShape(shape);
-            sample.Direction = SampleEmissionDirection(shape);
+            sample.Position = SampleEmissionShape(shape, rng);
+            sample.Direction = SampleEmissionDirection(shape, rng);
         }
 
         return sample;

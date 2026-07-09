@@ -30,12 +30,14 @@
 #include "OloEngine/Scene/SystemScheduler.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/Components.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Task/Scheduler.h"
 
 #include <algorithm>
 #include <atomic>
+#include <bit>
 #include <chrono>
 #include <cstddef>
 #include <iterator>
@@ -260,7 +262,8 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
         "Inventory",
         "Abilities",
         "Audio",
-        "Particles",
+        "ParticlesCPU",
+        "ParticlesGPU",
         "SnowDeformers",
     };
     EXPECT_EQ(Scene::GetGameplaySystemOrderForTesting(), expected);
@@ -323,15 +326,23 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     EXPECT_TRUE(sched.DependsOn("Inventory", "PhysicsFence"));           // pickup proximity reads post-physics transforms
     EXPECT_TRUE(sched.DependsOn("Audio", "PhysicsFence"));               // pose sync reads post-physics transforms
     EXPECT_TRUE(sched.DependsOn("Audio", "Navigation"));
-    EXPECT_TRUE(sched.DependsOn("Particles", "PhysicsFence"));
+    EXPECT_TRUE(sched.DependsOn("ParticlesCPU", "PhysicsFence"));
+    EXPECT_TRUE(sched.DependsOn("ParticlesGPU", "PhysicsFence"));
     EXPECT_TRUE(sched.DependsOn("SnowDeformers", "PhysicsFence"));
 
     // And the deliberate independence the parallel executor exploits: the
     // marked systems (and the transform read-only tail) have no path between
-    // one another.
-    EXPECT_FALSE(sched.DependsOn("Particles", "Audio"));
-    EXPECT_FALSE(sched.DependsOn("Audio", "Particles"));
-    EXPECT_FALSE(sched.DependsOn("SnowDeformers", "Particles"));
+    // one another. ParticlesCPU (marked) must be unordered against the other
+    // marked systems (Abilities, Audio) — that independence is what lets it run
+    // on a worker (issue #576). ParticlesGPU is an unmarked barrier, so it is
+    // free to be unordered here too; the executor still joins tasks before it.
+    EXPECT_FALSE(sched.DependsOn("ParticlesCPU", "Audio"));
+    EXPECT_FALSE(sched.DependsOn("Audio", "ParticlesCPU"));
+    EXPECT_FALSE(sched.DependsOn("ParticlesCPU", "Abilities"));
+    EXPECT_FALSE(sched.DependsOn("Abilities", "ParticlesCPU"));
+    EXPECT_FALSE(sched.DependsOn("ParticlesCPU", "ParticlesGPU"));
+    EXPECT_FALSE(sched.DependsOn("ParticlesGPU", "ParticlesCPU"));
+    EXPECT_FALSE(sched.DependsOn("SnowDeformers", "ParticlesCPU"));
     EXPECT_FALSE(sched.DependsOn("Audio", "Abilities"));
     EXPECT_FALSE(sched.DependsOn("Abilities", "Audio"));
 }
@@ -535,4 +546,94 @@ TEST_F(SystemSchedulerParallelTest, GameplayTickParallelMatchesSequential)
     // And the cooldown genuinely ticked: 30 frames at 1/60 s ≈ 0.5 s consumed.
     EXPECT_GT(sequential, 0.0f);
     EXPECT_LT(sequential, 1.0f);
+}
+
+// ── ParticlesCPU parallel acceptance (issue #576) ────────────────────────────
+// The CPU particle partition is now Parallelizable — it runs on a worker thread
+// while Audio/Abilities run. Because each ParticleSystem draws from its own
+// per-system RNG (seeded from run-seed × UUID, issue #452), the emitted stream
+// must be bit-identical whether ParticlesCPU is dispatched to a worker or run
+// inline. This drives real workers (the fixture StartWorkers()) so the parallel
+// path is genuinely concurrent, then compares the exact particle pools.
+namespace
+{
+    std::vector<u32> TickParticleScene(bool parallelEnabled, u32 tickCount)
+    {
+        const bool previous = SystemScheduler::IsParallelExecutionEnabled();
+        SystemScheduler::SetParallelExecutionEnabled(parallelEnabled);
+
+        Ref<Scene> scene = Scene::Create();
+        scene->SetRenderingEnabled(false);
+
+        Entity camera = scene->CreateEntity("Camera");
+        camera.AddComponent<CameraComponent>().Primary = true;
+
+        // Several CPU emitters with variance on every RNG-driven field + a Sphere
+        // shape, each seeded from a distinct per-system stream.
+        constexpr u32 kEmitters = 4;
+        std::vector<Entity> emitters;
+        emitters.reserve(kEmitters);
+        for (u32 e = 0; e < kEmitters; ++e)
+        {
+            Entity emitter = scene->CreateEntity("Emitter" + std::to_string(e));
+            emitter.GetComponent<TransformComponent>().Translation = { static_cast<f32>(e), 0.0f, 0.0f };
+            auto& sys = emitter.AddComponent<ParticleSystemComponent>().System;
+            sys.Playing = true;
+            sys.Looping = true;
+            sys.Duration = 1000.0f;
+            sys.UseGPU = false;
+            sys.Emitter.RateOverTime = 30.0f;
+            sys.Emitter.InitialSpeed = 2.0f;
+            sys.Emitter.SpeedVariance = 1.0f;
+            sys.Emitter.SizeVariance = 0.3f;
+            sys.Emitter.RotationVariance = 2.0f;
+            sys.Emitter.LifetimeMin = 1.0f;
+            sys.Emitter.LifetimeMax = 2.0f;
+            sys.Emitter.Shape = EmitSphere{ 1.5f };
+            sys.SeedRandom(ParticleSystem::DeriveSeed(0x00ABCDEFu, e + 1));
+            emitters.push_back(emitter);
+        }
+
+        for (u32 i = 0; i < tickCount; ++i)
+        {
+            scene->OnUpdateRuntime(Timestep{ 1.0f / 60.0f });
+        }
+
+        std::vector<u32> sig;
+        const auto push = [&sig](f32 v)
+        { sig.push_back(std::bit_cast<u32>(v)); };
+        for (Entity emitter : emitters)
+        {
+            const ParticleSystem& sys = emitter.GetComponent<ParticleSystemComponent>().System;
+            const ParticlePool& pool = sys.GetPool();
+            const u32 count = sys.GetAliveCount();
+            sig.push_back(count);
+            for (u32 i = 0; i < count; ++i)
+            {
+                push(pool.m_Positions[i].x);
+                push(pool.m_Positions[i].y);
+                push(pool.m_Positions[i].z);
+                push(pool.m_Velocities[i].x);
+                push(pool.m_Velocities[i].y);
+                push(pool.m_Velocities[i].z);
+                push(pool.m_Sizes[i]);
+                push(pool.m_Rotations[i]);
+                push(pool.m_Lifetimes[i]);
+            }
+        }
+
+        SystemScheduler::SetParallelExecutionEnabled(previous);
+        return sig;
+    }
+} // namespace
+
+TEST_F(SystemSchedulerParallelTest, ParticleTickParallelMatchesSequential)
+{
+    const std::vector<u32> sequential = TickParticleScene(false, 30);
+    const std::vector<u32> parallel = TickParticleScene(true, 30);
+
+    ASSERT_GT(sequential[0], 5u) << "sanity: emitters should have produced a non-trivial pool";
+    EXPECT_EQ(sequential, parallel)
+        << "ParticlesCPU produced a different particle stream on a worker thread than inline — "
+           "the per-system RNG is not fully isolated from execution placement (#576/#452)";
 }

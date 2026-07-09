@@ -510,6 +510,7 @@ add_executable(OloEngine-Tests
 		Functional/AI/PerceptionDetectsTargetViaSceneTickTest.cpp
 		Functional/AI/PerceptionLineOfSightBlockedByWallViaSceneTickTest.cpp
 		Functional/Particles/ParticleSystemEmitsAndExpiresTest.cpp
+		Functional/Particles/ParticleSystemDeterminismTest.cpp
 		Functional/AnimationPhysics/CharacterControllerWalksTest.cpp
 		Functional/AnimationPhysics/AnimationBlendCompletesViaSceneTickTest.cpp
 		Functional/AnimationPhysics/SpringBoneJiggleViaSceneTickTest.cpp
