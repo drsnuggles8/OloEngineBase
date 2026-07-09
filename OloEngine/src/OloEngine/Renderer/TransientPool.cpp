@@ -107,7 +107,7 @@ namespace OloEngine
         }
         else
         {
-            // TODO: use appropriate binding point for transient buffers
+            // TODO(olbu): use appropriate binding point for transient buffers
             result = StorageBuffer::Create(sizeBytes, 15, StorageBufferUsage::DynamicDraw);
         }
 

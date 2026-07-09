@@ -10,7 +10,7 @@ namespace OloEngine
     /// Hash utility class for compile-time and runtime string hashing
     /// Currently implements FNV-1a (compile-time) and CRC32 (runtime) algorithms
     ///
-    /// TODO: Future Hash Algorithm Options (as additional methods, not replacements):
+    /// TODO(olbu): Future Hash Algorithm Options (as additional methods, not replacements):
     ///
     /// xxHash32/64:
     ///   - 2-3x faster than CRC32 with excellent distribution

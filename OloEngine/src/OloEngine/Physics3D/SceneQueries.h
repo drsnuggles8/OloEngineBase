@@ -30,7 +30,7 @@ namespace OloEngine
         glm::vec3 m_Normal = glm::vec3(0.0f);
         f32 m_Distance = 0.0f;
         Ref<JoltBody> m_HitBody = nullptr;
-        // TODO: Add PhysicsShape reference when shape abstraction is implemented
+        // TODO(olbu): Add PhysicsShape reference when shape abstraction is implemented
         // Ref<PhysicsShape> m_HitCollider = nullptr;
 
         bool HasHit() const

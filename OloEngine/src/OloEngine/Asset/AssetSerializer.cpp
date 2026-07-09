@@ -1196,7 +1196,7 @@ namespace OloEngine
         stream.ReadString(filePath);
 
         // Create AudioFile asset with file path information
-        // TODO: In runtime, analyze the audio file to get proper metadata
+        // TODO(olbu): In runtime, analyze the audio file to get proper metadata (#598)
         Ref<AudioFile> audioFile = Ref<AudioFile>::Create();
         audioFile->SetHandle(assetInfo.Handle);
 

@@ -157,7 +157,7 @@ namespace OloEngine
 
         // Box2D velocity iterations, shared by the synchronous step (StepPhysics)
         // and the async kick's world-step task so the two can never drift.
-        // TODO: position iterations when Box2D position-iteration support lands.
+        // TODO(olbu): position iterations when Box2D position-iteration support lands.
         constexpr i32 kPhysics2DVelocityIterations = 6;
     } // namespace
 

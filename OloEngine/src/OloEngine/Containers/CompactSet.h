@@ -1278,7 +1278,7 @@ namespace OloEngine
          */
         void Dump() const
         {
-            // TODO: Implement when FOutputDevice is available
+            // TODO(olbu): Implement when FOutputDevice is available
         }
 
         // ====================================================================
@@ -1762,7 +1762,7 @@ namespace OloEngine
     // Deduction Guides
     // ============================================================================
 
-    // TODO: Re-enable when TElementType_T trait is ported
+    // TODO(olbu): Re-enable when TElementType_T trait is ported
     // template <typename RangeType>
     // TCompactSet(RangeType&&) -> TCompactSet<TElementType_T<RangeType>>;
 

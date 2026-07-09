@@ -153,7 +153,7 @@ namespace OloEngine
         {
             // Estimate color attachment memory
             u32 bytesPerPixel = 4; // Default RGBA8
-            // TODO: Could improve this by checking actual format
+            // TODO(olbu): Could improve this by checking actual format
             framebufferMemory += static_cast<sizet>(m_Specification.Width) * m_Specification.Height * bytesPerPixel;
         }
 

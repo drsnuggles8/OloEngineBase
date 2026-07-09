@@ -119,7 +119,7 @@ namespace OloEngine
 
         // Need to cook the mesh - determine primary and secondary types
         // Cook convex first (most common for dynamic bodies) and triangle async
-        // TODO: Could be enhanced with caller hints or usage tracking
+        // TODO(olbu): Could be enhanced with caller hints or usage tracking
         EMeshColliderType primaryType = EMeshColliderType::Convex;
         EMeshColliderType secondaryType = EMeshColliderType::Triangle;
 

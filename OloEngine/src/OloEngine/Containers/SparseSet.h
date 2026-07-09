@@ -1161,7 +1161,7 @@ namespace OloEngine
          */
         void Dump() const
         {
-            // TODO: Implement when FOutputDevice is available
+            // TODO(olbu): Implement when FOutputDevice is available
             // Ar.Logf(TEXT("TSparseSet: %i elements, %i hash slots"), Elements.Num(), HashSize);
             // for (i32 HashIndex = 0; HashIndex < HashSize; ++HashIndex)
             // {
@@ -1612,7 +1612,7 @@ namespace OloEngine
     // Deduction Guide
     // ============================================================================
 
-    // TODO: Re-enable when TElementType trait is ported
+    // TODO(olbu): Re-enable when TElementType trait is ported
     // template <typename RangeType>
     // TSparseSet(RangeType&&) -> TSparseSet<typename TElementType<RangeType>::Type>;
 

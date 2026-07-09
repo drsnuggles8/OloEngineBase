@@ -12,7 +12,7 @@ namespace OloEngine
     /// Compile-time string identifier using FNV hash
     /// Perfect for efficient parameter lookups and event routing in audio systems
     ///
-    /// TODO: Future Identifier/Lookup System Options (as additional classes):
+    /// TODO(olbu): Future Identifier/Lookup System Options (as additional classes):
     ///
     /// Perfect Hash Functions:
     ///   - Zero collisions for known string sets

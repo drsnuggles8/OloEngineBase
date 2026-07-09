@@ -35,7 +35,7 @@ namespace OloEngine
     /// object from different threads. However, individual Ref instances
     /// are not thread-safe and should not be modified concurrently.
     ///
-    /// TODO: Refactor Ref<T> ownership semantics — compare with Unreal Engine's
+    /// TODO(olbu): Refactor Ref<T> ownership semantics (#596) — compare with Unreal Engine's
     /// TSharedPtr/TWeakPtr pattern. Key issues to address:
     ///  - DecRef() leaves m_Instance dangling after delete (SonarQube use-after-free warnings)
     ///  - WeakRef relies on RefUtils::IsLive() global registry instead of control block
