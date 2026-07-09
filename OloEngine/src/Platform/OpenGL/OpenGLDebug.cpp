@@ -28,6 +28,55 @@ namespace OloEngine
         std::mutex s_PerfThrottleMutex;
         std::unordered_map<unsigned int, u64> s_PerfMessageCounts;
 
+        // Program-id -> shader-name registry. Function-local and intentionally
+        // leaked: OpenGLShader destructors call UnregisterGLProgramLabel and
+        // may run during static destruction (a namespace-scope map/mutex here
+        // could already be destroyed by then — use-after-destruction AV at
+        // process exit).
+        struct ProgramLabelRegistry
+        {
+            std::mutex Mutex;
+            std::unordered_map<u32, std::string> Labels;
+        };
+
+        [[nodiscard]] ProgramLabelRegistry& GetProgramLabelRegistry()
+        {
+            static auto* s_Registry = new ProgramLabelRegistry();
+            return *s_Registry;
+        }
+
+        // Resolve a driver message that references a program by raw id
+        // ("... in program 172 ...") to the shader name registered at link
+        // time, so the log line is actionable without a separate id->name
+        // hunt through trace logs. Returns an empty string when the message
+        // names no program or the program wasn't registered.
+        [[nodiscard]] std::string ResolveProgramLabelSuffix(const char* message)
+        {
+            if (message == nullptr)
+                return {};
+
+            const char* found = std::strstr(message, "program ");
+            if (found == nullptr)
+                return {};
+
+            const char* digits = found + std::strlen("program ");
+            if (*digits < '0' || *digits > '9')
+                return {};
+
+            u32 programID = 0;
+            while (*digits >= '0' && *digits <= '9')
+            {
+                programID = programID * 10 + static_cast<u32>(*digits - '0');
+                ++digits;
+            }
+
+            const std::string label = GetGLProgramLabel(programID);
+            if (label.empty())
+                return {};
+
+            return " [program " + std::to_string(programID) + " = '" + label + "']";
+        }
+
         // GL_DEBUG_TYPE_PERFORMANCE notifications can repeat the same message ID
         // every single frame (issue #551 - e.g. NVIDIA id 131186 "buffer migrated
         // VIDEO->HOST" on a per-frame GPU->CPU readback), flooding OloEngine.log at
@@ -56,6 +105,30 @@ namespace OloEngine
         }
     } // namespace
 
+    void RegisterGLProgramLabel(u32 programID, std::string_view name)
+    {
+        if (programID == 0 || name.empty())
+            return;
+        auto& registry = GetProgramLabelRegistry();
+        std::lock_guard lock(registry.Mutex);
+        registry.Labels[programID] = std::string(name);
+    }
+
+    void UnregisterGLProgramLabel(u32 programID)
+    {
+        auto& registry = GetProgramLabelRegistry();
+        std::lock_guard lock(registry.Mutex);
+        registry.Labels.erase(programID);
+    }
+
+    std::string GetGLProgramLabel(u32 programID)
+    {
+        auto& registry = GetProgramLabelRegistry();
+        std::lock_guard lock(registry.Mutex);
+        auto it = registry.Labels.find(programID);
+        return it != registry.Labels.end() ? it->second : std::string{};
+    }
+
     u32 GetGLErrorCount()
     {
         return s_GLErrorCount.load(std::memory_order_relaxed);
@@ -64,6 +137,34 @@ namespace OloEngine
     void ResetGLErrorCount()
     {
         s_GLErrorCount.store(0, std::memory_order_relaxed);
+    }
+
+    // Log the native call stack that produced a shader-recompile performance
+    // warning (NVIDIA id 131218). The debug context is synchronous, so the
+    // callback runs inside the GL call the driver performed the JIT recompile
+    // under — note that is a driver flush point (empirically glClear, see
+    // docs/agent-rules/gl-clear-program-revalidation.md), not necessarily the
+    // call that *caused* the mismatch. Capped to the first few occurrences:
+    // symbolization costs milliseconds and the warning is one-time-per-program
+    // in practice, but a pathological per-frame recompile loop must not turn
+    // into a per-frame stack capture.
+    static void LogShaderRecompileCallStack(u64 occurrence)
+    {
+#if OLO_HAS_STACKTRACE
+        constexpr u64 kMaxStackCaptures = 8;
+        if (occurrence > kMaxStackCaptures)
+            return;
+
+        const auto stack = std::stacktrace::current(2, 24); // skip this fn + the driver callback thunk
+        std::ostringstream oss;
+        for (const auto& frame : stack)
+        {
+            oss << "\n    " << std::to_string(frame);
+        }
+        OLO_CORE_WARN("Shader-recompile draw-site call stack (synchronous debug context):{0}", oss.str());
+#else
+        (void)occurrence;
+#endif
     }
 
     // Log the native call stack that produced a GL ERROR-type debug message.
@@ -190,16 +291,23 @@ namespace OloEngine
             {
                 case GL_DEBUG_SEVERITY_HIGH:
                     if (shouldLog)
-                        OLO_CORE_ERROR("OpenGL performance issue (source: {0}, id: {1}, occurrence: {2}): {3}", sourceStr, id, occurrence, message);
+                        OLO_CORE_ERROR("OpenGL performance issue (source: {0}, id: {1}, occurrence: {2}): {3}{4}", sourceStr, id, occurrence, message, ResolveProgramLabelSuffix(message));
                     return;
                 case GL_DEBUG_SEVERITY_MEDIUM:
                 case GL_DEBUG_SEVERITY_LOW:
                     if (shouldLog)
-                        OLO_CORE_WARN("OpenGL performance warning (source: {0}, id: {1}, occurrence: {2}): {3}", sourceStr, id, occurrence, message);
+                    {
+                        OLO_CORE_WARN("OpenGL performance warning (source: {0}, id: {1}, occurrence: {2}): {3}{4}", sourceStr, id, occurrence, message, ResolveProgramLabelSuffix(message));
+                        // NVIDIA 131218: a driver-side shader JIT recompile.
+                        // The GL call it happened under is the actionable
+                        // datum — log it.
+                        if (id == 131218)
+                            LogShaderRecompileCallStack(occurrence);
+                    }
                     return;
                 case GL_DEBUG_SEVERITY_NOTIFICATION:
                     if (shouldLog)
-                        OLO_CORE_TRACE("OpenGL performance hint (source: {0}, id: {1}, occurrence: {2}): {3}", sourceStr, id, occurrence, message);
+                        OLO_CORE_TRACE("OpenGL performance hint (source: {0}, id: {1}, occurrence: {2}): {3}{4}", sourceStr, id, occurrence, message, ResolveProgramLabelSuffix(message));
                     return;
             }
         }

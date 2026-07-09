@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "Platform/OpenGL/OpenGLContext.h"
+#include "Platform/OpenGL/OpenGLDebug.h"
 #include "Platform/OpenGL/OpenGLProgramBinaryCache.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
@@ -433,6 +434,7 @@ namespace OloEngine
         }
 
         u32 programId = m_RendererID;
+        UnregisterGLProgramLabel(programId);
         FrameResourceManager::Get().SubmitForDeletion([programId]()
                                                       { glDeleteProgram(programId); });
     }
@@ -994,6 +996,16 @@ namespace OloEngine
     {
         OLO_CORE_TRACE("FinalizeProgram: '{}' program={}, spirvMap stages={}", m_Name, program, spirvMap.size());
         m_RendererID = program;
+
+        // Name the program for GPU debuggers (RenderDoc/NSight) and register it
+        // in the CPU-side label registry so the GL debug callback can resolve
+        // driver perf messages that reference a raw program id (e.g. NVIDIA
+        // id 131218 shader-recompile warnings) to this shader's name.
+        if (!m_Name.empty())
+        {
+            glObjectLabel(GL_PROGRAM, program, -1, m_Name.c_str());
+            RegisterGLProgramLabel(program, m_Name);
+        }
 
         // Compute estimated memory from the appropriate SPIR-V map
         sizet estimatedMemory = 0;
@@ -1667,6 +1679,7 @@ namespace OloEngine
                 ShaderResourceRegistry::Register(m_RendererID, &m_ResourceRegistry);
             }
 
+            UnregisterGLProgramLabel(oldProgram);
             FrameResourceManager::Get().SubmitForDeletion([oldProgram]()
                                                           { glDeleteProgram(oldProgram); });
         }

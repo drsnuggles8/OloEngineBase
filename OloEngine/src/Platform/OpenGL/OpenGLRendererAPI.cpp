@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLRendererAPI.h"
 #include "Platform/OpenGL/OpenGLDebug.h"
+#include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
@@ -102,6 +103,10 @@ namespace OloEngine
             }
         }
 
+        // A program left bound by the previous pass would be revalidated
+        // against this framebuffer by the driver during the clear (NVIDIA
+        // id 131218 vertex-shader recompile) — unbind it for the clear.
+        Utils::GLClearProgramGuard programGuard;
         glClear(clearFlags);
 
         if (restoreStencilWriteMask)
@@ -120,6 +125,8 @@ namespace OloEngine
             glDepthMask(GL_TRUE);
         }
 
+        // See Clear(): don't let a stale bound program get revalidated here.
+        Utils::GLClearProgramGuard programGuard;
         glClear(GL_DEPTH_BUFFER_BIT);
 
         if (!m_DepthMaskEnabled)
@@ -138,6 +145,8 @@ namespace OloEngine
             glDepthMask(GL_TRUE);
         }
 
+        // See Clear(): don't let a stale bound program get revalidated here.
+        Utils::GLClearProgramGuard programGuard;
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         if (!m_DepthMaskEnabled)
@@ -421,6 +430,8 @@ namespace OloEngine
             glStencilMask(0xFF);
         }
 
+        // See Clear(): don't let a stale bound program get revalidated here.
+        Utils::GLClearProgramGuard programGuard;
         glClear(GL_STENCIL_BUFFER_BIT);
 
         if (restoreStencilWriteMask)

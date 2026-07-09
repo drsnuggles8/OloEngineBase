@@ -23,6 +23,38 @@ namespace OloEngine::Utils
         }
     }
 
+    // Scoped program unbind around glClear / glClearBuffer* calls. NVIDIA
+    // revalidates the *currently bound* program against the currently bound
+    // framebuffer during a clear and JIT-recompiles its vertex shader when the
+    // state differs from what it was last validated against (debug id 131218)
+    // — a pure waste when the program left bound by the previous pass will
+    // never draw into this framebuffer. Unbinding for just the clear avoids
+    // that; restoring afterwards keeps the bind state every caller (and the
+    // CommandDispatch shader-bind cache) believes in. See
+    // docs/agent-rules/gl-clear-program-revalidation.md.
+    class GLClearProgramGuard
+    {
+      public:
+        GLClearProgramGuard() noexcept
+        {
+            glGetIntegerv(GL_CURRENT_PROGRAM, &m_PreviousProgram);
+            if (m_PreviousProgram != 0)
+                glUseProgram(0);
+        }
+        ~GLClearProgramGuard()
+        {
+            if (m_PreviousProgram != 0)
+                glUseProgram(static_cast<GLuint>(m_PreviousProgram));
+        }
+        GLClearProgramGuard(const GLClearProgramGuard&) = delete;
+        GLClearProgramGuard& operator=(const GLClearProgramGuard&) = delete;
+        GLClearProgramGuard(GLClearProgramGuard&&) = delete;
+        GLClearProgramGuard& operator=(GLClearProgramGuard&&) = delete;
+
+      private:
+        GLint m_PreviousProgram = 0;
+    };
+
     [[nodiscard("Store this!")]] constexpr GLenum TextureTarget(const bool multisampled) noexcept;
     void PrepareTexture(const u32 id, const int samples, const GLenum format, const int width, const int height);
     void CreateTextures(const bool multisampled, const int count, u32* const outID);
