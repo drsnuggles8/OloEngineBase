@@ -206,13 +206,41 @@ Then verify far from origin visually — a missed site is silent near origin.
   lines were already fine by the 1024-multiple rule). The GBuffer variant's
   fragment has no camera block, so the origin rides a `flat` varying from the vertex.
 
+### Done — 2D sprites (`Renderer2D`, CPU bake — a coordinate shift, NOT a shader change)
+
+The only site so far where the detail is lost at **CPU bake time**
+(`transform * local` computed in f32 at 45 km), not at GPU upload — a different
+failure path from every family above, which is why it was a separate slice.
+`Renderer2D` keeps its **own** render origin `O` (`s_Data.RenderOrigin`),
+computed per `BeginScene` from the camera world position (`BeginSceneImpl`), and:
+- uploads the 2D camera UBO **relative** — `MakeViewProjectionRelative(vpWorld, O)`
+  (was the plain world VP). The three `BeginScene` overloads feed it the camera
+  world position: `OrthographicCamera`/`EditorCamera` via `GetPosition()`, the
+  runtime `(Camera, transform)` path via the transform's translation column.
+- bakes every world vertex **relative**: the transform-matrix `Draw*` calls
+  (`DrawQuad`/`DrawCircle`/`DrawRect(mat4)`/`DrawSprite`/`DrawString`) shift the
+  matrix once with `MakeModelRelative(transform, O)` before `matrix * local`; the
+  explicit-position calls (`DrawLine`/`DrawPolygon`/`DrawQuadVertices`) subtract
+  `O` per vertex with `MakePositionRelative`.
+- needs **NO shader change** — the 2D shaders only project `a_Position` /
+  `a_WorldPosition` through the camera UBO, and `VP_rel * (worldPos − O) ==
+  VP_world * worldPos`, so the shift is invisible to them (unlike the family-A
+  pattern shaders that sample an absolute-world pattern and must add `O` back).
+- gotcha: `DrawRect(mat4)` bakes its corners **relative** and feeds them to a
+  private `DrawLineImpl` (no shift), because the public `DrawLine` subtracts `O`
+  from its world-space endpoints — routing the already-relative corners through
+  `DrawLine` would double-subtract.
+- own debug lever `Renderer2D::SetCameraRelativeEnabled(false)` (separate from
+  Renderer3D's — Renderer2D holds its own `s_Data.CameraRelativeEnabled`), pins
+  `O` to (0,0,0). Pinned by `Renderer2DCameraRelativeTest.cpp` (CPU, ortho bake
+  math) + `Renderer2DCameraRelativeVisualEvidenceTest.cpp` (near/far, ON vs OFF).
+- **follow-up gap discovered:** other CPU-bake-to-world paths likely have the
+  same latent issue — `UIRenderer` and `ParticleRenderer` both call
+  `Renderer2D::BeginScene`/`DrawSprite`, so they now inherit the 2D shift for
+  free, but any subsystem that bakes its own absolute-world vertices before
+  upload (not through `Renderer2D`) is a separate audit.
+
 ### Remaining (follow-up)
-- **2D sprites** (`Renderer2D`) — a clean coordinate shift, **not** a pattern
-  shader: needs its own snapped origin applied to the VP upload **and** every
-  CPU-baked world vertex (`transform * QuadVertexPositions[i]`, circle
-  `WorldPosition`, line/text batches — ~10 hot-loop sites), because the detail is
-  lost at *bake time* (`transform * local` at 45 km). Cleanest: shift the
-  `transform` once per `Draw*` call. No-op near origin.
 - **Terrain GEOMETRY far from origin** — the terrain *patches* stop rendering far
   out because the CPU-side terrain quadtree LOD (`TerrainUBO::TessFactors`,
   computed from camera↔patch distance) loses precision at ~45 km, so patches
@@ -228,4 +256,7 @@ Then verify far from origin visually — a missed site is silent near origin.
 `Renderer3D::SetCameraRelativeEnabled(false)` pins `O` to (0,0,0), reverting to
 exact pre-#429 world-space behaviour — used to A/B the feature (the visual
 evidence test captures far-origin ON vs OFF) and to isolate a regression. Same
-spirit as `OLO_GAMEPLAY_SCHEDULER_SEQUENTIAL`.
+spirit as `OLO_GAMEPLAY_SCHEDULER_SEQUENTIAL`. `Renderer2D` has its **own**
+independent lever `Renderer2D::SetCameraRelativeEnabled(false)` (the 2D path
+holds a separate `s_Data.RenderOrigin` / `CameraRelativeEnabled`), so the 2D
+overlay and the 3D scene can be A/B'd independently.

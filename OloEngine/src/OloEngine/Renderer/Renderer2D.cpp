@@ -3,6 +3,7 @@
 #include "OloEngine/Core/UTF8.h"
 
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Buffer.h"
@@ -129,6 +130,16 @@ namespace OloEngine
         Ref<Texture2D> SlugBandTexture;
 
         glm::vec4 QuadVertexPositions[4]{};
+
+        // Camera-relative rendering (issue #429). RenderOrigin is the camera
+        // position snapped to a coarse grid; every world vertex is baked
+        // relative to it and the uploaded view-projection is made relative to
+        // the same origin, so the CPU bake and the GPU projection both work
+        // near 0 where f32 is precise. (0,0,0) near the world origin — a
+        // byte-identical no-op there. CameraRelativeEnabled is the debug lever
+        // that pins the origin to (0,0,0).
+        glm::vec3 RenderOrigin = glm::vec3(0.0f);
+        bool CameraRelativeEnabled = true;
 
         Renderer2D::Statistics Stats;
 
@@ -298,11 +309,20 @@ namespace OloEngine
         s_Data.TextVertexBufferBase = nullptr;
     }
 
-    void Renderer2D::BeginScene(const OrthographicCamera& camera)
+    void Renderer2D::BeginSceneImpl(const glm::mat4& viewProjectionWorld, const glm::vec3& cameraWorldPos)
     {
-        OLO_PROFILE_FUNCTION();
+        // Camera-relative rendering (issue #429): pick a grid-snapped render
+        // origin near the camera and render everything relative to it, so both
+        // the CPU vertex bake (transform * local, done in DrawQuad/Circle/...)
+        // and the GPU projection work near 0 where f32 has abundant precision.
+        // Near the world origin — or with the debug lever off — the origin is
+        // exactly (0,0,0) and MakeViewProjectionRelative is a byte-identical
+        // no-op. Unlike the 3D pattern-shader sites this needs NO shader change:
+        // VP_rel * (worldPos - O) == VP_world * worldPos, so the 2D shaders
+        // that only project a_Position / a_WorldPosition stay correct unmodified.
+        s_Data.RenderOrigin = s_Data.CameraRelativeEnabled ? ComputeRenderOrigin(cameraWorldPos) : glm::vec3(0.0f);
+        s_Data.CameraBuffer.ViewProjection = MakeViewProjectionRelative(viewProjectionWorld, s_Data.RenderOrigin);
 
-        s_Data.CameraBuffer.ViewProjection = camera.GetViewProjectionMatrix();
         UniformData data = { &s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0 };
         s_Data.CameraUniformBuffer->SetData(data);
         // Re-bind to ensure this UBO is active at binding point 0.
@@ -312,28 +332,28 @@ namespace OloEngine
         StartBatch();
     }
 
+    void Renderer2D::BeginScene(const OrthographicCamera& camera)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        BeginSceneImpl(camera.GetViewProjectionMatrix(), camera.GetPosition());
+    }
+
     void Renderer2D::BeginScene(const Camera& camera, const glm::mat4& transform)
     {
         OLO_PROFILE_FUNCTION();
 
-        s_Data.CameraBuffer.ViewProjection = camera.GetProjection() * glm::inverse(transform);
-        UniformData data = { &s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0 };
-        s_Data.CameraUniformBuffer->SetData(data);
-        s_Data.CameraUniformBuffer->Bind();
-
-        StartBatch();
+        // The camera world position is the translation column of its world
+        // transform (the render origin needs the camera's world location, not
+        // the inverse-transform view maths).
+        BeginSceneImpl(camera.GetProjection() * glm::inverse(transform), glm::vec3(transform[3]));
     }
 
     void Renderer2D::BeginScene(const EditorCamera& camera)
     {
         OLO_PROFILE_FUNCTION();
 
-        s_Data.CameraBuffer.ViewProjection = camera.GetViewProjection();
-        UniformData data = { &s_Data.CameraBuffer, sizeof(Renderer2DData::CameraData), 0 };
-        s_Data.CameraUniformBuffer->SetData(data);
-        s_Data.CameraUniformBuffer->Bind();
-
-        StartBatch();
+        BeginSceneImpl(camera.GetViewProjection(), camera.GetPosition());
     }
 
     void Renderer2D::EndScene()
@@ -546,9 +566,15 @@ namespace OloEngine
             NextBatch();
         }
 
+        // Bake vertices in render-relative space (issue #429): shift the model
+        // matrix by -RenderOrigin so transform * local lands near 0 with the
+        // fine local detail preserved, instead of being quantized at large
+        // world coordinates. No-op near origin. See CameraRelative.h.
+        const glm::mat4 relTransform = MakeModelRelative(transform, s_Data.RenderOrigin);
+
         for (sizet i = 0; i < quadVertexCount; ++i)
         {
-            s_Data.QuadVertexBufferPtr->Position = transform * s_Data.QuadVertexPositions[i];
+            s_Data.QuadVertexBufferPtr->Position = relTransform * s_Data.QuadVertexPositions[i];
             s_Data.QuadVertexBufferPtr->Color = color;
             s_Data.QuadVertexBufferPtr->TexCoord = textureCoords[i];
             s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
@@ -596,9 +622,13 @@ namespace OloEngine
             ++s_Data.TextureSlotIndex;
         }
 
+        // Bake in render-relative space (issue #429) — see the color-only
+        // DrawQuad overload above for the rationale. No-op near origin.
+        const glm::mat4 relTransform = MakeModelRelative(transform, s_Data.RenderOrigin);
+
         for (sizet i = 0; i < quadVertexCount; ++i)
         {
-            s_Data.QuadVertexBufferPtr->Position = transform * s_Data.QuadVertexPositions[i];
+            s_Data.QuadVertexBufferPtr->Position = relTransform * s_Data.QuadVertexPositions[i];
             s_Data.QuadVertexBufferPtr->Color = tintColor;
             s_Data.QuadVertexBufferPtr->TexCoord = textureCoords[i];
             s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
@@ -651,9 +681,13 @@ namespace OloEngine
             ++s_Data.TextureSlotIndex;
         }
 
+        // Bake in render-relative space (issue #429) — see the color-only
+        // DrawQuad overload above for the rationale. No-op near origin.
+        const glm::mat4 relTransform = MakeModelRelative(transform, s_Data.RenderOrigin);
+
         for (sizet i = 0; i < quadVertexCount; ++i)
         {
-            s_Data.QuadVertexBufferPtr->Position = transform * s_Data.QuadVertexPositions[i];
+            s_Data.QuadVertexBufferPtr->Position = relTransform * s_Data.QuadVertexPositions[i];
             s_Data.QuadVertexBufferPtr->Color = tintColor;
             s_Data.QuadVertexBufferPtr->TexCoord = textureCoords[i];
             s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
@@ -682,7 +716,9 @@ namespace OloEngine
 
         for (sizet i = 0; i < 4; ++i)
         {
-            s_Data.QuadVertexBufferPtr->Position = positions[i];
+            // Explicit world positions: shift into render-relative space
+            // (issue #429). No-op near origin. See CameraRelative.h.
+            s_Data.QuadVertexBufferPtr->Position = MakePositionRelative(positions[i], s_Data.RenderOrigin);
             s_Data.QuadVertexBufferPtr->Color = colors[i];
             s_Data.QuadVertexBufferPtr->TexCoord = textureCoords[i];
             s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
@@ -733,7 +769,9 @@ namespace OloEngine
 
         for (sizet i = 0; i < 4; ++i)
         {
-            s_Data.QuadVertexBufferPtr->Position = positions[i];
+            // Explicit world positions: shift into render-relative space
+            // (issue #429). No-op near origin. See CameraRelative.h.
+            s_Data.QuadVertexBufferPtr->Position = MakePositionRelative(positions[i], s_Data.RenderOrigin);
             s_Data.QuadVertexBufferPtr->Color = colors[i];
             s_Data.QuadVertexBufferPtr->TexCoord = texCoords[i];
             s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
@@ -763,7 +801,9 @@ namespace OloEngine
 
         for (const auto& vertex : vertices)
         {
-            s_Data.PolygonVertexBufferPtr->Position = vertex;
+            // Explicit world positions: shift into render-relative space
+            // (issue #429). No-op near origin. See CameraRelative.h.
+            s_Data.PolygonVertexBufferPtr->Position = MakePositionRelative(vertex, s_Data.RenderOrigin);
             s_Data.PolygonVertexBufferPtr->Color = color;
             s_Data.PolygonVertexBufferPtr->EntityID = entityID;
             ++s_Data.PolygonVertexBufferPtr;
@@ -810,9 +850,15 @@ namespace OloEngine
             NextBatch();
         }
 
+        // Bake the (misnamed) WorldPosition in render-relative space (issue
+        // #429): shift the model matrix by -RenderOrigin. LocalPosition is the
+        // origin-independent ring coordinate the fragment shader integrates, so
+        // it is untouched. No-op near origin. See CameraRelative.h.
+        const glm::mat4 relTransform = MakeModelRelative(transform, s_Data.RenderOrigin);
+
         for (auto const& QuadVertexPosition : s_Data.QuadVertexPositions)
         {
-            s_Data.CircleVertexBufferPtr->WorldPosition = transform * QuadVertexPosition;
+            s_Data.CircleVertexBufferPtr->WorldPosition = relTransform * QuadVertexPosition;
             s_Data.CircleVertexBufferPtr->LocalPosition = QuadVertexPosition * 2.0f;
             s_Data.CircleVertexBufferPtr->Color = color;
             s_Data.CircleVertexBufferPtr->Thickness = thickness;
@@ -826,8 +872,11 @@ namespace OloEngine
         ++s_Data.Stats.QuadCount;
     }
 
-    void Renderer2D::DrawLine(const glm::vec3& p0, const glm::vec3& p1, const glm::vec4& color, const int entityID)
+    void Renderer2D::DrawLineImpl(const glm::vec3& p0, const glm::vec3& p1, const glm::vec4& color, const int entityID)
     {
+        // Endpoints are already render-relative (issue #429): the public
+        // DrawLine subtracts the origin from world-space endpoints; the
+        // transform-baked DrawRect(mat4) bakes relative and passes through here.
         s_Data.LineVertexBufferPtr->Position = p0;
         s_Data.LineVertexBufferPtr->Color = color;
         s_Data.LineVertexBufferPtr->EntityID = entityID;
@@ -839,6 +888,14 @@ namespace OloEngine
         ++s_Data.LineVertexBufferPtr;
 
         s_Data.LineVertexCount += 2;
+    }
+
+    void Renderer2D::DrawLine(const glm::vec3& p0, const glm::vec3& p1, const glm::vec4& color, const int entityID)
+    {
+        // World-space endpoints: shift into render-relative space (issue #429).
+        // No-op near origin. See CameraRelative.h.
+        DrawLineImpl(MakePositionRelative(p0, s_Data.RenderOrigin),
+                     MakePositionRelative(p1, s_Data.RenderOrigin), color, entityID);
     }
 
     void Renderer2D::DrawRect(const glm::vec3& position, const glm::vec2& size, const glm::vec4& color, const int entityID)
@@ -856,16 +913,23 @@ namespace OloEngine
 
     void Renderer2D::DrawRect(const glm::mat4& transform, const glm::vec4& color, const int entityID)
     {
+        // Bake the corners in render-relative space (issue #429): shift the
+        // model matrix by -RenderOrigin so the corner offsets survive at large
+        // world coordinates, then feed the already-relative corners straight to
+        // DrawLineImpl (not the public DrawLine, which would subtract the origin
+        // a second time). No-op near origin. See CameraRelative.h.
+        const glm::mat4 relTransform = MakeModelRelative(transform, s_Data.RenderOrigin);
+
         glm::vec3 lineVertices[4]{};
         for (sizet i = 0; i < 4; ++i)
         {
-            lineVertices[i] = transform * s_Data.QuadVertexPositions[i];
+            lineVertices[i] = relTransform * s_Data.QuadVertexPositions[i];
         }
 
-        DrawLine(lineVertices[0], lineVertices[1], color, entityID);
-        DrawLine(lineVertices[1], lineVertices[2], color, entityID);
-        DrawLine(lineVertices[2], lineVertices[3], color, entityID);
-        DrawLine(lineVertices[3], lineVertices[0], color, entityID);
+        DrawLineImpl(lineVertices[0], lineVertices[1], color, entityID);
+        DrawLineImpl(lineVertices[1], lineVertices[2], color, entityID);
+        DrawLineImpl(lineVertices[2], lineVertices[3], color, entityID);
+        DrawLineImpl(lineVertices[3], lineVertices[0], color, entityID);
     }
 
     void Renderer2D::DrawSprite(const glm::mat4& transform, SpriteRendererComponent const& src, const int entityID)
@@ -889,6 +953,12 @@ namespace OloEngine
         {
             return;
         }
+
+        // Bake glyph quads in render-relative space (issue #429): shift the text
+        // block's model matrix by -RenderOrigin so glyph geometry lands near 0
+        // with sub-pixel detail intact instead of quantized at large world
+        // coordinates. No-op near origin. See CameraRelative.h.
+        const glm::mat4 relTransform = MakeModelRelative(transform, s_Data.RenderOrigin);
 
         const auto& metrics = slugData->Metrics;
 
@@ -1184,7 +1254,7 @@ namespace OloEngine
             // so the shared index buffer {0,1,2, 2,3,0} produces +Z front faces.
 
             // v0: Bottom-left
-            s_Data.TextVertexBufferPtr->Position = transform * glm::vec4(quadMin, 0.0f, 1.0f);
+            s_Data.TextVertexBufferPtr->Position = relTransform * glm::vec4(quadMin, 0.0f, 1.0f);
             s_Data.TextVertexBufferPtr->Color = textParams.Color;
             s_Data.TextVertexBufferPtr->TexCoord = emMin;
             s_Data.TextVertexBufferPtr->BandTransform = bandTransform;
@@ -1193,7 +1263,7 @@ namespace OloEngine
             ++s_Data.TextVertexBufferPtr;
 
             // v1: Bottom-right
-            s_Data.TextVertexBufferPtr->Position = transform * glm::vec4(quadMax.x, quadMin.y, 0.0f, 1.0f);
+            s_Data.TextVertexBufferPtr->Position = relTransform * glm::vec4(quadMax.x, quadMin.y, 0.0f, 1.0f);
             s_Data.TextVertexBufferPtr->Color = textParams.Color;
             s_Data.TextVertexBufferPtr->TexCoord = { emMax.x, emMin.y };
             s_Data.TextVertexBufferPtr->BandTransform = bandTransform;
@@ -1202,7 +1272,7 @@ namespace OloEngine
             ++s_Data.TextVertexBufferPtr;
 
             // v2: Top-right
-            s_Data.TextVertexBufferPtr->Position = transform * glm::vec4(quadMax, 0.0f, 1.0f);
+            s_Data.TextVertexBufferPtr->Position = relTransform * glm::vec4(quadMax, 0.0f, 1.0f);
             s_Data.TextVertexBufferPtr->Color = textParams.Color;
             s_Data.TextVertexBufferPtr->TexCoord = emMax;
             s_Data.TextVertexBufferPtr->BandTransform = bandTransform;
@@ -1211,7 +1281,7 @@ namespace OloEngine
             ++s_Data.TextVertexBufferPtr;
 
             // v3: Top-left
-            s_Data.TextVertexBufferPtr->Position = transform * glm::vec4(quadMin.x, quadMax.y, 0.0f, 1.0f);
+            s_Data.TextVertexBufferPtr->Position = relTransform * glm::vec4(quadMin.x, quadMax.y, 0.0f, 1.0f);
             s_Data.TextVertexBufferPtr->Color = textParams.Color;
             s_Data.TextVertexBufferPtr->TexCoord = { emMin.x, emMax.y };
             s_Data.TextVertexBufferPtr->BandTransform = bandTransform;
@@ -1247,6 +1317,16 @@ namespace OloEngine
     void Renderer2D::SetLineWidth(const f32 width)
     {
         s_Data.LineWidth = width;
+    }
+
+    void Renderer2D::SetCameraRelativeEnabled(const bool enabled)
+    {
+        s_Data.CameraRelativeEnabled = enabled;
+    }
+
+    bool Renderer2D::IsCameraRelativeEnabled()
+    {
+        return s_Data.CameraRelativeEnabled;
     }
 
     void Renderer2D::ResetStats()

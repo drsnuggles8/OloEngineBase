@@ -88,6 +88,7 @@ add_executable(OloEngine-Tests
 		Rendering/ReflectionProbeSelectionTest.cpp
 		Rendering/PlanarReflectionMathTest.cpp
 		Rendering/CameraRelativeTest.cpp
+		Rendering/Renderer2DCameraRelativeTest.cpp
 		Rendering/LODTest.cpp
 		Rendering/MeshOptimizationTest.cpp
 		Rendering/MeshSourceBoundsTest.cpp
@@ -147,6 +148,7 @@ add_executable(OloEngine-Tests
 		# Rendering property tests (require GL 4.5+ context; skip gracefully if unavailable)
 		Rendering/PropertyTests/RenderPropertyTest.cpp
 		Rendering/PropertyTests/CameraRelativeVisualEvidenceTest.cpp
+		Rendering/PropertyTests/Renderer2DCameraRelativeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/PlanarReflectionVisualEvidenceTest.cpp
 		Rendering/PropertyTests/HZBGeneratorResizeTest.cpp
 		Rendering/PropertyTests/GPUOcclusionCullGPUTest.cpp
