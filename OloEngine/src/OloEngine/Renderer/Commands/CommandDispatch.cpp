@@ -769,8 +769,10 @@ namespace OloEngine
             // single-instance mesh path — main, depth-only, quad, terrain,
             // voxel. The normal matrix is translation-invariant so it is
             // uploaded unchanged. Near origin the origin is (0,0,0) and this is
-            // a no-op.
-            const glm::vec3 origin = Renderer3D::GetRenderOrigin();
+            // a no-op. Read the render origin from CommandDispatch's own state
+            // (the same source UploadCameraUBO and DrawMeshInstanced use) so the
+            // relative transform and the camera shift cannot diverge.
+            const glm::vec3 origin = CommandDispatch::GetRenderOrigin();
 
             InstanceData inst;
             inst.Transform = MakeModelRelative(modelData.Model, origin);

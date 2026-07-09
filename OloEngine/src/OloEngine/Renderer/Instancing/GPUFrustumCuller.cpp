@@ -255,8 +255,23 @@ namespace OloEngine
         slot.OutputBuffer->EnsureCapacity(inputCount);
         slot.Phase2Output->EnsureCapacity(inputCount);
 
+        // Camera-relative (issue #429): the phase-1/phase-2 survivors are written
+        // straight into the model instance buffer the draw reads (binding 15) and
+        // the cull tests against the *relative* view-projection, so the uploaded
+        // transforms must be render-relative — mirror the single-phase Cull()
+        // shift. No-op at the origin.
         if (inputCount > 0)
-            slot.InputBuffer->SetData(instances.data(), inputCount * static_cast<u32>(sizeof(InstanceData)), 0);
+        {
+            const glm::vec3 origin = Renderer3D::GetRenderOrigin();
+            thread_local std::vector<InstanceData> scratch;
+            scratch.assign(instances.begin(), instances.end());
+            for (InstanceData& inst : scratch)
+            {
+                inst.Transform = MakeModelRelative(inst.Transform, origin);
+                inst.PrevTransform = MakeModelRelative(inst.PrevTransform, origin);
+            }
+            slot.InputBuffer->SetData(scratch.data(), inputCount * static_cast<u32>(sizeof(InstanceData)), 0);
+        }
 
         // Seed the phase-1 indirect command (compute atomic-adds survivors) and
         // zero the reject counter (compute atomic-adds rejects).

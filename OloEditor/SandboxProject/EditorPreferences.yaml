@@ -13,6 +13,9 @@ EditorPreferences:
   ThrottleEditMode: true
   ThrottlePlayMode: false
   RenderBudgetMs: 33.3
+  FrameRateCap: 0
+  FrameTimeSmoothing: 1
+  RenderInterpolation: true
   EnableAutoSave: true
   AutoSaveIntervalSeconds: 300
   McpAutoStart: false
