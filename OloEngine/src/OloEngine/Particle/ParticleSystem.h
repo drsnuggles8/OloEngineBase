@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Particle/ParticlePool.h"
 #include "OloEngine/Particle/ParticleEmitter.h"
 #include "OloEngine/Particle/ParticleModules.h"
@@ -126,6 +127,56 @@ namespace OloEngine
             m_JoltScene = scene;
         }
 
+        // --- Deterministic per-system RNG (issue #452 / #576) ---
+        //
+        // Every ParticleSystem owns its own random stream rather than drawing
+        // from the thread_local RandomUtils::GetGlobalRandom(). This makes each
+        // system's emission reproducible independent of (a) which thread it runs
+        // on — the global stream is only seeded on the game thread, so a
+        // worker-dispatched particle update would otherwise ride an unseeded,
+        // time-seeded stream — and (b) how many other consumers (loot rolls,
+        // sibling systems, sub-emitters) drew from the shared stream this frame.
+        // Scene::OnRuntimeStart seeds each system via SeedRandom(DeriveSeed(...)).
+
+        // Re-seed this system's random stream. Deterministic: the same seed
+        // followed by the same Update() sequence reproduces the same particles.
+        void SeedRandom(u64 seed) noexcept
+        {
+            m_Random.SetSeed(seed);
+            m_RandomSeeded = true;
+        }
+
+        // Whether SeedRandom has been called. The Scene uses this to lazily
+        // seed edit-mode / simulate-preview systems exactly once (so twin
+        // emitters decorrelate) without re-seeding — and to skip re-seeding a
+        // system OnRuntimeStart already seeded authoritatively.
+        [[nodiscard]] bool IsRandomSeeded() const noexcept
+        {
+            return m_RandomSeeded;
+        }
+
+        // Random stream backing this system's emission (used by Scene when it
+        // spawns sub-emitter particles into a child system's pool).
+        [[nodiscard]] FastRandomPCG& GetRandom() noexcept
+        {
+            return m_Random;
+        }
+
+        // Combine the global run seed with an entity UUID (and an optional
+        // sub-stream index — 0 for the parent system, N+1 for child system N)
+        // into an independent, reproducible per-system seed. Honors the
+        // "global-seed × entity UUID" derivation: the UUID enters
+        // multiplicatively so two entities with the same global seed draw from
+        // distinct streams, while a SplitMix64 finalizer avoids the degenerate
+        // seeds a plain product would produce (uuid == 0, small factors).
+        [[nodiscard]] static u64 DeriveSeed(u64 globalSeed, u64 entityUUID, u32 subStream = 0) noexcept
+        {
+            u64 z = globalSeed + entityUUID * 0x9E3779B97F4A7C15ULL + (static_cast<u64>(subStream) + 1) * 0xD1B54A32D192ED03ULL;
+            z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+            z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+            return z ^ (z >> 31);
+        }
+
         // Public settings
         bool Playing = true;
         bool Looping = true;
@@ -198,6 +249,8 @@ namespace OloEngine
         f32 m_Time = 0.0f;
         f32 m_LODSpawnRateMultiplier = 1.0f;
         bool m_HasWarmedUp = false;
+        FastRandomPCG m_Random; // Per-system deterministic RNG (see SeedRandom/DeriveSeed)
+        bool m_RandomSeeded = false;
 
         void ProcessSubEmitterTriggers();
         void UpdateInternal(f32 dt, const glm::vec3& emitterPosition, const glm::vec3& parentVelocity, const glm::quat& emitterRotation);

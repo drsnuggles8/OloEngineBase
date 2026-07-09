@@ -748,8 +748,14 @@ namespace OloEngine
         void UpdateQuest(Timestep ts);           // quest timers / conditions
         void UpdateAbilities(Timestep ts);       // gameplay ability system
         void UpdateAudio(Timestep ts);           // listener/source pose sync + events
-        void UpdateParticles(Timestep ts);       // particle systems + sub-emitters
-        void UpdateSnowDeformers(Timestep ts);   // snow deformation stamps + ejecta
+        // Particle update is split by GPU usage (issue #576): the CPU partition
+        // is worker-dispatchable (Parallelizable), the GPU partition stays on the
+        // game thread because it issues GL compute. UpdateParticlesPartition does
+        // the shared camera-LOD + group walk; each wrapper picks its partition.
+        void UpdateParticlesCPU(Timestep ts); // CPU-only systems (worker-safe)
+        void UpdateParticlesGPU(Timestep ts); // GPU / GL-compute systems (game thread)
+        void UpdateParticlesPartition(Timestep ts, bool gpuPartition);
+        void UpdateSnowDeformers(Timestep ts); // snow deformation stamps + ejecta
 
       public:
         // The process-wide gameplay system schedule. Built once (thread-safe

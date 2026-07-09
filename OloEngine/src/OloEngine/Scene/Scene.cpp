@@ -252,6 +252,12 @@ namespace OloEngine
         (void)m_Registry.storage<AudioSoundGraphComponent>();
         (void)m_Registry.group<AudioListenerComponent>(entt::get<TransformComponent>);
         (void)m_Registry.group<AudioSourceComponent>(entt::get<TransformComponent>);
+        // ParticlesCPU (issue #576): the worker body walks this owning group and
+        // reads the CameraComponent storage for LOD — pre-create both so the
+        // first-touch is a pure read on the worker, never a pool-map mutation.
+        (void)m_Registry.storage<ParticleSystemComponent>();
+        (void)m_Registry.storage<CameraComponent>();
+        (void)m_Registry.group<ParticleSystemComponent>(entt::get<TransformComponent>);
     }
 
     template<typename T>
@@ -873,6 +879,25 @@ namespace OloEngine
         }
     }
 
+    // Fixed base seed for edit-mode / simulate-preview particle streams.
+    // Distinct from any run seed so a preview never accidentally matches a
+    // gameplay replay, but constant so previews are themselves reproducible.
+    static constexpr u64 kParticleEditorPreviewSeed = 0x0102030405060708ULL;
+
+    // Seed a ParticleSystemComponent's parent system + every child sub-system
+    // from baseSeed × entity UUID (issue #452 / #576). Each child gets a
+    // distinct sub-stream index so no two systems on the same entity share a
+    // stream. Used by OnRuntimeStart (run seed, authoritative for determinism)
+    // and OnSimulationStart (preview seed).
+    static void SeedParticleSystemComponent(ParticleSystemComponent& psc, u64 baseSeed, u64 entityUUID)
+    {
+        psc.System.SeedRandom(ParticleSystem::DeriveSeed(baseSeed, entityUUID));
+        for (sizet c = 0; c < psc.ChildSystems.size(); ++c)
+        {
+            psc.ChildSystems[c].SeedRandom(ParticleSystem::DeriveSeed(baseSeed, entityUUID, static_cast<u32>(c) + 1));
+        }
+    }
+
     void Scene::OnRuntimeStart()
     {
         m_IsRunning = true;
@@ -884,9 +909,13 @@ namespace OloEngine
         // OloRuntime — means every play-through starts from an identical RNG
         // state, tick 0, and time 0, so a run replays identically given the same
         // seed and inputs. This seeds the GAME THREAD's RandomUtils stream — the
-        // one game-thread gameplay (loot rolls, particle jitter, …) consumes. The
-        // generator is thread_local, so RNG drawn on worker/job threads rides a
+        // one game-thread gameplay (loot rolls, …) consumes. The generator is
+        // thread_local, so RNG drawn on worker/job threads still rides a
         // separate, time-seeded stream and is NOT reproducible (a #452 follow-up).
+        // Particle emission no longer depends on this shared stream: each
+        // ParticleSystem owns a per-system RNG, seeded just below from
+        // run-seed × entity UUID, so it replays identically even off the game
+        // thread (issue #576 — closes the #452 particle/sub-emitter gap).
         m_SimulationTick = 0;
         m_FixedTimeAccumulator = 0.0f;
         m_SimulationTime = 0.0f;
@@ -897,6 +926,23 @@ namespace OloEngine
         m_HasInterpSnapshots = false;
         m_RenderInterpAlpha = 0.0f;
         RandomUtils::SetGlobalSeed(Application::Get().GetRandomSeed());
+
+        // Seed each particle system's own deterministic RNG (issue #452 / #576).
+        // Particle emission draws from a per-ParticleSystem stream rather than
+        // the thread_local global one, so a system's jitter is reproducible
+        // regardless of how many other consumers share the global stream this
+        // frame and independent of which thread the update runs on. Deriving
+        // the seed from the run seed × entity UUID gives every emitter (and
+        // every child sub-emitter, via a distinct sub-stream index) its own
+        // independent, replay-stable stream.
+        {
+            const u64 runSeed = Application::Get().GetRandomSeed();
+            for (auto psView = m_Registry.view<ParticleSystemComponent, IDComponent>(); auto entity : psView)
+            {
+                auto& psc = psView.get<ParticleSystemComponent>(entity);
+                SeedParticleSystemComponent(psc, runSeed, static_cast<u64>(psView.get<IDComponent>(entity).ID));
+            }
+        }
 
         // Unified diagnostics timeline (#306 item B): the single authoritative fire for
         // "entered Play mode" — the editor copies the scene then calls this; OloRuntime
@@ -1179,6 +1225,17 @@ namespace OloEngine
         m_HasInterpSnapshots = false;
         m_RenderInterpAlpha = 0.0f;
 
+        // Seed each particle system's RNG from the fixed preview seed so a
+        // Simulate session's emission is decorrelated across systems and
+        // reproducible per session (issue #452 / #576). Simulate is a preview,
+        // not a determinism guarantee, so it uses the constant preview seed
+        // rather than the application run seed OnRuntimeStart uses.
+        for (auto psView = m_Registry.view<ParticleSystemComponent, IDComponent>(); auto entity : psView)
+        {
+            auto& psc = psView.get<ParticleSystemComponent>(entity);
+            SeedParticleSystemComponent(psc, kParticleEditorPreviewSeed, static_cast<u64>(psView.get<IDComponent>(entity).ID));
+        }
+
         OnPhysics2DStart();
         OnPhysics3DStart();
     }
@@ -1233,8 +1290,6 @@ namespace OloEngine
             return;
         }
 
-        auto& rng = RandomUtils::GetGlobalRandom();
-
         for (const auto& trigger : triggers)
         {
             if (trigger.ChildSystemIndex < 0 || static_cast<u32>(trigger.ChildSystemIndex) >= psc.ChildSystems.size())
@@ -1245,6 +1300,10 @@ namespace OloEngine
             auto& childSystem = psc.ChildSystems[trigger.ChildSystemIndex];
             auto& childPool = childSystem.GetPool();
             const auto& childEmitter = childSystem.Emitter;
+            // Spawn jitter draws from the child system's own deterministic
+            // stream (seeded per-child in OnRuntimeStart) — not the shared
+            // global RNG — so sub-emitter output is reproducible (issue #452).
+            auto& rng = childSystem.GetRandom();
 
             u32 firstSlot = childPool.GetAliveCount();
             u32 emitted = childPool.Emit(trigger.EmitCount);
@@ -2141,11 +2200,30 @@ namespace OloEngine
             //                       proximity — moving it would change what it
             //                       observes; the Reads(LocalTransforms) edge
             //                       below enforces its post-fence slot.)
-            //   Particles  UNSAFE — per-component UseGPU path issues GL compute
-            //                       from inside Update, and sub-emitters draw from
-            //                       the thread_local RNG (worker stream is time-
-            //                       seeded → breaks #452 determinism). CPU-only +
-            //                       reseeded RNG is the follow-up candidate.
+            //   ParticlesCPU SAFE — split from the GPU partition (issue #576).
+            //                       Updates only fully-CPU entities (parent AND
+            //                       every child !UseGPU — ParticleEntityUsesGPU),
+            //                       so the body issues NO GL. No EnTT structural
+            //                       changes (operates on internal particle pools;
+            //                       the group + the camera view's CameraComponent
+            //                       storage are pre-created in the Scene ctor). No
+            //                       GameplayEventBus publish. RNG is now the
+            //                       per-ParticleSystem stream seeded from
+            //                       run-seed × UUID (issue #452 fix), NOT the
+            //                       thread_local global — so emission replays
+            //                       identically off the game thread. Its Jolt
+            //                       collision raycast is a read-only NarrowPhase
+            //                       query and physics is fenced before particles
+            //                       run, so it is the only Jolt reader in the
+            //                       marked set. Its internal ColorModule/SizeModule/
+            //                       RotModule tasks (>=256 particles) are launched
+            //                       nested: safe because the task Wait retracts-and-
+            //                       executes independent leaf tasks inline, so a
+            //                       worker never deadlocks waiting on them.
+            //   ParticlesGPU UNSAFE — the UseGPU path issues GL compute dispatch
+            //                       from inside Update; stays game-thread (unmarked
+            //                       barrier). Handles every entity with any GPU
+            //                       system (parent or child).
             //   Snow       UNSAFE — GL compute dispatch / SSBO upload
             //                       (SnowAccumulationSystem::SubmitDeformers,
             //                       SnowEjectaSystem::EmitAt) must stay on the GL
@@ -2167,8 +2245,17 @@ namespace OloEngine
                             { s.UpdateAudio(ts); })
                 .Reads(kLocalTransforms)
                 .Parallelizable();
-            sched.AddSystem("Particles", [](Scene& s, Timestep ts)
-                            { s.UpdateParticles(ts); })
+            // Particles split into a worker-dispatched CPU partition and a
+            // game-thread GPU partition (issue #576). ParticlesGPU is an unmarked
+            // barrier, so it joins ParticlesCPU (and Abilities/Audio) before
+            // issuing any GL — the two partitions are guaranteed never to run
+            // concurrently, and they walk a disjoint set of entities besides.
+            sched.AddSystem("ParticlesCPU", [](Scene& s, Timestep ts)
+                            { s.UpdateParticlesCPU(ts); })
+                .Reads(kLocalTransforms)
+                .Parallelizable();
+            sched.AddSystem("ParticlesGPU", [](Scene& s, Timestep ts)
+                            { s.UpdateParticlesGPU(ts); })
                 .Reads(kLocalTransforms);
             sched.AddSystem("SnowDeformers", [](Scene& s, Timestep ts)
                             { s.UpdateSnowDeformers(ts); })
@@ -2539,11 +2626,47 @@ namespace OloEngine
         }
     }
 
-    void Scene::UpdateParticles(Timestep ts)
+    // Whether any particle work on this entity touches the GPU (issue #576):
+    // the parent system OR any child sub-system runs on the GPU compute path.
+    // Such an entity is routed to the game-thread ParticlesGPU partition; only
+    // a fully-CPU entity is eligible for the worker-dispatched ParticlesCPU
+    // partition, so the parallelizable path can never issue GL from a worker.
+    static bool ParticleEntityUsesGPU(const ParticleSystemComponent& psc)
+    {
+        if (psc.System.UseGPU)
+        {
+            return true;
+        }
+        for (const auto& child : psc.ChildSystems)
+        {
+            if (child.UseGPU)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Worker-safe CPU particle partition (issue #576). Marked Parallelizable in
+    // the schedule; see the audit note there for why this body is thread-safe.
+    void Scene::UpdateParticlesCPU(Timestep ts)
+    {
+        UpdateParticlesPartition(ts, /*gpuPartition=*/false);
+    }
+
+    // GPU particle partition — stays on the game thread (GL compute dispatch).
+    void Scene::UpdateParticlesGPU(Timestep ts)
+    {
+        UpdateParticlesPartition(ts, /*gpuPartition=*/true);
+    }
+
+    void Scene::UpdateParticlesPartition(Timestep ts, bool gpuPartition)
     {
         // Update particle systems
         {
-            // Quick camera position lookup for LOD
+            // Quick camera position lookup for LOD. Read-only; the CameraComponent
+            // storage is pre-created in the Scene constructor so this view's
+            // first-touch is not a structural registry mutation on the worker.
             glm::vec3 camPos(0.0f);
             for (const auto camView = m_Registry.view<TransformComponent, CameraComponent>(); const auto camEntity : camView)
             {
@@ -2556,12 +2679,24 @@ namespace OloEngine
             }
 
             // Partial-owning group: owns ParticleSystemComponent, borrows
-            // TransformComponent (issue #443 ownership map).
+            // TransformComponent (issue #443 ownership map). Pre-created in the
+            // Scene constructor so the worker-side group() call is a pure read.
             for (auto psGroup = m_Registry.group<ParticleSystemComponent>(entt::get<TransformComponent>); auto entity : psGroup)
             {
                 const auto& transform = psGroup.get<TransformComponent>(entity);
                 auto& psc = psGroup.get<ParticleSystemComponent>(entity);
-                // Provide Jolt scene for raycast collision
+
+                // Route each entity to exactly one partition by GPU usage. The
+                // two partitions never run concurrently (ParticlesGPU is an
+                // unmarked join-all barrier), so this split is a clean disjoint
+                // walk, not a data race.
+                if (ParticleEntityUsesGPU(psc) != gpuPartition)
+                {
+                    continue;
+                }
+
+                // Provide Jolt scene for raycast collision (read-only CastRay;
+                // physics is fenced by the time particles run — safe on a worker).
                 psc.System.SetJoltScene(m_JoltScene.get());
                 psc.System.UpdateLOD(camPos, transform.Translation);
 
@@ -3007,6 +3142,14 @@ namespace OloEngine
             {
                 const auto& transform = psGroup.get<TransformComponent>(entity);
                 auto& psc = psGroup.get<ParticleSystemComponent>(entity);
+                // Edit-mode preview has no start hook to seed the per-system
+                // RNG, so seed it lazily from the fixed preview seed exactly
+                // once (twin emitters would otherwise share the default stream
+                // and emit identically). SeedRandom marks the system seeded.
+                if (!psc.System.IsRandomSeeded())
+                {
+                    SeedParticleSystemComponent(psc, kParticleEditorPreviewSeed, static_cast<u64>(m_Registry.get<IDComponent>(entity).ID));
+                }
                 psc.System.UpdateLOD(camPos, transform.Translation);
                 psc.System.Update(ts, transform.Translation, glm::vec3(0.0f), transform.GetRotation());
 

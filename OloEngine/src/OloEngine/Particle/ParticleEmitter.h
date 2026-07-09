@@ -37,13 +37,17 @@ namespace OloEngine
 
         std::vector<BurstEntry> Bursts;
 
-        // Emit particles for this frame, returns number emitted
-        u32 Update(f32 dt, ParticlePool& pool, const glm::vec3& emitterPosition, f32 rateMultiplier = 1.0f, const glm::quat& emitterRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+        // Emit particles for this frame, returns number emitted. Draws all
+        // randomness (burst probability, spawn jitter, emission-shape sampling)
+        // from the caller-supplied `rng` so emission is deterministic per
+        // owning ParticleSystem rather than tied to the thread_local global
+        // stream (issue #452 / #576).
+        u32 Update(f32 dt, ParticlePool& pool, const glm::vec3& emitterPosition, f32 rateMultiplier, const glm::quat& emitterRotation, FastRandomPCG& rng);
 
         void Reset();
 
       private:
-        void InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition, const glm::quat& emitterRotation) const;
+        void InitializeParticle(u32 index, ParticlePool& pool, const glm::vec3& emitterPosition, const glm::quat& emitterRotation, FastRandomPCG& rng) const;
 
         f32 m_EmitAccumulator = 0.0f;
         f32 m_LoopTime = 0.0f;
