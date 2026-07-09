@@ -123,6 +123,12 @@ namespace OloEngine::Tests
             spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::Depth };
             Ref<Framebuffer> fb = Framebuffer::Create(spec);
 
+            // Renderer2D's line width is engine-side static state, NOT raw GL
+            // state, so the GLStateGuard below does not restore it — save and
+            // restore it by hand so the temporary 1.0f (set for the DrawRect,
+            // see below) cannot leak into later tests as the wrong default.
+            const f32 savedLineWidth = Renderer2D::GetLineWidth();
+
             {
                 // Contain all GL state this render touches so it cannot leak
                 // into the next GPU test in the shared process-wide context.
@@ -186,6 +192,10 @@ namespace OloEngine::Tests
 
                 fb->Unbind();
             }
+
+            // Restore the line width before any early-returning assertion below
+            // so the temporary 1.0f never escapes this Capture call.
+            Renderer2D::SetLineWidth(savedLineWidth);
 
             // Read AFTER the framebuffer is unbound (the GLStateGuard also
             // restored the draw/read FBO to 0): NVIDIA raises GL_INVALID_VALUE

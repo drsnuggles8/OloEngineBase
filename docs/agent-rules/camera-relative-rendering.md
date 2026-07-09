@@ -207,6 +207,7 @@ Then verify far from origin visually — a missed site is silent near origin.
   fragment has no camera block, so the origin rides a `flat` varying from the vertex.
 
 ### Done — 2D sprites (`Renderer2D`, CPU bake — a coordinate shift, NOT a shader change)
+
 The only site so far where the detail is lost at **CPU bake time**
 (`transform * local` computed in f32 at 45 km), not at GPU upload — a different
 failure path from every family above, which is why it was a separate slice.
