@@ -14,6 +14,7 @@
 #include "OloEngine/Renderer/GPUResourceQueue.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionState.h"
+#include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/RenderPipelineBuilder.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -201,6 +202,14 @@ namespace OloEngine
         // GPU frustum-cull pool reset — slot cursor recycles from 0 each
         // frame. Buffers stay allocated (lifetime = engine, not frame) so
         // steady-state scatter scenes don't re-allocate on every frame.
+
+        // Camera-relative render origin (issue #429). Computed up-front — before
+        // the Hi-Z occlusion cull below — because that cull reprojects instance
+        // bounds that GPUFrustumCuller::Cull shifts render-relative by this same
+        // origin, so its prev-VP must be made relative to it too. data.ViewPos /
+        // data.CameraRelativeEnabled are populated before PrepareFrame runs.
+        data.RenderOrigin = data.CameraRelativeEnabled ? ComputeRenderOrigin(data.ViewPos) : glm::vec3(0.0f);
+
         if (data.GPUFrustumCuller)
         {
             data.GPUFrustumCuller->BeginFrame();
@@ -217,7 +226,11 @@ namespace OloEngine
                 occ.Enabled = true;
                 occ.HZBTextureID = data.OcclusionHZB.GetHZBTextureID();
                 occ.MipCount = data.OcclusionHZB.GetMipCount();
-                occ.PrevViewProjection = data.PrevViewProjectionMatrix;
+                // The instance transforms fed to the cull are shifted render-
+                // relative (GPUFrustumCuller::Cull), so reproject with the prev-VP
+                // made relative to the same origin, else clip = VP_world *
+                // relativeCenter is garbage far from origin (issue #429).
+                occ.PrevViewProjection = MakeViewProjectionRelative(data.PrevViewProjectionMatrix, data.RenderOrigin);
                 occ.HZBSize = glm::vec2(static_cast<f32>(data.OcclusionHZB.GetHZBWidth()),
                                         static_cast<f32>(data.OcclusionHZB.GetHZBHeight()));
                 occ.HZBUVFactor = data.OcclusionHZB.GetUVFactor();
@@ -300,6 +313,21 @@ namespace OloEngine
             data.TAAJitterFrameIndex = 0;
         }
 
+        // Camera-relative rendering (issue #429): data.RenderOrigin was snapped
+        // to a coarse grid above (hoisted so the Hi-Z occlusion cull could use
+        // it). Every world position / matrix is uploaded to the GPU relative to
+        // it so the GPU works near 0 far from the world origin. Within the first
+        // grid cell the origin is exactly (0,0,0), so all of the arithmetic below
+        // is a byte-identical no-op — existing near-origin scenes are unaffected.
+        const glm::vec3 renderOrigin = data.RenderOrigin;
+        const glm::mat4 relativeView = MakeViewRelative(data.ViewMatrix, renderOrigin);
+        const glm::mat4 relativeViewProjection = data.ProjectionMatrix * relativeView;
+        const glm::mat4 relativePrevViewProjection = MakeViewProjectionRelative(data.PrevViewProjectionMatrix, renderOrigin);
+
+        // CommandDispatch keeps the *world* camera matrices — depth sort keys and
+        // the planar-reflection mirror derivation read them and must stay in
+        // world space; the camera-UBO packing there re-derives the relative
+        // matrices from these plus the render origin (set below).
         CommandDispatch::SetViewProjectionMatrix(data.ViewProjectionMatrix);
         CommandDispatch::SetViewMatrix(data.ViewMatrix);
         CommandDispatch::SetProjectionMatrix(data.ProjectionMatrix);
@@ -311,8 +339,20 @@ namespace OloEngine
         // consumer (TAA velocity reconstruction, motion blur) reads this
         // frame.
         CommandDispatch::SetPrevViewProjectionMatrix(data.PrevViewProjectionMatrix);
+        CommandDispatch::SetRenderOrigin(renderOrigin);
 
+        // Depth-reconstruction consumers (decals, motion blur, fog, underwater)
+        // invert the *world* view-projection. Because the depth was written by
+        // the render-relative geometry (ndc = VP_rel * worldPos_rel) and
+        // inverse(VP_world) * ndc == worldPos_ABSOLUTE, they reconstruct an
+        // absolute world position for free — the same value the pre-#429 world
+        // pipeline produced, so those passes need no per-fragment origin add-back
+        // (a world-anchored *pattern* that also reads the relative camera UBO
+        // position — e.g. volumetric fog — adds u_RenderOrigin to that position
+        // only). See docs/agent-rules/camera-relative-rendering.md.
         data.InverseViewProjectionMatrix = glm::inverse(data.ViewProjectionMatrix);
+        // Frustum culling stays in world space: submitted transforms and mesh
+        // bounds are world-space, so cull against the world view-projection.
         data.ViewFrustum.Update(data.ViewProjectionMatrix);
 
         data.Stats.Reset();
@@ -330,18 +370,28 @@ namespace OloEngine
         }
 
         {
+            // Camera-relative (issue #429): the view / view-projection are
+            // built about the render origin and the camera position is supplied
+            // relative to it, so the GPU's world-space lighting math (which is
+            // all differences — V = camPos - worldPos, lightPos - worldPos) is
+            // unchanged while every coordinate stays near 0.
             ShaderBindingLayout::CameraUBO cameraData;
-            cameraData.ViewProjection = data.ProjectionMatrix * data.ViewMatrix;
-            cameraData.View = data.ViewMatrix;
+            cameraData.ViewProjection = relativeViewProjection;
+            cameraData.View = relativeView;
             cameraData.Projection = data.ProjectionMatrix;
-            cameraData.Position = data.ViewPos;
+            cameraData.Position = MakePositionRelative(data.ViewPos, renderOrigin);
             cameraData._padding0 = 0.0f;
             // Previous-frame view-projection is maintained in
             // `data.PrevViewProjectionMatrix`. Forward PBR shaders consume
             // this through the CameraMatrices UBO (binding 0) to emit screen-
             // space velocity into scene FB RT3 — mirroring what the deferred
-            // G-Buffer PBR shader does through u_PrevViewProjection.
-            cameraData.PrevViewProjection = data.PrevViewProjectionMatrix;
+            // G-Buffer PBR shader does through u_PrevViewProjection. It is made
+            // relative to the *current* origin, matching PrevModel which is
+            // shifted by the same origin, so velocity is invariant.
+            cameraData.PrevViewProjection = relativePrevViewProjection;
+            // The render origin itself, so pattern shaders can rebuild an
+            // absolute world position (triplanar tiling, procedural noise, etc.).
+            cameraData.RenderOrigin = renderOrigin;
 
             constexpr auto expectedSize = ShaderBindingLayout::CameraUBO::GetSize();
             static_assert(sizeof(ShaderBindingLayout::CameraUBO) == expectedSize, "CameraUBO size mismatch");
@@ -705,7 +755,7 @@ namespace OloEngine
         {
             PostProcessPasses.Fog->SetEnabled(data.Fog.Enabled);
             PostProcessPasses.Fog->SetPostProcessUBO(data.PostProcessGPU.PostProcess);
-            // Full 272-byte camera UBO so the fog shaders' u_CameraPosition /
+            // Full 288-byte camera UBO so the fog shaders' u_CameraPosition /
             // u_Projection reads stay in-bounds even if an earlier stage left a
             // smaller ViewProjection-only camera UBO bound at slot 0.
             PostProcessPasses.Fog->SetCameraUBO(data.SharedSceneUBOs.Camera);
@@ -1045,7 +1095,10 @@ namespace OloEngine
         // real UBO regardless of cross-frame / cross-test buffer churn.
         data.SceneEffectsGPU.Fog->Bind();
 
-        // Upload fog volumes (collected by the scene)
+        // Upload fog volumes (collected by the scene). Camera-relative (issue
+        // #429): the fog pass reconstructs an *absolute* world position (world
+        // inverse-VP, see PrepareFrame), so each volume's world-space
+        // WorldToLocal box transform consumes it directly — no shift here.
         data.SceneEffectsGPU.FogVolumes->SetData(&data.SceneEffectsGPU.FogVolumesData, FogVolumesUBOData::GetSize());
         data.SceneEffectsGPU.FogVolumes->Bind();
 

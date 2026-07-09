@@ -23,6 +23,8 @@ layout(std140, binding = 0) uniform CameraMatrices
     // (= prev animation time) in VS/TES so the motion vector captures on-
     // surface wave motion, not just camera and rigid motion.
     mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
+    float _padding1;
 };
 
 // Model UBO (binding 3)
@@ -73,6 +75,12 @@ void main()
     OLO_INSTANCE_FORWARD();
     vec4 worldPos = u_Model * vec4(a_Position, 1.0);
     vec4 worldPosPrev = u_PrevModel * vec4(a_Position, 1.0);
+    // Camera-relative (issue #429): u_Model is render-relative, so add the render
+    // origin back for the world-anchored wave phase / FFT field sampling. The
+    // displaced position stays relative (Gerstner sums are shifted back by the
+    // origin) so gl_Position uses the relative view-projection.
+    vec3 worldPosAbs = worldPos.xyz + u_RenderOrigin;
+    vec3 worldPosPrevAbs = worldPosPrev.xyz + u_RenderOrigin;
 
     float time = u_WaveParams.x * u_WaveParams.y;                   // Time * WaveSpeed
     float prevTime = u_NormalMapSpeed.z * u_WaveParams.y;            // PrevTime * WaveSpeed
@@ -100,7 +108,7 @@ void main()
     if (u_FFTParams.x > 0.5)
     {
         // FFT ocean: sample the spectral displacement field (tiles by patch size).
-        vec2 fftUV = worldPos.xz * u_FFTParams.y;
+        vec2 fftUV = worldPosAbs.xz * u_FFTParams.y; // world-anchored (issue #429)
         vec4 disp = textureLod(u_FFTDisplacement, fftUV, 0.0);
         displacedPos = worldPos.xyz + vec3(disp.x * u_FFTParams.w, disp.y * u_FFTParams.z, disp.z * u_FFTParams.w);
         displacedNormal = normalize(textureLod(u_FFTDerivatives, fftUV, 0.0).xyz);
@@ -108,22 +116,25 @@ void main()
     }
     else
     {
+        // World-anchored phase (issue #429): evaluate at the absolute world
+        // position, then shift the returned displaced position back to relative
+        // space (sumGerstnerWaves returns position + displacement).
         displacedPos = sumGerstnerWaves(
-            worldPos.xyz, time,
+            worldPosAbs, time,
             u_WaveDir0, u_WaveDir1,
             frequency, amplitude,
             displacedNormal
-        );
+        ) - u_RenderOrigin;
 
         // Prev-frame displaced position — same Gerstner sum evaluated at prev time
         // through the prev model transform so the motion vector captures wave sway.
         vec3 _prevNormalUnused;
         vec3 displacedPosPrev = sumGerstnerWaves(
-            worldPosPrev.xyz, prevTime,
+            worldPosPrevAbs, prevTime,
             u_WaveDir0, u_WaveDir1,
             frequency, amplitude,
             _prevNormalUnused
-        );
+        ) - u_RenderOrigin;
         v_PrevWorldPos = displacedPosPrev;
     }
 
@@ -164,6 +175,8 @@ layout(std140, binding = 0) uniform CameraMatrices
     vec3 u_CameraPosition;
     float _padding0;
     mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
+    float _padding1;
 };
 
 layout(std140, binding = 23) uniform WaterParams
@@ -353,6 +366,8 @@ layout(std140, binding = 0) uniform CameraMatrices
     vec3 u_CameraPosition;
     float _padding0;
     mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
+    float _padding1;
 };
 
 #include "include/InstanceBlock_Single.glsl"
@@ -412,6 +427,12 @@ void main()
             + gl_TessCoord.y * tc_TexCoord[1]
             + gl_TessCoord.z * tc_TexCoord[2];
 
+    // Camera-relative (issue #429): pos is render-relative; add the origin back
+    // for the world-anchored wave phase / FFT sampling. Displaced position stays
+    // relative (Gerstner sums shifted back by origin).
+    vec3 posAbs = pos + u_RenderOrigin;
+    vec3 posPrevAbs = posPrev + u_RenderOrigin;
+
     // Apply wave displacement (FFT ocean or analytic Gerstner)
     float time = u_WaveParams.x * u_WaveParams.y;
     float prevTime = u_NormalMapSpeed.z * u_WaveParams.y;
@@ -422,7 +443,7 @@ void main()
     vec3 displacedPos;
     if (u_FFTParams.x > 0.5)
     {
-        vec2 fftUV = pos.xz * u_FFTParams.y;
+        vec2 fftUV = posAbs.xz * u_FFTParams.y; // world-anchored (issue #429)
         vec4 disp = textureLod(u_FFTDisplacement, fftUV, 0.0);
         displacedPos = pos + vec3(disp.x * u_FFTParams.w, disp.y * u_FFTParams.z, disp.z * u_FFTParams.w);
         displacedNormal = normalize(textureLod(u_FFTDerivatives, fftUV, 0.0).xyz);
@@ -431,20 +452,20 @@ void main()
     else
     {
         displacedPos = sumGerstnerWaves(
-            pos, time,
+            posAbs, time,
             u_WaveDir0, u_WaveDir1,
             frequency, amplitude,
             displacedNormal
-        );
+        ) - u_RenderOrigin; // world-anchored phase, relative result (issue #429)
 
         // Prev-frame displacement for velocity reprojection
         vec3 _prevNormalUnused;
         vec3 displacedPosPrev = sumGerstnerWaves(
-            posPrev, prevTime,
+            posPrevAbs, prevTime,
             u_WaveDir0, u_WaveDir1,
             frequency, amplitude,
             _prevNormalUnused
-        );
+        ) - u_RenderOrigin;
         v_PrevWorldPos = displacedPosPrev;
     }
 
@@ -508,6 +529,8 @@ layout(std140, binding = 0) uniform CameraMatrices
     vec3 u_CameraPosition;
     float _padding0;
     mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
+    float _padding1;
 };
 
 // Instance SSBO (binding 15). Water is single-instance — the tess_eval
@@ -783,8 +806,8 @@ void main()
 
     // Check if normal map textures are actually bound (non-black check)
     // When unbound, OpenGL returns (0,0,0,0) → (0*2-1) = (-1,-1,-1) = BAD
-    vec2 uv0 = v_WorldPos.xz * tiling + u_NormalMapScroll.xy;
-    vec2 uv1 = v_WorldPos.xz * tiling * 0.7 + u_NormalMapScroll.zw;
+    vec2 uv0 = (v_WorldPos.xz + u_RenderOrigin.xz) * tiling + u_NormalMapScroll.xy;
+    vec2 uv1 = (v_WorldPos.xz + u_RenderOrigin.xz) * tiling * 0.7 + u_NormalMapScroll.zw;
 
     vec4 nm0Sample = texture(u_NormalMap0, uv0);
     vec4 nm1Sample = texture(u_NormalMap1, uv1);
@@ -956,7 +979,7 @@ void main()
     if (noiseIntensity > 0.0)
     {
         // Use procedural noise if no noise texture is bound
-        vec4 noiseSample = texture(u_NoiseMap, v_WorldPos.xz * 0.5 + u_NormalMapScroll.xy * 0.3);
+        vec4 noiseSample = texture(u_NoiseMap, (v_WorldPos.xz + u_RenderOrigin.xz) * 0.5 + u_NormalMapScroll.xy * 0.3);
         bool hasNoiseMap = (noiseSample.r + noiseSample.g + noiseSample.b) > 0.001;
         float noiseVal;
         if (hasNoiseMap)
@@ -966,9 +989,9 @@ void main()
         else
         {
             // Procedural sparkle noise at 3 different frequencies
-            float n1p = valueNoise(v_WorldPos.xz * 3.0 + u_NormalMapScroll.xy * 5.0);
-            float n2p = valueNoise(v_WorldPos.xz * 7.0 - u_NormalMapScroll.zw * 3.0);
-            float n3p = valueNoise(v_WorldPos.xz * 13.0 + time * 0.5);
+            float n1p = valueNoise((v_WorldPos.xz + u_RenderOrigin.xz) * 3.0 + u_NormalMapScroll.xy * 5.0);
+            float n2p = valueNoise((v_WorldPos.xz + u_RenderOrigin.xz) * 7.0 - u_NormalMapScroll.zw * 3.0);
+            float n3p = valueNoise((v_WorldPos.xz + u_RenderOrigin.xz) * 13.0 + time * 0.5);
             noiseVal = n1p * n2p * n3p;
             noiseVal = smoothstep(0.02, 0.15, noiseVal); // Threshold for sparkle dots
         }
@@ -1032,7 +1055,7 @@ void main()
     // Prevents foam from appearing on EVERY wave crest.
     // Very low-frequency noise so only sparse, random patches of
     // crests get foam — eliminates the grid/checkerboard pattern.
-    float foamGateNoise = fbmNoise(v_WorldPos.xz * 0.03 + vec2(5.3, 11.7));
+    float foamGateNoise = fbmNoise((v_WorldPos.xz + u_RenderOrigin.xz) * 0.03 + vec2(5.3, 11.7));
     float foamGate = smoothstep(0.62, 0.88, foamGateNoise);  // ~10% of area gets foam — sparse, clustered whitecaps
     heightFoam *= foamGate;
     angleFoam  *= foamGate;
@@ -1045,7 +1068,7 @@ void main()
     // the height/angle thresholds above, so fold it in as a strong contributor.
     if (u_FFTParams.x > 0.5)
     {
-        float fftFoam = textureLod(u_FFTDisplacement, v_WorldPos.xz * u_FFTParams.y, 0.0).a;
+        float fftFoam = textureLod(u_FFTDisplacement, (v_WorldPos.xz + u_RenderOrigin.xz) * u_FFTParams.y, 0.0).a;
         foam = max(foam, fftFoam);
     }
 
@@ -1058,7 +1081,7 @@ void main()
     foam *= 1.0 - smoothstep(12.0, 45.0, foamCamDist);
 
     // Modulate foam with texture OR procedural noise
-    vec2 foamUV = v_WorldPos.xz * foamTiling + u_NormalMapScroll.xy * 0.2;
+    vec2 foamUV = (v_WorldPos.xz + u_RenderOrigin.xz) * foamTiling + u_NormalMapScroll.xy * 0.2;
     vec4 foamSample = texture(u_FoamTexture, foamUV);
     bool hasFoamTexture = (foamSample.r + foamSample.g + foamSample.b) > 0.001;
 

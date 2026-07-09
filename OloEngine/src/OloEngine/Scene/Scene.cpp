@@ -5153,7 +5153,9 @@ namespace OloEngine
                 shadowMap.SetPointShadowCount(static_cast<i32>(pointIdx));
             }
 
-            shadowMap.UploadUBO();
+            // Shadow sampling matrices go up camera-relative (issue #429) so
+            // they match the render-relative world positions the lit pass uses.
+            shadowMap.UploadUBO(Renderer3D::GetRenderOrigin());
 
             // Shadow casters will be submitted during entity traversal below.
             // ShadowRenderPass::Execute() iterates them per cascade/face.

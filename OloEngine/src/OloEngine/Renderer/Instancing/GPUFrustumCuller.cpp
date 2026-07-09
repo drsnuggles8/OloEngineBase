@@ -6,8 +6,12 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/CameraRelative.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 
 #include <glad/gl.h>
+
+#include <vector>
 
 namespace OloEngine
 {
@@ -126,9 +130,23 @@ namespace OloEngine
         slot.OutputBuffer->EnsureCapacity(inputCount);
 
         // ── 1. Upload the full input list ────────────────────────────────
+        // Camera-relative (issue #429): the compute shader culls these instances
+        // against world-space frustum planes it extracts from u_ViewProjection
+        // (now the *relative* view-projection) and writes the survivors straight
+        // into the model instance buffer the draw reads, so the transforms must
+        // be render-relative. Shift each instance's transform (and prev
+        // transform) into a scratch copy before upload. No-op at the origin.
         if (inputCount > 0)
         {
-            slot.InputBuffer->SetData(instances.data(),
+            const glm::vec3 origin = Renderer3D::GetRenderOrigin();
+            thread_local std::vector<InstanceData> scratch;
+            scratch.assign(instances.begin(), instances.end());
+            for (InstanceData& inst : scratch)
+            {
+                inst.Transform = MakeModelRelative(inst.Transform, origin);
+                inst.PrevTransform = MakeModelRelative(inst.PrevTransform, origin);
+            }
+            slot.InputBuffer->SetData(scratch.data(),
                                       inputCount * static_cast<u32>(sizeof(InstanceData)),
                                       0);
         }
@@ -237,8 +255,23 @@ namespace OloEngine
         slot.OutputBuffer->EnsureCapacity(inputCount);
         slot.Phase2Output->EnsureCapacity(inputCount);
 
+        // Camera-relative (issue #429): the phase-1/phase-2 survivors are written
+        // straight into the model instance buffer the draw reads (binding 15) and
+        // the cull tests against the *relative* view-projection, so the uploaded
+        // transforms must be render-relative — mirror the single-phase Cull()
+        // shift. No-op at the origin.
         if (inputCount > 0)
-            slot.InputBuffer->SetData(instances.data(), inputCount * static_cast<u32>(sizeof(InstanceData)), 0);
+        {
+            const glm::vec3 origin = Renderer3D::GetRenderOrigin();
+            thread_local std::vector<InstanceData> scratch;
+            scratch.assign(instances.begin(), instances.end());
+            for (InstanceData& inst : scratch)
+            {
+                inst.Transform = MakeModelRelative(inst.Transform, origin);
+                inst.PrevTransform = MakeModelRelative(inst.PrevTransform, origin);
+            }
+            slot.InputBuffer->SetData(scratch.data(), inputCount * static_cast<u32>(sizeof(InstanceData)), 0);
+        }
 
         // Seed the phase-1 indirect command (compute atomic-adds survivors) and
         // zero the reject counter (compute atomic-adds rejects).

@@ -70,6 +70,13 @@ namespace OloEngine
         // without aliasing the current-frame VP.
         static void SetPrevViewProjectionMatrix(const glm::mat4& prevVP);
         static void SetViewPosition(const glm::vec3& viewPos);
+        // @brief Camera-relative render origin for this frame (issue #429). The
+        // stored view / view-projection / position above remain *world*-space
+        // (sort keys and the planar-reflection mirror need them); the camera-UBO
+        // packing here derives the relative matrices from those plus this origin
+        // so the shared, terrain, voxel and mirror uploads all agree.
+        static void SetRenderOrigin(const glm::vec3& origin);
+        static const glm::vec3& GetRenderOrigin();
 
         // Push the current CommandDispatch camera matrices (the Set* values above)
         // into the shared CameraUBO buffer and (re)bind it at UBO_CAMERA — the

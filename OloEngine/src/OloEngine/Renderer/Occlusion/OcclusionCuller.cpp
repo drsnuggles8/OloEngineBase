@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
@@ -106,6 +107,13 @@ namespace OloEngine
 
             glm::mat4 model = glm::translate(glm::mat4(1.0f), center);
             model = glm::scale(model, extent);
+
+            // Camera-relative (issue #429): the proxy is drawn with the shared
+            // (now relative) camera UBO against the relative-rendered scene depth
+            // buffer, so its world model matrix must be shifted by the render
+            // origin or the query tests occlusion at the wrong depth far from
+            // origin. No-op at the origin.
+            model = MakeModelRelative(model, Renderer3D::GetRenderOrigin());
 
             // OcclusionProxy shader reads u_Model from the InstanceBuffer SSBO
             // at binding 15 via InstanceBlock_Vertex.glsl. Push a single

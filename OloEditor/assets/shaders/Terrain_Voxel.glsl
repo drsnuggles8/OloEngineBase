@@ -19,6 +19,8 @@ layout(std140, binding = 0) uniform CameraMatrices {
     float _padding0;
     // Previous-frame VP for scene FB RT3 velocity.
     mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
+    float _padding1;
 };
 
 // Model UBO (binding 3)
@@ -49,6 +51,8 @@ layout(std140, binding = 0) uniform CameraMatrices {
     vec3 u_CameraPosition;
     float _padding0;
     mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
+    float _padding1;
 };
 
 // Multi-Light UBO (binding 5)
@@ -153,16 +157,19 @@ void main()
     if (tiling < 0.001)
         tiling = 0.1; // Sensible default
 
+    // Camera-relative (issue #429): triplanar tiling is world-anchored, so
+    // rebuild the absolute world position from the render-relative v_WorldPos.
+    vec3 wpTri = v_WorldPos + u_RenderOrigin;
     // Sample albedo with triplanar projection
-    vec4 albedoX = texture(u_TerrainAlbedoArray, vec3(v_WorldPos.yz * tiling, 0.0));
-    vec4 albedoY = texture(u_TerrainAlbedoArray, vec3(v_WorldPos.xz * tiling, 0.0));
-    vec4 albedoZ = texture(u_TerrainAlbedoArray, vec3(v_WorldPos.xy * tiling, 0.0));
+    vec4 albedoX = texture(u_TerrainAlbedoArray, vec3(wpTri.yz * tiling, 0.0));
+    vec4 albedoY = texture(u_TerrainAlbedoArray, vec3(wpTri.xz * tiling, 0.0));
+    vec4 albedoZ = texture(u_TerrainAlbedoArray, vec3(wpTri.xy * tiling, 0.0));
     vec3 albedo = (albedoX.rgb * triWeights.x + albedoY.rgb * triWeights.y + albedoZ.rgb * triWeights.z);
 
     // Sample ARM with triplanar projection
-    vec4 armX = texture(u_TerrainARMArray, vec3(v_WorldPos.yz * tiling, 0.0));
-    vec4 armY = texture(u_TerrainARMArray, vec3(v_WorldPos.xz * tiling, 0.0));
-    vec4 armZ = texture(u_TerrainARMArray, vec3(v_WorldPos.xy * tiling, 0.0));
+    vec4 armX = texture(u_TerrainARMArray, vec3(wpTri.yz * tiling, 0.0));
+    vec4 armY = texture(u_TerrainARMArray, vec3(wpTri.xz * tiling, 0.0));
+    vec4 armZ = texture(u_TerrainARMArray, vec3(wpTri.xy * tiling, 0.0));
     vec4 arm = armX * triWeights.x + armY * triWeights.y + armZ * triWeights.z;
 
     float ao = arm.r;
@@ -170,9 +177,9 @@ void main()
     float metallic = arm.b;
 
     // Sample normal map with triplanar projection
-    vec3 normX = texture(u_TerrainNormalArray, vec3(v_WorldPos.yz * tiling, 0.0)).rgb * 2.0 - 1.0;
-    vec3 normY = texture(u_TerrainNormalArray, vec3(v_WorldPos.xz * tiling, 0.0)).rgb * 2.0 - 1.0;
-    vec3 normZ = texture(u_TerrainNormalArray, vec3(v_WorldPos.xy * tiling, 0.0)).rgb * 2.0 - 1.0;
+    vec3 normX = texture(u_TerrainNormalArray, vec3(wpTri.yz * tiling, 0.0)).rgb * 2.0 - 1.0;
+    vec3 normY = texture(u_TerrainNormalArray, vec3(wpTri.xz * tiling, 0.0)).rgb * 2.0 - 1.0;
+    vec3 normZ = texture(u_TerrainNormalArray, vec3(wpTri.xy * tiling, 0.0)).rgb * 2.0 - 1.0;
     vec3 triNormal = normalize(normX * triWeights.x + normY * triWeights.y + normZ * triWeights.z);
 
     // Build TBN from world normal and apply tangent-space normal map

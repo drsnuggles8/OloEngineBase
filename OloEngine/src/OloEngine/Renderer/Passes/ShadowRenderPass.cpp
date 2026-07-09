@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
+#include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -259,16 +260,33 @@ namespace OloEngine
 
         auto& shadowMap = Renderer3D::GetShadowMap();
 
+        // Camera-relative (issue #429): render the shadow map in the same
+        // render-relative space as the main pass. lightVP is world-space; shift
+        // it to map (worldPos - origin) -> light clip (matching the sampling
+        // matrices ShadowMap::UploadUBO shifts by the same origin), and shift
+        // the casters below by the same origin. No-op near origin.
+        const glm::vec3 renderOrigin = Renderer3D::GetRenderOrigin();
+        const glm::mat4 lightVPRel = MakeViewProjectionRelative(lightVP, renderOrigin);
+
         // Upload light VP to the shadow camera UBO (binding 0)
         auto cameraUBOData = ShaderBindingLayout::CameraUBO{};
-        cameraUBOData.ViewProjection = lightVP;
+        cameraUBOData.ViewProjection = lightVPRel;
         cameraUBOData.View = glm::mat4(1.0f);
-        cameraUBOData.Projection = lightVP;
+        cameraUBOData.Projection = lightVPRel;
+        // Caster shaders that reconstruct an absolute world position from the
+        // relative one (terrain snow-height displacement in Terrain_Depth.glsl:
+        // worldP = (u_Model*pos).xyz + u_RenderOrigin) need the real origin here;
+        // left at its 0 default the snow clip-region UV falls outside the map far
+        // from origin and the displaced caster geometry no longer matches the lit
+        // surface, detaching the shadow. No-op near origin (issue #429).
+        cameraUBOData.RenderOrigin = renderOrigin;
 
         if (type == ShadowPassType::Point)
         {
             const auto& params = shadowMap.GetPointShadowParams(layerOrLight);
-            cameraUBOData.Position = glm::vec3(params);
+            // Point-light linear-depth compare uses distance(worldPos, lightPos);
+            // both are render-relative, so shift the light position too.
+            cameraUBOData.Position = glm::vec3(params) - renderOrigin;
             cameraUBOData._padding0 = params.w; // far plane
         }
         else
@@ -287,14 +305,15 @@ namespace OloEngine
         // covers skinned / terrain / voxel paths where per-caster state (bones,
         // heightmap, terrain UBO) blocks batching.
         auto instanceBuffer = Renderer3D::GetModelInstanceBuffer();
-        auto uploadShadowModelUBO = [&instanceBuffer](const glm::mat4& worldTransform)
+        auto uploadShadowModelUBO = [&instanceBuffer, &renderOrigin](const glm::mat4& worldTransform)
         {
             if (!instanceBuffer)
                 return;
+            const glm::mat4 relTransform = MakeModelRelative(worldTransform, renderOrigin);
             InstanceData inst;
-            inst.Transform = worldTransform;
-            inst.Normal = glm::mat4(1.0f);       // Shadow depth shaders don't use normals
-            inst.PrevTransform = worldTransform; // shadow casters have no motion-vector use today
+            inst.Transform = relTransform;
+            inst.Normal = glm::mat4(1.0f);     // Shadow depth shaders don't use normals
+            inst.PrevTransform = relTransform; // shadow casters have no motion-vector use today
             inst.EntityID = -1;
             const std::span<const InstanceData> oneInstance(&inst, 1);
             instanceBuffer->Upload(oneInstance);
@@ -327,10 +346,11 @@ namespace OloEngine
                         continue;
 
                     RendererID const drawVao = (caster.shadowVaoID != 0) ? caster.shadowVaoID : caster.vaoID;
+                    const glm::mat4 relTransform = MakeModelRelative(caster.transform, renderOrigin);
                     InstanceData inst;
-                    inst.Transform = caster.transform;
+                    inst.Transform = relTransform;
                     inst.Normal = glm::mat4(1.0f);
-                    inst.PrevTransform = caster.transform;
+                    inst.PrevTransform = relTransform;
                     inst.EntityID = -1;
 
                     auto it = std::ranges::find_if(batches,

@@ -16,6 +16,15 @@ layout(std140, binding = 0) uniform CameraMatrices {
     vec3 u_CameraPosition;
     float _padding0;
     mat4 u_PrevViewProjection;
+    // Camera-relative render origin (issue #429). Geometry is drawn with world
+    // positions shifted by this, so an interpolated worldPos is RELATIVE to it.
+    // Lighting/fog differences (cameraPos - worldPos, lightPos - worldPos) are
+    // invariant, but shaders that sample an ABSOLUTE-world *pattern* (triplanar
+    // tiling, procedural noise, world-anchored wave phase, world-grid/clipmap)
+    // must add it back: absWorldPos = worldPos + u_RenderOrigin. Zero within the
+    // first grid cell (near origin), so the add-back is a no-op there.
+    vec3 u_RenderOrigin;
+    float _padding1;
 };
 
 #endif // CAMERA_COMMON_GLSL

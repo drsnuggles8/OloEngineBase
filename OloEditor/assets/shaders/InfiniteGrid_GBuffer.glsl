@@ -21,12 +21,17 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    // Camera-relative (issue #429): full tail so u_RenderOrigin is at offset 272.
+    mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin;
+    float _padding1;
 };
 
 layout(location = 0) out vec3 v_NearPoint;
 layout(location = 1) out vec3 v_FarPoint;
 layout(location = 2) out mat4 v_View;
 layout(location = 6) out mat4 v_Projection;
+layout(location = 10) out vec3 v_RenderOrigin;
 
 vec3 UnprojectPoint(float x, float y, float z, mat4 viewInverse, mat4 projInverse) {
     vec4 unprojectedPoint = viewInverse * projInverse * vec4(x, y, z, 1.0);
@@ -42,6 +47,7 @@ void main() {
 
     v_View = u_View;
     v_Projection = u_Projection;
+    v_RenderOrigin = u_RenderOrigin;
 
     gl_Position = vec4(a_Position, 1.0);
 }
@@ -53,6 +59,7 @@ layout(location = 0) in vec3 v_NearPoint;
 layout(location = 1) in vec3 v_FarPoint;
 layout(location = 2) in mat4 v_View;
 layout(location = 6) in mat4 v_Projection;
+layout(location = 10) in vec3 v_RenderOrigin; // camera-relative render origin (issue #429)
 
 layout(location = 0) out vec4 o_GBufferAlbedo;
 layout(location = 1) out vec4 o_GBufferNormal;
@@ -105,8 +112,12 @@ void main() {
 
     vec3 fragPos3D = v_NearPoint + t * (v_FarPoint - v_NearPoint);
 
-    vec4 gridColor = Grid(fragPos3D, c_GridScale, true);
-    gridColor += Grid(fragPos3D, c_GridScale * 0.1, true) * 0.5;
+    // Camera-relative (issue #429): fragPos3D is render-relative (reconstructed
+    // from the relative view); the grid lines/axes are world-anchored, so feed
+    // Grid() the absolute world position. Depth below keeps relative fragPos3D.
+    vec3 fragPos3DAbs = fragPos3D + v_RenderOrigin;
+    vec4 gridColor = Grid(fragPos3DAbs, c_GridScale, true);
+    gridColor += Grid(fragPos3DAbs, c_GridScale * 0.1, true) * 0.5;
 
     float linearDepth = ComputeLinearDepth(fragPos3D);
     float fading = max(0.0, 1.0 - linearDepth * 2.0);

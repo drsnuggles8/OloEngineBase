@@ -73,7 +73,7 @@ namespace OloEngine
             m_PostProcessUBO = ubo;
         }
 
-        // The full 272-byte shared camera UBO (binding 0). The fog shaders read
+        // The full 288-byte shared camera UBO (binding 0). The fog shaders read
         // u_CameraPosition (std140 offset 192) and u_Projection (offset 128) from
         // it, but an earlier stage can leave a *smaller* (64-byte, ViewProjection-
         // only) camera UBO bound at slot 0 — making those reads out-of-bounds.

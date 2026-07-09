@@ -87,6 +87,10 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    // Camera-relative (issue #429): full tail so u_RenderOrigin is at offset 272.
+    mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin;
+    float _padding1;
 };
 
 // Model UBO (binding 3)
@@ -137,7 +141,7 @@ void main()
     {
         vec2 clipCenter = u_ClipmapCenterAndExtent[0].xy;
         float clipExtent = u_ClipmapCenterAndExtent[0].z;
-        vec3 worldP = (u_Model * vec4(pos, 1.0)).xyz;
+        vec3 worldP = (u_Model * vec4(pos, 1.0)).xyz + u_RenderOrigin; // camera-relative (issue #429)
         vec2 snowUV = (worldP.xz - clipCenter) / clipExtent + 0.5;
         if (snowUV.x >= 0.0 && snowUV.x <= 1.0 && snowUV.y >= 0.0 && snowUV.y <= 1.0)
         {

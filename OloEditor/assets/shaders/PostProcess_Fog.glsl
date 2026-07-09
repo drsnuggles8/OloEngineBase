@@ -37,6 +37,15 @@ layout(std140, binding = 0) uniform CameraMatrices
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    // Camera-relative (issue #429): the fog reconstructs an ABSOLUTE world
+    // position (world inverse-VP), so it only needs the render origin to lift the
+    // relative u_CameraPosition to absolute world. The full tail (incl. an unused
+    // u_PrevViewProjection) keeps this block a prefix of the shared CameraMatrices
+    // so the cross-shader layout check stays happy; the reprojection prev-VP is
+    // read from MotionBlurUBO (u_MB) below, not from here.
+    mat4 u_PrevViewProjection;
+    vec3 u_RenderOrigin;
+    float _padding1;
 };
 
 // Shadow UBO (binding 6) — cascade matrices for light shaft shadow lookup
@@ -58,11 +67,14 @@ layout(std140, binding = 6) uniform ShadowData
 };
 
 // Motion blur UBO (binding 8) — inverse VP for depth reconstruction
+// Instance-named so its members don't sit at global scope — otherwise its
+// u_PrevViewProjection collides with the same-named member the CameraMatrices
+// block above now declares for std140 layout parity (issue #429).
 layout(std140, binding = 8) uniform MotionBlurUBO
 {
     mat4 u_InverseViewProjection;
     mat4 u_PrevViewProjection;
-};
+} u_MB;
 
 // ---------------------------------------------------------------------------
 // Shadow lookup — single-tap CSM for volumetric light shafts
@@ -72,7 +84,14 @@ float sampleShadowForFog(vec3 worldPos)
     if (u_DirectionalShadowEnabled == 0)
         return 1.0;
 
-    vec4 viewPos = u_View * vec4(worldPos, 1.0);
+    // worldPos is ABSOLUTE (the ray-march reconstructs it from the world
+    // inverse-VP), but u_View and the cascade light-space matrices are packed
+    // render-RELATIVE (ShadowMap::UploadUBO shifts them by the render origin).
+    // Bring the sample point into that relative space before cascade selection
+    // and the shadow-map projection. No-op near origin (issue #429).
+    vec3 relPos = worldPos - u_RenderOrigin;
+
+    vec4 viewPos = u_View * vec4(relPos, 1.0);
     int cascadeIndex = 3;
     for (int i = 0; i < 4; ++i)
     {
@@ -83,7 +102,7 @@ float sampleShadowForFog(vec3 worldPos)
         }
     }
 
-    vec4 lightSpacePos = u_DirectionalLightSpaceMatrices[cascadeIndex] * vec4(worldPos, 1.0);
+    vec4 lightSpacePos = u_DirectionalLightSpaceMatrices[cascadeIndex] * vec4(relPos, 1.0);
     vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w * 0.5 + 0.5;
 
     if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
@@ -131,7 +150,7 @@ vec3 multiScatterApprox(vec3 singleScatter, float density)
 vec3 worldPosFromDepth(vec2 uv, float depth)
 {
     vec4 ndcPos = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
-    vec4 worldPos4 = u_InverseViewProjection * ndcPos;
+    vec4 worldPos4 = u_MB.u_InverseViewProjection * ndcPos;
     return worldPos4.xyz / worldPos4.w;
 }
 
@@ -140,7 +159,7 @@ vec3 worldPosFromDepth(vec2 uv, float depth)
 // ---------------------------------------------------------------------------
 vec2 reprojectUV(vec3 worldPos)
 {
-    vec4 prevClip = u_PrevViewProjection * vec4(worldPos, 1.0);
+    vec4 prevClip = u_MB.u_PrevViewProjection * vec4(worldPos, 1.0);
     vec2 prevNDC = prevClip.xy / prevClip.w;
     return prevNDC * 0.5 + 0.5;
 }
@@ -159,8 +178,14 @@ void main()
         return;
     }
 
+    // Camera-relative (issue #429): worldPosFromDepth inverts the WORLD
+    // view-projection, so worldPos is already ABSOLUTE world (see the identity in
+    // RenderPipeline::PrepareFrame). u_CameraPosition comes from the render-
+    // relative camera UBO, so lift it to absolute world with the render origin —
+    // then all of the fog math (distances, height plane, noise, fog volumes,
+    // reprojection) is consistently in absolute world space.
     vec3 worldPos = worldPosFromDepth(v_TexCoord, depth);
-    vec3 cameraPos = u_CameraPosition;
+    vec3 cameraPos = u_CameraPosition + u_RenderOrigin;
 
     // Unpack fog parameters
     float baseDensity    = u_FogColorAndDensity.a;
@@ -260,7 +285,7 @@ void main()
         if (stepSize < 0.001)
             continue;
 
-        vec3 samplePos = cameraPos + rayDir * t;
+        vec3 samplePos = cameraPos + rayDir * t; // absolute world (issue #429)
 
         // Height-modulated global density
         float density = fogDensityAtPoint(samplePos, baseDensity, heightFalloff, heightOffset);

@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
@@ -302,17 +303,22 @@ namespace OloEngine
         m_VisibleInstances = 0;
 
         // Foliage's per-blade transforms come from its own instance VBO
-        // (a_PositionScale, a_RotationHeight) in world space. The shaders now
-        // read `u_Model` from the engine's ModelInstanceBuffer (binding 15) —
-        // upload identity once so the matrix is a no-op for blade positioning.
-        // Without this, the SSBO would still hold whatever the previous
-        // DrawMesh wrote, causing every grass blade to inherit the last
-        // entity's transform.
+        // (a_PositionScale, a_RotationHeight) in absolute world space. The
+        // shaders read `u_Model` from the engine's ModelInstanceBuffer
+        // (binding 15). Upload the render-relative model matrix once so it (a)
+        // overrides whatever the previous DrawMesh wrote into the SSBO and (b)
+        // shifts the absolute blade positions into render-relative space —
+        // camera-relative rendering (issue #429). The matrix is a pure
+        // translation by -renderOrigin, so the default identity Normal matrix
+        // is correct; the foliage shaders add u_RenderOrigin back for the
+        // world-anchored wind field. No-op near origin (renderOrigin == 0).
         if (auto instanceBuffer = Renderer3D::GetModelInstanceBuffer())
         {
-            InstanceData identity{};
-            identity.EntityID = -1;
-            const std::span<const InstanceData> one(&identity, 1);
+            InstanceData bladeModel{};
+            bladeModel.EntityID = -1;
+            bladeModel.Transform = MakeModelRelative(glm::mat4(1.0f), Renderer3D::GetRenderOrigin());
+            bladeModel.PrevTransform = bladeModel.Transform;
+            const std::span<const InstanceData> one(&bladeModel, 1);
             instanceBuffer->Upload(one);
             instanceBuffer->Bind();
         }
@@ -358,14 +364,18 @@ namespace OloEngine
 
         depthShader->Bind();
 
-        // Same identity-instance pattern as Render(): the depth shader reads
-        // u_Model from the ModelInstanceBuffer but foliage's per-blade data
-        // is already in world space via the instance VBO.
+        // Same render-relative model pattern as Render() (issue #429): the depth
+        // shader reads u_Model from the ModelInstanceBuffer and foliage's per-blade
+        // data is absolute world, so translate by -renderOrigin to render the
+        // shadow caster in the same render-relative space as the shifted lightVP.
+        // No-op near origin.
         if (auto instanceBuffer = Renderer3D::GetModelInstanceBuffer())
         {
-            InstanceData identity{};
-            identity.EntityID = -1;
-            const std::span<const InstanceData> one(&identity, 1);
+            InstanceData bladeModel{};
+            bladeModel.EntityID = -1;
+            bladeModel.Transform = MakeModelRelative(glm::mat4(1.0f), Renderer3D::GetRenderOrigin());
+            bladeModel.PrevTransform = bladeModel.Transform;
+            const std::span<const InstanceData> one(&bladeModel, 1);
             instanceBuffer->Upload(one);
             instanceBuffer->Bind();
         }

@@ -46,6 +46,13 @@ layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_Projection;
     vec3 u_CameraPosition;
     float _padding0;
+    // std140 padding so u_RenderOrigin lands at offset 272 (matches the shared
+    // CameraMatrices layout). Named distinctly from the binding-8 MotionBlur
+    // block's u_PrevViewProjection to avoid a nameless-block global-scope
+    // collision; the previous-frame VP is unused in the deferred lit pass.
+    mat4 _camPrevViewProjectionPad;
+    vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
+    float _padding1;
 };
 
 // MultiLight UBO (binding 5)
@@ -136,7 +143,12 @@ void main()
     // unlit fast-path when emissive.a > 0.5.
     vec4 emissive  = gEmissive;
 
-    vec3 worldPos = ReconstructWorldPosGB(v_TexCoord, depth);
+    // ReconstructWorldPosGB inverts the WORLD view-projection (binding 8), so it
+    // returns an ABSOLUTE world position (issue #429). The deferred lit pass reads
+    // render-RELATIVE camera / lights / shadow matrices / probe bounds (all shifted
+    // by the render origin), so bring the reconstructed position into the same
+    // relative space before lighting. No-op near origin (u_RenderOrigin == 0).
+    vec3 worldPos = ReconstructWorldPosGB(v_TexCoord, depth) - u_RenderOrigin;
     vec3 color = ComputeDeferredLit(albedo, metallic, N, roughness, ao, emissive, worldPos);
 
     o_Color = vec4(color, 1.0);
