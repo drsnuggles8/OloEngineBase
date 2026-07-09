@@ -77,6 +77,15 @@ namespace OloEngine
         [[nodiscard("Store this!")]] static f32 GetLineWidth();
         static void SetLineWidth(f32 width);
 
+        // Camera-relative rendering debug lever (issue #429). When false the
+        // render origin is pinned to (0,0,0) so the 2D path reverts to exact
+        // pre-#429 world-space behaviour. Default on. Mirrors
+        // Renderer3D::SetCameraRelativeEnabled — used to A/B the feature
+        // (before/after visual evidence) and to isolate a regression, not as
+        // a user-facing setting.
+        static void SetCameraRelativeEnabled(bool enabled);
+        [[nodiscard("Store this!")]] static bool IsCameraRelativeEnabled();
+
         static ShaderLibrary& GetShaderLibrary();
 
         // Stats
@@ -100,6 +109,17 @@ namespace OloEngine
       private:
         static void StartBatch();
         static void NextBatch();
+
+        // Shared BeginScene body: compute the grid-snapped render origin from
+        // the camera world position, upload the view-projection made relative
+        // to it, and start a fresh batch. See CameraRelative.h / issue #429.
+        static void BeginSceneImpl(const glm::mat4& viewProjectionWorld, const glm::vec3& cameraWorldPos);
+
+        // Push a line whose endpoints are ALREADY render-relative (origin
+        // subtracted). The public DrawLine subtracts the origin first; the
+        // transform-baked DrawRect(mat4) bakes relative and calls this
+        // directly to avoid a double shift.
+        static void DrawLineImpl(const glm::vec3& p0, const glm::vec3& p1, const glm::vec4& color, int entityID);
 
         static ShaderLibrary m_ShaderLibrary;
     };
