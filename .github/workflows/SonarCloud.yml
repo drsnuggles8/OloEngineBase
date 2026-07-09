@@ -101,6 +101,17 @@ jobs:
           # runner's 4 vCPUs (windows-latest). The analyzer is the ~51-min half of
           # this job; threading it is the biggest single scan-time lever. The
           # -Xmx6g heap above has headroom for the parallel workers.
+          #
+          # sonar.cfamily.compile-commands (issue #411 item 2): build-wrapper now
+          # emits a standard compile_commands.json alongside its legacy dump inside
+          # --out-dir; pointing the analyzer at that file uses the supported,
+          # non-deprecated ingestion path instead of 'build-wrapper-output' (which
+          # also triggers a strict build-wrapper/analyzer version match — the
+          # "generated using build-wrapper version 6.82.1-SNAPSHOT, which does not
+          # match the analyzer version" warning). The build-wrapper install/run
+          # steps above are unchanged: build-wrapper still captures every build
+          # subprocess (including the OloHeaderTool codegen custom target), it just
+          # also produces this file now.
           args: >
-            --define sonar.cfamily.build-wrapper-output=${{ env.BUILD_WRAPPER_OUT_DIR }}
+            --define sonar.cfamily.compile-commands=${{ env.BUILD_WRAPPER_OUT_DIR }}/compile_commands.json
             --define sonar.cfamily.threads=4
