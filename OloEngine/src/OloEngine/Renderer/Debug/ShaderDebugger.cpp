@@ -963,7 +963,7 @@ namespace OloEngine
         // Bottom controls
         if (ImGui::Button("Refresh All"))
         {
-            // TODO: Trigger reload of all shaders
+            // TODO(olbu): Trigger reload of all shaders (#594)
         }
         ImGui::SameLine();
         if (ImGui::Button("Clear Selection"))

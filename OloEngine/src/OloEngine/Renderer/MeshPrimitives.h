@@ -170,10 +170,10 @@ namespace OloEngine
         [[nodiscard]] static Ref<Mesh> CreateWaterGrid(f32 width = 100.0f, f32 length = 100.0f, u32 subdivisionsX = 128, u32 subdivisionsZ = 128);
 
         // =============================================================================
-        // ANIMATED MESH PRIMITIVES (TODO: Update for new MeshSource system)
+        // ANIMATED MESH PRIMITIVES (TODO(olbu): Update for new MeshSource system, #592)
         // =============================================================================
 
-        // TODO: Update these methods to work with new MeshSource bone influence system
+        // TODO(olbu): Update these methods to work with new MeshSource bone influence system (#592)
         // static Ref<Mesh> CreateAnimatedCube();
         // static Ref<Mesh> CreateMultiBoneAnimatedCube();
     };

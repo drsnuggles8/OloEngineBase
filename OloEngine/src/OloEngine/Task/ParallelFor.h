@@ -426,7 +426,7 @@ namespace OloEngine
                 if (bPumpRenderingThread && OLO::IsInActualRenderingThread())
                 {
                     // Pump the rendering thread to prevent deadlocks
-                    // TODO: Once TaskGraphInterface is implemented, use:
+                    // TODO(olbu): Once TaskGraphInterface is implemented, use:
                     // while (!FinishedSignal->Wait(1))
                     // {
                     //     FTaskGraphInterface::Get().ProcessThreadUntilIdle(ENamedThreads::GetRenderThread_Local());

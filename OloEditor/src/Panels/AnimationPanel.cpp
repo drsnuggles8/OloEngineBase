@@ -465,7 +465,7 @@ namespace OloEngine
                     // Show parent info in tooltip
                     if (ImGui::Selectable(displayName.c_str()))
                     {
-                        // TODO: Select bone entity in hierarchy when clicked
+                        // TODO(olbu): Select bone entity in hierarchy when clicked (#593)
                     }
 
                     // Tooltip with bone details

@@ -79,7 +79,7 @@ namespace OloEngine
 
         void CaptureActiveTagData()
         {
-            // TODO: When LLM is implemented, capture active tag data
+            // TODO(olbu): When LLM is implemented, capture active tag data (#599)
             for (u32 TagSetIndex = 0; TagSetIndex < static_cast<u32>(ELLMTagSet::Max); ++TagSetIndex)
             {
                 LLMTags[TagSetIndex] = -1; // Invalid tag
@@ -100,12 +100,12 @@ namespace OloEngine
     {
         explicit FLLMActiveTagsScope([[maybe_unused]] const FLLMActiveTagsCapture& InActiveTagsCapture)
         {
-            // TODO: When LLM is implemented, restore captured tags
+            // TODO(olbu): When LLM is implemented, restore captured tags (#599)
         }
 
         ~FLLMActiveTagsScope()
         {
-            // TODO: Restore previous tags
+            // TODO(olbu): Restore previous tags (#599)
         }
     };
 #endif // OLO_ENABLE_LOW_LEVEL_MEM_TRACKER
@@ -119,7 +119,7 @@ namespace OloEngine
     // @return Current memory tag ID
     inline i32 MemoryTrace_GetActiveTag()
     {
-        // TODO: Integrate with Tracy memory tracking
+        // TODO(olbu): Integrate with Tracy memory tracking (#599)
         return 0;
     }
 
@@ -130,7 +130,7 @@ namespace OloEngine
         explicit FMemScope([[maybe_unused]] i32 InMemTag)
             : m_PreviousTag(MemoryTrace_GetActiveTag()), m_Active(true)
         {
-            // TODO: Set active tag when memory tracing is implemented
+            // TODO(olbu): Set active tag when memory tracing is implemented (#599)
             (void)m_PreviousTag;
         }
 
@@ -138,7 +138,7 @@ namespace OloEngine
         {
             if (m_Active)
             {
-                // TODO: Restore previous tag
+                // TODO(olbu): Restore previous tag (#599)
             }
         }
 
@@ -157,7 +157,7 @@ namespace OloEngine
     // @return Metadata ID representing current call stack
     inline u32 TraceMetadata_SaveStack()
     {
-        // TODO: Integrate with Tracy call stack capture
+        // TODO(olbu): Integrate with Tracy call stack capture (#599)
         return 0;
     }
 
@@ -168,12 +168,12 @@ namespace OloEngine
         explicit FMetadataRestoreScope([[maybe_unused]] u32 InMetadataId)
             : m_MetadataId(InMetadataId)
         {
-            // TODO: Restore captured call stack when tracing is implemented
+            // TODO(olbu): Restore captured call stack when tracing is implemented (#599)
         }
 
         ~FMetadataRestoreScope()
         {
-            // TODO: Cleanup
+            // TODO(olbu): Cleanup (#599)
         }
 
       private:

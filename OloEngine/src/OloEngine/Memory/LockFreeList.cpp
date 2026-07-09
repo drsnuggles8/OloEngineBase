@@ -114,7 +114,7 @@ namespace OloEngine
       public:
         LockFreeLinkAllocator_TLSCache()
         {
-            // TODO: Add IsInGameThread() check here once OloEngine has a formal threading system.
+            // TODO(olbu): Add IsInGameThread() check here once OloEngine has a formal threading system (#597).
             // UE5.7 uses: check(IsInGameThread());
             // This ensures TLS slot allocation happens on the main thread for deterministic
             // initialization order before worker threads start using the allocator.
