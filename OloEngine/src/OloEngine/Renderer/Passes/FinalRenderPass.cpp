@@ -142,6 +142,27 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // TODO(olbu): Recreate the fullscreen triangle and shader if needed (#595)
+        // Intentional no-op — nothing this pass owns can go stale across a reset (#595):
+        //
+        //  * m_BlitShader is a plain Ref<Shader> GPU asset, not a render-graph
+        //    handle. RenderGraph::ResetTopology() only invalidates RG resource
+        //    slots / framebuffer handles; it never touches shaders. The only path
+        //    that would drop the shader is the heavier RenderPipeline::Setup(),
+        //    which destroys every pass object and reconstructs it — so Init()
+        //    re-creates m_BlitShader from scratch. A persisting FinalRenderPass
+        //    therefore always holds its live shader.
+        //
+        //  * The fullscreen triangle is NOT owned here: MeshPrimitives::
+        //    GetFullscreenTriangle() is a self-healing lazy static VAO, re-fetched
+        //    every Execute() and only released at renderer Shutdown(). It survives
+        //    every topology reset and re-creates itself on demand regardless.
+        //
+        //  * The input texture is resolved fresh from the current graph every
+        //    Execute(), so no cross-frame handle is cached to invalidate.
+        //
+        // (OnReset() is in fact never invoked anywhere in the engine — it is a
+        // vestigial RenderGraphNode hook from when passes were persistent-and-reset
+        // rather than destroyed-and-recreated. Kept as a documented no-op so the
+        // contract is explicit rather than a silent gap.)
     }
 } // namespace OloEngine

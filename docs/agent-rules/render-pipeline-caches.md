@@ -120,3 +120,44 @@ the paired "same-dimension idle resize must **not** churn the pool" contract.
 `EASUVisualEvidenceTest.ForwardUpscaleOffTransitionKeepsSceneVisible`
 (GPU, SKIPs headless) reproduces the runtime `Performance`→`Off` transition with
 a 2-frame warm-up and fails on a black frame if the pool keeps stale transients.
+
+---
+
+# Pass objects survive a topology reset — but `RenderGraphNode::OnReset()` is a dead hook (#595)
+
+Two different "resets" exist and they have **different** lifetimes for the pass
+objects — don't conflate them:
+
+- **`RenderGraph::ResetTopology()`** — the per-build topology wipe, called at the
+  top of `BuildRenderPipelineGraph` (every path build). It clears `m_NodeLookup`,
+  invalidates every RG resource/framebuffer handle slot, and bumps
+  `GetTopologyGeneration()`. The **pass objects persist** across it: the pipeline
+  re-registers the *same* long-lived `PostProcessPasses.*` / `FrameCorePasses.*`
+  instances into the freshly-reset graph.
+- **`RenderPipeline::Setup()`** — the heavier reconfigure. It calls
+  `RenderPipeline::Reset()` (drops every pass `Ref<>`, destroying the objects)
+  then `CreateFramePasses` / `CreatePostProcessPasses` (constructs fresh objects
+  via `Ref<T>::Create()` and calls `Init()` on each). Here the pass objects
+  **do not** survive.
+
+Because a pass persists across `ResetTopology()`, any RG handle it cached is now
+dangling. The engine handles this **not** via a reset hook but by re-resolving
+every RG handle from the current graph inside `Execute()` each frame
+(`GetPrimaryInputTextureHandle()` → `context.ResolveTexture(...)`,
+`GetPrimaryOutputFramebufferHandle()` → `context.ResolveFramebuffer(...)`; a
+pass's `m_Target` is reassigned from that fresh resolve every Execute). So no
+cross-frame RG handle is trusted to survive a reset in the first place.
+
+Consequently **`RenderGraphNode::OnReset()` has zero call sites anywhere in the
+engine** (grep it — every occurrence is a definition/override or an unrelated
+SoundGraph `m_OnReset`). It is a vestigial virtual from an earlier
+persistent-and-reset design; the ~38 overrides that null `m_Target` / cached
+handles are dead-but-harmless (the fields are also re-resolved every Execute).
+Do **not** assume `OnReset()` runs on a topology reset — it does not. If you
+genuinely need per-reset work on a persistent pass, either wire a real call site
+into `BuildRenderPipelineGraph` / `ResetTopology` first, or (the existing idiom)
+re-resolve the state in `Execute()` from the live graph. `FinalRenderPass::OnReset`
+is documented as an intentional no-op on this basis: its `m_BlitShader` is a plain
+shader asset rebuilt only by `Init()` (i.e. only on the destroy-and-recreate
+`Setup()` path), and its fullscreen triangle is a self-healing static owned by
+`MeshPrimitives`, not the pass.
