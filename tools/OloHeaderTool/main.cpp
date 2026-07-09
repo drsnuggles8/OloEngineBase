@@ -52,6 +52,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -2928,6 +2929,334 @@ static void EmitSceneDeserializeBlocks(std::ostream& out, const std::map<std::st
     }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// Binary scene-sidecar codegen (issue #525). Parallels the YAML emitters above
+// but drives the .scenebin fast path: typed binary read/write for exactly the
+// same auto-serializable component set. The classification (SerField trees) is
+// reused verbatim — only the emit differs. Leaf values bottom out in the
+// SceneBinIO::Write/Read overloads (Scene/SceneBinaryIO.h); container / nested-
+// struct / Ref framing is emitted inline here, mirroring EmitSerializeFields.
+// ════════════════════════════════════════════════════════════════════════════
+
+// FNV-1a 32-bit of the component type name — the stable on-disk ComponentId used
+// to tag each binary component block. Compiler-independent (unlike entt's
+// type_hash), so sidecars are portable. MUST stay bit-identical to the constexpr
+// SceneBinIO::ComponentId in Scene/SceneBinaryIO.h (same seed / prime).
+static std::uint32_t SceneBinComponentId(const std::string& name)
+{
+    std::uint32_t hash = 2166136261u;
+    for (char c : name)
+    {
+        hash ^= static_cast<unsigned char>(c);
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+// A depth-suffixed local name, e.g. "bn0" / "btmp1", so nested container loops
+// don't shadow each other (-Wshadow).
+static std::string BinVar(const char* base, int depth)
+{
+    return std::string(base) + std::to_string(depth);
+}
+
+// Emit the post-read range clamp for a scalar / vec3 field carrying
+// OLO_SERIALIZE(Clamp, …). Applied after the value has been read into `lhs`;
+// reuses the same ApplyClamp / ApplyVec3Clamp assemblers as the YAML path.
+static void EmitBinaryClamp(std::ostream& out, const std::string& indent, const std::string& lhs, const SerField& f)
+{
+    switch (f.type)
+    {
+        case PropType::Float:
+            out << indent << lhs << " = " << ApplyClamp(lhs, "f32", f) << ";\n";
+            break;
+        case PropType::Int:
+            out << indent << lhs << " = " << ApplyClamp(lhs, "i32", f) << ";\n";
+            break;
+        case PropType::UInt:
+            out << indent << lhs << " = " << ApplyClamp(lhs, "u32", f) << ";\n";
+            break;
+        case PropType::SmallUInt:
+        case PropType::SmallInt:
+            out << indent << lhs << " = " << ApplyClamp(lhs, "decltype(" + lhs + ")", f) << ";\n";
+            break;
+        case PropType::Enum:
+            out << indent << lhs << " = static_cast<decltype(" << lhs << ")>("
+                << ApplyClamp("static_cast<int>(" + lhs + ")", "int", f) << ");\n";
+            break;
+        case PropType::Vec3:
+            out << indent << lhs << " = " << ApplyVec3Clamp(lhs, f) << ";\n";
+            break;
+        default:
+            break; // ParseComponentFields never sets hasClamp on other types
+    }
+}
+
+// Recursively emit the binary WRITES for `fields` of a struct instance reached
+// via `inst`. Mirrors EmitSerializeFields: nested structs write their members
+// inline (no keys — fixed field order), a std::vector/std::unordered_set writes a
+// u32 count then each element, a std::unordered_map<std::string,V> writes a u32
+// count then sorted (key,value) pairs, a Ref<T> writes its asset handle as a u64.
+static void EmitBinaryWriteFields(std::ostream& out, const std::vector<SerField>& fields,
+                                  const std::string& inst, const std::string& indent, int depth)
+{
+    for (auto const& f : fields)
+    {
+        const std::string access = inst + "." + f.member;
+        if (f.type == PropType::Struct)
+        {
+            if (f.isVector)
+            {
+                const std::string ev = BinVar("be", depth);
+                out << indent << "SceneBinIO::WriteU32(out, static_cast<u32>(" << access << ".size()));\n";
+                out << indent << "for (auto const& " << ev << " : " << access << ")\n";
+                out << indent << "{\n";
+                EmitBinaryWriteFields(out, f.subFields, ev, indent + "    ", depth + 1);
+                out << indent << "}\n";
+            }
+            else
+            {
+                EmitBinaryWriteFields(out, f.subFields, access, indent, depth);
+            }
+            continue;
+        }
+        if (f.type == PropType::Ref)
+        {
+            out << indent << "SceneBinIO::WriteU64(out, (" << access << " && " << access
+                << "->GetHandle() != 0) ? static_cast<u64>(" << access << "->GetHandle()) : 0ull);\n";
+            continue;
+        }
+        if (f.isSet)
+        {
+            const std::string sorted = BinVar("bset", depth);
+            const std::string ev = BinVar("be", depth);
+            out << indent << "{\n";
+            out << indent << "    std::vector<decltype(" << access << ")::value_type> " << sorted << "("
+                << access << ".begin(), " << access << ".end());\n";
+            if (f.type == PropType::AssetHandle)
+                out << indent << "    std::ranges::sort(" << sorted
+                    << ", [](auto const& lhs, auto const& rhs) { return static_cast<u64>(lhs) < static_cast<u64>(rhs); });\n";
+            else
+                out << indent << "    std::ranges::sort(" << sorted << ");\n";
+            out << indent << "    SceneBinIO::WriteU32(out, static_cast<u32>(" << sorted << ".size()));\n";
+            out << indent << "    for (auto const& " << ev << " : " << sorted << ")\n";
+            out << indent << "        SceneBinIO::Write(out, " << ev << ");\n";
+            out << indent << "}\n";
+            continue;
+        }
+        if (f.isMap)
+        {
+            const std::string keys = BinVar("bkeys", depth);
+            const std::string entry = BinVar("bentry", depth);
+            const std::string k = BinVar("bk", depth);
+            out << indent << "{\n";
+            out << indent << "    std::vector<std::string> " << keys << ";\n";
+            out << indent << "    " << keys << ".reserve(" << access << ".size());\n";
+            out << indent << "    for (auto const& " << entry << " : " << access << ")\n";
+            out << indent << "        " << keys << ".push_back(" << entry << ".first);\n";
+            out << indent << "    std::ranges::sort(" << keys << ");\n";
+            out << indent << "    SceneBinIO::WriteU32(out, static_cast<u32>(" << keys << ".size()));\n";
+            out << indent << "    for (auto const& " << k << " : " << keys << ")\n";
+            out << indent << "    {\n";
+            out << indent << "        SceneBinIO::Write(out, " << k << ");\n";
+            out << indent << "        SceneBinIO::Write(out, " << access << ".at(" << k << "));\n";
+            out << indent << "    }\n";
+            out << indent << "}\n";
+            continue;
+        }
+        if (f.isVector)
+        {
+            const std::string ev = BinVar("be", depth);
+            out << indent << "SceneBinIO::WriteU32(out, static_cast<u32>(" << access << ".size()));\n";
+            out << indent << "for (auto const& " << ev << " : " << access << ")\n";
+            out << indent << "    SceneBinIO::Write(out, " << ev << ");\n";
+            continue;
+        }
+        // Scalar / string / glm / enum / AssetHandle leaf — the SceneBinIO::Write
+        // overload set picks the encoding from the member's actual C++ type.
+        out << indent << "SceneBinIO::Write(out, " << access << ");\n";
+    }
+}
+
+// Recursively emit the binary READS for `fields` into a struct instance reached
+// via `inst`, from the SceneBinIO::Reader `reader`. Any short read / bad value
+// makes the enclosing Read function `return false` (the caller rolls the whole
+// scene back and falls to YAML). Mirrors EmitBinaryWriteFields exactly.
+static void EmitBinaryReadFields(std::ostream& out, const std::vector<SerField>& fields,
+                                 const std::string& inst, const std::string& indent, int depth)
+{
+    for (auto const& f : fields)
+    {
+        const std::string lhs = inst + "." + f.member;
+        if (f.type == PropType::Struct)
+        {
+            if (f.isVector)
+            {
+                const std::string n = BinVar("bn", depth);
+                const std::string tmp = BinVar("btmp", depth);
+                out << indent << "{\n";
+                out << indent << "    u32 " << n << " = 0;\n";
+                out << indent << "    if (!SceneBinIO::ReadU32(reader, " << n << ") || " << n
+                    << " > SceneBinIO::MaxContainerElements) return false;\n";
+                out << indent << "    " << lhs << ".clear();\n";
+                out << indent << "    " << lhs << ".reserve(" << n << ");\n";
+                out << indent << "    for (u32 bi" << depth << " = 0; bi" << depth << " < " << n << "; ++bi" << depth << ")\n";
+                out << indent << "    {\n";
+                out << indent << "        decltype(" << lhs << ")::value_type " << tmp << "{};\n";
+                EmitBinaryReadFields(out, f.subFields, tmp, indent + "        ", depth + 1);
+                out << indent << "        " << lhs << ".push_back(std::move(" << tmp << "));\n";
+                out << indent << "    }\n";
+                out << indent << "}\n";
+            }
+            else
+            {
+                EmitBinaryReadFields(out, f.subFields, lhs, indent, depth);
+            }
+            continue;
+        }
+        if (f.type == PropType::Ref)
+        {
+            const std::string h = BinVar("bh", depth);
+            out << indent << "{\n";
+            out << indent << "    u64 " << h << " = 0;\n";
+            out << indent << "    if (!SceneBinIO::ReadU64(reader, " << h << ")) return false;\n";
+            out << indent << "    if (" << h << " != 0) " << lhs << " = AssetManager::GetAsset<" << f.refType << ">(" << h << ");\n";
+            out << indent << "}\n";
+            continue;
+        }
+        if (f.isSet)
+        {
+            const std::string n = BinVar("bn", depth);
+            const std::string v = BinVar("bv", depth);
+            out << indent << "{\n";
+            out << indent << "    u32 " << n << " = 0;\n";
+            out << indent << "    if (!SceneBinIO::ReadU32(reader, " << n << ") || " << n
+                << " > SceneBinIO::MaxContainerElements) return false;\n";
+            out << indent << "    " << lhs << ".clear();\n";
+            out << indent << "    for (u32 bi" << depth << " = 0; bi" << depth << " < " << n << "; ++bi" << depth << ")\n";
+            out << indent << "    {\n";
+            out << indent << "        decltype(" << lhs << ")::value_type " << v << "{};\n";
+            out << indent << "        if (!SceneBinIO::Read(reader, " << v << ")) return false;\n";
+            out << indent << "        " << lhs << ".insert(std::move(" << v << "));\n";
+            out << indent << "    }\n";
+            out << indent << "}\n";
+            continue;
+        }
+        if (f.isMap)
+        {
+            const std::string n = BinVar("bn", depth);
+            const std::string k = BinVar("bk", depth);
+            const std::string v = BinVar("bv", depth);
+            out << indent << "{\n";
+            out << indent << "    u32 " << n << " = 0;\n";
+            out << indent << "    if (!SceneBinIO::ReadU32(reader, " << n << ") || " << n
+                << " > SceneBinIO::MaxContainerElements) return false;\n";
+            out << indent << "    " << lhs << ".clear();\n";
+            out << indent << "    for (u32 bi" << depth << " = 0; bi" << depth << " < " << n << "; ++bi" << depth << ")\n";
+            out << indent << "    {\n";
+            out << indent << "        std::string " << k << ";\n";
+            out << indent << "        if (!SceneBinIO::Read(reader, " << k << ")) return false;\n";
+            out << indent << "        decltype(" << lhs << ")::mapped_type " << v << "{};\n";
+            out << indent << "        if (!SceneBinIO::Read(reader, " << v << ")) return false;\n";
+            out << indent << "        " << lhs << "[std::move(" << k << ")] = std::move(" << v << ");\n";
+            out << indent << "    }\n";
+            out << indent << "}\n";
+            continue;
+        }
+        if (f.isVector)
+        {
+            const std::string n = BinVar("bn", depth);
+            const std::string v = BinVar("bv", depth);
+            out << indent << "{\n";
+            out << indent << "    u32 " << n << " = 0;\n";
+            out << indent << "    if (!SceneBinIO::ReadU32(reader, " << n << ") || " << n
+                << " > SceneBinIO::MaxContainerElements) return false;\n";
+            out << indent << "    " << lhs << ".clear();\n";
+            out << indent << "    " << lhs << ".reserve(" << n << ");\n";
+            out << indent << "    for (u32 bi" << depth << " = 0; bi" << depth << " < " << n << "; ++bi" << depth << ")\n";
+            out << indent << "    {\n";
+            out << indent << "        decltype(" << lhs << ")::value_type " << v << "{};\n";
+            out << indent << "        if (!SceneBinIO::Read(reader, " << v << ")) return false;\n";
+            out << indent << "        " << lhs << ".push_back(std::move(" << v << "));\n";
+            out << indent << "    }\n";
+            out << indent << "}\n";
+            continue;
+        }
+        // Scalar / string / glm / enum / AssetHandle leaf.
+        out << indent << "if (!SceneBinIO::Read(reader, " << lhs << ")) return false;\n";
+        if (f.hasClamp)
+            EmitBinaryClamp(out, indent, lhs, f);
+    }
+}
+
+static void EmitSceneBinaryHeader(std::ostream& out, const char* verb, const char* locals)
+{
+    out << "// Auto-generated by OloHeaderTool — DO NOT EDIT MANUALLY\n";
+    out << "// Re-generate with: cmake --build build --target GenerateBindings\n";
+    out << "//\n";
+    out << "// Per-component .scenebin binary " << verb << " blocks (issue #525) for the same\n";
+    out << "// auto-serializable component set as the YAML SceneSerializer codegen. Leaf\n";
+    out << "// values go through the SceneBinIO::Write/Read overloads; each block is tagged\n";
+    out << "// with a stable FNV-1a-32 ComponentId of the type name.\n";
+    out << "//\n";
+    out << "// #include'd where " << locals << " are in scope.\n\n";
+}
+
+// SceneBinaryWriteComponents.Generated.inl — `if (entity.HasComponent<T>()) {
+// WriteU32(id); <writes>; }` blocks, appended after the hand-written Transform block.
+static void EmitSceneBinaryWriteBlocks(std::ostream& out, const std::map<std::string, ComponentSerInfo>& comps)
+{
+    EmitSceneBinaryHeader(out, "write", "`out` (std::ostream&) and `entity` (Entity)");
+    for (auto const& [name, info] : comps)
+    {
+        if (!info.trivial || kComponentsCustomSerialize.contains(name))
+            continue;
+        out << "if (entity.HasComponent<" << name << ">())\n";
+        out << "{\n";
+        out << "    SceneBinIO::WriteU32(out, " << SceneBinComponentId(name) << "u); // " << name << "\n";
+        out << "    auto const& comp = entity.GetComponent<" << name << ">();\n";
+        EmitBinaryWriteFields(out, info.fields, "comp", "    ", 0);
+        out << "}\n\n";
+    }
+}
+
+// SceneBinaryReadComponents.Generated.inl — `case id: { comp = AddComponent<T>();
+// <reads>; break; }` cases, spliced into the component-id switch.
+static void EmitSceneBinaryReadBlocks(std::ostream& out, const std::map<std::string, ComponentSerInfo>& comps)
+{
+    EmitSceneBinaryHeader(out, "read", "`reader` (SceneBinIO::Reader&) and `deserializedEntity` (Entity&)");
+    for (auto const& [name, info] : comps)
+    {
+        if (!info.trivial || kComponentsCustomSerialize.contains(name))
+            continue;
+        out << "case " << SceneBinComponentId(name) << "u: // " << name << "\n";
+        out << "{\n";
+        out << "    auto& comp = deserializedEntity.AddComponent<" << name << ">();\n";
+        EmitBinaryReadFields(out, info.fields, "comp", "    ", 0);
+        out << "    break;\n";
+        out << "}\n";
+    }
+}
+
+// SceneBinaryCoveredComponents.Generated.inl — inserts each covered component's
+// entt::type_hash into the runtime `ids` set used by the per-entity
+// representability check (is every component of this entity binary-covered?).
+static void EmitSceneBinaryCoveredIds(std::ostream& out, const std::map<std::string, ComponentSerInfo>& comps)
+{
+    out << "// Auto-generated by OloHeaderTool — DO NOT EDIT MANUALLY\n";
+    out << "// Re-generate with: cmake --build build --target GenerateBindings\n";
+    out << "//\n";
+    out << "// Runtime entt::type_hash of every binary-covered component (issue #525),\n";
+    out << "// inserted into the `ids` set. #include'd where `ids`\n";
+    out << "// (std::unordered_set<entt::id_type>&) is in scope.\n\n";
+    for (auto const& [name, info] : comps)
+    {
+        if (!info.trivial || kComponentsCustomSerialize.contains(name))
+            continue;
+        out << "ids.insert(entt::type_hash<" << name << ">::value());\n";
+    }
+}
+
 // ─── C++ Mono Bindings Emitter ──────────────────────────────────────────────────
 
 static void EmitCppBindings(std::ostream& out, const std::vector<ComponentDef>& components)
@@ -3361,7 +3690,41 @@ static bool WriteSceneSerializerBlocks(const fs::path& sceneOutDir, const std::m
     EmitSceneDeserializeBlocks(deserSs, componentFields);
     const bool deserOk = ReportWrite(sceneOutDir / "SceneDeserializeComponents.Generated.inl", deserSs.str());
 
-    return serOk && deserOk;
+    // ── Binary scene-sidecar codegen (issue #525) — same covered set, typed
+    //    binary read/write. Guard the on-disk ComponentId space against a hash
+    //    collision (an FNV-1a-32 clash between two component names, or with the
+    //    hand-written TransformComponent block's id) before emitting: a clash
+    //    would silently misdispatch one component's bytes as another's. Loud
+    //    build failure beats a corrupt cache.
+    std::map<std::uint32_t, std::string> binIds;
+    binIds.emplace(SceneBinComponentId("TransformComponent"), "TransformComponent (hand-written)");
+    for (auto const& [name, info] : componentFields)
+    {
+        if (!info.trivial || kComponentsCustomSerialize.contains(name))
+            continue;
+        const std::uint32_t id = SceneBinComponentId(name);
+        if (auto [it, inserted] = binIds.emplace(id, name); !inserted)
+        {
+            std::cerr << "ERROR: .scenebin ComponentId FNV-1a-32 collision (0x" << std::hex << id << std::dec
+                      << ") between '" << name << "' and '" << it->second
+                      << "'. Rename one component or switch the id hash.\n";
+            return false;
+        }
+    }
+
+    std::ostringstream binWriteSs;
+    EmitSceneBinaryWriteBlocks(binWriteSs, componentFields);
+    const bool binWriteOk = ReportWrite(sceneOutDir / "SceneBinaryWriteComponents.Generated.inl", binWriteSs.str());
+
+    std::ostringstream binReadSs;
+    EmitSceneBinaryReadBlocks(binReadSs, componentFields);
+    const bool binReadOk = ReportWrite(sceneOutDir / "SceneBinaryReadComponents.Generated.inl", binReadSs.str());
+
+    std::ostringstream binCoveredSs;
+    EmitSceneBinaryCoveredIds(binCoveredSs, componentFields);
+    const bool binCoveredOk = ReportWrite(sceneOutDir / "SceneBinaryCoveredComponents.Generated.inl", binCoveredSs.str());
+
+    return serOk && deserOk && binWriteOk && binReadOk && binCoveredOk;
 }
 
 int main(int argc, char* argv[])

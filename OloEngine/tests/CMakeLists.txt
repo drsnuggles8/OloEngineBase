@@ -278,6 +278,7 @@ add_executable(OloEngine-Tests
 		Serialization/ArchiveExtensionsTest.cpp
 		Serialization/StreamHelpersTest.cpp
 		Serialization/MeshBinarySerializerTest.cpp
+		Serialization/SceneBinarySidecarTest.cpp
 		Serialization/MeshAssetSerializerTest.cpp
 		Serialization/SoundGraphSerializerTest.cpp
 		Serialization/SoundConfigSerializerTest.cpp
