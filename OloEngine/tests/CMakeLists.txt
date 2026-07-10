@@ -382,8 +382,19 @@ add_executable(OloEngine-Tests
 		# needs the actual tool TUs too. These are editor-decoupled — they include
 		# only OloEngine headers + the header-only MCP/* helpers — so they compile
 		# cleanly into the test binary (which links OloEngine). McpScriptApi.cpp
-		# supplies BuildScriptApiDigest, referenced by McpTools.cpp.
+		# supplies BuildScriptApiDigest, referenced by McpToolsScripting.cpp.
+		# McpTools.cpp is the composition point; the per-domain TUs carry the
+		# actual handlers + registrations (issue #357 split of the monolith).
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpTools.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsAssets.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsCamera.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsDiagnostics.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsPerf.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsPhysics.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsRender.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsScene.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsScripting.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsShader.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpScriptApi.cpp
 		# Pure reasoning behind olo_physics_why_no_collision (#306 item A). Header-
 		# only (MCP/McpPhysicsExplain.h), so no extra editor TU is pulled in.
@@ -446,6 +457,18 @@ add_executable(OloEngine-Tests
 		# Exercises the McpServer.cpp TU already pulled in above plus the header-only
 		# schema-builder DSL; no extra editor TU is needed.
 		MCP/McpInputValidationTest.cpp
+		# Progress notifications + request cancellation (#357 item B): the
+		# transport-agnostic notification sink on ProcessRequestBody, the in-flight
+		# cancellation registry behind notifications/cancelled, and the SSE-upgraded
+		# POST response over a real localhost socket (httplib client + server).
+		# Exercises the McpServer.cpp TU already pulled in above.
+		MCP/McpProgressCancelTest.cpp
+		# Script-defined MCP tools, Lua v1 (#357; ADR 0005): sandboxed registration
+		# from a temp directory of .lua files, schema-enforced dispatch, sandbox
+		# escape containment, the watchdog, and the read-only olo.call_tool bridge.
+		# Pulls the editor-decoupled McpScriptTools.cpp TU (sol2 + engine only).
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpScriptTools.cpp
+		MCP/McpScriptToolsTest.cpp
 		# First consented, undoable MCP WRITE tool: olo_set_collision_layer (#306
 		# item C, first slice). Exercises the session write gate + inputSchema
 		# enforcement at the McpServer.cpp dispatch seam, and the shared apply core

@@ -192,8 +192,8 @@ TEST_F(McpGenericFieldWriteTest, SchemaRejectsMissingEntity)
     m_Server.SetAllowWrites(true);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(
         3, Json{ { "component", "TransformComponent" }, { "field", "Translation" }, { "value", Json::array({ 1.0, 2.0, 3.0 }) } }));
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
+    EXPECT_EQ(resp["result"]["isError"], true);
 }
 
 TEST_F(McpGenericFieldWriteTest, SchemaRejectsMissingComponentFieldOrValue)
@@ -205,8 +205,8 @@ TEST_F(McpGenericFieldWriteTest, SchemaRejectsMissingComponentFieldOrValue)
         Json args = base;
         args.erase(missing);
         const Json resp = m_Server.HandleMessage(MakeCallRequest(4, args));
-        ASSERT_TRUE(resp.contains("error")) << "should reject missing '" << missing << "'";
-        EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+        ASSERT_TRUE(resp.contains("result")) << "should reject missing '" << missing << "'"; // SEP-1303 tool error
+        EXPECT_EQ(resp["result"]["isError"], true);
     }
 }
 
@@ -217,8 +217,8 @@ TEST_F(McpGenericFieldWriteTest, SchemaRejectsObjectValue)
     m_Server.SetAllowWrites(true);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(
         5, Json{ { "entity", std::to_string(m_EntityUuid) }, { "component", "TransformComponent" }, { "field", "Translation" }, { "value", Json::object({ { "x", 1 } }) } }));
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
+    EXPECT_EQ(resp["result"]["isError"], true);
 }
 
 TEST_F(McpGenericFieldWriteTest, SchemaRejectsUnknownProperty)
@@ -226,8 +226,8 @@ TEST_F(McpGenericFieldWriteTest, SchemaRejectsUnknownProperty)
     m_Server.SetAllowWrites(true);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(
         6, Json{ { "entity", std::to_string(m_EntityUuid) }, { "component", "TransformComponent" }, { "field", "Translation" }, { "value", Json::array({ 1.0, 2.0, 3.0 }) }, { "extra", true } }));
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
+    EXPECT_EQ(resp["result"]["isError"], true);
 }
 
 // ---- handler-level (tool) errors, gate ON ----------------------------------

@@ -233,8 +233,8 @@ TEST_F(McpSceneControlTest, OpenSchemaRejectsMissingPath)
     m_Server.SetAllowWrites(true);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(8, "olo_scene_open", Json::object()));
 
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
+    EXPECT_EQ(resp["result"]["isError"], true);
     EXPECT_EQ(m_OpenCount, 0);
 }
 
@@ -245,8 +245,8 @@ TEST_F(McpSceneControlTest, PlaySchemaRejectsUnknownProperty)
     m_Server.SetAllowWrites(true);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(9, "olo_scene_play", Json{ { "speed", 2 } }));
 
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
+    EXPECT_EQ(resp["result"]["isError"], true);
     EXPECT_EQ(m_PlayCount, 0);
 }
 

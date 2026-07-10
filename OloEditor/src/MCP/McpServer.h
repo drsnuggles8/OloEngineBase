@@ -35,11 +35,13 @@
 #include <chrono>
 #include <condition_variable>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -67,6 +69,15 @@ namespace OloEngine::MCP
 
     // Default localhost port the MCP server binds to. Configurable in the panel.
     inline constexpr u16 DefaultPort = 7345;
+
+    // JSON-RPC error code for a request abandoned via `notifications/cancelled`
+    // (issue #357 item B). MCP does not reserve a code; -32800 is the
+    // LSP-established convention for "request cancelled" in the
+    // implementation-defined range. Per spec the server SHOULD NOT respond to a
+    // cancelled request at all — the SSE transport suppresses the response
+    // frame; this code is what the plain-JSON path (which must return SOME
+    // body) carries, and clients ignore any response to a cancelled request.
+    inline constexpr int kRequestCancelledCode = -32800;
 
     // How a project-mutating (ToolDef::ProjectWrite) tool call is authorized at
     // dispatch (issue #306 item C). Supersedes the old binary "Allow writes" gate,
@@ -160,6 +171,12 @@ namespace OloEngine::MCP
         // with a clean JSON-RPC error when writes are disabled (the default). Issue
         // #306 item C; should be paired with `readOnlyHint:false` annotations.
         bool ProjectWrite = false;
+        // True for a tool registered from a project Lua script (McpScriptTools,
+        // issue #357 / ADR 0005) rather than compiled-in. Script tools are
+        // replaced wholesale by LoadScriptTools while the server is STOPPED (a
+        // panel restart rescans the project's McpTools/ directory); see
+        // UnregisterScriptTools.
+        bool ScriptOwned = false;
     };
 
     // Snapshot of the editor camera's full pose, returned by GetCameraPose and
@@ -481,6 +498,37 @@ namespace OloEngine::MCP
         void RegisterResource(ResourceDef resource);
         void RegisterPrompt(PromptDef prompt);
 
+        // Remove every ScriptOwned tool (issue #357 / ADR 0005) so LoadScriptTools
+        // can rescan the project's script directory with replace semantics. MUST
+        // be called while the server is stopped — the tool vector is read lock-free
+        // by dispatch threads, so it must never mutate while serving. Enforced
+        // loudly (OLO_CORE_VERIFY) in the definition.
+        void UnregisterScriptTools();
+
+        // ---- Progress + cancellation (issue #357 item B) -----------------------
+        //
+        // Both utilities are wired through a per-call, per-thread scope that
+        // HandleToolsCall installs around each handler invocation, so the 50+
+        // existing ToolHandler signatures stay unchanged: a handler that cares
+        // simply calls these on its `server` argument; one that doesn't pays
+        // nothing.
+
+        // Emit a `notifications/progress` for the CURRENTLY EXECUTING tool call.
+        // A no-op unless the call carried `params._meta.progressToken` AND the
+        // transport provided a notification sink (the SSE-upgraded POST path, or
+        // a ProcessRequestBody caller that passed one). `progress` must increase
+        // monotonically per call; `total` < 0 omits the field; `message` empty
+        // omits the field. Call from the handler (worker) thread — a MarshalRead
+        // job runs on the game thread, where the call scope is not visible.
+        void EmitProgress(f64 progress, f64 total = -1.0, const std::string& message = {}) const;
+
+        // True when the CURRENTLY EXECUTING tool call has been cancelled via a
+        // `notifications/cancelled` (matched by exact request-id value). Long-
+        // running handlers poll this between frames/steps and abort cleanly; the
+        // dispatch layer then discards their result per spec. False outside any
+        // call scope.
+        [[nodiscard]] bool IsCurrentCallCancelled() const;
+
         // Marshal a read onto the main (game) thread at the next frame boundary,
         // blocking the calling (handler) thread on the result. The job runs before
         // the scene is stepped that frame, so it observes a consistent snapshot.
@@ -531,6 +579,18 @@ namespace OloEngine::MCP
         // request). No httplib — HandlePost wraps this with the transport concerns.
         [[nodiscard]] FramedResponse ProcessRequestBody(const std::string& body);
 
+        // Where a dispatched tool call's `notifications/progress` are delivered,
+        // called synchronously on the dispatching thread as the tool emits them.
+        using NotificationSink = std::function<void(const Json& notification)>;
+
+        // ProcessRequestBody with a notification side-channel (issue #357 item
+        // B): progress notifications emitted by the dispatched call(s) via
+        // EmitProgress flow into `sink` as they occur. The HTTP layer passes a
+        // sink that writes SSE frames onto the (upgraded) POST response; tests
+        // pass a collector. A null sink behaves exactly like the plain overload
+        // (progress is dropped — the server "MAY" simply not send it).
+        [[nodiscard]] FramedResponse ProcessRequestBody(const std::string& body, const NotificationSink& sink);
+
         // Validate an "Authorization: Bearer <token>" header value against
         // `expectedToken` with a length-independent, content-constant-time compare.
         // An empty `expectedToken` (server not running) rejects everything. Pure.
@@ -576,6 +636,16 @@ namespace OloEngine::MCP
         // HandlePost; then it streams on the worker thread until the client
         // disconnects or the server stops. Defined in McpServer.cpp.
         void HandleGetStream(const httplib::Request& req, httplib::Response& res);
+
+        // Streamable-HTTP upgrade for a progress-opted call (issue #357 item B):
+        // HandlePost routes here (after the auth/origin/session gates) when the
+        // body is a single tools/call carrying params._meta.progressToken and the
+        // client accepts text/event-stream. The response becomes an SSE stream:
+        // each notifications/progress the tool emits is written as a frame as it
+        // occurs, then the final JSON-RPC response frame — unless the call was
+        // cancelled, in which case the response is suppressed per spec and the
+        // stream just closes. Defined in McpServer.cpp.
+        void HandleStreamingPost(const std::string& body, httplib::Response& res);
 
         // Dispatch one JSON-RPC message. Returns the response object, or a null Json
         // for notifications (no response is sent).
@@ -653,5 +723,12 @@ namespace OloEngine::MCP
 
         mutable std::mutex m_SessionMutex;
         std::unordered_set<std::string> m_Sessions;
+
+        // In-flight tools/call registry for `notifications/cancelled` (issue #357
+        // item B): canonical request-id (Json::dump — exact-value matching, so
+        // "5" and 5 stay distinct) -> the cooperative cancel flag the running
+        // call's scope polls. Entries live exactly as long as their dispatch.
+        mutable std::mutex m_InFlightMutex;
+        std::unordered_map<std::string, std::shared_ptr<std::atomic<bool>>> m_InFlightCalls;
     };
 } // namespace OloEngine::MCP

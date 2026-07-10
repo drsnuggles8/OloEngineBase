@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpServerPanel.h"
+#include "MCP/McpScriptTools.h"
 #include "MCP/McpServer.h"
 
 #include "OloEngine/Debug/Profiler.h"
@@ -33,6 +34,10 @@ namespace OloEngine::MCP
 
         // `port` / `autoStart` are persisted in EditorPreferences (owned by EditorLayer).
         static std::string s_StartError;
+        // Script-tool load diagnostics, kept separate from s_StartError so a script
+        // failure (which does not stop the server) stays visible even when the server
+        // starts fine. A clean scan leaves this empty and renders nothing.
+        static std::string s_ScriptWarning;
 
         if (running)
         {
@@ -88,6 +93,21 @@ namespace OloEngine::MCP
 
             if (ImGui::Button("Start server"))
             {
+                // Rescan the project's Lua script tools (issue #357 / ADR 0005)
+                // while the server is still stopped, so an edited script needs
+                // only this restart — the tool set stays immutable once serving.
+                s_ScriptWarning.clear();
+                if (const auto scriptDir = DefaultScriptToolsDirectory(); !scriptDir.empty())
+                {
+                    const McpScriptToolsReport report = LoadScriptTools(server, scriptDir);
+                    if (report.Failures > 0)
+                    {
+                        s_ScriptWarning = std::format("Script tools: {} registered, {} failure(s):",
+                                                      report.ToolsRegistered, report.Failures);
+                        for (const std::string& message : report.Messages)
+                            s_ScriptWarning += "\n  - " + message;
+                    }
+                }
                 s_StartError = server.Start(static_cast<u16>(port))
                                    ? std::string{}
                                    : std::format("Failed to start — could not bind 127.0.0.1:{} (port in use?).", port);
@@ -97,6 +117,10 @@ namespace OloEngine::MCP
 
             if (!s_StartError.empty())
                 ImGui::TextColored(ImVec4(0.90f, 0.30f, 0.30f, 1.0f), "%s", s_StartError.c_str());
+            // Script-load failures don't block the server, but a silently-dropped
+            // tool is confusing — surface them so the author can fix the .lua file.
+            if (!s_ScriptWarning.empty())
+                ImGui::TextColored(ImVec4(0.90f, 0.65f, 0.25f, 1.0f), "%s", s_ScriptWarning.c_str());
         }
 
         ImGui::Separator();

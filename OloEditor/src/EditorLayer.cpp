@@ -2,6 +2,7 @@
 #include "EditorLayer.h"
 #include "Panels/AssetPackBuilderPanel.h"
 #include "Panels/BuildGamePanel.h"
+#include "MCP/McpScriptTools.h"
 #include "MCP/McpServer.h"
 #include "MCP/McpServerPanel.h"
 #include "MCP/McpTools.h"
@@ -567,6 +568,13 @@ namespace OloEngine
 
             m_McpServer = CreateScope<MCP::McpServer>(std::move(mcpContext));
             MCP::RegisterBuiltinTools(*m_McpServer);
+            // Project-authored Lua script tools (issue #357 / ADR 0005): scan
+            // <project assets>/McpTools before the server can start, so the tool
+            // set is complete and immutable per run. The panel's start button
+            // rescans, so a script edit needs only a server restart, not an
+            // editor restart.
+            if (const auto scriptDir = MCP::DefaultScriptToolsDirectory(); !scriptDir.empty())
+                (void)MCP::LoadScriptTools(*m_McpServer, scriptDir);
             // Apply the persisted redaction preference (loaded by OpenProject above).
             m_McpServer->SetRedactPaths(m_Prefs.McpRedactPaths);
 
@@ -2716,6 +2724,28 @@ namespace OloEngine
             // Load editor preferences
             m_EditorPreferencesPanel.Load(m_Prefs, Project::GetProjectDirectory());
             ApplyPreferences();
+
+            // MCP script tools are project-scoped (they live under
+            // <project assets>/McpTools, issue #357 / ADR 0005) and are loaded once at
+            // attach / server start. Switching projects must not leave the previous
+            // project's tools serving. The tool vector is immutable while the server
+            // runs (the ADR's load-at-start rule), so stop it first, then rescan the
+            // NEW project's directory (LoadScriptTools unregisters the old set even
+            // when the new project has no McpTools dir). The server is left stopped:
+            // Start() rotates a fresh bearer token, so the user restarts it from the
+            // panel — where the new token is shown — rather than silently breaking the
+            // old agent's credentials. On the initial-attach OpenProject call
+            // m_McpServer does not exist yet (created later in OnAttach), so this only
+            // runs on a genuine project switch.
+            if (m_McpServer)
+            {
+                if (m_McpServer->IsRunning())
+                    m_McpServer->Stop();
+                if (const auto scriptDir = MCP::DefaultScriptToolsDirectory(); !scriptDir.empty())
+                    (void)MCP::LoadScriptTools(*m_McpServer, scriptDir);
+                else
+                    m_McpServer->UnregisterScriptTools();
+            }
 
             return true;
         }

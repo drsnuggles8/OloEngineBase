@@ -126,6 +126,21 @@ namespace OloEngine::MCP
         return out;
     }
 
+    // Frame a payload as an SSE data-only event block (no `id:` line). Used by the
+    // SSE-upgraded POST response (issue #357 item B — progress notifications +
+    // the final response frame): a POST stream closes right after its response,
+    // so it is not resumable and its frames carry no ids — unlike the GET event
+    // stream above, whose ids map onto the diagnostics ring for Last-Event-ID
+    // resumption. Compact dump for the same no-embedded-newline reason.
+    [[nodiscard]] inline std::string FormatSseData(const Json& payload)
+    {
+        std::string out;
+        out += "data: ";
+        out += payload.dump();
+        out += "\n\n";
+        return out;
+    }
+
     // An SSE comment line (a line starting with ':'). Clients ignore it; used as a
     // keep-alive heartbeat that also probes whether the socket is still writable.
     [[nodiscard]] inline std::string FormatSseComment(std::string_view text)

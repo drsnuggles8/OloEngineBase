@@ -310,6 +310,90 @@ namespace OloEngine::MCP
         // reject an unknown top-level field.
         constexpr const char* kToolsetMetaKey = "io.oloengine/toolset";
 
+        // ---- per-call progress/cancellation scope (issue #357 item B) ----------
+        //
+        // One tools/call executes synchronously on one dispatch thread, so a
+        // thread_local scope gives EmitProgress / IsCurrentCallCancelled access to
+        // the call's token, sink, and cancel flag without changing the ToolHandler
+        // signature. Installed by HandleToolsCall around the handler; the sink is
+        // installed by the ProcessRequestBody overload around the whole dispatch.
+        // (A MarshalRead job runs on the game thread and thus sees a null scope —
+        // progress is emitted from the handler thread by design.)
+        struct ActiveCallScope
+        {
+            Json ProgressToken;                            // null => caller didn't opt in
+            std::shared_ptr<std::atomic<bool>> CancelFlag; // shared with the in-flight registry
+            f64 LastProgress = 0.0;                        // monotonicity guard
+        };
+        thread_local ActiveCallScope* t_ActiveCall = nullptr;
+        thread_local const McpServer::NotificationSink* t_ActiveSink = nullptr;
+
+        // RAII installer for the per-call scope.
+        class CallScopeGuard
+        {
+          public:
+            explicit CallScopeGuard(ActiveCallScope& scope)
+            {
+                t_ActiveCall = &scope;
+            }
+            ~CallScopeGuard()
+            {
+                t_ActiveCall = nullptr;
+            }
+            CallScopeGuard(const CallScopeGuard&) = delete;
+            CallScopeGuard& operator=(const CallScopeGuard&) = delete;
+        };
+
+        // Canonical in-flight-registry key for a JSON-RPC id: the compact dump
+        // distinguishes 5 from "5", so cancellation matches by exact value AND
+        // type, as JSON-RPC id semantics require.
+        std::string RequestIdKey(const Json& id)
+        {
+            return id.dump();
+        }
+
+        // Protocol revisions this server implements, newest first. 2025-11-25
+        // (issue #357 P5b) is negotiable because every applicable delta vs
+        // 2025-06-18 is covered: SEP-1303 input-validation-as-tool-error (see
+        // HandleToolsCall), 403 on bad Origin (already), progress/cancellation
+        // utilities (#357 item B), JSON Schema 2020-12-compatible tool schemas
+        // (the builder emits a compatible subset), and the OAuth / elicitation /
+        // sampling / tasks additions are optional capabilities we do not
+        // advertise. Shared by HandleInitialize's negotiation and the transport's
+        // MCP-Protocol-Version header check.
+        constexpr std::array<std::string_view, 4> kSupportedProtocolVersions = {
+            "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"
+        };
+
+        bool IsSupportedProtocolVersion(std::string_view version)
+        {
+            return std::find(kSupportedProtocolVersions.begin(), kSupportedProtocolVersions.end(), version) !=
+                   kSupportedProtocolVersions.end();
+        }
+
+        // True when `body` is a single (non-batch) tools/call that opted into
+        // progress via params._meta.progressToken (string or integer per spec) —
+        // the gate for upgrading the POST response to an SSE stream. Parsing here
+        // is bounded by the transport's kMaxRequestBytes cap; a malformed body
+        // returns false and flows through the plain path's error handling.
+        bool WantsProgressStream(const std::string& body)
+        {
+            const Json parsed = Json::parse(body, /*cb=*/nullptr, /*allow_exceptions=*/false);
+            if (!parsed.is_object())
+                return false;
+            const auto methodIt = parsed.find("method");
+            if (methodIt == parsed.end() || !methodIt->is_string() || methodIt->get<std::string>() != "tools/call")
+                return false;
+            const auto params = parsed.find("params");
+            if (params == parsed.end() || !params->is_object())
+                return false;
+            const auto meta = params->find("_meta");
+            if (meta == params->end() || !meta->is_object())
+                return false;
+            const auto token = meta->find("progressToken");
+            return token != meta->end() && (token->is_string() || token->is_number());
+        }
+
         // ASCII-lowercase a string for case-insensitive search/compare. The tool
         // surface is all ASCII identifiers and English prose, so a locale-independent
         // byte fold is correct and avoids std::tolower's locale baggage.
@@ -582,6 +666,16 @@ namespace OloEngine::MCP
         m_Tools.push_back(std::move(tool));
     }
 
+    void McpServer::UnregisterScriptTools()
+    {
+        // The tool vector is read lock-free by dispatch worker threads; mutating
+        // it while serving would be a data race. LoadScriptTools' replace-rescan
+        // only happens from the stopped state (panel restart / editor init).
+        OLO_CORE_VERIFY(!IsRunning(), "[MCP] UnregisterScriptTools requires a stopped server.");
+        std::erase_if(m_Tools, [](const ToolDef& tool)
+                      { return tool.ScriptOwned; });
+    }
+
     void McpServer::RegisterResource(ResourceDef resource)
     {
         m_Resources.push_back(std::move(resource));
@@ -611,6 +705,30 @@ namespace OloEngine::MCP
         // Bound the buffered request body so an oversized POST is rejected (413)
         // before any handler runs, instead of being read entirely into memory.
         m_Http->set_payload_max_length(kMaxRequestBytes);
+
+        // Own the port EXCLUSIVELY. httplib's default socket options set
+        // SO_REUSEADDR (Windows) / SO_REUSEPORT (Linux), both of which let a SECOND
+        // process bind the same 127.0.0.1:port — after which the OS hands incoming
+        // connections to either listener non-deterministically. For a token-
+        // authenticated diagnostics server that means a client can reach the wrong
+        // instance and be rejected with a 401 (each instance mints its own token),
+        // and two editors would silently share a port. It also makes the parallel
+        // HTTP tests flaky: colliding per-process ports cross-wire, so a request
+        // authenticated for one server lands on another. Demand exclusive ownership
+        // so a second bind to a live port fails cleanly instead (surfaced as the
+        // "port already in use" error below), which also makes the tests' bind-sweep
+        // reliably land on a truly-free port.
+        m_Http->set_socket_options([](auto sock)
+                                   {
+#ifdef _WIN32
+                                       httplib::set_socket_opt(sock, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, 1);
+#else
+                                       // Keep SO_REUSEADDR (NOT SO_REUSEPORT) so a quick restart isn't blocked by
+                                       // a lingering TIME_WAIT socket; on POSIX that flag alone does not permit a
+                                       // second live listener on the port, so it grants no cross-wiring.
+                                       httplib::set_socket_opt(sock, SOL_SOCKET, SO_REUSEADDR, 1);
+#endif
+                                   });
 
         // Give httplib-generated error responses (notably the 413 from the cap above,
         // which short-circuits before HandlePost) a small JSON-RPC error body. Our
@@ -960,6 +1078,30 @@ namespace OloEngine::MCP
             }
         }
 
+        // 3b. Protocol-version header (Streamable HTTP, spec 2025-06-18+): when
+        // the client stamps MCP-Protocol-Version on a post-initialize request,
+        // reject a version we do not support with 400, per spec. An absent
+        // header is fine (the spec says assume an older revision).
+        if (req.has_header("MCP-Protocol-Version") &&
+            !IsSupportedProtocolVersion(req.get_header_value("MCP-Protocol-Version")))
+        {
+            sendJson(MakeError(Json(nullptr), kInvalidRequest,
+                               "Unsupported MCP-Protocol-Version header"),
+                     400);
+            return;
+        }
+
+        // 4. Streamable-HTTP upgrade (issue #357 item B): a single tools/call that
+        // opts into progress (params._meta.progressToken) and accepts SSE gets its
+        // response as a text/event-stream — progress frames as they happen, then
+        // the final response frame. Everything else keeps the plain-JSON path.
+        if (req.get_header_value("Accept").find("text/event-stream") != std::string::npos &&
+            WantsProgressStream(req.body))
+        {
+            HandleStreamingPost(req.body, res);
+            return;
+        }
+
         // 4-5. Parse + route the JSON-RPC body. All framing (parse error, batch
         // handling, notification suppression, the initialize session-id side
         // effect) lives in the transport-agnostic seam so it can be unit tested.
@@ -1003,6 +1145,12 @@ namespace OloEngine::MCP
                 res.status = 404;
                 return;
             }
+        }
+        if (req.has_header("MCP-Protocol-Version") &&
+            !IsSupportedProtocolVersion(req.get_header_value("MCP-Protocol-Version")))
+        {
+            res.status = 400;
+            return;
         }
 
         // Where to resume: SSE reconnection replays the last id via Last-Event-ID, so
@@ -1073,9 +1221,96 @@ namespace OloEngine::MCP
         m_ActiveStreams.fetch_add(1, std::memory_order_relaxed);
     }
 
+    void McpServer::EmitProgress(f64 progress, f64 total, const std::string& message) const
+    {
+        ActiveCallScope* scope = t_ActiveCall;
+        const NotificationSink* sink = t_ActiveSink;
+        if (scope == nullptr || scope->ProgressToken.is_null() || sink == nullptr || !(*sink))
+            return; // caller didn't opt in, or the transport has nowhere to put it.
+
+        // The spec requires progress to increase with each notification; clamp a
+        // misbehaving emitter forward rather than sending a non-monotonic value.
+        if (progress <= scope->LastProgress)
+            progress = scope->LastProgress + 1.0;
+        scope->LastProgress = progress;
+
+        Json params{ { "progressToken", scope->ProgressToken }, { "progress", progress } };
+        if (total >= 0.0)
+            params["total"] = total;
+        if (!message.empty())
+            params["message"] = message;
+        (*sink)(Json{ { "jsonrpc", "2.0" }, { "method", "notifications/progress" }, { "params", std::move(params) } });
+    }
+
+    bool McpServer::IsCurrentCallCancelled() const
+    {
+        const ActiveCallScope* scope = t_ActiveCall;
+        return scope != nullptr && scope->CancelFlag && scope->CancelFlag->load(std::memory_order_acquire);
+    }
+
+    void McpServer::HandleStreamingPost(const std::string& body, httplib::Response& res)
+    {
+        res.set_header("Cache-Control", "no-cache");
+        res.set_header("X-Accel-Buffering", "no");
+        res.set_chunked_content_provider(
+            "text/event-stream",
+            [this, body](std::size_t /*offset*/, httplib::DataSink& sink) -> bool
+            {
+                // Single invocation does the whole call: dispatch synchronously on
+                // THIS worker thread (so the handler's MarshalRead contract is
+                // unchanged), writing each progress notification as an SSE frame
+                // the moment the tool emits it, then the final response frame.
+                const NotificationSink notifier = [&sink](const Json& notification)
+                {
+                    const std::string frame = FormatSseData(notification);
+                    (void)sink.write(frame.data(), frame.size()); // best-effort: a gone client just drops frames
+                };
+                const FramedResponse framed = ProcessRequestBody(body, notifier);
+
+                // A cancelled call gets NO response frame (spec: the server
+                // SHOULD NOT respond to a cancelled request) — the stream simply
+                // ends. Everything else (result or error) is the final frame.
+                const bool cancelled = framed.Body.is_object() && framed.Body.contains("error") &&
+                                       framed.Body["error"].is_object() &&
+                                       framed.Body["error"].value("code", 0) == kRequestCancelledCode;
+                if (!framed.Body.is_null() && !cancelled)
+                {
+                    const std::string frame = FormatSseData(framed.Body);
+                    (void)sink.write(frame.data(), frame.size());
+                }
+                sink.done();
+                return true;
+            });
+    }
+
     Json McpServer::HandleMessage(const Json& message)
     {
         return DispatchRpc(message);
+    }
+
+    McpServer::FramedResponse McpServer::ProcessRequestBody(const std::string& body, const NotificationSink& sink)
+    {
+        // Install the sink for the duration of the dispatch; HandleToolsCall's
+        // per-call scope picks it up (thread_local — dispatch is synchronous on
+        // this thread). RAII so an escaping exception still restores the previous
+        // value (nesting then degrades sanely too).
+        struct SinkGuard
+        {
+            const NotificationSink* Previous;
+            explicit SinkGuard(const NotificationSink& s)
+                : Previous(t_ActiveSink)
+            {
+                t_ActiveSink = &s;
+            }
+            ~SinkGuard()
+            {
+                t_ActiveSink = Previous;
+            }
+            SinkGuard(const SinkGuard&) = delete;
+            SinkGuard& operator=(const SinkGuard&) = delete;
+        };
+        const SinkGuard guard(sink);
+        return ProcessRequestBody(body);
     }
 
     McpServer::FramedResponse McpServer::ProcessRequestBody(const std::string& body)
@@ -1165,9 +1400,31 @@ namespace OloEngine::MCP
         if (request.contains("method") && request["method"].is_string())
             method = request["method"].get<std::string>();
 
-        // Notifications (no id) get no response; we have no notification side effects.
+        // Notifications (no id) get no response. `notifications/cancelled` is the
+        // one notification with a side effect (issue #357 item B): flag the named
+        // in-flight tools/call so its handler can stop cooperatively. An unknown /
+        // already-finished requestId is a spec-sanctioned no-op (the race is
+        // inherent — cancellation "MAY arrive after processing completes").
+        // Matching is by exact id value (see RequestIdKey), and only tools/call
+        // ids are ever registered, so an `initialize` id can never match — the
+        // spec's "MUST NOT cancel initialize" holds by construction.
         if (!hasId)
+        {
+            if (method == "notifications/cancelled" && request.contains("params") && request["params"].is_object() &&
+                request["params"].contains("requestId"))
+            {
+                std::shared_ptr<std::atomic<bool>> flag;
+                {
+                    std::lock_guard lock(m_InFlightMutex);
+                    const auto it = m_InFlightCalls.find(RequestIdKey(request["params"]["requestId"]));
+                    if (it != m_InFlightCalls.end())
+                        flag = it->second;
+                }
+                if (flag)
+                    flag->store(true, std::memory_order_release);
+            }
             return Json(nullptr);
+        }
 
         if (method.empty())
             return MakeError(id, kInvalidRequest, "Invalid Request: missing method");
@@ -1197,15 +1454,14 @@ namespace OloEngine::MCP
     Json McpServer::HandleInitialize(const Json& id, const Json& params)
     {
         // Echo the client's protocol version when we recognise it, else advertise
-        // our latest. Transport framing is identical across these revisions.
-        static constexpr std::array<std::string_view, 3> kSupported = {
-            "2025-06-18", "2025-03-26", "2024-11-05"
-        };
-        std::string version{ "2025-06-18" };
+        // our latest (2025-11-25 — issue #357 P5b; the applicable spec deltas are
+        // covered, see kSupportedProtocolVersions). Transport framing is identical
+        // across these revisions.
+        std::string version{ kSupportedProtocolVersions.front() };
         if (params.contains("protocolVersion") && params["protocolVersion"].is_string())
         {
             const std::string requested = params["protocolVersion"].get<std::string>();
-            if (std::find(kSupported.begin(), kSupported.end(), requested) != kSupported.end())
+            if (IsSupportedProtocolVersion(requested))
                 version = requested;
         }
 
@@ -1217,8 +1473,14 @@ namespace OloEngine::MCP
                                        { "resources", { { "subscribe", false }, { "listChanged", false } } },
                                        { "prompts", { { "listChanged", false } } },
                                        { "logging", Json::object() } };
+        // `description` on Implementation is a 2025-11-25 addition (aligns with
+        // the MCP registry's server.json shape); older clients ignore it.
         result["serverInfo"] = Json{ { "name", "OloEditor" },
                                      { "title", "OloEngine Editor Diagnostics" },
+                                     { "description",
+                                       "Read-only diagnostics for a running OloEngine editor session: logs, "
+                                       "scene/ECS state, performance, shaders, assets, physics, screenshots, "
+                                       "and opt-in consented editor writes." },
                                      { "version", "0.0.1" } };
         result["instructions"] =
             "Read-only diagnostics for a running OloEngine editor session. Use olo_log_tail "
@@ -1336,16 +1598,27 @@ namespace OloEngine::MCP
             return MakeError(id, kInvalidParams, "Invalid params: 'arguments' must be an object");
         const Json arguments = params.contains("arguments") ? params["arguments"] : Json::object();
 
-        // Enforce the tool's declared inputSchema BEFORE anything else user-visible, so
-        // a malformed call fails with a clean, field-naming kInvalidParams instead of
+        // Enforce the tool's declared inputSchema BEFORE anything else user-visible,
+        // so a malformed call fails with a clean, field-naming message instead of
         // depending on whatever ad-hoc checks that one handler happens to do (issue
         // #357 conformance / #306 item D hardening). A permissive (empty / non-object)
         // schema validates nothing. This must precede the consent gate below: a
         // malformed write should never raise the per-action consent modal (the human
         // would be asked to approve a call that can't run) — validate first, prompt only
         // for a well-formed mutation.
+        //
+        // The failure is a TOOL EXECUTION error (isError:true), not a protocol
+        // error: SEP-1303 (spec 2025-11-25) clarified input-validation failures
+        // should flow back to the MODEL so it can self-correct the arguments —
+        // a protocol error is often swallowed by the client shim instead.
+        // Protocol errors remain for a malformed ENVELOPE (missing name,
+        // non-object arguments, unknown tool — the checks above).
         if (const auto error = ValidateArguments(tool->InputSchema, arguments))
-            return MakeError(id, kInvalidParams, "Invalid arguments for tool '" + name + "': " + *error);
+        {
+            const ToolResult invalid =
+                ToolResult::Error("Invalid arguments for tool '" + name + "': " + *error);
+            return MakeResult(id, Json{ { "content", invalid.Content }, { "isError", true } });
+        }
 
         // Session write consent (issue #306 item C): a project-mutating tool is gated
         // by the WriteConsentMode the user set in the MCP panel (default Disabled,
@@ -1386,6 +1659,36 @@ namespace OloEngine::MCP
             }
         }
 
+        // ---- per-call progress/cancellation scope (issue #357 item B) ----------
+        // Register this call in the in-flight registry so a concurrently-arriving
+        // `notifications/cancelled` (matched by exact id value) can flag it, and
+        // install the thread-local scope EmitProgress / IsCurrentCallCancelled
+        // read. RAII: the registry entry lives exactly as long as the dispatch.
+        ActiveCallScope scope;
+        if (params.contains("_meta") && params["_meta"].is_object() && params["_meta"].contains("progressToken"))
+        {
+            const Json& token = params["_meta"]["progressToken"];
+            if (token.is_string() || token.is_number())
+                scope.ProgressToken = token;
+        }
+        scope.CancelFlag = std::make_shared<std::atomic<bool>>(false);
+        const std::string idKey = RequestIdKey(id);
+        {
+            std::lock_guard lock(m_InFlightMutex);
+            m_InFlightCalls[idKey] = scope.CancelFlag;
+        }
+        struct InFlightGuard
+        {
+            McpServer& Server;
+            const std::string& Key;
+            ~InFlightGuard()
+            {
+                std::lock_guard lock(Server.m_InFlightMutex);
+                Server.m_InFlightCalls.erase(Key);
+            }
+        } inFlightGuard{ *this, idKey };
+        const CallScopeGuard scopeGuard(scope);
+
         ToolResult result;
         try
         {
@@ -1395,6 +1698,15 @@ namespace OloEngine::MCP
         {
             result = ToolResult::Error(std::string("Tool failed: ") + e.what());
         }
+
+        // A cancelled call's result is discarded per spec ("SHOULD NOT send a
+        // response"): the SSE transport suppresses the frame entirely; the
+        // plain-JSON path must return SOME HTTP body, so it carries the
+        // conventional kRequestCancelledCode error, which clients ignore. This
+        // also covers the benign race where the tool completed just as the
+        // cancellation arrived — the client has already stopped listening.
+        if (scope.CancelFlag->load(std::memory_order_acquire))
+            return MakeError(id, kRequestCancelledCode, "Request cancelled");
 
         if (RedactPaths())
         {

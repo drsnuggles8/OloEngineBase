@@ -87,7 +87,7 @@ namespace OloEngine::MCP::PassTimings
         f64 passGpuTotal = 0.0;
 
         std::vector<bool> cpuUsed(cpuPasses.size(), false);
-        const auto findCpuMs = [&](const std::string& name) -> f64
+        const auto findCpuMs = [&cpuPasses, &cpuUsed](const std::string& name) -> f64
         {
             for (sizet i = 0; i < cpuPasses.size(); ++i)
             {
