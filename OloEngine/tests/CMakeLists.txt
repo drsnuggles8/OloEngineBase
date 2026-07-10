@@ -2,6 +2,7 @@
 add_executable(OloEngine-Tests
 		OloEngineTest.cpp
 		FastRandomTest.cpp
+		RefTest.cpp
 		ContainerTest.cpp
 		SnowSettingsTest.cpp
 		WindSettingsTest.cpp
