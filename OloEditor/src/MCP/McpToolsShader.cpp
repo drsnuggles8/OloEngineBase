@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/Shader.h"
 
 #include <algorithm>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -60,10 +61,16 @@ namespace OloEngine::MCP
             if (args.contains("name") && args["name"].is_string())
                 name = args["name"].get<std::string>();
             bool haveId = false;
-            u64 id = 0;
+            u32 id = 0;
             if (args.contains("id") && args["id"].is_number_integer())
             {
-                id = static_cast<u64>(args["id"].get<long long>());
+                // Shader ids are u32; validate before narrowing so a negative or
+                // out-of-range value fails cleanly instead of wrapping into a
+                // different (or matching-by-accident) id.
+                const long long rawId = args["id"].get<long long>();
+                if (rawId < 0 || rawId > static_cast<long long>(std::numeric_limits<u32>::max()))
+                    return ToolResult::Error("Invalid 'id': expected a non-negative shader id within 32-bit range.");
+                id = static_cast<u32>(rawId);
                 haveId = true;
             }
             const bool includeGlsl = args.contains("includeGlsl") && args["includeGlsl"].is_boolean() && args["includeGlsl"].get<bool>();
@@ -76,7 +83,7 @@ namespace OloEngine::MCP
                 const ShaderDebugger::ShaderInfo* found = nullptr;
                 for (const auto& [sid, info] : shaders)
                 {
-                    if (haveId ? (sid == static_cast<u32>(id)) : (info.m_Name == name))
+                    if (haveId ? (sid == id) : (info.m_Name == name))
                     {
                         found = &info;
                         break;

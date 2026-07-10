@@ -29,9 +29,20 @@ namespace OloEngine::MCP
     {
         if (value.is_string())
         {
+            // Full-consumption parse: reject trailing garbage ("123junk") and a
+            // leading sign. std::stoull alone accepts both — it stops at the first
+            // non-digit (silently truncating "123junk" to 123) and wraps a "-5"
+            // into a huge u64 — so a malformed id would resolve to a real entity.
+            const std::string& text = value.get<std::string>();
+            if (text.empty() || (text[0] != '0' && !(text[0] >= '1' && text[0] <= '9')))
+                return false; // leading '+'/'-'/whitespace or empty
             try
             {
-                out = std::stoull(value.get<std::string>());
+                std::size_t consumed = 0;
+                const u64 parsed = std::stoull(text, &consumed);
+                if (consumed != text.size())
+                    return false; // trailing non-digit characters
+                out = parsed;
                 return true;
             }
             catch (...)
@@ -46,7 +57,12 @@ namespace OloEngine::MCP
         }
         if (value.is_number_integer())
         {
-            out = static_cast<u64>(value.get<long long>());
+            // A negative JSON number is never a valid UUID; casting it to u64 would
+            // silently produce a huge id. Reject instead.
+            const long long signedValue = value.get<long long>();
+            if (signedValue < 0)
+                return false;
+            out = static_cast<u64>(signedValue);
             return true;
         }
         return false;

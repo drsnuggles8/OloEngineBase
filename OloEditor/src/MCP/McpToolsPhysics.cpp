@@ -265,12 +265,17 @@ namespace OloEngine::MCP
         // awake/asleep) when physics is running. Paginated like list_entities.
         ToolResult Handle_PhysicsListColliders(McpServer& server, const Json& args)
         {
-            int page = 0;
-            int pageSize = 50;
+            // Keep page/pageSize in a wide signed type end-to-end: a huge 'page'
+            // narrowed to int wraps negative (well-defined but wrong in C++20), and
+            // a negative page * pageSize yields a negative start index that, cast to
+            // sizet for bodies[i], reads far out of bounds. Clamp low here and bound
+            // the start against the collection below.
+            long long page = 0;
+            long long pageSize = 50;
             if (args.contains("page") && args["page"].is_number_integer())
-                page = static_cast<int>(std::max<long long>(0, args["page"].get<long long>()));
+                page = std::max<long long>(0, args["page"].get<long long>());
             if (args.contains("pageSize") && args["pageSize"].is_number_integer())
-                pageSize = static_cast<int>(std::clamp<long long>(args["pageSize"].get<long long>(), 1, 200));
+                pageSize = std::clamp<long long>(args["pageSize"].get<long long>(), 1, 200);
 
             Json result = server.MarshalRead([&server, page, pageSize]() -> Json
                                              {
@@ -290,8 +295,10 @@ namespace OloEngine::MCP
                 for (const auto handle : scene->GetAllEntitiesWith<Rigidbody3DComponent>())
                     bodies.push_back(Entity{ handle, scene.get() });
 
-                const auto total = static_cast<int>(bodies.size());
-                const long long start = static_cast<long long>(page) * pageSize;
+                const auto total = static_cast<long long>(bodies.size());
+                // Guard the page*pageSize multiply against overflow: any page beyond
+                // the data is an empty page (start == total), never a negative index.
+                const long long start = (page > total / pageSize) ? total : page * pageSize;
                 Json colliders = Json::array();
                 for (long long i = start; i < total && i < start + pageSize; ++i)
                 {

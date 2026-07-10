@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -54,6 +55,14 @@ namespace OloEngine::MCP
             // call, under Mutex. Never dangles: handlers (and thus this
             // runtime) are owned by the server's tool vector.
             McpServer* CurrentServer = nullptr;
+            // The load-time registration window. RegisterMcpTool routes through
+            // these (owned by this runtime, nulled the instant loading ends)
+            // instead of capturing the LoadScriptTools stack locals by reference:
+            // a script that stashes a `local reg = RegisterMcpTool` alias and calls
+            // it from a later handler would otherwise write through a dangling
+            // pointer to the destroyed report. Non-null only while the load loop runs.
+            McpServer* LoadServer = nullptr;
+            McpScriptToolsReport* LoadReport = nullptr;
         };
 
         // ---- Lua <-> JSON conversion -------------------------------------------
@@ -150,7 +159,17 @@ namespace OloEngine::MCP
                 case Json::value_t::number_integer:
                     return sol::make_object(lua, value.get<std::int64_t>());
                 case Json::value_t::number_unsigned:
-                    return sol::make_object(lua, static_cast<std::int64_t>(value.get<std::uint64_t>()));
+                {
+                    // Lua 5.4 integers are signed 64-bit: a value above INT64_MAX
+                    // would wrap to a negative integer (e.g. a large UUID/count read
+                    // back as a bogus negative). Keep it exact as a Lua integer when
+                    // it fits, and fall back to a double above that (JSON's own
+                    // number model) so the magnitude is preserved rather than corrupted.
+                    const std::uint64_t u = value.get<std::uint64_t>();
+                    if (u <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+                        return sol::make_object(lua, static_cast<std::int64_t>(u));
+                    return sol::make_object(lua, static_cast<double>(u));
+                }
                 case Json::value_t::number_float:
                     return sol::make_object(lua, value.get<double>());
                 case Json::value_t::string:
@@ -206,29 +225,47 @@ namespace OloEngine::MCP
                            static_cast<int>(runtime->Budget.count()));
         }
 
-        // RAII: arm the watchdog hook + deadline for one handler call.
+        // RAII: arm the watchdog hook + deadline for one handler call (or, with a
+        // null server, for a top-level script load). Nests correctly: olo.call_tool
+        // can re-enter Lua and drive an inner script tool, whose handler arms a
+        // second scope. The prior deadline / server / hook-runtime are saved and
+        // restored so the OUTER call's timeout + cancellation enforcement resumes
+        // once the inner scope unwinds — instead of the inner dtor unconditionally
+        // clearing them and leaving the rest of the outer call running unguarded.
         class WatchdogScope
         {
           public:
-            WatchdogScope(ScriptToolsRuntime& runtime, McpServer& server)
-                : m_Runtime(runtime)
+            WatchdogScope(ScriptToolsRuntime& runtime, McpServer* server)
+                : m_Runtime(runtime),
+                  m_PriorHookRuntime(t_HookRuntime),
+                  m_PriorDeadline(runtime.CallDeadline),
+                  m_PriorServer(runtime.CurrentServer)
             {
                 m_Runtime.CallDeadline = std::chrono::steady_clock::now() + m_Runtime.Budget;
-                m_Runtime.CurrentServer = &server;
+                if (server != nullptr)
+                    m_Runtime.CurrentServer = server;
                 t_HookRuntime = &m_Runtime;
                 lua_sethook(m_Runtime.Lua.lua_state(), &WatchdogHook, LUA_MASKCOUNT, kWatchdogInstructionInterval);
             }
             ~WatchdogScope()
             {
-                lua_sethook(m_Runtime.Lua.lua_state(), nullptr, 0, 0);
-                t_HookRuntime = nullptr;
-                m_Runtime.CurrentServer = nullptr;
+                t_HookRuntime = m_PriorHookRuntime;
+                m_Runtime.CurrentServer = m_PriorServer;
+                m_Runtime.CallDeadline = m_PriorDeadline;
+                // Only fully disarm when there is no outer scope to hand back to;
+                // otherwise leave the hook armed so the restored outer deadline/server
+                // keep being enforced for the remainder of that call.
+                if (m_PriorHookRuntime == nullptr)
+                    lua_sethook(m_Runtime.Lua.lua_state(), nullptr, 0, 0);
             }
             WatchdogScope(const WatchdogScope&) = delete;
             WatchdogScope& operator=(const WatchdogScope&) = delete;
 
           private:
             ScriptToolsRuntime& m_Runtime;
+            ScriptToolsRuntime* m_PriorHookRuntime;
+            std::chrono::steady_clock::time_point m_PriorDeadline;
+            McpServer* m_PriorServer;
         };
 
         // ---- sandbox -------------------------------------------------------------
@@ -371,7 +408,7 @@ namespace OloEngine::MCP
                                                                                 const Json& arguments) -> ToolResult
             {
                 std::lock_guard lock(runtime->Mutex);
-                WatchdogScope watchdog(*runtime, server);
+                WatchdogScope watchdog(*runtime, &server);
 
                 sol::protected_function_result result = handler(JsonToLua(runtime->Lua, arguments));
                 if (!result.valid())
@@ -430,17 +467,32 @@ namespace OloEngine::MCP
         BuildSandbox(runtime->Lua);
         BindBridge(runtime->Lua, runtime);
 
-        // The registration entry point scripts call at load time. Captures the
-        // server by pointer for the duration of the load loop only — tools are
-        // registered synchronously below, never later (the ADR's load-at-start
-        // rule keeps the tool vector immutable once the server runs).
-        runtime->Lua["RegisterMcpTool"] = [&server, &report, runtime](const sol::table& def)
+        // The registration entry point scripts call at load time. Reaches the
+        // server + report through the runtime's load-window pointers (set just
+        // below, nulled the instant loading ends) rather than capturing the
+        // LoadScriptTools stack locals by reference — a script that retains an
+        // alias (`local reg = RegisterMcpTool`) and invokes it from a later handler
+        // would otherwise write through a dangling `&report`. Outside the load
+        // window both pointers are null and the call is rejected safely, which also
+        // enforces the ADR's load-at-start rule (the tool vector stays immutable
+        // once the server runs) beyond just nil-ing the global alias.
+        runtime->Lua["RegisterMcpTool"] = [runtime](const sol::table& def)
         {
-            const auto reject = [&report](const std::string& why)
+            McpServer* serverPtr = runtime->LoadServer;
+            McpScriptToolsReport* reportPtr = runtime->LoadReport;
+            if (serverPtr == nullptr || reportPtr == nullptr)
             {
-                ++report.Failures;
-                report.Messages.push_back("RegisterMcpTool rejected: " + why);
-                OLO_CORE_WARN("[MCP] {}", report.Messages.back());
+                OLO_CORE_WARN("[MCP] RegisterMcpTool called outside the load window (a retained alias?); ignored.");
+                return;
+            }
+            McpServer& server = *serverPtr;
+            McpScriptToolsReport& report = *reportPtr;
+
+            const auto reject = [reportPtr](const std::string& why)
+            {
+                ++reportPtr->Failures;
+                reportPtr->Messages.push_back("RegisterMcpTool rejected: " + why);
+                OLO_CORE_WARN("[MCP] {}", reportPtr->Messages.back());
             };
 
             const sol::optional<std::string> name = def["name"];
@@ -505,10 +557,24 @@ namespace OloEngine::MCP
             ++report.ToolsRegistered;
         };
 
+        // Open the load window: RegisterMcpTool routes through these pointers.
+        runtime->LoadServer = &server;
+        runtime->LoadReport = &report;
+
         for (const std::filesystem::path& file : files)
         {
-            const sol::protected_function_result result =
-                runtime->Lua.safe_script_file(file.string(), sol::script_pass_on_error);
+            // Bound each file's TOP-LEVEL execution with the same watchdog handler
+            // calls get: a script that runs a non-terminating loop at file scope
+            // (e.g. `while true do end` before/instead of RegisterMcpTool) would
+            // otherwise hang the load — which runs on the editor UI thread at
+            // server start — with no deadline to break out. A null server means no
+            // cancellation source (there is no MCP call in flight during load), so
+            // only the time budget applies here.
+            const sol::protected_function_result result = [&]
+            {
+                WatchdogScope loadWatchdog(*runtime, nullptr);
+                return runtime->Lua.safe_script_file(file.string(), sol::script_pass_on_error);
+            }();
             if (result.valid())
             {
                 ++report.FilesLoaded;
@@ -522,9 +588,12 @@ namespace OloEngine::MCP
             }
         }
 
-        // Loading is over: scripts must not register tools from inside a later
-        // handler call (the server is about to Start and the tool vector must
-        // stay immutable). Any such attempt now fails loudly in Lua.
+        // Loading is over: close the window so scripts cannot register tools from
+        // inside a later handler call (the server is about to Start and the tool
+        // vector must stay immutable). A retained RegisterMcpTool alias now hits the
+        // null-pointer guard, and the global is nil'd for a clear error at the call site.
+        runtime->LoadServer = nullptr;
+        runtime->LoadReport = nullptr;
         runtime->Lua["RegisterMcpTool"] = sol::lua_nil;
 
         OLO_CORE_INFO("[MCP] Script tools: {} registered from {} file(s) under {} ({} failure(s)).",

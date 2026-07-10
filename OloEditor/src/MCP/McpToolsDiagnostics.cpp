@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -171,14 +170,16 @@ namespace OloEngine::MCP
             std::ifstream file(path, std::ios::binary);
             if (!file)
                 return ToolResult::Error("Could not open crash report: " + id);
-            std::stringstream buffer;
-            buffer << file.rdbuf();
-            std::string content = buffer.str();
 
+            // Bound the read BEFORE loading into memory so a pathologically large
+            // report can't exhaust it: read at most kMaxBytes, plus one probe byte to
+            // detect (and report) truncation. Slurping file.rdbuf() first would defeat
+            // the cap by allocating the whole file regardless.
             constexpr std::size_t kMaxBytes = 200 * 1024;
-            const bool truncated = content.size() > kMaxBytes;
-            if (truncated)
-                content.resize(kMaxBytes);
+            std::string content(kMaxBytes, '\0');
+            file.read(content.data(), static_cast<std::streamsize>(kMaxBytes));
+            content.resize(static_cast<std::size_t>(file.gcount()));
+            const bool truncated = file.peek() != std::char_traits<char>::eof();
 
             Json out;
             out["id"] = id;

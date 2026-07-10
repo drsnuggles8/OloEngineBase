@@ -194,18 +194,22 @@ namespace OloEngine::MCP
             if (args.contains("topK") && args["topK"].is_number_integer())
                 topK = static_cast<int>(std::clamp<long long>(args["topK"].get<long long>(), 1, 50));
 
-            // Trigger a one-frame capture on the game thread and note how many frames
-            // were already retained, so we can detect the new one. FrameCaptureManager
-            // is FMutex-guarded, but marshaling keeps the trigger ordered with the loop.
+            // Trigger a one-frame capture on the game thread and note the capture
+            // GENERATION beforehand, so we can detect the new one even when the ring
+            // buffer is at capacity (deque size then stays constant as an old frame is
+            // evicted for the new one, so a size comparison would never fire and the
+            // tool would spuriously time out). The generation increments on every
+            // commit. FrameCaptureManager is FMutex-guarded, but marshaling keeps the
+            // trigger ordered with the loop.
             const Json trigger = server.MarshalRead([]() -> Json
                                                     {
                 FrameCaptureManager& fcm = FrameCaptureManager::GetInstance();
-                const auto before = static_cast<u64>(fcm.GetCapturedFramesCopy().size());
+                const auto beforeGen = fcm.GetCaptureGeneration();
                 fcm.CaptureNextFrame();
-                return Json{ { "before", before } }; });
-            const auto before = trigger.value("before", static_cast<u64>(0));
+                return Json{ { "beforeGen", beforeGen } }; });
+            const auto beforeGen = trigger.value("beforeGen", static_cast<u64>(0));
 
-            // Poll for the freshly captured frame (GetCapturedFramesCopy is thread-safe).
+            // Poll for the freshly captured frame (both accessors are thread-safe).
             std::deque<CapturedFrameData> frames;
             bool captured = false;
             int polls = 0;
@@ -214,11 +218,14 @@ namespace OloEngine::MCP
             {
                 if (server.IsCurrentCallCancelled())
                     return ToolResult::Error("Cancelled while waiting for the frame capture.");
-                frames = FrameCaptureManager::GetInstance().GetCapturedFramesCopy();
-                if (static_cast<u64>(frames.size()) > before && !frames.empty())
+                if (FrameCaptureManager::GetInstance().GetCaptureGeneration() > beforeGen)
                 {
-                    captured = true;
-                    break;
+                    frames = FrameCaptureManager::GetInstance().GetCapturedFramesCopy();
+                    if (!frames.empty())
+                    {
+                        captured = true;
+                        break;
+                    }
                 }
                 server.EmitProgress(static_cast<f64>(++polls), -1.0, "waiting for the captured frame");
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
