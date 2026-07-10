@@ -250,10 +250,12 @@ blocks on an agent.
 
 ### Toolsets & on-demand tool discovery (`tools/search`)
 
-The tool surface is large enough (51 tools) that paging the whole flat `tools/list`
-to find the right one is wasteful. Every tool is tagged with a **toolset** (grouping
-category), and a custom `tools/search` JSON-RPC method lets an agent discover tools by
-keyword and/or category instead of pulling the entire list:
+The tool surface is large enough (52 built-in tools; the full `tools/list` measures
+~60 KB ≈ 15k tokens) that paging the whole flat list to find the right one is
+wasteful. Every tool is tagged with a **toolset** (grouping category), and a custom
+`tools/search` JSON-RPC method lets an agent discover tools by keyword and/or
+category instead of pulling the entire list (project Lua script tools additionally
+appear under the `script` toolset — see "Script-defined tools" below):
 
 | Toolset | Tools |
 |---|---|
@@ -265,7 +267,7 @@ keyword and/or category instead of pulling the entire list:
 | `assets` | `olo_assets_list`, `olo_assets_problems` |
 | `scripting` | `olo_script_get_api`, `olo_script_get_last_errors`, `olo_reload_script` |
 | `camera` | `olo_screenshot`, `olo_camera_get`, `olo_camera_set_pose`, `olo_camera_orbit`, `olo_camera_frame_entity`, `olo_viewport_set_size` |
-| `physics` | `olo_physics_layer_matrix`, `olo_physics_list_colliders`, `olo_physics_contacts`, `olo_physics_raycast`, `olo_physics_overlap`, `olo_physics_why_no_collision` |
+| `physics` | `olo_physics_layer_matrix`, `olo_physics_list_colliders`, `olo_physics_contacts`, `olo_physics_raycast`, `olo_physics_overlap`, `olo_physics_why_no_collision`, `olo_set_collision_layer` |
 
 `tools/search` params (both optional):
 
@@ -869,6 +871,105 @@ Code opens the GET stream automatically alongside the POST channel). The threadi
 the same lock-safe path as `olo_events_tail`: the stream runs on an httplib worker
 thread and only touches the mutex-guarded event log, so it never marshals to or blocks
 the editor's main thread.
+
+### Progress notifications & cancellation
+
+Long-running tools (anything that settles/ticks frames — `olo_screenshot` and
+`olo_render_compare_golden` with a `camera`/`orbit` pose, `olo_perf_capture_frame`,
+`olo_render_frame_breakdown`) support the MCP **progress** and **cancellation**
+utilities:
+
+- **Progress.** Send a `progressToken` in the call's `_meta`
+  (`params._meta.progressToken`, string or integer) and the server emits
+  `notifications/progress` (`progressToken`, a monotonically increasing
+  `progress`, `total` when known, and a human-readable `message`) while the
+  tool runs. Over Streamable HTTP the POST response is then upgraded to a
+  **`text/event-stream`**: the progress notifications arrive as SSE frames on
+  the POST connection itself (spec-conformant: request-related messages go on
+  the request's own stream, never the standalone `GET /mcp` stream), followed
+  by the final JSON-RPC response frame, after which the stream closes. A call
+  without a `progressToken` (or without `text/event-stream` in `Accept`) keeps
+  the plain single-JSON response — nothing changes for clients that never ask.
+- **Cancellation.** Send a `notifications/cancelled` notification (`params.requestId`
+  = the in-flight call's JSON-RPC id, matched by exact value — `"5"` does not
+  cancel `5`) on any connection; the server sets a cooperative flag the running
+  tool polls between frames/steps. The tool stops promptly, any half-produced
+  result is discarded per spec (the SSE stream ends **without** a response
+  frame; a plain-JSON call returns JSON-RPC error `-32800` "Request cancelled",
+  which the client ignores). Cancelling an unknown / already-finished request
+  is a no-op, per spec. Tool authors: poll `server.IsCurrentCallCancelled()`
+  in any loop that runs longer than a few hundred ms, and call
+  `server.EmitProgress(progress, total, message)` as work advances — both are
+  no-ops when the caller didn't opt in, so there is no cost to instrumenting.
+
+```jsonc
+// POST /mcp  (Accept: application/json, text/event-stream)
+// { "jsonrpc":"2.0", "id":9, "method":"tools/call",
+//   "params": { "name":"olo_render_compare_golden",
+//               "arguments": { "goldenPath":"water_side.png" },
+//               "_meta": { "progressToken":"golden-1" } } }
+//
+// <- Content-Type: text/event-stream
+// data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"golden-1","progress":1,"total":3,"message":"settling frames before capture (1/3)"}}
+// data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"golden-1","progress":3,"total":3,"message":"settling frames before capture (3/3)"}}
+// data: {"jsonrpc":"2.0","id":9,"result":{ ... }}                  // final frame, then the stream closes
+//
+// To cancel mid-flight (any connection):
+// { "jsonrpc":"2.0", "method":"notifications/cancelled",
+//   "params": { "requestId": 9, "reason": "user changed their mind" } }
+```
+
+### Script-defined tools (Lua)
+
+You can add **project-specific diagnostics tools** to the server without
+recompiling the engine (issue #357; design in
+[`docs/adr/0005-mcp-script-tools-lua-sandbox.md`](../adr/0005-mcp-script-tools-lua-sandbox.md)).
+Drop `*.lua` files into **`<project assets>/McpTools/`**; each is executed once
+when the MCP server starts and registers tools via the injected global:
+
+```lua
+-- Assets/McpTools/health_digest.lua
+RegisterMcpTool{
+    name        = "script_health_digest",          -- reserved script_* namespace
+    title       = "Project health digest",
+    description = "One-call digest: scene summary + shader errors + asset problems.",
+    schema      = { type = "object", properties = {}, additionalProperties = false },
+    handler     = function(args)
+        local scene  = olo.call_tool("olo_scene_summary", {})
+        local errors = olo.call_tool("olo_shader_errors", {})
+        return {
+            scene        = scene,
+            shadersBroken = errors ~= nil and errors.count or 0,
+        }
+    end,
+}
+```
+
+The rules (enforced, not advisory):
+
+- **Names** must match `script_[a-z0-9_]+` — a reserved namespace so a script
+  can never shadow a built-in `olo_*` tool. Default toolset: `script`, so
+  `tools/search { "toolset": "script" }` lists exactly the user-authored tools.
+- **The sandbox is capability-stripped.** Handlers run in a dedicated Lua
+  state with `base`/`math`/`string`/`table` only; there is no `io`, `os`,
+  `debug`, `package`, `require`, `dofile`, `loadfile`, or `load`, and `print`
+  goes to the engine log. The only engine access is
+  `olo.call_tool(name, args)` — which invokes any registered **read-only**
+  tool (consented-write tools are refused) — and `olo.log(message)`. Script
+  tools are therefore read-only by construction and are listed with
+  `readOnlyHint:true`.
+- **Schema-enforced like native tools.** The optional `schema` table becomes
+  the tool's `inputSchema`; malformed arguments are rejected before your
+  handler runs, exactly as for built-in tools.
+- **Failure is contained.** A Lua error becomes a clean `isError:true` result
+  with the message; a runaway handler is stopped by a per-call watchdog
+  (default 10 s) and honours MCP cancellation; a result that can't map to JSON
+  (functions, userdata, mixed keys) is reported as an error.
+- **Loading happens at server start.** Edit or add scripts, then restart the
+  server from the MCP panel to pick them up (the tool list is immutable per
+  run, which is why the server can keep advertising `listChanged:false`).
+  Registration failures (bad name, duplicate, no handler) are logged to the
+  engine log and skipped — they never take the server down.
 
 ### Resources
 
