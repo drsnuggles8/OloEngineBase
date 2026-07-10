@@ -443,6 +443,12 @@ add_executable(OloEngine-Tests
 		# Exercises the McpServer.cpp TU already pulled in above plus the header-only
 		# schema-builder DSL; no extra editor TU is needed.
 		MCP/McpInputValidationTest.cpp
+		# Progress notifications + request cancellation (#357 item B): the
+		# transport-agnostic notification sink on ProcessRequestBody, the in-flight
+		# cancellation registry behind notifications/cancelled, and the SSE-upgraded
+		# POST response over a real localhost socket (httplib client + server).
+		# Exercises the McpServer.cpp TU already pulled in above.
+		MCP/McpProgressCancelTest.cpp
 		# First consented, undoable MCP WRITE tool: olo_set_collision_layer (#306
 		# item C, first slice). Exercises the session write gate + inputSchema
 		# enforcement at the McpServer.cpp dispatch seam, and the shared apply core

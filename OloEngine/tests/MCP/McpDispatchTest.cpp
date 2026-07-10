@@ -26,8 +26,8 @@ namespace
     using Json = OloEngine::MCP::Json;
 
     // The protocol version the server advertises when the client requests one it
-    // does not recognise (see HandleInitialize's kSupported list).
-    constexpr const char* kLatestProtocol = "2025-06-18";
+    // does not recognise (see HandleInitialize / kSupportedProtocolVersions).
+    constexpr const char* kLatestProtocol = "2025-11-25";
 
     // Build a single JSON-RPC request object. Pass a null `id` to forge a
     // notification (no "id" key is added).

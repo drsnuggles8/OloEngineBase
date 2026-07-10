@@ -180,8 +180,8 @@ TEST_F(McpRendererSettingsWriteTest, SchemaRejectsUnknownSetting)
 {
     m_Server.SetAllowWrites(true);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(5, Json{ { "setting", "bogus" }, { "value", "off" } }));
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
+    EXPECT_EQ(resp["result"]["isError"], true);
     EXPECT_EQ(m_PP.Upscale, UpscaleMode::Off); // never applied
 }
 
@@ -190,8 +190,8 @@ TEST_F(McpRendererSettingsWriteTest, SchemaRejectsUnknownProperty)
     m_Server.SetAllowWrites(true);
     const Json resp = m_Server.HandleMessage(
         MakeCallRequest(6, Json{ { "setting", "upscale" }, { "value", "off" }, { "extra", true } }));
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
+    EXPECT_EQ(resp["result"]["isError"], true);
 }
 
 // ---- handler-level (tool) errors, gate ON ----------------------------------

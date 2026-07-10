@@ -296,8 +296,8 @@ TEST_F(McpConsentedWriteTest, SchemaRejectsLayerBelowMinimum)
 {
     m_Server.SetAllowWrites(true);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(3, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", -1 } }));
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
+    EXPECT_EQ(resp["result"]["isError"], true);
     EXPECT_EQ(CurrentLayer(), kInitialLayer); // never applied
 }
 
@@ -307,24 +307,24 @@ TEST_F(McpConsentedWriteTest, SchemaRejectsLayerAboveMaximum)
     // Derive the over-limit value from the shared cap so this stays valid if it changes.
     const int overMax = static_cast<int>(SetCollisionLayer::kMaxLayerId) + 1;
     const Json resp = m_Server.HandleMessage(MakeCallRequest(4, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", overMax } }));
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
+    EXPECT_EQ(resp["result"]["isError"], true);
 }
 
 TEST_F(McpConsentedWriteTest, SchemaRejectsMissingEntity)
 {
     m_Server.SetAllowWrites(true);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(5, Json{ { "layer", 2 } }));
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
+    EXPECT_EQ(resp["result"]["isError"], true);
 }
 
 TEST_F(McpConsentedWriteTest, SchemaRejectsNonIntegerLayer)
 {
     m_Server.SetAllowWrites(true);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(6, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", "3" } }));
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
+    EXPECT_EQ(resp["result"]["isError"], true);
 }
 
 TEST_F(McpConsentedWriteTest, SchemaRejectsUnknownProperty)
@@ -332,8 +332,8 @@ TEST_F(McpConsentedWriteTest, SchemaRejectsUnknownProperty)
     m_Server.SetAllowWrites(true);
     const Json resp = m_Server.HandleMessage(
         MakeCallRequest(7, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", 2 }, { "extra", true } }));
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
+    EXPECT_EQ(resp["result"]["isError"], true);
 }
 
 // ---- handler-level (tool) errors, gate ON ----------------------------------

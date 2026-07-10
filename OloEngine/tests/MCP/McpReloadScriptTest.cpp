@@ -181,8 +181,8 @@ TEST_F(McpReloadScriptTest, SchemaRejectsUnknownProperty)
     m_Server.SetAllowWrites(true);
     const Json resp = m_Server.HandleMessage(MakeCallRequest(4, Json{ { "name", "Player" } }));
 
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    ASSERT_TRUE(resp.contains("result")); // SEP-1303: schema failures are tool errors
+    EXPECT_EQ(resp["result"]["isError"], true);
     EXPECT_EQ(m_ReloadCount, 0);
 }
 

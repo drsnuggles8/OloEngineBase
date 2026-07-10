@@ -266,39 +266,55 @@ TEST_F(McpInputValidationDispatch, ValidArgumentsReachHandler)
     EXPECT_EQ(resp["result"]["content"][0]["text"], "ok");
 }
 
-TEST_F(McpInputValidationDispatch, MissingRequiredIsInvalidParamsBeforeHandler)
+// Schema-validation failures are TOOL EXECUTION errors (isError:true), not
+// protocol errors — SEP-1303 (spec 2025-11-25): the message flows back to the
+// MODEL so it can self-correct the arguments, instead of being swallowed by the
+// client shim. The handler still never runs; the assertion below that the
+// handler's "ok" text is absent pins that.
+
+// Read the single text block of a tool result.
+namespace
+{
+    std::string ResultText(const Json& resp)
+    {
+        return resp["result"]["content"][0]["text"].get<std::string>();
+    }
+} // namespace
+
+TEST_F(McpInputValidationDispatch, MissingRequiredIsToolErrorBeforeHandler)
 {
     const Json resp = Call(Json::object());
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_FALSE(resp.contains("result")); // handler never ran
-    EXPECT_EQ(resp["error"]["code"], -32602);
-    const std::string message = resp["error"]["message"].get<std::string>();
+    ASSERT_TRUE(resp.contains("result")) << resp.dump(2);
+    EXPECT_FALSE(resp.contains("error"));
+    EXPECT_EQ(resp["result"]["isError"], true);
+    const std::string message = ResultText(resp);
     EXPECT_NE(message.find("missing required property 'count'"), std::string::npos);
     EXPECT_NE(message.find("fake_validated"), std::string::npos);
+    EXPECT_EQ(message.find("ok"), std::string::npos) << "handler must not have run";
 }
 
-TEST_F(McpInputValidationDispatch, WrongTypeIsInvalidParams)
+TEST_F(McpInputValidationDispatch, WrongTypeIsToolError)
 {
     const Json resp = Call(Json{ { "count", "fifty" } });
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], -32602);
-    EXPECT_NE(resp["error"]["message"].get<std::string>().find("must be an integer"), std::string::npos);
+    ASSERT_TRUE(resp.contains("result")) << resp.dump(2);
+    EXPECT_EQ(resp["result"]["isError"], true);
+    EXPECT_NE(ResultText(resp).find("must be an integer"), std::string::npos);
 }
 
-TEST_F(McpInputValidationDispatch, OutOfRangeIsInvalidParams)
+TEST_F(McpInputValidationDispatch, OutOfRangeIsToolError)
 {
     const Json resp = Call(Json{ { "count", 9999 } });
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], -32602);
-    EXPECT_NE(resp["error"]["message"].get<std::string>().find("must be <= 200"), std::string::npos);
+    ASSERT_TRUE(resp.contains("result")) << resp.dump(2);
+    EXPECT_EQ(resp["result"]["isError"], true);
+    EXPECT_NE(ResultText(resp).find("must be <= 200"), std::string::npos);
 }
 
-TEST_F(McpInputValidationDispatch, UnexpectedPropertyIsInvalidParams)
+TEST_F(McpInputValidationDispatch, UnexpectedPropertyIsToolError)
 {
     const Json resp = Call(Json{ { "count", 1 }, { "bogus", true } });
-    ASSERT_TRUE(resp.contains("error"));
-    EXPECT_EQ(resp["error"]["code"], -32602);
-    EXPECT_NE(resp["error"]["message"].get<std::string>().find("unexpected property 'bogus'"), std::string::npos);
+    ASSERT_TRUE(resp.contains("result")) << resp.dump(2);
+    EXPECT_EQ(resp["result"]["isError"], true);
+    EXPECT_NE(ResultText(resp).find("unexpected property 'bogus'"), std::string::npos);
 }
 
 // A tool that declares no InputSchema is permissive: arbitrary arguments reach the
