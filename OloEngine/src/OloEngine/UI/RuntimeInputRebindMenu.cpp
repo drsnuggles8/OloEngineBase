@@ -388,7 +388,38 @@ namespace OloEngine
 
     bool RuntimeInputRebindMenu::OnEvent(Event& e)
     {
-        if (!m_Open || m_Controller.GetCaptureMode() != InputRebindController::CaptureMode::KeyboardMouse)
+        if (!m_Open)
+        {
+            return false;
+        }
+
+        // Escape must cancel an in-progress capture in *any* mode (including
+        // Gamepad, where the overlay explicitly says "Esc to cancel" but no
+        // controller input can ever reach FinishCapture() if none is
+        // connected) — handled here, ahead of the KeyboardMouse-only guard
+        // below, so it isn't swallowed by CaptureMode::Gamepad.
+        if (m_Controller.IsCapturing())
+        {
+            EventDispatcher escDispatcher(e);
+            bool cancelled = false;
+            escDispatcher.Dispatch<KeyPressedEvent>(
+                [this, &cancelled](const KeyPressedEvent& ev)
+                {
+                    if (ev.GetKeyCode() == Key::Escape)
+                    {
+                        m_Controller.CancelCapture();
+                        cancelled = true;
+                        return true;
+                    }
+                    return false;
+                });
+            if (cancelled)
+            {
+                return true;
+            }
+        }
+
+        if (m_Controller.GetCaptureMode() != InputRebindController::CaptureMode::KeyboardMouse)
         {
             return false;
         }

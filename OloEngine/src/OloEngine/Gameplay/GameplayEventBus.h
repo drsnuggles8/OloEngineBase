@@ -48,7 +48,12 @@ namespace OloEngine
         }
 
         // Synchronously dispatch `event` to every handler subscribed to E.
-        // No-op when nothing subscribes to E.
+        // No-op when nothing subscribes to E. Safe against a handler calling
+        // Subscribe<E>() for the same event type mid-dispatch: indexing
+        // (rather than holding range-for iterators) tolerates the vector
+        // reallocating underneath us, and snapshotting the count means a
+        // handler subscribed during this Publish() is not itself invoked
+        // until the next Publish() call.
         template<typename E>
         void Publish(const E& event) const
         {
@@ -57,9 +62,10 @@ namespace OloEngine
             {
                 return;
             }
-            for (auto const& handler : it->second)
+            auto const& handlers = it->second;
+            for (sizet i = 0, count = handlers.size(); i < count; ++i)
             {
-                handler(&event);
+                handlers[i](&event);
             }
         }
 
