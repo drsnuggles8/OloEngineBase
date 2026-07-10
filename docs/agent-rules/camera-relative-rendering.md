@@ -240,14 +240,49 @@ computed per `BeginScene` from the camera world position (`BeginSceneImpl`), and
   free, but any subsystem that bakes its own absolute-world vertices before
   upload (not through `Renderer2D`) is a separate audit.
 
+### Done — terrain GEOMETRY LOD / cull (CPU, object-LOCAL space — NOT a shift-back)
+
+The terrain quadtree keeps its node bounds in **terrain-local** coordinates
+(`minX·worldSize`, no entity transform baked in) and the entity transform places
+them in the world at draw time — but LOD selection and frustum culling were fed
+the **world** camera / view-projection / frustum. Far from origin that failed two
+ways at once: (1) it *ignored the terrain's world transform*, testing the world
+camera against local bounds, and (2) the world camera↔node subtraction cancelled
+catastrophically in f32. The symptom was patches degenerating to the coarsest LOD
+or frustum-culling entirely at ~45 km. Note this is **not** a family-A/B pattern:
+the *rendered vertices* were already correct (the terrain transform goes through
+`UploadModelInstance`'s relative shift, and the pattern shaders add `u_RenderOrigin`
+back). Only the **CPU LOD/cull inputs** were in the wrong space.
+
+The fix transforms the world camera / view-projection into the terrain's **local**
+space before selection, evaluated *through* the grid-snapped render origin so the
+large-coordinate subtraction stays precise:
+- `Renderer/CameraRelative.h` gains `MakeObjectLocalViewProjection(vpWorld,
+  objectWorld, O)` = `MakeViewProjectionRelative(vpWorld,O) · MakeModelRelative(
+  objectWorld,O)` (both factors carry only small camera-relative translations, so
+  the O cancels analytically not numerically) and `MakeObjectLocalCameraPos(
+  cameraWorld, objectWorld, O)` (subtract O first on small operands, then map back
+  through the relative object matrix).
+- `Scene.cpp` (`ProcessScene3DSharedLogic`, runtime **and** editor path) computes a
+  per-terrain-entity local frustum / camera / VP via `MakeTerrainLocalCullInputs`
+  and feeds them to both `SelectVisibleChunks` (tessellated quadtree path) and
+  `GetVisibleChunks` (non-tessellated cull). O follows the same `IsCameraRelativeEnabled()`
+  lever as the rest of #429; near origin with an identity transform it is a
+  byte-identical no-op. This also corrects a latent bug for **any** off-origin
+  terrain (e.g. `ScriptedTerrainDemo`'s terrain at x=±150), not just at 45 km.
+- Pinned by `TerrainCameraRelativeLODTest.cpp` (L1, CPU): the local camera/VP
+  reproduce the near-origin reference at 45 km, the quadtree's screen-space-error
+  *decision* is reproduced (same LOD chosen) while the naive world evaluation
+  collapses it toward zero, and a GPU-gated end-to-end `TerrainQuadtree::SelectLOD`
+  picks the identical node set near vs far (diverges under the old naive path).
+
 ### Remaining (follow-up)
-- **Terrain GEOMETRY far from origin** — the terrain *patches* stop rendering far
-  out because the CPU-side terrain quadtree LOD (`TerrainUBO::TessFactors`,
-  computed from camera↔patch distance) loses precision at ~45 km, so patches
-  degenerate/cull. This is independent of the (now-fixed) terrain *pattern*
-  shaders and of camera-relative rendering — a separate large-coordinate slice
-  for the terrain LOD/streaming system. (Foliage and the sphere/plane/grid all
-  render fine at 45 km; terrain is the outlier.)
+- **Terrain STREAMING far from origin** — `TerrainStreamer` builds each tile's
+  chunks in **tile-local** coordinates but renders them with the entity transform
+  only (the per-tile `WorldOrigin` is not applied), and its per-tile chunk
+  managers never receive a `SelectVisibleChunks` call — both pre-existing gaps
+  entangled with the floating-origin work below, so the single-tile LOD fix above
+  deliberately does not touch them.
 - **Floating-origin / origin rebasing** — the umbrella's other half (re-base the
   world as the player travels far, integrating with `SceneStreamer`).
 

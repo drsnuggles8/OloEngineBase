@@ -114,4 +114,47 @@ namespace OloEngine
         vpRel[3] = vpWorld * glm::vec4(origin, 1.0f);
         return vpRel;
     }
+
+    // --- Object-LOCAL LOD/cull far from origin (issue #429, terrain slice) -----
+    //
+    // A CPU LOD/cull system that stores geometry in an OBJECT's *local* space
+    // (the terrain quadtree keeps node bounds in terrain-local coordinates, then
+    // an entity transform places them in the world) but is fed the WORLD camera /
+    // view-projection mis-selects far from origin two ways at once:
+    //   1. it ignores the object's world transform, so the camera↔node distance
+    //      and the frustum test are computed against the wrong location, and
+    //   2. the world camera↔node subtraction cancels catastrophically in f32
+    //      (both operands ~45 km, true difference small) — the same jitter that
+    //      motivated the whole camera-relative feature.
+    // These two helpers transform the world camera / view-projection into the
+    // object's LOCAL space, evaluated *through the grid-snapped render origin* so
+    // every large-coordinate subtraction lands on small (camera-relative)
+    // operands: precise far from origin, and a byte-identical no-op near it
+    // (origin == 0 and objectWorld == identity leave both a pure pass-through).
+
+    // World view-projection → object-LOCAL view-projection (localPos → clip).
+    // Mathematically vpWorld * objectWorld, but evaluated as
+    //   (vpWorld·translate(O)) · (translate(-O)·objectWorld)
+    // so both factors carry only small camera-relative translations and the O
+    // cancels analytically instead of numerically. The 3x3 (rotation/scale/proj)
+    // part is unchanged, so for a translation-only objectWorld the projection
+    // scale row used by screen-space-error LOD (element [1][1]) is preserved.
+    [[nodiscard]] inline glm::mat4 MakeObjectLocalViewProjection(const glm::mat4& vpWorld,
+                                                                 const glm::mat4& objectWorld,
+                                                                 const glm::vec3& origin)
+    {
+        return MakeViewProjectionRelative(vpWorld, origin) * MakeModelRelative(objectWorld, origin);
+    }
+
+    // World camera position → object-LOCAL camera position. inverse(objectWorld)
+    // * cameraWorldPos, but the large-coordinate part (cameraWorldPos - origin)
+    // is subtracted first on small operands, then mapped back through the
+    // relative object matrix (which itself carries only a small translation).
+    [[nodiscard]] inline glm::vec3 MakeObjectLocalCameraPos(const glm::vec3& cameraWorldPos,
+                                                            const glm::mat4& objectWorld,
+                                                            const glm::vec3& origin)
+    {
+        const glm::mat4 relObject = MakeModelRelative(objectWorld, origin);
+        return glm::vec3(glm::inverse(relObject) * glm::vec4(cameraWorldPos - origin, 1.0f));
+    }
 } // namespace OloEngine
