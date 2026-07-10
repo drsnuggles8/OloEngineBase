@@ -15,7 +15,17 @@ namespace OloEngine
         virtual ~RefCounted() = default;
 
         void IncRefCount() const;
-        void DecRefCount() const;
+
+        /// Atomically decrements the reference count and returns the count
+        /// *after* the decrement. Callers MUST use this return value (not a
+        /// separate GetRefCount() call) to decide whether they just released
+        /// the last reference — reading the count back via a second, separate
+        /// load is a TOCTOU race: two threads racing the last two DecRefCount()
+        /// calls could each observe 0 and both delete the object (see #596).
+        /// Only called from RefUtils::Release(), which additionally must call
+        /// it *while holding* the live-reference registry's mutex — see that
+        /// function's comment for why the decrement can't happen lock-free.
+        u32 DecRefCount() const;
         u32 GetRefCount() const;
 
       private:
@@ -25,21 +35,36 @@ namespace OloEngine
     namespace RefUtils
     {
         void AddToLiveReferences(void* instance);
-        void RemoveFromLiveReferences(void* instance);
         bool IsLive(void* instance);
+
+        /// Called by Ref<T>::DecRef()/SafeDecRefAndDelete() to release a reference.
+        /// Decrements `instance`'s refcount *and* checks/updates the live-reference
+        /// registry as one atomic operation (both happen under the same mutex
+        /// TryLockLive() uses) — the decrement deliberately does NOT happen before
+        /// taking that lock, because a concurrent TryLockLive() could otherwise
+        /// resurrect `instance`, release it again, and delete it before this call
+        /// ever acquires the lock, leaving `instance` dangling by the time it does.
+        /// Returns true iff the caller now has exclusive responsibility to delete
+        /// `instance`.
+        bool Release(RefCounted* instance);
+
+        /// Called by WeakRef<T>::Lock(). Atomically checks whether `instance` is still
+        /// live and, if so, increments its refcount — all while holding the same mutex
+        /// Release() uses, so this can never resurrect an instance that has already
+        /// committed to destruction, and Release() can never delete an instance this
+        /// just resurrected. Returns false if `instance` is dead (or concurrently being
+        /// destroyed), in which case the caller must not touch it.
+        bool TryLockLive(RefCounted* instance);
     } // namespace RefUtils
+
+    template<typename T>
+    class WeakRef;
 
     /// Thread-safe smart pointer for RefCounted objects.
     /// The underlying RefCounted object uses atomic reference counting,
     /// making it safe for multiple Ref instances to reference the same
     /// object from different threads. However, individual Ref instances
     /// are not thread-safe and should not be modified concurrently.
-    ///
-    /// TODO(olbu): Refactor Ref<T> ownership semantics (#596) — compare with Unreal Engine's
-    /// TSharedPtr/TWeakPtr pattern. Key issues to address:
-    ///  - DecRef() leaves m_Instance dangling after delete (SonarQube use-after-free warnings)
-    ///  - WeakRef relies on RefUtils::IsLive() global registry instead of control block
-    ///  - Consider control-block-based weak references for thread safety
     template<typename T>
     class Ref
     {
@@ -257,15 +282,17 @@ namespace OloEngine
         {
             if (m_Instance)
             {
-                m_Instance->DecRefCount();
+                // Clear this Ref's pointer up front — DecRef() is always followed
+                // by either this Ref being destroyed or m_Instance being
+                // reassigned, so no caller should ever be able to observe
+                // m_Instance pointing at an object that's mid-release or already
+                // deleted (the SonarQube-flagged dangling-pointer pattern).
+                T* instance = m_Instance;
+                m_Instance = nullptr;
 
-                if (m_Instance->GetRefCount() == 0)
+                if (RefUtils::Release(instance))
                 {
-                    RefUtils::RemoveFromLiveReferences(m_Instance);
-                    delete m_Instance;
-                    // Note: m_Instance is not set to nullptr here to avoid race conditions.
-                    // Each Ref instance manages its own pointer lifetime through
-                    // constructors, destructors, and assignment operators.
+                    delete instance;
                 }
             }
         }
@@ -275,17 +302,25 @@ namespace OloEngine
         {
             if (oldInstance)
             {
-                oldInstance->DecRefCount();
-                if (oldInstance->GetRefCount() == 0)
+                if (RefUtils::Release(oldInstance))
                 {
-                    RefUtils::RemoveFromLiveReferences(oldInstance);
                     delete oldInstance;
                 }
             }
         }
 
+        // Tag used by WeakRef<T>::Lock() to adopt a pointer whose refcount and
+        // live-registration were already performed atomically by
+        // RefUtils::TryLockLive() — avoids double-incrementing.
+        struct AdoptLockedTag
+        {
+        };
+        Ref(T* instance, AdoptLockedTag) : m_Instance(instance) {}
+
         template<class T2>
         friend class Ref;
+
+        friend class WeakRef<T>;
 
         mutable T* m_Instance;
     };
@@ -345,10 +380,16 @@ namespace OloEngine
             return IsValid();
         }
 
+        /// Attempts to resurrect a strong Ref to the referenced object. Unlike a plain
+        /// `IsValid()` check followed by constructing a Ref (which races a concurrent
+        /// last-DecRef release — see RefUtils::TryLockLive), this atomically checks
+        /// liveness and increments the refcount as one step, so it either returns a
+        /// genuinely valid Ref or nullptr — never a Ref to a partially/fully destroyed
+        /// object.
         Ref<T> Lock() const
         {
-            if (IsValid())
-                return Ref<T>(m_Instance);
+            if (m_Instance && RefUtils::TryLockLive(m_Instance))
+                return Ref<T>(m_Instance, typename Ref<T>::AdoptLockedTag{});
             return nullptr;
         }
 
