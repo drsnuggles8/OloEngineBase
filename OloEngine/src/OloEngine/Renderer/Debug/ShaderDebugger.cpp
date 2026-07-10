@@ -2,6 +2,8 @@
 #include "ShaderDebugger.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Renderer/Renderer2D.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Threading/UniqueLock.h"
 
 #include <spirv_cross/spirv_cross.hpp>
@@ -963,7 +965,13 @@ namespace OloEngine
         // Bottom controls
         if (ImGui::Button("Refresh All"))
         {
-            // TODO(olbu): Trigger reload of all shaders (#594)
+            // Same reload path the filewatch hot-reload uses (ShaderLibrary::ReloadShaders()
+            // -> Shader::Reload() per shader) so compile errors surface identically — via
+            // OLO_SHADER_COMPILATION_END / OnReloadEnd, both invoked from Reload() itself.
+            // Must run on the render/main thread: Reload() recompiles GL programs directly.
+            OLO_CORE_INFO("ShaderDebugger: Refresh All triggered — reloading all tracked shaders");
+            Renderer3D::GetShaderLibrary().ReloadShaders();
+            Renderer2D::GetShaderLibrary().ReloadShaders();
         }
         ImGui::SameLine();
         if (ImGui::Button("Clear Selection"))
