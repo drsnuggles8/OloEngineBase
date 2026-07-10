@@ -34,6 +34,8 @@
 #include <glm/glm.hpp>
 #include <miniaudio.h>
 
+#include <cmath>
+
 using namespace OloEngine; // NOLINT(google-build-using-namespace)
 namespace sg = OloEngine::Audio::SoundGraph;
 namespace dsp = OloEngine::Audio::DSP;
@@ -205,4 +207,59 @@ TEST_F(SoundGraphSpatializerTest, UnregisterReleasesSource)
     const u32 reusedID = m_Source.GetSpatializerSourceID();
     EXPECT_NE(reusedID, 0u);
     EXPECT_NE(reusedID, id) << "the re-registered source must not reuse the released sourceID";
+}
+
+// Regression (primary): the Inverse distance-attenuation model is minDistance /
+// (minDistance + rolloff*(clamp(d, min, max) - minDistance)). With MinDistance == 0 (a legal
+// config value — the scene deserializer sanitizer permits [0, 1e6]) and a source co-located
+// with the listener (distance ~ 0), that is 0 / 0 == NaN. std::clamp(NaN, MinGain, MaxGain)
+// propagates the NaN, which flows through VBAP and AddAndApplyGainRamp straight into the master
+// mix (all audio corrupted, potential speaker damage). The Inverse case must guard MinDistance
+// <= 0 exactly like the Exponential case already does.
+TEST_F(SoundGraphSpatializerTest, InverseModelZeroMinDistanceCoLocatedStaysFinite)
+{
+    AudioSourceConfig config;
+    config.Spatialization = true;
+    config.AttenuationModel = AttenuationModelType::Inverse; // the default, spelled out for clarity
+    config.MinDistance = 0.0f;                               // the trigger
+    config.MaxDistance = 1000.0f;
+    ASSERT_TRUE(m_Source.RegisterSpatializer(&m_Spatializer, config));
+    const u32 id = m_Source.GetSpatializerSourceID();
+
+    m_Spatializer.UpdateListener(Audio::Transform{});
+
+    // Source sitting exactly on the listener → distance ~ 0 → the 0/0 case.
+    Audio::Transform atListener; // position {0,0,0}
+    m_Source.UpdateSpatialPosition(atListener);
+
+    const float atten = m_Spatializer.GetCurrentDistanceAttenuation(id);
+    EXPECT_TRUE(std::isfinite(atten)) << "distance attenuation must never be NaN/Inf (got " << atten << ")";
+    EXPECT_GE(atten, 0.0f);
+    EXPECT_LE(atten, 1.0f);
+}
+
+// The same MinDistance == 0 Inverse config with the source at a real distance. Before the guard
+// this returned 0 / (rolloff*distance) == 0 for every distance > 0 — a permanently silent voice
+// (the degenerate all-silent behaviour). The guard now returns full gain, matching the
+// Exponential case's minDistance<=0 short-circuit.
+TEST_F(SoundGraphSpatializerTest, InverseModelZeroMinDistanceDistantStaysAudible)
+{
+    AudioSourceConfig config;
+    config.Spatialization = true;
+    config.AttenuationModel = AttenuationModelType::Inverse;
+    config.MinDistance = 0.0f;
+    config.MaxDistance = 1000.0f;
+    ASSERT_TRUE(m_Source.RegisterSpatializer(&m_Spatializer, config));
+    const u32 id = m_Source.GetSpatializerSourceID();
+
+    m_Spatializer.UpdateListener(Audio::Transform{});
+
+    Audio::Transform pose;
+    pose.Position = { 0.0f, 0.0f, -5.0f };
+    m_Source.UpdateSpatialPosition(pose);
+
+    const float atten = m_Spatializer.GetCurrentDistanceAttenuation(id);
+    EXPECT_TRUE(std::isfinite(atten));
+    EXPECT_GT(atten, 0.0f) << "MinDistance == 0 must not silence the voice at distance > 0";
+    EXPECT_LE(atten, 1.0f);
 }

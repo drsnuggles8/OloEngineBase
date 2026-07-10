@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <numeric>
+#include <vector>
 
 using namespace OloEngine::Audio::DSP;
 using namespace OloEngine::Audio;
@@ -286,4 +287,82 @@ TEST(SampleBufferOps, AddAndApplyGainRampInterpolates)
     EXPECT_NEAR(dest[1], 1.0f / 3.0f, 1e-5f);
     EXPECT_NEAR(dest[2], 2.0f / 3.0f, 1e-5f);
     EXPECT_NEAR(dest[3], 1.0f, 1e-5f);
+}
+
+//==============================================================================
+/// ApplyGainRamp SIMD-vs-scalar parity (Finding 4)
+///
+/// The AVX/SSE fast path built the per-lane frame index as (i/numChannels) +
+/// (lane/numChannels), but the correct index is (i + lane)/numChannels. Since i is always a
+/// multiple of the SIMD width, those two agree only when numChannels evenly divides the width
+/// (1/2/4/8) and DIVERGE from the scalar fallback for 3/5/6/7 channels. These tests pin the
+/// fixed behaviour: every channel count now matches the exact scalar reference.
+//==============================================================================
+
+namespace
+{
+    // Exact scalar reference: gain per frame is gainStart + delta*frameIndex with
+    // delta = (gainEnd - gainStart)/(numSamples - 1), applied to every channel of that frame.
+    // Mirrors SampleBufferOperations::ApplyGainRamp's scalar fallback.
+    void ApplyGainRampScalarReference(std::vector<f32>& data, u32 numSamples, u32 numChannels, f32 gainStart, f32 gainEnd)
+    {
+        if (numSamples == 1)
+        {
+            for (u32 ch = 0; ch < numChannels; ++ch)
+                data[ch] *= gainEnd;
+            return;
+        }
+        const f32 delta = (gainEnd - gainStart) / static_cast<f32>(numSamples - 1);
+        for (u32 i = 0; i < numSamples; ++i)
+        {
+            for (u32 ch = 0; ch < numChannels; ++ch)
+                data[i * numChannels + ch] *= gainStart + delta * static_cast<f32>(i);
+        }
+    }
+
+    void ExpectApplyGainRampMatchesScalar(u32 numSamples, u32 numChannels, f32 gainStart, f32 gainEnd)
+    {
+        std::vector<f32> actual(static_cast<sizet>(numSamples) * numChannels);
+        for (sizet i = 0; i < actual.size(); ++i)
+            actual[i] = 1.0f + 0.01f * static_cast<f32>(i); // distinct, non-trivial samples
+
+        std::vector<f32> expected = actual;
+
+        SampleBufferOperations::ApplyGainRamp(actual.data(), numSamples, numChannels, gainStart, gainEnd);
+        ApplyGainRampScalarReference(expected, numSamples, numChannels, gainStart, gainEnd);
+
+        ASSERT_EQ(actual.size(), expected.size());
+        for (sizet i = 0; i < actual.size(); ++i)
+        {
+            EXPECT_NEAR(actual[i], expected[i], 1e-4f)
+                << "mismatch at element " << i << " (numChannels=" << numChannels << ", numSamples=" << numSamples << ")";
+        }
+    }
+} // namespace
+
+// The channel counts that don't divide the SIMD width — where the old per-lane index bug bit.
+TEST(SampleBufferOps, ApplyGainRampThreeChannelMatchesScalar)
+{
+    ExpectApplyGainRampMatchesScalar(/*numSamples*/ 16, /*numChannels*/ 3, /*gainStart*/ 0.25f, /*gainEnd*/ 1.5f);
+}
+
+TEST(SampleBufferOps, ApplyGainRampSixChannelMatchesScalar)
+{
+    ExpectApplyGainRampMatchesScalar(16, 6, 0.0f, 2.0f);
+}
+
+TEST(SampleBufferOps, ApplyGainRampFiveAndSevenChannelMatchScalar)
+{
+    ExpectApplyGainRampMatchesScalar(9, 5, 0.5f, 1.0f);
+    ExpectApplyGainRampMatchesScalar(11, 7, 0.1f, 0.9f);
+}
+
+// Regression guard: the common mono/stereo (and 4/8-channel) paths still run through SIMD and
+// must stay correct after gating the fast path on (width % numChannels == 0).
+TEST(SampleBufferOps, ApplyGainRampWidthDividingChannelsMatchScalar)
+{
+    ExpectApplyGainRampMatchesScalar(64, 1, 0.0f, 1.0f);
+    ExpectApplyGainRampMatchesScalar(64, 2, 0.2f, 0.8f);
+    ExpectApplyGainRampMatchesScalar(16, 4, 0.0f, 1.0f);
+    ExpectApplyGainRampMatchesScalar(16, 8, 0.3f, 0.7f);
 }
