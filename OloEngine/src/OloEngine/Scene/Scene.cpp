@@ -18,6 +18,8 @@
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/CameraRelative.h"
+#include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/UnderwaterCaustics.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
@@ -159,6 +161,38 @@ namespace OloEngine
         // and the async kick's world-step task so the two can never drift.
         // TODO(olbu): position iterations when Box2D position-iteration support lands.
         constexpr i32 kPhysics2DVelocityIterations = 6;
+
+        // Terrain quadtree LOD / frustum-cull inputs transformed into the terrain
+        // entity's LOCAL space (issue #429, terrain slice). The quadtree stores node
+        // bounds in terrain-local coordinates and the entity transform places them in
+        // the world, so LOD/cull must run in local space — feeding it the world camera
+        // both ignores the transform and cancels catastrophically in f32 far from
+        // origin. Evaluated through the grid-snapped render origin so the large-
+        // coordinate subtraction stays precise; a byte-identical no-op near origin.
+        struct TerrainLocalCullInputs
+        {
+            Frustum ViewFrustum;
+            glm::vec3 CameraPos{ 0.0f };
+            glm::mat4 ViewProjection{ 1.0f };
+        };
+
+        [[nodiscard]] TerrainLocalCullInputs MakeTerrainLocalCullInputs(const glm::mat4& worldTransform,
+                                                                        const glm::vec3& cameraWorldPos,
+                                                                        const glm::mat4& worldViewProjection)
+        {
+            // Origin follows the same debug lever as the rest of #429: disabling
+            // camera-relative rendering pins it to (0,0,0), reverting to the exact
+            // (jittery, far from origin) world-space evaluation for A/B capture.
+            const glm::vec3 origin = Renderer3D::IsCameraRelativeEnabled()
+                                         ? ComputeRenderOrigin(cameraWorldPos)
+                                         : glm::vec3(0.0f);
+
+            TerrainLocalCullInputs inputs;
+            inputs.ViewProjection = MakeObjectLocalViewProjection(worldViewProjection, worldTransform, origin);
+            inputs.CameraPos = MakeObjectLocalCameraPos(cameraWorldPos, worldTransform, origin);
+            inputs.ViewFrustum = Frustum(inputs.ViewProjection);
+            return inputs;
+        }
     } // namespace
 
     // Underwater test (WATER_FUTURE_IMPROVEMENTS.md §7.2). True when `cameraPos`
@@ -5498,13 +5532,18 @@ namespace OloEngine
                         terrain.m_AutoSplatNeedsRebuild = false;
                     }
 
-                    // Run quadtree LOD selection each frame if tessellation is enabled
+                    // Run quadtree LOD selection each frame if tessellation is enabled.
+                    // Node bounds are terrain-local; transform the world camera / VP /
+                    // frustum into that local space (precise far from origin, #429).
                     if (terrain.m_TessellationEnabled && terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
                     {
+                        const auto& terrainTransform = terrainView.get<TransformComponent>(entity);
+                        const TerrainLocalCullInputs local = MakeTerrainLocalCullInputs(
+                            terrainTransform.GetTransform(), cameraPosition, viewProjection);
                         terrain.m_ChunkManager->SelectVisibleChunks(
-                            Renderer3D::GetViewFrustum(),
-                            cameraPosition,
-                            viewProjection,
+                            local.ViewFrustum,
+                            local.CameraPos,
+                            local.ViewProjection,
                             static_cast<f32>(m_ViewportHeight));
                     }
                 }
@@ -5603,15 +5642,21 @@ namespace OloEngine
                     {
                         bool useTess = terrain.m_TessellationEnabled;
 
+                        // Frustum for the non-tessellated cull path, in terrain-local
+                        // space so it matches the local chunk bounds far from origin
+                        // (#429) — mirrors the tessellated SelectVisibleChunks path.
+                        const TerrainLocalCullInputs terrainLocalCull = MakeTerrainLocalCullInputs(
+                            transform.GetTransform(), cameraPosition, viewProjection);
+
                         // Lambda to submit command packets for one chunk manager
                         auto submitChunkPackets = [&terrain, &transform, &splatmapID, &splatmap1ID,
                                                    &albedoArrayID, &normalArrayID, &armArrayID,
                                                    &hasMaterial, &useTess, &terrainShader, &entityID,
-                                                   &hasActiveShadows](const TerrainChunkManager& chunkMgr,
-                                                                      const TerrainData* terrainData,
-                                                                      const TerrainMaterial* tileMaterial,
-                                                                      f32 worldSizeX, f32 worldSizeZ,
-                                                                      f32 heightScale)
+                                                   &hasActiveShadows, &terrainLocalCull](const TerrainChunkManager& chunkMgr,
+                                                                                         const TerrainData* terrainData,
+                                                                                         const TerrainMaterial* tileMaterial,
+                                                                                         f32 worldSizeX, f32 worldSizeZ,
+                                                                                         f32 heightScale)
                         {
                             if (!chunkMgr.IsBuilt())
                             {
@@ -5711,7 +5756,7 @@ namespace OloEngine
                                 terrainUBOData.TessFactors = glm::vec4(1.0f);
                                 terrainUBOData.TessFactors2.w = 1.0f;
                                 std::vector<const TerrainChunk*> visibleChunks;
-                                chunkMgr.GetVisibleChunks(Renderer3D::GetViewFrustum(), visibleChunks);
+                                chunkMgr.GetVisibleChunks(terrainLocalCull.ViewFrustum, visibleChunks);
                                 for (const auto* chunk : visibleChunks)
                                 {
                                     auto va = chunk->GetVertexArray();
