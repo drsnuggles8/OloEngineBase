@@ -666,6 +666,16 @@ namespace OloEngine::MCP
         m_Tools.push_back(std::move(tool));
     }
 
+    void McpServer::UnregisterScriptTools()
+    {
+        // The tool vector is read lock-free by dispatch worker threads; mutating
+        // it while serving would be a data race. LoadScriptTools' replace-rescan
+        // only happens from the stopped state (panel restart / editor init).
+        OLO_CORE_VERIFY(!IsRunning(), "[MCP] UnregisterScriptTools requires a stopped server.");
+        std::erase_if(m_Tools, [](const ToolDef& tool)
+                      { return tool.ScriptOwned; });
+    }
+
     void McpServer::RegisterResource(ResourceDef resource)
     {
         m_Resources.push_back(std::move(resource));

@@ -460,6 +460,12 @@ add_executable(OloEngine-Tests
 		# POST response over a real localhost socket (httplib client + server).
 		# Exercises the McpServer.cpp TU already pulled in above.
 		MCP/McpProgressCancelTest.cpp
+		# Script-defined MCP tools, Lua v1 (#357; ADR 0005): sandboxed registration
+		# from a temp directory of .lua files, schema-enforced dispatch, sandbox
+		# escape containment, the watchdog, and the read-only olo.call_tool bridge.
+		# Pulls the editor-decoupled McpScriptTools.cpp TU (sol2 + engine only).
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpScriptTools.cpp
+		MCP/McpScriptToolsTest.cpp
 		# First consented, undoable MCP WRITE tool: olo_set_collision_layer (#306
 		# item C, first slice). Exercises the session write gate + inputSchema
 		# enforcement at the McpServer.cpp dispatch seam, and the shared apply core

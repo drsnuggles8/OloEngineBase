@@ -2,6 +2,7 @@
 #include "EditorLayer.h"
 #include "Panels/AssetPackBuilderPanel.h"
 #include "Panels/BuildGamePanel.h"
+#include "MCP/McpScriptTools.h"
 #include "MCP/McpServer.h"
 #include "MCP/McpServerPanel.h"
 #include "MCP/McpTools.h"
@@ -567,6 +568,13 @@ namespace OloEngine
 
             m_McpServer = CreateScope<MCP::McpServer>(std::move(mcpContext));
             MCP::RegisterBuiltinTools(*m_McpServer);
+            // Project-authored Lua script tools (issue #357 / ADR 0005): scan
+            // <project assets>/McpTools before the server can start, so the tool
+            // set is complete and immutable per run. The panel's start button
+            // rescans, so a script edit needs only a server restart, not an
+            // editor restart.
+            if (const auto scriptDir = MCP::DefaultScriptToolsDirectory(); !scriptDir.empty())
+                (void)MCP::LoadScriptTools(*m_McpServer, scriptDir);
             // Apply the persisted redaction preference (loaded by OpenProject above).
             m_McpServer->SetRedactPaths(m_Prefs.McpRedactPaths);
 

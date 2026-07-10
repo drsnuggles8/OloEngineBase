@@ -19,6 +19,8 @@
 		"MCP/McpToolsScene.cpp"
 		"MCP/McpToolsScripting.cpp"
 		"MCP/McpToolsShader.cpp"
+		"MCP/McpScriptTools.cpp"
+		"MCP/McpScriptTools.h"
 		"MCP/McpScriptApi.cpp"
 		"MCP/McpScriptApi.h"
 		"MCP/McpServerPanel.cpp"

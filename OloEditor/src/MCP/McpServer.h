@@ -171,6 +171,12 @@ namespace OloEngine::MCP
         // with a clean JSON-RPC error when writes are disabled (the default). Issue
         // #306 item C; should be paired with `readOnlyHint:false` annotations.
         bool ProjectWrite = false;
+        // True for a tool registered from a project Lua script (McpScriptTools,
+        // issue #357 / ADR 0005) rather than compiled-in. Script tools are
+        // replaced wholesale by LoadScriptTools while the server is STOPPED (a
+        // panel restart rescans the project's McpTools/ directory); see
+        // UnregisterScriptTools.
+        bool ScriptOwned = false;
     };
 
     // Snapshot of the editor camera's full pose, returned by GetCameraPose and
@@ -491,6 +497,13 @@ namespace OloEngine::MCP
         void RegisterTool(ToolDef tool);
         void RegisterResource(ResourceDef resource);
         void RegisterPrompt(PromptDef prompt);
+
+        // Remove every ScriptOwned tool (issue #357 / ADR 0005) so LoadScriptTools
+        // can rescan the project's script directory with replace semantics. MUST
+        // be called while the server is stopped — the tool vector is read lock-free
+        // by dispatch threads, so it must never mutate while serving. Enforced
+        // loudly (OLO_CORE_VERIFY) in the definition.
+        void UnregisterScriptTools();
 
         // ---- Progress + cancellation (issue #357 item B) -----------------------
         //

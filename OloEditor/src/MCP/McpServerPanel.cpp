@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpServerPanel.h"
+#include "MCP/McpScriptTools.h"
 #include "MCP/McpServer.h"
 
 #include "OloEngine/Debug/Profiler.h"
@@ -88,6 +89,11 @@ namespace OloEngine::MCP
 
             if (ImGui::Button("Start server"))
             {
+                // Rescan the project's Lua script tools (issue #357 / ADR 0005)
+                // while the server is still stopped, so an edited script needs
+                // only this restart — the tool set stays immutable once serving.
+                if (const auto scriptDir = DefaultScriptToolsDirectory(); !scriptDir.empty())
+                    (void)LoadScriptTools(server, scriptDir);
                 s_StartError = server.Start(static_cast<u16>(port))
                                    ? std::string{}
                                    : std::format("Failed to start — could not bind 127.0.0.1:{} (port in use?).", port);
