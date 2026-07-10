@@ -410,7 +410,12 @@ namespace OloEngine::MCP
                 std::lock_guard lock(runtime->Mutex);
                 WatchdogScope watchdog(*runtime, &server);
 
-                sol::protected_function_result result = handler(JsonToLua(runtime->Lua, arguments));
+                // Build the state_view from the raw lua_State* rather than passing the
+                // sol::state (which derives from sol::state_view) by value — the latter
+                // is a derived->base slice. Semantically identical (both wrap the same
+                // state), but explicit and slice-free.
+                sol::protected_function_result result =
+                    handler(JsonToLua(sol::state_view(runtime->Lua.lua_state()), arguments));
                 if (!result.valid())
                 {
                     const sol::error error = result;

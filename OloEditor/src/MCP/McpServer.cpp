@@ -706,6 +706,30 @@ namespace OloEngine::MCP
         // before any handler runs, instead of being read entirely into memory.
         m_Http->set_payload_max_length(kMaxRequestBytes);
 
+        // Own the port EXCLUSIVELY. httplib's default socket options set
+        // SO_REUSEADDR (Windows) / SO_REUSEPORT (Linux), both of which let a SECOND
+        // process bind the same 127.0.0.1:port — after which the OS hands incoming
+        // connections to either listener non-deterministically. For a token-
+        // authenticated diagnostics server that means a client can reach the wrong
+        // instance and be rejected with a 401 (each instance mints its own token),
+        // and two editors would silently share a port. It also makes the parallel
+        // HTTP tests flaky: colliding per-process ports cross-wire, so a request
+        // authenticated for one server lands on another. Demand exclusive ownership
+        // so a second bind to a live port fails cleanly instead (surfaced as the
+        // "port already in use" error below), which also makes the tests' bind-sweep
+        // reliably land on a truly-free port.
+        m_Http->set_socket_options([](auto sock)
+                                   {
+#ifdef _WIN32
+                                       httplib::set_socket_opt(sock, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, 1);
+#else
+                                       // Keep SO_REUSEADDR (NOT SO_REUSEPORT) so a quick restart isn't blocked by
+                                       // a lingering TIME_WAIT socket; on POSIX that flag alone does not permit a
+                                       // second live listener on the port, so it grants no cross-wiring.
+                                       httplib::set_socket_opt(sock, SOL_SOCKET, SO_REUSEADDR, 1);
+#endif
+                                   });
+
         // Give httplib-generated error responses (notably the 413 from the cap above,
         // which short-circuits before HandlePost) a small JSON-RPC error body. Our
         // own handler errors already carry their envelope, so only fill an empty body.
