@@ -1825,6 +1825,21 @@ namespace OloEngine
         // active locale changed since last frame. Cheap when no change.
         LocalizationSystem::UpdateLocalizedText(*this);
 
+        // Resolve the primary camera's WORLD-space position once, for both the
+        // rebase trigger and the streamer. Using the composed world matrix (not
+        // the parent-local TransformComponent.Translation) keeps a *parented*
+        // camera's distance correct; for a root camera world == local, so this
+        // is unchanged. GetWorldTransform falls back to the local transform when
+        // the propagation pass hasn't run yet (first frame), matching the prior
+        // behaviour. Missing camera → (0,0,0), same as before.
+        glm::vec3 cameraWorldPos{ 0.0f };
+        bool haveCamera = false;
+        if (auto cam = GetPrimaryCameraEntity(); cam)
+        {
+            cameraWorldPos = glm::vec3(GetWorldTransform(static_cast<entt::entity>(cam))[3]);
+            haveCamera = true;
+        }
+
         // Floating-origin rebase (issue #429): before streaming, keep stored f32
         // world coordinates small by shifting the whole world back toward origin
         // whenever the primary camera drifts past the threshold. Runs here — on
@@ -1832,26 +1847,24 @@ namespace OloEngine
         // the broad TransformComponent + physics-body writes never race the
         // parallel/worker-dispatched gameplay systems. No-op when disabled or
         // when the reference is within the threshold (the common case).
-        if (m_WorldOriginSettings.Enabled)
+        if (m_WorldOriginSettings.Enabled && haveCamera)
         {
+            MaybeRebaseOrigin(cameraWorldPos);
+            // A rebase shifts the camera too (and re-propagates world matrices),
+            // so re-read its world position for the streamer below.
             if (auto cam = GetPrimaryCameraEntity(); cam)
             {
-                MaybeRebaseOrigin(cam.GetComponent<TransformComponent>().Translation);
+                cameraWorldPos = glm::vec3(GetWorldTransform(static_cast<entt::entity>(cam))[3]);
             }
         }
 
-        // Scene streaming update (runs even when paused to finish pending loads)
+        // Scene streaming update (runs even when paused to finish pending loads).
+        // The streamer's volume distances are computed in the same (possibly
+        // rebased) space as cameraWorldPos.
         if (m_SceneStreamer)
         {
-            glm::vec3 camPos{ 0.0f };
-            if (auto cam = GetPrimaryCameraEntity(); cam)
-            {
-                // Already in rebased space if a rebase just fired above; the
-                // streamer's volume distances are computed in the same space.
-                camPos = cam.GetComponent<TransformComponent>().Translation;
-            }
             ++m_StreamingFrameCounter;
-            m_SceneStreamer->Update(camPos, m_StreamingFrameCounter);
+            m_SceneStreamer->Update(cameraWorldPos, m_StreamingFrameCounter);
         }
     }
 
@@ -1894,6 +1907,24 @@ namespace OloEngine
         {
             // Past the threshold but within the first grid cell: the grid is
             // coarser than the threshold reach. Nothing to snap to — leave it.
+            return glm::vec3(0.0f);
+        }
+
+        // World-anchored physics constraints (pulleys, single-body joints fixed
+        // to the world) hold absolute anchor points that JoltScene::ShiftOrigin
+        // cannot move with the bodies, so a rebase would yank them. Defer the
+        // whole rebase while any exist rather than silently breaking them (issue
+        // #613 follow-up: translate the anchors). Rare and opt-in, so warn once.
+        if (m_JoltScene && m_JoltScene->HasWorldAnchoredConstraints())
+        {
+            static bool s_WarnedWorldAnchoredConstraints = false;
+            if (!s_WarnedWorldAnchoredConstraints)
+            {
+                OLO_CORE_WARN("Scene: origin rebase deferred — scene has world-anchored physics "
+                              "constraints (pulley / single-body-to-world joint) that a coordinate "
+                              "shift would break (issue #429 / #613).");
+                s_WarnedWorldAnchoredConstraints = true;
+            }
             return glm::vec3(0.0f);
         }
 

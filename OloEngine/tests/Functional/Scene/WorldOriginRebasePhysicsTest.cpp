@@ -23,6 +23,7 @@
 
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Physics3D/JoltScene.h" // GetPhysicsScene()->HasWorldAnchoredConstraints()
 
 #include <cmath>
 
@@ -145,4 +146,67 @@ TEST_F(WorldOriginRebaseFloorTest, RestingBodyStaysOnFloorAcrossRebase)
     EXPECT_NEAR(p.y, restY, 0.2f)
         << "box fell (or jumped) after the rebase — the static floor body did not shift with it";
     EXPECT_TRUE(std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z));
+}
+
+// ---------------------------------------------------------------------------
+// Third scenario: a joint anchored to the fixed world (m_ConnectedEntity == 0
+// -> Body::sFixedToWorld) holds an ABSOLUTE world anchor that ShiftOrigin can't
+// move with the body. The auto-trigger must DEFER the rebase rather than yank
+// the body away from its anchor. (First-slice safety; #613 will shift anchors.)
+// ---------------------------------------------------------------------------
+class WorldOriginRebaseWorldJointTest : public FunctionalTest
+{
+  protected:
+    void BuildScene() override
+    {
+        m_Body = GetScene().CreateEntity("AnchoredBody");
+        m_Body.GetComponent<TransformComponent>().Translation = { 0.0f, 5.0f, 0.0f };
+        SphereCollider3DComponent col;
+        col.m_Radius = 0.3f;
+        m_Body.AddComponent<SphereCollider3DComponent>(col);
+        Rigidbody3DComponent body;
+        body.m_Type = BodyType3D::Dynamic;
+        body.m_Mass = 1.0f;
+        m_Body.AddComponent<Rigidbody3DComponent>(body);
+
+        // A Fixed joint with no connected entity -> anchored to the fixed world
+        // body (an absolute-world-space anchor).
+        PhysicsJoint3DComponent joint;
+        joint.m_Type = JointType3D::Fixed;
+        joint.m_ConnectedEntity = 0; // world anchor
+        m_Body.AddComponent<PhysicsJoint3DComponent>(joint);
+
+        EnablePhysics3D();
+    }
+
+    Entity m_Body;
+};
+
+TEST_F(WorldOriginRebaseWorldJointTest, AutoRebaseDefersWhenAWorldAnchoredJointExists)
+{
+    // Verify the scene really built the world-anchored constraint.
+    ASSERT_NE(GetScene().GetPhysicsScene(), nullptr);
+    EXPECT_TRUE(GetScene().GetPhysicsScene()->HasWorldAnchoredConstraints())
+        << "expected a world-anchored (fixed-to-world) constraint to be present";
+
+    // Enable rebasing with a low threshold so a far reference would normally
+    // trigger a rebase.
+    WorldOriginSettings s;
+    s.Enabled = true;
+    s.RebaseThreshold = 1024.0f;
+    s.SnapGridSize = 1024.0f;
+    GetScene().SetWorldOriginSettings(s);
+
+    const glm::vec3 before = m_Body.GetComponent<TransformComponent>().Translation;
+
+    // The reference is far past the threshold, but the world-anchored joint must
+    // make the auto-trigger DEFER: it returns a zero shift and moves nothing.
+    const glm::vec3 shift = GetScene().MaybeRebaseOrigin(glm::vec3(6000.0f, 0.0f, 0.0f));
+    EXPECT_FLOAT_EQ(glm::dot(shift, shift), 0.0f) << "rebase should have been deferred, not applied";
+
+    const glm::vec3 after = m_Body.GetComponent<TransformComponent>().Translation;
+    EXPECT_FLOAT_EQ(after.x, before.x);
+    EXPECT_FLOAT_EQ(after.y, before.y);
+    EXPECT_FLOAT_EQ(after.z, before.z);
+    EXPECT_FLOAT_EQ(GetScene().GetWorldOrigin().x, 0.0f);
 }

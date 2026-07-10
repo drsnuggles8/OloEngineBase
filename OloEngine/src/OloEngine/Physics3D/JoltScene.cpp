@@ -1078,6 +1078,38 @@ namespace OloEngine
         }
     }
 
+    bool JoltScene::HasWorldAnchoredConstraints() const
+    {
+        for (const auto& [id, constraint] : m_Constraints)
+        {
+            if (!constraint)
+            {
+                continue;
+            }
+
+            // A pulley's two pivot points (mFixedPoint1/2) are absolute world-
+            // space points that do not move with either body.
+            if (constraint->GetSubType() == JPH::EConstraintSubType::Pulley)
+            {
+                return true;
+            }
+
+            // A single-body joint is realised as a two-body constraint against
+            // the shared fixed world body (JPH::Body::sFixedToWorld); its world-
+            // side anchor is an absolute point that a body shift would leave
+            // behind. Two-body joints between two real bodies are safe.
+            if (constraint->GetType() == JPH::EConstraintType::TwoBodyConstraint)
+            {
+                const auto& tbc = static_cast<const JPH::TwoBodyConstraint&>(*constraint);
+                if (tbc.GetBody1() == &JPH::Body::sFixedToWorld || tbc.GetBody2() == &JPH::Body::sFixedToWorld)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     void JoltScene::SynchronizeTransforms()
     {
         // Synchronize transforms for all bodies that need it
