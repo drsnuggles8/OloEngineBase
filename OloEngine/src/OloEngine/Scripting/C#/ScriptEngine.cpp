@@ -190,7 +190,9 @@ namespace OloEngine
 
         if (bool status = LoadAssembly("Resources/Scripts/OloEngine-ScriptCore.dll"); !status)
         {
-            OLO_CORE_WARN("[ScriptEngine] OloEngine-ScriptCore assembly unavailable; C# scripting disabled for this session.");
+            OLO_CORE_WARN("[ScriptEngine] OloEngine-ScriptCore assembly unavailable; C# scripting disabled for this session. "
+                          "Build the 'OloEngine-ScriptCore' CMake target (built automatically as a dependency of OloEditor "
+                          "under the Visual Studio generator) to produce Resources/Scripts/OloEngine-ScriptCore.dll.");
             return;
         }
 

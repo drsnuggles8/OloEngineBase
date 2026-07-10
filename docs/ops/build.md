@@ -54,8 +54,15 @@ Always run OloEditor / OloRuntime from the `OloEditor/` directory — asset path
 shader files, and Mono assemblies are resolved relative to it.
 
 ### C# Scripting (Mono)
-C# scripting via Mono is built automatically on Windows. The static Mono libraries
-are bundled under `OloEngine/mono/lib/`.
+C# scripting via Mono is built automatically on Windows **when using the Visual
+Studio generator** (the `msvc` preset or `Win-GenerateProjectVS2022.bat` /
+`Win-GenerateProjectVS2026.bat`) — `OloEditor` depends on the `OloEngine-ScriptCore`
+and `Sandbox-Scripting` C# targets, so a plain `cmake --build build --target
+OloEditor` also compiles them and places `OloEngine-ScriptCore.dll` directly into
+`OloEditor/Resources/Scripts/`. The C# targets don't exist under the `clangcl` /
+`clangcl-asan` presets (Ninja has no C#/MSBuild project support), so a build from
+those presets has no C# scripting — this is expected, not a bug. The static Mono
+libraries are bundled under `OloEngine/mono/lib/`.
 
 ---
 
