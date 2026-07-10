@@ -425,6 +425,11 @@ namespace OloEngine
         newScene->m_SnowAccumulationSettings = other->m_SnowAccumulationSettings;
         newScene->m_SnowEjectaSettings = other->m_SnowEjectaSettings;
         newScene->m_PrecipitationSettings = other->m_PrecipitationSettings;
+        // Floating-origin config must survive into the Play/Simulate copy (same
+        // scene-level-settings contract as WindSettings above — issue #429). The
+        // runtime m_WorldOrigin accumulator is deliberately NOT copied: a fresh
+        // Play session starts at the authored coordinates with origin (0,0,0).
+        newScene->m_WorldOriginSettings = other->m_WorldOriginSettings;
 
         auto& srcSceneRegistry = other->m_Registry;
         auto& dstSceneRegistry = newScene->m_Registry;
@@ -953,6 +958,9 @@ namespace OloEngine
         m_SimulationTick = 0;
         m_FixedTimeAccumulator = 0.0f;
         m_SimulationTime = 0.0f;
+        // Floating-origin (issue #429): every play-through starts at the authored
+        // coordinates, so the rebased origin coincides with absolute origin.
+        m_WorldOrigin = glm::vec3(0.0f);
         // Discard interpolation snapshots so the first rendered frame of a fresh
         // run draws the exact tick-0 pose (no blend from a stale prior run).
         m_InterpPrev.clear();
@@ -1816,17 +1824,164 @@ namespace OloEngine
         // Refresh LocalizedTextComponent → TextComponent.TextString if the
         // active locale changed since last frame. Cheap when no change.
         LocalizationSystem::UpdateLocalizedText(*this);
+
+        // Floating-origin rebase (issue #429): before streaming, keep stored f32
+        // world coordinates small by shifting the whole world back toward origin
+        // whenever the primary camera drifts past the threshold. Runs here — on
+        // the game thread, before SimulateRuntimeStep and with physics idle — so
+        // the broad TransformComponent + physics-body writes never race the
+        // parallel/worker-dispatched gameplay systems. No-op when disabled or
+        // when the reference is within the threshold (the common case).
+        if (m_WorldOriginSettings.Enabled)
+        {
+            if (auto cam = GetPrimaryCameraEntity(); cam)
+            {
+                MaybeRebaseOrigin(cam.GetComponent<TransformComponent>().Translation);
+            }
+        }
+
         // Scene streaming update (runs even when paused to finish pending loads)
         if (m_SceneStreamer)
         {
             glm::vec3 camPos{ 0.0f };
             if (auto cam = GetPrimaryCameraEntity(); cam)
             {
+                // Already in rebased space if a rebase just fired above; the
+                // streamer's volume distances are computed in the same space.
                 camPos = cam.GetComponent<TransformComponent>().Translation;
             }
             ++m_StreamingFrameCounter;
             m_SceneStreamer->Update(camPos, m_StreamingFrameCounter);
         }
+    }
+
+    glm::vec3 Scene::MaybeRebaseOrigin(const glm::vec3& referenceWorldPos)
+    {
+        if (!m_WorldOriginSettings.Enabled)
+        {
+            return glm::vec3(0.0f);
+        }
+
+        // Keep the trigger vs. post-rebase-distance hysteresis invariant valid
+        // even if the settings were mutated directly (editor / script / test).
+        SanitizeWorldOriginSettings(m_WorldOriginSettings);
+
+        // A non-finite reference (e.g. a script drove the camera to NaN) must not
+        // trigger a rebase — the squared-distance test below would be false, but
+        // guard explicitly so a NaN never reaches ComputeRenderOrigin.
+        if (!std::isfinite(referenceWorldPos.x) || !std::isfinite(referenceWorldPos.y) ||
+            !std::isfinite(referenceWorldPos.z))
+        {
+            return glm::vec3(0.0f);
+        }
+
+        // The reference is in rebased space (the same frame every stored position
+        // lives in), so its distance from the rebased origin is just its length.
+        const f32 distSq = glm::dot(referenceWorldPos, referenceWorldPos);
+        const f32 threshold = m_WorldOriginSettings.RebaseThreshold;
+        if (!(distSq > threshold * threshold))
+        {
+            return glm::vec3(0.0f);
+        }
+
+        // Snap the reference onto the nearest grid-cell origin; shifting by
+        // -that lands the reference within +/- grid/2 of the new origin —
+        // comfortably inside the (larger) threshold, so the rebase won't re-fire
+        // next frame. ComputeRenderOrigin returns (0,0,0) inside the first cell.
+        const glm::vec3 origin = ComputeRenderOrigin(referenceWorldPos, m_WorldOriginSettings.SnapGridSize);
+        const glm::vec3 shift = -origin;
+        if (!(glm::dot(shift, shift) > 0.0f))
+        {
+            // Past the threshold but within the first grid cell: the grid is
+            // coarser than the threshold reach. Nothing to snap to — leave it.
+            return glm::vec3(0.0f);
+        }
+
+        RebaseOrigin(shift);
+        return shift;
+    }
+
+    void Scene::RebaseOrigin(const glm::vec3& shift)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Guard the public entry: a zero shift is a no-op, and a non-finite one
+        // (dot is NaN, NaN > 0 is false) is rejected rather than corrupting every
+        // transform in the scene.
+        if (!(glm::dot(shift, shift) > 0.0f))
+        {
+            return;
+        }
+
+        // Resolve an entity's parent exactly as PropagateWorldTransforms does, so
+        // "root" here means the same thing it does for world-matrix composition:
+        // a missing / dangling / transform-less parent counts as no parent.
+        auto resolveParent = [this](entt::entity entity) -> entt::entity
+        {
+            auto const* rel = m_Registry.try_get<RelationshipComponent>(entity);
+            if (!rel || static_cast<u64>(rel->m_ParentHandle) == 0)
+                return entt::null;
+
+            auto const* parentEntity = m_EntityMap.Find(rel->m_ParentHandle);
+            if (!parentEntity || !m_Registry.valid(*parentEntity) || !m_Registry.all_of<TransformComponent>(*parentEntity))
+                return entt::null;
+
+            return *parentEntity;
+        };
+
+        // 1. Shift only ROOT entities' local translations. Children are stored
+        //    relative to their parents, so translating every root moves the whole
+        //    hierarchy uniformly by `shift` without double-shifting nested
+        //    subtrees. Every descendant's WORLD position therefore also moves by
+        //    exactly `shift` (a root's world == its local; a child's world =
+        //    parentWorld * childLocal, and parentWorld gained `shift`).
+        auto transformView = m_Registry.view<TransformComponent>();
+        for (auto entity : transformView)
+        {
+            if (resolveParent(entity) == entt::null)
+            {
+                transformView.get<TransformComponent>(entity).Translation += shift;
+            }
+        }
+
+        // 2. Shift 3D physics (Jolt) bodies, terrain, and character controllers.
+        //    Every body moves by the same `shift` as the ECS world, preserving
+        //    velocities/rotations and keeping joints/contacts geometrically
+        //    consistent (both endpoints of any constraint translate together).
+        if (m_JoltScene)
+        {
+            m_JoltScene->ShiftOrigin(shift);
+        }
+
+        // 3. Shift 2D (Box2D) bodies in the xy plane (2D bodies are authored from
+        //    Translation.xy — see SceneStreamer::InitializeStreamedEntities).
+        //    Preserve the rotation; velocity is unaffected by SetTransform.
+        if (b2World_IsValid(m_PhysicsWorld))
+        {
+            for (auto rb2dView = m_Registry.view<Rigidbody2DComponent>(); auto entity : rb2dView)
+            {
+                auto& rb2d = rb2dView.get<Rigidbody2DComponent>(entity);
+                if (b2Body_IsValid(rb2d.RuntimeBody))
+                {
+                    const b2Vec2 pos = b2Body_GetPosition(rb2d.RuntimeBody);
+                    const b2Rot rot = b2Body_GetRotation(rb2d.RuntimeBody);
+                    b2Body_SetTransform(rb2d.RuntimeBody, b2Vec2{ pos.x + shift.x, pos.y + shift.y }, rot);
+                }
+            }
+        }
+
+        // 4. Re-propagate world matrices so any consumer reading a
+        //    WorldTransformComponent before the next tick's propagation (render,
+        //    streaming, spatial queries) sees the shifted positions.
+        PropagateWorldTransforms();
+
+        // 5. Accumulate the offset so absolute = rebased + m_WorldOrigin stays
+        //    invariant: stored coords gained `shift`, so the origin's absolute
+        //    coordinate drops by `shift`.
+        m_WorldOrigin -= shift;
+
+        OLO_CORE_TRACE("Scene: rebased origin by ({0}, {1}, {2}); world origin now ({3}, {4}, {5})",
+                       shift.x, shift.y, shift.z, m_WorldOrigin.x, m_WorldOrigin.y, m_WorldOrigin.z);
     }
 
     void Scene::StepPhysics(Timestep const ts)

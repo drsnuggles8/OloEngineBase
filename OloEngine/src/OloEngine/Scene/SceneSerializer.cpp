@@ -5891,6 +5891,17 @@ namespace OloEngine
             out << YAML::EndMap;
         }
 
+        // World-origin / floating-origin settings (issue #429)
+        {
+            auto const& wo = m_Scene->GetWorldOriginSettings();
+            out << YAML::Key << "WorldOriginSettings";
+            out << YAML::BeginMap;
+            out << YAML::Key << "Enabled" << YAML::Value << wo.Enabled;
+            out << YAML::Key << "RebaseThreshold" << YAML::Value << wo.RebaseThreshold;
+            out << YAML::Key << "SnapGridSize" << YAML::Value << wo.SnapGridSize;
+            out << YAML::EndMap;
+        }
+
         out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
         ForEachEntitySorted([&out](Entity entity)
                             { SerializeEntity(out, entity); });
@@ -6056,6 +6067,17 @@ namespace OloEngine
             TrySet(ss.RegionDirectory, ssNode["RegionDirectory"]);
 
             SanitizeStreamingSettings(ss);
+        }
+
+        // World-origin / floating-origin settings (issue #429)
+        if (auto woNode = data["WorldOriginSettings"]; woNode && woNode.IsMap())
+        {
+            auto& wo = scene.GetWorldOriginSettings();
+            TrySet(wo.Enabled, woNode["Enabled"]);
+            TrySet(wo.RebaseThreshold, woNode["RebaseThreshold"]);
+            TrySet(wo.SnapGridSize, woNode["SnapGridSize"]);
+
+            SanitizeWorldOriginSettings(wo);
         }
     }
 
@@ -6385,6 +6407,17 @@ namespace OloEngine
             out << YAML::Key << "DefaultUnloadRadius" << YAML::Value << ss.DefaultUnloadRadius;
             out << YAML::Key << "MaxLoadedRegions" << YAML::Value << ss.MaxLoadedRegions;
             out << YAML::Key << "RegionDirectory" << YAML::Value << ss.RegionDirectory;
+            out << YAML::EndMap;
+        }
+
+        // World-origin / floating-origin settings (issue #429)
+        {
+            auto const& wo = m_Scene->GetWorldOriginSettings();
+            out << YAML::Key << "WorldOriginSettings";
+            out << YAML::BeginMap;
+            out << YAML::Key << "Enabled" << YAML::Value << wo.Enabled;
+            out << YAML::Key << "RebaseThreshold" << YAML::Value << wo.RebaseThreshold;
+            out << YAML::Key << "SnapGridSize" << YAML::Value << wo.SnapGridSize;
             out << YAML::EndMap;
         }
 

@@ -1028,6 +1028,56 @@ namespace OloEngine
         }
     }
 
+    void JoltScene::ShiftOrigin(const glm::vec3& delta)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_JoltSystem)
+        {
+            return;
+        }
+
+        auto& bodyInterface = m_JoltSystem->GetBodyInterface();
+        const JPH::RVec3 joltDelta = JoltUtils::ToJoltRVec3(delta);
+
+        // Rigid bodies — dynamic, kinematic, static (static ground must move with
+        // the world or dynamic bodies would fall through the shifted-away floor),
+        // and ragdoll bone bodies (which are realised as ordinary Rigidbody3D
+        // components, so they live in m_Bodies). BodyInterface::GetPosition and
+        // SetPosition both address the body's ORIGIN (unlike JoltBody::GetPosition,
+        // which returns the center of mass), so a plain delta shift is exact.
+        // DontActivate keeps sleeping bodies asleep and leaves velocity untouched.
+        for (auto& [id, body] : m_Bodies)
+        {
+            if (!body || body->GetBodyID().IsInvalid())
+            {
+                continue;
+            }
+            const JPH::BodyID bid = body->GetBodyID();
+            bodyInterface.SetPosition(bid, bodyInterface.GetPosition(bid) + joltDelta, JPH::EActivation::DontActivate);
+        }
+
+        // Static terrain height-field bodies (raw JPH bodies, no JoltBody wrapper).
+        for (auto& [id, bid] : m_TerrainBodies)
+        {
+            if (bid.IsInvalid())
+            {
+                continue;
+            }
+            bodyInterface.SetPosition(bid, bodyInterface.GetPosition(bid) + joltDelta, JPH::EActivation::DontActivate);
+        }
+
+        // Character controllers (CharacterVirtual — tracked separately from the
+        // rigid-body set). SetTranslation instantly moves the controller.
+        for (auto& [id, controller] : m_CharacterControllers)
+        {
+            if (controller)
+            {
+                controller->SetTranslation(controller->GetTranslation() + delta);
+            }
+        }
+    }
+
     void JoltScene::SynchronizeTransforms()
     {
         // Synchronize transforms for all bodies that need it

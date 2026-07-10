@@ -277,6 +277,19 @@ namespace OloEngine
         // Entity teleportation
         void Teleport(Entity entity, const glm::vec3& targetPosition, const glm::quat& targetRotation, bool force = false);
 
+        // Floating-origin rebase (issue #429): shift every physics body, static
+        // terrain height-field, and character controller by `delta` in one pass,
+        // preserving linear/angular velocities, rotations, and sleep state
+        // (SetPosition with DontActivate). Called by Scene::RebaseOrigin on the
+        // game thread with the simulation idle (between ticks). Joint / vehicle
+        // constraints connect bodies that all translate by the same delta, so
+        // their world frames stay consistent without explicit adjustment.
+        // NOT shifted (first-slice limitations, documented follow-ups): cloth
+        // soft-body particle clouds (JPH SetPosition semantics for soft bodies
+        // are unclear — a wrong shift is worse than none) and any constraint
+        // anchored to a fixed world point rather than a second body.
+        void ShiftOrigin(const glm::vec3& delta);
+
         // Transform synchronization
         void SynchronizeTransforms();
 
