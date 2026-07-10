@@ -379,8 +379,19 @@ add_executable(OloEngine-Tests
 		# needs the actual tool TUs too. These are editor-decoupled — they include
 		# only OloEngine headers + the header-only MCP/* helpers — so they compile
 		# cleanly into the test binary (which links OloEngine). McpScriptApi.cpp
-		# supplies BuildScriptApiDigest, referenced by McpTools.cpp.
+		# supplies BuildScriptApiDigest, referenced by McpToolsScripting.cpp.
+		# McpTools.cpp is the composition point; the per-domain TUs carry the
+		# actual handlers + registrations (issue #357 split of the monolith).
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpTools.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsAssets.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsCamera.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsDiagnostics.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsPerf.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsPhysics.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsRender.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsScene.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsScripting.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsShader.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpScriptApi.cpp
 		# Pure reasoning behind olo_physics_why_no_collision (#306 item A). Header-
 		# only (MCP/McpPhysicsExplain.h), so no extra editor TU is pulled in.

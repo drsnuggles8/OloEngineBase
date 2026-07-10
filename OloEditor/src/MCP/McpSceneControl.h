@@ -29,7 +29,6 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
-#include <cctype>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -50,8 +49,13 @@ namespace OloEngine::MCP::SceneControl
         if (dot == std::string_view::npos || dot == 0) // no dot, or a dotfile like ".gitignore"
             return {};
         std::string ext(leaf.substr(dot));
+        // Scene extensions are ASCII (.olo / .scene), so a locale-independent
+        // ASCII fold is correct and avoids <cctype>'s locale dependence.
         for (char& c : ext)
-            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        {
+            if (c >= 'A' && c <= 'Z')
+                c = static_cast<char>(c - 'A' + 'a');
+        }
         return ext;
     }
 
