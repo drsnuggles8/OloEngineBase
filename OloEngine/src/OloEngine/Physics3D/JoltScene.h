@@ -277,6 +277,33 @@ namespace OloEngine
         // Entity teleportation
         void Teleport(Entity entity, const glm::vec3& targetPosition, const glm::quat& targetRotation, bool force = false);
 
+        // Floating-origin rebase (issue #429): shift every physics body, static
+        // terrain height-field, and character controller by `delta` in one pass,
+        // preserving linear/angular velocities, rotations, and sleep state
+        // (SetPosition with DontActivate). Called by Scene::RebaseOrigin on the
+        // game thread with the simulation idle (between ticks). Joint / vehicle
+        // constraints connect bodies that all translate by the same delta, so
+        // their world frames stay consistent without explicit adjustment.
+        // NOT shifted (first-slice limitations, documented follow-ups): cloth
+        // soft-body particle clouds (JPH SetPosition semantics for soft bodies
+        // are unclear — a wrong shift is worse than none) and any constraint
+        // anchored to a fixed world point rather than a second body (see
+        // HasWorldAnchoredConstraints — the rebase is deferred while those exist
+        // rather than silently breaking them).
+        void ShiftOrigin(const glm::vec3& delta);
+
+        // Floating-origin rebase support: true if any live constraint holds an
+        // ABSOLUTE world-space anchor that ShiftOrigin cannot move together with
+        // the bodies — a pulley (its two pivot points are world fixed points) or
+        // a single-body joint realised against the shared fixed world body (its
+        // world-side anchor is an absolute point). Scene::MaybeRebaseOrigin
+        // defers the rebase while any exist, so a shift never silently yanks
+        // their bodies (issue #613 follow-up: translate the anchors instead).
+        // Two-body joints are safe and NOT reported: their WorldSpace settings
+        // are converted to body-local frames at Create(), so both endpoints
+        // translate together and the constraint is preserved.
+        [[nodiscard]] bool HasWorldAnchoredConstraints() const;
+
         // Transform synchronization
         void SynchronizeTransforms();
 

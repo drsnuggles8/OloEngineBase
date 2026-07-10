@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
+#include "OloEngine/Scene/WorldOriginSettings.h"
 #include "OloEngine/Scene/SpatialAcceleration.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
 #include "OloEngine/Navigation/NavMesh.h"
@@ -495,6 +496,63 @@ namespace OloEngine
             return m_SceneStreamer.get();
         }
 
+        // ── Floating-origin / origin-rebasing (issue #429) ──────────────────
+        // Scene-level config (serialized + carried through Scene::Copy). See
+        // WorldOriginSettings.h for the mechanism overview.
+        void SetWorldOriginSettings(const WorldOriginSettings& settings)
+        {
+            m_WorldOriginSettings = settings;
+            SanitizeWorldOriginSettings(m_WorldOriginSettings);
+        }
+        [[nodiscard]] const WorldOriginSettings& GetWorldOriginSettings() const
+        {
+            return m_WorldOriginSettings;
+        }
+        [[nodiscard]] WorldOriginSettings& GetWorldOriginSettings()
+        {
+            return m_WorldOriginSettings;
+        }
+
+        // The absolute (authored) world coordinate that currently maps to the
+        // rebased-space origin (0,0,0). Starts at (0,0,0) and accumulates -shift
+        // on every RebaseOrigin, so `absolute = rebased + GetWorldOrigin()`.
+        // Runtime-only: reset to (0,0,0) at OnRuntimeStart, never serialized or
+        // carried through Scene::Copy (a fresh Play session always starts at the
+        // authored coordinates).
+        [[nodiscard]] const glm::vec3& GetWorldOrigin() const
+        {
+            return m_WorldOrigin;
+        }
+        // Convert between the live rebased space (what every stored transform /
+        // physics body holds) and the original authored absolute space. Use these
+        // whenever gameplay/tools must reason in a frame the rebase must not move
+        // (a persisted waypoint, a networked absolute position, a save file).
+        [[nodiscard]] glm::vec3 RebasedToAbsolute(const glm::vec3& rebased) const
+        {
+            return rebased + m_WorldOrigin;
+        }
+        [[nodiscard]] glm::vec3 AbsoluteToRebased(const glm::vec3& absolute) const
+        {
+            return absolute - m_WorldOrigin;
+        }
+
+        // Shift every stored world position — root-entity TransformComponents,
+        // 3D (Jolt) rigid bodies + terrain + character controllers, and 2D
+        // (Box2D) bodies — by `shift`, atomically on the game thread, then
+        // re-propagate world matrices and accumulate the origin offset. Only ROOT
+        // entities' local translations move (children are parent-relative, so the
+        // whole hierarchy translates uniformly). A zero (or non-finite) shift is a
+        // no-op. Exposed for tests / tools; the runtime triggers it automatically.
+        void RebaseOrigin(const glm::vec3& shift);
+
+        // If rebasing is enabled and `referenceWorldPos` (in rebased space) is
+        // beyond RebaseThreshold from the rebased origin, rebase by the grid-
+        // snapped delta that brings it back near origin. Returns the applied
+        // shift (zero when nothing was done). Called once per frame from
+        // UpdateStreaming on the game thread with physics idle, so it never races
+        // the parallel/worker-dispatched gameplay systems.
+        glm::vec3 MaybeRebaseOrigin(const glm::vec3& referenceWorldPos);
+
         DialogueVariables& GetDialogueVariables()
         {
             return m_DialogueVariables;
@@ -834,6 +892,10 @@ namespace OloEngine
         SnowEjectaSettings m_SnowEjectaSettings;               // Snow ejecta particle settings
         PrecipitationSettings m_PrecipitationSettings;         // Precipitation system settings
         StreamingSettings m_StreamingSettings;                 // Scene streaming settings
+        WorldOriginSettings m_WorldOriginSettings;             // Floating-origin / rebase config (issue #429)
+        // Runtime-only origin accumulator: absolute = rebased + m_WorldOrigin.
+        // Reset to (0,0,0) at OnRuntimeStart; never serialized or copied.
+        glm::vec3 m_WorldOrigin{ 0.0f };
 
         // Per-entity previous positions for velocity estimation (snow ejecta)
         TMap<u64, glm::vec3> m_RuntimeSnowPrevPositions;

@@ -151,6 +151,7 @@ add_executable(OloEngine-Tests
 		# Rendering property tests (require GL 4.5+ context; skip gracefully if unavailable)
 		Rendering/PropertyTests/RenderPropertyTest.cpp
 		Rendering/PropertyTests/CameraRelativeVisualEvidenceTest.cpp
+		Rendering/PropertyTests/WorldOriginRebaseVisualEvidenceTest.cpp
 		Rendering/PropertyTests/Renderer2DCameraRelativeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/PlanarReflectionVisualEvidenceTest.cpp
 		Rendering/PropertyTests/HZBGeneratorResizeTest.cpp
@@ -353,6 +354,8 @@ add_executable(OloEngine-Tests
 		Scene/WorldTransformPropagationBenchmarkTest.cpp
 		# System scheduler dependency-graph derivation (issue #453)
 		Scene/SystemSchedulerTest.cpp
+		# Floating-origin / origin-rebasing math (issue #429)
+		Scene/WorldOriginRebaseTest.cpp
 		# Physics3D mesh mass-properties (divergence-theorem volume + centroid)
 		JoltShapesMeshMassPropertiesTest.cpp
 		# Physics3D cloth soft-body shared-settings contract (issue #460)
@@ -531,6 +534,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/PhysicsLayerFilteringTest.cpp
 		Functional/AnimationPhysics/EntityAddedAtRuntimeTest.cpp
 		Functional/Scene/PhysicsRestartIsCleanTest.cpp
+		Functional/Scene/WorldOriginRebasePhysicsTest.cpp
 		Functional/Scene/MultipleScenesCoexistTest.cpp
 		Functional/Scene/HierarchyChildFollowsPhysicsParentTest.cpp
 		Functional/Scene/WorldTransformPropagationTest.cpp
