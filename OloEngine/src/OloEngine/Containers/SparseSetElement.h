@@ -13,6 +13,7 @@
 
 #include "OloEngine/Containers/SetUtilities.h"
 #include "OloEngine/Serialization/Archive.h"
+#include "OloEngine/Templates/UnrealTemplate.h"
 #include <initializer_list>
 #include <type_traits>
 

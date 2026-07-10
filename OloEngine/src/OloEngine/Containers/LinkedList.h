@@ -19,6 +19,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Containers/IntrusiveLinkedList.h"
+#include "OloEngine/Templates/UnrealTemplate.h"
 
 namespace OloEngine
 {

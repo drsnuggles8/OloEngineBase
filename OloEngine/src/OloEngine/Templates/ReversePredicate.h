@@ -7,6 +7,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Templates/Invoke.h"
+#include "OloEngine/Templates/UnrealTemplate.h"
 
 namespace OloEngine
 {
