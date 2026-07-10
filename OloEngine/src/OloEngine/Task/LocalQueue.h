@@ -218,7 +218,14 @@ namespace OloEngine::LowLevelTasks
                         m_QueueType = InQueueType;
 
                         // Local queues are never unregistered, everything is shutdown at once.
-                        m_Registry->AddLocalQueue(this);
+                        if (!m_Registry->AddLocalQueue(this))
+                        {
+                            // The registry is at capacity (MaxLocalQueues). The queue still works
+                            // for its own thread's Enqueue/Dequeue/overflow, it just won't be
+                            // discoverable by other threads' work-stealing.
+                            OLO_CORE_ERROR("TLocalQueue::Init: registry is full (MaxLocalQueues reached); "
+                                           "this queue will not participate in work stealing");
+                        }
                         for (i32 PriorityIndex = 0; PriorityIndex < static_cast<i32>(std::to_underlying(ETaskPriority::Count)); ++PriorityIndex)
                         {
                             m_DequeueHazards[PriorityIndex] = m_Registry->m_OverflowQueues[PriorityIndex].GetHeadHazard();
@@ -366,13 +373,26 @@ namespace OloEngine::LowLevelTasks
 
           private:
             // @brief Add a queue to the Registry. Thread-safe.
-            void AddLocalQueue(TLocalQueue* QueueToAdd)
+            // @return false if the registry is already at MaxLocalQueues capacity; the queue was
+            //         not added and the caller must not treat it as steal-able by other threads.
+            bool AddLocalQueue(TLocalQueue* QueueToAdd)
             {
                 u32 Index = m_NumLocalQueues.fetch_add(1, std::memory_order_relaxed);
-                OLO_CORE_ASSERT(Index < MaxLocalQueues, "Attempting to add more than the maximum allowed number of queues ({})", MaxLocalQueues);
+                if (Index >= MaxLocalQueues)
+                {
+                    // Registry is at capacity. This is a handled, recoverable condition (the
+                    // caller falls back to running without work-stealing support), not a
+                    // programmer error, so it is reported rather than asserted/debug-broken.
+                    // Undo the reservation so a burst of failed registrations doesn't leave the
+                    // counter climbing forever (it would otherwise never allow future callers to
+                    // observe a stable NumQueues either, since fetch_add never wraps back down).
+                    m_NumLocalQueues.fetch_sub(1, std::memory_order_relaxed);
+                    return false;
+                }
 
                 // std::memory_order_release to make sure values are all written to the TLocalQueue before publishing.
                 m_LocalQueues[Index].store(QueueToAdd, std::memory_order_release);
+                return true;
             }
 
             // @brief StealItem tries to steal an Item from a Registered LocalQueue
@@ -380,10 +400,15 @@ namespace OloEngine::LowLevelTasks
             FTask* StealItem(u32& CachedRandomIndex, u32& CachedPriorityIndex, bool GetBackGroundTasks)
             {
                 u32 NumQueues = m_NumLocalQueues.load(std::memory_order_relaxed);
+                if (NumQueues == 0)
+                {
+                    // Nothing registered to steal from yet (or ever, on this registry).
+                    return nullptr;
+                }
                 u32 MaxPriority = GetBackGroundTasks ? static_cast<i32>(std::to_underlying(ETaskPriority::Count)) : static_cast<i32>(std::to_underlying(ETaskPriority::ForegroundCount));
                 CachedRandomIndex = CachedRandomIndex % NumQueues;
 
-                for (u32 Index = 0; Index < m_NumLocalQueues; ++Index)
+                for (u32 Index = 0; Index < NumQueues; ++Index)
                 {
                     // Test for null in case we race on reading NumLocalQueues reserved index before the pointer is set
                     if (TLocalQueue* LocalQueue = m_LocalQueues[Index].load(std::memory_order_acquire))

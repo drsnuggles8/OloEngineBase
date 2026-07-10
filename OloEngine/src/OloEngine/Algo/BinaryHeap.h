@@ -13,6 +13,7 @@
 #include "OloEngine/Templates/IdentityFunctor.h"
 #include "OloEngine/Templates/Projection.h"
 #include "OloEngine/Templates/ReversePredicate.h"
+#include "OloEngine/Templates/UnrealTemplate.h"
 #include <type_traits>
 #include <limits>
 
