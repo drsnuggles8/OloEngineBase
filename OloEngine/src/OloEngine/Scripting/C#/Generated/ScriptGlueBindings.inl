@@ -2222,6 +2222,7 @@ static void NavAgentComponent_SetTargetPosition(UUID entityID, glm::vec3 const* 
     comp.m_TargetPosition = *value;
     comp.m_HasTarget = true;
     comp.m_HasPath = false;
+    comp.m_TargetUnreachable = false;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////

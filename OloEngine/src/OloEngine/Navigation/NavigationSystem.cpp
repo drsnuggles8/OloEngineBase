@@ -42,13 +42,31 @@ namespace OloEngine
                 continue;
             }
 
-            // Manual pathfinding for agents not in crowd
-            if (!agent.m_HasPath && agent.m_HasTarget)
+            // Manual pathfinding for agents not in crowd. Once a target is flagged
+            // unreachable we stop recomputing — otherwise a disconnected/off-navmesh
+            // target would re-run FindPath every frame and (via the manual follower or
+            // BTMoveTo) spin forever. The unreachable flag is the terminal signal.
+            if (!agent.m_HasPath && agent.m_HasTarget && !agent.m_TargetUnreachable)
             {
-                agent.m_HasPath = navQuery->FindPath(transform.Translation, agent.m_TargetPosition, agent.m_PathCorners);
+                const FindPathResult result =
+                    navQuery->FindPath(transform.Translation, agent.m_TargetPosition, agent.m_PathCorners);
                 agent.m_CurrentCornerIndex = 0;
-                if (!agent.m_HasPath)
-                    agent.m_HasTarget = false;
+
+                if (result == FindPathResult::Failed)
+                {
+                    // No path at all. Latch unreachable but keep m_HasTarget set so
+                    // consumers (BTMoveTo / scripts) can observe the terminal outcome.
+                    agent.m_HasPath = false;
+                    agent.m_TargetUnreachable = true;
+                }
+                else
+                {
+                    // Complete OR Partial: follow the corners we have. A partial path
+                    // walks the agent to the nearest reachable point; the flag marks
+                    // that it will never actually arrive at the requested target.
+                    agent.m_HasPath = true;
+                    agent.m_TargetUnreachable = (result == FindPathResult::Partial);
+                }
             }
 
             if (!agent.m_HasPath || agent.m_PathCorners.empty())
@@ -68,8 +86,14 @@ namespace OloEngine
                 if (agent.m_CurrentCornerIndex >= static_cast<u32>(agent.m_PathCorners.size()))
                 {
                     agent.m_HasPath = false;
-                    agent.m_HasTarget = false;
                     agent.m_PathCorners.clear();
+                    agent.m_CurrentCornerIndex = 0;
+                    // Only clear the target when we actually reached it. For a partial
+                    // path we've walked to the nearest reachable point but the target is
+                    // unreachable — keep m_HasTarget + m_TargetUnreachable set so the
+                    // consumer sees a stable terminal state instead of a re-issue loop.
+                    if (!agent.m_TargetUnreachable)
+                        agent.m_HasTarget = false;
                     continue;
                 }
             }

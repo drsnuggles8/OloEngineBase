@@ -105,14 +105,14 @@ namespace OloEngine
         }
     }
 
-    bool NavMeshQuery::FindPath(const glm::vec3& start, const glm::vec3& end, std::vector<glm::vec3>& outPath) const
+    FindPathResult NavMeshQuery::FindPath(const glm::vec3& start, const glm::vec3& end, std::vector<glm::vec3>& outPath) const
     {
         OLO_PROFILE_FUNCTION();
 
         outPath.clear();
 
         if (!m_Query)
-            return false;
+            return FindPathResult::Failed;
 
         const f32 startPos[3] = { start.x, start.y, start.z };
         const f32 endPos[3] = { end.x, end.y, end.z };
@@ -131,17 +131,22 @@ namespace OloEngine
 
         dtStatus status = m_Query->findNearestPoly(startPos, extent, &filter, &startRef, nearestStart);
         if (dtStatusFailed(status) || !startRef)
-            return false;
+            return FindPathResult::Failed;
 
         status = m_Query->findNearestPoly(endPos, extent, &filter, &endRef, nearestEnd);
         if (dtStatusFailed(status) || !endRef)
-            return false;
+            return FindPathResult::Failed;
 
         std::vector<dtPolyRef> polys(static_cast<size_t>(m_MaxPolys));
         i32 npolys = 0;
         status = m_Query->findPath(startRef, endRef, nearestStart, nearestEnd, &filter, polys.data(), &npolys, m_MaxPolys);
         if (dtStatusFailed(status) || npolys == 0)
-            return false;
+            return FindPathResult::Failed;
+
+        // Detour flags DT_PARTIAL_RESULT when the target poly could not be reached and
+        // the path stops at the nearest reachable poly instead. Surface that so callers
+        // don't mistake "closest we could get" for "arrived".
+        const bool partial = dtStatusDetail(status, DT_PARTIAL_RESULT);
 
         // Find straight path
         std::vector<f32> straightPath(static_cast<size_t>(m_MaxPolys) * 3);
@@ -153,7 +158,7 @@ namespace OloEngine
                                            straightPath.data(), straightPathFlags.data(), straightPathPolys.data(),
                                            &nstraightPath, m_MaxPolys);
         if (dtStatusFailed(status))
-            return false;
+            return FindPathResult::Failed;
 
         if (dtStatusDetail(status, DT_BUFFER_TOO_SMALL))
             OLO_CORE_WARN("NavMeshQuery::FindPath: Straight path truncated to {} points", nstraightPath);
@@ -164,7 +169,10 @@ namespace OloEngine
             outPath.emplace_back(straightPath[i * 3], straightPath[i * 3 + 1], straightPath[i * 3 + 2]);
         }
 
-        return !outPath.empty();
+        if (outPath.empty())
+            return FindPathResult::Failed;
+
+        return partial ? FindPathResult::Partial : FindPathResult::Complete;
     }
 
     bool NavMeshQuery::FindNearestPoint(const glm::vec3& point, f32 searchRadius, glm::vec3& outNearest) const

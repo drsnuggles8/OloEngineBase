@@ -73,11 +73,11 @@ TEST_F(NavMeshQueryFindPathBetweenPointsTest, DirectFindPathReturnsPolylineConne
            "NavMeshQuery::Initialize was not called or dtNavMeshQuery::init failed.";
 
     std::vector<glm::vec3> path;
-    const bool found = query->FindPath(kStart, kEnd, path);
-    ASSERT_TRUE(found)
-        << "FindPath returned false on a known-walkable straight-shot path.";
+    const FindPathResult result = query->FindPath(kStart, kEnd, path);
+    ASSERT_EQ(result, FindPathResult::Complete)
+        << "FindPath did not report a complete path on a known-walkable straight-shot path.";
     ASSERT_GE(path.size(), 2u)
-        << "FindPath returned 'true' but produced fewer than 2 corners — "
+        << "FindPath reported Complete but produced fewer than 2 corners — "
            "an empty/degenerate path that no agent can follow.";
 
     const glm::vec3 first = path.front();

@@ -1176,6 +1176,18 @@ namespace OloEngine
         return entity.GetComponent<NavAgentComponent>().m_HasPath;
     }
 
+    // True when the agent has a target it cannot actually reach (no path, or only a
+    // partial path to the nearest reachable point). Scripts must poll this in addition
+    // to HasPath — a partial path reports HasPath == true while never arriving, so
+    // relying on HasPath alone spins forever.
+    static bool NavAgentComponent_IsTargetUnreachable(UUID entityID)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<NavAgentComponent>());
+        return entity.GetComponent<NavAgentComponent>().m_TargetUnreachable;
+    }
+
     static void NavAgentComponent_ClearTarget(UUID entityID)
     {
         OLO_PROFILE_FUNCTION();
@@ -3467,6 +3479,7 @@ namespace OloEngine
         // NavAgentComponent (hand-written action/query only) ////////
         ///////////////////////////////////////////////////////////////
         OLO_ADD_INTERNAL_CALL(NavAgentComponent_HasPath);
+        OLO_ADD_INTERNAL_CALL(NavAgentComponent_IsTargetUnreachable);
         OLO_ADD_INTERNAL_CALL(NavAgentComponent_ClearTarget);
 
         ///////////////////////////////////////////////////////////////

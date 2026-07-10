@@ -384,6 +384,11 @@ namespace OloEngine
 	{
 		public bool HasPath => InternalCalls.NavAgentComponent_HasPath(Entity.ID);
 
+		// True when the current target cannot be reached (no path, or only a partial
+		// path to the nearest reachable point). Poll this alongside HasPath: a partial
+		// path reports HasPath == true forever without arriving, so HasPath alone spins.
+		public bool IsTargetUnreachable => InternalCalls.NavAgentComponent_IsTargetUnreachable(Entity.ID);
+
 		public void ClearTarget() => InternalCalls.NavAgentComponent_ClearTarget(Entity.ID);
 	}
 
