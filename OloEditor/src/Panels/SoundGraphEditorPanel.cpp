@@ -1989,7 +1989,8 @@ namespace OloEngine
             { "Array (float)", "GetRandom<float>" },
             { "Array (int)", "GetRandom<int>" },
             { "Music", "BPMToSeconds" },
-            { "Music", "NoteToFrequency" },
+            { "Music", "NoteToFrequency<float>" },
+            { "Music", "NoteToFrequency<int>" },
             { "Music", "FrequencyToNote" },
         };
 

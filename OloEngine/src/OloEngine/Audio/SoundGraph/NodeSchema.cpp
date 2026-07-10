@@ -130,12 +130,44 @@ namespace OloEngine::Audio::SoundGraph
                 { "BPMToSeconds", {
                                       { "BPM", NodeParamKind::Float, 120.0f, 0, false, 1.0f, 999.0f, 1.0f, "Beats per minute" },
                                   } },
-                { "NoteToFrequency", {
-                                         { "MIDINote", NodeParamKind::Int, 0.0f, 60, false, 0, 0, 0, "MIDI note number (0..127)" },
-                                     } },
+                { "NoteToFrequency<float>", {
+                                                { "MIDINote", NodeParamKind::Float, 60.0f, 0, false, 0.0f, 127.0f, 1.0f, "MIDI note number (0..127)" },
+                                            } },
+                { "NoteToFrequency<int>", {
+                                              { "MIDINote", NodeParamKind::Int, 0.0f, 60, false, 0, 0, 0, "MIDI note number (0..127)" },
+                                          } },
                 { "FrequencyToNote", {
                                          { "Frequency", NodeParamKind::Float, 440.0f, 0, false, 0.0f, 20000.0f, 1.0f, "Frequency in Hz" },
                                      } },
+                // Array nodes — m_Array itself is a raw std::vector<T>* plug, not
+                // expressible as a typed endpoint (see NodeDescriptors.h), so it has no
+                // schema entry; only the Int-typed Min/Max/Seed/Index controls do.
+                { "GetRandom<float>", {
+                                          { "Min", NodeParamKind::Int, 0.0f, 0, false, 0, 0, 0, "Lower array index (inclusive)" },
+                                          { "Max", NodeParamKind::Int, 0.0f, 0, false, 0, 0, 0, "Upper array index (inclusive)" },
+                                          { "Seed", NodeParamKind::Int, 0.0f, -1, false, 0, 0, 0, "-1 = unseeded (clock-derived)" },
+                                      } },
+                { "GetRandom<int>", {
+                                        { "Min", NodeParamKind::Int, 0.0f, 0, false, 0, 0, 0, "Lower array index (inclusive)" },
+                                        { "Max", NodeParamKind::Int, 0.0f, 0, false, 0, 0, 0, "Upper array index (inclusive)" },
+                                        { "Seed", NodeParamKind::Int, 0.0f, -1, false, 0, 0, 0, "-1 = unseeded (clock-derived)" },
+                                    } },
+                { "Get<float>", {
+                                    { "Index", NodeParamKind::Int, 0.0f, 0, false, 0, 0, 0, "Array index to read" },
+                                } },
+                { "Get<int>", {
+                                  { "Index", NodeParamKind::Int, 0.0f, 0, false, 0, 0, 0, "Array index to read" },
+                              } },
+                { "Random<float>", {
+                                       { "Min", NodeParamKind::Float, 0.0f, 0, false, -1000.0f, 1000.0f, 0.01f, "Lower bound" },
+                                       { "Max", NodeParamKind::Float, 1.0f, 0, false, -1000.0f, 1000.0f, 0.01f, "Upper bound" },
+                                       { "Seed", NodeParamKind::Int, 0.0f, -1, false, 0, 0, 0, "-1 = unseeded (clock-derived)" },
+                                   } },
+                { "Random<int>", {
+                                     { "Min", NodeParamKind::Int, 0.0f, 0, false, 0, 0, 0, "Lower bound" },
+                                     { "Max", NodeParamKind::Int, 0.0f, 1, false, 0, 0, 0, "Upper bound" },
+                                     { "Seed", NodeParamKind::Int, 0.0f, -1, false, 0, 0, 0, "-1 = unseeded (clock-derived)" },
+                                 } },
             };
             return s_Schemas;
         }
@@ -194,6 +226,11 @@ namespace OloEngine::Audio::SoundGraph
                 { "Power<float>", { { val("Base"), val("Exponent") }, { val("Out") } } },
                 { "Abs<float>", { { val("Value") }, { val("Out") } } },
 
+                // ----- Math (int) ----------------------------------------------------
+                { "Add<int>", { { val("Value1"), val("Value2") }, { val("Out") } } },
+                { "Subtract<int>", { { val("Value1"), val("Value2") }, { val("Out") } } },
+                { "Multiply<int>", { { val("Value"), val("Multiplier") }, { val("Out") } } },
+
                 // ----- Envelopes ----------------------------------------------------
                 { "ADEnvelope", {
                                     /* Inputs */ { ev("s_Trigger"), val("AttackTime"), val("DecayTime"), val("AttackCurve"), val("DecayCurve"), val("Looping") },
@@ -220,8 +257,37 @@ namespace OloEngine::Audio::SoundGraph
 
                 // ----- Music helpers ------------------------------------------------
                 { "BPMToSeconds", { { val("BPM") }, { val("OutSeconds") } } },
-                { "NoteToFrequency", { { val("MIDINote") }, { val("OutFrequency") } } },
+                { "NoteToFrequency<float>", { { val("MIDINote") }, { val("OutFrequency") } } },
+                { "NoteToFrequency<int>", { { val("MIDINote") }, { val("OutFrequency") } } },
                 { "FrequencyToNote", { { val("Frequency") }, { val("OutMIDINote") } } },
+
+                // ----- Array nodes ---------------------------------------------------
+                // m_Array (std::vector<T>*) is not a wireable endpoint (see
+                // NodeDescriptors.h's EndpointUtilities comment), so it has no pin here.
+                { "GetRandom<float>", {
+                                          /* Inputs */ { ev("Next"), ev("Reset"), val("Min"), val("Max"), val("Seed") },
+                                          /* Outputs */ { ev("OnNext"), ev("OnReset"), val("OutElement") },
+                                      } },
+                { "GetRandom<int>", {
+                                        /* Inputs */ { ev("Next"), ev("Reset"), val("Min"), val("Max"), val("Seed") },
+                                        /* Outputs */ { ev("OnNext"), ev("OnReset"), val("OutElement") },
+                                    } },
+                { "Get<float>", {
+                                    /* Inputs */ { ev("Trigger"), val("Index") },
+                                    /* Outputs */ { ev("OnTrigger"), val("OutElement") },
+                                } },
+                { "Get<int>", {
+                                  /* Inputs */ { ev("Trigger"), val("Index") },
+                                  /* Outputs */ { ev("OnTrigger"), val("OutElement") },
+                              } },
+                { "Random<float>", {
+                                       /* Inputs */ { ev("Next"), ev("Reset"), val("Min"), val("Max"), val("Seed") },
+                                       /* Outputs */ { ev("OnNext"), ev("OnReset"), val("OutValue") },
+                                   } },
+                { "Random<int>", {
+                                     /* Inputs */ { ev("Next"), ev("Reset"), val("Min"), val("Max"), val("Seed") },
+                                     /* Outputs */ { ev("OnNext"), ev("OnReset"), val("OutValue") },
+                                 } },
             };
             return s_Pins;
         }
