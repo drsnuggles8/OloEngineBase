@@ -130,6 +130,15 @@ namespace OloEngine::Tasks
     //   2. Call AttachToThread(ENamedThread::YourThread) from that thread
     //   3. Process tasks via GetQueue(thread).ProcessAll() in the thread loop
     //
+    // @note issue #611 audit: FNamedThreadManager's m_Queues[]/m_ThreadIds[] are indexed by
+    // this enum and guarded only by OLO_CORE_ASSERT (elided in Dist), the same pattern
+    // SonarQube (S3519) and LocalQueue.h's TLocalQueueRegistry both flag. Unlike
+    // TLocalQueueRegistry's index — a runtime atomic counter that can grow past its array's
+    // compile-time size — every value reaching these arrays is either a compile-time-fixed
+    // ENamedThread enumerator or the output of GetNamedThread()'s switch, which can only
+    // return one of the enumerators below or Invalid (itself asserted against separately).
+    // There is no code path that can produce an out-of-range index here, so an assert-only
+    // guard is sufficient and this does not need the same bounds-check hardening.
     enum class ENamedThread : i32
     {
         GameThread = 0,    ///< Main application thread (active)

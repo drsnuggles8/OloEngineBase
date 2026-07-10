@@ -6,6 +6,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Containers/ContainerAllocationPolicies.h"
 #include "OloEngine/Memory/MemoryOps.h"
+#include "OloEngine/Templates/UnrealTemplate.h"
 
 #include <initializer_list>
 
