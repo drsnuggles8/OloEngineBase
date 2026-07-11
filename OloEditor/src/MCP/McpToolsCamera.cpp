@@ -2,6 +2,8 @@
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpSchemaBuilder.h"
 #include <algorithm>
+#include <atomic>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -146,56 +148,65 @@ namespace OloEngine::MCP
                 settleFrames = static_cast<int>(std::clamp<long long>(args["settleFrames"].get<long long>(), 1, 30));
 
             bool posed = false;
-            Json savedPose; // round-trips the prior pose through JSON for the restore job
             bool waitTimedOut = false;
-            if (hasCamera || hasOrbit)
-            {
-                // 1. Save the user's pose and apply the requested one.
-                const Json applied = server.MarshalRead([&server, request]() -> Json
-                                                        {
-                    const McpCameraPose prior = server.Context().GetCameraPose();
-                    ApplyCameraRequest(server.Context(), request);
-                    Json j;
-                    j["focalPoint"] = Json::array({ prior.FocalPoint.x, prior.FocalPoint.y, prior.FocalPoint.z });
-                    j["distance"] = prior.Distance;
-                    j["yaw"] = prior.YawRadians;
-                    j["pitch"] = prior.PitchRadians;
-                    j["fov"] = prior.FovDegrees;
-                    j["frame"] = server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0;
-                    return j; });
-                savedPose = applied;
-                posed = true;
-            }
 
-            // The restore half of the save/restore contract, runnable from both
-            // the success path (inside the capture job) and the error path.
-            const auto restorePriorPose = [&server, &savedPose]()
+            // Save/restore state shared between the apply job, the capture-and-restore
+            // job, and the error-path restore (issue #610). The apply job records the
+            // user's prior pose and raises `Applied` LAST; every restore path reads
+            // `Applied` and restores `Prior` only when it is set. This closes the
+            // pose-strand edge: if the step-1 apply marshal times out (throws) its
+            // enqueued job may still run and move the camera later — because the
+            // prior pose lives here (not in the timed-out future) and the error-path
+            // restore is enqueued AFTER the apply job (game-thread tasks drain FIFO),
+            // that late apply is always followed by a matching restore instead of
+            // stranding the user at the screenshot pose.
+            struct PoseGuardState
             {
-                McpCameraPose prior;
-                prior.FocalPoint = glm::vec3{ savedPose["focalPoint"][0].get<f32>(),
-                                              savedPose["focalPoint"][1].get<f32>(),
-                                              savedPose["focalPoint"][2].get<f32>() };
-                prior.Distance = savedPose.value("distance", 0.0f);
-                prior.YawRadians = savedPose.value("yaw", 0.0f);
-                prior.PitchRadians = savedPose.value("pitch", 0.0f);
-                prior.FovDegrees = savedPose.value("fov", 45.0f);
-                server.Context().RestoreCameraPose(prior);
+                std::atomic<bool> Applied{ false };
+                McpCameraPose Prior;
+            };
+            const auto poseState = (hasCamera || hasOrbit) ? std::make_shared<PoseGuardState>() : nullptr;
+
+            // The restore half of the save/restore contract. Captures poseState BY
+            // VALUE (a shared_ptr), so a copy carried into a marshaled job keeps the
+            // state alive even if this call unwinds before an orphaned job runs. A
+            // no-op until the apply job has actually applied the pose.
+            const auto restorePriorPose = [&server, poseState]()
+            {
+                if (poseState && poseState->Applied.load(std::memory_order_acquire))
+                    server.Context().RestoreCameraPose(poseState->Prior);
             };
 
             Json marshaled;
             try
             {
+                u64 appliedFrame = 0;
+                if (poseState)
+                {
+                    // 1. Save the user's pose and apply the requested one — inside the
+                    // try so a marshal timeout here is caught and restored below.
+                    const Json applied = server.MarshalRead([&server, request, poseState]() -> Json
+                                                            {
+                        poseState->Prior = server.Context().GetCameraPose();
+                        ApplyCameraRequest(server.Context(), request);
+                        // Publish LAST: `Applied` release-fences the Prior store so any
+                        // restore that reads Applied==true also observes Prior.
+                        poseState->Applied.store(true, std::memory_order_release);
+                        return Json{ { "frame", server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0 } }; });
+                    posed = true;
+                    appliedFrame = applied.value("frame", static_cast<u64>(0));
+                }
+
                 // 2. Wait until the new pose has actually been rendered.
                 if (posed)
-                    waitTimedOut = !AwaitRenderedFrames(server, savedPose.value("frame", static_cast<u64>(0)), settleFrames);
+                    waitTimedOut = !AwaitRenderedFrames(server, appliedFrame, settleFrames);
 
                 // 3. Capture — and restore the user's camera in the same main-thread
                 // job, so the restore happens exactly once whatever the capture did.
-                marshaled = server.MarshalRead([&server, maxWidth, posed, &restorePriorPose]() -> Json
+                marshaled = server.MarshalRead([&server, maxWidth, restorePriorPose]() -> Json
                                                {
                     const std::vector<u8> png = server.Context().CaptureViewportPng(maxWidth);
-                    if (posed)
-                        restorePriorPose();
+                    restorePriorPose();
                     if (png.empty())
                         return Json{ { "__error", "Viewport capture failed (no framebuffer or empty viewport)." } };
                     return Json{ { "b64", Base64Encode(png) }, { "bytes", static_cast<u64>(png.size()) } }; });
@@ -203,13 +214,17 @@ namespace OloEngine::MCP
             catch (...)
             {
                 // Don't leave the user's camera stranded at the capture pose if a
-                // marshal failed mid-flow. Best effort — if the editor is truly
-                // stalled this will fail too, and the original exception matters more.
-                if (posed)
+                // marshal failed mid-flow — including a step-1 apply that timed out
+                // here but whose job runs later. `restorePriorPose` (captured by value)
+                // no-ops until that apply raises `Applied`, and this restore is
+                // enqueued after it (FIFO), so the late apply is always undone. Best
+                // effort — if the editor is truly stalled this throws too, and the
+                // original exception matters more.
+                if (poseState)
                 {
                     try
                     {
-                        (void)server.MarshalRead([&restorePriorPose]() -> Json
+                        (void)server.MarshalRead([restorePriorPose]() -> Json
                                                  {
                             restorePriorPose();
                             return Json{}; });

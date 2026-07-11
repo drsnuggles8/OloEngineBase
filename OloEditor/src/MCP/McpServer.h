@@ -101,6 +101,7 @@ namespace OloEngine::MCP
         Deny = 2,
         ApproveAll = 3, // approve THIS one and flip the session to AllowSession.
         Timeout = 4,
+        Cancel = 5, // a notifications/cancelled reached the call while it was parked on the modal.
     };
 
     // Result of a tool invocation. `Content` is the MCP content array
@@ -672,7 +673,17 @@ namespace OloEngine::MCP
         // / a mode change / shutdown intervenes), and return the decision. MUST run on
         // a handler thread — it blocks on the main thread rendering the modal, so
         // calling it from the game thread would deadlock.
-        [[nodiscard]] ConsentDecision RequestConsent(const ToolDef& tool, const Json& arguments);
+        //
+        // `cancelFlag` is the in-flight call's cooperative cancel flag (issue #610): the
+        // wait predicate consults it so a `notifications/cancelled` arriving while the
+        // call is parked on the modal returns promptly with ConsentDecision::Cancel
+        // instead of running to the human's decision or the consent timeout. The
+        // cancellation path sets the atomic and wakes m_ConsentCv (see DispatchRpc);
+        // the store and this predicate's read are serialized through m_ConsentMutex so
+        // there is no lost wakeup. Never null in the dispatch path; may be null in a
+        // test that exercises the handshake directly.
+        [[nodiscard]] ConsentDecision RequestConsent(const ToolDef& tool, const Json& arguments,
+                                                     const std::shared_ptr<std::atomic<bool>>& cancelFlag);
 
         [[nodiscard]] const ToolDef* FindTool(const std::string& name) const;
         [[nodiscard]] const ResourceDef* FindResource(const std::string& uri) const;

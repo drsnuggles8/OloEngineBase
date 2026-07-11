@@ -232,7 +232,11 @@ and the human at the editor opts in for the session:
   call returns a "denied by the editor user" error), or **Approve all this session**
   (apply it and switch to *Allow all* for the rest of the session). An unanswered
   prompt times out (120 s) and the call returns a timeout error. The modal renders even
-  when the MCP panel window is closed, so a write is never left silently blocked.
+  when the MCP panel window is closed, so a write is never left silently blocked. A
+  `notifications/cancelled` for the call's request-id (issue #610) aborts the wait
+  promptly — the parked call returns a cancelled response, runs **no** write, and drops
+  its pending prompt — so an agent that gives up on a write it left waiting on the modal
+  isn't stuck at the human's decision or the timeout.
 - **Allow all** — writes auto-apply for the session with no prompt (the legacy
   "Allow writes" behaviour). Use it when you're actively driving a batch of edits and
   don't want to click through each one.

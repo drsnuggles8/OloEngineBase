@@ -135,19 +135,49 @@ namespace OloEngine::Tests
         McpHeadlessHost(const McpHeadlessHost&) = delete;
         McpHeadlessHost& operator=(const McpHeadlessHost&) = delete;
 
-        // Start the server, binding the first free port at or after `basePort`.
-        // basePort == 0 derives a per-process base (from the PID) so parallel
-        // ctest processes don't collide. Returns the bound port, or 0 on failure.
-        [[nodiscard]] u16 Start(u16 basePort = 0, int attempts = 24)
+        // Start the server, binding a free port. basePort == 0 derives a per-process
+        // base so parallel ctest processes don't collide; a non-zero basePort is a
+        // deliberate choice (the driver's per-worktree OLO_MCP_PORT, which the agent
+        // is told to connect to) and is honoured as-is. Returns the bound port, or 0
+        // on failure.
+        [[nodiscard]] u16 Start(u16 basePort = 0, int attempts = 40)
         {
-            u16 port = basePort != 0 ? basePort : DerivePidPort();
+            // Explicit base: try that exact port and a few consecutive fallbacks. The
+            // caller picked it and something downstream (the agent's MCP client) may
+            // expect it, so don't remap it.
+            if (basePort != 0)
+            {
+                for (int i = 0; i < attempts; ++i)
+                {
+                    const u32 candidate = static_cast<u32>(basePort) + static_cast<u32>(i);
+                    if (candidate > 65535u)
+                        break;
+                    if (candidate >= 1024u && m_Server->Start(static_cast<u16>(candidate)))
+                        return static_cast<u16>(candidate);
+                }
+                return 0;
+            }
+
+            // Derived base: DerivePidPort() samples [20000, 59999], where Windows
+            // reserves CONTIGUOUS excluded TCP blocks up to ~700 ports wide (Hyper-V /
+            // WSL / Docker dynamic reservations — a bind there fails with AccessDenied).
+            // The old +1 step could land every attempt inside one such block and bind
+            // nothing (the McpHeadlessAttach / McpPerfSettle port-bind flake, issue
+            // #610 follow-up). Stride by a prime WIDER than the widest realistic
+            // exclusion block so a run of failures leaps clear of it on the very next
+            // attempt; gcd(stride, span) == 1 keeps all `attempts` candidates distinct,
+            // and the mod-wrap holds every candidate inside the ephemeral range (never
+            // a privileged < 1024 port).
+            constexpr u32 kStride = 769; // prime > widest observed exclusion block (~700)
+            constexpr u32 kRangeLo = 20000;
+            constexpr u32 kRangeSpan = 40000; // [20000, 59999]
+            const u32 base = DerivePidPort();
             for (int i = 0; i < attempts; ++i)
             {
-                const u16 candidate = static_cast<u16>(port + static_cast<u16>(i));
-                if (candidate < 1024)
-                    continue;
-                if (m_Server->Start(candidate))
-                    return candidate;
+                const u32 candidate =
+                    kRangeLo + ((base - kRangeLo + static_cast<u32>(i) * kStride) % kRangeSpan);
+                if (m_Server->Start(static_cast<u16>(candidate)))
+                    return static_cast<u16>(candidate);
             }
             return 0;
         }
