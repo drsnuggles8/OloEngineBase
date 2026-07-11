@@ -34,6 +34,7 @@ namespace OloEngine
                     return GL_DEPTH_STENCIL;
                 case ImageFormat::BC7:
                 case ImageFormat::BC5:
+                case ImageFormat::BC6H:
                     // Block-compressed cubemaps aren't produced by the cook path; a
                     // compressed face would need glCompressedTextureSubImage3D. Return 0
                     // (unsupported) explicitly so a stray value is a defined error, not an
@@ -68,6 +69,7 @@ namespace OloEngine
                     return GL_DEPTH24_STENCIL8;
                 case ImageFormat::BC7:
                 case ImageFormat::BC5:
+                case ImageFormat::BC6H:
                     // Block-compressed cubemaps aren't produced by the cook path.
                     OLO_CORE_ASSERT(false, "Block-compressed cubemaps are not supported");
                     return 0;

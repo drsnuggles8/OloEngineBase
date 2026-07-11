@@ -91,12 +91,62 @@ namespace
         std::string name = std::string(info->test_suite_name()) + "." + info->name() + suffix;
         return std::filesystem::temp_directory_path() / name;
     }
+
+    // ---- BC6H (HDR) helpers -----------------------------------------------
+    // A smooth HDR RGB gradient spanning a wide dynamic range (dark ~0.02 up to `peak`),
+    // so the round-trip exercises BC6H's log-ish half-float encoding across bright and
+    // dark regions — not just the [0,1] band an LDR test would cover.
+    std::vector<f32> MakeGradientHDR(u32 width, u32 height, f32 peak)
+    {
+        std::vector<f32> pixels(static_cast<sizet>(width) * height * 3);
+        for (u32 y = 0; y < height; ++y)
+        {
+            for (u32 x = 0; x < width; ++x)
+            {
+                const f32 fx = static_cast<f32>(x) / std::max(1u, width - 1);
+                const f32 fy = static_cast<f32>(y) / std::max(1u, height - 1);
+                f32* p = &pixels[(static_cast<sizet>(y) * width + x) * 3];
+                // Different curve per channel; +0.02 keeps values off exact zero so the
+                // relative-error view is well behaved.
+                p[0] = 0.02f + peak * fx * fx;          // red ramps quadratically
+                p[1] = 0.02f + peak * fy;               // green ramps linearly
+                p[2] = 0.02f + peak * (fx * fy) * 0.5f; // blue: product term
+            }
+        }
+        return pixels;
+    }
+
+    // Peak-normalized PSNR (dB) over `compareChannels` of each `stride`-float texel.
+    double ComputePSNRFloat(const std::vector<f32>& a, const std::vector<f32>& b, u32 stride, u32 compareChannels, double peak)
+    {
+        EXPECT_EQ(a.size(), b.size());
+        if (a.size() != b.size() || a.empty())
+            return 0.0;
+        double mse = 0.0;
+        sizet samples = 0;
+        for (sizet texel = 0; texel + stride <= a.size(); texel += stride)
+        {
+            for (u32 c = 0; c < compareChannels; ++c)
+            {
+                const double diff = static_cast<double>(a[texel + c]) - static_cast<double>(b[texel + c]);
+                mse += diff * diff;
+                ++samples;
+            }
+        }
+        if (samples == 0)
+            return 0.0;
+        mse /= static_cast<double>(samples);
+        if (mse < 1e-12)
+            return 99.0;
+        return 10.0 * std::log10((peak * peak) / mse);
+    }
 } // namespace
 
 TEST(TextureCompression, BlockGeometry)
 {
     EXPECT_EQ(TextureCompression::BlockSizeBytes(TextureCompressionFormat::BC7), 16u);
     EXPECT_EQ(TextureCompression::BlockSizeBytes(TextureCompressionFormat::BC5), 16u);
+    EXPECT_EQ(TextureCompression::BlockSizeBytes(TextureCompressionFormat::BC6H), 16u);
     EXPECT_EQ(TextureCompression::BlockSizeBytes(TextureCompressionFormat::None), 0u);
 
     // ceil(dim/4), at least one block.
@@ -382,6 +432,217 @@ TEST(TextureCompression, OfflineCookFromPngProducesLoadableOloTex)
 
     std::error_code ec;
     std::filesystem::remove(pngPath, ec);
+    std::filesystem::remove(oloTexPath, ec);
+}
+
+// ---- BC6H (HDR) tests -----------------------------------------------------
+// These validate the from-scratch BC6H mode-11 encoder END TO END through the
+// vendored bcdec reference decoder — an ORACLE independent of our encoder, so a
+// wrong bit layout / quantization can't hide behind a matched CPU decoder. A wrong
+// mode value or bit packing would tank the PSNR and fail here (and, redundantly, the
+// GPU visual-evidence test decodes the same blocks in hardware).
+
+TEST(TextureCompression, EncodeBC6HRoundTripWithinTolerance)
+{
+    constexpr u32 kW = 64;
+    constexpr u32 kH = 64;
+    constexpr f32 kPeak = 8.0f;
+    const std::vector<f32> source = MakeGradientHDR(kW, kH, kPeak);
+
+    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, false);
+    ASSERT_TRUE(image.IsValid());
+    EXPECT_EQ(image.Format, TextureCompressionFormat::BC6H);
+    EXPECT_FALSE(image.SRGB);
+    EXPECT_FALSE(image.HasAlpha);
+    EXPECT_EQ(image.MipLevels(), 1u); // generateMips=false
+    EXPECT_EQ(image.Mips[0].size(), TextureCompression::MipByteSize(TextureCompressionFormat::BC6H, kW, kH));
+
+    std::vector<f32> decoded; // RGBA float: R,G,B and A=1
+    u32 dw = 0;
+    u32 dh = 0;
+    ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(image, 0, decoded, dw, dh));
+    EXPECT_EQ(dw, kW);
+    EXPECT_EQ(dh, kH);
+
+    // Re-pack source RGB as RGBA (A=1) so the stride-4 PSNR helper lines up with decoded.
+    std::vector<f32> sourceRGBA(static_cast<sizet>(kW) * kH * 4, 1.0f);
+    for (sizet i = 0; i < static_cast<sizet>(kW) * kH; ++i)
+    {
+        sourceRGBA[i * 4 + 0] = source[i * 3 + 0];
+        sourceRGBA[i * 4 + 1] = source[i * 3 + 1];
+        sourceRGBA[i * 4 + 2] = source[i * 3 + 2];
+    }
+    // ~38 dB peak-normalized on this deliberately-curved gradient (the red channel ramps
+    // quadratically, the worst case for mode-11's single linear segment per block). Real
+    // IBL/environment content is smoother per-block and scores higher. 35 dB is a strong
+    // correctness floor — a wrong bit layout / quantization tanks this below ~15 dB — with
+    // margin; higher fidelity would need the multi-subset BC6H modes (a deferred encoder
+    // follow-up). The flat-block test above pins near-lossless behaviour separately.
+    const double psnr = ComputePSNRFloat(sourceRGBA, decoded, 4, 3, kPeak);
+    EXPECT_GT(psnr, 35.0) << "BC6H HDR gradient round-trip PSNR too low: " << psnr << " dB";
+}
+
+TEST(TextureCompression, BC6HFlatBlockIsNearLossless)
+{
+    // A constant-color HDR block has coincident endpoints — every index resolves to the
+    // same value, so the round-trip should be essentially exact (only the half-float
+    // quantization of the single value survives).
+    constexpr u32 kW = 4;
+    constexpr u32 kH = 4;
+    std::vector<f32> source(static_cast<sizet>(kW) * kH * 3);
+    for (sizet i = 0; i < static_cast<sizet>(kW) * kH; ++i)
+    {
+        source[i * 3 + 0] = 3.5f;
+        source[i * 3 + 1] = 1.25f;
+        source[i * 3 + 2] = 0.5f;
+    }
+    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, false);
+    ASSERT_TRUE(image.IsValid());
+
+    std::vector<f32> decoded;
+    u32 dw = 0;
+    u32 dh = 0;
+    ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(image, 0, decoded, dw, dh));
+    for (sizet i = 0; i < static_cast<sizet>(kW) * kH; ++i)
+    {
+        EXPECT_NEAR(decoded[i * 4 + 0], 3.5f, 0.02f);
+        EXPECT_NEAR(decoded[i * 4 + 1], 1.25f, 0.02f);
+        EXPECT_NEAR(decoded[i * 4 + 2], 0.5f, 0.02f);
+    }
+}
+
+TEST(TextureCompression, BC6HGeneratesFullMipChain)
+{
+    constexpr u32 kW = 64;
+    constexpr u32 kH = 64;
+    const std::vector<f32> source = MakeGradientHDR(kW, kH, 4.0f);
+
+    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, true);
+    ASSERT_TRUE(image.IsValid());
+    EXPECT_EQ(image.MipLevels(), 7u); // 64 -> ... -> 1
+
+    for (u32 level = 0; level < image.MipLevels(); ++level)
+    {
+        const u32 mw = std::max(1u, kW >> level);
+        const u32 mh = std::max(1u, kH >> level);
+        EXPECT_EQ(image.Mips[level].size(), TextureCompression::MipByteSize(TextureCompressionFormat::BC6H, mw, mh))
+            << "mip " << level << " byte size mismatch";
+    }
+}
+
+TEST(TextureCompression, BC6HHandlesNonMultipleOf4Dimensions)
+{
+    constexpr u32 kW = 13; // not a multiple of 4
+    constexpr u32 kH = 7;
+    constexpr f32 kPeak = 6.0f;
+    const std::vector<f32> source = MakeGradientHDR(kW, kH, kPeak);
+
+    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, false);
+    ASSERT_TRUE(image.IsValid());
+    EXPECT_EQ(image.Width, kW);
+    EXPECT_EQ(image.Height, kH);
+
+    std::vector<f32> decoded;
+    u32 dw = 0;
+    u32 dh = 0;
+    ASSERT_TRUE(TextureCompression::DecodeToRGBAFloat(image, 0, decoded, dw, dh));
+    EXPECT_EQ(dw, kW);
+    EXPECT_EQ(dh, kH);
+    EXPECT_EQ(decoded.size(), static_cast<sizet>(kW) * kH * 4);
+}
+
+TEST(TextureCompression, BC6HContainerBlobRoundTripIsBitExact)
+{
+    constexpr u32 kW = 32;
+    constexpr u32 kH = 16;
+    const std::vector<f32> source = MakeGradientHDR(kW, kH, 5.0f);
+
+    const CompressedTextureImage original = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, true);
+    ASSERT_TRUE(original.IsValid());
+
+    const std::vector<u8> blob = TextureCompression::SerializeToBlob(original);
+    ASSERT_FALSE(blob.empty());
+
+    CompressedTextureImage restored;
+    ASSERT_TRUE(TextureCompression::DeserializeFromBlob(blob, restored));
+    EXPECT_EQ(restored.Format, TextureCompressionFormat::BC6H);
+    EXPECT_EQ(restored.Width, original.Width);
+    EXPECT_EQ(restored.Height, original.Height);
+    EXPECT_FALSE(restored.SRGB);
+    EXPECT_FALSE(restored.HasAlpha);
+    ASSERT_EQ(restored.MipLevels(), original.MipLevels());
+    for (u32 level = 0; level < original.MipLevels(); ++level)
+        EXPECT_EQ(restored.Mips[level], original.Mips[level]) << "mip " << level << " block bytes differ";
+}
+
+TEST(TextureCompression, EncodeBC6HRejectsInsufficientChannels)
+{
+    constexpr u32 kW = 8;
+    constexpr u32 kH = 8;
+    std::vector<f32> rg(static_cast<sizet>(kW) * kH * 2, 1.0f);
+    // BC6H is RGB HDR; a 2-channel source is meaningless and must be rejected.
+    const CompressedTextureImage image = TextureCompression::EncodeBC6H(rg.data(), kW, kH, 2, false);
+    EXPECT_FALSE(image.IsValid());
+}
+
+TEST(TextureCompression, DecodeToRGBA8RejectsBC6H)
+{
+    // BC6H has no meaningful 8-bit representation — DecodeToRGBA8 must refuse it (rather
+    // than mis-decode via the BC5 path) so the fallback routes through the float decode.
+    constexpr u32 kW = 8;
+    constexpr u32 kH = 8;
+    const std::vector<f32> source = MakeGradientHDR(kW, kH, 2.0f);
+    const CompressedTextureImage image = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, false);
+    ASSERT_TRUE(image.IsValid());
+
+    std::vector<u8> rgba8;
+    u32 dw = 0;
+    u32 dh = 0;
+    EXPECT_FALSE(TextureCompression::DecodeToRGBA8(image, 0, rgba8, dw, dh));
+}
+
+TEST(TextureCompression, DeserializeRejectsBC6HWithColorFlags)
+{
+    // BC6H (linear HDR RGB) must carry neither sRGB nor alpha.
+    constexpr u32 kW = 8;
+    constexpr u32 kH = 8;
+    const std::vector<f32> source = MakeGradientHDR(kW, kH, 2.0f);
+    const CompressedTextureImage bc6h = TextureCompression::EncodeBC6H(source.data(), kW, kH, 3, false);
+    ASSERT_TRUE(bc6h.IsValid());
+    std::vector<u8> blob = TextureCompression::SerializeToBlob(bc6h);
+    ASSERT_GE(blob.size(), 28u);
+
+    // Patch flags (offset 20) to set the alpha bit — illegal for BC6H.
+    blob[20] = 0x2u;
+    CompressedTextureImage out;
+    EXPECT_FALSE(TextureCompression::DeserializeFromBlob(blob, out));
+}
+
+TEST(TextureCompression, OfflineCookFromHdrAutoSelectsBC6H)
+{
+    // Full offline cook of an HDR source: write a .hdr, CompressTextureFile with Format
+    // left None (auto), and confirm stbi_is_hdr steered the cook to a BC6H mip chain.
+    constexpr u32 kW = 32;
+    constexpr u32 kH = 24;
+    const std::vector<f32> source = MakeGradientHDR(kW, kH, 4.0f);
+
+    const std::filesystem::path hdrPath = CaseKeyedTempFile(".hdr");
+    const std::filesystem::path oloTexPath = CaseKeyedTempFile(".olotex");
+    ASSERT_NE(::stbi_write_hdr(hdrPath.string().c_str(), static_cast<int>(kW), static_cast<int>(kH), 3, source.data()), 0);
+
+    TextureCompression::CompressOptions options; // Format=None -> auto
+    options.GenerateMips = true;
+    ASSERT_TRUE(TextureCompression::CompressTextureFile(hdrPath.string(), oloTexPath.string(), options));
+
+    CompressedTextureImage loaded;
+    ASSERT_TRUE(TextureCompression::ReadFile(oloTexPath.string(), loaded));
+    EXPECT_EQ(loaded.Format, TextureCompressionFormat::BC6H);
+    EXPECT_EQ(loaded.Width, kW);
+    EXPECT_EQ(loaded.Height, kH);
+    EXPECT_GT(loaded.MipLevels(), 1u);
+
+    std::error_code ec;
+    std::filesystem::remove(hdrPath, ec);
     std::filesystem::remove(oloTexPath, ec);
 }
 

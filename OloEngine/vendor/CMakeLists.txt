@@ -404,6 +404,28 @@ if(bc7enc_rdo_ADDED)
 	endif()
 endif()
 
+# bcdec: iOrange's single-header BC1-7 + BC6H block DECODER. Dual MIT / Unlicense
+# (public domain) — same permissive footing as stb. bc7enc_rdo ships no BC6H encoder,
+# so the offline cook (Renderer/TextureCompression.cpp) gained a from-scratch BC6H
+# mode-11 encoder (#440); bcdec is used to (a) INDEPENDENTLY validate that encoder in
+# CI — a matched encoder/decoder bug can't hide behind a shared codepath — and (b) act
+# as the CPU HDR fallback that decodes BC6H to RGBA16F on a context lacking BPTC.
+# Header-only: the implementation is compiled exactly once, via BCDEC_IMPLEMENTATION in
+# TextureCompression.cpp. DOWNLOAD_ONLY + INTERFACE, mirroring the choc/stb pattern.
+# Pinned to a fixed commit SHA for reproducible builds (#294 convention).
+CPMAddPackage(NAME bcdec
+  GIT_REPOSITORY https://github.com/iOrange/bcdec.git
+  GIT_TAG 93628fe5627102fe5187b7eeb99122dec6612c36  # main @ 2025-10-23
+  GIT_SHALLOW FALSE
+  DOWNLOAD_ONLY YES)
+if(bcdec_ADDED)
+	add_library(bcdec INTERFACE)
+	# SYSTEM so the header's own warnings — and the BCDEC_IMPLEMENTATION expansion it
+	# emits into TextureCompression.cpp — don't count against OloEngine's /W4 /WX flags,
+	# exactly as stb_image's IMPLEMENTATION is handled.
+	target_include_directories(bcdec SYSTEM INTERFACE "${bcdec_SOURCE_DIR}")
+endif()
+
 set_target_properties(assimp PROPERTIES FOLDER "Utilities/assimp")
 if(TARGET UpdateAssimpLibsDebugSymbolsAndDLLs)
 	set_target_properties(UpdateAssimpLibsDebugSymbolsAndDLLs PROPERTIES FOLDER "Utilities/assimp")

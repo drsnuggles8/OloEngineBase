@@ -156,6 +156,7 @@ target_include_directories(OloEngine PRIVATE
 target_link_libraries(OloEngine
 	assimp
 	bc7enc
+	bcdec
 	box2d
 	choc
 	Detour

@@ -57,6 +57,7 @@ namespace OloEngine
                     return GL_DEPTH_STENCIL;
                 case ImageFormat::BC7:
                 case ImageFormat::BC5:
+                case ImageFormat::BC6H:
                     // Compressed formats upload via glCompressedTextureSubImage2D with no
                     // client pixel format; this value is unused for those paths.
                     return 0;
@@ -109,6 +110,10 @@ namespace OloEngine
                 case ImageFormat::BC5:
                     // RGTC2 two-channel; always linear.
                     return GL_COMPRESSED_RG_RGTC2;
+                case ImageFormat::BC6H:
+                    // BPTC RGB half-float, unsigned variant (non-negative HDR radiance).
+                    // Always linear — sRGB does not apply to a float format.
+                    return GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT;
             }
 
             OLO_CORE_ASSERT(false, "Unknown ImageFormat!");
@@ -124,6 +129,9 @@ namespace OloEngine
             switch (format)
             {
                 case TextureCompressionFormat::BC7:
+                    return (GLAD_GL_VERSION_4_2 != 0) || (GLAD_GL_ARB_texture_compression_bptc != 0);
+                case TextureCompressionFormat::BC6H:
+                    // Same BPTC feature as BC7 (both are core since GL 4.2).
                     return (GLAD_GL_VERSION_4_2 != 0) || (GLAD_GL_ARB_texture_compression_bptc != 0);
                 case TextureCompressionFormat::BC5:
                     return (GLAD_GL_VERSION_3_0 != 0) || (GLAD_GL_ARB_texture_compression_rgtc != 0);
@@ -257,6 +265,7 @@ namespace OloEngine
                 break;
             case ImageFormat::BC7:
             case ImageFormat::BC5:
+            case ImageFormat::BC6H:
                 // Block-compressed textures are not created through the spec ctor (use
                 // the CompressedTextureImage ctor, which tracks block bytes exactly).
                 // ~1 byte/texel is a coarse placeholder purely for this tracking line.
@@ -384,7 +393,20 @@ namespace OloEngine
         m_Specification.Width = image.Width;
         m_Specification.Height = image.Height;
         m_Specification.SRGB = image.SRGB;
-        m_Specification.Format = (image.Format == TextureCompressionFormat::BC5) ? ImageFormat::BC5 : ImageFormat::BC7;
+        switch (image.Format)
+        {
+            case TextureCompressionFormat::BC5:
+                m_Specification.Format = ImageFormat::BC5;
+                break;
+            case TextureCompressionFormat::BC6H:
+                m_Specification.Format = ImageFormat::BC6H;
+                break;
+            case TextureCompressionFormat::BC7:
+            case TextureCompressionFormat::None:
+            default:
+                m_Specification.Format = ImageFormat::BC7;
+                break;
+        }
         m_CompressedHasAlpha = image.HasAlpha;
         m_MipLevels = image.MipLevels();
         m_Specification.MipLevels = m_MipLevels;
@@ -394,8 +416,10 @@ namespace OloEngine
         // the mip chain on the CPU and upload uncompressed so rendering still works.
         if (!Utils::IsCompressionSupported(image.Format))
         {
-            OLO_CORE_WARN("OpenGLTexture2D: driver lacks {} support — falling back to uncompressed RGBA8",
-                          image.Format == TextureCompressionFormat::BC5 ? "BC5/RGTC" : "BC7/BPTC");
+            const char* formatName = image.Format == TextureCompressionFormat::BC5    ? "BC5/RGTC"
+                                     : image.Format == TextureCompressionFormat::BC6H ? "BC6H/BPTC"
+                                                                                      : "BC7/BPTC";
+            OLO_CORE_WARN("OpenGLTexture2D: driver lacks {} support — falling back to uncompressed (RGBA8, or RGBA16F for BC6H HDR)", formatName);
             UploadDecompressedFallback(image);
             return;
         }
@@ -450,6 +474,49 @@ namespace OloEngine
 
     void OpenGLTexture2D::UploadDecompressedFallback(const CompressedTextureImage& image)
     {
+        // BC6H is HDR: decode base mip to RGBA float and upload as RGBA16F so the fallback
+        // preserves the high dynamic range (an 8-bit fallback would clip/banding the HDR).
+        if (image.Format == TextureCompressionFormat::BC6H)
+        {
+            std::vector<f32> rgbaF;
+            u32 fw = 0;
+            u32 fh = 0;
+            if (!TextureCompression::DecodeToRGBAFloat(image, 0, rgbaF, fw, fh) || rgbaF.empty())
+            {
+                OLO_CORE_ERROR("OpenGLTexture2D: BC6H fallback decode failed");
+                return;
+            }
+
+            const bool wantMipsHdr = image.MipLevels() > 1u;
+            m_MipLevels = wantMipsHdr ? CalculateFullMipCount(fw, fh) : 1u;
+            m_Specification.MipLevels = m_MipLevels;
+            m_Specification.GenerateMips = wantMipsHdr;
+            // Keep m_Specification.Format as BC6H (the compressed identity) — the physical
+            // GL upload format lives in m_InternalFormat/m_DataFormat, same rationale as the
+            // BC7/BC5 fallback below.
+            m_InternalFormat = GL_RGBA16F;
+            m_DataFormat = GL_RGBA;
+
+            glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
+            glTextureStorage2D(m_RendererID, static_cast<GLsizei>(m_MipLevels), m_InternalFormat,
+                               static_cast<GLsizei>(fw), static_cast<GLsizei>(fh));
+            glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<GLsizei>(fw), static_cast<GLsizei>(fh),
+                                GL_RGBA, GL_FLOAT, rgbaF.data());
+            if (m_MipLevels > 1u)
+                glGenerateTextureMipmap(m_RendererID);
+
+            OLO_TRACK_GPU_ALLOC(this, rgbaF.size() * sizeof(f32), RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (BC6H-fallback)");
+            GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (BC6H-fallback)", "Texture2D");
+
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, m_MipLevels > 1u ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+            m_IsLoaded = true;
+            return;
+        }
+
         // Decode base mip to RGBA8 and upload as a normal texture; regenerate mips on GPU.
         std::vector<u8> rgba;
         u32 w = 0;

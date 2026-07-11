@@ -16,8 +16,10 @@
 // (Platform/OpenGL/OpenGLTexture.cpp); this header intentionally has no GL / renderer
 // dependency so it can be unit-tested without a graphics context.
 //
-// Encoders come from the vendored bc7enc_rdo library (BC7 via bc7enc, BC5 via rgbcx);
-// they are pulled in only by TextureCompression.cpp so this header stays lightweight.
+// Encoders come from the vendored bc7enc_rdo library (BC7 via bc7enc, BC5 via rgbcx)
+// and, for BC6H, a self-contained mode-11 encoder in TextureCompression.cpp; BC6H is
+// decoded via the vendored bcdec header. They are pulled in only by
+// TextureCompression.cpp so this header stays lightweight.
 
 namespace OloEngine
 {
@@ -26,8 +28,10 @@ namespace OloEngine
     enum class TextureCompressionFormat : u32
     {
         None = 0,
-        BC7 = 1, // RGBA, high quality, 16 bytes / 4x4 block. Base color / albedo / emissive.
-        BC5 = 2, // Two-channel (R,G), 16 bytes / 4x4 block. Tangent-space normal xy.
+        BC7 = 1,  // RGBA, high quality, 16 bytes / 4x4 block. Base color / albedo / emissive.
+        BC5 = 2,  // Two-channel (R,G), 16 bytes / 4x4 block. Tangent-space normal xy.
+        BC6H = 3, // RGB half-float HDR, 16 bytes / 4x4 block. Environment / IBL / emissive HDR.
+                  // Unsigned variant only (non-negative radiance); no alpha, never sRGB.
     };
 
     // A GPU-ready block-compressed image: a mip chain of raw BCn block bytes (mip 0 first).
@@ -87,11 +91,29 @@ namespace OloEngine
         [[nodiscard]] CompressedTextureImage EncodeBC7(const u8* pixels, u32 width, u32 height, u32 channels, bool srgb, bool generateMips);
         [[nodiscard]] CompressedTextureImage EncodeBC5(const u8* pixels, u32 width, u32 height, u32 channels, bool generateMips);
 
+        // Encode HDR RGB float source (channels >= 3, extra channels ignored; the R,G,B
+        // triples are read row-major with `channels` floats/texel stride) to UNSIGNED
+        // BC6H, the GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT variant. Intended for
+        // non-negative radiance — environment maps / IBL / HDR emissive. Uses BC6H
+        // block "mode 11" (1 subset, 10-bit endpoints, no delta): high enough quality for
+        // smooth HDR while keeping the encoder self-contained. Negative source components
+        // are clamped to 0 (unsigned BC6H cannot represent them); non-finite values are
+        // clamped to the max representable half. Mips are box-filtered in linear space.
+        [[nodiscard]] CompressedTextureImage EncodeBC6H(const f32* pixels, u32 width, u32 height, u32 channels, bool generateMips);
+
         // ---- Decode (CPU) -----------------------------------------------------
         // Decompress one mip level to RGBA8 (4 bytes/texel). BC5 fills b=0, a=255.
-        // Used by tests and the no-BPTC-hardware fallback upload path.
+        // Used by tests and the no-BPTC-hardware fallback upload path. Rejects BC6H
+        // (an HDR format cannot be represented in 8-bit) — use DecodeToRGBAFloat for it.
         [[nodiscard]] bool DecodeToRGBA8(const CompressedTextureImage& image, u32 mipLevel,
                                          std::vector<u8>& outRGBA8, u32& outWidth, u32& outHeight);
+
+        // Decompress one BC6H mip level to RGBA float (4 floats/texel: R,G,B and A=1),
+        // via the vendored bcdec reference decoder. Used by the BC6H round-trip test (an
+        // encoder-independent oracle) and by the no-BPTC-hardware HDR fallback upload
+        // (which uploads the result as RGBA16F). Returns false for non-BC6H formats.
+        [[nodiscard]] bool DecodeToRGBAFloat(const CompressedTextureImage& image, u32 mipLevel,
+                                             std::vector<f32>& outRGBA, u32& outWidth, u32& outHeight);
 
         // ---- Container (.olotex) ---------------------------------------------
         [[nodiscard]] std::vector<u8> SerializeToBlob(const CompressedTextureImage& image);
@@ -102,9 +124,10 @@ namespace OloEngine
         // ---- Offline cook -----------------------------------------------------
         struct CompressOptions
         {
-            // None => auto-pick from the filename: color textures (albedo/emissive/...)
-            // become sRGB BC7, everything else linear BC5 is NOT auto-chosen (BC5 is a
-            // deliberate opt-in for two-channel normal data); auto defaults to BC7.
+            // None => auto-pick: an HDR source (.hdr / .exr, detected via stbi_is_hdr)
+            // becomes BC6H; otherwise color textures (albedo/emissive/...) become sRGB
+            // BC7 and everything else defaults to BC7. BC5 is NEVER auto-chosen (it is a
+            // deliberate opt-in for two-channel normal data).
             TextureCompressionFormat Format = TextureCompressionFormat::None;
             bool SRGB = false;            // color-space hint for BC7 (ignored for BC5)
             bool AutoSRGBFromName = true; // when true, override SRGB using the filename heuristic
