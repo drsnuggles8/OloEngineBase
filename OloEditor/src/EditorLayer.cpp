@@ -1745,7 +1745,16 @@ namespace OloEngine
         // Animation Panel
         if (m_ShowAnimationPanel)
         {
-            m_AnimationPanel.SetSelectedEntity(m_SceneHierarchyPanel.GetSelectedEntity());
+            // Only follow the hierarchy selection when it can actually be animated.
+            // A bone click drives hierarchy selection to the bone's own entity (via
+            // SetSelectBoneEntityCallback), which normally has neither component - so
+            // blindly re-syncing here would overwrite the panel's animated entity and
+            // flip it to the empty state on the very next frame.
+            if (Entity hierarchySelection = m_SceneHierarchyPanel.GetSelectedEntity();
+                hierarchySelection && (hierarchySelection.HasComponent<AnimationStateComponent>() || hierarchySelection.HasComponent<SkeletonComponent>()))
+            {
+                m_AnimationPanel.SetSelectedEntity(hierarchySelection);
+            }
             m_AnimationPanel.OnImGuiRender(&m_ShowAnimationPanel);
         }
 
@@ -2625,6 +2634,10 @@ namespace OloEngine
                                                                {
             m_CinematicTimelinePanel.OpenSequence(handle);
             m_ShowCinematicTimeline = true; });
+
+        // Clicking a bone in the Animation panel's Bone Hierarchy selects its entity.
+        m_AnimationPanel.SetSelectBoneEntityCallback([this](Entity boneEntity)
+                                                     { m_SceneHierarchyPanel.SetSelectedEntity(boneEntity); });
     }
 
     void EditorLayer::NewProject()

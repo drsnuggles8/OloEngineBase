@@ -465,7 +465,17 @@ namespace OloEngine
                     // Show parent info in tooltip
                     if (ImGui::Selectable(displayName.c_str()))
                     {
-                        // TODO(olbu): Select bone entity in hierarchy when clicked (#593)
+                        if (m_SelectBoneEntityCallback && entity.HasComponent<AnimationStateComponent>())
+                        {
+                            const auto& animState = entity.GetComponent<AnimationStateComponent>();
+                            if (i < animState.m_BoneEntityIds.size())
+                            {
+                                if (Entity boneEntity = m_Context->GetEntityByUUID(animState.m_BoneEntityIds[i]))
+                                {
+                                    m_SelectBoneEntityCallback(boneEntity);
+                                }
+                            }
+                        }
                     }
 
                     // Tooltip with bone details
