@@ -98,11 +98,11 @@ TEST(PCSSShadow, RawDepthBindingSlotsMatchShaders)
 {
     // assets/shaders declare layout(binding = 33/34) for the raw-depth views.
     EXPECT_EQ(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, 33u);
-    EXPECT_EQ(ShaderBindingLayout::TEX_SHADOW_SPOT_RAW, 34u);
+    EXPECT_EQ(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, 34u);
     // Must stay within the engine-reserved tracker range (BoundTextureIDs size).
-    EXPECT_LT(ShaderBindingLayout::TEX_SHADOW_SPOT_RAW, ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS);
+    EXPECT_LT(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS);
     // And below the first shader-graph user slot (engine-reserved region).
-    EXPECT_LT(ShaderBindingLayout::TEX_SHADOW_SPOT_RAW, ShaderBindingLayout::TEX_SHADER_GRAPH_0);
+    EXPECT_LT(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, ShaderBindingLayout::TEX_SHADER_GRAPH_0);
 }
 
 // =============================================================================

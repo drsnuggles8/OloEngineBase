@@ -1,0 +1,75 @@
+#version 460 core
+
+// =============================================================================
+// FroxelFogIntegrate.comp — froxel volumetric fog: front-to-back integration
+// (issue #435)
+//
+// One thread per screen column of the fog volume. Marches the column's Z
+// slices front-to-back accumulating in-scatter and transmittance with
+// Sébastien Hillaire's energy-conserving analytic step integration (the same
+// formulation the old screen-space raymarch used), writing the running
+// integral into every slice — so the composite pass can fetch the fog between
+// the camera and ANY depth with a single trilinear tap.
+//
+// Input  (sampler unit 0):  scatter volume — rgb = in-scattered radiance,
+//                           a = extinction (FroxelFogScatter.comp).
+// Output (image unit 0):    integrated volume — rgb = accumulated in-scatter,
+//                           a = transmittance at the slice's far edge.
+// =============================================================================
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// Froxel fog parameters (binding 46) — mirrors UBOStructures::FroxelFogUBO
+layout(std140, binding = 46) uniform FroxelFogData
+{
+    mat4 u_FroxelInverseView;
+    mat4 u_FroxelInverseProjection;
+    mat4 u_FroxelPrevViewProjection;
+    vec4 u_FroxelDims;        // xyz = volume dims
+    vec4 u_FroxelDepthParams; // x = near, y = far, z = log2(far/near), w = frame index
+    vec4 u_FroxelRenderOrigin;
+};
+
+layout(binding = 0) uniform sampler3D u_ScatterVolume;
+layout(binding = 0, rgba16f) writeonly uniform image3D u_IntegratedVolume;
+
+void main()
+{
+    ivec3 dims = ivec3(u_FroxelDims.xyz);
+    ivec2 column = ivec2(gl_GlobalInvocationID.xy);
+    if (column.x >= dims.x || column.y >= dims.y)
+        return;
+
+    float nearPlane = u_FroxelDepthParams.x;
+    float logFOverN = u_FroxelDepthParams.z;
+
+    // Path length through a slice along this column's VIEW RAY exceeds the
+    // axial slice thickness by the ray's secant against the view axis.
+    vec2 ndc = ((vec2(column) + 0.5) / vec2(dims.xy)) * 2.0 - 1.0;
+    vec4 nearView = u_FroxelInverseProjection * vec4(ndc, -1.0, 1.0);
+    vec3 viewRay = nearView.xyz / nearView.w;
+    float secant = length(viewRay) / max(-viewRay.z, 1e-4);
+
+    vec3 accumulated = vec3(0.0);
+    float transmittance = 1.0;
+    float prevDepth = nearPlane;
+
+    for (int z = 0; z < dims.z; ++z)
+    {
+        float sliceFarDepth = nearPlane * exp2(logFOverN * (float(z + 1) / float(dims.z)));
+        float stepLen = max(sliceFarDepth - prevDepth, 1e-4) * secant;
+        prevDepth = sliceFarDepth;
+
+        vec4 scatter = texelFetch(u_ScatterVolume, ivec3(column, z), 0);
+        vec3 inscatter = scatter.rgb;
+        float extinction = max(scatter.a, 1e-5);
+
+        // Hillaire energy-conserving step integration (matches the raymarch)
+        float stepTransmittance = exp(-extinction * stepLen);
+        vec3 integScatter = inscatter * (1.0 - stepTransmittance) / extinction;
+        accumulated += transmittance * integScatter;
+        transmittance *= stepTransmittance;
+
+        imageStore(u_IntegratedVolume, ivec3(column, z), vec4(accumulated, transmittance));
+    }
+}

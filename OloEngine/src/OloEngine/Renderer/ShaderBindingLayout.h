@@ -309,22 +309,36 @@ namespace OloEngine
             }
         };
 
-        // @brief Shadow mapping UBO for directional (CSM), spot, and point light shadows
+        // @brief Shadow mapping UBO for directional (CSM) shadows plus the
+        // budgeted local-light shadow ATLAS (issue #435).
+        //
+        // The old fixed 4-spot / 4-point layout is replaced by a flat array of
+        // atlas ENTRIES: a spot light consumes one entry, a point / sphere-area
+        // light consumes six consecutive entries (cube faces in +X,-X,+Y,-Y,
+        // +Z,-Z order, rendered projectively into atlas sub-rects — no more
+        // linear-depth cubemaps). Each entry carries its light-space VP matrix
+        // and the UV scale/offset of its tile within the atlas texture. Lights
+        // reference their base entry via MultiLightData::Direction.w (UBO path)
+        // or the shadow field in the Forward+ GPU light structs (cluster path);
+        // -1 means no shadow.
         struct ShadowUBO
         {
             static constexpr u32 MAX_CSM_CASCADES = 4;
-            static constexpr u32 MAX_SPOT_SHADOWS = 4;
-            static constexpr u32 MAX_POINT_SHADOWS = 4;
+            // Entry budget: e.g. 12 shadowed spots + 6 shadowed point lights
+            // (6 × 6 = 36 entries) fit simultaneously — far beyond the old
+            // fixed 4 + 4 caps. Selection beyond the budget is priority-ranked
+            // (see ShadowAtlas.h).
+            static constexpr u32 MAX_SHADOW_ATLAS_ENTRIES = 48;
 
             glm::mat4 DirectionalLightSpaceMatrices[MAX_CSM_CASCADES]; // Light VP per cascade
             glm::vec4 CascadePlaneDistances;                           // View-space far plane per cascade
             glm::vec4 ShadowParams;                                    // x=bias, y=normalBias, z=softness, w=maxShadowDistance
-            glm::mat4 SpotLightSpaceMatrices[MAX_SPOT_SHADOWS];        // Light VP per spot shadow
-            glm::vec4 PointLightShadowParams[MAX_POINT_SHADOWS];       // xyz=position, w=farPlane
+            glm::mat4 AtlasEntryMatrices[MAX_SHADOW_ATLAS_ENTRIES];    // Light VP per atlas entry
+            glm::vec4 AtlasEntryScaleOffset[MAX_SHADOW_ATLAS_ENTRIES]; // xy = UV scale, zw = UV offset of the entry's atlas tile
             i32 DirectionalShadowEnabled = 0;
-            i32 SpotShadowCount = 0;
-            i32 PointShadowCount = 0;
-            i32 ShadowMapResolution = 0;
+            i32 AtlasEntryCount = 0;
+            i32 ShadowMapResolution = 0; // CSM map resolution
+            i32 AtlasResolution = 0;     // Atlas texture resolution
             i32 CascadeDebugEnabled = 0; // Visualize cascade boundaries
             i32 SoftShadowMode = 0;      // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
             i32 _shadowPad1 = 0;
@@ -338,11 +352,11 @@ namespace OloEngine
 
         // std140 layout sanity check for ShadowUBO — mirrors the GLSL `ShadowData`
         // block at binding 6 (GetShadowUBOLayout). A mismatch means the C++ struct
-        // drifted from the shader; adding/reordering a field (e.g. SoftShadowMode,
-        // which reused a former pad int) must keep the size at 640 B:
-        //   4*mat4 (256) + 2*vec4 (32) + 4*mat4 (256) + 4*vec4 (64) + 8*int (32).
+        // drifted from the shader. Expected size:
+        //   4*mat4 (256) + 2*vec4 (32) + 48*mat4 (3072) + 48*vec4 (768) + 8*int (32) = 4160 B.
+        // Comfortably under the GL 4.6 16 KB minimum UBO size.
         static_assert(sizeof(ShadowUBO) % 16 == 0, "ShadowUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(ShadowUBO) == 640, "ShadowUBO std140 size drifted from GLSL expectation (640 B)");
+        static_assert(sizeof(ShadowUBO) == 4160, "ShadowUBO std140 size drifted from GLSL expectation (4160 B)");
 
         // @brief Decal projection parameters
         struct DecalUBO
@@ -402,10 +416,47 @@ namespace OloEngine
             }
         };
 
-        // @brief Forward+ tile-based light culling parameters UBO
+        // @brief Froxel volumetric fog parameters UBO (binding 46, issue #435).
+        //
+        // Shared by the FroxelFogScatter/FroxelFogIntegrate compute passes and
+        // the fog composite fragment shader. The fog volume has its own
+        // exponential depth-slice mapping (near = camera near, far =
+        // clamp(FogSettings::End, 20, 500)) independent of the cluster grid's.
+        struct FroxelFogUBO
+        {
+            glm::mat4 InverseView;        // view -> render-relative world
+            glm::mat4 InverseProjection;  // clip -> view
+            glm::mat4 PrevViewProjection; // ABSOLUTE world -> previous frame clip (3D temporal reprojection)
+            glm::vec4 Dims;               // xyz = volume dimensions, w = temporal blend alpha
+            glm::vec4 DepthParams;        // x = near, y = far, z = log2(far/near), w = frame index
+            glm::vec4 RenderOrigin;       // xyz = camera-relative render origin, w = enabled (0/1)
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(FroxelFogUBO));
+            }
+        };
+
+        static_assert(sizeof(FroxelFogUBO) % 16 == 0, "FroxelFogUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(FroxelFogUBO) == 240, "FroxelFogUBO std140 size drifted from GLSL expectation (240 B)");
+
+        // @brief Forward+ clustered (froxel) light culling parameters UBO.
+        //
+        // The grid is a fixed-count 3D cluster grid (issue #435): X/Y screen
+        // tiles scaled to the viewport, Z depth slices distributed
+        // exponentially between the camera near/far planes. `Enabled` stays in
+        // Params.z so the long-standing `fplus_Params.z != 0u` shader gate is
+        // layout-stable across the 2D-tile -> froxel upgrade.
+        //
+        // Depth slice mapping (mirrored by ClusteredLighting.h helpers and
+        // ForwardPlusCommon.glsl): slice = floor(log2(viewZ) * sliceScale +
+        // sliceBias), where sliceScale = Z / log2(far/near) and sliceBias =
+        // -Z * log2(near) / log2(far/near).
         struct ForwardPlusUBO
         {
-            glm::uvec4 Params; // x = TileSizePixels, y = TileCountX, z = Enabled (0/1), w = reserved
+            glm::uvec4 Params;      // x = ClusterCountX, y = ClusterCountY, z = Enabled (0/1), w = ClusterCountZ
+            glm::vec4 TileScale;    // xy = clusterCount / screenSize (cluster coord per pixel), zw = unused
+            glm::vec4 DepthSlicing; // x = sliceScale, y = sliceBias, z = zNear, w = zFar
 
             static constexpr u32 GetSize()
             {
@@ -522,11 +573,19 @@ namespace OloEngine
     // FORWARD+ LIGHT CULLING GPU STRUCTURES
     // =============================================================================
 
-    // @brief GPU-packed point light for Forward+ SSBO (matches GLSL std430 layout)
+    // @brief GPU-packed point light for Forward+ SSBO (matches GLSL std430 layout).
+    // ShadowAndAttenuation.x carries the light's base shadow-atlas entry as a float
+    // (-1 = no shadow) so the clustered shading path can attenuate by the atlas
+    // (issue #435 — tile-culled lights used to be shadowless).
+    // ShadowAndAttenuation.y carries the component's quadratic attenuation
+    // coefficient so the clustered path evaluates the SAME falloff as the
+    // brute-force MultiLightUBO path (calculateAttenuation with constant=1,
+    // linear=0) — the paths must agree photometrically.
     struct GPUPointLight
     {
-        glm::vec4 PositionAndRadius; // xyz = world position, w = range/radius
-        glm::vec4 ColorAndIntensity; // xyz = color, w = intensity
+        glm::vec4 PositionAndRadius;    // xyz = world position, w = range/radius
+        glm::vec4 ColorAndIntensity;    // xyz = color, w = intensity
+        glm::vec4 ShadowAndAttenuation; // x = base atlas entry (float, -1 = none), y = quadratic attenuation coefficient, z/w = reserved
     };
 
     // @brief GPU-packed spot light for Forward+ SSBO (matches GLSL std430 layout)
@@ -535,7 +594,7 @@ namespace OloEngine
         glm::vec4 PositionAndRadius; // xyz = world position, w = range/radius
         glm::vec4 DirectionAndAngle; // xyz = direction, w = cos(outerAngle)
         glm::vec4 ColorAndIntensity; // xyz = color, w = intensity
-        glm::vec4 SpotParams;        // x = cos(innerAngle), y = falloff, z = 0, w = 0
+        glm::vec4 SpotParams;        // x = cos(innerAngle), y = quadratic attenuation coefficient, z = atlas entry (float, -1 = none), w = 0
     };
 
     // @brief GPU-packed sphere area light for Forward+ SSBO (matches GLSL std430 layout)
@@ -545,10 +604,10 @@ namespace OloEngine
     {
         glm::vec4 PositionAndRadius; // xyz = world position, w = emitter sphere radius
         glm::vec4 ColorAndIntensity; // xyz = color, w = intensity
-        glm::vec4 RangeAndPadding;   // x = range (falloff), y/z/w = reserved
+        glm::vec4 RangeAndPadding;   // x = range (falloff), y = base atlas entry (float, -1 = none), z/w = reserved
     };
 
-    static_assert(sizeof(GPUPointLight) == 32, "GPUPointLight must be 32 bytes for std430");
+    static_assert(sizeof(GPUPointLight) == 48, "GPUPointLight must be 48 bytes for std430");
     static_assert(sizeof(GPUSpotLight) == 64, "GPUSpotLight must be 64 bytes for std430");
     static_assert(sizeof(GPUSphereAreaLight) == 48, "GPUSphereAreaLight must be 48 bytes for std430");
 
@@ -597,7 +656,7 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::WaterUBO) % 16 == 0, "WaterUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::WaterUBO) == 288, "WaterUBO unexpected size -- update GLSL layout");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) % 16 == 0, "ForwardPlusUBO size must be 16-byte aligned for std140");
-    static_assert(sizeof(UBOStructures::ForwardPlusUBO) == 16, "ForwardPlusUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::ForwardPlusUBO) == 48, "ForwardPlusUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 96, "PBRMaterialUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) % 16 == 0, "SelectionOutlineUBO size must be 16-byte aligned for std140");
@@ -666,29 +725,30 @@ namespace OloEngine
         static constexpr u32 UBO_PLANAR_REFLECTION = 43;    // Planar-reflection mirror view-projection + plane/enable params (sampled by Water.glsl)
         static constexpr u32 UBO_UPSCALER = 44;             // Spatial upscaler / CAS·RCAS sharpening params (sharpness + texel size) — PostProcess_CAS.glsl / PostProcess_RCAS.glsl
         static constexpr u32 UBO_EASU = 45;                 // FSR1 EASU upscale constants (input/output size + tap texel + DRS bounds) — PostProcess_EASU.glsl
+        static constexpr u32 UBO_FROXEL_FOG = 46;           // Froxel volumetric fog params (volume dims, depth slicing, temporal reprojection — issue #435)
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
         // =============================================================================
 
-        static constexpr u32 TEX_DIFFUSE = 0;               // Primary diffuse/albedo texture
-        static constexpr u32 TEX_SPECULAR = 1;              // Specular/metallic texture
-        static constexpr u32 TEX_NORMAL = 2;                // Normal map
-        static constexpr u32 TEX_HEIGHT = 3;                // Height/displacement map
-        static constexpr u32 TEX_AMBIENT = 4;               // Ambient occlusion
-        static constexpr u32 TEX_EMISSIVE = 5;              // Emissive map
-        static constexpr u32 TEX_ROUGHNESS = 6;             // Roughness map
-        static constexpr u32 TEX_METALLIC = 7;              // Metallic map
-        static constexpr u32 TEX_SHADOW = 8;                // Shadow map (CSM, sampler2DArrayShadow)
-        static constexpr u32 TEX_ENVIRONMENT = 9;           // Environment/skybox
-        static constexpr u32 TEX_USER_0 = 10;               // User-defined texture 0
-        static constexpr u32 TEX_USER_1 = 11;               // User-defined texture 1
-        static constexpr u32 TEX_USER_2 = 12;               // User-defined texture 2
-        static constexpr u32 TEX_SHADOW_SPOT = 13;          // Spot light shadow map (sampler2DArrayShadow)
-        static constexpr u32 TEX_SHADOW_POINT_0 = 14;       // Point light shadow cubemap 0
-        static constexpr u32 TEX_SHADOW_POINT_1 = 15;       // Point light shadow cubemap 1
-        static constexpr u32 TEX_SHADOW_POINT_2 = 16;       // Point light shadow cubemap 2
-        static constexpr u32 TEX_SHADOW_POINT_3 = 17;       // Point light shadow cubemap 3
+        static constexpr u32 TEX_DIFFUSE = 0;     // Primary diffuse/albedo texture
+        static constexpr u32 TEX_SPECULAR = 1;    // Specular/metallic texture
+        static constexpr u32 TEX_NORMAL = 2;      // Normal map
+        static constexpr u32 TEX_HEIGHT = 3;      // Height/displacement map
+        static constexpr u32 TEX_AMBIENT = 4;     // Ambient occlusion
+        static constexpr u32 TEX_EMISSIVE = 5;    // Emissive map
+        static constexpr u32 TEX_ROUGHNESS = 6;   // Roughness map
+        static constexpr u32 TEX_METALLIC = 7;    // Metallic map
+        static constexpr u32 TEX_SHADOW = 8;      // Shadow map (CSM, sampler2DArrayShadow)
+        static constexpr u32 TEX_ENVIRONMENT = 9; // Environment/skybox
+        static constexpr u32 TEX_USER_0 = 10;     // User-defined texture 0
+        static constexpr u32 TEX_USER_1 = 11;     // User-defined texture 1
+        static constexpr u32 TEX_USER_2 = 12;     // User-defined texture 2
+        // The budgeted local-light shadow atlas (issue #435) — a 1-layer depth
+        // array holding every spot / point-face shadow tile. Replaces the old
+        // 4-layer spot array on this slot; the four point-cubemap slots 14-17
+        // it also replaces are now FREE (former TEX_SHADOW_POINT_0..3).
+        static constexpr u32 TEX_SHADOW_ATLAS = 13;         // Local-light shadow atlas (sampler2DArrayShadow, 1 layer)
         static constexpr u32 TEX_POSTPROCESS_LUT = 18;      // Post-process color grading LUT
         static constexpr u32 TEX_POSTPROCESS_DEPTH = 19;    // Post-process scene depth access
         static constexpr u32 TEX_SSAO = 20;                 // Blurred SSAO result
@@ -708,13 +768,13 @@ namespace OloEngine
         // wavy water boundary (WATER_FUTURE_IMPROVEMENTS.md §7.2). Took GTAO-reserved
         // slot 32 — GTAO binds low sequential slots (0-5) instead, so 33-35 stay free.
         static constexpr u32 TEX_UNDERWATER_WATER_DEPTH = 32;
-        // Comparison-OFF raw-depth views of the CSM / spot shadow arrays, bound as
+        // Comparison-OFF raw-depth views of the CSM array / shadow atlas, bound as
         // plain sampler2DArray so the PCSS blocker search can read raw occluder
-        // depth (the hardware sampler2DArrayShadow at TEX_SHADOW / TEX_SHADOW_SPOT
+        // depth (the hardware sampler2DArrayShadow at TEX_SHADOW / TEX_SHADOW_ATLAS
         // only yields the comparison result). Took the formerly GTAO-reserved
         // slots 33-34 (GTAO binds low sequential slots 0-5 instead).
         static constexpr u32 TEX_SHADOW_CSM_RAW = 33;   // Raw-depth view of the CSM array (PCSS blocker search)
-        static constexpr u32 TEX_SHADOW_SPOT_RAW = 34;  // Raw-depth view of the spot array (PCSS blocker search)
+        static constexpr u32 TEX_SHADOW_ATLAS_RAW = 34; // Raw-depth view of the shadow atlas (PCSS blocker search)
         static constexpr u32 TEX_SSR_HZB = 35;          // Min-depth HZB pyramid for HiZ-accelerated SSR traversal (#284)
         static constexpr u32 TEX_WATER_NORMAL_0 = 36;   // Water scrolling normal map 0
         static constexpr u32 TEX_WATER_NORMAL_1 = 37;   // Water scrolling normal map 1
@@ -748,7 +808,13 @@ namespace OloEngine
         // the FFT cascade slots so all water inputs stay contiguous; the
         // shader-graph user base shifts up by one to keep "after engine slots".
         static constexpr u32 TEX_WATER_PLANAR_REFLECTION = 52;
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 53; // First shader graph user texture slot (must be after all engine-reserved slots)
+        // Integrated froxel fog volume (sampler3D, RGBA16F: rgb = accumulated
+        // in-scatter, a = transmittance) written by the VolumetricFogPass
+        // compute chain and sampled by PostProcess_Fog.glsl (issue #435). The
+        // shader-graph user base shifts up by one, per the established
+        // procedure for new engine slots.
+        static constexpr u32 TEX_FROXEL_FOG = 53;
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 54; // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -921,6 +987,8 @@ namespace OloEngine
                            name.contains("Upscaler") || name.contains("upscaler");
                 case UBO_EASU:
                     return name.contains("EASU") || name.contains("easu");
+                case UBO_FROXEL_FOG:
+                    return name.contains("FroxelFog") || name.contains("froxelFog");
                 default:
                     return false;
             }
@@ -1039,6 +1107,9 @@ namespace OloEngine
                     // generic 10–42 range unchecked. Production: u_WaterSurfaceDepth.
                     return name == "u_WaterSurfaceDepth" ||
                            (name.contains("Water") && name.contains("Surface") && name.contains("Depth"));
+                case TEX_FROXEL_FOG:
+                    // Integrated froxel fog volume (issue #435): u_FroxelFogVolume.
+                    return name.contains("FroxelFog") || name.contains("froxelFog");
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)
@@ -1205,12 +1276,12 @@ layout(std140, binding = 6) uniform ShadowData {
     mat4 u_DirectionalLightSpaceMatrices[4];
     vec4 u_CascadePlaneDistances;
     vec4 u_ShadowParams;  // x=bias, y=normalBias, z=softness, w=maxShadowDistance
-    mat4 u_SpotLightSpaceMatrices[4];
-    vec4 u_PointLightShadowParams[4]; // xyz=position, w=farPlane
+    mat4 u_AtlasEntryMatrices[48];    // light VP per shadow-atlas entry (spot = 1 entry, point = 6 face entries)
+    vec4 u_AtlasEntryScaleOffset[48]; // xy = UV scale, zw = UV offset of the entry's atlas tile
     int u_DirectionalShadowEnabled;
-    int u_SpotShadowCount;
-    int u_PointShadowCount;
+    int u_AtlasEntryCount;
     int u_ShadowMapResolution;
+    int u_AtlasResolution;
     int u_CascadeDebugEnabled;
     int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
     int _shadowPad1;
@@ -1257,7 +1328,9 @@ layout(std140, binding = 23) uniform WaterParams {
         {
             return R"(
 layout(std140, binding = 25) uniform ForwardPlusParams {
-    uvec4 fplus_Params; // x = TileSizePixels, y = TileCountX, z = Enabled (0/1), w = reserved
+    uvec4 fplus_Params;       // x = ClusterCountX, y = ClusterCountY, z = Enabled (0/1), w = ClusterCountZ
+    vec4  fplus_TileScale;    // xy = clusterCount / screenSize, zw = unused
+    vec4  fplus_DepthSlicing; // x = sliceScale, y = sliceBias, z = zNear, w = zFar
 };)";
         }
 

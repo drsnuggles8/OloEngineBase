@@ -1,0 +1,433 @@
+Scene: VolumetricFogTest.olo
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1.2
+  BloomIntensity: 0.25
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+FogSettings:
+  Enabled: true
+  Mode: 1
+  Color: [0.45, 0.5, 0.58]
+  Density: 0.035
+  Start: 0
+  End: 150
+  HeightFalloff: 0.06
+  HeightOffset: 0
+  MaxOpacity: 0.95
+  EnableScattering: true
+  RayleighStrength: 0.5
+  MieStrength: 0.02
+  MieDirectionality: 0.7
+  RayleighColor: [0.27, 0.51, 0.83]
+  SunIntensity: 4
+  EnableVolumetric: true
+  VolumetricSamples: 64
+  AbsorptionCoefficient: 0.01
+  EnableNoise: true
+  NoiseScale: 0.06
+  NoiseSpeed: 0.4
+  NoiseIntensity: 0.5
+  EnableLightShafts: true
+  LightShaftIntensity: 1.2
+Entities:
+  - Entity: 435000000000001
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 30, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.45, -0.6, -0.35]
+      Color: [1, 0.95, 0.85]
+      Intensity: 3
+      CastShadows: true
+      ShadowBias: 0.003
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 250
+      CascadeSplitLambda: 0.6
+      CascadeDebugVisualization: false
+  - Entity: 435000000000002
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [120, 1, 120]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.35, 0.38]
+      Metallic: 0
+      Roughness: 0.95
+  - Entity: 435000000000003
+    TagComponent:
+      Tag: PillarA
+    TransformComponent:
+      Translation: [-14, 4, -8]
+      Rotation: [0, 0, 0]
+      Scale: [2, 8, 2]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.48, 0.45]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 435000000000004
+    TagComponent:
+      Tag: PillarB
+    TransformComponent:
+      Translation: [14, 4, -8]
+      Rotation: [0, 0, 0]
+      Scale: [2, 8, 2]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.48, 0.45]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 435000000000005
+    TagComponent:
+      Tag: PillarC
+    TransformComponent:
+      Translation: [0, 4, -20]
+      Rotation: [0, 0, 0]
+      Scale: [2, 8, 2]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.48, 0.45]
+      Metallic: 0
+      Roughness: 0.9
+  - Entity: 435000000000010
+    TagComponent:
+      Tag: RedLight
+    TransformComponent:
+      Translation: [-16, 3.5, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.12, 0.1]
+      Intensity: 35
+      Range: 12
+      Attenuation: 2
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 435000000000011
+    TagComponent:
+      Tag: GreenLight
+    TransformComponent:
+      Translation: [-8, 3.5, -4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.12, 1, 0.12]
+      Intensity: 35
+      Range: 12
+      Attenuation: 2
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 435000000000012
+    TagComponent:
+      Tag: BlueLight
+    TransformComponent:
+      Translation: [0, 3.5, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.15, 0.2, 1]
+      Intensity: 35
+      Range: 12
+      Attenuation: 2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 435000000000013
+    TagComponent:
+      Tag: AmberLight
+    TransformComponent:
+      Translation: [8, 3.5, -4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.75, 0.35]
+      Intensity: 35
+      Range: 12
+      Attenuation: 2
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 435000000000014
+    TagComponent:
+      Tag: CyanLight
+    TransformComponent:
+      Translation: [16, 3.5, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.2, 0.9, 1]
+      Intensity: 35
+      Range: 12
+      Attenuation: 2
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 435000000000015
+    TagComponent:
+      Tag: MagentaLight
+    TransformComponent:
+      Translation: [-4, 5, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.2, 0.9]
+      Intensity: 30
+      Range: 11
+      Attenuation: 2
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 435000000000016
+    TagComponent:
+      Tag: LimeLight
+    TransformComponent:
+      Translation: [4, 5, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.7, 1, 0.2]
+      Intensity: 30
+      Range: 11
+      Attenuation: 2
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 435000000000020
+    TagComponent:
+      Tag: SpotCaster0
+    TransformComponent:
+      Translation: [-20, 9, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0, -1, 0]
+      Color: [1, 1, 0.95]
+      Intensity: 55
+      Range: 18
+      InnerCutoff: 22
+      OuterCutoff: 32
+      Attenuation: 2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 435000000000021
+    TagComponent:
+      Tag: SpotOccluder0
+    TransformComponent:
+      Translation: [-20, 3.5, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 0.4, 1.8]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.6]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 435000000000022
+    TagComponent:
+      Tag: SpotCaster1
+    TransformComponent:
+      Translation: [-12, 9, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0, -1, 0]
+      Color: [1, 1, 0.95]
+      Intensity: 55
+      Range: 18
+      InnerCutoff: 22
+      OuterCutoff: 32
+      Attenuation: 2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 435000000000023
+    TagComponent:
+      Tag: SpotOccluder1
+    TransformComponent:
+      Translation: [-12, 3.5, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 0.4, 1.8]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.6]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 435000000000024
+    TagComponent:
+      Tag: SpotCaster2
+    TransformComponent:
+      Translation: [-4, 9, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0, -1, 0]
+      Color: [1, 1, 0.95]
+      Intensity: 55
+      Range: 18
+      InnerCutoff: 22
+      OuterCutoff: 32
+      Attenuation: 2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 435000000000025
+    TagComponent:
+      Tag: SpotOccluder2
+    TransformComponent:
+      Translation: [-4, 3.5, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 0.4, 1.8]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.6]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 435000000000026
+    TagComponent:
+      Tag: SpotCaster3
+    TransformComponent:
+      Translation: [4, 9, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0, -1, 0]
+      Color: [1, 1, 0.95]
+      Intensity: 55
+      Range: 18
+      InnerCutoff: 22
+      OuterCutoff: 32
+      Attenuation: 2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 435000000000027
+    TagComponent:
+      Tag: SpotOccluder3
+    TransformComponent:
+      Translation: [4, 3.5, -22]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 0.4, 1.8]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.6]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 435000000000028
+    TagComponent:
+      Tag: SpotCaster4
+    TransformComponent:
+      Translation: [12, 9, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0, -1, 0]
+      Color: [1, 1, 0.95]
+      Intensity: 55
+      Range: 18
+      InnerCutoff: 22
+      OuterCutoff: 32
+      Attenuation: 2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 435000000000029
+    TagComponent:
+      Tag: SpotOccluder4
+    TransformComponent:
+      Translation: [12, 3.5, -18]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 0.4, 1.8]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.6]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 435000000000030
+    TagComponent:
+      Tag: SpotCaster5
+    TransformComponent:
+      Translation: [20, 9, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Direction: [0, -1, 0]
+      Color: [1, 1, 0.95]
+      Intensity: 55
+      Range: 18
+      InnerCutoff: 22
+      OuterCutoff: 32
+      Attenuation: 2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  - Entity: 435000000000031
+    TagComponent:
+      Tag: SpotOccluder5
+    TransformComponent:
+      Translation: [20, 3.5, -14]
+      Rotation: [0, 0, 0]
+      Scale: [1.8, 0.4, 1.8]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.6, 0.6, 0.6]
+      Metallic: 0
+      Roughness: 1
+  - Entity: 435000000000040
+    TagComponent:
+      Tag: Main Camera
+    TransformComponent:
+      Translation: [0, 6, 26]
+      Rotation: [-0.15, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 1.0471976
+        PerspectiveNear: 0.1
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

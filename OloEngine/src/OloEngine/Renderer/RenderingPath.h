@@ -92,7 +92,6 @@ namespace OloEngine
         // path oscillation when light counts hover around the upgrade
         // threshold. Ignored if >= ForwardPlusLightThreshold (no hysteresis).
         u32 ForwardPlusLightThresholdDown = 4;
-        u32 ForwardPlusTileSize = 16; // 8, 16, or 32
         bool ForwardPlusDebugHeatmap = false;
 
         // --- Deferred tuning (when Path == Deferred) ---

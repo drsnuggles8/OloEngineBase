@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/LightCulling/LightCullingPass.h"
+#include "OloEngine/Renderer/LightCulling/ClusteredLighting.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -41,7 +42,8 @@ namespace OloEngine
                                     const LightCullingBuffer& lightBuffer,
                                     const glm::mat4& viewMatrix,
                                     const glm::mat4& projectionMatrix,
-                                    u32 depthTextureID)
+                                    f32 nearPlane,
+                                    f32 farPlane)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -76,25 +78,23 @@ namespace OloEngine
         lightBuffer.Bind();
         grid.Bind();
 
-        // Bind depth texture for tile frustum depth range extraction
-        RenderCommand::BindTexture(0, depthTextureID);
-
-        // Bind and set uniforms on the compute shader
+        // Bind and set uniforms on the compute shader. The shader derives the
+        // exponential slice bounds from near/far directly, mirroring
+        // ClusteredLighting::SliceNearDepth — the fragment-side scale/bias
+        // pair rides the ForwardPlusUBO (BindForShading), not this dispatch.
         m_CullingShader->Bind();
         m_CullingShader->SetMat4("u_ViewMatrix", viewMatrix);
         m_CullingShader->SetMat4("u_InverseProjectionMatrix", glm::inverse(projectionMatrix));
-        m_CullingShader->SetUint("u_ScreenWidth", grid.GetScreenWidth());
-        m_CullingShader->SetUint("u_ScreenHeight", grid.GetScreenHeight());
         m_CullingShader->SetUint("u_PointLightCount", pointLightCount);
         m_CullingShader->SetUint("u_SpotLightCount", spotLightCount);
         m_CullingShader->SetUint("u_SphereAreaLightCount", sphereAreaLightCount);
-        m_CullingShader->SetUint("u_TileSizePixels", grid.GetTileSizePixels());
-        m_CullingShader->SetUint("u_MaxLightsPerTile", grid.GetMaxLightsPerTile());
+        m_CullingShader->SetUint("u_MaxLightsPerCluster", grid.GetMaxLightsPerCluster());
+        m_CullingShader->SetFloat("u_NearPlane", std::max(nearPlane, ClusteredLighting::kMinNearPlane));
+        m_CullingShader->SetFloat("u_FarPlane", std::max(farPlane, nearPlane * (1.0f + 1e-3f)));
 
-        // Dispatch one workgroup per tile
-        const u32 groupsX = grid.GetTileCountX();
-        const u32 groupsY = grid.GetTileCountY();
-        RenderCommand::DispatchCompute(groupsX, groupsY, 1);
+        // Dispatch one workgroup per froxel cluster
+        RenderCommand::DispatchCompute(
+            grid.GetClusterCountX(), grid.GetClusterCountY(), grid.GetClusterCountZ());
 
         // Memory barrier: ensure SSBO writes are visible to fragment shaders
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);

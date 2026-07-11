@@ -49,41 +49,13 @@ namespace OloEngine
             }
         }
 
-        if (blackboard.Shadows.ShadowMapSpot.IsValid())
+        // The local-light shadow atlas is one depth target: every prioritised
+        // spot / point-face tile renders into sub-rects of it via per-entry
+        // viewports, so a single DepthStencil write declaration covers all of
+        // them (issue #435).
+        if (blackboard.Shadows.ShadowMapAtlas.IsValid())
         {
-            for (u32 light = 0; light < ShadowMap::MAX_SPOT_SHADOWS; ++light)
-            {
-                if (const auto spotLayerView = blackboard.Shadows.ShadowMapSpotLayers[light]; spotLayerView.IsValid())
-                {
-                    builder.Write(spotLayerView, RGWriteUsage::DepthStencil);
-                }
-                else
-                {
-                    builder.Write(blackboard.Shadows.ShadowMapSpot, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(light));
-                }
-            }
-        }
-
-        for (u32 light = 0; light < ShadowMap::MAX_POINT_SHADOWS; ++light)
-        {
-            const auto& pointHandle = blackboard.Shadows.ShadowMapPoint[light];
-            if (!pointHandle.IsValid())
-                continue;
-
-            for (u32 face = 0; face < FrameBlackboard::MaxShadowMapCubeFaces; ++face)
-            {
-                if (const auto faceView = blackboard.Shadows.ShadowMapPointFaces[light][face]; faceView.IsValid())
-                {
-                    builder.Write(faceView, RGWriteUsage::DepthStencil);
-                }
-                else
-                {
-                    RGSubresourceRange faceRange{};
-                    faceRange.BaseSlice = face;
-                    faceRange.SliceCount = 1u;
-                    builder.Write(pointHandle, RGWriteUsage::DepthStencil, faceRange);
-                }
-            }
+            builder.Write(blackboard.Shadows.ShadowMapAtlas, RGWriteUsage::DepthStencil);
         }
     }
 
@@ -201,39 +173,32 @@ namespace OloEngine
             }
         }
 
-        // Render spot light shadows
-        if (const auto& spotArray = m_ShadowMap->GetSpotTextureArray(); spotArray)
+        // Render the local-light shadow atlas (issue #435): attach the atlas
+        // once, clear it whole (glClear ignores the viewport), then render
+        // each entry — a spot tile or one point-light cube face — with the
+        // viewport set to its packed sub-rect. Rasterisation is clipped by
+        // the viewport, so tiles can't bleed into each other.
+        if (const auto& atlas = m_ShadowMap->GetAtlasTextureArray();
+            atlas && m_ShadowMap->GetAtlasEntryCount() > 0)
         {
-            const auto spotCount = static_cast<u32>(m_ShadowMap->GetSpotShadowCount());
-            for (u32 i = 0; i < spotCount; ++i)
-            {
-                m_ShadowFramebuffer->AttachDepthTextureArrayLayer(spotArray->GetRendererID(), i);
-                RenderCommand::ClearDepthOnly();
+            m_ShadowFramebuffer->AttachDepthTextureArrayLayer(atlas->GetRendererID(), 0);
+            // glClear honours the scissor box (not the viewport) — force it
+            // off so the whole-atlas clear can't be clipped by leaked state.
+            RenderCommand::DisableScissorTest();
+            RenderCommand::ClearDepthOnly();
 
-                const glm::mat4& lightVP = m_ShadowMap->GetSpotMatrix(i);
-                RenderCascadeOrFace(lightVP, ShadowPassType::Spot, i);
-            }
-        }
-
-        // Render point light shadow cubemaps (6 faces per light)
-        if (const auto pointCount = static_cast<u32>(m_ShadowMap->GetPointShadowCount()); pointCount > 0)
-        {
-            for (u32 light = 0; light < pointCount; ++light)
+            const u32 entryCount = m_ShadowMap->GetAtlasEntryCount();
+            for (u32 entry = 0; entry < entryCount; ++entry)
             {
-                const u32 cubemapID = m_ShadowMap->GetPointRendererID(light);
-                if (cubemapID == 0)
-                {
+                const auto& rect = m_ShadowMap->GetAtlasEntryRect(entry);
+                if (rect.Size == 0)
                     continue;
-                }
 
-                for (u32 face = 0; face < 6; ++face)
-                {
-                    m_ShadowFramebuffer->AttachDepthTextureArrayLayer(cubemapID, face);
-                    RenderCommand::ClearDepthOnly();
+                RenderCommand::SetViewport(rect.X, rect.Y, rect.Size, rect.Size);
 
-                    const glm::mat4& faceVP = m_ShadowMap->GetPointFaceMatrix(light, face);
-                    RenderCascadeOrFace(faceVP, ShadowPassType::Point, light);
-                }
+                const glm::mat4& lightVP = m_ShadowMap->GetAtlasEntryMatrix(entry);
+                const Frustum entryFrustum(lightVP);
+                RenderCascadeOrFace(lightVP, ShadowPassType::Atlas, entry, &entryFrustum);
             }
         }
 
@@ -280,20 +245,12 @@ namespace OloEngine
         // from origin and the displaced caster geometry no longer matches the lit
         // surface, detaching the shadow. No-op near origin (issue #429).
         cameraUBOData.RenderOrigin = renderOrigin;
-
-        if (type == ShadowPassType::Point)
-        {
-            const auto& params = shadowMap.GetPointShadowParams(layerOrLight);
-            // Point-light linear-depth compare uses distance(worldPos, lightPos);
-            // both are render-relative, so shift the light position too.
-            cameraUBOData.Position = glm::vec3(params) - renderOrigin;
-            cameraUBOData._padding0 = params.w; // far plane
-        }
-        else
-        {
-            cameraUBOData.Position = glm::vec3(0.0f);
-            cameraUBOData._padding0 = 0.0f;
-        }
+        // Every target — CSM cascades and atlas entries alike — renders
+        // standard projective depth now (the old linear-distance point-cubemap
+        // path died with the shadow atlas, issue #435), so no light position /
+        // far plane needs to ride the camera UBO.
+        cameraUBOData.Position = glm::vec3(0.0f);
+        cameraUBOData._padding0 = 0.0f;
 
         auto& cameraUBO = shadowMap.GetShadowCameraUBO();
         cameraUBO->SetData(&cameraUBOData, ShaderBindingLayout::CameraUBO::GetSize());
@@ -322,8 +279,7 @@ namespace OloEngine
 
         // ── Static meshes (auto-batched by shared VAO + index range) ──
         {
-            const char* shaderName = (type == ShadowPassType::Point) ? "ShadowDepthPoint" : "ShadowDepth";
-            auto shadowShader = Renderer3D::GetShaderLibrary().Get(shaderName);
+            auto shadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepth");
             if (shadowShader && !m_MeshCasters.empty())
             {
                 // Casters sharing (drawVao, indexCount, baseIndex) all read the
@@ -380,9 +336,7 @@ namespace OloEngine
                     char sourceLabel[64];
                     if (recording)
                     {
-                        const char* kind = (type == ShadowPassType::CSM)    ? "CSM cascade"
-                                           : (type == ShadowPassType::Spot) ? "Spot light"
-                                                                            : "Point light";
+                        const char* kind = (type == ShadowPassType::CSM) ? "CSM cascade" : "Atlas entry";
                         std::snprintf(sourceLabel, sizeof(sourceLabel), "Shadow %s %u", kind, layerOrLight);
                     }
                     for (const auto& batch : batches)
@@ -420,15 +374,7 @@ namespace OloEngine
         // ── Skinned meshes ──
         if (!m_SkinnedCasters.empty())
         {
-            Ref<Shader> skinnedShadowShader;
-            if (type == ShadowPassType::Point)
-            {
-                skinnedShadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepthPointSkinned");
-            }
-            else
-            {
-                skinnedShadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepthSkinned");
-            }
+            Ref<Shader> skinnedShadowShader = Renderer3D::GetShaderLibrary().Get("ShadowDepthSkinned");
             if (skinnedShadowShader)
             {
                 skinnedShadowShader->Bind();
@@ -459,8 +405,7 @@ namespace OloEngine
         // ── Terrain patches ──
         if (!m_TerrainCasters.empty())
         {
-            const char* terrainDepthName = (type == ShadowPassType::Point) ? "ShadowDepthPoint" : "Terrain_Depth";
-            auto terrainDepthShader = Renderer3D::GetShaderLibrary().Get(terrainDepthName);
+            auto terrainDepthShader = Renderer3D::GetShaderLibrary().Get("Terrain_Depth");
             if (!terrainDepthShader)
             {
                 terrainDepthShader = Renderer3D::GetTerrainDepthShader();

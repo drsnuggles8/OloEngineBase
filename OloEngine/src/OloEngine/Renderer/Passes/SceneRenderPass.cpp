@@ -41,17 +41,9 @@ namespace OloEngine
         {
             [[maybe_unused]] const auto shadowCSMRead = builder.Read(board.Shadows.ShadowMapCSM, RGReadUsage::ShaderSample);
         }
-        if (board.Shadows.ShadowMapSpot.IsValid())
+        if (board.Shadows.ShadowMapAtlas.IsValid())
         {
-            [[maybe_unused]] const auto shadowSpotRead = builder.Read(board.Shadows.ShadowMapSpot, RGReadUsage::ShaderSample);
-        }
-
-        for (const auto& pointHandle : board.Shadows.ShadowMapPoint)
-        {
-            if (pointHandle.IsValid())
-            {
-                [[maybe_unused]] const auto pointRead = builder.Read(pointHandle, RGReadUsage::ShaderSample);
-            }
+            [[maybe_unused]] const auto shadowAtlasRead = builder.Read(board.Shadows.ShadowMapAtlas, RGReadUsage::ShaderSample);
         }
 
         if (board.IBL.IrradianceMap.IsValid())
@@ -265,18 +257,18 @@ namespace OloEngine
             OcclusionCuller::GetInstance().FlushQueuedQueries();
         }
 
-        // Forward+ light culling: dispatch compute after depth is available.
-        // Both Forward+ and Deferred (which currently aliases to Forward+ for
-        // culling in ApplyRendererSettings) read depth from the active render
-        // target, so this works identically for either FB.
+        // Clustered Forward+ light culling (issue #435): the froxel cull is
+        // depth-independent (the fixed 3D cluster grid replaces the old
+        // per-tile min/max depth reduction), so it no longer gates on the
+        // depth prepass. Both Forward+ and Deferred (which aliases to
+        // Forward+ for culling in ApplyRendererSettings) consume the same
+        // cluster lists.
         auto& forwardPlus = Renderer3D::GetForwardPlus();
-        if (forwardPlus.ShouldUseForwardPlus() && depthPrepass)
+        if (forwardPlus.ShouldUseForwardPlus())
         {
-            const u32 depthTexID = renderFB->GetDepthAttachmentRendererID();
             forwardPlus.DispatchCulling(
                 Renderer3D::GetViewMatrix(),
-                Renderer3D::GetProjectionMatrix(),
-                depthTexID);
+                Renderer3D::GetProjectionMatrix());
             forwardPlus.BindForShading();
         }
 
@@ -321,7 +313,7 @@ namespace OloEngine
         }
 
         // Unbind Forward+ SSBOs after the color pass
-        if (forwardPlus.ShouldUseForwardPlus() && depthPrepass)
+        if (forwardPlus.ShouldUseForwardPlus())
         {
             // Render debug heatmap overlay before unbinding (needs grid SSBO + UBO).
             // Skip in Deferred mode — heatmap writes to attachment 0 which is

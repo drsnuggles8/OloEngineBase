@@ -88,25 +88,16 @@ namespace OloEngine
         // Raw-depth views alias the array storage tracked via the handles below,
         // so they need no separate Read()/barrier — just carry the GL ids.
         m_SelectedInputs.ShadowMapCSMRawID = blackboard.Shadows.ShadowMapCSMRawID;
-        m_SelectedInputs.ShadowMapSpotRawID = blackboard.Shadows.ShadowMapSpotRawID;
+        m_SelectedInputs.ShadowMapAtlasRawID = blackboard.Shadows.ShadowMapAtlasRawID;
         if (blackboard.Shadows.ShadowMapCSM.IsValid())
         {
             m_SelectedInputs.ShadowMapCSM = blackboard.Shadows.ShadowMapCSM;
             [[maybe_unused]] const auto shadowCSMRead = builder.Read(blackboard.Shadows.ShadowMapCSM, RGReadUsage::ShaderSample);
         }
-        if (blackboard.Shadows.ShadowMapSpot.IsValid())
+        if (blackboard.Shadows.ShadowMapAtlas.IsValid())
         {
-            m_SelectedInputs.ShadowMapSpot = blackboard.Shadows.ShadowMapSpot;
-            [[maybe_unused]] const auto shadowSpotRead = builder.Read(blackboard.Shadows.ShadowMapSpot, RGReadUsage::ShaderSample);
-        }
-        for (size_t i = 0; i < blackboard.Shadows.ShadowMapPoint.size() && i < m_SelectedInputs.ShadowMapPoint.size(); ++i)
-        {
-            const auto& pointHandle = blackboard.Shadows.ShadowMapPoint[i];
-            if (pointHandle.IsValid())
-            {
-                m_SelectedInputs.ShadowMapPoint[i] = pointHandle;
-                [[maybe_unused]] const auto pointRead = builder.Read(pointHandle, RGReadUsage::ShaderSample);
-            }
+            m_SelectedInputs.ShadowMapAtlas = blackboard.Shadows.ShadowMapAtlas;
+            [[maybe_unused]] const auto shadowAtlasRead = builder.Read(blackboard.Shadows.ShadowMapAtlas, RGReadUsage::ShaderSample);
         }
         if (blackboard.AO.AOBuffer.IsValid())
         {
@@ -217,6 +208,18 @@ namespace OloEngine
 
         CommandDispatch::BindSceneResources();
 
+        // Clustered Forward+ light lists (issue #435): BindSceneResources just
+        // uploaded the disabled-UBO baseline, and ScenePass unbound the cluster
+        // SSBOs after the G-Buffer pass — so without this re-bind the deferred
+        // lighting shader's `fplusActive` gate reads 0 and every local light
+        // falls back to the 256-cap MultiLight UBO loop. Re-bind so the
+        // deferred lighting draw consumes the same per-cluster lists as the
+        // forward paths (this was silently dead in the 2D-tile era).
+        auto& forwardPlus = Renderer3D::GetForwardPlus();
+        const bool clusteredActive = forwardPlus.ShouldUseForwardPlus();
+        if (clusteredActive)
+            forwardPlus.BindForShading();
+
         // Upload per-frame controls — IBL enable + intensity + cascade-debug
         // flag. Light-probe toggle mirrors RendererSettings::Deferred
         // .EnableLightProbes: Scene::OnUpdateRender always uploads the
@@ -326,39 +329,29 @@ namespace OloEngine
         const u32 csmShadowID = m_SelectedInputs.ShadowMapCSM.IsValid()
                                     ? context.ResolveTexture(m_SelectedInputs.ShadowMapCSM)
                                     : ShadowMap::GetCSMPlaceholderRendererID();
-        const u32 spotShadowID = m_SelectedInputs.ShadowMapSpot.IsValid()
-                                     ? context.ResolveTexture(m_SelectedInputs.ShadowMapSpot)
-                                     : ShadowMap::GetSpotPlaceholderRendererID();
+        const u32 atlasShadowID = m_SelectedInputs.ShadowMapAtlas.IsValid()
+                                      ? context.ResolveTexture(m_SelectedInputs.ShadowMapAtlas)
+                                      : ShadowMap::GetAtlasPlaceholderRendererID();
         context.BindTexture(ShaderBindingLayout::TEX_SHADOW, csmShadowID);
-        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_SPOT, spotShadowID);
+        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasShadowID);
         // Comparison-OFF raw-depth views for the PCSS blocker search (plain
         // sampler2DArray). Fall back to the raw placeholder so the declared
         // sampler always has a valid same-type binding.
         const u32 csmRawID = (m_SelectedInputs.ShadowMapCSMRawID != 0)
                                  ? m_SelectedInputs.ShadowMapCSMRawID
                                  : ShadowMap::GetCSMRawPlaceholderRendererID();
-        const u32 spotRawID = (m_SelectedInputs.ShadowMapSpotRawID != 0)
-                                  ? m_SelectedInputs.ShadowMapSpotRawID
-                                  : ShadowMap::GetSpotRawPlaceholderRendererID();
+        const u32 atlasRawID = (m_SelectedInputs.ShadowMapAtlasRawID != 0)
+                                   ? m_SelectedInputs.ShadowMapAtlasRawID
+                                   : ShadowMap::GetAtlasRawPlaceholderRendererID();
         context.BindTexture(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID);
-        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_SPOT_RAW, spotRawID);
-        static constexpr std::array<u32, 4u> pointShadowSlots = {
-            ShaderBindingLayout::TEX_SHADOW_POINT_0,
-            ShaderBindingLayout::TEX_SHADOW_POINT_1,
-            ShaderBindingLayout::TEX_SHADOW_POINT_2,
-            ShaderBindingLayout::TEX_SHADOW_POINT_3,
-        };
-        for (u32 i = 0u; i < pointShadowSlots.size(); ++i)
-        {
-            const u32 pointID = m_SelectedInputs.ShadowMapPoint[i].IsValid()
-                                    ? context.ResolveTexture(m_SelectedInputs.ShadowMapPoint[i])
-                                    : ShadowMap::GetPointPlaceholderRendererID();
-            context.BindTexture(pointShadowSlots[i], pointID);
-        }
+        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
         context.DrawIndexed(va);
+
+        if (clusteredActive)
+            forwardPlus.UnbindAfterShading();
 
         // Restore the full multi-attachment draw-buffer list so later passes
         // writing into RT1 (normal) / RT2 (emissive) / RT3 (velocity) target

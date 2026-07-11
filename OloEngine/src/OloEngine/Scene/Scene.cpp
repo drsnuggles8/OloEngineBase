@@ -5207,46 +5207,77 @@ namespace OloEngine
             std::vector<GPUSpotLight> fpSpotLights;
             std::vector<GPUSphereAreaLight> fpSphereAreaLights;
 
+            // Shadow-casting local lights become CANDIDATES for the budgeted
+            // shadow atlas (issue #435) instead of grabbing fixed slots
+            // first-come. After the light loops they are scored by screen
+            // influence, ranked, and packed (ShadowAtlas::Allocate); winners
+            // get their base atlas entry patched into BOTH light
+            // representations (MultiLightUBO Direction.w + the Forward+ GPU
+            // struct shadow fields) before upload.
+            struct LocalShadowCandidate
+            {
+                enum class Kind : u8
+                {
+                    Point,
+                    Spot,
+                    SphereArea
+                };
+                Kind SourceKind = Kind::Point;
+                i32 UboLightIndex = -1; // -1 when the light fell past the MultiLight cap
+                u32 FpIndex = 0;        // index into the matching fp* vector
+                glm::vec3 Position{ 0.0f };
+                glm::vec3 Direction{ 0.0f, 0.0f, -1.0f }; // spot only
+                f32 Range = 0.0f;
+                f32 OuterCutoff = 0.0f; // spot only (degrees)
+                f32 Intensity = 0.0f;
+            };
+            std::vector<LocalShadowCandidate> shadowCandidates;
+
             // Collect point lights
-            u32 pointShadowIndex = 0;
             auto pointLightView = m_Registry.view<TransformComponent, PointLightComponent>();
             fpPointLights.reserve(pointLightView.size_hint());
             for (auto entity : pointLightView)
             {
                 const auto& [transform, pointLight] = pointLightView.get<TransformComponent, PointLightComponent>(entity);
 
-                // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update)
+                // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update).
+                // ShadowAndAttenuation.x = -1 (no atlas entry) until the atlas
+                // allocation below patches the winners; .y carries the quadratic
+                // attenuation coefficient so the clustered path matches the
+                // MultiLightUBO falloff exactly.
                 fpPointLights.push_back({ glm::vec4(transform.Translation, pointLight.m_Range),
-                                          glm::vec4(pointLight.m_Color, pointLight.m_Intensity) });
+                                          glm::vec4(pointLight.m_Color, pointLight.m_Intensity),
+                                          glm::vec4(-1.0f, pointLight.m_Attenuation, 0.0f, 0.0f) });
 
                 // MultiLightUBO entry (shared mixed-type array, capped at MAX_LIGHTS)
-                if (lightIndex >= static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS))
+                const bool inUbo = lightIndex < static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS);
+                if (inUbo)
                 {
-                    continue;
+                    auto& data = multiLightData.Lights[lightIndex];
+                    data.Position = glm::vec4(transform.Translation, 1.0f); // w=1 for point
+                    data.Color = glm::vec4(pointLight.m_Color, pointLight.m_Intensity);
+                    data.AttenuationParams = glm::vec4(1.0f, 0.0f, pointLight.m_Attenuation, pointLight.m_Range);
+                    data.SpotParams = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);  // type = POINT_LIGHT = 1
+                    data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, -1.0f); // w = atlas base entry, patched below
                 }
 
-                auto& data = multiLightData.Lights[lightIndex];
-                data.Position = glm::vec4(transform.Translation, 1.0f); // w=1 for point
-                data.Color = glm::vec4(pointLight.m_Color, pointLight.m_Intensity);
-                data.AttenuationParams = glm::vec4(1.0f, 0.0f, pointLight.m_Attenuation, pointLight.m_Range);
-                data.SpotParams = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f); // type = POINT_LIGHT = 1
-
-                // Encode point shadow index in direction.w (-1 = no shadow)
-                if (pointLight.m_CastShadows && pointShadowIndex < ShadowMap::MAX_POINT_SHADOWS)
+                if (pointLight.m_CastShadows)
                 {
-                    data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, static_cast<f32>(pointShadowIndex));
-                    ++pointShadowIndex;
-                }
-                else
-                {
-                    data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, -1.0f);
+                    LocalShadowCandidate candidate;
+                    candidate.SourceKind = LocalShadowCandidate::Kind::Point;
+                    candidate.UboLightIndex = inUbo ? lightIndex : -1;
+                    candidate.FpIndex = static_cast<u32>(fpPointLights.size()) - 1;
+                    candidate.Position = transform.Translation;
+                    candidate.Range = pointLight.m_Range;
+                    candidate.Intensity = pointLight.m_Intensity;
+                    shadowCandidates.push_back(candidate);
                 }
 
-                ++lightIndex;
+                if (inUbo)
+                    ++lightIndex;
             }
 
             // Collect spot lights
-            u32 spotShadowIndex = 0;
             auto spotLightView = m_Registry.view<TransformComponent, SpotLightComponent>();
             fpSpotLights.reserve(spotLightView.size_hint());
             for (auto entity : spotLightView)
@@ -5257,41 +5288,47 @@ namespace OloEngine
                 // MultiLight UBO, and the spot-shadow projection below.
                 const glm::vec3 spotDir = sanitizeSpotDir(spotLight.m_Direction);
 
-                // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update)
+                // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update).
+                // SpotParams.z = -1 (no atlas entry) until the atlas
+                // allocation below patches the winners.
                 fpSpotLights.push_back({ glm::vec4(transform.Translation, spotLight.m_Range),
                                          glm::vec4(glm::normalize(spotDir), glm::cos(glm::radians(spotLight.m_OuterCutoff))),
                                          glm::vec4(spotLight.m_Color, spotLight.m_Intensity),
-                                         glm::vec4(glm::cos(glm::radians(spotLight.m_InnerCutoff)), spotLight.m_Attenuation, 0.0f, 0.0f) });
+                                         glm::vec4(glm::cos(glm::radians(spotLight.m_InnerCutoff)), spotLight.m_Attenuation, -1.0f, 0.0f) });
 
                 // MultiLightUBO entry (shared mixed-type array, capped at MAX_LIGHTS)
-                if (lightIndex >= static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS))
+                const bool inUbo = lightIndex < static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS);
+                if (inUbo)
                 {
-                    continue;
+                    auto& data = multiLightData.Lights[lightIndex];
+                    data.Position = glm::vec4(transform.Translation, 2.0f); // w=2 for spot
+                    data.Color = glm::vec4(spotLight.m_Color, spotLight.m_Intensity);
+                    data.AttenuationParams = glm::vec4(1.0f, 0.0f, spotLight.m_Attenuation, spotLight.m_Range);
+                    data.SpotParams = glm::vec4(
+                        glm::cos(glm::radians(spotLight.m_InnerCutoff)),
+                        glm::cos(glm::radians(spotLight.m_OuterCutoff)),
+                        1.0f,
+                        2.0f // type = SPOT_LIGHT = 2
+                    );
+                    data.Direction = glm::vec4(spotDir, -1.0f); // w = atlas base entry, patched below
                 }
 
-                auto& data = multiLightData.Lights[lightIndex];
-                data.Position = glm::vec4(transform.Translation, 2.0f); // w=2 for spot
-                data.Color = glm::vec4(spotLight.m_Color, spotLight.m_Intensity);
-                data.AttenuationParams = glm::vec4(1.0f, 0.0f, spotLight.m_Attenuation, spotLight.m_Range);
-                data.SpotParams = glm::vec4(
-                    glm::cos(glm::radians(spotLight.m_InnerCutoff)),
-                    glm::cos(glm::radians(spotLight.m_OuterCutoff)),
-                    1.0f,
-                    2.0f // type = SPOT_LIGHT = 2
-                );
-
-                // Encode spot shadow index in direction.w (-1 = no shadow)
-                if (spotLight.m_CastShadows && spotShadowIndex < ShadowMap::MAX_SPOT_SHADOWS)
+                if (spotLight.m_CastShadows)
                 {
-                    data.Direction = glm::vec4(spotDir, static_cast<f32>(spotShadowIndex));
-                    ++spotShadowIndex;
-                }
-                else
-                {
-                    data.Direction = glm::vec4(spotDir, -1.0f);
+                    LocalShadowCandidate candidate;
+                    candidate.SourceKind = LocalShadowCandidate::Kind::Spot;
+                    candidate.UboLightIndex = inUbo ? lightIndex : -1;
+                    candidate.FpIndex = static_cast<u32>(fpSpotLights.size()) - 1;
+                    candidate.Position = transform.Translation;
+                    candidate.Direction = spotDir;
+                    candidate.Range = spotLight.m_Range;
+                    candidate.OuterCutoff = spotLight.m_OuterCutoff;
+                    candidate.Intensity = spotLight.m_Intensity;
+                    shadowCandidates.push_back(candidate);
                 }
 
-                ++lightIndex;
+                if (inUbo)
+                    ++lightIndex;
             }
 
             // Collect sphere area lights. Packed into MultiLightData with the
@@ -5303,43 +5340,122 @@ namespace OloEngine
             {
                 const auto& [transform, areaLight] = sphereAreaLightView.get<TransformComponent, SphereAreaLightComponent>(entity);
 
-                // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update)
+                // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update).
+                // RangeAndPadding.y = -1 (no atlas entry) until patched below.
                 fpSphereAreaLights.push_back({ glm::vec4(transform.Translation, areaLight.m_Radius),
                                                glm::vec4(areaLight.m_Color, areaLight.m_Intensity),
-                                               glm::vec4(areaLight.m_Range, 0.0f, 0.0f, 0.0f) });
+                                               glm::vec4(areaLight.m_Range, -1.0f, 0.0f, 0.0f) });
 
                 // MultiLightUBO entry (shared mixed-type array, capped at MAX_LIGHTS)
-                if (lightIndex >= static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS))
+                const bool inUbo = lightIndex < static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS);
+                if (inUbo)
                 {
-                    continue;
+                    auto& data = multiLightData.Lights[lightIndex];
+                    data.Position = glm::vec4(transform.Translation, 3.0f); // w=3 for sphere area
+                    data.Color = glm::vec4(areaLight.m_Color, areaLight.m_Intensity);
+                    data.AttenuationParams = glm::vec4(1.0f, 0.0f, 0.0f, areaLight.m_Range);
+                    data.SpotParams = glm::vec4(0.0f, 0.0f, areaLight.m_Radius, 3.0f); // type = SPHERE_AREA_LIGHT = 3
+                    data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, -1.0f);              // w = atlas base entry, patched below
                 }
 
-                auto& data = multiLightData.Lights[lightIndex];
-                data.Position = glm::vec4(transform.Translation, 3.0f); // w=3 for sphere area
-                data.Color = glm::vec4(areaLight.m_Color, areaLight.m_Intensity);
-                data.AttenuationParams = glm::vec4(1.0f, 0.0f, 0.0f, areaLight.m_Range);
-                data.SpotParams = glm::vec4(0.0f, 0.0f, areaLight.m_Radius, 3.0f); // type = SPHERE_AREA_LIGHT = 3
-
-                // Sphere area lights cast hard shadows by treating the emitter as a
-                // point light at its centre (the representative point), so they
-                // borrow a slot from the SAME point-light cubemap pool — hence the
-                // shared pointShadowIndex counter, continued after the point lights
-                // above. The shadow index rides in direction.w exactly like point
-                // lights; the shader's POINT_LIGHT||SPHERE_AREA_LIGHT branch samples
-                // u_ShadowMapPointN with it. The setup loop below registers the
-                // matching cubemap via SetPointLightShadow at the same index.
-                if (areaLight.m_CastShadows && pointShadowIndex < ShadowMap::MAX_POINT_SHADOWS)
+                // Sphere area lights cast hard shadows by treating the emitter
+                // as a point light at its centre (the representative point):
+                // they compete for the shadow atlas as 6-face point casters.
+                if (areaLight.m_CastShadows)
                 {
-                    data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, static_cast<f32>(pointShadowIndex));
-                    ++pointShadowIndex;
-                }
-                else
-                {
-                    data.Direction = glm::vec4(0.0f, -1.0f, 0.0f, -1.0f); // no shadow
+                    LocalShadowCandidate candidate;
+                    candidate.SourceKind = LocalShadowCandidate::Kind::SphereArea;
+                    candidate.UboLightIndex = inUbo ? lightIndex : -1;
+                    candidate.FpIndex = static_cast<u32>(fpSphereAreaLights.size()) - 1;
+                    candidate.Position = transform.Translation;
+                    candidate.Range = areaLight.m_Range;
+                    candidate.Intensity = areaLight.m_Intensity;
+                    shadowCandidates.push_back(candidate);
                 }
 
-                ++lightIndex;
+                if (inUbo)
+                    ++lightIndex;
             }
+
+            // ---------------------------------------------------------------
+            // Shadow atlas prioritisation (issue #435) — score every casting
+            // local light by screen influence, rank, pack tiles, and patch the
+            // winners' atlas base entries into both light representations
+            // BEFORE the uploads below.
+            // ---------------------------------------------------------------
+            auto& shadowMap = Renderer3D::GetShadowMap();
+            shadowMap.BeginFrame();
+
+            if (hasDirectionalShadow && shadowMap.IsEnabled())
+            {
+                shadowMap.ComputeCSMCascades(
+                    directionalLightDir,
+                    viewMatrix,
+                    projectionMatrix,
+                    cameraNearClip,
+                    cameraFarClip);
+            }
+
+            if (shadowMap.IsEnabled() && !shadowCandidates.empty())
+            {
+                const Frustum cameraFrustum(viewProjection);
+
+                std::vector<ShadowAtlas::Candidate> scored;
+                scored.reserve(shadowCandidates.size());
+                for (const auto& candidate : shadowCandidates)
+                {
+                    ShadowAtlas::Candidate entry;
+                    entry.Type = (candidate.SourceKind == LocalShadowCandidate::Kind::Spot)
+                                     ? ShadowAtlas::CasterType::Spot
+                                     : ShadowAtlas::CasterType::Point;
+                    entry.Score = ShadowAtlas::ComputeScore(
+                        candidate.Position, candidate.Range, candidate.Intensity,
+                        cameraPosition, cameraFrustum);
+                    scored.push_back(entry);
+                }
+
+                const auto allocation = ShadowAtlas::Allocate(scored, shadowMap.GetAtlasResolution());
+
+                u32 totalEntries = 0;
+                for (const auto& accepted : allocation.Accepted)
+                {
+                    const auto& candidate = shadowCandidates[accepted.CandidateIndex];
+                    const f32 baseEntryF = static_cast<f32>(accepted.BaseEntry);
+
+                    if (candidate.SourceKind == LocalShadowCandidate::Kind::Spot)
+                    {
+                        shadowMap.SetAtlasEntry(
+                            accepted.BaseEntry,
+                            ShadowMap::BuildSpotLightMatrix(candidate.Position, candidate.Direction,
+                                                            candidate.OuterCutoff, candidate.Range),
+                            allocation.EntryRects[accepted.BaseEntry]);
+                        fpSpotLights[candidate.FpIndex].SpotParams.z = baseEntryF;
+                    }
+                    else
+                    {
+                        const auto faceMatrices = ShadowMap::BuildPointLightFaceMatrices(candidate.Position, candidate.Range);
+                        for (u32 face = 0; face < 6; ++face)
+                        {
+                            shadowMap.SetAtlasEntry(accepted.BaseEntry + face, faceMatrices[face],
+                                                    allocation.EntryRects[accepted.BaseEntry + face]);
+                        }
+                        if (candidate.SourceKind == LocalShadowCandidate::Kind::Point)
+                            fpPointLights[candidate.FpIndex].ShadowAndAttenuation.x = baseEntryF;
+                        else
+                            fpSphereAreaLights[candidate.FpIndex].RangeAndPadding.y = baseEntryF;
+                    }
+
+                    if (candidate.UboLightIndex >= 0)
+                        multiLightData.Lights[candidate.UboLightIndex].Direction.w = baseEntryF;
+
+                    totalEntries = std::max(totalEntries, accepted.BaseEntry + accepted.EntryCount);
+                }
+                shadowMap.SetAtlasEntryCount(totalEntries);
+            }
+
+            // Shadow sampling matrices go up camera-relative (issue #429) so
+            // they match the render-relative world positions the lit pass uses.
+            shadowMap.UploadUBO(Renderer3D::GetRenderOrigin());
 
             multiLightData.LightCount = lightIndex;
             multiLightData.MaxLights = static_cast<i32>(UBOStructures::MultiLightUBO::MAX_LIGHTS);
@@ -5420,108 +5536,8 @@ namespace OloEngine
                 }
             }
 
-            // Set up shadow mapping
-            auto& shadowMap = Renderer3D::GetShadowMap();
-            shadowMap.BeginFrame();
-
-            // CSM for directional light
-            if (hasDirectionalShadow && shadowMap.IsEnabled())
-            {
-                shadowMap.ComputeCSMCascades(
-                    directionalLightDir,
-                    viewMatrix,
-                    projectionMatrix,
-                    cameraNearClip,
-                    cameraFarClip);
-            }
-
-            // Spot light shadows
-            {
-                u32 spotIdx = 0;
-                for (auto entity : spotLightView)
-                {
-                    if (spotIdx >= ShadowMap::MAX_SPOT_SHADOWS)
-                    {
-                        break;
-                    }
-
-                    const auto& [transform, spotLight] = spotLightView.get<TransformComponent, SpotLightComponent>(entity);
-                    if (!spotLight.m_CastShadows)
-                    {
-                        continue;
-                    }
-
-                    shadowMap.SetSpotLightShadow(
-                        spotIdx,
-                        transform.Translation,
-                        sanitizeSpotDir(spotLight.m_Direction),
-                        spotLight.m_OuterCutoff,
-                        spotLight.m_Range);
-                    ++spotIdx;
-                }
-                shadowMap.SetSpotShadowCount(static_cast<i32>(spotIdx));
-            }
-
-            // Point light shadows
-            {
-                u32 pointIdx = 0;
-                for (auto entity : pointLightView)
-                {
-                    if (pointIdx >= ShadowMap::MAX_POINT_SHADOWS)
-                    {
-                        break;
-                    }
-
-                    const auto& [transform, pointLight] = pointLightView.get<TransformComponent, PointLightComponent>(entity);
-                    if (!pointLight.m_CastShadows)
-                    {
-                        continue;
-                    }
-
-                    shadowMap.SetPointLightShadow(
-                        pointIdx,
-                        transform.Translation,
-                        pointLight.m_Range);
-                    ++pointIdx;
-                }
-
-                // Sphere area lights share the point-light cubemap shadow pool:
-                // continue the SAME pointIdx so each casting area light gets a
-                // cubemap at the index its direction.w was tagged with in the
-                // light-upload loop above. Treated as a point at the sphere
-                // centre with the area light's range as the cubemap far plane —
-                // a hard representative-point shadow (soft penumbra from the
-                // emitter radius is a Phase-2 follow-up).
-                for (auto entity : sphereAreaLightView)
-                {
-                    if (pointIdx >= ShadowMap::MAX_POINT_SHADOWS)
-                    {
-                        break;
-                    }
-
-                    const auto& [transform, areaLight] =
-                        sphereAreaLightView.get<TransformComponent, SphereAreaLightComponent>(entity);
-                    if (!areaLight.m_CastShadows)
-                    {
-                        continue;
-                    }
-
-                    shadowMap.SetPointLightShadow(
-                        pointIdx,
-                        transform.Translation,
-                        areaLight.m_Range);
-                    ++pointIdx;
-                }
-
-                shadowMap.SetPointShadowCount(static_cast<i32>(pointIdx));
-            }
-
-            // Shadow sampling matrices go up camera-relative (issue #429) so
-            // they match the render-relative world positions the lit pass uses.
-            shadowMap.UploadUBO(Renderer3D::GetRenderOrigin());
-
             // Shadow casters will be submitted during entity traversal below.
-            // ShadowRenderPass::Execute() iterates them per cascade/face.
+            // ShadowRenderPass::Execute() iterates them per cascade/entry.
         }
 
         // Collect local fog volumes and upload to GPU

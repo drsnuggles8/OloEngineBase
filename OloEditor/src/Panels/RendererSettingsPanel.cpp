@@ -111,7 +111,6 @@ namespace OloEngine
             AppendChange(changes, "ForwardPlusAutoSwitch", before.ForwardPlusAutoSwitch, after.ForwardPlusAutoSwitch);
             AppendChange(changes, "ForwardPlusLightThreshold", before.ForwardPlusLightThreshold, after.ForwardPlusLightThreshold);
             AppendChange(changes, "ForwardPlusLightThresholdDown", before.ForwardPlusLightThresholdDown, after.ForwardPlusLightThresholdDown);
-            AppendChange(changes, "ForwardPlusTileSize", before.ForwardPlusTileSize, after.ForwardPlusTileSize);
             AppendChange(changes, "ForwardPlusDebugHeatmap", before.ForwardPlusDebugHeatmap, after.ForwardPlusDebugHeatmap);
 
             AppendChange(changes, "Deferred.MSAASampleCount", before.Deferred.MSAASampleCount, after.Deferred.MSAASampleCount);
@@ -607,29 +606,6 @@ namespace OloEngine
         {
             ImGui::Indent();
 
-            // Tile size
-            static const char* tileSizeItems[] = { "8", "16", "32" };
-            static const u32 tileSizeValues[] = { 8, 16, 32 };
-            int tileSizeIdx = 1;
-            for (int i = 0; i < 3; ++i)
-            {
-                if (tileSizeValues[i] == settings.ForwardPlusTileSize)
-                {
-                    tileSizeIdx = i;
-                    break;
-                }
-            }
-            if (ImGui::Combo("Tile Size (px)", &tileSizeIdx, tileSizeItems, IM_ARRAYSIZE(tileSizeItems)))
-            {
-                settings.ForwardPlusTileSize = tileSizeValues[tileSizeIdx];
-                Renderer3D::ApplyRendererSettings();
-            }
-            if (settings.ForwardPlusTileSize != 16)
-            {
-                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
-                                   "Compute shader workgroup is 16x16; other tile sizes partially sample depth.");
-            }
-
             if (ImGui::Checkbox("Debug Heatmap Overlay", &settings.ForwardPlusDebugHeatmap))
             {
                 Renderer3D::ApplyRendererSettings();
@@ -646,7 +622,8 @@ namespace OloEngine
                 ImGui::Separator();
                 ImGui::Text("Point Lights: %u", fplus.GetPointLightCount());
                 ImGui::Text("Spot Lights:  %u", fplus.GetSpotLightCount());
-                ImGui::Text("Grid:         %ux%u tiles", fplus.GetTileCountX(), fplus.GetTileCountY());
+                ImGui::Text("Clusters:     %ux%ux%u froxels", fplus.GetClusterCountX(),
+                            fplus.GetClusterCountY(), fplus.GetClusterCountZ());
             }
 
             ImGui::Unindent();

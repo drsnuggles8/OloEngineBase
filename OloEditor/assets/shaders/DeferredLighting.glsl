@@ -37,7 +37,6 @@ void main()
 
 #include "include/PBRCommon.glsl"
 #include "include/LightProbeSampling.glsl"
-#include "include/ForwardPlusCommon.glsl"
 
 // Camera UBO (binding 0)
 layout(std140, binding = 0) uniform CameraMatrices {
@@ -69,12 +68,12 @@ layout(std140, binding = 6) uniform ShadowData {
     mat4 u_DirectionalLightSpaceMatrices[4];
     vec4 u_CascadePlaneDistances;
     vec4 u_ShadowParams;
-    mat4 u_SpotLightSpaceMatrices[4];
-    vec4 u_PointLightShadowParams[4];
+    mat4 u_AtlasEntryMatrices[48];    // light VP per shadow-atlas entry (spot = 1 entry, point = 6 face entries)
+    vec4 u_AtlasEntryScaleOffset[48]; // xy = UV scale, zw = UV offset of the entry's atlas tile
     int u_DirectionalShadowEnabled;
-    int u_SpotShadowCount;
-    int u_PointShadowCount;
+    int u_AtlasEntryCount;
     int u_ShadowMapResolution;
+    int u_AtlasResolution;
     int u_CascadeDebugEnabled;
     int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
     int _shadowPad1;
@@ -98,16 +97,17 @@ layout(binding = 10) uniform samplerCube u_IrradianceMap;
 layout(binding = 11) uniform samplerCube u_PrefilterMap;
 layout(binding = 12) uniform sampler2D   u_BRDFLutMap;
 
-// Shadow maps — identical slots to PBR_MultiLight.
+// Shadow maps — identical slots to PBR_MultiLight (CSM + atlas, issue #435).
 layout(binding = 8)  uniform sampler2DArrayShadow u_ShadowMapCSM;
-layout(binding = 13) uniform sampler2DArrayShadow u_ShadowMapSpot;
-// Comparison-OFF raw-depth views of the arrays above for the PCSS blocker search.
+layout(binding = 13) uniform sampler2DArrayShadow u_ShadowAtlas;
+// Comparison-OFF raw-depth views of the textures above for the PCSS blocker search.
 layout(binding = 33) uniform sampler2DArray u_ShadowMapCSMRaw;
-layout(binding = 34) uniform sampler2DArray u_ShadowMapSpotRaw;
-layout(binding = 14) uniform samplerCubeShadow   u_ShadowMapPoint0;
-layout(binding = 15) uniform samplerCubeShadow   u_ShadowMapPoint1;
-layout(binding = 16) uniform samplerCubeShadow   u_ShadowMapPoint2;
-layout(binding = 17) uniform samplerCubeShadow   u_ShadowMapPoint3;
+layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
+
+// Clustered light lists (issue #435) — included after the ShadowData block +
+// atlas samplers so the evaluator can attenuate culled lights by their entry.
+#define FPLUS_ATLAS_SHADOWS 1
+#include "include/ForwardPlusCommon.glsl"
 
 // G-Buffer samplers (non-MSAA variant).
 layout(binding = 43) uniform sampler2D u_GBufferAlbedo;

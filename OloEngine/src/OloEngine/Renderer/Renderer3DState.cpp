@@ -404,7 +404,6 @@ namespace OloEngine
         // depthprepass lever's 'auto' token, so the two can't drift.
         EnableDepthPrepass(ComputeSettingsDerivedDepthPrepass());
 
-        fplus.SetTileSize(settings.ForwardPlusTileSize);
         fplus.SetDebugVisualization(settings.ForwardPlusDebugHeatmap);
     }
 

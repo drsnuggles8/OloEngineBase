@@ -140,7 +140,8 @@ TEST_F(CascadeSplitTest, DifferentLambdasProduceDifferentDistributions)
 // =============================================================================
 // ShadowMap Light-Space Matrix Tests (no GL context needed)
 // =============================================================================
-// ComputeCSMCascades, SetSpotLightShadow, SetPointLightShadow are pure math
+// ComputeCSMCascades and the static BuildSpotLightMatrix /
+// BuildPointLightFaceMatrices atlas-entry builders (issue #435) are pure math
 // on a default-constructed ShadowMap (Init not required for math-only paths).
 
 class ShadowMapMatrixTest : public ::testing::Test
@@ -240,16 +241,14 @@ TEST_F(ShadowMapMatrixTest, CSMMatricesProjectKnownPointToValidNDC)
         << "A point in the camera frustum should project into valid NDC range in at least one cascade";
 }
 
-TEST_F(ShadowMapMatrixTest, SpotLightShadowProducesValidPerspectiveMatrix)
+TEST_F(ShadowMapMatrixTest, SpotLightMatrixProducesValidPerspectiveProjection)
 {
     const glm::vec3 position(5.0f, 10.0f, 5.0f);
     const glm::vec3 direction(0.0f, -1.0f, 0.0f);
     constexpr f32 outerCutoff = 30.0f; // degrees
     constexpr f32 range = 50.0f;
 
-    shadowMap.SetSpotLightShadow(0, position, direction, outerCutoff, range);
-
-    const glm::mat4& m = shadowMap.GetSpotMatrix(0);
+    const glm::mat4 m = ShadowMap::BuildSpotLightMatrix(position, direction, outerCutoff, range);
     EXPECT_NE(m, glm::mat4(1.0f)) << "Spot matrix should not be identity";
     EXPECT_NE(m, glm::mat4(0.0f)) << "Spot matrix should not be zero";
 
@@ -267,20 +266,21 @@ TEST_F(ShadowMapMatrixTest, SpotLightShadowProducesValidPerspectiveMatrix)
     EXPECT_LE(ndc.z, 1.0f);
 }
 
-TEST_F(ShadowMapMatrixTest, SpotLightIndexOutOfRangeIsIgnored)
+TEST_F(ShadowMapMatrixTest, AtlasEntryIndexOutOfRangeIsIgnored)
 {
-    const glm::vec3 position(0.0f, 10.0f, 0.0f);
-    const glm::vec3 direction(0.0f, -1.0f, 0.0f);
+    const glm::mat4 m = ShadowMap::BuildSpotLightMatrix(
+        glm::vec3(0.0f, 10.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f), 30.0f, 50.0f);
+    const ShadowAtlas::TileRect rect{ 0, 0, 512 };
 
-    // Set a valid spotlight first
-    shadowMap.SetSpotLightShadow(0, position, direction, 30.0f, 50.0f);
-    const glm::mat4 before = shadowMap.GetSpotMatrix(0);
+    // Set a valid entry first
+    shadowMap.SetAtlasEntry(0, m, rect);
+    const glm::mat4 before = shadowMap.GetAtlasEntryMatrix(0);
 
     // Out-of-range index should not crash or change existing data
-    shadowMap.SetSpotLightShadow(ShadowMap::MAX_SPOT_SHADOWS, position, direction, 30.0f, 50.0f);
-    shadowMap.SetSpotLightShadow(ShadowMap::MAX_SPOT_SHADOWS + 1, position, direction, 30.0f, 50.0f);
+    shadowMap.SetAtlasEntry(ShadowMap::MAX_SHADOW_ATLAS_ENTRIES, m * 2.0f, rect);
+    shadowMap.SetAtlasEntry(ShadowMap::MAX_SHADOW_ATLAS_ENTRIES + 1, m * 2.0f, rect);
 
-    EXPECT_EQ(shadowMap.GetSpotMatrix(0), before) << "Valid data should be unchanged";
+    EXPECT_EQ(shadowMap.GetAtlasEntryMatrix(0), before) << "Valid data should be unchanged";
 }
 
 TEST_F(ShadowMapMatrixTest, PointLightProduces6FaceMatrices)
@@ -288,14 +288,13 @@ TEST_F(ShadowMapMatrixTest, PointLightProduces6FaceMatrices)
     const glm::vec3 position(0.0f, 5.0f, 0.0f);
     constexpr f32 range = 25.0f;
 
-    shadowMap.SetPointLightShadow(0, position, range);
+    const auto faces = ShadowMap::BuildPointLightFaceMatrices(position, range);
 
     // All 6 face matrices should be non-identity and distinct
     for (u32 face = 0; face < 6; ++face)
     {
-        const glm::mat4& m = shadowMap.GetPointFaceMatrix(0, face);
-        EXPECT_NE(m, glm::mat4(0.0f)) << "Face " << face << " matrix should not be zero";
-        EXPECT_NE(m, glm::mat4(1.0f)) << "Face " << face << " matrix should not be identity";
+        EXPECT_NE(faces[face], glm::mat4(0.0f)) << "Face " << face << " matrix should not be zero";
+        EXPECT_NE(faces[face], glm::mat4(1.0f)) << "Face " << face << " matrix should not be identity";
     }
 
     // Each face matrix should be different from every other face
@@ -303,35 +302,10 @@ TEST_F(ShadowMapMatrixTest, PointLightProduces6FaceMatrices)
     {
         for (u32 b = a + 1; b < 6; ++b)
         {
-            EXPECT_NE(shadowMap.GetPointFaceMatrix(0, a), shadowMap.GetPointFaceMatrix(0, b))
+            EXPECT_NE(faces[a], faces[b])
                 << "Face " << a << " and face " << b << " matrices should differ";
         }
     }
-}
-
-TEST_F(ShadowMapMatrixTest, PointLightShadowParamsStorePositionAndRange)
-{
-    const glm::vec3 position(10.0f, 20.0f, 30.0f);
-    constexpr f32 range = 42.0f;
-
-    shadowMap.SetPointLightShadow(0, position, range);
-
-    const glm::vec4& params = shadowMap.GetPointShadowParams(0);
-    EXPECT_FLOAT_EQ(params.x, position.x);
-    EXPECT_FLOAT_EQ(params.y, position.y);
-    EXPECT_FLOAT_EQ(params.z, position.z);
-    EXPECT_FLOAT_EQ(params.w, range);
-}
-
-TEST_F(ShadowMapMatrixTest, PointLightIndexOutOfRangeIsIgnored)
-{
-    const glm::vec3 pos(1.0f, 2.0f, 3.0f);
-    shadowMap.SetPointLightShadow(0, pos, 10.0f);
-    const glm::vec4 before = shadowMap.GetPointShadowParams(0);
-
-    // Out-of-range should silently return
-    shadowMap.SetPointLightShadow(ShadowMap::MAX_POINT_SHADOWS, pos, 10.0f);
-    EXPECT_EQ(shadowMap.GetPointShadowParams(0), before);
 }
 
 TEST_F(ShadowMapMatrixTest, PointLightFaceMatricesProject90DegreeFOV)
@@ -339,11 +313,11 @@ TEST_F(ShadowMapMatrixTest, PointLightFaceMatricesProject90DegreeFOV)
     const glm::vec3 position(0.0f, 0.0f, 0.0f);
     constexpr f32 range = 25.0f;
 
-    shadowMap.SetPointLightShadow(0, position, range);
+    const auto faces = ShadowMap::BuildPointLightFaceMatrices(position, range);
 
     // A point on the +X axis should project to the center of face 0 (+X face)
     const glm::vec4 testPoint(10.0f, 0.0f, 0.0f, 1.0f);
-    const glm::vec4 clipPos = shadowMap.GetPointFaceMatrix(0, 0) * testPoint;
+    const glm::vec4 clipPos = faces[0] * testPoint;
     ASSERT_GT(std::abs(clipPos.w), 1e-6f);
     const glm::vec3 ndc = glm::vec3(clipPos) / clipPos.w;
 
@@ -355,46 +329,53 @@ TEST_F(ShadowMapMatrixTest, PointLightFaceMatricesProject90DegreeFOV)
     EXPECT_LT(ndc.z, 1.0f);
 }
 
-// Sphere area-light shadows reuse the SAME point-light cubemap pool: Scene.cpp
-// registers a casting area light via SetPointLightShadow at an index that
-// continues after the point lights, with the area light's range as the far
-// plane. This pins that the reuse path stores independent, valid data for a
-// point light at slot 0 and an area light at slot 1 — no aliasing between the
-// two, and the area light's range round-trips as the cubemap far plane.
-TEST_F(ShadowMapMatrixTest, SphereAreaLightReusesPointPoolAtNextSlot)
+// The shader-side atlasCubeFace() dominant-axis selector must agree with the
+// face ORDER of BuildPointLightFaceMatrices: a point along each cardinal axis
+// must project into the NDC centre of exactly the face the selector picks.
+TEST_F(ShadowMapMatrixTest, PointFaceOrderMatchesDominantAxisSelection)
 {
-    const glm::vec3 pointPos(0.0f, 5.0f, 0.0f);
-    constexpr f32 pointRange = 25.0f;
-    const glm::vec3 areaCentre(8.0f, 4.0f, -2.0f);
-    constexpr f32 areaRange = 12.0f;
+    const glm::vec3 position(0.0f, 0.0f, 0.0f);
+    const auto faces = ShadowMap::BuildPointLightFaceMatrices(position, 25.0f);
 
-    // Slot 0: a point light. Slot 1: a sphere area light (centre + range),
-    // exactly the calls Scene.cpp makes for the shared pool.
-    shadowMap.SetPointLightShadow(0, pointPos, pointRange);
-    shadowMap.SetPointLightShadow(1, areaCentre, areaRange);
-
-    // The area light's params round-trip independently of the point light's.
-    const glm::vec4& areaParams = shadowMap.GetPointShadowParams(1);
-    EXPECT_FLOAT_EQ(areaParams.x, areaCentre.x);
-    EXPECT_FLOAT_EQ(areaParams.y, areaCentre.y);
-    EXPECT_FLOAT_EQ(areaParams.z, areaCentre.z);
-    EXPECT_FLOAT_EQ(areaParams.w, areaRange) << "area-light range must drive the cubemap far plane";
-
-    // Slot 0 is untouched by the slot-1 write (no aliasing).
-    const glm::vec4& pointParams = shadowMap.GetPointShadowParams(0);
-    EXPECT_FLOAT_EQ(pointParams.x, pointPos.x);
-    EXPECT_FLOAT_EQ(pointParams.w, pointRange);
-
-    // The area light gets its own 6 distinct, non-trivial face matrices, and
-    // they differ from the point light's (different centre).
-    for (u32 face = 0; face < 6; ++face)
+    // CPU mirror of PBRCommon.glsl::atlasCubeFace
+    const auto atlasCubeFace = [](const glm::vec3& dir) -> u32
     {
-        const glm::mat4& m = shadowMap.GetPointFaceMatrix(1, face);
-        EXPECT_NE(m, glm::mat4(0.0f)) << "area-light face " << face << " is zero";
-        EXPECT_NE(m, glm::mat4(1.0f)) << "area-light face " << face << " is identity";
-        EXPECT_NE(m, shadowMap.GetPointFaceMatrix(0, face))
-            << "area-light face " << face << " aliases the point light's face";
+        const glm::vec3 a = glm::abs(dir);
+        if (a.x >= a.y && a.x >= a.z)
+            return dir.x > 0.0f ? 0u : 1u;
+        if (a.y >= a.z)
+            return dir.y > 0.0f ? 2u : 3u;
+        return dir.z > 0.0f ? 4u : 5u;
+    };
+
+    const std::array<glm::vec3, 6> axisPoints = {
+        glm::vec3(10, 0, 0), glm::vec3(-10, 0, 0),
+        glm::vec3(0, 10, 0), glm::vec3(0, -10, 0),
+        glm::vec3(0, 0, 10), glm::vec3(0, 0, -10)
+    };
+
+    for (const auto& p : axisPoints)
+    {
+        const u32 face = atlasCubeFace(p - position);
+        const glm::vec4 clipPos = faces[face] * glm::vec4(p, 1.0f);
+        ASSERT_GT(clipPos.w, 1e-6f) << "point must be in FRONT of its selected face";
+        const glm::vec3 ndc = glm::vec3(clipPos) / clipPos.w;
+        EXPECT_NEAR(ndc.x, 0.0f, 0.15f) << "axis point off-centre on its face";
+        EXPECT_NEAR(ndc.y, 0.0f, 0.15f) << "axis point off-centre on its face";
+        EXPECT_GT(ndc.z, 0.0f);
+        EXPECT_LT(ndc.z, 1.0f);
     }
+}
+
+TEST_F(ShadowMapMatrixTest, AtlasEntryScaleOffsetMapsTileIntoAtlasUV)
+{
+    // A 1024 tile at pixel (2048, 1024) in a 4096 atlas maps light-space UV
+    // [0,1] into atlas UV [0.5..0.75] x [0.25..0.5].
+    const glm::vec4 so = ShadowAtlas::TileScaleOffset({ 2048, 1024, 1024 }, 4096);
+    EXPECT_FLOAT_EQ(so.x, 0.25f);
+    EXPECT_FLOAT_EQ(so.y, 0.25f);
+    EXPECT_FLOAT_EQ(so.z, 0.5f);
+    EXPECT_FLOAT_EQ(so.w, 0.25f);
 }
 
 // =============================================================================
@@ -404,13 +385,11 @@ TEST_F(ShadowMapMatrixTest, SphereAreaLightReusesPointPoolAtNextSlot)
 TEST_F(ShadowMapMatrixTest, BeginFrameResetsPerFrameState)
 {
     shadowMap.SetDirectionalShadowEnabled(true);
-    shadowMap.SetSpotShadowCount(3);
-    shadowMap.SetPointShadowCount(2);
+    shadowMap.SetAtlasEntryCount(7);
 
     shadowMap.BeginFrame();
 
-    EXPECT_EQ(shadowMap.GetSpotShadowCount(), 0);
-    EXPECT_EQ(shadowMap.GetPointShadowCount(), 0);
+    EXPECT_EQ(shadowMap.GetAtlasEntryCount(), 0u);
 }
 
 // =============================================================================
@@ -436,17 +415,10 @@ TEST_F(ShadowMapMatrixTest, AnyShadowsRequestedTrueForDirectional)
     EXPECT_TRUE(shadowMap.AnyShadowsRequested());
 }
 
-TEST_F(ShadowMapMatrixTest, AnyShadowsRequestedTrueForSpot)
+TEST_F(ShadowMapMatrixTest, AnyShadowsRequestedTrueForAtlasEntries)
 {
     shadowMap.BeginFrame();
-    shadowMap.SetSpotShadowCount(1);
-    EXPECT_TRUE(shadowMap.AnyShadowsRequested());
-}
-
-TEST_F(ShadowMapMatrixTest, AnyShadowsRequestedTrueForPoint)
-{
-    shadowMap.BeginFrame();
-    shadowMap.SetPointShadowCount(1);
+    shadowMap.SetAtlasEntryCount(1);
     EXPECT_TRUE(shadowMap.AnyShadowsRequested());
 }
 
@@ -471,14 +443,13 @@ TEST_F(ShadowMapMatrixTest, ComputeCSMCascadesRequestsDirectionalShadow)
 TEST_F(ShadowMapMatrixTest, BeginFrameClearsShadowsRequested)
 {
     shadowMap.SetDirectionalShadowEnabled(true);
-    shadowMap.SetSpotShadowCount(3);
-    shadowMap.SetPointShadowCount(2);
+    shadowMap.SetAtlasEntryCount(5);
     EXPECT_TRUE(shadowMap.AnyShadowsRequested());
 
-    // BeginFrame must clear ALL three request sources — including the
-    // directional flag, which has no dedicated getter — so a frame that stops
-    // casting shadows correctly early-outs the pass instead of re-using last
-    // frame's stale request.
+    // BeginFrame must clear BOTH request sources — including the directional
+    // flag, which has no dedicated getter — so a frame that stops casting
+    // shadows correctly early-outs the pass instead of re-using last frame's
+    // stale request.
     shadowMap.BeginFrame();
     EXPECT_FALSE(shadowMap.AnyShadowsRequested());
 }
@@ -557,17 +528,20 @@ TEST(ShadowUBOTest, StructSizeMultipleOf16)
 TEST(ShadowUBOTest, MaxConstants)
 {
     EXPECT_EQ(UBOStructures::ShadowUBO::MAX_CSM_CASCADES, 4u);
-    EXPECT_EQ(UBOStructures::ShadowUBO::MAX_SPOT_SHADOWS, 4u);
-    EXPECT_EQ(UBOStructures::ShadowUBO::MAX_POINT_SHADOWS, 4u);
+    // The budgeted atlas (issue #435) replaced the fixed 4-spot / 4-point
+    // caps: the entry budget must comfortably exceed the old 4 + 4*6 = 28
+    // entries the fixed layout could express.
+    EXPECT_EQ(UBOStructures::ShadowUBO::MAX_SHADOW_ATLAS_ENTRIES, 48u);
+    EXPECT_GT(UBOStructures::ShadowUBO::MAX_SHADOW_ATLAS_ENTRIES, 4u + 4u * 6u);
 }
 
 TEST(ShadowUBOTest, DefaultInitializationZeroed)
 {
     UBOStructures::ShadowUBO ubo{};
     EXPECT_EQ(ubo.DirectionalShadowEnabled, 0);
-    EXPECT_EQ(ubo.SpotShadowCount, 0);
-    EXPECT_EQ(ubo.PointShadowCount, 0);
+    EXPECT_EQ(ubo.AtlasEntryCount, 0);
     EXPECT_EQ(ubo.ShadowMapResolution, 0);
+    EXPECT_EQ(ubo.AtlasResolution, 0);
     EXPECT_EQ(ubo.CascadeDebugEnabled, 0);
 }
 
@@ -618,11 +592,11 @@ TEST(ShaderBindingLayoutTest, ShadowUBOBinding)
 TEST(ShaderBindingLayoutTest, ShadowTextureBindings)
 {
     EXPECT_EQ(ShaderBindingLayout::TEX_SHADOW, 8u);
-    EXPECT_EQ(ShaderBindingLayout::TEX_SHADOW_SPOT, 13u);
-    EXPECT_EQ(ShaderBindingLayout::TEX_SHADOW_POINT_0, 14u);
-    EXPECT_EQ(ShaderBindingLayout::TEX_SHADOW_POINT_1, 15u);
-    EXPECT_EQ(ShaderBindingLayout::TEX_SHADOW_POINT_2, 16u);
-    EXPECT_EQ(ShaderBindingLayout::TEX_SHADOW_POINT_3, 17u);
+    // The atlas took the old spot-array slot; the four freed point-cubemap
+    // slots (14-17) no longer have constants.
+    EXPECT_EQ(ShaderBindingLayout::TEX_SHADOW_ATLAS, 13u);
+    EXPECT_EQ(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, 33u);
+    EXPECT_EQ(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, 34u);
 }
 
 TEST(ShaderBindingLayoutTest, ShadowBindingsDoNotConflict)
@@ -634,6 +608,6 @@ TEST(ShaderBindingLayoutTest, ShadowBindingsDoNotConflict)
 
     EXPECT_NE(ShaderBindingLayout::TEX_SHADOW, ShaderBindingLayout::TEX_DIFFUSE);
     EXPECT_NE(ShaderBindingLayout::TEX_SHADOW, ShaderBindingLayout::TEX_NORMAL);
-    EXPECT_NE(ShaderBindingLayout::TEX_SHADOW_SPOT, ShaderBindingLayout::TEX_SHADOW);
-    EXPECT_NE(ShaderBindingLayout::TEX_SHADOW_POINT_0, ShaderBindingLayout::TEX_SHADOW_SPOT);
+    EXPECT_NE(ShaderBindingLayout::TEX_SHADOW_ATLAS, ShaderBindingLayout::TEX_SHADOW);
+    EXPECT_NE(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, ShaderBindingLayout::TEX_SHADOW_CSM_RAW);
 }

@@ -1585,7 +1585,6 @@ namespace OloEngine
             ShadowMap Shadow;
             Ref<Shader> ShadowDepthShader;
             Ref<Shader> ShadowDepthSkinnedShader;
-            Ref<Shader> ShadowDepthPointSkinnedShader;
 
             // Depth-prepass depth-only programs (see GetDepthPrepassShaderIDs)
             Ref<Shader> DepthPrepassShader;

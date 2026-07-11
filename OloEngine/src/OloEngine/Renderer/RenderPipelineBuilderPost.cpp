@@ -60,6 +60,14 @@ namespace OloEngine::RenderPipelineBuilderInternal
                                        inputs.Passes->TAA));
         graph.AddNode(PrepareGraphNode("PrecipitationPass",
                                        inputs.Passes->Precipitation));
+        // Froxel volumetric fog compute chain (issue #435): builds the 3D
+        // in-scatter/transmittance volume the FogPass composites. Registered
+        // right before FogPass; orders itself after ScenePass (cluster lists)
+        // + ShadowPass (CSM/atlas reads) via its Setup declarations.
+        if (inputs.Passes->VolumetricFog)
+        {
+            graph.AddNode(PrepareGraphNode("VolumetricFogPass", inputs.Passes->VolumetricFog));
+        }
         graph.AddNode(PrepareGraphNode("FogPass",
                                        inputs.Passes->Fog));
         graph.AddNode(PrepareGraphNode("ChromAberrationPass",

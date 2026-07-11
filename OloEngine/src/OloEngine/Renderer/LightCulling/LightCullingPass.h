@@ -9,11 +9,14 @@
 
 namespace OloEngine
 {
-    // @brief Dispatches the light culling compute shader for Forward+ rendering.
+    // @brief Dispatches the clustered (froxel) light culling compute shader
+    // for Forward+ rendering (issue #435).
     //
-    // Reads depth buffer + light SSBOs, writes per-tile light index lists and
-    // grid (offset, count). Called between the depth pre-pass and
-    // the color pass within SceneRenderPass::Execute().
+    // Reads the light SSBOs and writes per-cluster light index lists and the
+    // cluster grid (offset, count). One workgroup per froxel cluster; no
+    // depth input — every cluster in the fixed 3D grid is culled against the
+    // scene lights. Called between the depth pre-pass and the color pass
+    // within SceneRenderPass::Execute().
     class LightCullingPass
     {
       public:
@@ -24,12 +27,16 @@ namespace OloEngine
         void Shutdown();
         void Reload();
 
-        // Dispatch the light culling compute shader
+        // Dispatch the light culling compute shader. nearPlane/farPlane are
+        // the camera clip planes driving the exponential depth-slice mapping
+        // (extract via ClusteredLighting::ExtractClipPlanes when only the
+        // projection matrix is available).
         void Dispatch(LightGrid& grid,
                       const LightCullingBuffer& lightBuffer,
                       const glm::mat4& viewMatrix,
                       const glm::mat4& projectionMatrix,
-                      u32 depthTextureID);
+                      f32 nearPlane,
+                      f32 farPlane);
 
         [[nodiscard]] bool IsValid() const;
 

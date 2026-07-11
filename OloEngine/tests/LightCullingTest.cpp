@@ -15,7 +15,10 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 
 TEST(ForwardPlus, GPUPointLightSize)
 {
-    EXPECT_EQ(sizeof(GPUPointLight), 32u);
+    // Grew from 32 B with issue #435: ShadowAndAttenuation carries the base
+    // shadow-atlas entry (x) and the quadratic attenuation coefficient (y)
+    // so clustered shading matches the brute-force path's falloff.
+    EXPECT_EQ(sizeof(GPUPointLight), 48u);
     EXPECT_EQ(sizeof(GPUPointLight) % 16, 0u); // vec4-aligned
 }
 
@@ -33,60 +36,39 @@ TEST(ForwardPlus, GPUSphereAreaLightSize)
 
 TEST(ForwardPlus, ForwardPlusUBOSize)
 {
-    EXPECT_EQ(sizeof(UBOStructures::ForwardPlusUBO), 16u);
+    // uvec4 Params + vec4 TileScale + vec4 DepthSlicing (clustered, #435)
+    EXPECT_EQ(sizeof(UBOStructures::ForwardPlusUBO), 48u);
     EXPECT_EQ(sizeof(UBOStructures::ForwardPlusUBO) % 16, 0u); // std140
 }
 
 // =============================================================================
-// LightGridConfig tests
+// LightGridConfig tests (clustered froxel grid, issue #435)
 // =============================================================================
 
 TEST(ForwardPlus, DefaultGridConfig)
 {
     LightGridConfig config;
-    EXPECT_EQ(config.TileSizePixels, 16u);
-    EXPECT_EQ(config.MaxLightsPerTile, 256u);
+    EXPECT_EQ(config.ClusterCountX, ClusteredLighting::kClusterCountX);
+    EXPECT_EQ(config.ClusterCountY, ClusteredLighting::kClusterCountY);
+    EXPECT_EQ(config.ClusterCountZ, ClusteredLighting::kClusterCountZ);
+    EXPECT_EQ(config.MaxLightsPerCluster, ClusteredLighting::kMaxLightsPerCluster);
+
+    // The compute shader's shared-memory array (MAX_SHARED_LIGHTS = 256 in
+    // LightCulling.comp) is the hard per-cluster cap; the config default must
+    // not exceed it or overflowing lights would be silently dropped
+    // inconsistently between the count and the written indices.
+    EXPECT_LE(config.MaxLightsPerCluster, 256u);
 }
 
-TEST(ForwardPlus, TileCountCalculation)
+TEST(ForwardPlus, ClusterGridTotalMatchesDimensions)
 {
-    // 1920x1080 with 16px tiles
-    u32 width = 1920;
-    u32 height = 1080;
-    u32 tileSize = 16;
-
-    u32 tileCountX = (width + tileSize - 1) / tileSize;
-    u32 tileCountY = (height + tileSize - 1) / tileSize;
-
-    EXPECT_EQ(tileCountX, 120u);
-    EXPECT_EQ(tileCountY, 68u); // ceil(1080/16) = 67.5 -> 68
-}
-
-TEST(ForwardPlus, TileCountCalculationNonMultiple)
-{
-    // 1366x768 with 16px tiles (non-power-of-two resolution)
-    u32 width = 1366;
-    u32 height = 768;
-    u32 tileSize = 16;
-
-    u32 tileCountX = (width + tileSize - 1) / tileSize;
-    u32 tileCountY = (height + tileSize - 1) / tileSize;
-
-    EXPECT_EQ(tileCountX, 86u); // ceil(1366/16) = 85.375 -> 86
-    EXPECT_EQ(tileCountY, 48u); // 768/16 = 48 exact
-}
-
-TEST(ForwardPlus, TileCountWith32pxTiles)
-{
-    u32 width = 1920;
-    u32 height = 1080;
-    u32 tileSize = 32;
-
-    u32 tileCountX = (width + tileSize - 1) / tileSize;
-    u32 tileCountY = (height + tileSize - 1) / tileSize;
-
-    EXPECT_EQ(tileCountX, 60u);
-    EXPECT_EQ(tileCountY, 34u); // ceil(1080/32) = 33.75 -> 34
+    LightGridConfig config;
+    const u32 total = config.ClusterCountX * config.ClusterCountY * config.ClusterCountZ;
+    EXPECT_EQ(total, ClusteredLighting::kTotalClusters);
+    // GPU memory sanity: the fixed-count index list must stay well under
+    // typical SSBO budgets (kTotalClusters * kMaxLightsPerCluster * 4 B).
+    const u64 indexBytes = static_cast<u64>(total) * config.MaxLightsPerCluster * sizeof(u32);
+    EXPECT_LT(indexBytes, 64ull * 1024ull * 1024ull);
 }
 
 // =============================================================================
@@ -158,7 +140,7 @@ TEST(ForwardPlus, SpotLightPacking)
 
     EXPECT_FLOAT_EQ(sl.DirectionAndAngle.w, 0.9f); // cos(outerAngle)
     EXPECT_FLOAT_EQ(sl.SpotParams.x, 0.95f);       // cos(innerAngle)
-    EXPECT_FLOAT_EQ(sl.SpotParams.y, 2.0f);        // falloff
+    EXPECT_FLOAT_EQ(sl.SpotParams.y, 2.0f);        // quadratic attenuation coefficient
 }
 
 TEST(ForwardPlus, SphereAreaLightPacking)

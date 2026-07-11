@@ -84,16 +84,9 @@ namespace OloEngine
         {
             [[maybe_unused]] const auto r = builder.Read(blackboard.Shadows.ShadowMapCSM, RGReadUsage::ShaderSample);
         }
-        if (blackboard.Shadows.ShadowMapSpot.IsValid())
+        if (blackboard.Shadows.ShadowMapAtlas.IsValid())
         {
-            [[maybe_unused]] const auto r = builder.Read(blackboard.Shadows.ShadowMapSpot, RGReadUsage::ShaderSample);
-        }
-        for (const auto& pointHandle : blackboard.Shadows.ShadowMapPoint)
-        {
-            if (pointHandle.IsValid())
-            {
-                [[maybe_unused]] const auto r = builder.Read(pointHandle, RGReadUsage::ShaderSample);
-            }
+            [[maybe_unused]] const auto r = builder.Read(blackboard.Shadows.ShadowMapAtlas, RGReadUsage::ShaderSample);
         }
         if (blackboard.IBL.PrefilterMap.IsValid())
         {

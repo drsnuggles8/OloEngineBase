@@ -46,6 +46,7 @@ namespace OloEngine
         RenderGraphNode* MotionBlur = nullptr;
         RenderGraphNode* TAA = nullptr;
         RenderGraphNode* Precipitation = nullptr;
+        RenderGraphNode* VolumetricFog = nullptr;
         RenderGraphNode* Fog = nullptr;
         RenderGraphNode* ChromAberration = nullptr;
         RenderGraphNode* ColorGrading = nullptr;

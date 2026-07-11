@@ -18,12 +18,12 @@ TEST(RenderingRegression, ShadowUBOIntFieldsDefaultZeroed)
     UBOStructures::ShadowUBO ubo;
     EXPECT_EQ(ubo.DirectionalShadowEnabled, 0)
         << "DirectionalShadowEnabled must default to 0";
-    EXPECT_EQ(ubo.SpotShadowCount, 0)
-        << "SpotShadowCount must default to 0";
-    EXPECT_EQ(ubo.PointShadowCount, 0)
-        << "PointShadowCount must default to 0";
+    EXPECT_EQ(ubo.AtlasEntryCount, 0)
+        << "AtlasEntryCount must default to 0";
     EXPECT_EQ(ubo.ShadowMapResolution, 0)
         << "ShadowMapResolution must default to 0";
+    EXPECT_EQ(ubo.AtlasResolution, 0)
+        << "AtlasResolution must default to 0";
     EXPECT_EQ(ubo.CascadeDebugEnabled, 0)
         << "CascadeDebugEnabled must default to 0 — non-zero causes"
            " red/green/blue/yellow cascade tinting";

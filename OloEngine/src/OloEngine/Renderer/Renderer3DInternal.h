@@ -39,6 +39,7 @@
 #include "OloEngine/Renderer/Passes/DepthVelocityUpscalePass.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
+#include "OloEngine/Renderer/Passes/VolumetricFogPass.h"
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
 #include "OloEngine/Renderer/Texture.h"
 
@@ -60,6 +61,7 @@ namespace OloEngine
         Ref<MotionBlurRenderPass> MotionBlur;
         Ref<TAARenderPass> TAA;
         Ref<PrecipitationRenderPass> Precipitation;
+        Ref<VolumetricFogPass> VolumetricFog;
         Ref<FogRenderPass> Fog;
         Ref<ChromaticAberrationRenderPass> ChromAberration;
         Ref<ColorGradingRenderPass> ColorGrading;
@@ -86,6 +88,7 @@ namespace OloEngine
             MotionBlur.Reset();
             TAA.Reset();
             Precipitation.Reset();
+            VolumetricFog.Reset();
             Fog.Reset();
             ChromAberration.Reset();
             ColorGrading.Reset();
@@ -163,9 +166,7 @@ namespace OloEngine
         RenderStreamPassSet RenderStreamPasses;
         PostProcessPassChain PostProcessPasses;
         Ref<Texture2D> TAAHistoryTexture;
-        Ref<Texture2D> FogHistoryTexture;
         bool TAAHistoryValid = false;
-        bool FogHistoryValid = false;
 
         [[nodiscard]] auto GetRenderStreamNode(const RenderStreamType stream) -> CommandBufferRenderPass*
         {
@@ -217,9 +218,7 @@ namespace OloEngine
             RenderStreamPasses.Reset();
             PostProcessPasses.Reset();
             TAAHistoryTexture.Reset();
-            FogHistoryTexture.Reset();
             TAAHistoryValid = false;
-            FogHistoryValid = false;
             InvalidateBlackboardCache();
         }
 
