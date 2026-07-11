@@ -33,6 +33,7 @@
 #include "OloEngine/Scene/Scene.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <future>
 #include <optional>
@@ -107,6 +108,9 @@ namespace
             tool.InputSchema = SetCollisionLayer::InputSchema();
             tool.Handler = [this](McpServer&, const Json& args) -> ToolResult
             {
+                // Probe: proves whether the handler was actually entered. A cancel
+                // that reaches the call before write initiation must leave this false.
+                m_HandlerEntered.store(true, std::memory_order_release);
                 u64 entityUuid = 0;
                 u32 layer = 0;
                 if (const auto error = SetCollisionLayer::ParseArgs(args, entityUuid, layer))
@@ -149,6 +153,7 @@ namespace
 
         static constexpr u32 kInitialLayer = 0;
 
+        std::atomic<bool> m_HandlerEntered{ false }; // raised at the top of the tool handler
         Ref<Scene> m_Scene;
         CommandHistory m_History;
         u64 m_EntityUuid = 0;
@@ -384,6 +389,41 @@ TEST_F(McpConsentedWriteTest, PromptModeUnrelatedCancelDoesNotAbortWrite)
     EXPECT_FALSE(resp["result"]["isError"]);
     EXPECT_EQ(CurrentLayer(), 3u);
     EXPECT_TRUE(m_History.CanUndo());
+}
+
+// Barrier-based linearizability guard (issue #610 review): a cancellation that
+// reaches the call between the final consent check and handler start must never
+// initiate the write. The Prompt-mode consent modal is the barrier — the worker is
+// deterministically parked there (write registered, handler NOT yet reached) when
+// the cancel arrives. The handler-entered probe proves the write was never even
+// begun: it must stay false, so there is no "ran the write then discarded it" race.
+TEST_F(McpConsentedWriteTest, CancelBeforeHandlerStartNeverInitiatesWrite)
+{
+    m_Server.SetWriteConsentMode(WriteConsentMode::Prompt);
+    m_Server.SetConsentTimeout(std::chrono::seconds(30));
+
+    std::future<Json> call = std::async(std::launch::async, [this]
+                                        { return m_Server.HandleMessage(
+                                              MakeCallRequest(30, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", 3 } })); });
+
+    // Barrier: the worker is now parked on the consent modal — past registration,
+    // before the handler.
+    const u64 id = WaitForPendingConsent();
+    ASSERT_NE(id, 0u) << "no consent prompt surfaced";
+    ASSERT_FALSE(m_HandlerEntered.load(std::memory_order_acquire)) << "handler ran before consent";
+
+    // Cancel while parked. The call must unwind to a cancelled response without ever
+    // entering the handler.
+    (void)m_Server.HandleMessage(MakeCancelNotification(30));
+
+    const Json resp = call.get();
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], kRequestCancelledCode);
+
+    // The write was never initiated — handler untouched, field unchanged, no undo.
+    EXPECT_FALSE(m_HandlerEntered.load(std::memory_order_acquire)) << "cancelled write must not initiate the handler";
+    EXPECT_EQ(CurrentLayer(), kInitialLayer);
+    EXPECT_FALSE(m_History.CanUndo());
 }
 
 // AllowSession (== the legacy gate-on) never prompts — the queue stays empty.

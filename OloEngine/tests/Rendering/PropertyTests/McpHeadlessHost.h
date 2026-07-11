@@ -135,6 +135,19 @@ namespace OloEngine::Tests
         McpHeadlessHost(const McpHeadlessHost&) = delete;
         McpHeadlessHost& operator=(const McpHeadlessHost&) = delete;
 
+        // Ephemeral-port sampling policy for a derived (basePort == 0) bind, shared by
+        // Start() and DerivePidPort(). DerivePidPort() samples [kPortRangeLo,
+        // kPortRangeLo + kPortRangeSpan), where Windows reserves CONTIGUOUS excluded
+        // TCP blocks up to ~700 ports wide (Hyper-V / WSL / Docker dynamic reservations
+        // — a bind there fails with AccessDenied). Start() strides by kPortStride — a
+        // prime WIDER than the widest such block — so a run of bind failures leaps
+        // clear on the next attempt; gcd(kPortStride, kPortRangeSpan) == 1 keeps every
+        // candidate distinct and the mod-wrap holds them all in the non-privileged
+        // range (issue #610 follow-up).
+        static constexpr u32 kPortRangeLo = 20000;
+        static constexpr u32 kPortRangeSpan = 40000; // ports [20000, 59999]
+        static constexpr u32 kPortStride = 769;      // prime > widest observed exclusion block (~700)
+
         // Start the server, binding a free port. basePort == 0 derives a per-process
         // base so parallel ctest processes don't collide; a non-zero basePort is a
         // deliberate choice (the driver's per-worktree OLO_MCP_PORT, which the agent
@@ -158,24 +171,14 @@ namespace OloEngine::Tests
                 return 0;
             }
 
-            // Derived base: DerivePidPort() samples [20000, 59999], where Windows
-            // reserves CONTIGUOUS excluded TCP blocks up to ~700 ports wide (Hyper-V /
-            // WSL / Docker dynamic reservations — a bind there fails with AccessDenied).
-            // The old +1 step could land every attempt inside one such block and bind
-            // nothing (the McpHeadlessAttach / McpPerfSettle port-bind flake, issue
-            // #610 follow-up). Stride by a prime WIDER than the widest realistic
-            // exclusion block so a run of failures leaps clear of it on the very next
-            // attempt; gcd(stride, span) == 1 keeps all `attempts` candidates distinct,
-            // and the mod-wrap holds every candidate inside the ephemeral range (never
-            // a privileged < 1024 port).
-            constexpr u32 kStride = 769; // prime > widest observed exclusion block (~700)
-            constexpr u32 kRangeLo = 20000;
-            constexpr u32 kRangeSpan = 40000; // [20000, 59999]
+            // Derived base: leap contiguous Windows excluded-port blocks by striding
+            // kPortStride within the [kPortRangeLo, +kPortRangeSpan) ephemeral range
+            // (see the constants above for the full rationale).
             const u32 base = DerivePidPort();
             for (int i = 0; i < attempts; ++i)
             {
                 const u32 candidate =
-                    kRangeLo + ((base - kRangeLo + static_cast<u32>(i) * kStride) % kRangeSpan);
+                    kPortRangeLo + ((base - kPortRangeLo + static_cast<u32>(i) * kPortStride) % kPortRangeSpan);
                 if (m_Server->Start(static_cast<u16>(candidate)))
                     return static_cast<u16>(candidate);
             }
@@ -447,17 +450,17 @@ namespace OloEngine::Tests
             return ctx;
         }
 
-        // A per-process base port in [20000, 60000) so two MCP-hosting test
-        // processes under `ctest --parallel` start their bind sweep at different
-        // ports. The address of a static varies across processes (ASLR) and is
-        // header-free; even if two processes collide, Start()'s ascending bind
-        // sweep moves the loser forward (bind is atomic), so this only shortens
+        // A per-process base port in [kPortRangeLo, kPortRangeLo + kPortRangeSpan) so
+        // two MCP-hosting test processes under `ctest --parallel` start their bind
+        // sweep at different ports. The address of a static varies across processes
+        // (ASLR) and is header-free; even if two processes collide, Start()'s strided
+        // bind sweep moves the loser forward (bind is atomic), so this only shortens
         // the sweep, it isn't relied on for correctness.
         [[nodiscard]] static u16 DerivePidPort()
         {
             static int anchor = 0;
             const auto bits = reinterpret_cast<std::uintptr_t>(&anchor);
-            return static_cast<u16>(20000 + static_cast<u32>(bits % 40000u));
+            return static_cast<u16>(kPortRangeLo + static_cast<u32>(bits % kPortRangeSpan));
         }
 
         Hooks m_Hooks;

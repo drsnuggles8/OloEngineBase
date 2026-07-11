@@ -1733,6 +1733,20 @@ namespace OloEngine::MCP
             }
         }
 
+        // Linearization point for the consent→handler transition (issue #610 review):
+        // a notifications/cancelled observed by now — after consent was granted but
+        // before the write starts — prevents the handler from running at all, instead
+        // of executing the (undoable) write and discarding its result at the
+        // post-handler check below. The CancelFlag is a single atomic, so this load is
+        // ordered strictly before or after the cancel store in the flag's modification
+        // order: load == true ⇒ the cancel is "before" write initiation ⇒ don't run;
+        // load == false ⇒ execution has started and any later cancel is handled by the
+        // handler's cooperative IsCurrentCallCancelled() polling + the post-handler
+        // discard. (A CAS state machine would add no further guarantee here — a
+        // mid-run cancel can always reach an opaque handler.)
+        if (scope.CancelFlag->load(std::memory_order_acquire))
+            return MakeError(id, kRequestCancelledCode, "Request cancelled");
+
         ToolResult result;
         try
         {
