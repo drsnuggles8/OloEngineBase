@@ -604,6 +604,7 @@ add_executable(OloEngine-Tests
 		Functional/Scripting/LuaRaycastHitsPhysicsBodyTest.cpp
 		Functional/Scripting/LuaCompletesQuestViaIncrementObjectiveTest.cpp
 		Functional/Dialogue/DialogueAdvanceMovesToNextNodeTest.cpp
+		Functional/Dialogue/DialogueAdvanceGuardsRemovedComponentTest.cpp
 		Functional/Gameplay/InventoryTransferItemBetweenContainersTest.cpp
 		Functional/Gameplay/InventoryShopTradingTest.cpp
 		Functional/Gameplay/ChanneledAbilityAutoDeactivatesAtEndOfDurationTest.cpp

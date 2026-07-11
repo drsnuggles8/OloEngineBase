@@ -92,6 +92,47 @@ TEST(GameplayEventBusTest, PublishWithNoSubscribersIsNoOp)
     EXPECT_EQ(bus.HandlerCount<AlphaEvent>(), 0u);
 }
 
+TEST(GameplayEventBusTest, SubscribingDuringDispatchOfSameEventTypeDoesNotCrashOrCorruptIteration)
+{
+    // A handler that lazily subscribes another handler for the SAME event
+    // type mid-Publish() used to reallocate the handler vector out from under
+    // the range-for loop iterating it (dangling iterators). No current engine
+    // caller does this, but the bus's own contract doesn't forbid it, so it
+    // must be safe.
+    GameplayEventBus bus;
+    std::vector<int> order;
+    bool resubscribed = false;
+
+    bus.Subscribe<AlphaEvent>(
+        [&](const AlphaEvent& e)
+        {
+            order.push_back(1);
+            if (!resubscribed)
+            {
+                resubscribed = true;
+                bus.Subscribe<AlphaEvent>([&](const AlphaEvent&)
+                                          { order.push_back(99); });
+            }
+        });
+    bus.Subscribe<AlphaEvent>([&](const AlphaEvent&)
+                              { order.push_back(2); });
+
+    EXPECT_NO_THROW(bus.Publish(AlphaEvent{ 0 }));
+
+    // The handler subscribed mid-dispatch must not itself fire during this
+    // same Publish() — only the two handlers present at the start of the
+    // loop do — but it must be registered correctly for the next Publish().
+    ASSERT_EQ(order.size(), 2u);
+    EXPECT_EQ(order[0], 1);
+    EXPECT_EQ(order[1], 2);
+    EXPECT_EQ(bus.HandlerCount<AlphaEvent>(), 3u);
+
+    order.clear();
+    bus.Publish(AlphaEvent{ 0 });
+    ASSERT_EQ(order.size(), 3u);
+    EXPECT_EQ(order[2], 99);
+}
+
 TEST(GameplayEventBusTest, ClearDropsAllSubscriptions)
 {
     GameplayEventBus bus;

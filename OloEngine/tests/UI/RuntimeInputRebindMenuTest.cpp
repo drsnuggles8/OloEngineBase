@@ -13,6 +13,7 @@
 #include "OloEngine/Core/InputAction.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/KeyCodes.h"
+#include "OloEngine/Events/KeyEvent.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
@@ -169,4 +170,24 @@ TEST_F(RuntimeInputRebindMenuTest, OpenSuppressesUINavigationAndCloseRestoresIt)
     EXPECT_TRUE(m_Scene->GetUINavigation().IsInputSuppressed());
     m_Menu.Close();
     EXPECT_FALSE(m_Scene->GetUINavigation().IsInputSuppressed());
+}
+
+TEST_F(RuntimeInputRebindMenuTest, EscapeCancelsGamepadCaptureEvenThoughOnlyKeyboardMouseIsPolled)
+{
+    // Enter gamepad capture (the "Pad" button path) — the overlay tells the
+    // player "(Esc to cancel)" but PollGamepad() never sees keyboard input,
+    // and the old OnEvent() early-returned unless GetCaptureMode() was
+    // KeyboardMouse, so Escape used to be silently dropped with no
+    // controller connected. It must now cancel just the capture, not close
+    // the whole menu.
+    m_Menu.Controller().BeginCaptureNew("Jump", /*gamepad=*/true);
+    ASSERT_TRUE(m_Menu.Controller().IsCapturing());
+    ASSERT_EQ(m_Menu.Controller().GetCaptureMode(), InputRebindController::CaptureMode::Gamepad);
+
+    KeyPressedEvent escapeEvent(Key::Escape);
+    const bool handled = m_Menu.OnEvent(escapeEvent);
+
+    EXPECT_TRUE(handled);
+    EXPECT_FALSE(m_Menu.Controller().IsCapturing());
+    EXPECT_TRUE(m_Menu.IsOpen()) << "Escape must cancel only the in-progress capture, not the whole menu.";
 }
