@@ -4,166 +4,231 @@
 [![Sanitizers](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/asan.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/asan.yml)
 [![Cross-Vendor Conformance](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/cross-vendor.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/cross-vendor.yml)
 [![Fuzz Smoke](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/fuzz.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/fuzz.yml)
-[![CodeQL](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/codeql.yml)
 [![SonarCloud Scan](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/SonarCloud.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/SonarCloud.yml)
 [![Pre-commit checks](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/pre-commit.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/pre-commit.yml)
 
-OloEngine is primarily an early-stage cross-platform (Windows and Linux) interactive application and rendering engine based on [Hazel](https://github.com/TheCherno/Hazel/).
+**OloEngine** is a cross-platform (Windows / Linux) C++23 interactive-application and rendering engine. It started as a follow-along of [Hazel](https://github.com/TheCherno/Hazel/) but has since grown well past that scope into a full ECS-driven engine with a physically-based OpenGL 4.6 renderer, 2D/3D physics, dual C#/Lua scripting, networking, navigation, procedural terrain and environmental systems, a gameplay/AI stack, and an ImGui editor.
 
 ## Screenshots
 
-### 3D Physics Integration
-![3D Physics](assets/3d_physics.png)
+Metallic and dielectric PBR spheres (a roughness sweep) reflecting a procedural star-nest sky:
 
-### Animated Models
-![Animated Models](assets/animated_models.png)
+![PBR materials reflecting a procedural sky](assets/pbr_materials.png)
 
-### PBR Material Rendering
-![PBR Model](assets/pbr_model.png)
+| PBR model | Animated models | 3D physics | FFT ocean |
+| --- | --- | --- | --- |
+| ![PBR model](assets/pbr_model.png) | ![Animated models](assets/animated_models.png) | ![3D physics](assets/3d_physics.png) | ![FFT ocean](assets/fft_ocean.png) |
 
-## Getting Started
+## Table of contents
 
-**Supported platforms:** Windows (Visual Studio 2026 via the default `msvc` preset; Visual Studio 2022 also supported via `scripts/Win-GenerateProjectVS2022.bat`), Linux (GCC 14+).
-WSL can compile all targets and run OloServer, but OloEditor requires a native
-OpenGL 4.6 GPU (WSL2's software renderer only supports OpenGL 4.5).
+- [Repository layout](#repository-layout)
+- [Getting started](#getting-started)
+- [Building & running](#building--running)
+- [Features](#features)
+- [Testing](#testing)
+- [Tooling](#tooling)
+- [Dependencies](#dependencies)
+- [Code style & pre-commit hooks](#code-style--pre-commit-hooks)
+- [Documentation](#documentation)
+- [Influences & references](#influences--references)
 
-Requirements:
-- Python 3.10+, with the 'jinja2' package installed (needed for building glad2)
-- CMake 4.2+ (required by `CMakePresets.json`; the root `CMakeLists.txt` itself only requires 3.25, so plain `cmake -B build -G "Visual Studio 17 2022"` still works without presets)
-- Vulkan SDK (for SPIR-V shader compilation)
+## Repository layout
 
-You can clone the repository to a local destination using git:
+| Target / directory | What it is |
+| --- | --- |
+| `OloEngine/` | The engine static library (`OloEngine`). All subsystems live under `src/OloEngine/<Subsystem>/`; platform glue under `src/Platform/`. |
+| `OloEditor/` | ImGui-based editor (`OloEditor`). Panels under `src/`, runtime assets under `assets/`, a sample game under `SandboxProject/`. |
+| `OloRuntime/` | Standalone game runtime (`OloRuntime`) that loads what the editor builds. |
+| `OloServer/` | Headless dedicated server (`OloServer`) — the one target that also runs on WSL2. |
+| `OloEngine-ScriptCore/` | C# scripting runtime library (Windows only, Visual Studio generator). |
+| `OloEngine-LuaScriptCore/` | Lua scripting core (all platforms). |
+| `OloEngine/tests/` | GoogleTest suite (`OloEngine-Tests`). |
+| `tools/` | Build-time tooling, notably `OloHeaderTool` (code generation — see [Tooling](#tooling)). |
+| `docs/` | Design docs, ADRs, build/testing guides, and agent rules — see [Documentation](#documentation). |
 
-`git clone https://github.com/drsnuggles8/OloEngineBase`
+## Getting started
 
-This project uses [CMake](https://cmake.org/download/) to build the project's solution files. The `scripts/` directory contains `Win-GenerateProjectVS2022.bat` and `Win-GenerateProjectVS2026.bat` helpers.
+**Supported platforms**
 
-**Visual Studio Code Users:** The project includes predefined VS Code tasks for building and running. Use tasks like `build-oloeditor-debug`, `run-oloeditor-release`, etc. from the Command Palette (Ctrl+Shift+P → "Tasks: Run Task").
+- **Windows** — Visual Studio 2026 (the default `msvc` preset) or Visual Studio 2022.
+- **Linux** — GCC 14+.
+- **WSL2** — can compile every target and run `OloServer`, but **not** `OloEditor`: WSL2's software renderer only exposes OpenGL 4.5, and the editor requires a native OpenGL 4.6 GPU.
 
-**CLion Users:** Open the OloEngineBase folder, let CLion initialize the CMake project, then edit the run configurations by changing the working directory of the OloEditor application to be the OloEditor folder.
+**Requirements**
 
-CMake downloads all dependencies via FetchContent and CPM (CMake Package Manager) and stores them in the `OloEngine/vendor/` directory.
-CMake will also create the `build/` directory, which contains the Visual Studio solution files.
+- **CMake 4.2+** — required by `CMakePresets.json` (the `msvc` preset's `Visual Studio 18 2026` generator only exists in 4.2+). The root `CMakeLists.txt` itself only requires 3.25, so a plain `cmake -B build -G "Visual Studio 17 2022"` still works without presets.
+- **Python 3.10+** with the `jinja2` package (needed to build glad2).
+- **Vulkan SDK** — for SPIR-V shader compilation.
 
-## Current Features
+**Clone**
 
-### Core Engine
-- **Entity-Component-System (ECS)**: Built on EnTT for high-performance entity management
-- **Multi-threaded Asset System**: Async loading with hot-reload support via filewatch
-- **Dual Scripting Support**: C# scripting via Mono integration + Lua scripting via Sol2
-- **Comprehensive Serialization**: YAML-based scene and entity serialization
-- **Advanced Memory Management**: Custom allocators and RAII resource management
+```sh
+git clone https://github.com/drsnuggles8/OloEngineBase
+```
+
+All third-party dependencies are fetched automatically at configure time via CMake `FetchContent` and CPM, and stored under `OloEngine/vendor/` (**never edit that directory — a CMake reconfigure wipes it**). CMake also creates the `build/` directory with the generated solution files.
+
+## Building & running
+
+CMake presets ([`CMakePresets.json`](CMakePresets.json)):
+
+| Preset | Generator / build dir | Purpose |
+| --- | --- | --- |
+| `msvc` | Visual Studio 18 2026 → `build/` | Primary, default build dir |
+| `clangcl` | Ninja Multi-Config → `build-clang/` | clang-cl warnings with the MSVC ABI |
+| `clangcl-asan` | Ninja Multi-Config → `build-clang/` | Adds AddressSanitizer |
+
+```powershell
+# Generate the Visual Studio solution
+scripts\Win-GenerateProjectVS2026.bat        # or Win-GenerateProjectVS2022.bat
+
+# Build a target
+cmake --build build --target OloEditor       --config Debug --parallel
+cmake --build build --target OloEngine-Tests --config Debug --parallel
+cmake --build build --target OloRuntime      --config Debug --parallel
+cmake --build build --target OloServer       --config Debug --parallel
+
+# ClangCL (configure once, then build)
+cmake --preset clangcl
+cmake --build build-clang --target OloEngine-Tests --config Debug --parallel
+```
+
+> **Working directory matters.** `OloEditor`, `OloRuntime`, and `OloServer` resolve assets, shaders, and Mono assemblies relative to `OloEditor/`. Always run them with `cwd = OloEditor/`. The VS Code tasks already do this.
+
+**VS Code users** — predefined tasks in [`.vscode/tasks.json`](.vscode/tasks.json) wrap all of the above: `build-oloeditor-debug`, `run-oloeditor-debug`, `build-tests-debug`, `run-tests-debug`, `configure-clangcl`, etc. Run them from the Command Palette (`Ctrl+Shift+P` → *Tasks: Run Task*).
+
+**CLion users** — open the repo folder, let CLion configure the CMake project, then set the working directory of the `OloEditor` run configuration to the `OloEditor/` folder.
+
+The full per-OS build matrix (including Linux and WSL specifics) lives in [docs/ops/build.md](docs/ops/build.md).
+
+## Features
+
+### Core engine
+- **Entity-Component-System** built on EnTT under a UUID-keyed `Entity` wrapper. The hottest update loops use EnTT owning groups for packed iteration.
+- **Deterministic gameplay scheduler** — per-tick systems declare their read/write data flow and the execution order is derived by topological sort, with optional worker-thread parallelism (audited per system) and a physics-shadow phase that steps the physics world alongside game-thread systems.
+- **Multi-threaded asset system** — async loading with hot-reload via filewatch; typed retrieval through `AssetManager`.
+- **Dual scripting** — C# via Mono (Windows) and Lua via Sol2 (all platforms), with generated bindings.
+- **YAML serialization** — scenes, entities, and prefabs. Trivial component (de)serialization, the ECS component tuple, save-game capture/restore lists, and add/remove handlers are all **code-generated** from the component definitions (see [Tooling](#tooling)), so most new components round-trip with zero hand-written glue.
+- **Save games** — component-level snapshot/restore with a versioned binary archive format.
+- **Custom memory management, threading, and task systems** — custom allocators, RAII resources, a job/task scheduler, and async primitives.
 
 ### Rendering
-- **OpenGL-based Renderer**: Modern OpenGL 4.6 with SPIR-V shader compilation
-- **Physically-Based Rendering (PBR)**: Advanced material system with metallic-roughness workflow
-- **Multi-threaded Command Queue**: Stateless, layered rendering architecture based on [Molecular Matters' design](https://blog.molecular-matters.com/2014/11/06/stateless-layered-multi-threaded-rendering-part-1/)
-- **2D/3D Rendering Support**: Unified pipeline for both 2D sprites and 3D models
-- **Animated Models**: Skeletal animation system with Assimp integration
+- **Modern OpenGL 4.6** with Direct State Access and SPIR-V shader compilation.
+- **Stateless, layered, multi-threaded command queue** ([Molecular Matters' design](https://blog.molecular-matters.com/2014/11/06/stateless-layered-multi-threaded-rendering-part-1/)) driven by a render-graph.
+- **Physically-based rendering** — metallic-roughness workflow, image-based lighting (IBL).
+- **Deferred + forward paths** with Hi-Z GPU occlusion culling and LOD.
+- **Post-processing & advanced lighting** — SSAO, SSR, SSGI, contact shadows, all shadow types (incl. PCSS), TAA, volumetric fog + god rays, screen-space decals, order-independent transparency, and FSR/CAS upscaling.
+- **Unified 2D/3D pipeline** — sprites and 3D meshes through one renderer.
+- **Skeletal animation** — Assimp-imported skeletons, animation graphs and state machines, additive layers, and humanoid retargeting; secondary motion via spring bones and cloth.
+- **GPU-driven particles** — compute-based particle simulation.
 
 ### Physics
-- **3D Physics**: Jolt Physics integration for rigid body dynamics
-- **2D Physics**: Box2D integration for 2D game mechanics
-- **Custom Collision Layers**: Flexible collision filtering and detection
+- **3D** — Jolt Physics for rigid bodies, joints, characters, and vehicles.
+- **2D** — Box2D for 2D mechanics.
+- **Custom collision layers** for flexible filtering and detection.
 
-### Editor & Tools
-- **Full-Featured Editor**: ImGui-based editor with scene hierarchy and content browser
-- **Visual Scene Editing**: Gizmos, transform tools, and real-time scene manipulation
-- **Asset Management**: Comprehensive asset browser with drag-and-drop functionality
-- **Profiling & Debugging**: Tracy profiler integration with custom renderer profilers
-- **Memory Tracking**: Real-time GPU/CPU memory usage visualization
+### Environmental & world systems
+- **Procedural terrain** generation with LOD.
+- **Water / FFT ocean** rendering.
+- **Weather & environment** — wind, snow (with deformation), and precipitation systems.
+- **Streaming volumes**, light-probe volumes, fog volumes, and navigation-mesh bounds as scene-level authored data.
 
-### Audio
-- **3D Audio System**: Miniaudio-based with spatial audio support
-- **Audio Components**: Source and listener components for ECS integration
+### Gameplay, AI & narrative
+- **AI** — GOAP planner / action system and a perception system (sight / sound / awareness).
+- **Navigation** — Recast/Detour nav-mesh generation with nav agents.
+- **Dialogue & quests**, plus a **localization** system driving `LocalizedTextComponent`.
+- **Cinematic sequencer** — timeline-driven cutscenes.
 
-### UI System
-- **ECS-Based UI**: 16 widget component types (Canvas, RectTransform, ResolvedRect, Panel, Text, Image, Button, Slider, Checkbox, Toggle, Progress Bar, Input Field, Dropdown, Scroll View, Grid Layout, WorldAnchor)
-- **Anchor Layout**: RectTransform-style anchoring, pivot, and auto-layout via grid containers
-- **Editor Integration**: "Create UI" context menu, per-component property panels, editor-time preview in both 2D and 3D modes
-- **Scripting Support**: Full C# (Mono) and Lua (Sol2) bindings for all UI components
+### Networking
+- Reliable UDP transport over GameNetworkingSockets, with encrypted transport (libsodium) and a protobuf wire format for snapshots / RPC. `OloServer` provides the headless dedicated-server target.
 
-## Future Features
+### Audio & video
+- **3D spatial audio** (miniaudio) with source/listener ECS components and a SoundGraph / MetaSounds-style audio-graph.
+- **Video playback** component.
 
-- Advanced lighting (global illumination, ray tracing)
-- Scripting debugger and hot-reload
-- GPU-driven particle compute pipeline
-- Expanded post-processing pipeline (motion blur, additional AA modes)
+### UI system
+- **ECS-based UI** — Canvas, RectTransform, Panel, Text, Image, Button, Slider, Checkbox, Toggle, Progress Bar, Input Field, Dropdown, Scroll View, Grid Layout, WorldAnchor, and more.
+- **Anchor layout** — RectTransform-style anchoring, pivots, and auto-layout via grid containers; works in both 2D and 3D.
+- **Editor integration** — a "Create UI" menu, per-component property panels, and editor-time preview.
+- **Full C# and Lua bindings** for every UI component.
+
+### Editor & debugging
+- **ImGui editor** — scene hierarchy, content/asset browser with drag-and-drop, gizmos and transform tools, and real-time scene manipulation.
+- **Play-in-editor** — snapshot/restore around Play/Simulate.
+- **Profiling** — Tracy integration plus custom renderer profiler and GPU/CPU memory tracking.
+- **Read-only MCP diagnostics server** — inspect a live editor frame (screenshots, camera control, intermediate render targets, shader errors) from an external tool. See [docs/guides/mcp-diagnostics-server.md](docs/guides/mcp-diagnostics-server.md).
+
+## Testing
+
+The suite (`OloEngine-Tests`, GoogleTest) spans **two independent axes**:
+
+1. A **renderer testing pyramid** (L1–L11 plus plumbing / culling-LOD / shader-pipe / integration layers) covering pixels, GL state, and shader math — including screenshot-based visual-regression tests that gate GPU-equipped runs and skip cleanly when no OpenGL 4.6 context is present.
+2. A **Functional / cross-subsystem axis** (`"Functional"` tag) driving real `Scene::OnUpdateRuntime` ticks across Animation × Physics × Scripting × Networking × Audio × Asset × Nav × Save-game × Gameplay × AI seams.
+
+```powershell
+# Run everything, or a single test
+build\OloEngine\tests\Debug\OloEngine-Tests.exe
+build\OloEngine\tests\Debug\OloEngine-Tests.exe --gtest_filter=SuiteName.TestName
+```
+
+The rationale, per-layer reference, classification rules, and anti-patterns live in [docs/testing.md](docs/testing.md) and [docs/agent-rules/testing-architecture.md](docs/agent-rules/testing-architecture.md).
+
+## Tooling
+
+**OloHeaderTool** ([`tools/OloHeaderTool/`](tools/OloHeaderTool/)) scans `OloEngine/src/` and generates, at build time (via the `GenerateBindings` target):
+
+- C++ and C# scripting bindings from `OLO_PROPERTY` annotations.
+- The ECS `AllComponents` type list, the save-game capture/restore lists, the `OnComponentAdded`/`OnComponentRemoved` no-op handlers, and per-component scene serialize/deserialize blocks — all derived from the `struct *Component` definitions.
+
+This collapses what used to be several hand-maintained, easy-to-forget touch-points into codegen: an all-trivial component now round-trips through scenes, save-games, and scripting with little or no hand-written glue. See [`CLAUDE.md`](CLAUDE.md) for the exact contract when adding or changing a component.
 
 ## Dependencies
 
-All dependencies are automatically fetched via FetchContent and CPM (CMake Package Manager — CPM hosts Sol2, choc, nlohmann/json, ImGui, and ImGuizmo; FetchContent hosts the rest) and stored in `OloEngine/vendor/`:
+All dependencies are fetched automatically via `FetchContent` and CPM (CPM hosts Sol2, choc, nlohmann/json, ImGui, and ImGuizmo; `FetchContent` hosts the rest) into `OloEngine/vendor/`.
 
-### Core Libraries
+**Core** — [entt](https://github.com/skypjack/entt) (ECS) · [glm](https://github.com/g-truc/glm) (math) · [spdlog](https://github.com/gabime/spdlog) (logging) · [yaml-cpp](https://github.com/jbeder/yaml-cpp) (serialization) · [nlohmann/json](https://github.com/nlohmann/json) (tools / IPC) · [choc](https://github.com/Tracktion/choc) (utilities) · [atomic_queue](https://github.com/max0x7ba/atomic_queue) (lock-free MPMC queue) · [meshoptimizer](https://github.com/zeux/meshoptimizer)
 
-* [entt](https://github.com/skypjack/entt) - Fast and reliable entity-component system (ECS)
-* [glm](https://github.com/g-truc/glm) - OpenGL Mathematics library for graphics transformations
-* [spdlog](https://github.com/gabime/spdlog) - Fast C++ logging library
-* [yaml-cpp](https://github.com/jbeder/yaml-cpp) - YAML parser and emitter for serialization
-* [nlohmann/json](https://github.com/nlohmann/json) - JSON parsing used for tools and IPC
-* [choc](https://github.com/Tracktion/choc) - Header-only C++ utility library (audio, threading, etc.)
-* [atomic_queue](https://github.com/max0x7ba/atomic_queue) - Lock-free MPMC queue
-* [meshoptimizer](https://github.com/zeux/meshoptimizer) - Mesh simplification and indexing
+**Rendering** — [glad](https://github.com/Dav1dde/glad) · [glfw](https://github.com/glfw/glfw) · [assimp](https://github.com/assimp/assimp) · [stb](https://github.com/nothings/stb) · [zlib](https://www.zlib.net/)
 
-### Rendering & Graphics
-* [glad](https://github.com/Dav1dde/glad) - OpenGL loader and meta loader
-* [glfw](https://github.com/glfw/glfw) - Multi-platform library for OpenGL, window and input
-* [assimp](https://github.com/assimp/assimp) - 3D model importing with scene post-processing
-* [stb](https://github.com/nothings/stb) - Single-file public domain libraries (stb_image for textures)
-* [zlib](https://www.zlib.net/) - Compression library
+**Physics** — [Jolt Physics](https://github.com/jrouwe/JoltPhysics) (3D) · [box2d](https://github.com/erincatto/Box2D) (2D)
 
-### Physics
-* [joltphysics](https://github.com/jrouwe/JoltPhysics) - Multi-platform 3D physics engine
-* [box2d](https://github.com/erincatto/Box2D) - 2D physics engine for games
+**Networking** — [GameNetworkingSockets](https://github.com/ValveSoftware/GameNetworkingSockets) · [libsodium](https://doc.libsodium.org/) · [protobuf](https://github.com/protocolbuffers/protobuf)
 
-### Networking
-* [GameNetworkingSockets](https://github.com/ValveSoftware/GameNetworkingSockets) - Reliable UDP transport
-* [libsodium](https://doc.libsodium.org/) - Crypto primitives used by the transport
-* [protobuf](https://github.com/protocolbuffers/protobuf) - Wire format for snapshots / RPC
+**Navigation** — [recastnavigation](https://github.com/recastnavigation/recastnavigation)
 
-### Navigation
+**Audio** — [miniaudio](https://github.com/mackron/miniaudio)
 
-* [recastnavigation](https://github.com/recastnavigation/recastnavigation) - Navigation mesh generation
+**Scripting** — [sol2](https://github.com/ThePhD/sol2) · [lua](https://www.lua.org/) · **Mono** (C# runtime, manually integrated)
 
-### Audio
-* [miniaudio](https://github.com/mackron/miniaudio) - Single-file audio playback and capture library
+**UI & editor** — [imgui](https://github.com/ocornut/imgui) · [imguizmo](https://github.com/CedricGuillemet/ImGuizmo)
 
-### Scripting
-* [sol2](https://github.com/ThePhD/sol2) - C++ ↔ Lua API wrapper with advanced features
-* [lua](https://www.lua.org/) - Lightweight, embeddable scripting language
-* **Mono** - C# scripting runtime (manually integrated)
+**Development & profiling** — [tracy](https://github.com/wolfpld/tracy) · [googletest](https://github.com/google/googletest) · [filewatch](https://github.com/ThomasMonkman/filewatch)
 
-### UI & Editor
-* [imgui](https://github.com/ocornut/imgui) - Immediate mode GUI for tools and debugging
-* [imguizmo](https://github.com/CedricGuillemet/ImGuizmo) - Immediate mode 3D gizmo for scene editing
+## Code style & pre-commit hooks
 
-### Development & Profiling
-* [tracy](https://github.com/wolfpld/tracy) - Real-time profiler with nanosecond resolution
-* [googletest](https://github.com/google/googletest) - Google Testing and Mocking Framework
-* [filewatch](https://github.com/ThomasMonkman/filewatch) - File system monitoring for hot-reload
+We enforce a small set of formatting rules via [`pre-commit`](https://pre-commit.com/):
 
+```sh
+python -m pip install --user pre-commit
+pre-commit install                 # enable the git hook (run in the repo root)
+pre-commit run --all-files         # optional: apply across the whole repo
+```
 
-### Code formatting & pre-commit hooks ✅
+Included hooks: `trailing-whitespace`, `end-of-file-fixer`, and `clang-format` for C/C++ (uses the repo-root `.clang-format`). An `.editorconfig` mirrors the whitespace rules for editors. The hooks ignore `vendor/`, `build/`, and IDE metadata folders. A GitHub Action runs `pre-commit` on every push and PR.
 
-We trim trailing whitespace and enforce a few formatting rules via `pre-commit` hooks.
+## Documentation
 
-- Install pre-commit locally (Python/pip required):
-  - `python -m pip install --user pre-commit`
-  - `pre-commit install` in the repo root to enable the git hook
-  - Optionally run `pre-commit run --all-files` to apply the hooks across the repo
+Everything under [`docs/`](docs/) — start at [docs/README.md](docs/README.md) for the full index. Highlights:
 
-Included hooks/config:
-- `trailing-whitespace` (removes trailing spaces)
-- `end-of-file-fixer` (ensure final newline)
-- `clang-format` for C/C++ (configured to use `.clang-format` in the repo root)
+- [docs/ops/build.md](docs/ops/build.md) — full Windows / Linux / WSL build matrix.
+- [docs/testing.md](docs/testing.md) — the canonical testing opinion doc.
+- [docs/guides/](docs/guides/) — subsystem how-tos (AI/GOAP, perception, terrain, UI, localization, cinematics, video, MCP diagnostics).
+- [docs/adr/](docs/adr/) — architecture decision records.
+- [`CLAUDE.md`](CLAUDE.md) — contributor/agent playbook: build, test, and the component cross-binding contract.
 
-We also include a `.editorconfig` to configure editor behavior (trim trailing whitespace, insert final newline). The pre-commit hooks **ignore the `vendor/`, `.vs/`, `.vscode/`, `build/`, and other generated/IDE folders** to avoid touching third-party or editor metadata.
+## Influences & references
 
-A GitHub Action runs `pre-commit` on push and pull requests so formatting checks run on PRs automatically.
-
-
- ## Influences & References
-  * [Hazel](https://github.com/TheCherno/Hazel) - As mentioned, this game engine follows The Cherno's game engine series as a foundation
-  * [Lumos](https://github.com/jmorton06/Lumos) - Ideas for OpenGL rendering implementation and engine architecture
-  * [Arc](https://github.com/MohitSethi99/ArcGameEngine) - Ideas for the audio engine implementation
-  * [Molecular Matters Blog](https://blog.molecular-matters.com/2014/11/06/stateless-layered-multi-threaded-rendering-part-1/) - Core inspiration for the multi-threaded render command queue architecture
+- [Hazel](https://github.com/TheCherno/Hazel) — the foundation this engine started from (The Cherno's game-engine series).
+- [Lumos](https://github.com/jmorton06/Lumos) — ideas for the OpenGL renderer and engine architecture.
+- [Arc](https://github.com/MohitSethi99/ArcGameEngine) — ideas for the audio engine.
+- [Molecular Matters Blog](https://blog.molecular-matters.com/2014/11/06/stateless-layered-multi-threaded-rendering-part-1/) — the multi-threaded render command queue architecture.

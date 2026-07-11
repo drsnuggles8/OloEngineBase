@@ -25,6 +25,13 @@ ALL_AXES = VALUE_AXES + ("effort", "confidence", "learning", "fun")
 KANO = ("table-stakes", "performance", "delighter")
 DOC_URL = f"https://github.com/{REPO}/blob/master/docs/process/issue-scoring.md"
 
+# --freeze (rank): during a feature freeze, only issues carrying one of these
+# labels are eligible — perf/robustness/architecture/bug work, plus "tooling"
+# (the standing MCP-server / dev-tooling / codegen exception). A pure "feature"
+# label with none of these is excluded. See the user-facing freeze policy —
+# this is not part of the base issue-scoring.md rubric, just a temporary lens.
+FREEZE_LABELS = {"performance", "robustness", "architecture", "bug", "tooling", "cleanup"}
+
 BEGIN, END = "<!-- olo-score:begin -->", "<!-- olo-score:end -->"
 SECTION_RE = re.compile(r"\n*" + re.escape(BEGIN) + r".*?" + re.escape(END) + r"\n*", re.DOTALL)
 FENCE_RE = re.compile(r"```olo-score\s*\n(.*?)\n```", re.DOTALL)
@@ -39,8 +46,15 @@ def gh_json(args):
 
 
 def open_issues():
-    return gh_json(["issue", "list", "--repo", REPO, "--state", "open",
-                    "--limit", "300", "--json", "number,title,body"])
+    """Open issues eligible for scoring — excludes bot-authored tracking issues
+    (e.g. Renovate's "Dependency Dashboard"), which aren't backlog work items."""
+    issues = gh_json(["issue", "list", "--repo", REPO, "--state", "open",
+                       "--limit", "300", "--json", "number,title,body,labels,author"])
+    return [it for it in issues if not it.get("author", {}).get("is_bot")]
+
+
+def label_names(it):
+    return {l["name"] for l in it.get("labels", [])}
 
 
 # ---- block parse / render ---------------------------------------------------
@@ -110,13 +124,20 @@ def is_blocked(d):
 # ---- commands ---------------------------------------------------------------
 def cmd_rank(args):
     rows = []
+    excluded = 0
     for it in open_issues():
         d = parse_block(it.get("body"))
         if d is None:
             continue
+        if args.freeze and not (label_names(it) & FREEZE_LABELS):
+            excluded += 1
+            continue
         rows.append((it["number"], it["title"], score(d), d))
     rows.sort(key=lambda r: (not (r[3].get("fun", 0) >= 8 and not is_blocked(r[3])),
                              is_blocked(r[3]), -r[2], r[0]))
+    if args.freeze:
+        print(f"[--freeze active: only {'/'.join(sorted(FREEZE_LABELS))} labels eligible; "
+              f"{excluded} feature-only issue(s) excluded]\n")
     print(f"{'#':>5} {'score':>5} {'flags':<14} title")
     for num, title, s, d in rows:
         flags = []
@@ -167,7 +188,10 @@ def cmd_apply(args):
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("rank").set_defaults(func=cmd_rank)
+    rp = sub.add_parser("rank")
+    rp.add_argument("--freeze", action="store_true",
+                     help="feature-freeze lens: only performance/robustness/architecture/bug/tooling-labeled issues")
+    rp.set_defaults(func=cmd_rank)
     sub.add_parser("lint").set_defaults(func=cmd_lint)
     ap = sub.add_parser("apply")
     ap.add_argument("--from", dest="src", default="issue-scores.json")

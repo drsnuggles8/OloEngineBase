@@ -230,3 +230,23 @@ recomputed from the issues on demand.
    what to do next, *that's the signal* — either an axis is mis-scored (fix the
    number) or the rubric is missing something (fix the rubric). Don't silently
    override; adjust the inputs so the system learns.
+
+---
+
+## §7 — Temporary lenses: `--freeze`
+
+`issue_scores.py rank --freeze` re-sorts using the same axes but first drops any
+issue that carries **none** of the labels `performance`, `robustness`,
+`architecture`, `bug`, `tooling`, `cleanup` — i.e. it hides pure net-new-feature
+work. `tooling` is the standing exception for the MCP diagnostics server /
+dev-tooling / codegen line of work (it doesn't get its own value axis; it's a
+policy carve-out, applied by hand to the issues it covers). `cleanup` covers
+config/dead-code/smell work that isn't perf/robustness/architecture-labeled but
+still isn't a feature (e.g. #411's SonarQube setup issues).
+
+This is a **policy lens on top of the rubric, not a rubric change** — the
+underlying score/rank is untouched; `--freeze` only filters the candidate set
+before sorting. Adopted 2026-07 for a month-long feature freeze (perf /
+robustness / architecture / cleanup focus, MCP+codegen exempted); drop the flag
+once the freeze ends. If an issue that's clearly freeze-eligible doesn't show
+up, it's very likely mislabeled — fix the label, not the filter.
