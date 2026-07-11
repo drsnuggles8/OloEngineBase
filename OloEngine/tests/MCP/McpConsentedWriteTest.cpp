@@ -33,6 +33,7 @@
 #include "OloEngine/Scene/Scene.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <future>
 #include <optional>
@@ -60,6 +61,9 @@ namespace
     namespace SetCollisionLayer = OloEngine::MCP::SetCollisionLayer;
 
     constexpr int kInvalidParams = -32602;
+    // LSP-convention "request cancelled" code the plain-JSON path carries for a call
+    // cancelled via notifications/cancelled (McpServer.h kRequestCancelledCode).
+    constexpr int kRequestCancelledCode = -32800;
 
     Json MakeCallRequest(const Json& id, const Json& arguments)
     {
@@ -67,6 +71,16 @@ namespace
                      { "id", id },
                      { "method", "tools/call" },
                      { "params", { { "name", "olo_set_collision_layer" }, { "arguments", arguments } } } };
+    }
+
+    // A `notifications/cancelled` for the tools/call with this JSON-RPC id. Matching
+    // is by exact id value (McpServer's RequestIdKey), so `requestId` must equal the
+    // call's `id` verbatim (same JSON type).
+    Json MakeCancelNotification(const Json& requestId)
+    {
+        return Json{ { "jsonrpc", "2.0" },
+                     { "method", "notifications/cancelled" },
+                     { "params", { { "requestId", requestId }, { "reason", "test cancel" } } } };
     }
 
     // Fixture: an McpServer whose only tool is a fake olo_set_collision_layer wired
@@ -94,6 +108,9 @@ namespace
             tool.InputSchema = SetCollisionLayer::InputSchema();
             tool.Handler = [this](McpServer&, const Json& args) -> ToolResult
             {
+                // Probe: proves whether the handler was actually entered. A cancel
+                // that reaches the call before write initiation must leave this false.
+                m_HandlerEntered.store(true, std::memory_order_release);
                 u64 entityUuid = 0;
                 u32 layer = 0;
                 if (const auto error = SetCollisionLayer::ParseArgs(args, entityUuid, layer))
@@ -136,6 +153,7 @@ namespace
 
         static constexpr u32 kInitialLayer = 0;
 
+        std::atomic<bool> m_HandlerEntered{ false }; // raised at the top of the tool handler
         Ref<Scene> m_Scene;
         CommandHistory m_History;
         u64 m_EntityUuid = 0;
@@ -274,6 +292,136 @@ TEST_F(McpConsentedWriteTest, PromptModeTimesOutWhenUnanswered)
 
     ASSERT_TRUE(resp.contains("error"));
     EXPECT_EQ(resp["error"]["code"], kInvalidParams);
+    EXPECT_EQ(CurrentLayer(), kInitialLayer);
+    EXPECT_FALSE(m_History.CanUndo());
+}
+
+// ---- cancellation while parked on the consent modal (issue #610) -----------
+// A notifications/cancelled arriving while a write is blocked on the Prompt-mode
+// modal must abort the wait promptly, return a cancelled response, run NO write,
+// and drain the pending prompt — the whole point of registering the in-flight
+// cancel flag BEFORE the consent gate.
+
+TEST_F(McpConsentedWriteTest, PromptModeCancelledWhileParkedReturnsCancelled)
+{
+    m_Server.SetWriteConsentMode(WriteConsentMode::Prompt);
+    // A generous consent timeout so a Timeout can't masquerade as the cancellation:
+    // if cancellation did NOT reach the wait, the call would block far past the test.
+    m_Server.SetConsentTimeout(std::chrono::seconds(30));
+
+    std::future<Json> call = std::async(std::launch::async, [this]
+                                        { return m_Server.HandleMessage(
+                                              MakeCallRequest(20, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", 3 } })); });
+
+    const u64 id = WaitForPendingConsent();
+    ASSERT_NE(id, 0u) << "no consent prompt surfaced";
+    EXPECT_EQ(CurrentLayer(), kInitialLayer); // not applied while parked
+
+    // Cancel by the call's JSON-RPC id (a number, matched verbatim). This wakes the
+    // parked RequestConsent wait through m_ConsentCv.
+    const Json ack = m_Server.HandleMessage(MakeCancelNotification(20));
+    EXPECT_TRUE(ack.is_null()); // a notification produces no response
+
+    const Json resp = call.get();
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_FALSE(resp.contains("result"));
+    EXPECT_EQ(resp["error"]["code"], kRequestCancelledCode);
+
+    // The write never ran, and the in-flight prompt was reaped (queue drained).
+    EXPECT_EQ(CurrentLayer(), kInitialLayer);
+    EXPECT_FALSE(m_History.CanUndo());
+    EXPECT_TRUE(m_Server.PendingConsents().empty());
+}
+
+// Cancellation wins over a racing human decision: once the cancel flag is set, a
+// later Approve on the (now-reaped) prompt is a no-op and the write stays unapplied.
+TEST_F(McpConsentedWriteTest, PromptModeCancellationWinsOverLateApprove)
+{
+    m_Server.SetWriteConsentMode(WriteConsentMode::Prompt);
+    m_Server.SetConsentTimeout(std::chrono::seconds(30));
+
+    std::future<Json> call = std::async(std::launch::async, [this]
+                                        { return m_Server.HandleMessage(
+                                              MakeCallRequest(21, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", 3 } })); });
+
+    const u64 id = WaitForPendingConsent();
+    ASSERT_NE(id, 0u);
+
+    // Cancel first — the worker wakes, returns Cancel, and reaps its entry. The
+    // subsequent Approve finds no live prompt for `id` and is a no-op.
+    (void)m_Server.HandleMessage(MakeCancelNotification(21));
+    const Json resp = call.get();
+    m_Server.ResolveConsent(id, ConsentDecision::Approve); // late, stale id → no-op
+
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], kRequestCancelledCode);
+    EXPECT_EQ(CurrentLayer(), kInitialLayer);
+    EXPECT_FALSE(m_History.CanUndo());
+    EXPECT_TRUE(m_Server.PendingConsents().empty());
+}
+
+// A cancellation whose requestId does NOT match the parked call must not disturb
+// it: the real call still resolves normally via its Approve. Guards against an
+// over-broad wake that cancels the wrong (or every) in-flight write.
+TEST_F(McpConsentedWriteTest, PromptModeUnrelatedCancelDoesNotAbortWrite)
+{
+    m_Server.SetWriteConsentMode(WriteConsentMode::Prompt);
+    m_Server.SetConsentTimeout(std::chrono::seconds(30));
+
+    std::future<Json> call = std::async(std::launch::async, [this]
+                                        { return m_Server.HandleMessage(
+                                              MakeCallRequest(22, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", 3 } })); });
+
+    const u64 id = WaitForPendingConsent();
+    ASSERT_NE(id, 0u);
+
+    // Cancel a DIFFERENT id — a spec-sanctioned no-op: the id isn't in the in-flight
+    // registry, so no flag is set (and m_ConsentCv isn't even woken). Our prompt
+    // stays pending after it.
+    (void)m_Server.HandleMessage(MakeCancelNotification(9999));
+    ASSERT_NE(WaitForPendingConsent(), 0u) << "unrelated cancel wrongly drained the prompt";
+    EXPECT_EQ(CurrentLayer(), kInitialLayer);
+
+    // The real decision still applies the write.
+    m_Server.ResolveConsent(id, ConsentDecision::Approve);
+    const Json resp = call.get();
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_FALSE(resp["result"]["isError"]);
+    EXPECT_EQ(CurrentLayer(), 3u);
+    EXPECT_TRUE(m_History.CanUndo());
+}
+
+// Barrier-based linearizability guard (issue #610 review): a cancellation that
+// reaches the call between the final consent check and handler start must never
+// initiate the write. The Prompt-mode consent modal is the barrier — the worker is
+// deterministically parked there (write registered, handler NOT yet reached) when
+// the cancel arrives. The handler-entered probe proves the write was never even
+// begun: it must stay false, so there is no "ran the write then discarded it" race.
+TEST_F(McpConsentedWriteTest, CancelBeforeHandlerStartNeverInitiatesWrite)
+{
+    m_Server.SetWriteConsentMode(WriteConsentMode::Prompt);
+    m_Server.SetConsentTimeout(std::chrono::seconds(30));
+
+    std::future<Json> call = std::async(std::launch::async, [this]
+                                        { return m_Server.HandleMessage(
+                                              MakeCallRequest(30, Json{ { "entity", std::to_string(m_EntityUuid) }, { "layer", 3 } })); });
+
+    // Barrier: the worker is now parked on the consent modal — past registration,
+    // before the handler.
+    const u64 id = WaitForPendingConsent();
+    ASSERT_NE(id, 0u) << "no consent prompt surfaced";
+    ASSERT_FALSE(m_HandlerEntered.load(std::memory_order_acquire)) << "handler ran before consent";
+
+    // Cancel while parked. The call must unwind to a cancelled response without ever
+    // entering the handler.
+    (void)m_Server.HandleMessage(MakeCancelNotification(30));
+
+    const Json resp = call.get();
+    ASSERT_TRUE(resp.contains("error"));
+    EXPECT_EQ(resp["error"]["code"], kRequestCancelledCode);
+
+    // The write was never initiated — handler untouched, field unchanged, no undo.
+    EXPECT_FALSE(m_HandlerEntered.load(std::memory_order_acquire)) << "cancelled write must not initiate the handler";
     EXPECT_EQ(CurrentLayer(), kInitialLayer);
     EXPECT_FALSE(m_History.CanUndo());
 }

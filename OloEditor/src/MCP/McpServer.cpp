@@ -984,15 +984,25 @@ namespace OloEngine::MCP
         m_ConsentCv.notify_all();
     }
 
-    ConsentDecision McpServer::RequestConsent(const ToolDef& tool, const Json& arguments)
+    ConsentDecision McpServer::RequestConsent(const ToolDef& tool, const Json& arguments,
+                                              const std::shared_ptr<std::atomic<bool>>& cancelFlag)
     {
         const auto timeout = std::chrono::milliseconds(m_ConsentTimeoutMs.load());
+
+        // Predicate helper: a call cancelled via notifications/cancelled while parked
+        // here must return promptly (issue #610). The cancellation path stores the
+        // flag then synchronizes on m_ConsentMutex before notifying, so a read taken
+        // under this lock cannot miss a store the notifier has already published.
+        const auto cancelled = [&cancelFlag]
+        { return cancelFlag && cancelFlag->load(std::memory_order_acquire); };
 
         u64 myId = 0;
         {
             std::unique_lock lock(m_ConsentMutex);
             if (m_ConsentAborting)
                 return ConsentDecision::Deny;
+            if (cancelled())
+                return ConsentDecision::Cancel;
             // A concurrent mode change may have already settled the outcome before we
             // enqueue anything — honour it without prompting.
             const WriteConsentMode mode = m_ConsentMode.load();
@@ -1009,9 +1019,9 @@ namespace OloEngine::MCP
             entry.Summary = BuildConsentSummary(arguments);
             m_ConsentQueue.push_back(std::move(entry));
 
-            const bool resolved = m_ConsentCv.wait_for(lock, timeout, [this, myId]
+            const bool resolved = m_ConsentCv.wait_for(lock, timeout, [this, myId, &cancelled]
                                                        {
-                                                           if (m_ConsentAborting)
+                                                           if (m_ConsentAborting || cancelled())
                                                                return true;
                                                            for (const ConsentEntry& e : m_ConsentQueue)
                                                            {
@@ -1035,6 +1045,11 @@ namespace OloEngine::MCP
 
             if (m_ConsentAborting)
                 return ConsentDecision::Deny;
+            // Cancellation wins over a racing human decision: even if the modal was
+            // just approved, an arrived notifications/cancelled means the write must
+            // not run and the response is discarded per spec.
+            if (cancelled())
+                return ConsentDecision::Cancel;
             if (!resolved || decision == ConsentDecision::Pending)
                 return ConsentDecision::Timeout;
             return decision;
@@ -1421,7 +1436,21 @@ namespace OloEngine::MCP
                         flag = it->second;
                 }
                 if (flag)
+                {
                     flag->store(true, std::memory_order_release);
+                    // The flagged call may be parked in RequestConsent on the consent
+                    // modal (issue #610). Wake it: a bare atomic store racing the
+                    // waiter's predicate check could be lost, so take m_ConsentMutex
+                    // (never nested with m_InFlightMutex above — released already) to
+                    // serialize with the waiter before notifying. A call in its handler
+                    // instead just polls the flag, so this notify is a harmless no-op
+                    // for it. m_ConsentMutex is not held across the notify — a spurious
+                    // wake of unrelated waiters is cheap and they re-check and re-sleep.
+                    {
+                        std::lock_guard consentLock(m_ConsentMutex);
+                    }
+                    m_ConsentCv.notify_all();
+                }
             }
             return Json(nullptr);
         }
@@ -1620,50 +1649,19 @@ namespace OloEngine::MCP
             return MakeResult(id, Json{ { "content", invalid.Content }, { "isError", true } });
         }
 
-        // Session write consent (issue #306 item C): a project-mutating tool is gated
-        // by the WriteConsentMode the user set in the MCP panel (default Disabled,
-        // never persisted). This stacks on top of the enabled + bearer-token gate:
-        // even an authenticated agent stays read-only w.r.t. the project until the
-        // human opts in for the session. Read-only / ephemeral editor-state tools
-        // (camera / viewport / render overrides) are not ProjectWrite, so no mode
-        // affects them.
-        //
-        //   Disabled     -> refuse outright.
-        //   Prompt       -> block this worker thread on RequestConsent until the human
-        //                   approves/denies the per-action modal (or it times out).
-        //   AllowSession -> proceed (the human already approved everything).
-        if (tool->ProjectWrite)
-        {
-            const WriteConsentMode mode = m_ConsentMode.load();
-            if (mode == WriteConsentMode::Disabled)
-                return MakeError(id, kInvalidParams,
-                                 "Write tools are disabled. Set writes to \"Prompt\" or \"Allow all\" in the "
-                                 "editor's MCP Server panel to permit this mutation (they are off by default).");
-            if (mode == WriteConsentMode::Prompt)
-            {
-                switch (RequestConsent(*tool, arguments))
-                {
-                    case ConsentDecision::Approve:
-                    case ConsentDecision::ApproveAll:
-                        break; // human approved — fall through to the handler.
-                    case ConsentDecision::Timeout:
-                        return MakeError(id, kInvalidParams,
-                                         "Write consent request timed out with no response from the editor user.");
-                    case ConsentDecision::Deny:
-                    case ConsentDecision::Pending:
-                    default:
-                        return MakeError(id, kInvalidParams,
-                                         "The editor user denied this write. Ask them to Approve it (or switch writes "
-                                         "to \"Allow all\") in the editor's MCP Server panel.");
-                }
-            }
-        }
-
         // ---- per-call progress/cancellation scope (issue #357 item B) ----------
         // Register this call in the in-flight registry so a concurrently-arriving
         // `notifications/cancelled` (matched by exact id value) can flag it, and
         // install the thread-local scope EmitProgress / IsCurrentCallCancelled
         // read. RAII: the registry entry lives exactly as long as the dispatch.
+        //
+        // This MUST precede the consent gate below (issue #610): a ProjectWrite tool
+        // parked in RequestConsent on the Prompt-mode modal is otherwise invisible to
+        // cancellation until it starts running. Registering first means the flag is
+        // reachable while the call waits, and RequestConsent consults it — so a
+        // notifications/cancelled aborts the wait promptly instead of running to the
+        // human's decision or the consent timeout. The RAII guards below also ensure
+        // every consent-gate early-return path still erases the in-flight entry.
         ActiveCallScope scope;
         if (params.contains("_meta") && params["_meta"].is_object() && params["_meta"].contains("progressToken"))
         {
@@ -1688,6 +1686,66 @@ namespace OloEngine::MCP
             }
         } inFlightGuard{ *this, idKey };
         const CallScopeGuard scopeGuard(scope);
+
+        // Session write consent (issue #306 item C): a project-mutating tool is gated
+        // by the WriteConsentMode the user set in the MCP panel (default Disabled,
+        // never persisted). This stacks on top of the enabled + bearer-token gate:
+        // even an authenticated agent stays read-only w.r.t. the project until the
+        // human opts in for the session. Read-only / ephemeral editor-state tools
+        // (camera / viewport / render overrides) are not ProjectWrite, so no mode
+        // affects them.
+        //
+        //   Disabled     -> refuse outright.
+        //   Prompt       -> block this worker thread on RequestConsent until the human
+        //                   approves/denies the per-action modal (or it times out, or a
+        //                   notifications/cancelled aborts the wait — issue #610).
+        //   AllowSession -> proceed (the human already approved everything).
+        if (tool->ProjectWrite)
+        {
+            const WriteConsentMode mode = m_ConsentMode.load();
+            if (mode == WriteConsentMode::Disabled)
+                return MakeError(id, kInvalidParams,
+                                 "Write tools are disabled. Set writes to \"Prompt\" or \"Allow all\" in the "
+                                 "editor's MCP Server panel to permit this mutation (they are off by default).");
+            if (mode == WriteConsentMode::Prompt)
+            {
+                switch (RequestConsent(*tool, arguments, scope.CancelFlag))
+                {
+                    case ConsentDecision::Approve:
+                    case ConsentDecision::ApproveAll:
+                        break; // human approved — fall through to the handler.
+                    case ConsentDecision::Timeout:
+                        return MakeError(id, kInvalidParams,
+                                         "Write consent request timed out with no response from the editor user.");
+                    case ConsentDecision::Cancel:
+                        // notifications/cancelled reached the call while it was parked
+                        // on the modal (issue #610). The write never ran; respond as a
+                        // cancelled request (clients ignore this body per spec), same as
+                        // the post-handler cancellation check below.
+                        return MakeError(id, kRequestCancelledCode, "Request cancelled");
+                    case ConsentDecision::Deny:
+                    case ConsentDecision::Pending:
+                    default:
+                        return MakeError(id, kInvalidParams,
+                                         "The editor user denied this write. Ask them to Approve it (or switch writes "
+                                         "to \"Allow all\") in the editor's MCP Server panel.");
+                }
+            }
+        }
+
+        // Linearization point for the consent→handler transition (issue #610 review):
+        // a notifications/cancelled observed by now — after consent was granted but
+        // before the write starts — prevents the handler from running at all, instead
+        // of executing the (undoable) write and discarding its result at the
+        // post-handler check below. The CancelFlag is a single atomic, so this load is
+        // ordered strictly before or after the cancel store in the flag's modification
+        // order: load == true ⇒ the cancel is "before" write initiation ⇒ don't run;
+        // load == false ⇒ execution has started and any later cancel is handled by the
+        // handler's cooperative IsCurrentCallCancelled() polling + the post-handler
+        // discard. (A CAS state machine would add no further guarantee here — a
+        // mid-run cancel can always reach an opaque handler.)
+        if (scope.CancelFlag->load(std::memory_order_acquire))
+            return MakeError(id, kRequestCancelledCode, "Request cancelled");
 
         ToolResult result;
         try
