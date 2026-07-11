@@ -326,6 +326,8 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool NavAgentComponent_HasPath(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool NavAgentComponent_IsTargetUnreachable(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void NavAgentComponent_ClearTarget(ulong entityID);
 		#endregion
 

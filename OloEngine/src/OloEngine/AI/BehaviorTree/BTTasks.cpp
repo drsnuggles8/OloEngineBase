@@ -88,6 +88,20 @@ namespace OloEngine
 
         auto& nav = entity.GetComponent<NavAgentComponent>();
 
+        // NavigationSystem flags a target it can't reach (no path, or a partial path to
+        // the nearest reachable point) as unreachable. Terminate with Failure instead of
+        // re-issuing the same impossible target forever (the agent would otherwise be
+        // stuck at the closest navmesh point while this node spins on Running).
+        if (nav.m_HasTarget && nav.m_TargetUnreachable)
+        {
+            nav.m_HasTarget = false;
+            nav.m_HasPath = false;
+            nav.m_TargetUnreachable = false;
+            nav.m_PathCorners.clear();
+            nav.m_CurrentCornerIndex = 0;
+            return BTStatus::Failure;
+        }
+
         // Set target from blackboard if we don't have one yet
         if (!nav.m_HasTarget)
         {
@@ -99,6 +113,8 @@ namespace OloEngine
 
             nav.m_TargetPosition = std::get<glm::vec3>(raw.value());
             nav.m_HasTarget = true;
+            nav.m_HasPath = false;
+            nav.m_TargetUnreachable = false; // fresh target: clear any stale terminal flag
         }
 
         // Check if agent reached destination

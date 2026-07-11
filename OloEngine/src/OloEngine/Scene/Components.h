@@ -3674,7 +3674,7 @@ namespace OloEngine
         bool m_LockYAxis = false; // When true, navigation only moves on XZ plane
 
         // Runtime state (not serialized)
-        OLO_PROPERTY(Name = "TargetPosition", Type = "vec3", Set = "comp.m_TargetPosition = {v}; comp.m_HasTarget = true; comp.m_HasPath = false")
+        OLO_PROPERTY(Name = "TargetPosition", Type = "vec3", Set = "comp.m_TargetPosition = {v}; comp.m_HasTarget = true; comp.m_HasPath = false; comp.m_TargetUnreachable = false")
         OLO_SERIALIZE(Skip)
         glm::vec3 m_TargetPosition = { 0.0f, 0.0f, 0.0f };
         OLO_SERIALIZE(Skip)
@@ -3687,6 +3687,11 @@ namespace OloEngine
         u32 m_CurrentCornerIndex = 0;
         OLO_SERIALIZE(Skip)
         i32 m_CrowdAgentId = -1;
+        // Set by NavigationSystem when the current target can only be reached partially
+        // (unreachable / off-navmesh / disconnected). Terminal signal for consumers so
+        // they stop re-issuing an impossible target — see BTMoveTo and NavAgentComponent_IsTargetUnreachable.
+        OLO_SERIALIZE(Skip)
+        bool m_TargetUnreachable = false;
 
         NavAgentComponent() = default;
         NavAgentComponent(const NavAgentComponent& other)
@@ -3712,6 +3717,7 @@ namespace OloEngine
                 m_PathCorners.clear();
                 m_CurrentCornerIndex = 0;
                 m_CrowdAgentId = -1;
+                m_TargetUnreachable = false;
             }
             return *this;
         }
@@ -3738,6 +3744,7 @@ namespace OloEngine
                 m_PathCorners.clear();
                 m_CurrentCornerIndex = 0;
                 m_CrowdAgentId = -1;
+                m_TargetUnreachable = false;
             }
             return *this;
         }

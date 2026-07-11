@@ -100,14 +100,18 @@ TEST_F(NavMeshOffMeshLinkBridgesGapTest, LinkClosesGapThatIsImpassableWithoutIt)
     ASSERT_TRUE(noLinkQuery.IsValid());
 
     std::vector<glm::vec3> noLinkPath;
-    const bool noLinkFound = noLinkQuery.FindPath(kStart, kEnd, noLinkPath);
-    // Detour returns a (partial) path to the nearest reachable poly even when the
-    // goal is unreachable, so the bool alone isn't the signal — the path must NOT
-    // arrive at the goal.
-    const bool noLinkReachedGoal = noLinkFound && !noLinkPath.empty() && DistXZ(noLinkPath.back(), kEnd) < 1.5f;
+    const FindPathResult noLinkResult = noLinkQuery.FindPath(kStart, kEnd, noLinkPath);
+    // Detour returns a (partial) path to the nearest reachable poly even when the goal
+    // is unreachable. FindPath now reports that as Partial (not a false Complete), which
+    // is the whole point of the disconnected-region fix — assert it directly.
+    EXPECT_EQ(noLinkResult, FindPathResult::Partial)
+        << "without an off-mesh link the two platforms must be disconnected, so FindPath "
+           "must report a Partial path to the nearest reachable point — not Complete "
+           "(gap isn't a gap) and not Failed (start/end should still snap to the mesh).";
+    // Belt-and-braces: the path must NOT actually arrive at the goal.
+    const bool noLinkReachedGoal = !noLinkPath.empty() && DistXZ(noLinkPath.back(), kEnd) < 1.5f;
     EXPECT_FALSE(noLinkReachedGoal)
-        << "without an off-mesh link the two platforms must be disconnected, but "
-           "FindPath reported a path reaching the goal — the gap isn't actually a gap, "
+        << "partial path unexpectedly ends at the goal — the gap isn't actually a gap, "
            "so this test can't prove the link does anything.";
 
     // ---- With link: the same geometry is now traversable end-to-end. ----
@@ -122,9 +126,10 @@ TEST_F(NavMeshOffMeshLinkBridgesGapTest, LinkClosesGapThatIsImpassableWithoutIt)
     ASSERT_TRUE(linkedQuery.IsValid());
 
     std::vector<glm::vec3> linkedPath;
-    const bool linkedFound = linkedQuery.FindPath(kStart, kEnd, linkedPath);
-    ASSERT_TRUE(linkedFound)
-        << "FindPath returned false with an off-mesh link present.";
+    const FindPathResult linkedResult = linkedQuery.FindPath(kStart, kEnd, linkedPath);
+    ASSERT_EQ(linkedResult, FindPathResult::Complete)
+        << "FindPath did not report a complete path with an off-mesh link present — the "
+           "link should now make the goal fully reachable.";
     ASSERT_GE(linkedPath.size(), 2u);
 
     EXPECT_LT(DistXZ(linkedPath.front(), kStart), 1.5f)
