@@ -4,6 +4,8 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 
+#include <functional>
+
 namespace OloEngine
 {
     class CommandHistory;
@@ -19,6 +21,13 @@ namespace OloEngine
         void SetCommandHistory(CommandHistory* history)
         {
             m_CommandHistory = history;
+        }
+
+        // Set by EditorLayer: select a bone's entity in the Scene Hierarchy panel
+        // when the bone is clicked in the Bone Hierarchy list.
+        void SetSelectBoneEntityCallback(std::function<void(Entity)> cb)
+        {
+            m_SelectBoneEntityCallback = std::move(cb);
         }
 
         void OnImGuiRender(bool* p_open = nullptr);
@@ -55,6 +64,7 @@ namespace OloEngine
         Ref<Scene> m_Context;
         Entity m_SelectedEntity;
         CommandHistory* m_CommandHistory = nullptr;
+        std::function<void(Entity)> m_SelectBoneEntityCallback;
 
         // Playback state
         bool m_IsPlaying = false;

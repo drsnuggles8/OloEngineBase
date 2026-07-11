@@ -2625,6 +2625,10 @@ namespace OloEngine
                                                                {
             m_CinematicTimelinePanel.OpenSequence(handle);
             m_ShowCinematicTimeline = true; });
+
+        // Clicking a bone in the Animation panel's Bone Hierarchy selects its entity.
+        m_AnimationPanel.SetSelectBoneEntityCallback([this](Entity boneEntity)
+                                                     { m_SceneHierarchyPanel.SetSelectedEntity(boneEntity); });
     }
 
     void EditorLayer::NewProject()
