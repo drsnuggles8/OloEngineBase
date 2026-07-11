@@ -168,6 +168,28 @@ namespace OloEngine
         // body.
         [[nodiscard("cloth position query result must be used")]] bool GetClothWorldPosition(UUID entityID, glm::vec3& outPosition) const;
 
+        // Report the particle indices a cloth's soft body has pinned (inverse mass 0) —
+        // the set JoltShapes::CreateClothSharedSettings fixed per ClothAttachment. Scene
+        // captures these once at physics start to know which vertices to drive kinematically
+        // from a skeleton bone (issue #460 cape slice). Returns false (outIndices cleared)
+        // if entityID has no live cloth body or the body lock fails; the returned indices
+        // are into the same row-major particle order as GetClothVertices.
+        [[nodiscard("cloth pinned-index query result must be used")]] bool GetClothPinnedVertexIndices(UUID entityID, std::vector<u32>& outIndices) const;
+
+        // Drive a cloth's pinned (kinematic, inverse-mass-0) particles toward per-vertex
+        // world-space target positions by setting their velocity (issue #460 cape slice) —
+        // Jolt's recommended way to kinematically control a soft-body vertex (SoftBodyVertex:
+        // "at run-time you should only modify the inverse mass and/or velocity"). velocity =
+        // (target - current) / dt lands each vertex on its target across the frame's
+        // sub-steps (IntegratePositions advances every particle by mVelocity*dt and a pinned
+        // particle keeps that velocity — no gravity/damping touches it). vertexIndices and
+        // targetWorldPositions must be 1:1; only particles with inverse mass 0 are touched
+        // (a free particle is never perturbed). Wakes the body so a moving attachment keeps
+        // it simulating. No-op if entityID has no cloth body, dt is non-positive/non-finite,
+        // or the arrays mismatch.
+        void DriveClothAttachment(UUID entityID, const std::vector<u32>& vertexIndices,
+                                  const std::vector<glm::vec3>& targetWorldPositions, f32 dt);
+
         // Queue a uniform whole-body force (Newtons, world space) on a cloth's soft body —
         // e.g. wind (ClothWindSystem, issue #460). Delegates to JPH::BodyInterface::AddForce,
         // which the soft-body sub-stepper divides evenly across every particle and resets

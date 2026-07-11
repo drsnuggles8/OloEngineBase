@@ -73,6 +73,53 @@ namespace OloEngine
         // so global state is allocated on the first scene and torn down
         // exactly once when the last scene shuts down.
         std::atomic<i32> s_JoltGlobalRefCount{ 0 };
+
+        // Shared cloth soft-body access (issue #460): lock the body, validate it is a soft
+        // body carrying motion properties, then invoke fn(body, motion). Returns false
+        // (fn NOT called) if the lock fails, the body isn't a soft body, or it has no
+        // motion properties — the exact early-return chain GetClothVertices /
+        // GetClothPinnedVertexIndices / DriveClothAttachment all share. The lock lives for
+        // the duration of fn, so callers must read/write everything they need inside it.
+        // Read and write variants differ only in the lock type and the const-ness handed
+        // to fn (GetClothWorldPosition deliberately does NOT use these — it never touches
+        // motion properties, so it keeps its own leaner lock).
+        template<typename Fn>
+        bool WithClothSoftBodyRead(const JPH::BodyLockInterface& lockInterface, JPH::BodyID bodyID, Fn&& fn)
+        {
+            JPH::BodyLockRead lock(lockInterface, bodyID);
+            if (!lock.Succeeded())
+                return false;
+
+            const JPH::Body& body = lock.GetBody();
+            if (!body.IsSoftBody())
+                return false;
+
+            const auto* motion = static_cast<const JPH::SoftBodyMotionProperties*>(body.GetMotionProperties());
+            if (!motion)
+                return false;
+
+            fn(body, *motion);
+            return true;
+        }
+
+        template<typename Fn>
+        bool WithClothSoftBodyWrite(const JPH::BodyLockInterface& lockInterface, JPH::BodyID bodyID, Fn&& fn)
+        {
+            JPH::BodyLockWrite lock(lockInterface, bodyID);
+            if (!lock.Succeeded())
+                return false;
+
+            JPH::Body& body = lock.GetBody();
+            if (!body.IsSoftBody())
+                return false;
+
+            auto* motion = static_cast<JPH::SoftBodyMotionProperties*>(body.GetMotionProperties());
+            if (!motion)
+                return false;
+
+            fn(body, *motion);
+            return true;
+        }
     } // namespace
 
     JoltScene::JoltScene(Scene* scene)
@@ -569,27 +616,17 @@ namespace OloEngine
         // Lock the body read-only and pull the current particle positions out of its
         // SoftBodyMotionProperties. Each particle position is stored relative to the body's
         // centre of mass, so transform it by the centre-of-mass transform to get world space.
-        JPH::BodyLockRead lock(m_JoltSystem->GetBodyLockInterface(), it->second.m_BodyID);
-        if (!lock.Succeeded())
-            return false;
-
-        const JPH::Body& body = lock.GetBody();
-        if (!body.IsSoftBody())
-            return false;
-
-        const auto* motion = static_cast<const JPH::SoftBodyMotionProperties*>(body.GetMotionProperties());
-        if (!motion)
-            return false;
-
-        const JPH::RMat44 comTransform = body.GetCenterOfMassTransform();
-        const auto& vertices = motion->GetVertices();
-        outWorldPositions.reserve(vertices.size());
-        for (const auto& vertex : vertices)
-        {
-            const JPH::RVec3 world = comTransform * vertex.mPosition;
-            outWorldPositions.emplace_back(JoltUtils::FromJoltRVec3(world));
-        }
-        return true;
+        return WithClothSoftBodyRead(m_JoltSystem->GetBodyLockInterface(), it->second.m_BodyID,
+                                     [&](const JPH::Body& body, const JPH::SoftBodyMotionProperties& motion)
+                                     {
+            const JPH::RMat44 comTransform = body.GetCenterOfMassTransform();
+            const auto& vertices = motion.GetVertices();
+            outWorldPositions.reserve(vertices.size());
+            for (const auto& vertex : vertices)
+            {
+                const JPH::RVec3 world = comTransform * vertex.mPosition;
+                outWorldPositions.emplace_back(JoltUtils::FromJoltRVec3(world));
+            } });
     }
 
     bool JoltScene::GetClothWorldPosition(UUID entityID, glm::vec3& outPosition) const
@@ -618,6 +655,83 @@ namespace OloEngine
             return;
 
         m_JoltSystem->GetBodyInterface().AddForce(it->second.m_BodyID, JPH::Vec3(force.x, force.y, force.z));
+    }
+
+    bool JoltScene::GetClothPinnedVertexIndices(UUID entityID, std::vector<u32>& outIndices) const
+    {
+        outIndices.clear();
+
+        auto it = m_Cloths.find(entityID);
+        if (it == m_Cloths.end() || !m_JoltSystem)
+            return false;
+
+        return WithClothSoftBodyRead(m_JoltSystem->GetBodyLockInterface(), it->second.m_BodyID,
+                                     [&](const JPH::Body&, const JPH::SoftBodyMotionProperties& motion)
+                                     {
+            const auto& vertices = motion.GetVertices();
+            for (u32 i = 0; i < static_cast<u32>(vertices.size()); ++i)
+            {
+                // A pinned particle carries zero inverse mass (JoltShapes::CreateClothSharedSettings).
+                if (vertices[i].mInvMass == 0.0f)
+                    outIndices.push_back(i);
+            } });
+    }
+
+    void JoltScene::DriveClothAttachment(UUID entityID, const std::vector<u32>& vertexIndices,
+                                         const std::vector<glm::vec3>& targetWorldPositions, f32 dt)
+    {
+        if (!m_JoltSystem || !std::isfinite(dt) || dt <= 0.0f)
+            return;
+        if (vertexIndices.empty() || vertexIndices.size() != targetWorldPositions.size())
+            return;
+
+        auto it = m_Cloths.find(entityID);
+        if (it == m_Cloths.end() || it->second.m_BodyID.IsInvalid())
+            return;
+
+        bool droveAny = false;
+        WithClothSoftBodyWrite(m_JoltSystem->GetBodyLockInterface(), it->second.m_BodyID,
+                               [&](JPH::Body& body, JPH::SoftBodyMotionProperties& motion)
+                               {
+            // Particle positions/velocities are stored relative to the body's centre of
+            // mass. For a cloth the COM frame carries no rotation (the body is created
+            // with identity rotation and soft bodies only translate their COM), but we
+            // convert through the transform anyway so the drive stays correct if that
+            // ever changes: world position via comTransform, world->COM velocity via the
+            // transposed (== inverse, orthonormal) rotation.
+            const JPH::RMat44 comTransform = body.GetCenterOfMassTransform();
+            const f32 invDt = 1.0f / dt;
+            auto& vertices = motion.GetVertices();
+            const u32 vertexCount = static_cast<u32>(vertices.size());
+
+            for (sizet i = 0; i < vertexIndices.size(); ++i)
+            {
+                const u32 idx = vertexIndices[i];
+                if (idx >= vertexCount)
+                    continue;
+
+                JPH::SoftBodyVertex& v = vertices[idx];
+                // Only drive kinematic (pinned) particles — never perturb a free one.
+                if (v.mInvMass != 0.0f)
+                    continue;
+
+                const glm::vec3& target = targetWorldPositions[i];
+                if (!std::isfinite(target.x) || !std::isfinite(target.y) || !std::isfinite(target.z))
+                    continue;
+
+                const JPH::RVec3 currentWorld = comTransform * v.mPosition;
+                const JPH::Vec3 worldVel(
+                    (target.x - static_cast<f32>(currentWorld.GetX())) * invDt,
+                    (target.y - static_cast<f32>(currentWorld.GetY())) * invDt,
+                    (target.z - static_cast<f32>(currentWorld.GetZ())) * invDt);
+                v.mVelocity = comTransform.Multiply3x3Transposed(worldVel);
+                droveAny = true;
+            } });
+
+        // Activate outside the body lock (BodyInterface::ActivateBody takes its own locks):
+        // a cloth that settled and slept must wake so the driven velocity is integrated.
+        if (droveAny)
+            m_JoltSystem->GetBodyInterface().ActivateBody(it->second.m_BodyID);
     }
 
     Ref<JoltCharacterController> JoltScene::CreateCharacterController(Entity entity, const ContactCallbackFn& contactCallback)

@@ -1313,11 +1313,12 @@ namespace OloEngine
     // no runtime handles live here (the Jolt soft body lives in JoltScene::m_Cloths and
     // the deforming render mesh in Scene's cloth-runtime map, both keyed by entity UUID,
     // mirroring how the terrain height-field body is kept out of TerrainComponent). That
-    // keeps the component trivially copyable so scene-copy / prefab / serialization all
-    // round-trip it automatically (OloHeaderTool generates the tuple + scene YAML + save
-    // capture; only the SaveGame Serialize() overload and Lua binding are hand-written).
+    // keeps the runtime state out of the component so scene-copy / prefab / serialization
+    // all round-trip it automatically (OloHeaderTool generates the tuple + scene YAML +
+    // save capture; only the SaveGame Serialize() overload and Lua binding are hand-written).
     //
-    // Skeleton attachment (skinned capes) and WindSystem coupling are follow-up slices.
+    // WindSystem coupling (m_WindInfluence) and skeleton attachment (m_AttachmentEntity /
+    // m_AttachmentBone — skinned capes / cloaks) are the follow-up slices, both now landed.
     struct ClothComponent
     {
         // Grid resolution: particle counts along the local X (columns) and Z (rows)
@@ -1377,11 +1378,44 @@ namespace OloEngine
         OLO_PROPERTY()
         bool m_Enabled = true;
 
+        // ── Skeleton attachment (skinned capes / cloaks — issue #460, cape slice) ──
+        // Weld this cloth's pinned vertices (the set chosen by m_Attachment — typically
+        // the top edge) to a bone of an animated character, so the cloth follows the
+        // animation while the free vertices keep simulating under gravity + wind.
+        //
+        // m_AttachmentEntity is the entity carrying the SkeletonComponent to follow
+        // (0 = no skeleton attachment: the pinned vertices stay fixed to the world, the
+        // pre-cape behaviour). m_AttachmentBone is the bone name to weld to; an empty
+        // (or unresolved) name falls back to the attachment entity's own world transform,
+        // so a plain socket entity works too. Each pinned vertex keeps its rest position
+        // relative to the resolved bone — captured once at physics start — so author the
+        // cloth roughly where it should hang off the character. Nothing runtime is stored
+        // here (the weld offsets live in Scene::m_ClothRuntime, keyed by UUID), so the
+        // component still round-trips through scene YAML / save-games automatically.
+        UUID m_AttachmentEntity = 0;
+        std::string m_AttachmentBone;
+
         ClothComponent() = default;
         ClothComponent(const ClothComponent&) = default;
 
-        // Trivially copyable (all authored primitives / enum), so the editor undo path
-        // uses the byte-level memcmp tier — no operator== needed. Kept implicit.
+        // m_AttachmentBone (std::string) makes the component non-trivially-copyable, so the
+        // editor undo path and equality-based round-trip checks use this value comparison
+        // instead of the byte-level memcmp tier. Floats via Math::BitwiseEqual (rule 2);
+        // UUID via static_cast<u64> to dodge the implicit-operator-u64 C2666 ambiguity a
+        // defaulted operator== would hit (see docs/agent-rules/cpp-coding-quality.md §7).
+        auto operator==(const ClothComponent& other) const -> bool
+        {
+            return m_Columns == other.m_Columns && m_Rows == other.m_Rows &&
+                   Math::BitwiseEqual(m_Width, other.m_Width) && Math::BitwiseEqual(m_Height, other.m_Height) &&
+                   Math::BitwiseEqual(m_Mass, other.m_Mass) && Math::BitwiseEqual(m_Compliance, other.m_Compliance) &&
+                   Math::BitwiseEqual(m_BendCompliance, other.m_BendCompliance) &&
+                   Math::BitwiseEqual(m_LinearDamping, other.m_LinearDamping) &&
+                   Math::BitwiseEqual(m_Pressure, other.m_Pressure) && m_Iterations == other.m_Iterations &&
+                   m_Attachment == other.m_Attachment && Math::BitwiseEqual(m_WindInfluence, other.m_WindInfluence) &&
+                   m_Enabled == other.m_Enabled &&
+                   static_cast<u64>(m_AttachmentEntity) == static_cast<u64>(other.m_AttachmentEntity) &&
+                   m_AttachmentBone == other.m_AttachmentBone;
+        }
     };
 
     struct TextComponent

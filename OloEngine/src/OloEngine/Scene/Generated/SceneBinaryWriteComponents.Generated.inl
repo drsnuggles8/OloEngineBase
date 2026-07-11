@@ -60,6 +60,8 @@ if (entity.HasComponent<ClothComponent>())
     SceneBinIO::Write(out, comp.m_Attachment);
     SceneBinIO::Write(out, comp.m_WindInfluence);
     SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_AttachmentEntity);
+    SceneBinIO::Write(out, comp.m_AttachmentBone);
 }
 
 if (entity.HasComponent<DirectionalLightComponent>())

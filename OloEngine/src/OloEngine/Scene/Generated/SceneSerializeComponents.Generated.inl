@@ -84,6 +84,8 @@ if (entity.HasComponent<ClothComponent>())
     out << YAML::Key << "Attachment" << YAML::Value << static_cast<int>(comp.m_Attachment);
     out << YAML::Key << "WindInfluence" << YAML::Value << comp.m_WindInfluence;
     out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::Key << "AttachmentEntity" << YAML::Value << static_cast<u64>(comp.m_AttachmentEntity);
+    out << YAML::Key << "AttachmentBone" << YAML::Value << comp.m_AttachmentBone;
     out << YAML::EndMap; // ClothComponent
 }
 

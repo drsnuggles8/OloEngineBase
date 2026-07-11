@@ -43,6 +43,7 @@ namespace OloEngine
     struct SpringBoneComponent;
     struct NoiseAnimationComponent;
     struct AudioSoundGraphComponent;
+    struct ClothComponent;
     class DialogueSystem;
     class GameplayEventBus;
     class UINavigation;
@@ -928,8 +929,36 @@ namespace OloEngine
             std::vector<glm::vec3> m_Normals;
             u32 m_Columns = 0;
             u32 m_Rows = 0;
+
+            // Skeleton attachment (issue #460 cape slice). Resolved once at physics start
+            // from ClothComponent::m_AttachmentEntity / m_AttachmentBone. When inactive the
+            // cloth's pinned vertices stay welded to the world (pre-cape behaviour).
+            bool m_AttachmentActive = false;
+            UUID m_AttachEntity = 0;             // entity carrying the SkeletonComponent to follow
+            i32 m_AttachBoneIndex = -1;          // -1 = use m_AttachEntity's own world transform
+            std::vector<u32> m_AttachedVertices; // pinned particle indices, into m_Positions order
+            // Each pinned vertex's rest position expressed in the resolved bone's local
+            // frame at bind time. target_world = boneWorld_now * m_AttachedLocalOffsets[i].
+            std::vector<glm::vec3> m_AttachedLocalOffsets;
         };
         std::unordered_map<UUID, ClothRuntimeState> m_ClothRuntime;
+
+        // ── Cloth skeleton attachment (issue #460 cape slice) ──────────────────
+        // Declared here (not up by PostPhysicsSync) because they reference the
+        // ClothRuntimeState defined just above. SetupClothAttachment resolves
+        // ClothComponent::m_AttachmentEntity / m_AttachmentBone into a ClothRuntimeState
+        // (bone index + the pinned-vertex weld offsets), once, at physics start.
+        // DriveClothAttachments runs each tick BEFORE the physics step (next to
+        // ClothWindSystem::OnUpdate): for every attached cloth it looks up the bone's
+        // current world transform and drives the pinned particles' velocities toward
+        // their welded targets so the cloth follows the animation. `dt` is the frame
+        // delta the physics step will advance. ResolveClothAttachmentTransform composes
+        // the bone's world matrix (entity world transform × skeleton global bone
+        // transform); returns false if the attachment entity has vanished.
+        void SetupClothAttachment(Entity clothEntity, const ClothComponent& cloth, ClothRuntimeState& state);
+        void DriveClothAttachments(f32 dt);
+        [[nodiscard]] bool ResolveClothAttachmentTransform(const ClothRuntimeState& state, glm::mat4& outBoneWorld) const;
+
         std::unique_ptr<SceneStreamer> m_SceneStreamer;
         std::unique_ptr<DialogueSystem> m_DialogueSystem;
         DialogueVariables m_DialogueVariables;
