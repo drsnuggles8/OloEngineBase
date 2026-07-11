@@ -25,7 +25,13 @@ namespace OloEngine::Audio::DSP
         {
             case AttenuationModelType::Inverse:
             {
-                if (minDistance >= maxDistance)
+                // Guard minDistance <= 0 as well as minDistance >= maxDistance: with
+                // minDistance == 0 the ratio is 0 / (0 + rolloff * clampedDistance), which is
+                // 0/0 == NaN when the source sits on the listener (distance == 0) and a
+                // degenerate all-silent 0 for distance > 0. A NaN gain propagates through
+                // std::clamp (returns NaN) and VBAP straight into the master mix. Mirror the
+                // Exponential case, which already guards minDistance <= 0.
+                if (minDistance <= 0.0f || minDistance >= maxDistance)
                 {
                     return 1.0f;
                 }

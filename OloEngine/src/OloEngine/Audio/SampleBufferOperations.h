@@ -76,8 +76,16 @@ namespace OloEngine::Audio
             const f32 delta = (gainEnd - gainStart) / static_cast<f32>(numSamples - 1);
 
 #if defined(OLO_AUDIO_HAS_AVX)
-            // AVX path: process 8 floats at a time
-            if (totalSamples >= 8)
+            // AVX path: process 8 floats at a time.
+            // The per-lane frame index is precomputed once as indexOffsets[lane] = lane/numChannels
+            // and added to baseSampleIdx = i/numChannels each iteration. That equals the scalar
+            // reference frame index (i + lane)/numChannels ONLY when numChannels evenly divides the
+            // SIMD width (so i, always a multiple of the width, is also a multiple of numChannels and
+            // the two integer divisions distribute). For 3/5/6/7 channels they diverge — element
+            // (i+lane) straddles a frame boundary the split index misses — so restrict the fast path
+            // to channel counts dividing 8 and let everything else fall through to the exact scalar
+            // loop below. Mono/stereo (the common cases) stay fully vectorized.
+            if (totalSamples >= 8 && (8u % numChannels) == 0u)
             {
                 const u32 simdSamples = (totalSamples / 8) * 8;
 
@@ -119,8 +127,11 @@ namespace OloEngine::Audio
                 return;
             }
 #elif defined(OLO_AUDIO_HAS_SSE)
-            // SSE path: process 4 floats at a time
-            if (totalSamples >= 4)
+            // SSE path: process 4 floats at a time. Same per-lane index caveat as the AVX path
+            // above: the split frame index only matches the scalar reference when numChannels
+            // evenly divides the SIMD width (here 4), so gate on (4 % numChannels == 0) and let
+            // 3/5/6/7-channel buffers fall through to the exact scalar loop.
+            if (totalSamples >= 4 && (4u % numChannels) == 0u)
             {
                 const u32 simdSamples = (totalSamples / 4) * 4;
 
