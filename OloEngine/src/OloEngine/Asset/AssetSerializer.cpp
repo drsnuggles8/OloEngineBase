@@ -74,6 +74,18 @@ namespace OloEngine
     // TextureSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
+    std::atomic<bool> TextureSerializer::s_AssetPackCompressionEnabled{ false };
+
+    void TextureSerializer::SetAssetPackCompressionEnabled(bool enabled)
+    {
+        s_AssetPackCompressionEnabled.store(enabled, std::memory_order_relaxed);
+    }
+
+    bool TextureSerializer::IsAssetPackCompressionEnabled()
+    {
+        return s_AssetPackCompressionEnabled.load(std::memory_order_relaxed);
+    }
+
     bool TextureSerializer::IsLikelyColorTextureByName(std::string_view filename)
     {
         // Single source of truth for the colour/linear heuristic, shared with the
@@ -297,19 +309,60 @@ namespace OloEngine
 
         outInfo.Offset = stream.GetStreamPosition();
 
-        // Write texture metadata
         const auto& spec = texture->GetSpecification();
+        const std::string& path = texture->GetPath();
+
+        // Auto-cook (#440): when pack compression is enabled and this is an UNcompressed
+        // source texture (not already an .olotex), BC-compress it in-memory and embed the
+        // resulting container — so shipped textures get BCn + mips automatically, with no
+        // separate cook step. Format is auto-picked (BC7 for LDR colour/linear, BC6H for
+        // HDR; BC5 stays a deliberate opt-in via a pre-cooked .olotex). A cook failure
+        // (no source file on disk, unsupported image) falls back to the raw record below,
+        // so the build never fails just because one texture couldn't be compressed.
+        CompressedTextureImage cooked;
+        bool haveCooked = false;
+        // Non-throwing existence check: a filesystem error (permissions, bad path) must
+        // fall through to the uncompressed raw record, never propagate an exception up to
+        // BuildImpl and abort the whole pack build over one texture.
+        std::error_code existsEc;
+        if (IsAssetPackCompressionEnabled() && !IsCompressedFormat(spec.Format) &&
+            !path.empty() && !IsOloTexPath(path) && std::filesystem::exists(path, existsEc))
+        {
+            TextureCompression::CompressOptions opts;
+            opts.GenerateMips = spec.GenerateMips;
+            if (TextureCompression::CompressImageFile(path, opts, cooked) && cooked.IsValid())
+                haveCooked = true;
+            else
+                OLO_CORE_WARN("TextureSerializer::SerializeToAssetPack - cook failed for '{}'; shipping it uncompressed", path);
+        }
+
+        // The record's ImageFormat: the cooked BCn format if we cooked, else the live
+        // texture's format. The runtime deserialize keys the embedded-blob read path off
+        // IsCompressedFormat(format), so a cooked record reuses the exact same read path
+        // as a pre-compressed .olotex — no runtime change needed.
+        ImageFormat recordFormat = spec.Format;
+        bool recordSRGB = spec.SRGB;
+        bool recordHasAlpha = texture->HasAlphaChannel();
+        bool recordGenerateMips = spec.GenerateMips;
+        if (haveCooked)
+        {
+            recordFormat = (cooked.Format == TextureCompressionFormat::BC5)    ? ImageFormat::BC5
+                           : (cooked.Format == TextureCompressionFormat::BC6H) ? ImageFormat::BC6H
+                                                                               : ImageFormat::BC7;
+            recordSRGB = cooked.SRGB;
+            recordHasAlpha = cooked.HasAlpha;
+            recordGenerateMips = cooked.MipLevels() > 1u;
+        }
+
+        // Write texture metadata (layout shared with the pre-compressed path; the srgb
+        // byte and any embedded blob are appended last to keep the uncompressed record
+        // byte-identical to the legacy layout).
         stream.WriteRaw<u32>(spec.Width);
         stream.WriteRaw<u32>(spec.Height);
-        stream.WriteRaw<u32>(static_cast<u32>(std::to_underlying(spec.Format)));
-        stream.WriteRaw<bool>(spec.GenerateMips);
-
-        // Write texture path for reference
-        const std::string& path = texture->GetPath();
-        stream.WriteString(path);
-
-        // Write additional metadata for better texture recreation
-        stream.WriteRaw<bool>(texture->HasAlphaChannel());
+        stream.WriteRaw<u32>(static_cast<u32>(std::to_underlying(recordFormat)));
+        stream.WriteRaw<bool>(recordGenerateMips);
+        stream.WriteString(path); // source path (unused by the compressed read path)
+        stream.WriteRaw<bool>(recordHasAlpha);
         stream.WriteRaw<bool>(texture->IsLoaded());
 
         // Add texture creation timestamp for dependency tracking
@@ -317,25 +370,27 @@ namespace OloEngine
         auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
         stream.WriteRaw<i64>(timestamp);
 
-        // Persist the sRGB flag so the pack round-trip preserves colour-space.
-        // Without this the deserializer falls back to the linear default and
-        // every albedo / emissive shipped through an .olopack loses its
-        // GL_SRGB8_ALPHA8 conversion.
-        stream.WriteRaw<bool>(spec.SRGB);
+        // Persist the sRGB flag so the pack round-trip preserves colour-space. Without
+        // this the deserializer falls back to the linear default and every albedo /
+        // emissive shipped through an .olopack loses its GL_SRGB8_ALPHA8 conversion.
+        stream.WriteRaw<bool>(recordSRGB);
 
         // Block-compressed textures (#440) cannot be re-created from the path via
-        // stb_image, and the spec-only path produces empty storage — so embed the whole
-        // .olotex container blob here, making the pack self-contained. The bytes are the
-        // exact on-disk container; re-read them from the source path (set as GetPath()
-        // by the .olotex loader). Appended AFTER srgb so the legacy record layout for
+        // stb_image, so embed the whole .olotex container blob here, making the pack
+        // self-contained. For a just-cooked texture that blob is the in-memory container;
+        // for a pre-compressed (.olotex) texture it is the exact on-disk bytes re-read
+        // from the source path. Appended AFTER srgb so the legacy record layout for
         // uncompressed textures is byte-identical.
-        if (IsCompressedFormat(spec.Format))
+        if (IsCompressedFormat(recordFormat))
         {
-            const std::string& oloTexPath = texture->GetPath();
             std::vector<u8> blob;
-            if (!oloTexPath.empty())
+            if (haveCooked)
             {
-                std::ifstream file(oloTexPath, std::ios::binary | std::ios::ate);
+                blob = TextureCompression::SerializeToBlob(cooked);
+            }
+            else if (!path.empty())
+            {
+                std::ifstream file(path, std::ios::binary | std::ios::ate);
                 if (file)
                 {
                     const std::streamsize sz = file.tellg();
@@ -351,7 +406,7 @@ namespace OloEngine
             }
             if (blob.empty())
             {
-                OLO_CORE_ERROR("TextureSerializer::SerializeToAssetPack - could not read .olotex blob for '{}'; packed texture would be empty", oloTexPath);
+                OLO_CORE_ERROR("TextureSerializer::SerializeToAssetPack - no .olotex blob for '{}'; packed texture would be empty", path);
                 return false;
             }
             stream.WriteRaw<u64>(static_cast<u64>(blob.size()));

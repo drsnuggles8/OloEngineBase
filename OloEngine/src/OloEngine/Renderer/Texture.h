@@ -36,14 +36,15 @@ namespace OloEngine
         // rather than a client pixel format; the sRGB variant of BC7 is selected from
         // TextureSpecification::SRGB. Appended to preserve legacy serialised values.
         BC7, // BPTC RGBA — base color / albedo / emissive
-        BC5  // RGTC2 two-channel — tangent-space normal xy
+        BC5, // RGTC2 two-channel — tangent-space normal xy
+        BC6H // BPTC RGB half-float (unsigned) — HDR environment / IBL / emissive
     };
 
     // True for the block-compressed ImageFormat values, which take the
     // glCompressedTextureSubImage2D upload path instead of a client pixel format.
     [[nodiscard]] constexpr bool IsCompressedFormat(ImageFormat format) noexcept
     {
-        return format == ImageFormat::BC7 || format == ImageFormat::BC5;
+        return format == ImageFormat::BC7 || format == ImageFormat::BC5 || format == ImageFormat::BC6H;
     }
 
     struct TextureSpecification

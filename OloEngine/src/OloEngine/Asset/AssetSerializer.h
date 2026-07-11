@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <string>
 #include <string_view>
 #include <filesystem>
@@ -161,6 +162,17 @@ namespace OloEngine
         // bytes encode colour (albedo / emissive) or linear data (normal /
         // metallic / roughness / AO / height). Returns true for colour.
         [[nodiscard]] static bool IsLikelyColorTextureByName(std::string_view filename);
+
+        // Asset-pack cook policy (#440). When enabled, SerializeToAssetPack BC-compresses
+        // an uncompressed source texture (BC7 for colour/linear, BC6H for HDR) into an
+        // embedded .olotex instead of shipping the raw image path. AssetPackBuilder sets
+        // this from BuildSettings::m_CompressAssets around a pack build (single-threaded;
+        // reset to false afterwards). Already-compressed (.olotex) textures are unaffected.
+        static void SetAssetPackCompressionEnabled(bool enabled);
+        [[nodiscard]] static bool IsAssetPackCompressionEnabled();
+
+      private:
+        static std::atomic<bool> s_AssetPackCompressionEnabled;
     };
 
     class FontSerializer : public AssetSerializer
