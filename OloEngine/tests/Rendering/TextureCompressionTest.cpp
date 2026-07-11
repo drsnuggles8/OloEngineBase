@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -644,6 +645,47 @@ TEST(TextureCompression, OfflineCookFromHdrAutoSelectsBC6H)
     std::error_code ec;
     std::filesystem::remove(hdrPath, ec);
     std::filesystem::remove(oloTexPath, ec);
+}
+
+TEST(TextureCompression, CompressImageFileProducesInMemoryChain)
+{
+    // The in-memory cook primitive the asset-pack auto-cook (#440) uses: a PNG on disk
+    // becomes a CompressedTextureImage (no .olotex written), decodable within tolerance.
+    constexpr u32 kW = 32;
+    constexpr u32 kH = 32;
+    const std::vector<u8> source = MakeGradientRGBA(kW, kH);
+    const std::filesystem::path pngPath = CaseKeyedTempFile(".png");
+    ASSERT_NE(::stbi_write_png(pngPath.string().c_str(), static_cast<int>(kW), static_cast<int>(kH), 4,
+                               source.data(), static_cast<int>(kW) * 4),
+              0);
+
+    TextureCompression::CompressOptions options; // Format=None -> BC7 for this LDR PNG
+    options.GenerateMips = true;
+    CompressedTextureImage image;
+    ASSERT_TRUE(TextureCompression::CompressImageFile(pngPath.string(), options, image));
+    EXPECT_EQ(image.Format, TextureCompressionFormat::BC7);
+    EXPECT_EQ(image.Width, kW);
+    EXPECT_EQ(image.Height, kH);
+    EXPECT_GT(image.MipLevels(), 1u);
+
+    std::vector<u8> decoded;
+    u32 dw = 0;
+    u32 dh = 0;
+    ASSERT_TRUE(TextureCompression::DecodeToRGBA8(image, 0, decoded, dw, dh));
+
+    // CompressImageFile loads with a vertical flip (matching the runtime loader), so the
+    // cooked pixels are row-flipped relative to the raw `source`. Flip `source` to line
+    // them up before the PSNR compare.
+    std::vector<u8> expected(source.size());
+    for (u32 y = 0; y < kH; ++y)
+        std::copy_n(&source[static_cast<sizet>(kH - 1 - y) * kW * 4], static_cast<sizet>(kW) * 4,
+                    &expected[static_cast<sizet>(y) * kW * 4]);
+
+    const double psnr = ComputePSNR(expected, decoded, 4, 3);
+    EXPECT_GT(psnr, 30.0) << "CompressImageFile BC7 round-trip PSNR too low: " << psnr << " dB";
+
+    std::error_code ec;
+    std::filesystem::remove(pngPath, ec);
 }
 
 TEST(TextureCompression, WriteThenReadFileRoundTrip)

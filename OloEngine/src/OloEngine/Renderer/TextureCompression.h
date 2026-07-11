@@ -134,10 +134,17 @@ namespace OloEngine
             bool GenerateMips = true;
         };
 
+        // Load `srcImagePath` (any stb-supported image) and encode per `options`, returning
+        // the in-memory BCn mip chain in `out` (no file written). This is the core of the
+        // cook; the asset-pack builder uses it to auto-compress source textures and embed
+        // the resulting container directly. Returns false on load/encode failure (logged).
+        // Pixels are loaded with the same vertical flip the runtime texture loader uses.
+        [[nodiscard]] bool CompressImageFile(const std::string& srcImagePath, const CompressOptions& options,
+                                             CompressedTextureImage& out);
+
         // Load `srcImagePath` (any stb-supported image), encode per `options`, and write
-        // the `.olotex` container to `dstOlotexPath`. Returns false on load/encode/write
-        // failure (details logged). Pixels are loaded with the same vertical flip the
-        // runtime texture loader uses, so the stored blocks upload without re-flipping.
+        // the `.olotex` container to `dstOlotexPath`. Thin wrapper over CompressImageFile +
+        // WriteFile. Returns false on load/encode/write failure (details logged).
         [[nodiscard]] bool CompressTextureFile(const std::string& srcImagePath, const std::string& dstOlotexPath,
                                                const CompressOptions& options);
     } // namespace TextureCompression

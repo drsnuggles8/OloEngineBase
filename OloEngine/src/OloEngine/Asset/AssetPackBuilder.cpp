@@ -230,8 +230,25 @@ namespace OloEngine
             // The index table starts immediately after the header
             assetPackFile.Header.IndexOffset = sizeof(AssetPackFile::FileHeader);
 
-            // Serialize all assets
-            OLO_CORE_INFO("AssetPackBuilder: Serializing assets...");
+            // Serialize all assets. Enable the texture cook policy (#440) for the duration
+            // of serialization so uncompressed source textures get BC-compressed into
+            // embedded .olotex blobs when m_CompressAssets is set. The guard resets it on
+            // every exit path (success, error, or the exception handler below).
+            OLO_CORE_INFO("AssetPackBuilder: Serializing assets... (texture compression: {})", settings.m_CompressAssets ? "on" : "off");
+            struct TextureCookScope
+            {
+                explicit TextureCookScope(bool enabled)
+                {
+                    TextureSerializer::SetAssetPackCompressionEnabled(enabled);
+                }
+                ~TextureCookScope()
+                {
+                    TextureSerializer::SetAssetPackCompressionEnabled(false);
+                }
+                TextureCookScope(const TextureCookScope&) = delete;
+                TextureCookScope& operator=(const TextureCookScope&) = delete;
+            } cookScope(settings.m_CompressAssets);
+
             if (!SerializeAllAssets(assetManager, assetPackFile, progress, cancelToken))
             {
                 result.m_ErrorMessage = "Failed to serialize assets or build was cancelled";

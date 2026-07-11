@@ -1090,8 +1090,7 @@ namespace OloEngine
             return DeserializeFromBlob(blob, out);
         }
 
-        bool CompressTextureFile(const std::string& srcImagePath, const std::string& dstOlotexPath,
-                                 const CompressOptions& options)
+        bool CompressImageFile(const std::string& srcImagePath, const CompressOptions& options, CompressedTextureImage& out)
         {
             OLO_PROFILE_FUNCTION();
 
@@ -1127,7 +1126,7 @@ namespace OloEngine
                 ::stbi_set_flip_vertically_on_load_thread(0);
                 if (!data)
                 {
-                    OLO_CORE_ERROR("TextureCompression::CompressTextureFile - failed to load HDR '{}'", srcImagePath);
+                    OLO_CORE_ERROR("TextureCompression::CompressImageFile - failed to load HDR '{}'", srcImagePath);
                     return false;
                 }
                 image = EncodeBC6H(data, static_cast<u32>(width), static_cast<u32>(height), 3, options.GenerateMips);
@@ -1139,7 +1138,7 @@ namespace OloEngine
                 ::stbi_set_flip_vertically_on_load_thread(0);
                 if (!data)
                 {
-                    OLO_CORE_ERROR("TextureCompression::CompressTextureFile - failed to load '{}'", srcImagePath);
+                    OLO_CORE_ERROR("TextureCompression::CompressImageFile - failed to load '{}'", srcImagePath);
                     return false;
                 }
                 if (format == TextureCompressionFormat::BC5)
@@ -1151,9 +1150,22 @@ namespace OloEngine
 
             if (!image.IsValid())
             {
-                OLO_CORE_ERROR("TextureCompression::CompressTextureFile - encode failed for '{}'", srcImagePath);
+                OLO_CORE_ERROR("TextureCompression::CompressImageFile - encode failed for '{}'", srcImagePath);
                 return false;
             }
+
+            out = std::move(image);
+            return true;
+        }
+
+        bool CompressTextureFile(const std::string& srcImagePath, const std::string& dstOlotexPath,
+                                 const CompressOptions& options)
+        {
+            OLO_PROFILE_FUNCTION();
+
+            CompressedTextureImage image;
+            if (!CompressImageFile(srcImagePath, options, image))
+                return false;
 
             return WriteFile(dstOlotexPath, image);
         }

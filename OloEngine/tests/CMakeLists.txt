@@ -179,6 +179,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterStaleTexturePublicationTest.cpp
 		Rendering/PropertyTests/CompressedTextureVisualEvidenceTest.cpp
+		Rendering/PropertyTests/TextureAutoCookPackTest.cpp
 		Rendering/PropertyTests/OceanFFTVisualEvidenceTest.cpp
 		Rendering/PropertyTests/UnderwaterCausticsVisualTest.cpp
 		Rendering/PropertyTests/SSRVisualEvidenceTest.cpp
