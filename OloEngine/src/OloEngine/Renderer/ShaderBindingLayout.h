@@ -1269,15 +1269,22 @@ layout(binding = 11) uniform samplerCube u_PrefilterMap;
 layout(binding = 12) uniform sampler2D u_BRDFLutMap;)";
         }
 
-        static const char* GetShadowUBOLayout()
+        static std::string GetShadowUBOLayout()
         {
-            return R"(
+            // The atlas array sizes come from the C++ struct constant so this
+            // GLSL reference block can never silently drift from ShadowUBO.
+            static const std::string s_Layout =
+                std::string(R"(
 layout(std140, binding = 6) uniform ShadowData {
     mat4 u_DirectionalLightSpaceMatrices[4];
     vec4 u_CascadePlaneDistances;
     vec4 u_ShadowParams;  // x=bias, y=normalBias, z=softness, w=maxShadowDistance
-    mat4 u_AtlasEntryMatrices[48];    // light VP per shadow-atlas entry (spot = 1 entry, point = 6 face entries)
-    vec4 u_AtlasEntryScaleOffset[48]; // xy = UV scale, zw = UV offset of the entry's atlas tile
+    mat4 u_AtlasEntryMatrices[)") +
+                std::to_string(UBOStructures::ShadowUBO::MAX_SHADOW_ATLAS_ENTRIES) +
+                R"(];    // light VP per shadow-atlas entry (spot = 1 entry, point = 6 face entries)
+    vec4 u_AtlasEntryScaleOffset[)" +
+                std::to_string(UBOStructures::ShadowUBO::MAX_SHADOW_ATLAS_ENTRIES) +
+                R"(]; // xy = UV scale, zw = UV offset of the entry's atlas tile
     int u_DirectionalShadowEnabled;
     int u_AtlasEntryCount;
     int u_ShadowMapResolution;
@@ -1287,6 +1294,7 @@ layout(std140, binding = 6) uniform ShadowData {
     int _shadowPad1;
     int _shadowPad2;
 };)";
+            return s_Layout;
         }
 
         static const char* GetDecalUBOLayout()

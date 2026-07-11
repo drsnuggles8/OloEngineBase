@@ -229,9 +229,12 @@ namespace OloEngine::Tests
                 pl.m_Range = 12.0f;
             }
 
-            // Dense volumetric fog. Noise off for determinism; scattering on;
-            // light shafts off (no sun in this scene — the coloured glow IS
-            // the evidence).
+            // Dense volumetric fog. Noise off for determinism. Atmospheric
+            // sun scattering (EnableScattering) off — it only gates the
+            // Rayleigh/Mie sun term and there is no sun in this scene; the
+            // cluster-light in-scatter that produces the coloured glow (the
+            // evidence this test pins) is unconditional in the scatter pass.
+            // Light shafts off for the same no-sun reason.
             auto& fog = Renderer3D::GetFogSettings();
             fog.Enabled = false; // the "off" capture; toggled on per test
             fog.EnableVolumetric = true;

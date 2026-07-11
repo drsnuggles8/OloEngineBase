@@ -1283,6 +1283,11 @@ namespace OloEngine
 
         // Other systems that gate blackboard branches
         HashBool(h, data.Fog.Enabled);
+        // VolumetricFogPass::Setup() declares nothing when the pass is
+        // disabled, and its enable is Fog.Enabled && Fog.EnableVolumetric —
+        // so the volumetric toggle changes graph declarations and MUST be
+        // hashed or flipping it reuses a stale cached build (#530 class).
+        HashBool(h, data.Fog.EnableVolumetric);
         HashBool(h, data.Snow.Enabled);
         HashBool(h, data.Snow.SSSBlurEnabled);
 

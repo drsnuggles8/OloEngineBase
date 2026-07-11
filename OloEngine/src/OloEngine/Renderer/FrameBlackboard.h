@@ -31,10 +31,12 @@ namespace OloEngine
     //  - AO       (`AOSlot`)               — the shared AO producer/consumer surface
     //  - Scratch  (`ScratchSlot`)          — graph-internal transients (SSAO, JFA, Bloom mips,
     //                                        GTAO denoise/edge, HZB, water refraction, fog half-res)
-    //  - Shadows  (`ShadowSlot`)           — CSM / spot atlas / point cubemap shadow targets
+    //  - Shadows  (`ShadowSlot`)           — CSM + the unified shadow atlas (spot & point
+    //                                        entries share one texture, issue #435)
     //  - Post     (`PostProcessSlot`)      — post-process chain framebuffers + attachment views
     //  - OIT      (`OITSlot`)              — weighted-blended OIT MRT buffers
-    //  - Temporal (`TemporalHistorySlot`)  — imported prior-frame histories (TAA, fog)
+    //  - Temporal (`TemporalHistorySlot`)  — imported prior-frame histories (TAA; the fog
+    //                                        history lives in VolumetricFogPass's own volume)
     //  - IBL      (`IBLSlot`)              — global imported IBL textures
     //
     // Unset handles (IsValid() == false) mean the resource is not available in

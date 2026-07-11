@@ -99,13 +99,18 @@ namespace OloEngine
         {
             return static_cast<u32>(m_UBOData.AtlasEntryCount);
         }
+        // Out-of-range indices mirror SetAtlasEntry's silent tolerance: they
+        // read a benign fallback (identity / zero-sized rect) instead of
+        // indexing past the backing arrays.
         [[nodiscard]] const glm::mat4& GetAtlasEntryMatrix(u32 entryIndex) const
         {
-            return m_AtlasEntryWorldMatrices[entryIndex];
+            static const glm::mat4 s_Identity{ 1.0f };
+            return (entryIndex < MAX_SHADOW_ATLAS_ENTRIES) ? m_AtlasEntryWorldMatrices[entryIndex] : s_Identity;
         }
         [[nodiscard]] const ShadowAtlas::TileRect& GetAtlasEntryRect(u32 entryIndex) const
         {
-            return m_AtlasEntryRects[entryIndex];
+            static constexpr ShadowAtlas::TileRect s_Empty{};
+            return (entryIndex < MAX_SHADOW_ATLAS_ENTRIES) ? m_AtlasEntryRects[entryIndex] : s_Empty;
         }
 
         // Upload all shadow data to the UBO. The light-space matrices are
