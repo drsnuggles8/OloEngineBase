@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderConstants.h"
+#include "OloEngine/Renderer/Shadow/ShadowAtlas.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 
@@ -19,6 +20,10 @@ namespace OloEngine
     struct ShadowSettings
     {
         u32 Resolution = static_cast<u32>(ShaderConstants::SHADOW_MAP_SIZE);
+        // Resolution of the local-light shadow atlas (issue #435). One square
+        // DEPTH32F texture shared by every shadowed spot / point light; tiles
+        // are allocated by priority (see ShadowAtlas.h). 4096² ≈ 64 MB.
+        u32 AtlasResolution = 4096;
         f32 Bias = ShaderConstants::SHADOW_BIAS;
         f32 NormalBias = 0.01f;
         // With SoftShadows (PCSS) on, Softness is the light's apparent size — it
@@ -40,15 +45,17 @@ namespace OloEngine
 
     // @brief Manages shadow map textures, light-space matrices, and UBO uploads
     //
-    // Owns CSM Texture2DArray (4 cascades for directional light),
-    // spot Texture2DArray (up to 4 spot lights), and depth cubemaps
-    // (up to 4 point lights) for omnidirectional shadow mapping.
+    // Owns the CSM Texture2DArray (4 cascades for the directional light) and
+    // the budgeted local-light shadow ATLAS (issue #435): one large depth
+    // texture whose square tiles hold every prioritised spot shadow and
+    // point-light cube face. Entry selection/packing happens scene-side via
+    // ShadowAtlas::Allocate; this class stores the resulting per-entry
+    // light-space matrices + tile rects and uploads them to the ShadowData UBO.
     class ShadowMap
     {
       public:
         static constexpr u32 MAX_CSM_CASCADES = UBOStructures::ShadowUBO::MAX_CSM_CASCADES;
-        static constexpr u32 MAX_SPOT_SHADOWS = UBOStructures::ShadowUBO::MAX_SPOT_SHADOWS;
-        static constexpr u32 MAX_POINT_SHADOWS = UBOStructures::ShadowUBO::MAX_POINT_SHADOWS;
+        static constexpr u32 MAX_SHADOW_ATLAS_ENTRIES = UBOStructures::ShadowUBO::MAX_SHADOW_ATLAS_ENTRIES;
 
         ShadowMap() = default;
         ~ShadowMap() = default;
@@ -66,37 +73,60 @@ namespace OloEngine
             f32 cameraNear,
             f32 cameraFar);
 
-        // Compute a single light-space matrix for a spot light
-        void SetSpotLightShadow(
-            u32 index,
+        // --- Shadow atlas entries (issue #435) ---
+
+        // Light-space matrix builders. Pure; the scene composes these with the
+        // ShadowAtlas allocation to fill entries.
+        [[nodiscard]] static glm::mat4 BuildSpotLightMatrix(
             const glm::vec3& position,
             const glm::vec3& direction,
-            f32 outerCutoff,
+            f32 outerCutoffDegrees,
             f32 range);
-
-        // Compute the 6 face VP matrices for a point light cubemap shadow
-        void SetPointLightShadow(
-            u32 index,
+        // 6 face VP matrices in +X,-X,+Y,-Y,+Z,-Z order (the face order the
+        // shader's atlasCubeFace() helper selects by dominant axis).
+        [[nodiscard]] static std::array<glm::mat4, 6> BuildPointLightFaceMatrices(
             const glm::vec3& position,
             f32 range);
 
-        // Upload all shadow data to the UBO. The light-space matrices and point
-        // positions are stored world-space; they are shifted into camera-
-        // relative space (issue #429) by `renderOrigin` on upload so the shadow
-        // sampling in the lit pass matches the render-relative world positions.
-        // The shadow *render* pass applies the same shift to the same matrices
-        // and to the casters, so the two stay consistent. Pass
+        // Store one atlas entry (world-space light VP + pixel tile rect).
+        void SetAtlasEntry(u32 entryIndex, const glm::mat4& lightVP, const ShadowAtlas::TileRect& rect);
+        void SetAtlasEntryCount(u32 count)
+        {
+            m_UBOData.AtlasEntryCount = static_cast<i32>(std::min(count, MAX_SHADOW_ATLAS_ENTRIES));
+        }
+
+        [[nodiscard]] u32 GetAtlasEntryCount() const
+        {
+            return static_cast<u32>(m_UBOData.AtlasEntryCount);
+        }
+        // Out-of-range indices mirror SetAtlasEntry's silent tolerance: they
+        // read a benign fallback (identity / zero-sized rect) instead of
+        // indexing past the backing arrays.
+        [[nodiscard]] const glm::mat4& GetAtlasEntryMatrix(u32 entryIndex) const
+        {
+            static const glm::mat4 s_Identity{ 1.0f };
+            return (entryIndex < MAX_SHADOW_ATLAS_ENTRIES) ? m_AtlasEntryWorldMatrices[entryIndex] : s_Identity;
+        }
+        [[nodiscard]] const ShadowAtlas::TileRect& GetAtlasEntryRect(u32 entryIndex) const
+        {
+            static constexpr ShadowAtlas::TileRect s_Empty{};
+            return (entryIndex < MAX_SHADOW_ATLAS_ENTRIES) ? m_AtlasEntryRects[entryIndex] : s_Empty;
+        }
+
+        // Upload all shadow data to the UBO. The light-space matrices are
+        // stored world-space; they are shifted into camera-relative space
+        // (issue #429) by `renderOrigin` on upload so the shadow sampling in
+        // the lit pass matches the render-relative world positions. The shadow
+        // *render* pass applies the same shift to the same matrices and to the
+        // casters, so the two stay consistent. Pass
         // Renderer3D::GetRenderOrigin(); (0,0,0) is a no-op near origin.
         void UploadUBO(const glm::vec3& renderOrigin = glm::vec3(0.0f));
 
         // Bind the CSM texture array to the shadow texture slot
         void BindCSMTexture(u32 slot = ShaderBindingLayout::TEX_SHADOW) const;
 
-        // Bind the spot shadow texture array
-        void BindSpotTexture(u32 slot = ShaderBindingLayout::TEX_SHADOW_SPOT) const;
-
-        // Bind a point shadow cubemap
-        void BindPointTexture(u32 index, u32 slot) const;
+        // Bind the local-light shadow atlas (1-layer depth array)
+        void BindAtlasTexture(u32 slot = ShaderBindingLayout::TEX_SHADOW_ATLAS) const;
 
         // --- Accessors ---
 
@@ -104,42 +134,41 @@ namespace OloEngine
         {
             return m_CSMTextureArray;
         }
-        [[nodiscard]] const Ref<Texture2DArray>& GetSpotTextureArray() const
+        [[nodiscard]] const Ref<Texture2DArray>& GetAtlasTextureArray() const
         {
-            return m_SpotTextureArray;
+            return m_AtlasTexture;
         }
         [[nodiscard]] u32 GetCSMRendererID() const;
-        [[nodiscard]] u32 GetSpotRendererID() const;
-        [[nodiscard]] u32 GetPointRendererID(u32 index) const;
+        [[nodiscard]] u32 GetAtlasRendererID() const;
 
-        // Raw-depth (comparison-OFF) views aliasing the CSM / spot depth arrays,
-        // bound as plain sampler2DArray so the PCSS blocker search can read raw
-        // occluder depth (the hardware sampler2DArrayShadow only returns the
-        // depth-comparison result). Created alongside the arrays in Init();
-        // 0 until then. See Renderer::CreateDepthArrayCompareOffView.
+        // Raw-depth (comparison-OFF) views aliasing the CSM / atlas depth
+        // textures, bound as plain sampler2DArray so the PCSS blocker search
+        // can read raw occluder depth (the hardware sampler2DArrayShadow only
+        // yields the comparison result). Created alongside the textures in
+        // Init(); 0 until then. See Renderer::CreateDepthArrayCompareOffView.
         [[nodiscard]] u32 GetCSMRawRendererID() const
         {
             return m_CSMRawViewID;
         }
-        [[nodiscard]] u32 GetSpotRawRendererID() const
+        [[nodiscard]] u32 GetAtlasRawRendererID() const
         {
-            return m_SpotRawViewID;
+            return m_AtlasRawViewID;
         }
 
         // Placeholder shadow textures for when no real shadow map is available
         // this frame. Some drivers validate the bound texture target at draw
-        // time when a sampler2DArrayShadow / samplerCubeShadow uniform exists,
-        // even if the shader guards the actual sample with a uniform flag.
-        // These return 1x1 depth-comparison textures of the correct target.
-        // Lazy-initialised on first call; freed in ShutdownPlaceholders().
-        // Must be called from the render thread.
+        // time when a sampler2DArrayShadow uniform exists, even if the shader
+        // guards the actual sample with a uniform flag. These return 1x1
+        // depth-comparison textures of the correct target. Lazy-initialised on
+        // first call; freed in ShutdownPlaceholders(). Must be called from the
+        // render thread. The atlas shares the CSM placeholders (same
+        // sampler2DArrayShadow target).
         [[nodiscard]] static u32 GetCSMPlaceholderRendererID();
-        [[nodiscard]] static u32 GetSpotPlaceholderRendererID();
-        [[nodiscard]] static u32 GetPointPlaceholderRendererID();
+        [[nodiscard]] static u32 GetAtlasPlaceholderRendererID();
         // Comparison-OFF raw-depth placeholders (plain sampler2DArray) for the
         // PCSS raw-view slots when no real shadow map is bound this frame.
         [[nodiscard]] static u32 GetCSMRawPlaceholderRendererID();
-        [[nodiscard]] static u32 GetSpotRawPlaceholderRendererID();
+        [[nodiscard]] static u32 GetAtlasRawPlaceholderRendererID();
         // Release placeholder textures. Called at renderer shutdown.
         static void ShutdownPlaceholders();
 
@@ -151,42 +180,25 @@ namespace OloEngine
         {
             return m_UBOData.CascadePlaneDistances;
         }
-        [[nodiscard]] const glm::mat4& GetSpotMatrix(u32 index) const
-        {
-            return m_UBOData.SpotLightSpaceMatrices[index];
-        }
-        [[nodiscard]] i32 GetSpotShadowCount() const
-        {
-            return m_UBOData.SpotShadowCount;
-        }
-        [[nodiscard]] i32 GetPointShadowCount() const
-        {
-            return m_UBOData.PointShadowCount;
-        }
         // True when at least one light requested shadows THIS frame — the
-        // directional CSM (set by ComputeCSMCascades), any spot, or any point.
+        // directional CSM (set by ComputeCSMCascades) or any atlas entry.
         // Populated during Scene shadow setup and reset by BeginFrame(), so it
         // is a per-frame signal, distinct from the global IsEnabled() toggle.
-        // Used to skip the entire ShadowRenderPass (and its ×N cascade/face
+        // Used to skip the entire ShadowRenderPass (and its ×N cascade/entry
         // re-submission) when no light casts shadows — see issue #522.
         [[nodiscard]] bool AnyShadowsRequested() const
         {
             return m_UBOData.DirectionalShadowEnabled != 0 ||
-                   m_UBOData.SpotShadowCount > 0 ||
-                   m_UBOData.PointShadowCount > 0;
-        }
-        [[nodiscard]] const glm::mat4& GetPointFaceMatrix(u32 lightIndex, u32 face) const
-        {
-            return m_PointLightFaceMatrices[lightIndex][face];
-        }
-        [[nodiscard]] const glm::vec4& GetPointShadowParams(u32 index) const
-        {
-            return m_UBOData.PointLightShadowParams[index];
+                   m_UBOData.AtlasEntryCount > 0;
         }
 
         [[nodiscard]] u32 GetResolution() const
         {
             return m_Settings.Resolution;
+        }
+        [[nodiscard]] u32 GetAtlasResolution() const
+        {
+            return m_Settings.AtlasResolution;
         }
         [[nodiscard]] const ShadowSettings& GetSettings() const
         {
@@ -206,14 +218,6 @@ namespace OloEngine
         void SetDirectionalShadowEnabled(bool enabled)
         {
             m_UBOData.DirectionalShadowEnabled = enabled ? 1 : 0;
-        }
-        void SetSpotShadowCount(i32 count)
-        {
-            m_UBOData.SpotShadowCount = std::clamp(count, 0, static_cast<i32>(MAX_SPOT_SHADOWS));
-        }
-        void SetPointShadowCount(i32 count)
-        {
-            m_UBOData.PointShadowCount = std::clamp(count, 0, static_cast<i32>(MAX_POINT_SHADOWS));
         }
         void SetCascadeDebugEnabled(bool enabled)
         {
@@ -256,17 +260,17 @@ namespace OloEngine
         ShadowSettings m_Settings;
 
         // Shadow map textures
-        Ref<Texture2DArray> m_CSMTextureArray;                  // 4 layers for CSM cascades
-        Ref<Texture2DArray> m_SpotTextureArray;                 // 4 layers for spot shadows
-        std::array<u32, MAX_POINT_SHADOWS> m_PointCubemapIDs{}; // Depth cubemaps for point lights
+        Ref<Texture2DArray> m_CSMTextureArray; // 4 layers for CSM cascades
+        Ref<Texture2DArray> m_AtlasTexture;    // 1-layer local-light shadow atlas (issue #435)
 
-        // Comparison-OFF raw-depth views of the two depth arrays above (for PCSS
-        // blocker search). Owned GL texture-view objects; deleted in Shutdown().
+        // Comparison-OFF raw-depth views of the two depth textures above (for
+        // PCSS blocker search). Owned GL texture-view objects; deleted in Shutdown().
         u32 m_CSMRawViewID = 0;
-        u32 m_SpotRawViewID = 0;
+        u32 m_AtlasRawViewID = 0;
 
-        // Point light face VP matrices (6 per light)
-        std::array<std::array<glm::mat4, 6>, MAX_POINT_SHADOWS> m_PointLightFaceMatrices{};
+        // World-space atlas entry state (UBO carries the camera-relative copies)
+        std::array<glm::mat4, MAX_SHADOW_ATLAS_ENTRIES> m_AtlasEntryWorldMatrices{};
+        std::array<ShadowAtlas::TileRect, MAX_SHADOW_ATLAS_ENTRIES> m_AtlasEntryRects{};
 
         // Shadow UBO
         Ref<UniformBuffer> m_ShadowUBO;

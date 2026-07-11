@@ -11,11 +11,11 @@
 //   - DeferredLightingControls UBO at binding 30
 //   - samplerCube u_IrradianceMap (10), u_PrefilterMap (11)
 //   - sampler2D u_BRDFLutMap (12)
-//   - sampler2DArrayShadow u_ShadowMapCSM (8), u_ShadowMapSpot (13)
-//   - sampler2DArray u_ShadowMapCSMRaw (33), u_ShadowMapSpotRaw (34) — PCSS blocker search
-//   - samplerCubeShadow u_ShadowMapPoint0..3 (14-17)
+//   - sampler2DArrayShadow u_ShadowMapCSM (8), u_ShadowAtlas (13)
+//   - sampler2DArray u_ShadowMapCSMRaw (33), u_ShadowAtlasRaw (34) — PCSS blocker search
 //   - include/PBRCommon.glsl, include/LightProbeSampling.glsl,
-//     include/ForwardPlusCommon.glsl
+//     include/ForwardPlusCommon.glsl (with FPLUS_ATLAS_SHADOWS defined, AFTER
+//     the ShadowData block + atlas samplers)
 //
 // G-Buffer sampling is done by the caller (sampler2D vs sampler2DMS); this
 // file consumes only the already-unpacked per-pixel values.
@@ -99,7 +99,8 @@ vec3 ComputeDeferredLit(
     bool fplusActive = (fplus_Params.z != 0u);
     if (fplusActive)
     {
-        Lo += fplusEvaluateTileLights(N, V, worldPos, albedo, metallic, roughness);
+        float fplusViewDepth = -(u_View * vec4(worldPos, 1.0)).z;
+        Lo += fplusEvaluateTileLights(N, V, worldPos, albedo, metallic, roughness, fplusViewDepth);
     }
 
     int loopCount = fplusActive ? min(u_DirectionalLightCount, MAX_LIGHTS)
@@ -127,17 +128,19 @@ vec3 ComputeDeferredLit(
         }
         else if (lightType == SPOT_LIGHT)
         {
-            int spotShadowIdx = int(u_Lights[i].direction.w);
-            if (spotShadowIdx >= 0 && spotShadowIdx < u_SpotShadowCount)
+            // Spot light shadows come from the light's shadow-atlas entry
+            // (issue #435); direction.w carries the entry index (-1 = none).
+            int atlasEntry = int(u_Lights[i].direction.w);
+            if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
             {
-                float shadow = calculateShadowFactor(
+                float shadow = calculateAtlasEntryShadow(
                     worldPos,
-                    u_SpotLightSpaceMatrices[spotShadowIdx],
-                    u_ShadowMapSpot,
-                    u_ShadowMapSpotRaw,
-                    float(spotShadowIdx),
+                    u_AtlasEntryMatrices[atlasEntry],
+                    u_AtlasEntryScaleOffset[atlasEntry],
+                    u_ShadowAtlas,
+                    u_ShadowAtlasRaw,
                     u_ShadowParams.x,
-                    u_ShadowMapResolution,
+                    u_AtlasResolution,
                     u_SoftShadowMode,
                     u_ShadowParams.z);
                 lightContrib *= shadow;
@@ -145,26 +148,24 @@ vec3 ComputeDeferredLit(
         }
         else if (lightType == POINT_LIGHT || lightType == SPHERE_AREA_LIGHT)
         {
-            // Sphere area lights cast hard shadows from their centre (the
-            // representative point), so they reuse the point-light cubemap pool:
-            // Scene.cpp tags direction.w with a shared point-shadow slot and
-            // registers a cubemap there, so the identical lookup below works for
-            // both. Soft penumbra from the emitter radius is a Phase-2 follow-up.
-            int pointShadowIdx = int(u_Lights[i].direction.w);
-            if (pointShadowIdx >= 0 && pointShadowIdx < u_PointShadowCount)
+            // Sphere area lights shadow from their centre (the representative
+            // point), so both types share the point path: direction.w carries
+            // the BASE atlas entry of the 6 cube-face tiles (issue #435).
+            int baseEntry = int(u_Lights[i].direction.w);
+            if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
             {
-                vec3 lightPos = u_PointLightShadowParams[pointShadowIdx].xyz;
-                float farPlane = u_PointLightShadowParams[pointShadowIdx].w;
-                float bias = u_ShadowParams.x;
-                float shadow = 1.0;
-                if (pointShadowIdx == 0)
-                    shadow = calculatePointShadowFactor(u_ShadowMapPoint0, worldPos, lightPos, farPlane, bias);
-                else if (pointShadowIdx == 1)
-                    shadow = calculatePointShadowFactor(u_ShadowMapPoint1, worldPos, lightPos, farPlane, bias);
-                else if (pointShadowIdx == 2)
-                    shadow = calculatePointShadowFactor(u_ShadowMapPoint2, worldPos, lightPos, farPlane, bias);
-                else if (pointShadowIdx == 3)
-                    shadow = calculatePointShadowFactor(u_ShadowMapPoint3, worldPos, lightPos, farPlane, bias);
+                vec3 lightPos = u_Lights[i].position.xyz;
+                int entry = baseEntry + atlasCubeFace(worldPos - lightPos);
+                float shadow = calculateAtlasEntryShadow(
+                    worldPos,
+                    u_AtlasEntryMatrices[entry],
+                    u_AtlasEntryScaleOffset[entry],
+                    u_ShadowAtlas,
+                    u_ShadowAtlasRaw,
+                    u_ShadowParams.x,
+                    u_AtlasResolution,
+                    0, // PCF only on cube faces (matches the old cubemap path)
+                    u_ShadowParams.z);
                 lightContrib *= shadow;
             }
         }

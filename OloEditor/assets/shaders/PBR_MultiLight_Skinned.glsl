@@ -107,7 +107,6 @@ void main()
 
 #include "include/PBRCommon.glsl"
 #include "include/SnowCommon.glsl"
-#include "include/ForwardPlusCommon.glsl"
 
 // Camera UBO (binding 0) - for view position
 // Fragment-side CameraMatrices must declare the same block layout as the
@@ -176,35 +175,36 @@ layout(binding = 10) uniform samplerCube u_IrradianceMap;   // TEX_USER_0
 layout(binding = 11) uniform samplerCube u_PrefilterMap;    // TEX_USER_1
 layout(binding = 12) uniform sampler2D u_BRDFLutMap;        // TEX_USER_2
 
-// Shadow map textures
+// Shadow map textures — CSM array + the budgeted local-light shadow atlas
+// (issue #435; the atlas replaced the spot array and the 4 point cubemaps).
 layout(binding = 8) uniform sampler2DArrayShadow u_ShadowMapCSM; // TEX_SHADOW (CSM)
-layout(binding = 13) uniform sampler2DArrayShadow u_ShadowMapSpot; // TEX_SHADOW_SPOT
-// Comparison-OFF raw-depth views of the arrays above for the PCSS blocker search.
-layout(binding = 33) uniform sampler2DArray u_ShadowMapCSMRaw;  // TEX_SHADOW_CSM_RAW
-layout(binding = 34) uniform sampler2DArray u_ShadowMapSpotRaw; // TEX_SHADOW_SPOT_RAW
-
-// Point light shadow cubemaps (TEX_SHADOW_POINT_0..3)
-layout(binding = 14) uniform samplerCubeShadow u_ShadowMapPoint0;
-layout(binding = 15) uniform samplerCubeShadow u_ShadowMapPoint1;
-layout(binding = 16) uniform samplerCubeShadow u_ShadowMapPoint2;
-layout(binding = 17) uniform samplerCubeShadow u_ShadowMapPoint3;
+layout(binding = 13) uniform sampler2DArrayShadow u_ShadowAtlas; // TEX_SHADOW_ATLAS (1-layer)
+// Comparison-OFF raw-depth views of the textures above for the PCSS blocker search.
+layout(binding = 33) uniform sampler2DArray u_ShadowMapCSMRaw; // TEX_SHADOW_CSM_RAW
+layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;  // TEX_SHADOW_ATLAS_RAW
 
 // Shadow UBO (binding 6)
 layout(std140, binding = 6) uniform ShadowData {
     mat4 u_DirectionalLightSpaceMatrices[4];
     vec4 u_CascadePlaneDistances;
     vec4 u_ShadowParams;  // x=bias, y=normalBias, z=softness, w=maxShadowDistance
-    mat4 u_SpotLightSpaceMatrices[4];
-    vec4 u_PointLightShadowParams[4]; // xyz=position, w=farPlane
+    mat4 u_AtlasEntryMatrices[48];    // light VP per shadow-atlas entry (spot = 1 entry, point = 6 face entries)
+    vec4 u_AtlasEntryScaleOffset[48]; // xy = UV scale, zw = UV offset of the entry's atlas tile
     int u_DirectionalShadowEnabled;
-    int u_SpotShadowCount;
-    int u_PointShadowCount;
+    int u_AtlasEntryCount;
     int u_ShadowMapResolution;
+    int u_AtlasResolution;
     int u_CascadeDebugEnabled;
     int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (contact-hardening)
     int _shadowPad1;
     int _shadowPad2;
 };
+
+// Clustered light lists (issue #435). Included AFTER the ShadowData block +
+// atlas samplers above: with FPLUS_ATLAS_SHADOWS defined, the per-cluster
+// light evaluator attenuates every culled light by its shadow-atlas entry.
+#define FPLUS_ATLAS_SHADOWS 1
+#include "include/ForwardPlusCommon.glsl"
 
 // =============================================================================
 // INPUT/OUTPUT
@@ -277,11 +277,12 @@ void main()
     // Calculate direct lighting from all lights
     vec3 Lo = vec3(0.0);
 
-    // Forward+ path: use per-tile culled light lists for point/spot lights
+    // Forward+ path: use per-cluster culled light lists for point/spot lights
     bool fplusActive = (fplus_Params.z != 0u);
     if (fplusActive)
     {
-        Lo += fplusEvaluateTileLights(N, V, v_WorldPos, albedo, metallic, roughness);
+        float fplusViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
+        Lo += fplusEvaluateTileLights(N, V, v_WorldPos, albedo, metallic, roughness, fplusViewDepth);
     }
 
     // UBO light loop: when Forward+ is active, only evaluate directional lights
@@ -312,49 +313,48 @@ void main()
             );
             lightContrib *= shadow;
         }
-        // Apply spot light shadows
+        // Apply spot light shadows (atlas entry, issue #435)
         else if (lightType == SPOT_LIGHT)
         {
-            int spotShadowIdx = int(u_Lights[i].direction.w);
-            if (spotShadowIdx >= 0 && spotShadowIdx < u_SpotShadowCount)
+            int atlasEntry = int(u_Lights[i].direction.w);
+            if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
             {
-                float shadow = calculateShadowFactor(
+                float shadow = calculateAtlasEntryShadow(
                     v_WorldPos,
-                    u_SpotLightSpaceMatrices[spotShadowIdx],
-                    u_ShadowMapSpot,
-                    u_ShadowMapSpotRaw,
-                    float(spotShadowIdx),
+                    u_AtlasEntryMatrices[atlasEntry],
+                    u_AtlasEntryScaleOffset[atlasEntry],
+                    u_ShadowAtlas,
+                    u_ShadowAtlasRaw,
                     u_ShadowParams.x,
-                    u_ShadowMapResolution,
+                    u_AtlasResolution,
                     u_SoftShadowMode,
                     u_ShadowParams.z
                 );
                 lightContrib *= shadow;
             }
         }
-        // Apply point light shadows
+        // Apply point light shadows (6 consecutive atlas cube-face entries)
         else if (lightType == POINT_LIGHT || lightType == SPHERE_AREA_LIGHT)
         {
-            // Sphere area lights reuse the point-light cubemap shadow pool
-            // (hard shadow from the emitter centre / representative point);
-            // direction.w carries the shared point-shadow slot (Scene.cpp).
-            int pointShadowIdx = int(u_Lights[i].direction.w);
-            if (pointShadowIdx >= 0 && pointShadowIdx < u_PointShadowCount)
+            // Sphere area lights shadow from the emitter centre (the
+            // representative point), so both types share the point path:
+            // direction.w carries the BASE atlas entry of the 6 face tiles.
+            int baseEntry = int(u_Lights[i].direction.w);
+            if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
             {
-                vec3 lightPos = u_PointLightShadowParams[pointShadowIdx].xyz;
-                float farPlane = u_PointLightShadowParams[pointShadowIdx].w;
-                float bias = u_ShadowParams.x;
-
-                float shadow = 1.0;
-                if (pointShadowIdx == 0)
-                    shadow = calculatePointShadowFactor(u_ShadowMapPoint0, v_WorldPos, lightPos, farPlane, bias);
-                else if (pointShadowIdx == 1)
-                    shadow = calculatePointShadowFactor(u_ShadowMapPoint1, v_WorldPos, lightPos, farPlane, bias);
-                else if (pointShadowIdx == 2)
-                    shadow = calculatePointShadowFactor(u_ShadowMapPoint2, v_WorldPos, lightPos, farPlane, bias);
-                else if (pointShadowIdx == 3)
-                    shadow = calculatePointShadowFactor(u_ShadowMapPoint3, v_WorldPos, lightPos, farPlane, bias);
-
+                vec3 lightPos = u_Lights[i].position.xyz;
+                int entry = baseEntry + atlasCubeFace(v_WorldPos - lightPos);
+                float shadow = calculateAtlasEntryShadow(
+                    v_WorldPos,
+                    u_AtlasEntryMatrices[entry],
+                    u_AtlasEntryScaleOffset[entry],
+                    u_ShadowAtlas,
+                    u_ShadowAtlasRaw,
+                    u_ShadowParams.x,
+                    u_AtlasResolution,
+                    0, // PCF only on cube faces (matches the old cubemap path)
+                    u_ShadowParams.z
+                );
                 lightContrib *= shadow;
             }
         }

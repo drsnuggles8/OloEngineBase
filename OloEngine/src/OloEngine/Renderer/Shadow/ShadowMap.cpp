@@ -26,40 +26,27 @@ namespace OloEngine
         csmSpec.DepthComparisonMode = true;
         m_CSMTextureArray = Texture2DArray::Create(csmSpec);
 
-        // Create spot shadow texture array (4 spot lights, depth-only, hardware comparison)
-        Texture2DArraySpecification spotSpec;
-        spotSpec.Width = m_Settings.Resolution;
-        spotSpec.Height = m_Settings.Resolution;
-        spotSpec.Layers = MAX_SPOT_SHADOWS;
-        spotSpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
-        spotSpec.DepthComparisonMode = true;
-        m_SpotTextureArray = Texture2DArray::Create(spotSpec);
+        // Create the local-light shadow atlas (issue #435): one large 1-layer
+        // depth array holding every prioritised spot shadow / point-light cube
+        // face as a square sub-tile. A 1-layer ARRAY (not a plain 2D texture)
+        // so it shares the sampler2DArrayShadow sampling helpers, the
+        // AttachDepthTextureArrayLayer render path, and the CSM placeholders.
+        Texture2DArraySpecification atlasSpec;
+        atlasSpec.Width = m_Settings.AtlasResolution;
+        atlasSpec.Height = m_Settings.AtlasResolution;
+        atlasSpec.Layers = 1;
+        atlasSpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+        atlasSpec.DepthComparisonMode = true;
+        m_AtlasTexture = Texture2DArray::Create(atlasSpec);
 
-        // Comparison-OFF raw-depth views aliasing the CSM / spot arrays, used by
-        // the PCSS blocker search (the hardware comparison sampler can't read raw
-        // occluder depth). These alias the same immutable storage, so the arrays'
-        // sampler2DArrayShadow bindings are unaffected.
+        // Comparison-OFF raw-depth views aliasing the CSM / atlas textures,
+        // used by the PCSS blocker search (the hardware comparison sampler
+        // can't read raw occluder depth). These alias the same immutable
+        // storage, so the sampler2DArrayShadow bindings are unaffected.
         m_CSMRawViewID = RenderCommand::CreateDepthArrayCompareOffView(
             m_CSMTextureArray->GetRendererID(), MAX_CSM_CASCADES);
-        m_SpotRawViewID = RenderCommand::CreateDepthArrayCompareOffView(
-            m_SpotTextureArray->GetRendererID(), MAX_SPOT_SHADOWS);
-
-        // Create point shadow depth cubemaps (one per point light)
-        for (u32 i = 0; i < MAX_POINT_SHADOWS; ++i)
-        {
-            m_PointCubemapIDs[i] = RenderCommand::CreateTextureCubemap(
-                m_Settings.Resolution, m_Settings.Resolution, GL_DEPTH_COMPONENT32F);
-
-            RenderCommand::SetTextureParameter(m_PointCubemapIDs[i], GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            RenderCommand::SetTextureParameter(m_PointCubemapIDs[i], GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            RenderCommand::SetTextureParameter(m_PointCubemapIDs[i], GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            RenderCommand::SetTextureParameter(m_PointCubemapIDs[i], GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            RenderCommand::SetTextureParameter(m_PointCubemapIDs[i], GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-
-            // Enable hardware depth comparison for samplerCubeShadow
-            RenderCommand::SetTextureParameter(m_PointCubemapIDs[i], GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-            RenderCommand::SetTextureParameter(m_PointCubemapIDs[i], GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
-        }
+        m_AtlasRawViewID = RenderCommand::CreateDepthArrayCompareOffView(
+            m_AtlasTexture->GetRendererID(), 1);
 
         // Create shadow UBO at binding 6
         m_ShadowUBO = UniformBuffer::Create(
@@ -85,11 +72,13 @@ namespace OloEngine
             m_Settings.Softness,
             m_Settings.MaxShadowDistance);
         m_UBOData.ShadowMapResolution = static_cast<i32>(m_Settings.Resolution);
+        m_UBOData.AtlasResolution = static_cast<i32>(m_Settings.AtlasResolution);
         m_UBOData.SoftShadowMode = m_Settings.SoftShadows ? 1 : 0;
 
         m_Initialized = true;
-        OLO_CORE_INFO("ShadowMap initialized: {}x{} resolution, {} CSM cascades, {} point cubemaps",
-                      m_Settings.Resolution, m_Settings.Resolution, MAX_CSM_CASCADES, MAX_POINT_SHADOWS);
+        OLO_CORE_INFO("ShadowMap initialized: {}x{} CSM resolution ({} cascades), {}x{} shadow atlas ({} entry budget)",
+                      m_Settings.Resolution, m_Settings.Resolution, MAX_CSM_CASCADES,
+                      m_Settings.AtlasResolution, m_Settings.AtlasResolution, MAX_SHADOW_ATLAS_ENTRIES);
     }
 
     void ShadowMap::Shutdown()
@@ -101,23 +90,14 @@ namespace OloEngine
             RenderCommand::DeleteTexture(m_CSMRawViewID);
             m_CSMRawViewID = 0;
         }
-        if (m_SpotRawViewID != 0)
+        if (m_AtlasRawViewID != 0)
         {
-            RenderCommand::DeleteTexture(m_SpotRawViewID);
-            m_SpotRawViewID = 0;
+            RenderCommand::DeleteTexture(m_AtlasRawViewID);
+            m_AtlasRawViewID = 0;
         }
 
         m_CSMTextureArray.Reset();
-        m_SpotTextureArray.Reset();
-
-        for (u32 i = 0; i < MAX_POINT_SHADOWS; ++i)
-        {
-            if (m_PointCubemapIDs[i] != 0)
-            {
-                RenderCommand::DeleteTexture(m_PointCubemapIDs[i]);
-                m_PointCubemapIDs[i] = 0;
-            }
-        }
+        m_AtlasTexture.Reset();
 
         m_ShadowUBO.Reset();
         m_ShadowCameraUBO.Reset();
@@ -131,8 +111,7 @@ namespace OloEngine
 
         // Reset per-frame state
         m_UBOData.DirectionalShadowEnabled = 0;
-        m_UBOData.SpotShadowCount = 0;
-        m_UBOData.PointShadowCount = 0;
+        m_UBOData.AtlasEntryCount = 0;
     }
 
     void ShadowMap::ComputeCSMCascades(
@@ -274,19 +253,13 @@ namespace OloEngine
         m_UBOData.DirectionalShadowEnabled = 1;
     }
 
-    void ShadowMap::SetSpotLightShadow(
-        u32 index,
+    glm::mat4 ShadowMap::BuildSpotLightMatrix(
         const glm::vec3& position,
         const glm::vec3& direction,
-        f32 outerCutoff,
+        f32 outerCutoffDegrees,
         f32 range)
     {
         OLO_PROFILE_FUNCTION();
-
-        if (index >= MAX_SPOT_SHADOWS)
-        {
-            return;
-        }
 
         const glm::vec3 dir = glm::normalize(direction);
 
@@ -300,36 +273,45 @@ namespace OloEngine
         const glm::mat4 lightView = glm::lookAt(position, position + dir, up);
 
         // outerCutoff is in degrees, convert to FOV for perspective projection
-        const f32 fov = glm::radians(outerCutoff * 2.0f);
+        const f32 fov = glm::radians(outerCutoffDegrees * 2.0f);
         const glm::mat4 lightProjection = glm::perspective(fov, 1.0f, 0.1f, range);
 
-        m_UBOData.SpotLightSpaceMatrices[index] = lightProjection * lightView;
+        return lightProjection * lightView;
     }
 
-    void ShadowMap::SetPointLightShadow(
-        u32 index,
+    std::array<glm::mat4, 6> ShadowMap::BuildPointLightFaceMatrices(
         const glm::vec3& position,
         f32 range)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (index >= MAX_POINT_SHADOWS)
+        // Standard 90°-FOV cube faces, rendered PROJECTIVELY into atlas tiles
+        // (standard depth compare via the entry matrix — no more linear-
+        // distance cubemap depth). Face order matches the shader's dominant-
+        // axis selector atlasCubeFace(): +X,-X,+Y,-Y,+Z,-Z.
+        const glm::mat4 proj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, range);
+
+        return {
+            proj * glm::lookAt(position, position + glm::vec3(1, 0, 0), glm::vec3(0, -1, 0)),  // +X
+            proj * glm::lookAt(position, position + glm::vec3(-1, 0, 0), glm::vec3(0, -1, 0)), // -X
+            proj * glm::lookAt(position, position + glm::vec3(0, 1, 0), glm::vec3(0, 0, 1)),   // +Y
+            proj * glm::lookAt(position, position + glm::vec3(0, -1, 0), glm::vec3(0, 0, -1)), // -Y
+            proj * glm::lookAt(position, position + glm::vec3(0, 0, 1), glm::vec3(0, -1, 0)),  // +Z
+            proj * glm::lookAt(position, position + glm::vec3(0, 0, -1), glm::vec3(0, -1, 0)), // -Z
+        };
+    }
+
+    void ShadowMap::SetAtlasEntry(u32 entryIndex, const glm::mat4& lightVP, const ShadowAtlas::TileRect& rect)
+    {
+        if (entryIndex >= MAX_SHADOW_ATLAS_ENTRIES)
         {
             return;
         }
 
-        // Store position and far plane for shader linear depth comparison
-        m_UBOData.PointLightShadowParams[index] = glm::vec4(position, range);
-
-        // Build 6 face VP matrices for cubemap rendering
-        const glm::mat4 proj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, range);
-
-        m_PointLightFaceMatrices[index][0] = proj * glm::lookAt(position, position + glm::vec3(1, 0, 0), glm::vec3(0, -1, 0));  // +X
-        m_PointLightFaceMatrices[index][1] = proj * glm::lookAt(position, position + glm::vec3(-1, 0, 0), glm::vec3(0, -1, 0)); // -X
-        m_PointLightFaceMatrices[index][2] = proj * glm::lookAt(position, position + glm::vec3(0, 1, 0), glm::vec3(0, 0, 1));   // +Y
-        m_PointLightFaceMatrices[index][3] = proj * glm::lookAt(position, position + glm::vec3(0, -1, 0), glm::vec3(0, 0, -1)); // -Y
-        m_PointLightFaceMatrices[index][4] = proj * glm::lookAt(position, position + glm::vec3(0, 0, 1), glm::vec3(0, -1, 0));  // +Z
-        m_PointLightFaceMatrices[index][5] = proj * glm::lookAt(position, position + glm::vec3(0, 0, -1), glm::vec3(0, -1, 0)); // -Z
+        m_AtlasEntryWorldMatrices[entryIndex] = lightVP;
+        m_AtlasEntryRects[entryIndex] = rect;
+        m_UBOData.AtlasEntryScaleOffset[entryIndex] =
+            ShadowAtlas::TileScaleOffset(rect, m_Settings.AtlasResolution);
     }
 
     void ShadowMap::UploadUBO(const glm::vec3& renderOrigin)
@@ -349,22 +331,21 @@ namespace OloEngine
             m_Settings.Softness,
             m_Settings.MaxShadowDistance);
         data.ShadowMapResolution = static_cast<i32>(m_Settings.Resolution);
+        data.AtlasResolution = static_cast<i32>(m_Settings.AtlasResolution);
         data.SoftShadowMode = m_Settings.SoftShadows ? 1 : 0;
 
         // Camera-relative (issue #429): the lit pass samples shadows using the
         // fragment's render-relative world position, so the light-space matrices
-        // must map relative world -> light clip (multiply by translate(origin)),
-        // and the point-light positions (used for cube depth compare) must be
-        // relative too. m_UBOData stays world-space; the shadow render pass
-        // applies the identical shift to the same matrices + casters, keeping
-        // rendered depth and sampled depth in the same space. No-op near origin.
+        // must map relative world -> light clip (multiply by translate(origin)).
+        // m_UBOData/m_AtlasEntryWorldMatrices stay world-space; the shadow render
+        // pass applies the identical shift to the same matrices + casters,
+        // keeping rendered depth and sampled depth in the same space. No-op near
+        // origin.
         for (u32 c = 0; c < MAX_CSM_CASCADES; ++c)
             data.DirectionalLightSpaceMatrices[c] = MakeViewProjectionRelative(m_UBOData.DirectionalLightSpaceMatrices[c], renderOrigin);
-        for (u32 s = 0; s < MAX_SPOT_SHADOWS; ++s)
-            data.SpotLightSpaceMatrices[s] = MakeViewProjectionRelative(m_UBOData.SpotLightSpaceMatrices[s], renderOrigin);
-        for (u32 p = 0; p < MAX_POINT_SHADOWS; ++p)
-            data.PointLightShadowParams[p] = glm::vec4(glm::vec3(m_UBOData.PointLightShadowParams[p]) - renderOrigin,
-                                                       m_UBOData.PointLightShadowParams[p].w);
+        const u32 entryCount = std::min(static_cast<u32>(m_UBOData.AtlasEntryCount), MAX_SHADOW_ATLAS_ENTRIES);
+        for (u32 e = 0; e < entryCount; ++e)
+            data.AtlasEntryMatrices[e] = MakeViewProjectionRelative(m_AtlasEntryWorldMatrices[e], renderOrigin);
 
         m_ShadowUBO->SetData(&data, UBOStructures::ShadowUBO::GetSize());
         // Re-establish binding point 6 every frame to guard against
@@ -380,19 +361,11 @@ namespace OloEngine
         }
     }
 
-    void ShadowMap::BindSpotTexture(u32 slot) const
+    void ShadowMap::BindAtlasTexture(u32 slot) const
     {
-        if (m_SpotTextureArray)
+        if (m_AtlasTexture)
         {
-            m_SpotTextureArray->Bind(slot);
-        }
-    }
-
-    void ShadowMap::BindPointTexture(u32 index, u32 slot) const
-    {
-        if (index < MAX_POINT_SHADOWS && m_PointCubemapIDs[index] != 0)
-        {
-            RenderCommand::BindTexture(slot, m_PointCubemapIDs[index]);
+            m_AtlasTexture->Bind(slot);
         }
     }
 
@@ -401,14 +374,9 @@ namespace OloEngine
         return m_CSMTextureArray ? m_CSMTextureArray->GetRendererID() : 0;
     }
 
-    u32 ShadowMap::GetSpotRendererID() const
+    u32 ShadowMap::GetAtlasRendererID() const
     {
-        return m_SpotTextureArray ? m_SpotTextureArray->GetRendererID() : 0;
-    }
-
-    u32 ShadowMap::GetPointRendererID(u32 index) const
-    {
-        return (index < MAX_POINT_SHADOWS) ? m_PointCubemapIDs[index] : 0;
+        return m_AtlasTexture ? m_AtlasTexture->GetRendererID() : 0;
     }
 
     // ------------------------------------------------------------------
@@ -421,7 +389,6 @@ namespace OloEngine
     {
         Ref<Texture2DArray> g_PlaceholderShadowArray;
         u32 g_PlaceholderShadowArrayRaw = 0u; // compare-OFF view of the array above
-        u32 g_PlaceholderShadowCube = 0u;
 
         Ref<Texture2DArray> CreatePlaceholderShadowArray()
         {
@@ -433,21 +400,6 @@ namespace OloEngine
             spec.DepthComparisonMode = true;
             return Texture2DArray::Create(spec);
         }
-
-        u32 CreatePlaceholderShadowCube()
-        {
-            const u32 id = RenderCommand::CreateTextureCubemap(1u, 1u, GL_DEPTH_COMPONENT32F);
-            if (id == 0u)
-                return 0u;
-            RenderCommand::SetTextureParameter(id, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            RenderCommand::SetTextureParameter(id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            RenderCommand::SetTextureParameter(id, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            RenderCommand::SetTextureParameter(id, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            RenderCommand::SetTextureParameter(id, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-            RenderCommand::SetTextureParameter(id, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-            RenderCommand::SetTextureParameter(id, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
-            return id;
-        }
     } // namespace
 
     u32 ShadowMap::GetCSMPlaceholderRendererID()
@@ -457,9 +409,9 @@ namespace OloEngine
         return g_PlaceholderShadowArray ? g_PlaceholderShadowArray->GetRendererID() : 0u;
     }
 
-    u32 ShadowMap::GetSpotPlaceholderRendererID()
+    u32 ShadowMap::GetAtlasPlaceholderRendererID()
     {
-        // Spot shadows use the same sampler2DArrayShadow type as CSM — share.
+        // The atlas uses the same sampler2DArrayShadow type as CSM — share.
         return GetCSMPlaceholderRendererID();
     }
 
@@ -474,17 +426,10 @@ namespace OloEngine
         return g_PlaceholderShadowArrayRaw;
     }
 
-    u32 ShadowMap::GetSpotRawPlaceholderRendererID()
+    u32 ShadowMap::GetAtlasRawPlaceholderRendererID()
     {
         // Same plain sampler2DArray placeholder as CSM raw — share.
         return GetCSMRawPlaceholderRendererID();
-    }
-
-    u32 ShadowMap::GetPointPlaceholderRendererID()
-    {
-        if (g_PlaceholderShadowCube == 0u)
-            g_PlaceholderShadowCube = CreatePlaceholderShadowCube();
-        return g_PlaceholderShadowCube;
     }
 
     void ShadowMap::ShutdownPlaceholders()
@@ -495,18 +440,14 @@ namespace OloEngine
             g_PlaceholderShadowArrayRaw = 0u;
         }
         g_PlaceholderShadowArray.Reset();
-        if (g_PlaceholderShadowCube != 0u)
-        {
-            RenderCommand::DeleteTexture(g_PlaceholderShadowCube);
-            g_PlaceholderShadowCube = 0u;
-        }
     }
 
     void ShadowMap::SetSettings(const ShadowSettings& settings)
     {
         OLO_PROFILE_FUNCTION();
 
-        const bool resolutionChanged = settings.Resolution != m_Settings.Resolution;
+        const bool resolutionChanged = settings.Resolution != m_Settings.Resolution ||
+                                       settings.AtlasResolution != m_Settings.AtlasResolution;
         m_Settings = settings;
 
         if (resolutionChanged && m_Initialized)

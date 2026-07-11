@@ -86,11 +86,12 @@ namespace OloEngine
         static void UploadCameraUBO();
 
         // Shadow texture binding — set per-frame from Renderer3D/Scene.
-        // The *Raw ids are the comparison-OFF views of the CSM / spot arrays used
-        // by the PCSS blocker search (0 = none; bound only when non-zero).
-        static void SetShadowTextureIDs(u32 csmTextureID, u32 spotTextureID,
-                                        u32 csmRawTextureID = 0, u32 spotRawTextureID = 0);
-        static void SetPointShadowTextureIDs(const std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS>& pointTextureIDs);
+        // The *Raw ids are the comparison-OFF views of the CSM array / shadow
+        // atlas used by the PCSS blocker search (0 = none; bound only when
+        // non-zero). The atlas replaced the old spot array + point cubemaps
+        // (issue #435).
+        static void SetShadowTextureIDs(u32 csmTextureID, u32 atlasTextureID,
+                                        u32 csmRawTextureID = 0, u32 atlasRawTextureID = 0);
 
         // Snow accumulation depth texture — set per-frame
         static void SetSnowDepthTextureID(u32 textureID);

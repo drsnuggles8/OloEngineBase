@@ -1,5 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
+#include "OloEngine/Renderer/CameraRelative.h"
+#include "OloEngine/Renderer/LightCulling/ClusteredLighting.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include <glad/gl.h>
@@ -28,8 +31,9 @@ namespace OloEngine
         }
 
         m_Initialized = true;
-        OLO_CORE_INFO("TiledForwardPlus: Initialized ({}x{}, tile={}px)",
-                      screenWidth, screenHeight, m_GridConfig.TileSizePixels);
+        OLO_CORE_INFO("TiledForwardPlus: Initialized ({}x{}, clusters {}x{}x{})",
+                      screenWidth, screenHeight,
+                      m_GridConfig.ClusterCountX, m_GridConfig.ClusterCountY, m_GridConfig.ClusterCountZ);
     }
 
     void TiledForwardPlus::Shutdown()
@@ -102,8 +106,7 @@ namespace OloEngine
     }
 
     void TiledForwardPlus::DispatchCulling(const glm::mat4& viewMatrix,
-                                           const glm::mat4& projectionMatrix,
-                                           u32 depthTextureID)
+                                           const glm::mat4& projectionMatrix)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -112,8 +115,21 @@ namespace OloEngine
             return;
         }
 
+        // The camera clip planes drive the exponential depth-slice mapping;
+        // capture them for BindForShading's UBO upload (and the froxel-fog
+        // pass) so cull and consumption always agree on the slicing.
+        ClusteredLighting::ExtractClipPlanes(projectionMatrix, m_NearPlane, m_FarPlane);
+
+        // The cull SSBO light positions are uploaded render-RELATIVE
+        // (LightCullingBuffer::Update shifts them by the render origin, issue
+        // #429), so the compute's view matrix must map RELATIVE world to view.
+        // Renderer3D::GetViewMatrix() is the WORLD view — shift it here. No-op
+        // near origin.
+        const glm::mat4 viewRelative = MakeViewRelative(viewMatrix, Renderer3D::GetRenderOrigin());
+
         m_CullingPass.Dispatch(m_LightGrid, m_LightBuffer,
-                               viewMatrix, projectionMatrix, depthTextureID);
+                               viewRelative, projectionMatrix,
+                               m_NearPlane, m_FarPlane);
     }
 
     void TiledForwardPlus::BindForShading()
@@ -128,16 +144,25 @@ namespace OloEngine
         m_LightBuffer.Bind();
         m_LightGrid.Bind();
 
-        // Upload Forward+ parameters UBO
+        // Upload Forward+ clustered parameters UBO
         if (m_ForwardPlusUBO)
         {
+            const f32 screenW = static_cast<f32>(m_LightGrid.GetScreenWidth());
+            const f32 screenH = static_cast<f32>(m_LightGrid.GetScreenHeight());
+            const auto slicing = ClusteredLighting::ComputeDepthSliceParams(
+                m_LightGrid.GetClusterCountZ(), m_NearPlane, m_FarPlane);
+
             UBOStructures::ForwardPlusUBO uboData{};
             uboData.Params = glm::uvec4(
-                m_LightGrid.GetTileSizePixels(),
-                m_LightGrid.GetTileCountX(),
+                m_LightGrid.GetClusterCountX(),
+                m_LightGrid.GetClusterCountY(),
                 1u, // Enabled
-                0u  // Reserved
-            );
+                m_LightGrid.GetClusterCountZ());
+            uboData.TileScale = glm::vec4(
+                screenW > 0.0f ? static_cast<f32>(m_LightGrid.GetClusterCountX()) / screenW : 0.0f,
+                screenH > 0.0f ? static_cast<f32>(m_LightGrid.GetClusterCountY()) / screenH : 0.0f,
+                0.0f, 0.0f);
+            uboData.DepthSlicing = glm::vec4(slicing.Scale, slicing.Bias, m_NearPlane, m_FarPlane);
             m_ForwardPlusUBO->SetData(&uboData, sizeof(uboData));
             m_ForwardPlusUBO->Bind();
         }
@@ -167,6 +192,8 @@ namespace OloEngine
 
         UBOStructures::ForwardPlusUBO uboData{};
         uboData.Params = glm::uvec4(0u, 0u, 0u, 0u); // Enabled = 0
+        uboData.TileScale = glm::vec4(0.0f);
+        uboData.DepthSlicing = glm::vec4(0.0f);
         m_ForwardPlusUBO->SetData(&uboData, sizeof(uboData));
         m_ForwardPlusUBO->Bind();
     }
@@ -174,38 +201,6 @@ namespace OloEngine
     bool TiledForwardPlus::ShouldUseForwardPlus() const
     {
         return m_ActiveThisFrame && m_Initialized;
-    }
-
-    void TiledForwardPlus::SetTileSize(u32 tileSize)
-    {
-        // The compute shader uses layout(local_size_x=16, local_size_y=16);
-        // only tileSize=16 is supported until shader variants are implemented.
-        if (tileSize != 16)
-        {
-            OLO_CORE_WARN("TiledForwardPlus::SetTileSize: Only tile size 16 is supported (requested {}). "
-                          "Clamping to 16 until shader variants are implemented.",
-                          tileSize);
-            tileSize = 16;
-        }
-
-        if (tileSize != m_GridConfig.TileSizePixels && tileSize > 0)
-        {
-            const auto oldConfig = m_GridConfig;
-            m_GridConfig.TileSizePixels = tileSize;
-            if (m_Initialized)
-            {
-                m_LightGrid.Initialize(m_LightGrid.GetScreenWidth(),
-                                       m_LightGrid.GetScreenHeight(),
-                                       m_GridConfig);
-                if (!m_LightGrid.IsInitialized())
-                {
-                    OLO_CORE_ERROR("TiledForwardPlus::SetTileSize: Re-initialization failed, rolling back");
-                    m_GridConfig = oldConfig;
-                    m_Initialized = false;
-                    m_ActiveThisFrame = false;
-                }
-            }
-        }
     }
 
     void TiledForwardPlus::RenderDebugOverlay(u32 fullscreenQuadVAO, const Ref<Shader>& debugShader) const

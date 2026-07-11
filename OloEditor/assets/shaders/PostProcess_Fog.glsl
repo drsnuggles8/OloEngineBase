@@ -23,11 +23,13 @@ layout(location = 0) in vec2 v_TexCoord;
 
 layout(binding = 19) uniform sampler2D u_DepthTexture;  // Full-res scene depth
 
-// Shadow map for volumetric light shafts (CSM directional)
-layout(binding = 8) uniform sampler2DArrayShadow u_ShadowMapCSM;
-
-// Temporal history (previous frame's fog result at half-res)
-layout(binding = 3) uniform sampler2D u_FogHistory;
+// Integrated froxel fog volume (issue #435): rgb = accumulated in-scatter,
+// a = transmittance, built by the VolumetricFogPass compute chain. The
+// volumetric branch below fetches it with one trilinear tap — this replaced
+// the old per-pixel screen-space raymarch (temporal accumulation now lives in
+// the 3D scatter volume, sun shadowing + local-light scattering happen in
+// FroxelFogScatter.comp).
+layout(binding = 53) uniform sampler3D u_FroxelFogVolume;
 
 // Camera UBO (binding 0)
 layout(std140, binding = 0) uniform CameraMatrices
@@ -48,23 +50,8 @@ layout(std140, binding = 0) uniform CameraMatrices
     float _padding1;
 };
 
-// Shadow UBO (binding 6) — cascade matrices for light shaft shadow lookup
-layout(std140, binding = 6) uniform ShadowData
-{
-    mat4 u_DirectionalLightSpaceMatrices[4];
-    vec4 u_CascadePlaneDistances;
-    vec4 u_ShadowParams;
-    mat4 u_SpotLightSpaceMatrices[4];
-    vec4 u_PointLightShadowParams[4];
-    int u_DirectionalShadowEnabled;
-    int u_SpotShadowCount;
-    int u_PointShadowCount;
-    int u_ShadowMapResolution;
-    int u_CascadeDebugEnabled;
-    int u_SoftShadowMode;  // 0 = legacy hardware PCF, 1 = PCSS (unused by fog; kept for layout parity)
-    int _shadowPad1;
-    int _shadowPad2;
-};
+// (The old per-pixel CSM light-shaft lookup — the ShadowData block + CSM
+// sampler — moved into FroxelFogScatter.comp with the raymarch, issue #435.)
 
 // Motion blur UBO (binding 8) — inverse VP for depth reconstruction
 // Instance-named so its members don't sit at global scope — otherwise its
@@ -76,73 +63,25 @@ layout(std140, binding = 8) uniform MotionBlurUBO
     mat4 u_PrevViewProjection;
 } u_MB;
 
-// ---------------------------------------------------------------------------
-// Shadow lookup — single-tap CSM for volumetric light shafts
-// ---------------------------------------------------------------------------
-float sampleShadowForFog(vec3 worldPos)
+// Froxel fog parameters (binding 46) — mirrors UBOStructures::FroxelFogUBO.
+// The fragment only consumes the depth-slicing params + the enabled flag in
+// u_FroxelRenderOrigin.w (0 = froxel chain did not run, fall back to
+// analytic); the matrices drive the compute chain.
+layout(std140, binding = 46) uniform FroxelFogData
 {
-    if (u_DirectionalShadowEnabled == 0)
-        return 1.0;
-
-    // worldPos is ABSOLUTE (the ray-march reconstructs it from the world
-    // inverse-VP), but u_View and the cascade light-space matrices are packed
-    // render-RELATIVE (ShadowMap::UploadUBO shifts them by the render origin).
-    // Bring the sample point into that relative space before cascade selection
-    // and the shadow-map projection. No-op near origin (issue #429).
-    vec3 relPos = worldPos - u_RenderOrigin;
-
-    vec4 viewPos = u_View * vec4(relPos, 1.0);
-    int cascadeIndex = 3;
-    for (int i = 0; i < 4; ++i)
-    {
-        if (-viewPos.z < u_CascadePlaneDistances[i])
-        {
-            cascadeIndex = i;
-            break;
-        }
-    }
-
-    vec4 lightSpacePos = u_DirectionalLightSpaceMatrices[cascadeIndex] * vec4(relPos, 1.0);
-    vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w * 0.5 + 0.5;
-
-    if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
-        projCoords.y < 0.0 || projCoords.y > 1.0 ||
-        projCoords.z > 1.0)
-        return 1.0;
-
-    float bias = u_ShadowParams.x * float(cascadeIndex + 1) * 2.0;
-    return texture(u_ShadowMapCSM, vec4(projCoords.xy, float(cascadeIndex), projCoords.z - bias));
-}
+    mat4 u_FroxelInverseView;
+    mat4 u_FroxelInverseProjection;
+    mat4 u_FroxelPrevViewProjection;
+    vec4 u_FroxelDims;        // xyz = volume dims
+    vec4 u_FroxelDepthParams; // x = near, y = far, z = log2(far/near)
+    vec4 u_FroxelRenderOrigin; // xyz = render origin, w = enabled
+};
 
 // Include fog UBO, noise functions, phase functions
 #include "include/FogCommon.glsl"
 
 // Include local fog volume evaluation
 #include "include/FogVolumeCommon.glsl"
-
-// ---------------------------------------------------------------------------
-// Dual-lobe Henyey-Greenstein phase function — more realistic than single HG.
-// Blends forward and back-scatter lobes (Frostbite/UE5 style).
-// ---------------------------------------------------------------------------
-float dualLobeHGPhase(float cosTheta, float g)
-{
-    float forwardLobe = henyeyGreensteinPhase(cosTheta, g);
-    float backLobe = henyeyGreensteinPhase(cosTheta, -g * 0.3);
-    return mix(backLobe, forwardLobe, 0.7);
-}
-
-// ---------------------------------------------------------------------------
-// Multi-scattering energy approximation (Frostbite 2015).
-// Accounts for light that scatters multiple times within the medium.
-// ---------------------------------------------------------------------------
-vec3 multiScatterApprox(vec3 singleScatter, float density)
-{
-    // Each successive scatter order is dimmer and more isotropic.
-    // Approximate infinite series: S_total ≈ S_1 * (1 + 0.5*d + 0.25*d² + ...)
-    float d = clamp(density * 10.0, 0.0, 1.0);
-    float multiScatterFactor = 1.0 + d * 0.5 + d * d * 0.25;
-    return singleScatter * multiScatterFactor;
-}
 
 // ---------------------------------------------------------------------------
 // Reconstruct world position from depth
@@ -155,17 +94,8 @@ vec3 worldPosFromDepth(vec2 uv, float depth)
 }
 
 // ---------------------------------------------------------------------------
-// Temporal reprojection — reproject current pixel to previous frame's UV
-// ---------------------------------------------------------------------------
-vec2 reprojectUV(vec3 worldPos)
-{
-    vec4 prevClip = u_MB.u_PrevViewProjection * vec4(worldPos, 1.0);
-    vec2 prevNDC = prevClip.xy / prevClip.w;
-    return prevNDC * 0.5 + 0.5;
-}
-
-// ---------------------------------------------------------------------------
-// Main volumetric ray-march
+// Main — analytic fog, or one trilinear fetch of the integrated froxel fog
+// volume (issue #435; replaces the old per-pixel screen-space raymarch)
 // ---------------------------------------------------------------------------
 void main()
 {
@@ -182,8 +112,8 @@ void main()
     // view-projection, so worldPos is already ABSOLUTE world (see the identity in
     // RenderPipeline::PrepareFrame). u_CameraPosition comes from the render-
     // relative camera UBO, so lift it to absolute world with the render origin —
-    // then all of the fog math (distances, height plane, noise, fog volumes,
-    // reprojection) is consistently in absolute world space.
+    // then all of the fog math (distances, height plane, fog volumes) is
+    // consistently in absolute world space.
     vec3 worldPos = worldPosFromDepth(v_TexCoord, depth);
     vec3 cameraPos = u_CameraPosition + u_RenderOrigin;
 
@@ -193,25 +123,16 @@ void main()
     float heightOffset   = u_FogDistanceParams.w;
     float maxOpacity     = u_FogRayleighColorAndMaxOpacity.a;
     vec3  fogColor       = u_FogColorAndDensity.rgb;
-    vec3  sunDir         = normalize(u_FogSunDirection.xyz);
     float absorptionCoeff = u_FogVolumetricParams.y;
 
-    float noiseScale     = u_FogNoiseParams.x;
-    float noiseSpeed     = u_FogNoiseParams.y;
-    float noiseIntensity = u_FogNoiseParams.z;
-    float time           = u_FogNoiseParams.w;
-    bool  noiseEnabled   = noiseIntensity > 0.001;
+    bool volumetric  = u_FogFlags.w > 0.5;
+    bool froxelReady = u_FroxelRenderOrigin.w > 0.5;
 
-    int   numSamples     = clamp(int(u_FogVolumetricParams.x + 0.5), 4, 128);
-    float lightShaftInt  = u_FogVolumetricParams.z;
-    bool  lightShafts    = u_FogVolumetricParams.w > 0.5;
-    bool  scatterEnabled = u_FogFlags.z > 0.5;
-    bool  volumetric     = u_FogFlags.w > 0.5;
-
-    // Determine mode: volumetric or analytical
-    if (!volumetric)
+    // Analytical mode — also the fallback when the froxel chain did not run
+    // this frame (its disabled UBO zeroes the enabled flag).
+    if (!volumetric || !froxelReady)
     {
-        // Analytical fog — simple per-pixel (no ray-march)
+        // Analytical fog — simple per-pixel closed form
         vec3 analyticFog = applyFog(vec3(0.0), worldPos, cameraPos);
         // Compute fog factor for transmittance
         int mode = int(u_FogFlags.y + 0.5);
@@ -233,155 +154,52 @@ void main()
         return;
     }
 
-    // ===== VOLUMETRIC RAY-MARCH =====
+    // ===== FROXEL VOLUMETRIC FOG (issue #435) =====
+    // The VolumetricFogPass compute chain already injected media density,
+    // scattered the sun (CSM-shadowed god rays) and every clustered local
+    // light, accumulated temporally, and integrated front-to-back. One
+    // trilinear tap fetches the in-scatter + transmittance between the camera
+    // and this fragment's depth.
 
-    // Ray setup
-    vec3 rayDir = worldPos - cameraPos;
-    float rayLength = length(rayDir);
+    float froxelNear = u_FroxelDepthParams.x;
+    float froxelFar = u_FroxelDepthParams.y;
+    float froxelLogFN = max(u_FroxelDepthParams.z, 1e-4);
 
+    // Positive view-space depth of the fragment (u_View is render-relative)
+    vec3 relPos = worldPos - u_RenderOrigin;
+    float viewDepth = -(u_View * vec4(relPos, 1.0)).z;
+
+    // Exponential-slice W coordinate — the inverse of the compute chain's
+    // slice placement, so the fetch lands between the camera and the fragment.
+    float clampedDepth = max(viewDepth, froxelNear);
+    float w = clamp(log2(clampedDepth / froxelNear) / froxelLogFN, 0.0, 1.0);
+
+    vec4 vol = texture(u_FroxelFogVolume, vec3(v_TexCoord, w));
+    vec3 accumulatedLight = vol.rgb;
+    float transmittance = vol.a;
+
+    // Analytic tail beyond the froxel volume's far plane: the volume covers
+    // [near, froxelFar]; geometry farther than that gets the remaining path
+    // fogged with the closed-form height-fog density at the fragment.
+    float rayDistFull = distance(worldPos, cameraPos);
+    float secant = rayDistFull / max(viewDepth, 1e-4);
     float maxRayDist = max(u_FogDistanceParams.y, 500.0);
-    if (depth > 0.9999)
-        rayLength = maxRayDist;
-    else
-        rayLength = min(rayLength, maxRayDist);
-
-    rayDir = normalize(rayDir);
-
-    // Exponential step distribution — more samples near camera for detail,
-    // fewer far away where fog is smoother. Based on log distribution.
-    float logMaxDist = log(rayLength + 1.0);
-
-    // Frame index packed into FogSunDirection.w for temporal jitter
-    int frameIndex = int(u_FogSunDirection.w + 0.5);
-
-    // Temporal jitter with per-frame offset to accumulate into temporal filter
-    float jitter = interleavedGradientNoise(gl_FragCoord.xy + float(frameIndex % 16) * vec2(7.23, 3.79));
-
-    // Precompute phase function (constant along the ray)
-    float cosTheta = dot(rayDir, -sunDir);
-    vec3 scatterCoeff = vec3(0.0);
-    if (scatterEnabled)
+    float rayLen = (depth > 0.9999) ? maxRayDist : min(rayDistFull, maxRayDist);
+    float volumeFarLen = froxelFar * secant;
+    if (rayLen > volumeFarLen)
     {
-        float rPhase = rayleighPhase(cosTheta);
-        float mPhase = dualLobeHGPhase(cosTheta, u_FogScatterParams.z);
-        vec3 rayleigh = u_FogScatterParams.x * rPhase * u_FogRayleighColorAndMaxOpacity.rgb;
-        vec3 mie = u_FogScatterParams.y * mPhase * vec3(1.0);
-        scatterCoeff = u_FogScatterParams.w * (rayleigh + mie);
+        float tailLen = rayLen - volumeFarLen;
+        float tailDensity = fogDensityAtPoint(worldPos, baseDensity, heightFalloff, heightOffset);
+        float tailExtinction = tailDensity + absorptionCoeff;
+        float tailTransmittance = exp(-tailExtinction * tailLen);
+        accumulatedLight += transmittance * fogColor * tailDensity *
+                            (1.0 - tailTransmittance) / max(tailExtinction, 1e-5);
+        transmittance *= tailTransmittance;
     }
 
-    // Ray-march accumulation (Beer-Lambert with energy-conserving integration)
-    vec3  accumulatedLight = vec3(0.0);
-    float transmittance = 1.0;
-    float prevT = 0.0;
-
-    for (int i = 0; i < numSamples; ++i)
-    {
-        // Exponential step distribution: t_i = exp(i/N * log(maxDist+1)) - 1
-        float normalizedStep = (float(i) + jitter) / float(numSamples);
-        float t = exp(normalizedStep * logMaxDist) - 1.0;
-        float stepSize = t - prevT;
-        prevT = t;
-
-        if (stepSize < 0.001)
-            continue;
-
-        vec3 samplePos = cameraPos + rayDir * t; // absolute world (issue #429)
-
-        // Height-modulated global density
-        float density = fogDensityAtPoint(samplePos, baseDensity, heightFalloff, heightOffset);
-
-        // Animated noise modulation — multi-octave FBM with wind drift
-        if (noiseEnabled && density > 0.0001)
-        {
-            vec3 noisePos = samplePos * noiseScale +
-                            vec3(time * noiseSpeed * 0.6, time * noiseSpeed * 0.15,
-                                 time * noiseSpeed * 0.4);
-            float noiseFactor = fogFBM(noisePos);
-            // Remap noise from [0, 1] to density multiplier — preserves volume shape
-            density *= mix(1.0, clamp(noiseFactor * 2.0, 0.0, 2.5), noiseIntensity);
-        }
-
-        // Evaluate local fog volumes at this sample point
-        FogVolumeResult volResult = evaluateFogVolumesAtPoint(samplePos);
-        float combinedDensity = max(density, 0.0) + volResult.density;
-
-        // Blend fog color: mix global color with volume color based on relative contribution
-        vec3 sampleFogColor = fogColor;
-        if (volResult.density > 0.001 && combinedDensity > 0.001)
-        {
-            float volumeRatio = volResult.density / combinedDensity;
-            sampleFogColor = mix(fogColor, volResult.color, volumeRatio);
-        }
-
-        density = combinedDensity;
-
-        // Beer-Lambert extinction for this step
-        float extinction = (density + absorptionCoeff) * stepSize;
-        float stepTransmittance = exp(-extinction);
-
-        // In-scattering: ambient fog color + directional atmospheric scattering
-        vec3 stepLight = sampleFogColor * density;
-        if (scatterEnabled)
-        {
-            vec3 scatter = scatterCoeff * density;
-            // Multi-scattering approximation (Frostbite)
-            stepLight += multiScatterApprox(scatter, density);
-        }
-
-        // Volumetric light shafts — shadow map visibility
-        if (lightShafts && density > 0.0001)
-        {
-            float shadow = sampleShadowForFog(samplePos);
-            stepLight *= mix(0.15, 1.0, shadow) * lightShaftInt;
-        }
-
-        // Energy-conserving accumulation (Sébastien Hillaire's improved integration)
-        vec3 integScatter = stepLight * (1.0 - stepTransmittance) / max(extinction, 0.00001);
-        accumulatedLight += transmittance * integScatter;
-        transmittance *= stepTransmittance;
-
-        // Early termination when fully opaque
-        if (transmittance < 0.005)
-        {
-            transmittance = 0.0;
-            break;
-        }
-    }
-
-    // Clamp by max opacity
+    // Clamp by max opacity + firefly clamp (matches the old raymarch)
     transmittance = max(transmittance, 1.0 - maxOpacity);
-
-    // Clamp inscatter to prevent fireflies
     accumulatedLight = min(accumulatedLight, vec3(10.0));
 
-    // ===== TEMPORAL REPROJECTION =====
-    // Blend with previous frame's result to accumulate samples over time.
-    // This effectively multiplies quality by ~4-8x without extra ray-march cost.
-    vec4 currentResult = vec4(accumulatedLight, transmittance);
-
-    if (frameIndex > 0)
-    {
-        // Find world position at a mid-point along the ray for reprojection
-        float midT = min(rayLength * 0.3, maxRayDist * 0.3);
-        vec3 midWorldPos = cameraPos + rayDir * midT;
-        vec2 prevUV = reprojectUV(midWorldPos);
-
-        if (prevUV.x >= 0.0 && prevUV.x <= 1.0 &&
-            prevUV.y >= 0.0 && prevUV.y <= 1.0)
-        {
-            vec4 history = texture(u_FogHistory, prevUV);
-
-            // Neighborhood clamping: clamp history to a range around current
-            // to reject ghosting from disoccluded regions
-            vec4 minBound = currentResult - vec4(0.3, 0.3, 0.3, 0.15);
-            vec4 maxBound = currentResult + vec4(0.3, 0.3, 0.3, 0.15);
-            vec4 clampedHistory = clamp(history, minBound, maxBound);
-
-            // Blend: ~10% current, ~90% history = smooth temporal accumulation
-            float blendFactor = 0.1;
-            currentResult = mix(clampedHistory, currentResult, blendFactor);
-        }
-    }
-
-    o_Color = currentResult;
+    o_Color = vec4(accumulatedLight, transmittance);
 }

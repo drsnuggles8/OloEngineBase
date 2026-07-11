@@ -22,13 +22,15 @@ namespace OloEngine
         Never   // Disabled — always use simple forward
     };
 
-    // @brief High-level 2D tiled Forward+ integration for SceneRenderPass.
+    // @brief High-level clustered (froxel) Forward+ integration for
+    // SceneRenderPass (issue #435).
     //
     // Owns the LightGrid, LightCullingBuffer, and LightCullingPass. The
-    // compute shader culls lights into screen-space tiles (no depth slicing
-    // / froxels). Call SetLights() with the scene-gathered light vectors to
-    // upload them into SSBOs, then DispatchCulling() after the depth pre-pass,
-    // and BindForShading() before the color pass.
+    // compute shader culls lights into a fixed 3D froxel cluster grid
+    // (screen tiles × exponential depth slices). Call SetLights() with the
+    // scene-gathered light vectors to upload them into SSBOs, then
+    // DispatchCulling() (depth-independent — any point after the light
+    // upload), and BindForShading() before the color pass.
     class TiledForwardPlus
     {
       public:
@@ -50,10 +52,11 @@ namespace OloEngine
                        const std::vector<GPUSpotLight>& spotLights,
                        const std::vector<GPUSphereAreaLight>& sphereAreaLights);
 
-        // Dispatch the light culling compute pass (after depth pre-pass)
+        // Dispatch the clustered light culling compute pass. The camera
+        // near/far planes for the depth-slice mapping are extracted from the
+        // projection matrix.
         void DispatchCulling(const glm::mat4& viewMatrix,
-                             const glm::mat4& projectionMatrix,
-                             u32 depthTextureID);
+                             const glm::mat4& projectionMatrix);
 
         // Bind light grid + light data SSBOs for the forward color pass
         void BindForShading();
@@ -77,7 +80,6 @@ namespace OloEngine
             return m_Mode;
         }
 
-        void SetTileSize(u32 tileSize);
         // The upgrade threshold must be >= 1 so the strict `down < up` invariant
         // (enforced in SetLightCountThresholdDown and consumed by
         // TiledForwardPlus::SetLights) can be satisfied.
@@ -126,13 +128,17 @@ namespace OloEngine
         {
             return m_LightBuffer.GetPointLightCount() + m_LightBuffer.GetSpotLightCount();
         }
-        [[nodiscard]] u32 GetTileCountX() const
+        [[nodiscard]] u32 GetClusterCountX() const
         {
-            return m_LightGrid.GetTileCountX();
+            return m_LightGrid.GetClusterCountX();
         }
-        [[nodiscard]] u32 GetTileCountY() const
+        [[nodiscard]] u32 GetClusterCountY() const
         {
-            return m_LightGrid.GetTileCountY();
+            return m_LightGrid.GetClusterCountY();
+        }
+        [[nodiscard]] u32 GetClusterCountZ() const
+        {
+            return m_LightGrid.GetClusterCountZ();
         }
         [[nodiscard]] bool IsInitialized() const
         {
@@ -141,6 +147,18 @@ namespace OloEngine
         [[nodiscard]] bool IsActive() const
         {
             return m_ActiveThisFrame;
+        }
+
+        // Camera clip planes captured by the last DispatchCulling; consumed by
+        // BindForShading's UBO upload and by the froxel-fog pass, which
+        // resolves cluster indices for froxel centres with the same mapping.
+        [[nodiscard]] f32 GetNearPlane() const
+        {
+            return m_NearPlane;
+        }
+        [[nodiscard]] f32 GetFarPlane() const
+        {
+            return m_FarPlane;
         }
 
         // Access grid for debug visualization
@@ -158,6 +176,8 @@ namespace OloEngine
         ForwardPlusMode m_Mode = ForwardPlusMode::Auto;
         u32 m_LightCountThreshold = 8;
         u32 m_LightCountThresholdDown = 4; // Hysteresis floor for Auto mode
+        f32 m_NearPlane = 0.1f;
+        f32 m_FarPlane = 1000.0f;
         bool m_DebugVisualization = false;
         bool m_Initialized = false;
         bool m_ActiveThisFrame = false;

@@ -2,24 +2,29 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/LightCulling/ClusteredLighting.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 
 namespace OloEngine
 {
     struct LightGridConfig
     {
-        u32 TileSizePixels = 16;
-        u32 MaxLightsPerTile = 256;
-        f32 NearPlane = 0.1f;
-        f32 FarPlane = 1000.0f;
+        // Fixed cluster grid dimensions (see ClusteredLighting.h for the
+        // rationale). Resolution-independent: the SSBOs are sized from these
+        // once and survive window resizes untouched.
+        u32 ClusterCountX = ClusteredLighting::kClusterCountX;
+        u32 ClusterCountY = ClusteredLighting::kClusterCountY;
+        u32 ClusterCountZ = ClusteredLighting::kClusterCountZ;
+        u32 MaxLightsPerCluster = ClusteredLighting::kMaxLightsPerCluster;
     };
 
-    // @brief Manages the screen-space 2D tile grid for tiled Forward+ light culling.
+    // @brief Manages the 3D froxel cluster grid for clustered Forward+ light
+    // culling (issue #435).
     //
-    // Divides the screen into a 2D grid of tiles and maintains GPU resources
-    // for per-tile light assignment: a light index list SSBO and a light grid
-    // SSBO storing (offset, count) pairs for each tile. No depth slicing /
-    // froxels — this is a pure 2D tiled implementation.
+    // Divides the view frustum into ClusterCountX × ClusterCountY screen
+    // tiles × ClusterCountZ exponential depth slices and maintains GPU
+    // resources for per-cluster light assignment: a light index list SSBO and
+    // a light grid SSBO storing (offset, count) pairs for each cluster.
     class LightGrid
     {
       public:
@@ -32,6 +37,10 @@ namespace OloEngine
 
         void Initialize(u32 screenWidth, u32 screenHeight, const LightGridConfig& config);
         void Shutdown();
+
+        // Track the viewport dimensions (feeds the fragment-side tile scale).
+        // Cluster-count buffers are resolution-independent, so no GPU
+        // resources are recreated here.
         void Resize(u32 screenWidth, u32 screenHeight);
 
         // Bind all grid SSBOs to their shader binding points
@@ -44,25 +53,25 @@ namespace OloEngine
         // Clear all (offset, count) pairs in the light grid SSBO
         void ClearLightGrid();
 
-        [[nodiscard]] u32 GetTileCountX() const
+        [[nodiscard]] u32 GetClusterCountX() const
         {
-            return m_TileCountX;
+            return m_Config.ClusterCountX;
         }
-        [[nodiscard]] u32 GetTileCountY() const
+        [[nodiscard]] u32 GetClusterCountY() const
         {
-            return m_TileCountY;
+            return m_Config.ClusterCountY;
         }
-        [[nodiscard]] u32 GetTotalTiles() const
+        [[nodiscard]] u32 GetClusterCountZ() const
         {
-            return m_TileCountX * m_TileCountY;
+            return m_Config.ClusterCountZ;
         }
-        [[nodiscard]] u32 GetTileSizePixels() const
+        [[nodiscard]] u32 GetTotalClusters() const
         {
-            return m_Config.TileSizePixels;
+            return m_Config.ClusterCountX * m_Config.ClusterCountY * m_Config.ClusterCountZ;
         }
-        [[nodiscard]] u32 GetMaxLightsPerTile() const
+        [[nodiscard]] u32 GetMaxLightsPerCluster() const
         {
-            return m_Config.MaxLightsPerTile;
+            return m_Config.MaxLightsPerCluster;
         }
 
         [[nodiscard]] u32 GetScreenWidth() const
@@ -98,11 +107,9 @@ namespace OloEngine
         LightGridConfig m_Config;
         u32 m_ScreenWidth = 0;
         u32 m_ScreenHeight = 0;
-        u32 m_TileCountX = 0;
-        u32 m_TileCountY = 0;
 
-        Ref<StorageBuffer> m_LightIndexSSBO;  // Flat array of light indices
-        Ref<StorageBuffer> m_LightGridSSBO;   // Per-tile (offset, count) pairs
+        Ref<StorageBuffer> m_LightIndexSSBO;  // Flat array of packed light indices
+        Ref<StorageBuffer> m_LightGridSSBO;   // Per-cluster (offset, count) pairs
         Ref<StorageBuffer> m_GlobalIndexSSBO; // Atomic counter for light list append
 
         bool m_Initialized = false;

@@ -1,0 +1,447 @@
+#version 460 core
+
+// =============================================================================
+// FroxelFogScatter.comp — froxel volumetric fog: inject + scatter (issue #435)
+//
+// One thread per fog froxel. For each froxel:
+//   INJECT:  participating-media properties — global height fog modulated by
+//            animated FBM noise (FogCommon.glsl) plus local FogVolume shapes
+//            (FogVolumeCommon.glsl) → density + albedo.
+//   SCATTER: in-scattered radiance — sun (Rayleigh + dual-lobe HG phase,
+//            attenuated by a CSM shadow tap = volumetric god rays), ambient
+//            fog color, and every LOCAL light in the froxel's cluster (from
+//            the clustered light grid, attenuated by its shadow-atlas entry).
+//   TEMPORAL: reprojects the previous frame's scatter volume (absolute-world
+//            reprojection via the prev view-projection) and exponentially
+//            blends to stabilise the per-frame depth jitter.
+//
+// Output (image unit 0, rgba16f): rgb = in-scattered radiance, a = extinction.
+// FroxelFogIntegrate.comp then accumulates this front-to-back along Z.
+//
+// The fog volume's exponential depth slicing (FroxelFogData UBO, binding 46)
+// is independent of the light-cluster grid's — froxel centres look up their
+// light cluster through the ForwardPlusParams mapping like any fragment.
+// =============================================================================
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+#include "../include/FogCommon.glsl"
+#include "../include/FogVolumeCommon.glsl"
+
+// Froxel fog parameters (binding 46) — mirrors UBOStructures::FroxelFogUBO
+layout(std140, binding = 46) uniform FroxelFogData
+{
+    mat4 u_FroxelInverseView;        // view -> render-relative world
+    mat4 u_FroxelInverseProjection;  // clip -> view
+    mat4 u_FroxelPrevViewProjection; // ABSOLUTE world -> previous frame clip
+    vec4 u_FroxelDims;               // xyz = volume dims, w = temporal history weight (0 = none)
+    vec4 u_FroxelDepthParams;        // x = near, y = far, z = log2(far/near), w = frame index
+    vec4 u_FroxelRenderOrigin;       // xyz = render origin, w = enabled
+};
+
+// Shadow UBO (binding 6) — shared ShadowData layout (issue #435 atlas)
+layout(std140, binding = 6) uniform ShadowData
+{
+    mat4 u_DirectionalLightSpaceMatrices[4];
+    vec4 u_CascadePlaneDistances;
+    vec4 u_ShadowParams;
+    mat4 u_AtlasEntryMatrices[48];
+    vec4 u_AtlasEntryScaleOffset[48];
+    int u_DirectionalShadowEnabled;
+    int u_AtlasEntryCount;
+    int u_ShadowMapResolution;
+    int u_AtlasResolution;
+    int u_CascadeDebugEnabled;
+    int u_SoftShadowMode;
+    int _shadowPad1;
+    int _shadowPad2;
+};
+
+// Clustered light grid (bindings match ShaderBindingLayout / ForwardPlusCommon)
+layout(std140, binding = 25) uniform ForwardPlusParams
+{
+    uvec4 fplus_Params;       // x = ClusterCountX, y = ClusterCountY, z = Enabled, w = ClusterCountZ
+    vec4  fplus_TileScale;    // xy = clusterCount / screenSize
+    vec4  fplus_DepthSlicing; // x = sliceScale, y = sliceBias, z = zNear, w = zFar
+};
+
+struct FogPointLight
+{
+    vec4 PositionAndRadius;
+    vec4 ColorAndIntensity;
+    vec4 ShadowAndAttenuation; // x = base atlas entry (float, -1 = none), y = quadratic attenuation coefficient
+};
+
+struct FogSpotLight
+{
+    vec4 PositionAndRadius;
+    vec4 DirectionAndAngle;
+    vec4 ColorAndIntensity;
+    vec4 SpotParams;         // x = cos(inner), y = quadratic attenuation coefficient, z = atlas entry
+};
+
+struct FogSphereAreaLight
+{
+    vec4 PositionAndRadius;
+    vec4 ColorAndIntensity;
+    vec4 RangeAndPadding;    // x = range, y = base atlas entry
+};
+
+layout(std430, binding = 9)  readonly buffer FogPointLightBuf      { FogPointLight fogPointLights[]; };
+layout(std430, binding = 10) readonly buffer FogSpotLightBuf       { FogSpotLight fogSpotLights[]; };
+layout(std430, binding = 11) readonly buffer FogLightIndexBuf      { uint fogLightIndices[]; };
+layout(std430, binding = 12) readonly buffer FogLightGridBuf       { uvec2 fogGrid[]; };
+layout(std430, binding = 18) readonly buffer FogSphereAreaLightBuf { FogSphereAreaLight fogSphereAreaLights[]; };
+
+// Shadow maps (compute-local sampler units)
+layout(binding = 0) uniform sampler2DArrayShadow u_ShadowMapCSM;
+layout(binding = 1) uniform sampler2DArrayShadow u_ShadowAtlas;
+// Previous frame's scatter volume for temporal accumulation
+layout(binding = 2) uniform sampler3D u_HistoryVolume;
+
+// Output scatter volume: rgb = in-scattered radiance, a = extinction
+layout(binding = 0, rgba16f) writeonly uniform image3D u_ScatterVolume;
+
+// ---------------------------------------------------------------------------
+// Helpers (mirror PostProcess_Fog.glsl's raymarch-era functions)
+// ---------------------------------------------------------------------------
+
+float dualLobeHGPhase(float cosTheta, float g)
+{
+    float forwardLobe = henyeyGreensteinPhase(cosTheta, g);
+    float backLobe = henyeyGreensteinPhase(cosTheta, -g * 0.3);
+    return mix(backLobe, forwardLobe, 0.7);
+}
+
+vec3 multiScatterApprox(vec3 singleScatter, float density)
+{
+    float d = clamp(density * 10.0, 0.0, 1.0);
+    float multiScatterFactor = 1.0 + d * 0.5 + d * d * 0.25;
+    return singleScatter * multiScatterFactor;
+}
+
+// Single-tap CSM visibility at a render-relative position (volumetric god rays)
+float fogCsmShadowTap(vec3 relPos, float viewDepth)
+{
+    if (u_DirectionalShadowEnabled == 0)
+        return 1.0;
+
+    int cascade = 3;
+    for (int i = 0; i < 4; ++i)
+    {
+        if (viewDepth < u_CascadePlaneDistances[i])
+        {
+            cascade = i;
+            break;
+        }
+    }
+
+    vec4 lightSpacePos = u_DirectionalLightSpaceMatrices[cascade] * vec4(relPos, 1.0);
+    vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w * 0.5 + 0.5;
+    if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
+        projCoords.y < 0.0 || projCoords.y > 1.0 ||
+        projCoords.z > 1.0)
+        return 1.0;
+
+    float bias = u_ShadowParams.x * float(cascade + 1) * 2.0;
+    return texture(u_ShadowMapCSM, vec4(projCoords.xy, float(cascade), projCoords.z - bias));
+}
+
+// Single-tap shadow-atlas visibility for one entry (local-light god rays)
+float fogAtlasShadowTap(vec3 relPos, int entry)
+{
+    vec4 lightSpacePos = u_AtlasEntryMatrices[entry] * vec4(relPos, 1.0);
+    if (lightSpacePos.w <= 0.0)
+        return 1.0;
+    vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w * 0.5 + 0.5;
+    if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
+        projCoords.y < 0.0 || projCoords.y > 1.0 ||
+        projCoords.z > 1.0 || projCoords.z < 0.0)
+        return 1.0;
+
+    vec4 so = u_AtlasEntryScaleOffset[entry];
+    vec2 uv = projCoords.xy * so.xy + so.zw;
+    return texture(u_ShadowAtlas, vec4(uv, 0.0, projCoords.z - u_ShadowParams.x));
+}
+
+// Dominant-axis cube face — order matches ShadowMap::BuildPointLightFaceMatrices
+int fogAtlasCubeFace(vec3 dir)
+{
+    vec3 a = abs(dir);
+    if (a.x >= a.y && a.x >= a.z)
+        return dir.x > 0.0 ? 0 : 1;
+    if (a.y >= a.z)
+        return dir.y > 0.0 ? 2 : 3;
+    return dir.z > 0.0 ? 4 : 5;
+}
+
+// In-scattered radiance from the froxel's clustered local lights.
+// relPos is render-relative (cluster light positions are shifted the same
+// way); viewDir points from the camera toward the froxel; viewDepth is the
+// positive view-space depth used for the cluster slice lookup.
+vec3 evaluateClusterLightsFog(vec3 relPos, vec3 viewDir, float viewDepth, vec2 screenUV, float mieG)
+{
+    if (fplus_Params.z == 0u)
+        return vec3(0.0);
+
+    uint countX = fplus_Params.x;
+    uint countY = fplus_Params.y;
+    uint countZ = fplus_Params.w;
+
+    uvec2 tileCoord = uvec2(screenUV * vec2(float(countX), float(countY)));
+    tileCoord = min(tileCoord, uvec2(countX - 1u, countY - 1u));
+
+    float z = max(viewDepth, 0.005);
+    int slice = int(floor(log2(z) * fplus_DepthSlicing.x + fplus_DepthSlicing.y));
+    slice = clamp(slice, 0, int(countZ) - 1);
+
+    uint clusterIndex = (uint(slice) * countY + tileCoord.y) * countX + tileCoord.x;
+    uvec2 cluster = fogGrid[clusterIndex];
+
+    vec3 radiance = vec3(0.0);
+    for (uint i = 0u; i < cluster.y; ++i)
+    {
+        uint packedIdx = fogLightIndices[cluster.x + i];
+        uint typeTag = (packedIdx >> 30) & 0x3u;
+        uint idx = packedIdx & 0x3FFFFFFFu;
+
+        vec3 lightPos;
+        vec3 lightColor;
+        float range;
+        int baseEntry = -1;
+        bool isPointLike = true;
+        vec3 spotDir = vec3(0.0);
+        float cosOuter = -1.0;
+        float cosInner = -1.0;
+        float quadratic = -1.0; // -1 = windowed inverse-square (sphere area)
+
+        if (typeTag == 0u) // point
+        {
+            FogPointLight l = fogPointLights[idx];
+            lightPos = l.PositionAndRadius.xyz;
+            range = l.PositionAndRadius.w;
+            lightColor = l.ColorAndIntensity.xyz * l.ColorAndIntensity.w;
+            baseEntry = int(l.ShadowAndAttenuation.x);
+            quadratic = max(l.ShadowAndAttenuation.y, 0.0);
+        }
+        else if (typeTag == 1u) // sphere area — treat as point emitter for media
+        {
+            FogSphereAreaLight l = fogSphereAreaLights[idx];
+            lightPos = l.PositionAndRadius.xyz;
+            range = l.RangeAndPadding.x;
+            lightColor = l.ColorAndIntensity.xyz * l.ColorAndIntensity.w;
+            baseEntry = int(l.RangeAndPadding.y);
+        }
+        else // spot
+        {
+            FogSpotLight l = fogSpotLights[idx];
+            lightPos = l.PositionAndRadius.xyz;
+            range = l.PositionAndRadius.w;
+            lightColor = l.ColorAndIntensity.xyz * l.ColorAndIntensity.w;
+            spotDir = normalize(l.DirectionAndAngle.xyz);
+            cosOuter = l.DirectionAndAngle.w;
+            cosInner = l.SpotParams.x;
+            baseEntry = int(l.SpotParams.z);
+            quadratic = max(l.SpotParams.y, 0.0);
+            isPointLike = false;
+        }
+
+        vec3 toLight = lightPos - relPos;
+        float dist = length(toLight);
+        if (dist > range || range <= 0.0)
+            continue;
+        vec3 L = toLight / max(dist, 1e-4);
+
+        // Distance attenuation — parity with the surface paths (issue #435):
+        // point/spot mirror PBRCommon calculateAttenuation (constant=1,
+        // linear=0, quadratic) so the fog in-scatter matches what nearby lit
+        // surfaces receive; sphere-area keeps the windowed inverse-square of
+        // its shared surface evaluator (calculateSphereAreaLightContribution).
+        float distRatio = dist / range;
+        float atten;
+        if (quadratic >= 0.0)
+        {
+            float sq = distRatio * distRatio;
+            float window = clamp(1.0 - sq * sq, 0.0, 1.0);
+            atten = window * window / (1.0 + quadratic * dist * dist);
+        }
+        else
+        {
+            atten = max(1.0 - distRatio * distRatio, 0.0);
+            atten = atten * atten / (dist * dist + 1.0);
+        }
+
+        if (!isPointLike)
+        {
+            // Squared cone ramp — matches PBRCommon calculateSpotIntensity.
+            float cosTheta = dot(-L, spotDir);
+            float spotAtten = clamp((cosTheta - cosOuter) / max(cosInner - cosOuter, 1e-4), 0.0, 1.0);
+            atten *= spotAtten * spotAtten;
+        }
+
+        // Anisotropic phase. The scattering cosine is dot(incident travel
+        // direction, outgoing direction) = dot(-L, -viewDir) = dot(viewDir, L)
+        // — L points froxel→light and viewDir camera→froxel, so the forward
+        // lobe peaks when the camera looks TOWARD the light (same convention
+        // as the sun tap's dot(viewDir, -sunDir) below, where sunDir is the
+        // sun's travel direction).
+        float phase = dualLobeHGPhase(dot(viewDir, L), mieG);
+
+        float shadow = 1.0;
+        if (baseEntry >= 0)
+        {
+            int entry = baseEntry;
+            if (isPointLike)
+                entry = baseEntry + fogAtlasCubeFace(relPos - lightPos);
+            if (entry >= 0 && entry < u_AtlasEntryCount)
+                shadow = fogAtlasShadowTap(relPos, entry);
+        }
+
+        radiance += lightColor * atten * phase * shadow;
+    }
+
+    return radiance;
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+void main()
+{
+    ivec3 dims = ivec3(u_FroxelDims.xyz);
+    ivec3 gid = ivec3(gl_GlobalInvocationID);
+    if (gid.x >= dims.x || gid.y >= dims.y || gid.z >= dims.z)
+        return;
+
+    float nearPlane = u_FroxelDepthParams.x;
+    float farPlane = u_FroxelDepthParams.y;
+    float logFOverN = u_FroxelDepthParams.z;
+    int frameIndex = int(u_FroxelDepthParams.w + 0.5);
+
+    // Screen UV of the froxel centre
+    vec2 screenUV = (vec2(gid.xy) + 0.5) / vec2(dims.xy);
+    vec2 ndc = screenUV * 2.0 - 1.0;
+
+    // Exponential slice depth, temporally jittered within the slice so the
+    // history blend integrates the full slice extent over a few frames.
+    float zJitter = interleavedGradientNoise(vec2(gid.xy) + float(frameIndex % 8) * vec2(5.13, 7.77));
+    float sliceCoord = (float(gid.z) + zJitter) / float(dims.z);
+    float viewDepth = nearPlane * exp2(logFOverN * sliceCoord);
+
+    // View-space position: scale the near-plane ray to the slice depth
+    vec4 nearView = u_FroxelInverseProjection * vec4(ndc, -1.0, 1.0);
+    vec3 viewRay = nearView.xyz / nearView.w;
+    vec3 viewPos = viewRay * (viewDepth / max(-viewRay.z, 1e-4));
+
+    // Render-relative world position (matches cluster lights / shadow matrices)
+    vec3 relPos = (u_FroxelInverseView * vec4(viewPos, 1.0)).xyz;
+    // Absolute world position (fog height/noise/volumes are absolute-world)
+    vec3 absPos = relPos + u_FroxelRenderOrigin.xyz;
+
+    vec3 camRel = u_FroxelInverseView[3].xyz;
+    vec3 viewDir = normalize(relPos - camRel);
+
+    // -----------------------------------------------------------------------
+    // INJECT — media density + albedo
+    // -----------------------------------------------------------------------
+    float baseDensity = u_FogColorAndDensity.a;
+    float heightFalloff = u_FogDistanceParams.z;
+    float heightOffset = u_FogDistanceParams.w;
+    float absorptionCoeff = u_FogVolumetricParams.y;
+    vec3 fogColor = u_FogColorAndDensity.rgb;
+
+    float noiseScale = u_FogNoiseParams.x;
+    float noiseSpeed = u_FogNoiseParams.y;
+    float noiseIntensity = u_FogNoiseParams.z;
+    float time = u_FogNoiseParams.w;
+
+    float density = fogDensityAtPoint(absPos, baseDensity, heightFalloff, heightOffset);
+
+    if (noiseIntensity > 0.001 && density > 0.0001)
+    {
+        vec3 noisePos = absPos * noiseScale +
+                        vec3(time * noiseSpeed * 0.6, time * noiseSpeed * 0.15,
+                             time * noiseSpeed * 0.4);
+        float noiseFactor = fogFBM(noisePos);
+        density *= mix(1.0, clamp(noiseFactor * 2.0, 0.0, 2.5), noiseIntensity);
+    }
+
+    FogVolumeResult volResult = evaluateFogVolumesAtPoint(absPos);
+    float combinedDensity = max(density, 0.0) + volResult.density;
+
+    vec3 sampleFogColor = fogColor;
+    if (volResult.density > 0.001 && combinedDensity > 0.001)
+    {
+        float volumeRatio = volResult.density / combinedDensity;
+        sampleFogColor = mix(fogColor, volResult.color, volumeRatio);
+    }
+
+    // -----------------------------------------------------------------------
+    // SCATTER — in-scattered radiance at this froxel
+    // -----------------------------------------------------------------------
+    bool scatterEnabled = u_FogFlags.z > 0.5;
+    bool lightShafts = u_FogVolumetricParams.w > 0.5;
+    float lightShaftInt = u_FogVolumetricParams.z;
+    float mieG = u_FogScatterParams.z;
+    vec3 sunDir = normalize(u_FogSunDirection.xyz);
+
+    // Ambient fog color term (matches the raymarch's `sampleFogColor * density`)
+    vec3 inscatter = sampleFogColor * combinedDensity;
+
+    if (scatterEnabled)
+    {
+        float cosTheta = dot(viewDir, -sunDir);
+        float rPhase = rayleighPhase(cosTheta);
+        float mPhase = dualLobeHGPhase(cosTheta, mieG);
+        vec3 rayleigh = u_FogScatterParams.x * rPhase * u_FogRayleighColorAndMaxOpacity.rgb;
+        vec3 mie = u_FogScatterParams.y * mPhase * vec3(1.0);
+        vec3 scatter = u_FogScatterParams.w * (rayleigh + mie) * combinedDensity;
+        inscatter += multiScatterApprox(scatter, combinedDensity);
+    }
+
+    // Volumetric light shafts — sun visibility through the CSM
+    if (lightShafts && combinedDensity > 0.0001)
+    {
+        float shadow = fogCsmShadowTap(relPos, viewDepth);
+        inscatter *= mix(0.15, 1.0, shadow) * lightShaftInt;
+    }
+
+    // Local lights from the clustered light grid — the light scattering the
+    // 2D raymarch never had (issue #435 acceptance: fog with light scattering)
+    if (combinedDensity > 0.0001)
+    {
+        inscatter += evaluateClusterLightsFog(relPos, viewDir, viewDepth, screenUV, mieG) * combinedDensity;
+    }
+
+    // Firefly clamp (matches the raymarch)
+    inscatter = min(inscatter, vec3(10.0));
+
+    float extinction = combinedDensity + absorptionCoeff;
+    vec4 current = vec4(inscatter, extinction);
+
+    // -----------------------------------------------------------------------
+    // TEMPORAL — reproject + blend the previous frame's scatter volume
+    // -----------------------------------------------------------------------
+    float historyWeight = u_FroxelDims.w;
+    if (historyWeight > 0.001)
+    {
+        vec4 prevClip = u_FroxelPrevViewProjection * vec4(absPos, 1.0);
+        if (prevClip.w > 1e-4)
+        {
+            vec2 prevUV = (prevClip.xy / prevClip.w) * 0.5 + 0.5;
+            // clip.w of a standard perspective projection is the positive
+            // view depth, so the previous slice coordinate follows directly.
+            float prevW = log2(max(prevClip.w, nearPlane) / nearPlane) / logFOverN;
+            if (prevUV.x >= 0.0 && prevUV.x <= 1.0 &&
+                prevUV.y >= 0.0 && prevUV.y <= 1.0 &&
+                prevW >= 0.0 && prevW <= 1.0)
+            {
+                vec4 history = texture(u_HistoryVolume, vec3(prevUV, prevW));
+                current = mix(current, history, historyWeight);
+            }
+        }
+    }
+
+    imageStore(u_ScatterVolume, gid, current);
+}

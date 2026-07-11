@@ -31,10 +31,12 @@ namespace OloEngine
     //  - AO       (`AOSlot`)               — the shared AO producer/consumer surface
     //  - Scratch  (`ScratchSlot`)          — graph-internal transients (SSAO, JFA, Bloom mips,
     //                                        GTAO denoise/edge, HZB, water refraction, fog half-res)
-    //  - Shadows  (`ShadowSlot`)           — CSM / spot atlas / point cubemap shadow targets
+    //  - Shadows  (`ShadowSlot`)           — CSM + the unified shadow atlas (spot & point
+    //                                        entries share one texture, issue #435)
     //  - Post     (`PostProcessSlot`)      — post-process chain framebuffers + attachment views
     //  - OIT      (`OITSlot`)              — weighted-blended OIT MRT buffers
-    //  - Temporal (`TemporalHistorySlot`)  — imported prior-frame histories (TAA, fog)
+    //  - Temporal (`TemporalHistorySlot`)  — imported prior-frame histories (TAA; the fog
+    //                                        history lives in VolumetricFogPass's own volume)
     //  - IBL      (`IBLSlot`)              — global imported IBL textures
     //
     // Unset handles (IsValid() == false) mean the resource is not available in
@@ -48,9 +50,6 @@ namespace OloEngine
         // particular slot.
         static constexpr u32 MaxHZBMipViews = 16u;
         static constexpr u32 MaxShadowMapCascades = 4u;
-        static constexpr u32 MaxShadowMapSpotLights = 4u;
-        static constexpr u32 MaxShadowMapPointLights = 4u;
-        static constexpr u32 MaxShadowMapCubeFaces = 6u;
 
         // -----------------------------------------------------------------------
         // Scene outputs (produced by SceneRenderPass / GBuffer fill)
@@ -158,9 +157,9 @@ namespace OloEngine
             RGTextureHandle WaterRefraction;
 
             // Fog half-resolution scratch framebuffer. RGBA16F at
-            // ceil(viewport/2). Written by Fog pass A, sampled by Fog pass B,
-            // then extracted into `Temporal.FogHistory` for next-frame
-            // reprojection.
+            // ceil(viewport/2). Written by Fog pass A (analytic evaluation or
+            // froxel-volume fetch), sampled by Fog pass B (bilateral
+            // upsample) within the same Execute.
             RGFramebufferHandle FogHalfRes;
         };
 
@@ -169,20 +168,19 @@ namespace OloEngine
         // -----------------------------------------------------------------------
         struct ShadowSlot
         {
-            RGTextureHandle ShadowMapCSM;                                              // Cascaded shadow map array root (frame-local transient with explicit backing when available)
-            std::array<RGTextureHandle, MaxShadowMapCascades> ShadowMapCSMCascades{};  // Explicit per-cascade array-layer views over ShadowMapCSM
-            RGTextureHandle ShadowMapSpot;                                             // Spot-light shadow atlas root (frame-local transient with explicit backing when available)
-            std::array<RGTextureHandle, MaxShadowMapSpotLights> ShadowMapSpotLayers{}; // Explicit per-light array-layer views over ShadowMapSpot
-            // Point-light shadow cubemaps — indexed by light slot (0..3).
-            // Matches UBOStructures::ShadowUBO::MAX_POINT_SHADOWS == 4.
-            std::array<RGTextureHandle, MaxShadowMapPointLights> ShadowMapPoint{};                                         // Point-light cubemap roots (frame-local transients with explicit backing when available)
-            std::array<std::array<RGTextureHandle, MaxShadowMapCubeFaces>, MaxShadowMapPointLights> ShadowMapPointFaces{}; // Explicit per-face views over each point-light cubemap
-            // Comparison-OFF raw-depth views of the CSM / spot arrays for the PCSS
-            // blocker search. Plain external GL ids (the views alias the
-            // graph-tracked arrays above, so they need no separate barrier
+            RGTextureHandle ShadowMapCSM;                                             // Cascaded shadow map array root (frame-local transient with explicit backing when available)
+            std::array<RGTextureHandle, MaxShadowMapCascades> ShadowMapCSMCascades{}; // Explicit per-cascade array-layer views over ShadowMapCSM
+            // The budgeted local-light shadow atlas (issue #435): one 1-layer
+            // depth array holding every prioritised spot shadow / point-light
+            // cube face as square sub-tiles. Replaces the old fixed spot array
+            // + four point cubemaps.
+            RGTextureHandle ShadowMapAtlas;
+            // Comparison-OFF raw-depth views of the CSM array / atlas for the
+            // PCSS blocker search. Plain external GL ids (the views alias the
+            // graph-tracked textures above, so they need no separate barrier
             // tracking); 0 when the ShadowMap is uninitialised.
             u32 ShadowMapCSMRawID = 0;
-            u32 ShadowMapSpotRawID = 0;
+            u32 ShadowMapAtlasRawID = 0;
         };
 
         // -----------------------------------------------------------------------
@@ -257,7 +255,8 @@ namespace OloEngine
         struct TemporalHistorySlot
         {
             RGTextureHandle TAAHistory; // Previous TAA accumulation buffer
-            RGTextureHandle FogHistory; // Previous volumetric fog integration result
+            // (Fog's temporal history moved into VolumetricFogPass's own 3D
+            // scatter volume with the froxel fog rework — issue #435.)
         };
 
         // -----------------------------------------------------------------------

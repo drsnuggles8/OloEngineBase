@@ -153,16 +153,16 @@ TEST(ShadowUBO, SizeConsistency)
     using ShadowUBO = ShaderBindingLayout::ShadowUBO;
 
     // 4 mat4s (cascades) + vec4 (cascade distances) + vec4 (params)
-    // + 4 mat4s (spot) + 4 vec4s (point params)
-    // + 4 ints + 4 ints (debug + padding)
+    // + 48 mat4s (atlas entry matrices) + 48 vec4s (atlas entry scale/offset)
+    // + 8 ints (flags/counts/resolutions + padding) — issue #435 atlas layout
     constexpr u32 expectedSize =
-        4 * sizeof(glm::mat4)   // DirectionalLightSpaceMatrices
-        + sizeof(glm::vec4)     // CascadePlaneDistances
-        + sizeof(glm::vec4)     // ShadowParams
-        + 4 * sizeof(glm::mat4) // SpotLightSpaceMatrices
-        + 4 * sizeof(glm::vec4) // PointLightShadowParams
-        + 4 * sizeof(i32)       // DirectionalShadowEnabled, SpotShadowCount, PointShadowCount, ShadowMapResolution
-        + 4 * sizeof(i32);      // CascadeDebugEnabled + 3 padding
+        4 * sizeof(glm::mat4)    // DirectionalLightSpaceMatrices
+        + sizeof(glm::vec4)      // CascadePlaneDistances
+        + sizeof(glm::vec4)      // ShadowParams
+        + 48 * sizeof(glm::mat4) // AtlasEntryMatrices
+        + 48 * sizeof(glm::vec4) // AtlasEntryScaleOffset
+        + 4 * sizeof(i32)        // DirectionalShadowEnabled, AtlasEntryCount, ShadowMapResolution, AtlasResolution
+        + 4 * sizeof(i32);       // CascadeDebugEnabled, SoftShadowMode + 2 padding
 
     EXPECT_EQ(ShadowUBO::GetSize(), expectedSize);
 }
@@ -171,19 +171,19 @@ TEST(ShadowUBO, FieldLayout)
 {
     using ShadowUBO = ShaderBindingLayout::ShadowUBO;
 
-    // CascadeDebugEnabled must exist and be after ShadowMapResolution
+    // CascadeDebugEnabled must exist and be after AtlasResolution
     ShadowUBO ubo{};
     ubo.CascadeDebugEnabled = 1;
     EXPECT_EQ(ubo.CascadeDebugEnabled, 1);
 
     // Verify the debug field is at the expected offset
     constexpr u32 offsetAfterResolution =
-        4 * sizeof(glm::mat4)   // DirectionalLightSpaceMatrices
-        + sizeof(glm::vec4)     // CascadePlaneDistances
-        + sizeof(glm::vec4)     // ShadowParams
-        + 4 * sizeof(glm::mat4) // SpotLightSpaceMatrices
-        + 4 * sizeof(glm::vec4) // PointLightShadowParams
-        + 4 * sizeof(i32);      // 4 ints (Enabled, SpotCount, PointCount, Resolution)
+        4 * sizeof(glm::mat4)    // DirectionalLightSpaceMatrices
+        + sizeof(glm::vec4)      // CascadePlaneDistances
+        + sizeof(glm::vec4)      // ShadowParams
+        + 48 * sizeof(glm::mat4) // AtlasEntryMatrices
+        + 48 * sizeof(glm::vec4) // AtlasEntryScaleOffset
+        + 4 * sizeof(i32);       // 4 ints (Enabled, AtlasEntryCount, ShadowMapResolution, AtlasResolution)
 
     EXPECT_EQ(offsetof(ShadowUBO, CascadeDebugEnabled), offsetAfterResolution);
 }

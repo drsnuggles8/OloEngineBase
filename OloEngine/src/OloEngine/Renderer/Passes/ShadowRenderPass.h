@@ -16,12 +16,11 @@ namespace OloEngine
     class Frustum;
     class Shader;
 
-    // Indicates which shadow type is being rendered in the current callback invocation
+    // Indicates which shadow target is being rendered in the current invocation
     enum class ShadowPassType : u8
     {
         CSM,  // Directional light cascaded shadow map
-        Spot, // Spot light 2D shadow map
-        Point // Point light cubemap face (callback also receives light pos/far)
+        Atlas // Local-light shadow atlas entry (spot tile or point cube-face tile, issue #435)
     };
 
     // POD shadow caster descriptors — collected during entity traversal, replayed per cascade/face.

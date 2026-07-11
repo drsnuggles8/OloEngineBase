@@ -83,11 +83,10 @@ namespace OloEngine
 
         // Shadow texture renderer IDs (set per-frame)
         u32 CSMShadowTextureID = 0;
-        u32 SpotShadowTextureID = 0;
-        // Comparison-OFF raw-depth views of the CSM / spot arrays (PCSS blocker search)
+        u32 AtlasShadowTextureID = 0;
+        // Comparison-OFF raw-depth views of the CSM array / shadow atlas (PCSS blocker search)
         u32 CSMRawShadowTextureID = 0;
-        u32 SpotRawShadowTextureID = 0;
-        std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS> PointShadowTextureIDs = { 0 };
+        u32 AtlasRawShadowTextureID = 0;
 
         // Snow accumulation depth texture (set per-frame)
         u32 SnowDepthTextureID = 0;
@@ -529,23 +528,12 @@ namespace OloEngine
     static void BindShadowTextures()
     {
         BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTextureID);
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT, s_Data.SpotShadowTextureID);
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS, s_Data.AtlasShadowTextureID);
 
         // Comparison-OFF raw-depth views for the PCSS blocker search (plain
-        // sampler2DArray at TEX_SHADOW_CSM_RAW / TEX_SHADOW_SPOT_RAW).
+        // sampler2DArray at TEX_SHADOW_CSM_RAW / TEX_SHADOW_ATLAS_RAW).
         BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, s_Data.CSMRawShadowTextureID);
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_SPOT_RAW, s_Data.SpotRawShadowTextureID);
-
-        static constexpr std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS> pointSlots = {
-            ShaderBindingLayout::TEX_SHADOW_POINT_0,
-            ShaderBindingLayout::TEX_SHADOW_POINT_1,
-            ShaderBindingLayout::TEX_SHADOW_POINT_2,
-            ShaderBindingLayout::TEX_SHADOW_POINT_3
-        };
-        for (u32 i = 0; i < UBOStructures::ShadowUBO::MAX_POINT_SHADOWS; ++i)
-        {
-            BindTrackedTextureUnit(pointSlots[i], s_Data.PointShadowTextureIDs[i]);
-        }
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, s_Data.AtlasRawShadowTextureID);
 
         BindTrackedTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTextureID);
     }
@@ -812,10 +800,9 @@ namespace OloEngine
         s_Data.CurrentViewportHeight = 0;
         s_Data.BoundUBOIDs.fill(0);
         s_Data.CSMShadowTextureID = 0;
-        s_Data.SpotShadowTextureID = 0;
+        s_Data.AtlasShadowTextureID = 0;
         s_Data.CSMRawShadowTextureID = 0;
-        s_Data.SpotRawShadowTextureID = 0;
-        s_Data.PointShadowTextureIDs.fill(0);
+        s_Data.AtlasRawShadowTextureID = 0;
         s_Data.SnowDepthTextureID = 0;
         s_Data.DepthPrepassActive = false;
         s_Data.DepthPrepassColorPassActive = false;
@@ -969,18 +956,13 @@ namespace OloEngine
         BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
     }
 
-    void CommandDispatch::SetShadowTextureIDs(u32 csmTextureID, u32 spotTextureID,
-                                              u32 csmRawTextureID, u32 spotRawTextureID)
+    void CommandDispatch::SetShadowTextureIDs(u32 csmTextureID, u32 atlasTextureID,
+                                              u32 csmRawTextureID, u32 atlasRawTextureID)
     {
         s_Data.CSMShadowTextureID = csmTextureID;
-        s_Data.SpotShadowTextureID = spotTextureID;
+        s_Data.AtlasShadowTextureID = atlasTextureID;
         s_Data.CSMRawShadowTextureID = csmRawTextureID;
-        s_Data.SpotRawShadowTextureID = spotRawTextureID;
-    }
-
-    void CommandDispatch::SetPointShadowTextureIDs(const std::array<u32, UBOStructures::ShadowUBO::MAX_POINT_SHADOWS>& pointTextureIDs)
-    {
-        s_Data.PointShadowTextureIDs = pointTextureIDs;
+        s_Data.AtlasRawShadowTextureID = atlasRawTextureID;
     }
 
     void CommandDispatch::SetSnowDepthTextureID(u32 textureID)

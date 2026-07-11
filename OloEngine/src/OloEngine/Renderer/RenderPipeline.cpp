@@ -418,19 +418,9 @@ namespace OloEngine
         // Set shadow texture IDs AFTER ResetState() so they aren't zeroed out.
         CommandDispatch::SetShadowTextureIDs(
             data.Shadow.GetCSMRendererID(),
-            data.Shadow.GetSpotRendererID(),
+            data.Shadow.GetAtlasRendererID(),
             data.Shadow.GetCSMRawRendererID(),
-            data.Shadow.GetSpotRawRendererID());
-
-        // Set point shadow cubemap texture IDs.
-        {
-            std::array<u32, ShadowMap::MAX_POINT_SHADOWS> pointIDs{};
-            for (u32 i = 0; i < ShadowMap::MAX_POINT_SHADOWS; ++i)
-            {
-                pointIDs[i] = data.Shadow.GetPointRendererID(i);
-            }
-            CommandDispatch::SetPointShadowTextureIDs(pointIDs);
-        }
+            data.Shadow.GetAtlasRawRendererID());
 
         // Initialize parallel scene context with immutable frame data.
         data.ParallelContext.ViewMatrix = data.ViewMatrix;
@@ -749,6 +739,13 @@ namespace OloEngine
                                        (data.Precipitation.ScreenStreaksEnabled ||
                                         data.Precipitation.LensImpactsEnabled);
             PostProcessPasses.Precipitation->SetEnabled(precipEnabled);
+        }
+
+        if (PostProcessPasses.VolumetricFog)
+        {
+            // The froxel compute chain runs only in the fog's volumetric mode
+            // (issue #435); analytic fog stays a pure screen-space evaluation.
+            PostProcessPasses.VolumetricFog->SetEnabled(data.Fog.Enabled && data.Fog.EnableVolumetric);
         }
 
         if (PostProcessPasses.Fog)
@@ -1249,10 +1246,9 @@ namespace OloEngine
         // Shadow renderer IDs change when shadow textures are (re)created; the
         // blackboard imports them by raw GL ID so a change must invalidate.
         HashU32(h, data.Shadow.GetResolution());
+        HashU32(h, data.Shadow.GetAtlasResolution());
         HashU32(h, data.Shadow.GetCSMRendererID());
-        HashU32(h, data.Shadow.GetSpotRendererID());
-        for (u32 i = 0; i < ShadowMap::MAX_POINT_SHADOWS; ++i)
-            HashU32(h, data.Shadow.GetPointRendererID(i));
+        HashU32(h, data.Shadow.GetAtlasRendererID());
 
         // Post-process technique selection + per-effect toggles
         HashU32(h, static_cast<u32>(std::to_underlying(data.PostProcess.ActiveAOTechnique)));
@@ -1287,6 +1283,11 @@ namespace OloEngine
 
         // Other systems that gate blackboard branches
         HashBool(h, data.Fog.Enabled);
+        // VolumetricFogPass::Setup() declares nothing when the pass is
+        // disabled, and its enable is Fog.Enabled && Fog.EnableVolumetric —
+        // so the volumetric toggle changes graph declarations and MUST be
+        // hashed or flipping it reuses a stale cached build (#530 class).
+        HashBool(h, data.Fog.EnableVolumetric);
         HashBool(h, data.Snow.Enabled);
         HashBool(h, data.Snow.SSSBlurEnabled);
 
@@ -1299,16 +1300,16 @@ namespace OloEngine
         HashBool(h, !data.SelectionOutlineEntityIDs.empty());
 
         // Temporal-history gate inputs — `if (TAAHistoryValid && Texture)`
-        // / `if (FogHistoryValid && Texture)` decide whether the prior
-        // frame's history is imported into the blackboard for reprojection.
-        // These flags flip false→true after the FIRST successful frame
-        // produces history, so the cache MUST invalidate on that transition
-        // — otherwise PopulateBlackboard never re-runs, the import never
-        // happens, and TAA / fog reprojection sample the current frame as
-        // history (TAA degenerates to a pass-through and the jitter shows
-        // through as a screen-space shake).
+        // decides whether the prior frame's history is imported into the
+        // blackboard for reprojection. The flag flips false→true after the
+        // FIRST successful frame produces history, so the cache MUST
+        // invalidate on that transition — otherwise PopulateBlackboard never
+        // re-runs, the import never happens, and TAA reprojection samples the
+        // current frame as history (TAA degenerates to a pass-through and the
+        // jitter shows through as a screen-space shake). The fog history moved
+        // into VolumetricFogPass's own 3D volume (issue #435) and no longer
+        // flows through the blackboard.
         HashBool(h, TAAHistoryValid);
-        HashBool(h, FogHistoryValid);
 
         // Pass-set readiness (covers branches like
         //   `if (pipeline.PostProcessPasses.X && X->IsReadyForExecution())`)
@@ -1339,6 +1340,7 @@ namespace OloEngine
         HashPassState(h, PostProcessPasses.MotionBlur);
         HashPassState(h, PostProcessPasses.TAA);
         HashPassState(h, PostProcessPasses.Precipitation);
+        HashPassState(h, PostProcessPasses.VolumetricFog);
         HashPassState(h, PostProcessPasses.Fog);
         HashPassState(h, PostProcessPasses.ChromAberration);
         HashPassState(h, PostProcessPasses.ColorGrading);
@@ -1750,10 +1752,10 @@ namespace OloEngine
             const auto shadowResolution = std::max(data.Shadow.GetResolution(), 1u);
 
             // Comparison-OFF raw-depth views for the deferred PCSS blocker search.
-            // These alias the CSM / spot array storage declared below, so they
+            // These alias the CSM array / atlas storage declared below, so they
             // ride that storage's barriers and need no separate graph resource.
             board.Shadows.ShadowMapCSMRawID = data.Shadow.GetCSMRawRendererID();
-            board.Shadows.ShadowMapSpotRawID = data.Shadow.GetSpotRawRendererID();
+            board.Shadows.ShadowMapAtlasRawID = data.Shadow.GetAtlasRawRendererID();
 
             const auto buildShadowTextureDesc = [shadowResolution](const ResourceHandle::Kind kind,
                                                                    std::string_view debugName,
@@ -1768,7 +1770,7 @@ namespace OloEngine
             };
 
             const u32 csmID = data.Shadow.GetCSMRendererID();
-            const u32 spotID = data.Shadow.GetSpotRendererID();
+            const u32 atlasID = data.Shadow.GetAtlasRendererID();
             if (csmID != 0)
             {
                 board.Shadows.ShadowMapCSM = graph.DeclareTransientTexture(
@@ -1784,42 +1786,20 @@ namespace OloEngine
                         ResourceNames::ShadowMapCSMCascade[cascade], board.Shadows.ShadowMapCSM, cascade);
                 }
             }
-            if (spotID != 0)
+            // Local-light shadow atlas (issue #435): a single 1-layer depth
+            // array — every prioritised spot / point-face tile is a viewport
+            // sub-rect of it, so one graph resource covers all local shadows.
+            if (atlasID != 0)
             {
-                board.Shadows.ShadowMapSpot = graph.DeclareTransientTexture(
-                    ResourceNames::ShadowMapSpot,
-                    buildShadowTextureDesc(ResourceHandle::Kind::Texture2DArray,
-                                           ResourceNames::ShadowMapSpot,
-                                           FrameBlackboard::MaxShadowMapSpotLights),
-                    spotID);
-
-                for (u32 light = 0; light < FrameBlackboard::MaxShadowMapSpotLights; ++light)
-                {
-                    board.Shadows.ShadowMapSpotLayers[light] = graph.CreateTextureArrayLayerView(
-                        ResourceNames::ShadowMapSpotLayer[light], board.Shadows.ShadowMapSpot, light);
-                }
-            }
-            // Point-light shadow cubemaps — declare each active light slot as a
-            // frame-local transient root with explicit external backing.
-            for (u32 i = 0; i < ShadowMap::MAX_POINT_SHADOWS; ++i)
-            {
-                const u32 pointID = data.Shadow.GetPointRendererID(i);
-                if (pointID != 0)
-                {
-                    board.Shadows.ShadowMapPoint[i] = graph.DeclareTransientTexture(
-                        ResourceNames::ShadowMapPoint[i],
-                        buildShadowTextureDesc(ResourceHandle::Kind::TextureCube,
-                                               ResourceNames::ShadowMapPoint[i],
-                                               FrameBlackboard::MaxShadowMapCubeFaces),
-                        pointID);
-
-                    for (u32 face = 0; face < FrameBlackboard::MaxShadowMapCubeFaces; ++face)
-                    {
-                        const auto faceViewName = std::string(ResourceNames::ShadowMapPoint[i]) + "Face" + std::to_string(face);
-                        board.Shadows.ShadowMapPointFaces[i][face] = graph.CreateTextureCubeFaceView(
-                            faceViewName, board.Shadows.ShadowMapPoint[i], face);
-                    }
-                }
+                const u32 atlasResolution = std::max(data.Shadow.GetAtlasResolution(), 1u);
+                auto atlasDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray,
+                                                                ResourceNames::ShadowMapAtlas);
+                atlasDesc.Format = RGResourceFormat::Depth32Float;
+                atlasDesc.Width = atlasResolution;
+                atlasDesc.Height = atlasResolution;
+                atlasDesc.DepthOrLayers = 1;
+                board.Shadows.ShadowMapAtlas = graph.DeclareTransientTexture(
+                    ResourceNames::ShadowMapAtlas, atlasDesc, atlasID);
             }
         }
 
@@ -2588,27 +2568,9 @@ namespace OloEngine
                 ResourceNames::TAAHistory, pipeline.TAAHistoryTexture->GetRendererID());
         }
 
-        // FogHistory persists in renderer-owned storage, is registered as a
-        // graph-managed sink every frame, and is imported only when the
-        // previous frame produced a valid history.
-        if (pipeline.PostProcessPasses.Fog)
-        {
-            const auto& fogSpec = pipeline.PostProcessPasses.Fog->GetFramebufferSpecification();
-            const auto fogHalfWidth = (fogSpec.Width + 1u) / 2u;
-            const auto fogHalfHeight = (fogSpec.Height + 1u) / 2u;
-            EnsureHistoryStorage(pipeline.FogHistoryTexture, pipeline.FogHistoryValid, fogHalfWidth, fogHalfHeight);
-            graph.RegisterHistoryTextureSink(
-                ResourceNames::FogHistory,
-                pipeline.FogHistoryTexture ? pipeline.FogHistoryTexture->GetRendererID() : 0u,
-                pipeline.FogHistoryTexture ? pipeline.FogHistoryTexture->GetWidth() : 0u,
-                pipeline.FogHistoryTexture ? pipeline.FogHistoryTexture->GetHeight() : 0u,
-                &pipeline.FogHistoryValid);
-        }
-        if (pipeline.FogHistoryValid && pipeline.FogHistoryTexture)
-        {
-            board.Temporal.FogHistory = graph.ImportHistory(
-                ResourceNames::FogHistory, pipeline.FogHistoryTexture->GetRendererID());
-        }
+        // (The 2D FogHistory sink/import died with the screen-space fog
+        // raymarch — the froxel fog's temporal accumulation lives in
+        // VolumetricFogPass's own 3D scatter volume, issue #435.)
 
         // ------------------------------------------------------------------
         // IBL resources
@@ -2667,6 +2629,7 @@ namespace OloEngine
         inputs.Passes.MotionBlur = PostProcessPasses.MotionBlur.Raw();
         inputs.Passes.TAA = PostProcessPasses.TAA.Raw();
         inputs.Passes.Precipitation = PostProcessPasses.Precipitation.Raw();
+        inputs.Passes.VolumetricFog = PostProcessPasses.VolumetricFog.Raw();
         inputs.Passes.Fog = PostProcessPasses.Fog.Raw();
         inputs.Passes.ChromAberration = PostProcessPasses.ChromAberration.Raw();
         inputs.Passes.ColorGrading = PostProcessPasses.ColorGrading.Raw();
@@ -2867,11 +2830,19 @@ namespace OloEngine
         PostProcessPasses.Precipitation->SetName("PrecipitationPass");
         PostProcessPasses.Precipitation->Init(finalPassSpec);
 
+        // Froxel volumetric fog compute chain (issue #435): builds the 3D
+        // in-scatter/transmittance volume the fog composite samples when the
+        // fog is in volumetric mode.
+        PostProcessPasses.VolumetricFog = Ref<VolumetricFogPass>::Create();
+        PostProcessPasses.VolumetricFog->SetName("VolumetricFogPass");
+        PostProcessPasses.VolumetricFog->Init(finalPassSpec);
+
         // Volumetric fog standalone pass.
         // Sits between Precipitation and the late post-effect sub-chain.
         PostProcessPasses.Fog = Ref<FogRenderPass>::Create();
         PostProcessPasses.Fog->SetName("FogPass");
         PostProcessPasses.Fog->Init(finalPassSpec);
+        PostProcessPasses.Fog->SetVolumetricFogPass(PostProcessPasses.VolumetricFog);
 
         // Four standalone effects in
         // in chain order. Each pass self-skips when its effect is disabled;

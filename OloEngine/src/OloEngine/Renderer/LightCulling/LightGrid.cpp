@@ -8,10 +8,14 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (screenWidth == 0 || screenHeight == 0 || config.TileSizePixels == 0)
+        if (screenWidth == 0 || screenHeight == 0 ||
+            config.ClusterCountX == 0 || config.ClusterCountY == 0 || config.ClusterCountZ == 0 ||
+            config.MaxLightsPerCluster == 0)
         {
-            OLO_CORE_ERROR("LightGrid::Initialize: Invalid parameters ({}x{}, tile={}px)",
-                           screenWidth, screenHeight, config.TileSizePixels);
+            OLO_CORE_ERROR("LightGrid::Initialize: Invalid parameters ({}x{}, clusters {}x{}x{}, {} lights/cluster)",
+                           screenWidth, screenHeight,
+                           config.ClusterCountX, config.ClusterCountY, config.ClusterCountZ,
+                           config.MaxLightsPerCluster);
             m_Initialized = false;
             return;
         }
@@ -19,8 +23,6 @@ namespace OloEngine
         m_Config = config;
         m_ScreenWidth = screenWidth;
         m_ScreenHeight = screenHeight;
-        m_TileCountX = (screenWidth + config.TileSizePixels - 1) / config.TileSizePixels;
-        m_TileCountY = (screenHeight + config.TileSizePixels - 1) / config.TileSizePixels;
 
         if (!CreateBuffers())
         {
@@ -31,9 +33,9 @@ namespace OloEngine
 
         m_Initialized = true;
 
-        OLO_CORE_INFO("LightGrid: Initialized {}x{} tiles ({}px), {} total tiles",
-                      m_TileCountX, m_TileCountY, config.TileSizePixels,
-                      GetTotalTiles());
+        OLO_CORE_INFO("LightGrid: Initialized {}x{}x{} froxel clusters ({} total, {} lights/cluster max)",
+                      m_Config.ClusterCountX, m_Config.ClusterCountY, m_Config.ClusterCountZ,
+                      GetTotalClusters(), m_Config.MaxLightsPerCluster);
     }
 
     void LightGrid::Shutdown()
@@ -53,24 +55,11 @@ namespace OloEngine
             return;
         }
 
-        if (screenWidth == m_ScreenWidth && screenHeight == m_ScreenHeight)
-        {
-            return;
-        }
-
+        // The cluster grid is fixed-count, so the SSBOs are resolution-
+        // independent — only the viewport dimensions (used for the
+        // fragment-side tile scale) change.
         m_ScreenWidth = screenWidth;
         m_ScreenHeight = screenHeight;
-        m_TileCountX = (screenWidth + m_Config.TileSizePixels - 1) / m_Config.TileSizePixels;
-        m_TileCountY = (screenHeight + m_Config.TileSizePixels - 1) / m_Config.TileSizePixels;
-
-        if (!CreateBuffers())
-        {
-            OLO_CORE_ERROR("LightGrid::Resize: Failed to recreate GPU buffers");
-            m_Initialized = false;
-            return;
-        }
-
-        OLO_CORE_TRACE("LightGrid: Resized to {}x{} tiles", m_TileCountX, m_TileCountY);
     }
 
     void LightGrid::Bind() const
@@ -120,15 +109,14 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        const u32 totalTiles = GetTotalTiles();
+        const u32 totalClusters = GetTotalClusters();
 
-        // Light index list: worst case each tile has MaxLightsPerTile lights
-        // In practice, we size for average occupancy. Use totalTiles * MaxLightsPerTile as upper bound.
-        const u32 lightIndexCapacity = totalTiles * m_Config.MaxLightsPerTile;
+        // Light index list: worst case each cluster is full.
+        const u32 lightIndexCapacity = totalClusters * m_Config.MaxLightsPerCluster;
         const u32 lightIndexBufferSize = lightIndexCapacity * sizeof(u32);
 
-        // Light grid: 2 u32s per tile (offset, count)
-        const u32 lightGridBufferSize = totalTiles * 2 * sizeof(u32);
+        // Light grid: 2 u32s per cluster (offset, count)
+        const u32 lightGridBufferSize = totalClusters * 2 * sizeof(u32);
 
         // Global atomic counter: single u32
         const u32 globalIndexBufferSize = sizeof(u32);

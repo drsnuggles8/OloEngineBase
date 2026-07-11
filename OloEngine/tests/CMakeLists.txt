@@ -126,6 +126,9 @@ add_executable(OloEngine-Tests
 		Rendering/GTAOMathTest.cpp
 		Rendering/BloomMathTest.cpp
 		Rendering/FogMathTest.cpp
+		Rendering/ClusteredLightingMathTest.cpp
+		Rendering/ShadowAtlasPackingTest.cpp
+		Rendering/VolumetricFogMathTest.cpp
 		Rendering/MotionVectorMathTest.cpp
 		Rendering/SSRHiZTraversalTest.cpp
 		Rendering/RenderGraphFingerprintTest.cpp
@@ -185,6 +188,9 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SSRVisualEvidenceTest.cpp
 		Rendering/PropertyTests/BloomVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FogVisualEvidenceTest.cpp
+		Rendering/PropertyTests/ClusteredLightingVisualEvidenceTest.cpp
+		Rendering/PropertyTests/ShadowAtlasVisualEvidenceTest.cpp
+		Rendering/PropertyTests/VolumetricFogVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSGIVisualEvidenceTest.cpp
 		Rendering/PropertyTests/OverdrawVisualEvidenceTest.cpp

@@ -65,8 +65,6 @@ namespace OloEngine
         }
 
       private:
-        static constexpr u32 MaxPointShadowSlots = 4u;
-
         struct SelectedInputs
         {
             RGTextureHandle GBufferAlbedo;
@@ -76,11 +74,10 @@ namespace OloEngine
             RGTextureHandle SceneDepth;
             RGTextureHandle AOBuffer;
             RGTextureHandle ShadowMapCSM;
-            RGTextureHandle ShadowMapSpot;
-            std::array<RGTextureHandle, MaxPointShadowSlots> ShadowMapPoint{};
+            RGTextureHandle ShadowMapAtlas; // local-light shadow atlas (issue #435)
             // Comparison-OFF raw-depth view GL ids (PCSS blocker search); 0 = none.
             u32 ShadowMapCSMRawID = 0;
-            u32 ShadowMapSpotRawID = 0;
+            u32 ShadowMapAtlasRawID = 0;
             RGTextureHandle IrradianceMap;
             RGTextureHandle PrefilterMap;
             RGTextureHandle BrdfLut;

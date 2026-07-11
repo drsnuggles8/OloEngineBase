@@ -25,9 +25,13 @@ namespace OloEngine
     {
         RenderGraphNode::Setup(builder, blackboard);
         m_SelectedFogHalfResFramebuffer = {};
-        m_SelectedFogHistoryTexture = {};
         m_SelectedSceneDepthTexture = {};
         m_SelectedShadowCSMTexture = {};
+
+        // The froxel volumetric fog chain must have integrated its volume
+        // before the composite samples it (its output is engine-owned, not a
+        // graph resource, so the edge is declared explicitly).
+        builder.DependsOnPass("VolumetricFogPass");
 
         [[maybe_unused]] const auto input = RenderPipelineBuilderInternal::ReadFirstValidVersionedInputForPass(
             builder,
@@ -49,11 +53,6 @@ namespace OloEngine
             m_SelectedSceneDepthTexture = blackboard.Post.UpscaledSceneDepthTexture.IsValid() ? blackboard.Post.UpscaledSceneDepthTexture : blackboard.Scene.SceneDepth;
             [[maybe_unused]] const auto sceneDepthRead = builder.Read(m_SelectedSceneDepthTexture, RGReadUsage::ShaderSample);
         }
-        if (blackboard.Temporal.FogHistory.IsValid())
-        {
-            m_SelectedFogHistoryTexture = blackboard.Temporal.FogHistory;
-            [[maybe_unused]] const auto fogHistoryRead = builder.Read(blackboard.Temporal.FogHistory, RGReadUsage::ShaderSample);
-        }
         if (blackboard.Shadows.ShadowMapCSM.IsValid())
         {
             m_SelectedShadowCSMTexture = blackboard.Shadows.ShadowMapCSM;
@@ -64,14 +63,15 @@ namespace OloEngine
         {
             m_SelectedFogHalfResFramebuffer = blackboard.Scratch.FogHalfRes;
             // Intra-pass write-then-sample: Pass A renders the half-resolution
-            // ray-march into FogHalfRes; Pass B (bilateral upsample) samples
-            // that result inside the same Execute. Graph-owned scratch with
-            // no prior writer to chain against (history is consumed via
-            // FogHistory, not FogHalfRes).
+            // fog evaluation into FogHalfRes; Pass B (bilateral upsample)
+            // samples that result inside the same Execute. Graph-owned scratch
+            // with no prior writer to chain against. (The old 2D FogHistory
+            // extraction died with the screen-space raymarch — temporal
+            // accumulation lives in VolumetricFogPass's 3D scatter volume now,
+            // issue #435.)
             builder.AllowSamePassReadWrite(blackboard.Scratch.FogHalfRes);
             builder.Write(blackboard.Scratch.FogHalfRes, RGWriteUsage::RenderTarget);
             [[maybe_unused]] const auto fogHalfRead = builder.Read(blackboard.Scratch.FogHalfRes, RGReadUsage::ShaderSample);
-            builder.ExtractHistoryTexture(ResourceNames::FogHistory, blackboard.Scratch.FogHalfRes);
         }
 
         if (blackboard.Post.FogColor.IsValid())
@@ -134,7 +134,6 @@ namespace OloEngine
 
         Ref<Framebuffer> outputFramebuffer;
         Ref<Framebuffer> fogHalfResFramebuffer;
-        u32 fogHistoryTextureID = 0;
         if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
             if (auto resolvedOutput = context.ResolveFramebuffer(outputHandle))
@@ -142,8 +141,6 @@ namespace OloEngine
         }
         if (m_SelectedFogHalfResFramebuffer.IsValid())
             fogHalfResFramebuffer = context.ResolveFramebuffer(m_SelectedFogHalfResFramebuffer);
-        if (m_SelectedFogHistoryTexture.IsValid())
-            fogHistoryTextureID = context.ResolveTexture(m_SelectedFogHistoryTexture);
 
         if (!m_Enabled)
         {
@@ -215,11 +212,24 @@ namespace OloEngine
         // Full-resolution depth (the shader samples at half-res UV).
         context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
 
-        // Temporal history for reprojection (slot 3).
-        context.BindTexture(3, fogHistoryTextureID);
-
         // CSM shadow map for volumetric light shafts (slot TEX_SHADOW = 8).
         context.BindTexture(ShaderBindingLayout::TEX_SHADOW, shadowCSMTextureID);
+
+        // Integrated froxel fog volume (issue #435): the shader's volumetric
+        // branch fetches it with one trilinear tap per pixel. When the froxel
+        // chain did not run this frame, re-upload its disabled UBO so the
+        // shader falls back to the analytic path instead of sampling a stale
+        // volume.
+        const bool froxelRan = m_VolumetricFogPass && m_VolumetricFogPass->RanThisFrame();
+        if (froxelRan)
+        {
+            context.BindTexture(ShaderBindingLayout::TEX_FROXEL_FOG,
+                                m_VolumetricFogPass->GetIntegratedVolumeID());
+        }
+        else if (m_VolumetricFogPass)
+        {
+            m_VolumetricFogPass->UploadDisabledUBO();
+        }
 
         {
             const auto va = MeshPrimitives::GetFullscreenTriangle();
@@ -293,7 +303,6 @@ namespace OloEngine
     {
         m_Target = nullptr;
         m_SelectedFogHalfResFramebuffer = {};
-        m_SelectedFogHistoryTexture = {};
         m_SelectedSceneDepthTexture = {};
         m_SelectedShadowCSMTexture = {};
     }

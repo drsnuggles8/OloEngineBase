@@ -955,57 +955,132 @@ float calculateCascadedShadowFactorCSM(
     return shadow;
 }
 
-// Simple shadow factor for a single light (spot light). softMode/softness drive
-// PCSS; rawShadowMap is the comparison-OFF view of the spot array.
-float calculateShadowFactor(vec3 worldPos, mat4 lightSpaceMatrix, sampler2DArrayShadow shadowMap,
-                            sampler2DArray rawShadowMap, float layer, float bias, int resolution,
-                            int softMode, float softness)
+// =============================================================================
+// SHADOW ATLAS SAMPLING (issue #435)
+// =============================================================================
+// Every shadowed local light lives in ONE budgeted atlas texture (a 1-layer
+// depth array): a spot light owns one square tile, a point / sphere-area light
+// owns six (its cube faces, rendered projectively — no more linear-distance
+// cubemaps). Each atlas ENTRY carries a light VP matrix plus the UV
+// scale/offset of its tile; these helpers take them as parameters so callers
+// index the ShadowData UBO arrays (u_AtlasEntryMatrices /
+// u_AtlasEntryScaleOffset) themselves. All filter taps are clamped inside the
+// tile (half-texel inset) so neighbouring tiles can never bleed.
+
+// Dominant-axis cube face selector — face order matches
+// ShadowMap::BuildPointLightFaceMatrices: +X,-X,+Y,-Y,+Z,-Z.
+int atlasCubeFace(vec3 dir)
 {
-    vec4 lightSpacePos = lightSpaceMatrix * vec4(worldPos, 1.0);
+    vec3 a = abs(dir);
+    if (a.x >= a.y && a.x >= a.z)
+        return dir.x > 0.0 ? 0 : 1;
+    if (a.y >= a.z)
+        return dir.y > 0.0 ? 2 : 3;
+    return dir.z > 0.0 ? 4 : 5;
+}
+
+// 3x3 PCF over an atlas tile. projCoords are the entry's light-space [0,1]
+// coords; scaleOffset (xy = scale, zw = offset) maps them into the atlas.
+float sampleShadowAtlasPCF(sampler2DArrayShadow atlas, vec3 projCoords, vec4 scaleOffset,
+                           float bias, int atlasResolution)
+{
+    float texel = 1.0 / float(atlasResolution);
+    vec2 tileMin = scaleOffset.zw + vec2(texel * 0.5);
+    vec2 tileMax = scaleOffset.zw + scaleOffset.xy - vec2(texel * 0.5);
+    vec2 baseUV = projCoords.xy * scaleOffset.xy + scaleOffset.zw;
+
+    float shadow = 0.0;
+    for (int x = -1; x <= 1; ++x)
+    {
+        for (int y = -1; y <= 1; ++y)
+        {
+            vec2 uv = clamp(baseUV + vec2(float(x), float(y)) * texel, tileMin, tileMax);
+            shadow += texture(atlas, vec4(uv, 0.0, projCoords.z - bias));
+        }
+    }
+    return shadow / 9.0;
+}
+
+// PCSS over an atlas tile (spot entries): the same two-stage blocker-search +
+// variable-radius Poisson PCF as the CSM path, with every tap clamped to the
+// entry's tile.
+float pcssShadowAtlasFactor(sampler2DArrayShadow atlas, sampler2DArray rawAtlas,
+                            vec3 projCoords, vec4 scaleOffset, float bias,
+                            float softness, int atlasResolution, mat2 rot)
+{
+    float texel = 1.0 / float(atlasResolution);
+    vec2 tileMin = scaleOffset.zw + vec2(texel * 0.5);
+    vec2 tileMax = scaleOffset.zw + scaleOffset.xy - vec2(texel * 0.5);
+    vec2 baseUV = projCoords.xy * scaleOffset.xy + scaleOffset.zw;
+    float zReceiver = projCoords.z;
+
+    float lightSizeTexels = max(softness, 0.05) * 4.0;
+    float searchRadiusUV = max(lightSizeTexels, 2.0) * texel;
+
+    float blockerSum = 0.0;
+    int numBlockers = 0;
+    for (int i = 0; i < 16; ++i)
+    {
+        vec2 uv = clamp(baseUV + (rot * POISSON_DISK_16[i]) * searchRadiusUV, tileMin, tileMax);
+        float d = texture(rawAtlas, vec3(uv, 0.0)).r;
+        if (d < zReceiver)
+        {
+            blockerSum += d;
+            numBlockers += 1;
+        }
+    }
+    if (numBlockers == 0)
+        return 1.0;
+    if (numBlockers == 16)
+        return 0.0;
+    float avgBlocker = blockerSum / float(numBlockers);
+
+    const float PCSS_PENUMBRA_GAIN = 220.0;
+    float depthGap = max(zReceiver - avgBlocker, 0.0);
+    float filterRadiusTexels = clamp(depthGap * lightSizeTexels * PCSS_PENUMBRA_GAIN,
+                                     1.0, lightSizeTexels * 4.0);
+    if (filterRadiusTexels <= 1.0)
+        return texture(atlas, vec4(clamp(baseUV, tileMin, tileMax), 0.0, zReceiver - bias));
+
+    float filterRadiusUV = filterRadiusTexels * texel;
+    float sum = 0.0;
+    for (int i = 0; i < 16; ++i)
+    {
+        vec2 uv = clamp(baseUV + (rot * POISSON_DISK_16[i]) * filterRadiusUV, tileMin, tileMax);
+        sum += texture(atlas, vec4(uv, 0.0, zReceiver - bias));
+    }
+    return sum / 16.0;
+}
+
+// Visibility for one atlas entry: project worldPos by the entry matrix,
+// remap into its tile, and filter. Returns 1.0 (lit) outside the entry's
+// frustum. Spot entries pass softMode = u_SoftShadowMode (PCSS-capable);
+// point cube-face entries pass softMode = 0 (PCF only, matching the old
+// cubemap path which never had PCSS).
+float calculateAtlasEntryShadow(vec3 worldPos, mat4 entryMatrix, vec4 scaleOffset,
+                                sampler2DArrayShadow atlas, sampler2DArray rawAtlas,
+                                float bias, int atlasResolution, int softMode, float softness)
+{
+    vec4 lightSpacePos = entryMatrix * vec4(worldPos, 1.0);
+    if (lightSpacePos.w <= 0.0)
+        return 1.0; // behind the light's perspective projection
     vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
     projCoords = projCoords * 0.5 + 0.5;
 
     if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
         projCoords.y < 0.0 || projCoords.y > 1.0 ||
-        projCoords.z > 1.0)
+        projCoords.z > 1.0 || projCoords.z < 0.0)
     {
         return 1.0;
     }
 
-    float rotAngle = pcssRotationAngle(worldPos);
-    mat2 shadowRot = mat2(cos(rotAngle), -sin(rotAngle), sin(rotAngle), cos(rotAngle));
-    return sampleShadowLayer(shadowMap, rawShadowMap, projCoords, layer, bias, resolution, softMode, softness, shadowRot);
-}
-
-// 20-direction cube sampling offsets for soft point-shadow PCF.
-const vec3 POINT_PCF_OFFSETS[20] = vec3[](
-    vec3( 1,  1,  1), vec3( 1, -1,  1), vec3(-1, -1,  1), vec3(-1,  1,  1),
-    vec3( 1,  1, -1), vec3( 1, -1, -1), vec3(-1, -1, -1), vec3(-1,  1, -1),
-    vec3( 1,  1,  0), vec3( 1, -1,  0), vec3(-1, -1,  0), vec3(-1,  1,  0),
-    vec3( 1,  0,  1), vec3(-1,  0,  1), vec3( 1,  0, -1), vec3(-1,  0, -1),
-    vec3( 0,  1,  1), vec3( 0, -1,  1), vec3( 0, -1, -1), vec3( 0,  1, -1)
-);
-
-// Point light shadow factor using depth cubemap.
-// Uses samplerCubeShadow with hardware depth comparison (GL_LEQUAL); the cubemap
-// stores linear depth ( distance / farPlane ) written by ShadowDepthPoint.glsl.
-// A fixed 20-tap disk PCF (radius grows mildly with distance) replaces the old
-// single tap so point shadows read as soft edges rather than aliased hard ones.
-float calculatePointShadowFactor(samplerCubeShadow shadowCubemap, vec3 worldPos, vec3 lightPos, float farPlane, float bias)
-{
-    vec3 fragToLight = worldPos - lightPos;
-    float currentDepth = length(fragToLight) / farPlane;
-
-    // World-space sample-disk radius: a small fraction of the light range that
-    // widens with distance from the light for a roughly constant screen-space
-    // softness. samplerCubeShadow: texture(sampler, vec4(direction.xyz, refDepth)).
-    float diskRadius = farPlane * 0.0035 * (1.0 + currentDepth);
-    float shadow = 0.0;
-    for (int i = 0; i < 20; ++i)
+    if (softMode == 1)
     {
-        shadow += texture(shadowCubemap, vec4(fragToLight + POINT_PCF_OFFSETS[i] * diskRadius, currentDepth - bias));
+        float rotAngle = pcssRotationAngle(worldPos);
+        mat2 rot = mat2(cos(rotAngle), -sin(rotAngle), sin(rotAngle), cos(rotAngle));
+        return pcssShadowAtlasFactor(atlas, rawAtlas, projCoords, scaleOffset, bias, softness, atlasResolution, rot);
     }
-    return shadow / 20.0;
+    return sampleShadowAtlasPCF(atlas, projCoords, scaleOffset, bias, atlasResolution);
 }
 
 // =============================================================================

@@ -196,7 +196,7 @@ namespace OloEngine
 
         u32 shaderIdx = 0;
         // NOTE: Keep totalShaders3D in sync with the number of Load() calls below.
-        constexpr u32 totalShaders3D = 47;
+        constexpr u32 totalShaders3D = 45;
 
         // Boot + fallback are idempotent — no-ops when already initialized by
         // Renderer::Init().  Needed here for the lazy-init path (EditorLayer
@@ -234,8 +234,6 @@ namespace OloEngine
             "assets/shaders/InfiniteGrid_GBuffer.glsl",
             "assets/shaders/ShadowDepth.glsl",
             "assets/shaders/ShadowDepthSkinned.glsl",
-            "assets/shaders/ShadowDepthPoint.glsl",
-            "assets/shaders/ShadowDepthPointSkinned.glsl",
             "assets/shaders/DepthPrepass.glsl",
             "assets/shaders/DepthPrepass_Skinned.glsl",
             "assets/shaders/DepthPrepass_Mask.glsl",
@@ -301,7 +299,6 @@ namespace OloEngine
         s_Data.ForwardPlusDebugShader = m_ShaderLibrary.Get("ForwardPlusDebug");
         s_Data.ShadowDepthShader = m_ShaderLibrary.Get("ShadowDepth");
         s_Data.ShadowDepthSkinnedShader = m_ShaderLibrary.Get("ShadowDepthSkinned");
-        s_Data.ShadowDepthPointSkinnedShader = m_ShaderLibrary.Get("ShadowDepthPointSkinned");
         s_Data.DepthPrepassShader = m_ShaderLibrary.Get("DepthPrepass");
         s_Data.DepthPrepassSkinnedShader = m_ShaderLibrary.Get("DepthPrepass_Skinned");
         s_Data.DepthPrepassMaskShader = m_ShaderLibrary.Get("DepthPrepass_Mask");

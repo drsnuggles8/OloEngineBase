@@ -283,7 +283,6 @@ namespace OloEngine::ResourceNames
 
     // Shadow maps written by ShadowRenderPass, sampled everywhere.
     inline constexpr std::string_view ShadowMapCSM = "ShadowMapCSM";
-    inline constexpr std::string_view ShadowMapSpot = "ShadowMapSpot";
     inline constexpr std::string_view ShadowMapCSMCascade0 = "ShadowMapCSMCascade0";
     inline constexpr std::string_view ShadowMapCSMCascade1 = "ShadowMapCSMCascade1";
     inline constexpr std::string_view ShadowMapCSMCascade2 = "ShadowMapCSMCascade2";
@@ -291,22 +290,10 @@ namespace OloEngine::ResourceNames
     inline constexpr std::array<std::string_view, 4> ShadowMapCSMCascade = {
         ShadowMapCSMCascade0, ShadowMapCSMCascade1, ShadowMapCSMCascade2, ShadowMapCSMCascade3
     };
-    inline constexpr std::string_view ShadowMapSpotLayer0 = "ShadowMapSpotLayer0";
-    inline constexpr std::string_view ShadowMapSpotLayer1 = "ShadowMapSpotLayer1";
-    inline constexpr std::string_view ShadowMapSpotLayer2 = "ShadowMapSpotLayer2";
-    inline constexpr std::string_view ShadowMapSpotLayer3 = "ShadowMapSpotLayer3";
-    inline constexpr std::array<std::string_view, 4> ShadowMapSpotLayer = {
-        ShadowMapSpotLayer0, ShadowMapSpotLayer1, ShadowMapSpotLayer2, ShadowMapSpotLayer3
-    };
-    // Point-light shadow cubemaps — one per light slot (max 4, matches UBOStructures::ShadowUBO::MAX_POINT_SHADOWS).
-    inline constexpr std::string_view ShadowMapPoint0 = "ShadowMapPoint0";
-    inline constexpr std::string_view ShadowMapPoint1 = "ShadowMapPoint1";
-    inline constexpr std::string_view ShadowMapPoint2 = "ShadowMapPoint2";
-    inline constexpr std::string_view ShadowMapPoint3 = "ShadowMapPoint3";
-    // Convenience array indexed by light slot (0..3).
-    inline constexpr std::array<std::string_view, 4> ShadowMapPoint = {
-        ShadowMapPoint0, ShadowMapPoint1, ShadowMapPoint2, ShadowMapPoint3
-    };
+    // The budgeted local-light shadow atlas (issue #435) — every prioritised
+    // spot shadow / point-light cube face renders into square sub-tiles of
+    // this single depth texture (replaced the old spot array + 4 cubemaps).
+    inline constexpr std::string_view ShadowMapAtlas = "ShadowMapAtlas";
 
     // Scene rendering outputs.
     inline constexpr std::string_view SceneColor = "SceneColor";                     // HDR scene framebuffer (MRT root)
@@ -405,10 +392,11 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view UICompositeTexture = "UICompositeTexture";                     // Color attachment view of UIComposite RT0
     inline constexpr std::string_view Backbuffer = "Backbuffer";                                     // External present target (default framebuffer / swapchain)
 
-    // Temporal histories — imported each frame from the previous frame's output,
-    // consumed by TAA (TAAHistory) and volumetric fog (FogHistory).
+    // Temporal histories — imported each frame from the previous frame's
+    // output, consumed by TAA. (The fog's 2D history died with the
+    // screen-space raymarch; the froxel fog's temporal accumulation lives in
+    // VolumetricFogPass's own 3D scatter volume — issue #435.)
     inline constexpr std::string_view TAAHistory = "TAAHistory"; // Previous TAA accumulation buffer
-    inline constexpr std::string_view FogHistory = "FogHistory"; // Previous volumetric fog integration
 
     // Weighted-blended OIT accumulation targets (particles and forward
     // transparent decals write these; OITResolvePass reads them and

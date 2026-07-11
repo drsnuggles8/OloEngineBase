@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/Passes/VolumetricFogPass.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -19,16 +20,19 @@ namespace OloEngine
     //     ChromAberration → ColorGrading → ToneMap → Vignette → FXAA
     //
     // Two-pass implementation:
-    //   Pass A — half-resolution ray-march with temporal reprojection.
+    //   Pass A — half-resolution fog evaluation. Analytic mode computes the
+    //            closed-form distance/height fog per pixel; volumetric mode
+    //            (issue #435) fetches the integrated FROXEL fog volume built
+    //            by VolumetricFogPass with one trilinear tap (replacing the
+    //            old per-pixel screen-space raymarch — temporal accumulation
+    //            now lives in the 3D scatter volume, not a 2D history).
     //            Outputs RGB = accumulated inscatter, A = transmittance.
     //   Pass B — bilateral upsample + composite onto the full-resolution
     //            scene colour input.
     //
-    // The pass uses renderer-owned persistent temporal-history storage imported
-    // next frame as `FogHistory`. The current-frame full-resolution composite
-    // (`FogColor`) and half-resolution integration scratch (`FogHalfRes`) are
-    // graph-owned framebuffers selected during `Setup()` and resolved later in
-    // `Execute()`.
+    // The current-frame full-resolution composite (`FogColor`) and
+    // half-resolution scratch (`FogHalfRes`) are graph-owned framebuffers
+    // selected during `Setup()` and resolved later in `Execute()`.
     //
     // Required bindings:
     //   * `PostProcessUBO`       (UBO binding 7) — re-bound at Execute start.
@@ -84,6 +88,15 @@ namespace OloEngine
             m_CameraUBO = ubo;
         }
 
+        // The froxel volumetric fog compute chain (issue #435). Execute binds
+        // its integrated volume at TEX_FROXEL_FOG for the volumetric branch,
+        // and re-uploads the disabled froxel UBO when the chain did not run
+        // this frame so the shader falls back to the analytic path.
+        void SetVolumetricFogPass(const Ref<VolumetricFogPass>& pass) noexcept
+        {
+            m_VolumetricFogPass = pass;
+        }
+
       private:
         void CreateFramebuffers(u32 width, u32 height);
 
@@ -92,13 +105,13 @@ namespace OloEngine
         u32 m_FogHalfWidth = 0;
         u32 m_FogHalfHeight = 0;
 
-        Ref<Shader> m_FogShader;         // Pass A: ray-march shader
+        Ref<Shader> m_FogShader;         // Pass A: analytic / froxel-volume fog evaluation
         Ref<Shader> m_FogUpsampleShader; // Pass B: bilateral upsample + composite
 
         Ref<UniformBuffer> m_PostProcessUBO;
         Ref<UniformBuffer> m_CameraUBO; // full shared camera UBO (binding 0)
+        Ref<VolumetricFogPass> m_VolumetricFogPass;
         RGFramebufferHandle m_SelectedFogHalfResFramebuffer{};
-        RGTextureHandle m_SelectedFogHistoryTexture{};
         RGTextureHandle m_SelectedSceneDepthTexture{};
         RGTextureHandle m_SelectedShadowCSMTexture{};
     };
