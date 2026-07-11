@@ -114,10 +114,17 @@ namespace OloEngine
       public:
         LockFreeLinkAllocator_TLSCache()
         {
-            // TODO(olbu): Add IsInGameThread() check here once OloEngine has a formal threading system (#597).
-            // UE5.7 uses: check(IsInGameThread());
-            // This ensures TLS slot allocation happens on the main thread for deterministic
-            // initialization order before worker threads start using the allocator.
+            // Deliberately NOT asserting IsInGameThread() here (issue #597 investigation):
+            // UE5.7 uses check(IsInGameThread()) because it first-touches this singleton on
+            // the game thread during single-threaded startup. OloEngine's first touch is a
+            // scheduler WORKER thread instead (freeing a Jolt job) — see
+            // docs/adr/0004-lock-free-allocator-singleton-init.md. Asserting here would fire
+            // on every run. More generally, every LockFreeList entry point actually used in
+            // this engine (task scheduler queues, MallocPurgatoryProxy, EventPool) is
+            // intentionally cross-thread by design, so no operation in this file is
+            // contractually game-thread-only. A future genuinely game-thread-only caller
+            // should assert IsInGameThread() at its own call site, not inside this generic
+            // allocator.
             m_TlsSlot = FPlatformTLS::AllocTlsSlot();
             OLO_CORE_ASSERT(FPlatformTLS::IsValidTlsSlot(m_TlsSlot), "LockFreeLinkAllocator_TLSCache: invalid TLS slot after allocation");
         }
