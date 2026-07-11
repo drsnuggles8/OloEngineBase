@@ -108,7 +108,7 @@ TEST(NavMeshQueryTest, FindPathWithoutNavMeshReturnsFalse)
 {
     NavMeshQuery query;
     std::vector<glm::vec3> path;
-    EXPECT_FALSE(query.FindPath({ 0, 0, 0 }, { 10, 0, 10 }, path));
+    EXPECT_EQ(query.FindPath({ 0, 0, 0 }, { 10, 0, 10 }, path), FindPathResult::Failed);
     EXPECT_TRUE(path.empty());
 }
 
@@ -425,7 +425,7 @@ TEST(NavMeshRoundTripTest, SerializeDeserializePreservesPathfinding)
     ASSERT_TRUE(origQuery.IsValid());
 
     std::vector<glm::vec3> origPath;
-    EXPECT_TRUE(origQuery.FindPath({ -5, 0, 0 }, { 5, 0, 0 }, origPath));
+    EXPECT_EQ(origQuery.FindPath({ -5, 0, 0 }, { 5, 0, 0 }, origPath), FindPathResult::Complete);
     EXPECT_FALSE(origPath.empty());
 
     // Serialize
@@ -447,7 +447,7 @@ TEST(NavMeshRoundTripTest, SerializeDeserializePreservesPathfinding)
     ASSERT_TRUE(restoredQuery.IsValid());
 
     std::vector<glm::vec3> restoredPath;
-    EXPECT_TRUE(restoredQuery.FindPath({ -5, 0, 0 }, { 5, 0, 0 }, restoredPath));
+    EXPECT_EQ(restoredQuery.FindPath({ -5, 0, 0 }, { 5, 0, 0 }, restoredPath), FindPathResult::Complete);
     EXPECT_EQ(restoredPath.size(), origPath.size());
 }
 
@@ -509,7 +509,7 @@ TEST(NavMeshQueryPositiveTest, CustomQueryBudget)
     ASSERT_TRUE(query.IsValid());
 
     std::vector<glm::vec3> path;
-    EXPECT_TRUE(query.FindPath({ -5, 0, 0 }, { 5, 0, 0 }, path));
+    EXPECT_EQ(query.FindPath({ -5, 0, 0 }, { 5, 0, 0 }, path), FindPathResult::Complete);
     EXPECT_FALSE(path.empty());
 }
 

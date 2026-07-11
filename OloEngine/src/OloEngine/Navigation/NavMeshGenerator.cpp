@@ -517,6 +517,26 @@ namespace OloEngine
             return nullptr;
         }
 
+        // Validate bounds. Generate is a public API; a NaN/Inf or inverted (max <= min)
+        // bound feeds rcCalcGridSize a garbage or enormous grid size and blows up the
+        // heightfield allocation. The production caller passes finite, ordered bounds,
+        // but nothing upstream guarantees it.
+        auto finiteVec3 = [](const glm::vec3& v)
+        { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
+        if (!finiteVec3(boundsMin) || !finiteVec3(boundsMax))
+        {
+            OLO_CORE_ERROR("NavMeshGenerator: bounds contain non-finite values (min=({},{},{}), max=({},{},{}))",
+                           boundsMin.x, boundsMin.y, boundsMin.z, boundsMax.x, boundsMax.y, boundsMax.z);
+            return nullptr;
+        }
+        if (boundsMax.x <= boundsMin.x || boundsMax.y <= boundsMin.y || boundsMax.z <= boundsMin.z)
+        {
+            OLO_CORE_ERROR("NavMeshGenerator: bounds are not ordered (max must be > min on every axis): "
+                           "min=({},{},{}), max=({},{},{})",
+                           boundsMin.x, boundsMin.y, boundsMin.z, boundsMax.x, boundsMax.y, boundsMax.z);
+            return nullptr;
+        }
+
         // Step 1: Initialize Recast config
         rcConfig cfg{};
         cfg.cs = settings.CellSize;

@@ -150,6 +150,12 @@ namespace OloEngine
         }
 
         // Follow the default connection from current node
+        if (!entity.HasComponent<DialogueComponent>())
+        {
+            EndDialogue(entity);
+            return;
+        }
+
         const auto& dialogueComp = entity.GetComponent<DialogueComponent>();
         auto dialogueTree = AssetManager::GetAsset<DialogueTreeAsset>(dialogueComp.m_DialogueTree);
         if (!dialogueTree)
@@ -233,6 +239,12 @@ namespace OloEngine
         if (hopCount >= s_MaxHopCount)
         {
             OLO_CORE_ERROR("DialogueSystem::ProcessNode - Exceeded max hop count ({}), possible cycle detected at node {}", s_MaxHopCount, static_cast<u64>(nodeID));
+            EndDialogue(entity);
+            return;
+        }
+
+        if (!entity.HasComponent<DialogueComponent>())
+        {
             EndDialogue(entity);
             return;
         }

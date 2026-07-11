@@ -106,6 +106,19 @@ set_target_properties(OloRuntime PROPERTIES FOLDER "Applications")
 # without the latest engine fixes.
 add_dependencies(OloEditor OloRuntime)
 
+# Ensure a targeted `--target OloEditor` build also produces a working C#
+# scripting setup. OloEngine-ScriptCore.dll builds straight into
+# OloEditor/Resources/Scripts/ (see olo_configure_csharp_project in
+# cmake/CommonProperties.cmake) and Sandbox-Scripting.dll is the sample
+# project's game-script assembly the editor loads at startup; without this
+# edge, ScriptEngine::Init silently disables C# scripting because neither
+# DLL exists on disk yet. C# targets only exist under the Visual Studio
+# generator (see the guard above), so this edge must live inside the same
+# guard or clang/ninja configure would fail on an unknown target.
+if(CMAKE_GENERATOR MATCHES "Visual Studio")
+    add_dependencies(OloEditor OloEngine-ScriptCore Sandbox-Scripting)
+endif()
+
 add_subdirectory(OloServer)
 
 set_target_properties(OloEngine-LuaScriptCore PROPERTIES FOLDER "Scripting")

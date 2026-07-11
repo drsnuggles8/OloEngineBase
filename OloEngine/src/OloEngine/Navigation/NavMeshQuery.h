@@ -19,6 +19,18 @@ namespace OloEngine
         Error
     };
 
+    // Outcome of a FindPath query. Detour returns a path to the *nearest reachable*
+    // polygon (setting DT_PARTIAL_RESULT) when the requested target is off-navmesh or
+    // in a disconnected region — a partial result that must NOT be treated as arrival,
+    // or an agent following it stops short of the goal forever. Callers have to
+    // distinguish "reached the target" from "got as close as possible".
+    enum class FindPathResult : u8
+    {
+        Failed,  // No path at all (no query, start/end off the navmesh, or A* failure). outPath is empty.
+        Partial, // A path was produced but it does NOT reach the target; outPath ends at the nearest reachable point.
+        Complete // A full path to the target.
+    };
+
     class NavMeshQuery
     {
       public:
@@ -33,7 +45,7 @@ namespace OloEngine
 
         void Initialize(const Ref<NavMesh>& navMesh, i32 queryBudget = 2048);
 
-        [[nodiscard]] bool FindPath(const glm::vec3& start, const glm::vec3& end, std::vector<glm::vec3>& outPath) const;
+        [[nodiscard]] FindPathResult FindPath(const glm::vec3& start, const glm::vec3& end, std::vector<glm::vec3>& outPath) const;
         [[nodiscard]] bool FindNearestPoint(const glm::vec3& point, f32 searchRadius, glm::vec3& outNearest) const;
         [[nodiscard]] RaycastResult Raycast(const glm::vec3& start, const glm::vec3& end, glm::vec3& outHitPoint) const;
         [[nodiscard]] bool IsPointOnNavMesh(const glm::vec3& point, f32 tolerance = 0.5f) const;

@@ -636,11 +636,29 @@ namespace OloEngine::Audio::SoundGraph
             if (!m_AudioData.IsValid())
                 return false;
 
+            // The circular buffer and the reader (ReadNextFrame) treat the queued data as
+            // mono or interleaved-stereo: at most two samples are stored per source frame.
+            // Storing all m_NumChannels samples/frame for a >2-channel source desyncs the
+            // reader (it consumes 2/frame) — the clip plays back too fast with channels 2+
+            // bleeding into L/R and ending early. Cap the stored width to the read width;
+            // channels beyond L/R are dropped (select first two). IsValid() guarantees
+            // m_NumChannels >= 1, so channelsToStore is always >= 1.
+            const u32 channelsToStore = glm::min(m_AudioData.m_NumChannels, 2u);
+
+            // Never push more than the circular buffer's free headroom. An overflowing
+            // Push silently advances the read pointer to discard the oldest not-yet-played
+            // samples (see CircularBuffer::Push) — that drops audio the reader was about to
+            // play, producing periodic clicks/dropouts. Clamp the chunk to the free frames
+            // (measured against the actual per-frame store width, channelsToStore).
+            const i32 capacitySamples = static_cast<i32>(source.m_Channels.GetSize());
+            const i32 headroomSamples = capacitySamples - source.m_Channels.Available();
+            const u32 headroomFrames = headroomSamples > 0 ? static_cast<u32>(headroomSamples) / channelsToStore : 0u;
+
             // Use m_NextRefillFrame as the source-of-truth read pointer rather than
             // source.m_ReadPosition, so both refill paths (ForceRefillBuffer at block
             // boundaries and the lazy refill from ReadNextFrame when the buffer empties)
             // produce a single non-overlapping stream of pushes.
-            const u32 framesToRead = 1024; // Read chunk size
+            const u32 framesToRead = glm::min(1024u, headroomFrames); // Read chunk size, clamped to buffer headroom
             const u64 startFrame = static_cast<u64>(m_NextRefillFrame);
             const u64 endFrame = glm::min(startFrame + framesToRead, static_cast<u64>(m_AudioData.m_NumFrames));
 
@@ -650,7 +668,7 @@ namespace OloEngine::Audio::SoundGraph
             // Fill the circular buffer with interleaved audio data
             for (u64 frame = startFrame; frame < endFrame; ++frame)
             {
-                for (u32 channel = 0; channel < m_AudioData.m_NumChannels; ++channel)
+                for (u32 channel = 0; channel < channelsToStore; ++channel)
                 {
                     // Safe cast: endFrame is already bounded by m_NumFrames (u32)
                     f32 sample = m_AudioData.GetSample(static_cast<u32>(frame), channel);

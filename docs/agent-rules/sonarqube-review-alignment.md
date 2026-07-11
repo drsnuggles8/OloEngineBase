@@ -170,3 +170,12 @@ added after the scan); some moved.
   its `#include <stdio.h>` is **required and documented** (pl_mpeg's `FILE*` API needs it before the
   impl, and the no-PCH cacheable build can't force-include it). Treat that file like `vendor/` — don't
   clean it; only its first-party wrapper `PlMpegBackend.cpp` and the rest of `Video/` are fair game.
+- `S953` "replace union with std::variant" in `Audio/SampleBufferOperations.h` — **false: the
+  `union`s are the `__m128` / `__m256` SIMD intrinsic types** (MSVC/Clang model them as unions).
+  `std::variant` cannot back a vector register; do **not** "fix" these. **BUT** don't let the union
+  noise mask the file's real content: `SampleBufferOperations.h` had a genuine SIMD-vs-scalar
+  divergence in `ApplyGainRamp` (the per-lane gain index was `(i/numChannels)+(lane/numChannels)`
+  instead of `(i+lane)/numChannels`, wrong for 3/5/6/7-channel buffers — fixed by gating the fast
+  path on `width % numChannels == 0`; pinned by `SampleBufferOps.ApplyGainRamp*ChannelMatchesScalar`
+  in `AudioSpatializerTest.cpp`). When a hot SIMD file lights up with `S953`, skip the union hits but
+  **read the vectorized index math against the scalar fallback** — that's where the real bugs hide.

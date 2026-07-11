@@ -2878,15 +2878,20 @@ namespace OloEngine
                                                     a.m_TargetPosition = pos;
                                                     a.m_HasTarget = true;
                                                     a.m_HasPath = false;
+                                                    a.m_TargetUnreachable = false;
                                                     a.m_PathCorners.clear();
                                                     a.m_CurrentCornerIndex = 0; }),
                                             "hasTarget", sol::readonly(&NavAgentComponent::m_HasTarget),
                                             "hasPath", sol::readonly(&NavAgentComponent::m_HasPath),
+                                            // Terminal signal: target reachable only partially / not at all. Poll
+                                            // this alongside hasPath — a partial path keeps hasPath == true forever.
+                                            "targetUnreachable", sol::readonly(&NavAgentComponent::m_TargetUnreachable),
                                             "lockYAxis", &NavAgentComponent::m_LockYAxis,
                                             "clearTarget", [](NavAgentComponent& agent)
                                             {
                                                 agent.m_HasTarget = false;
                                                 agent.m_HasPath = false;
+                                                agent.m_TargetUnreachable = false;
                                                 agent.m_PathCorners.clear();
                                                 agent.m_CurrentCornerIndex = 0; });
 
