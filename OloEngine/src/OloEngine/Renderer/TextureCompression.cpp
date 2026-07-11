@@ -167,6 +167,32 @@ namespace OloEngine
             return out;
         }
 
+        // Build a compressed mip chain from a level-0 pixel buffer. `encodeLevel(level, w, h)`
+        // returns the BCn blocks for one level; `downsample(level, w, h, outW, outH)` halves
+        // it. Shared by all three encoders (BC7/BC5 over RGBA8, BC6H over RGB float): the
+        // loop, the !generateMips / 1x1 termination, and the dimension bookkeeping are
+        // identical — only the pixel type and the two callables differ.
+        template<typename Pixel, typename EncodeLevelFn, typename DownsampleFn>
+        std::vector<std::vector<u8>> BuildMipChain(std::vector<Pixel> level, u32 width, u32 height, bool generateMips,
+                                                   EncodeLevelFn&& encodeLevel, DownsampleFn&& downsample)
+        {
+            std::vector<std::vector<u8>> mips;
+            u32 mw = width;
+            u32 mh = height;
+            while (true)
+            {
+                mips.push_back(encodeLevel(level, mw, mh));
+                if (!generateMips || (mw == 1 && mh == 1))
+                    break;
+                u32 nw = 0;
+                u32 nh = 0;
+                level = downsample(level, mw, mh, nw, nh);
+                mw = nw;
+                mh = nh;
+            }
+            return mips;
+        }
+
         // Little-endian POD append/read helpers for the .olotex blob.
         void AppendU32(std::vector<u8>& out, u32 value)
         {
@@ -650,20 +676,12 @@ namespace OloEngine
             // those (keeps opaque BC7 albedo out of the transparent render pass).
             image.HasAlpha = (channels == 4);
 
-            std::vector<u8> level = ExpandToRGBA8(pixels, width, height, channels);
-            u32 mw = width;
-            u32 mh = height;
-            while (true)
-            {
-                image.Mips.push_back(EncodeLevel(level, mw, mh, encodeBlock));
-                if (!generateMips || (mw == 1 && mh == 1))
-                    break;
-                u32 nw = 0;
-                u32 nh = 0;
-                level = DownsampleRGBA8(level, mw, mh, nw, nh);
-                mw = nw;
-                mh = nh;
-            }
+            image.Mips = BuildMipChain<u8>(
+                ExpandToRGBA8(pixels, width, height, channels), width, height, generateMips,
+                [&encodeBlock](const std::vector<u8>& lvl, u32 w, u32 h)
+                { return EncodeLevel(lvl, w, h, encodeBlock); },
+                [](const std::vector<u8>& s, u32 w, u32 h, u32& ow, u32& oh)
+                { return DownsampleRGBA8(s, w, h, ow, oh); });
             return image;
         }
 
@@ -693,20 +711,12 @@ namespace OloEngine
             image.Height = height;
             image.SRGB = false; // BC5 is always linear (normal xy / two-channel data)
 
-            std::vector<u8> level = ExpandToRGBA8(pixels, width, height, channels);
-            u32 mw = width;
-            u32 mh = height;
-            while (true)
-            {
-                image.Mips.push_back(EncodeLevel(level, mw, mh, encodeBlock));
-                if (!generateMips || (mw == 1 && mh == 1))
-                    break;
-                u32 nw = 0;
-                u32 nh = 0;
-                level = DownsampleRGBA8(level, mw, mh, nw, nh);
-                mw = nw;
-                mh = nh;
-            }
+            image.Mips = BuildMipChain<u8>(
+                ExpandToRGBA8(pixels, width, height, channels), width, height, generateMips,
+                [&encodeBlock](const std::vector<u8>& lvl, u32 w, u32 h)
+                { return EncodeLevel(lvl, w, h, encodeBlock); },
+                [](const std::vector<u8>& s, u32 w, u32 h, u32& ow, u32& oh)
+                { return DownsampleRGBA8(s, w, h, ow, oh); });
             return image;
         }
 
@@ -745,20 +755,11 @@ namespace OloEngine
                 return out;
             };
 
-            std::vector<f32> level = ExpandToRGBFloat(pixels, width, height, channels);
-            u32 mw = width;
-            u32 mh = height;
-            while (true)
-            {
-                image.Mips.push_back(encodeLevel(level, mw, mh));
-                if (!generateMips || (mw == 1 && mh == 1))
-                    break;
-                u32 nw = 0;
-                u32 nh = 0;
-                level = DownsampleRGBFloat(level, mw, mh, nw, nh);
-                mw = nw;
-                mh = nh;
-            }
+            image.Mips = BuildMipChain<f32>(
+                ExpandToRGBFloat(pixels, width, height, channels), width, height, generateMips,
+                encodeLevel,
+                [](const std::vector<f32>& s, u32 w, u32 h, u32& ow, u32& oh)
+                { return DownsampleRGBFloat(s, w, h, ow, oh); });
             return image;
         }
 

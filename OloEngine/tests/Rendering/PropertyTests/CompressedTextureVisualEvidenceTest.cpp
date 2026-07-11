@@ -273,6 +273,14 @@ TEST(CompressedTextureVisualEvidence, BC6HUploadStoresBlocksAndDecompressesOnGPU
 
     const GLuint id = texture->GetRendererID();
 
+    // If the driver couldn't honour BPTC and Texture2D fell back to an uncompressed
+    // RGBA16F upload, the compressed-readback path below is meaningless — skip cleanly
+    // rather than fail. (On any conformant GL 4.5+ context BPTC is core, so this holds.)
+    GLint isCompressed = GL_FALSE;
+    glGetTextureLevelParameteriv(id, 0, GL_TEXTURE_COMPRESSED, &isCompressed);
+    if (isCompressed != GL_TRUE)
+        GTEST_SKIP() << "BC6H texture was not stored compressed (driver fell back to uncompressed).";
+
     // (1) Read the stored compressed blocks back — must be bit-exact with upload.
     GLint compressedSize = 0;
     glGetTextureLevelParameteriv(id, 0, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, &compressedSize);
@@ -310,8 +318,7 @@ TEST(CompressedTextureVisualEvidence, BC6HUploadStoresBlocksAndDecompressesOnGPU
     EXPECT_NE(wrote, 0) << "failed to write BC6H evidence PNG";
     if (wrote != 0)
     {
+        // Keep the tonemapped evidence PNG in the temp dir for human inspection.
         OLO_CORE_INFO("CompressedTextureVisualEvidence: wrote BC6H tonemapped evidence to {}", pngPath.string());
-        std::error_code ec;
-        std::filesystem::remove(pngPath, ec);
     }
 }

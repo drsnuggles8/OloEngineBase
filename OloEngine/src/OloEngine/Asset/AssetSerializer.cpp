@@ -321,8 +321,12 @@ namespace OloEngine
         // so the build never fails just because one texture couldn't be compressed.
         CompressedTextureImage cooked;
         bool haveCooked = false;
+        // Non-throwing existence check: a filesystem error (permissions, bad path) must
+        // fall through to the uncompressed raw record, never propagate an exception up to
+        // BuildImpl and abort the whole pack build over one texture.
+        std::error_code existsEc;
         if (IsAssetPackCompressionEnabled() && !IsCompressedFormat(spec.Format) &&
-            !path.empty() && !IsOloTexPath(path) && std::filesystem::exists(path))
+            !path.empty() && !IsOloTexPath(path) && std::filesystem::exists(path, existsEc))
         {
             TextureCompression::CompressOptions opts;
             opts.GenerateMips = spec.GenerateMips;
