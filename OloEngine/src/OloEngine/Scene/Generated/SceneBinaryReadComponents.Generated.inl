@@ -93,6 +93,10 @@ case 3248979014u: // ClothComponent
     comp.m_WindInfluence = std::clamp(comp.m_WindInfluence, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
     if (!SceneBinIO::Read(reader, comp.m_Enabled))
         return false;
+    if (!SceneBinIO::Read(reader, comp.m_AttachmentEntity))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.m_AttachmentBone))
+        return false;
     break;
 }
 case 2327397916u: // DirectionalLightComponent

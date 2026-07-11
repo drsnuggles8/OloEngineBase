@@ -1423,7 +1423,16 @@ namespace OloEngine
                                                                      { if (v >= static_cast<int>(ClothAttachment::None) && v <= static_cast<int>(ClothAttachment::LeftEdge)) c.m_Attachment = static_cast<ClothAttachment>(v); }),
                                          "windInfluence", sol::property([](const ClothComponent& c)
                                                                         { return c.m_WindInfluence; }, [](ClothComponent& c, f32 v)
-                                                                        { if (std::isfinite(v)) c.m_WindInfluence = std::clamp(v, 0.0f, 1.0f); }));
+                                                                        { if (std::isfinite(v)) c.m_WindInfluence = std::clamp(v, 0.0f, 1.0f); }),
+                                         // Skeleton attachment (issue #460 cape slice): the entity (UUID) whose bone the
+                                         // cloth's pinned edge follows, and the bone name on it. Take effect at the next
+                                         // OnPhysics3DStart (the attachment is resolved when the soft body is (re)built).
+                                         "attachmentEntity", sol::property([](const ClothComponent& c)
+                                                                           { return static_cast<u64>(c.m_AttachmentEntity); }, [](ClothComponent& c, u64 v)
+                                                                           { c.m_AttachmentEntity = UUID(v); }),
+                                         "attachmentBone", sol::property([](const ClothComponent& c)
+                                                                         { return c.m_AttachmentBone; }, [](ClothComponent& c, const std::string& v)
+                                                                         { c.m_AttachmentBone = v; }));
 
         // --- PrefabComponent ---
         // Read-only window into prefab-instance identity & override state.

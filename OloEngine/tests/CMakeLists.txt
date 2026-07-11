@@ -210,6 +210,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/RendererAttachedSmokeTest.cpp
 		Rendering/PropertyTests/SceneRenderEvidenceTest.cpp
 		Rendering/PropertyTests/ClothVisualEvidenceTest.cpp
+		Rendering/PropertyTests/ClothCapeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/RebindMenuVisualEvidenceTest.cpp
 		# Headless-attach stretch of issue #316: hosts the read-only MCP server
 		# inside the test binary against the offscreen render-graph FB so
@@ -521,6 +522,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/FreeFallLandingTest.cpp
 		Functional/AnimationPhysics/TerrainCollisionTest.cpp
 		Functional/AnimationPhysics/ClothSimulationTest.cpp
+		Functional/AnimationPhysics/ClothSkeletonAttachTest.cpp
 		Functional/AnimationPhysics/PhysicsJoint3DTest.cpp
 		Functional/AnimationPhysics/PhysicsJointCollideConnectedTest.cpp
 		Functional/AnimationPhysics/VehicleTest.cpp

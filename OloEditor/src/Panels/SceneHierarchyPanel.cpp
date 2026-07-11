@@ -1814,6 +1814,7 @@ namespace OloEngine
             DisplayAddComponentEntry<CharacterController3DComponent>("Character Controller 3D");
             DisplayAddComponentEntry<PhysicsJoint3DComponent>("Physics Joint 3D");
             DisplayAddComponentEntry<RagdollComponent>("Ragdoll");
+            DisplayAddComponentEntry<ClothComponent>("Cloth");
 
             ImGui::Separator();
 
@@ -3892,6 +3893,100 @@ namespace OloEngine
             ImGui::DragFloat("Twist Limit (deg)##Ragdoll", &component.m_TwistLimitDeg, 0.5f, 0.0f, 180.0f);
             ImGui::TextDisabled("Skeleton: from this entity's SkeletonComponent");
             ImGui::TextDisabled("Built at play; bones missing a body get a dynamic one."); });
+
+        DrawComponent<ClothComponent>("Cloth", entity, [this, entity](auto& component)
+                                      {
+            ImGui::Checkbox("Enabled##Cloth", &component.m_Enabled);
+
+            // Grid resolution (particles per axis). Clamped to [2, 128] to match
+            // JoltShapes::CreateClothSharedSettings so a huge value can't explode the
+            // particle count. Editing via a temp int since m_Columns/m_Rows are u32.
+            int cols = static_cast<int>(component.m_Columns);
+            if (ImGui::DragInt("Columns##Cloth", &cols, 0.25f, 2, 128))
+                component.m_Columns = static_cast<u32>(std::clamp(cols, 2, 128));
+            int rows = static_cast<int>(component.m_Rows);
+            if (ImGui::DragInt("Rows##Cloth", &rows, 0.25f, 2, 128))
+                component.m_Rows = static_cast<u32>(std::clamp(rows, 2, 128));
+
+            ImGui::DragFloat("Width (m)##Cloth", &component.m_Width, 0.05f, 0.01f, 1000.0f);
+            ImGui::DragFloat("Height (m)##Cloth", &component.m_Height, 0.05f, 0.01f, 1000.0f);
+            ImGui::DragFloat("Mass (kg)##Cloth", &component.m_Mass, 0.05f, 1.0e-3f, 1.0e4f);
+
+            ImGui::DragFloat("Compliance##Cloth", &component.m_Compliance, 0.0001f, 0.0f, 10.0f, "%.4f");
+            ImGui::SetItemTooltip("Stretch/shear inverse stiffness (m/N). 0 = inextensible.");
+            ImGui::DragFloat("Bend Compliance##Cloth", &component.m_BendCompliance, 0.0001f, 0.0f, 10.0f, "%.4f");
+            ImGui::SetItemTooltip("How easily the sheet folds. 0 = stiff; larger = softer folds.");
+            ImGui::DragFloat("Linear Damping##Cloth", &component.m_LinearDamping, 0.005f, 0.0f, 10.0f);
+            ImGui::DragFloat("Pressure##Cloth", &component.m_Pressure, 0.05f, 0.0f, 1000.0f);
+            ImGui::SetItemTooltip("0 = a flat sheet; > 0 inflates the closed surface like a balloon.");
+
+            int iterations = static_cast<int>(component.m_Iterations);
+            if (ImGui::DragInt("Iterations##Cloth", &iterations, 0.1f, 1, 32))
+                component.m_Iterations = static_cast<u32>(std::clamp(iterations, 1, 32));
+
+            // Which vertices are pinned (given zero inverse mass). When a skeleton
+            // attachment is set below, these pinned vertices are what follows the bone.
+            const char* attachmentStrings[] = { "None", "Top Edge", "Top Corners", "Left Edge" };
+            if (const char* current = attachmentStrings[static_cast<int>(component.m_Attachment)]; ImGui::BeginCombo("Pinned Vertices##Cloth", current))
+            {
+                for (int i = 0; i < IM_ARRAYSIZE(attachmentStrings); ++i)
+                {
+                    const bool isSelected = (current == attachmentStrings[i]);
+                    if (ImGui::Selectable(attachmentStrings[i], isSelected))
+                        component.m_Attachment = static_cast<ClothAttachment>(i);
+                    if (isSelected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
+            ImGui::SliderFloat("Wind Influence##Cloth", &component.m_WindInfluence, 0.0f, 1.0f, "%.2f");
+            ImGui::SetItemTooltip("How strongly the scene WindSystem pushes this cloth (0 = ignore wind).");
+
+            ImGui::SeparatorText("Skeleton Attachment (cape)");
+
+            // Attachment-entity picker (drag an entity from the hierarchy here). Empty
+            // (0) means "no skeleton attachment" — the pinned vertices stay welded to the
+            // world. Mirrors the Physics Joint 3D connected-body picker.
+            const u64 attach = static_cast<u64>(component.m_AttachmentEntity);
+            std::string attachLabel;
+            if (attach == 0)
+                attachLabel = "(None — pinned to world)";
+            else if (auto opt = m_Context ? m_Context->TryGetEntityWithUUID(component.m_AttachmentEntity) : std::nullopt; opt)
+                attachLabel = opt->GetComponent<TagComponent>().Tag;
+            else
+                attachLabel = std::to_string(attach) + " (missing)";
+
+            ImGui::Text("Attachment Entity:");
+            ImGui::SameLine();
+            ImGui::Button((attachLabel + "##ClothAttachEntity").c_str());
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_REPARENT"))
+                {
+                    UUID dropped = *static_cast<const UUID*>(payload->Data);
+                    if (dropped != entity.GetUUID())
+                        component.m_AttachmentEntity = dropped;
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if (attach != 0)
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear##ClothAttachEntity"))
+                    component.m_AttachmentEntity = 0;
+            }
+
+            // Bone name on the attachment entity's skeleton. Empty (or unresolved) falls
+            // back to the attachment entity's own transform, so a plain socket works too.
+            char boneBuffer[256];
+            ::memset(boneBuffer, 0, sizeof(boneBuffer));
+            std::strncpy(boneBuffer, component.m_AttachmentBone.c_str(), sizeof(boneBuffer) - 1);
+            if (ImGui::InputText("Attachment Bone##Cloth", boneBuffer, sizeof(boneBuffer)))
+                component.m_AttachmentBone = std::string(boneBuffer);
+            ImGui::SetItemTooltip("Bone name on the attachment entity's skeleton; empty = follow its root transform.");
+
+            ImGui::TextDisabled("Soft body is (re)built at play from these fields."); });
 
         // Audio Components
 

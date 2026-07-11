@@ -1066,6 +1066,15 @@ namespace OloEngine
             ar << c.m_WindInfluence;
         }
 
+        // ── Format v8: skeleton attachment (issue #460 cape slice) ──
+        // Appended when kSaveGameFormatVersion was bumped 7→8. A save written before v8
+        // has none of these bytes, so loading one leaves m_AttachmentEntity 0 (no
+        // skeleton attachment) and m_AttachmentBone empty.
+        if (HasFieldsSince(ar, 8))
+        {
+            ar << c.m_AttachmentEntity << c.m_AttachmentBone;
+        }
+
         // Sanitize untrusted on-disk values (mirrors SceneSerializer / the clamps in
         // JoltShapes::CreateClothSharedSettings) so a corrupt archive can't blow up the
         // particle count or feed NaNs into Jolt.

@@ -2041,6 +2041,11 @@ namespace OloEngine
             // requirement — JPH::BodyInterface::AddForce resets after
             // PhysicsSystem::Update (issue #460 wind-coupling slice).
             ClothWindSystem::OnUpdate(this, m_SimulationTime);
+            // Drive skeleton-attached cloth (cape) pinned vertices from their bone
+            // BEFORE the step so the kinematic velocities are integrated this frame
+            // (issue #460 cape slice). Animation has already posed the skeleton for
+            // this tick by the time physics runs in the schedule.
+            DriveClothAttachments(ts.GetSeconds());
             // JoltScene::Simulate runs its OWN fixed-step accumulator at a
             // hardcoded 1/60. This is 1:1 with one gameplay tick only when
             // the canonical fixed dt (Application::GetFixedTimeStep) equals
@@ -2065,6 +2070,10 @@ namespace OloEngine
             BuoyancySystem::OnUpdate(this, m_SimulationTime, frameSeconds);
             // Cloth wind forces (issue #460 wind-coupling slice) — see StepPhysics.
             ClothWindSystem::OnUpdate(this, m_SimulationTime);
+            // Drive skeleton-attached cloth (cape) pinned vertices (issue #460 cape
+            // slice) — see StepPhysics. Runs on the game thread before the world step
+            // launches, so the ECS/animation reads it makes are safe.
+            DriveClothAttachments(frameSeconds);
             // Contact handlers may grow script/registry access — game thread only.
             m_JoltScene->PreSimulate();
             m_PhysicsStepsThisFrame = m_JoltScene->BeginSteps(frameSeconds);
@@ -4349,6 +4358,13 @@ namespace OloEngine
             state.m_Rows = std::clamp(cloth.m_Rows, 2u, 128u);
             (void)m_JoltScene->GetClothVertices(ent.GetUUID(), state.m_Positions);
             ComputeClothNormals(state.m_Positions, state.m_Columns, state.m_Rows, state.m_Normals);
+
+            // Skeleton attachment (issue #460 cape slice): if the cloth names an
+            // attachment entity, weld its pinned vertices to that entity's bone so they
+            // follow the animation instead of hanging from the world. Resolved once here
+            // from the rest-pose vertex positions just read back.
+            SetupClothAttachment(ent, cloth, state);
+
             m_ClothRuntime[ent.GetUUID()] = std::move(state);
         }
     }
@@ -4454,6 +4470,151 @@ namespace OloEngine
         if (it == m_ClothRuntime.end() || it->second.m_Positions.empty())
             return nullptr;
         return &it->second.m_Positions;
+    }
+
+    void Scene::SetupClothAttachment(Entity clothEntity, const ClothComponent& cloth, ClothRuntimeState& state)
+    {
+        // No attachment authored → the pinned vertices stay welded to the world (the
+        // pre-cape behaviour). Leaves state.m_AttachmentActive false.
+        if (cloth.m_AttachmentEntity == 0)
+            return;
+
+        auto attachOpt = TryGetEntityWithUUID(cloth.m_AttachmentEntity);
+        if (!attachOpt)
+        {
+            OLO_CORE_WARN("ClothComponent on entity {0} names a missing attachment entity {1}; cloth will hang from the world instead",
+                          static_cast<u64>(clothEntity.GetUUID()), static_cast<u64>(cloth.m_AttachmentEntity));
+            return;
+        }
+
+        // Resolve the bone index from the name against the attachment entity's skeleton.
+        // An empty / unresolved name falls back to the entity's own world transform
+        // (-1), so a plain socket entity — or a mis-typed bone — still yields a
+        // following cloth rather than a dead one.
+        i32 boneIndex = -1;
+        if (!cloth.m_AttachmentBone.empty())
+        {
+            bool resolved = false;
+            if (attachOpt->HasComponent<SkeletonComponent>())
+            {
+                if (const auto& skel = attachOpt->GetComponent<SkeletonComponent>().m_Skeleton; skel)
+                {
+                    const auto& names = skel->m_BoneNames;
+                    for (sizet i = 0; i < names.size(); ++i)
+                    {
+                        if (names[i] == cloth.m_AttachmentBone)
+                        {
+                            boneIndex = static_cast<i32>(i);
+                            resolved = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!resolved)
+            {
+                OLO_CORE_WARN("ClothComponent on entity {0}: bone '{1}' not found on attachment entity {2}; welding to its root transform instead",
+                              static_cast<u64>(clothEntity.GetUUID()), cloth.m_AttachmentBone, static_cast<u64>(cloth.m_AttachmentEntity));
+            }
+        }
+
+        // Which particles are pinned (inverse mass 0) — the set to drive from the bone.
+        std::vector<u32> pinned;
+        if (!m_JoltScene->GetClothPinnedVertexIndices(clothEntity.GetUUID(), pinned) || pinned.empty())
+        {
+            // No pinned vertices (e.g. ClothAttachment::None) → nothing to weld. The
+            // cloth free-falls; the attachment is inert but harmless.
+            OLO_CORE_WARN("ClothComponent on entity {0} has an attachment but no pinned vertices (m_Attachment = None?); nothing to weld",
+                          static_cast<u64>(clothEntity.GetUUID()));
+            return;
+        }
+
+        // Record the resolved attachment, then capture each pinned vertex's rest
+        // position in the bone's local frame so it stays welded at that offset.
+        state.m_AttachEntity = cloth.m_AttachmentEntity;
+        state.m_AttachBoneIndex = boneIndex;
+        state.m_AttachedVertices = std::move(pinned);
+
+        glm::mat4 boneWorldBind;
+        if (!ResolveClothAttachmentTransform(state, boneWorldBind))
+        {
+            // Should not happen (we just resolved the entity), but fail safe: drop the
+            // attachment so the cloth hangs from the world rather than driving off a
+            // bad transform.
+            state.m_AttachEntity = 0;
+            state.m_AttachBoneIndex = -1;
+            state.m_AttachedVertices.clear();
+            state.m_AttachmentActive = false;
+            return;
+        }
+
+        const glm::mat4 invBoneWorldBind = glm::inverse(boneWorldBind);
+        state.m_AttachedLocalOffsets.clear();
+        state.m_AttachedLocalOffsets.reserve(state.m_AttachedVertices.size());
+        for (u32 idx : state.m_AttachedVertices)
+        {
+            const glm::vec3 vertexWorld = (idx < state.m_Positions.size()) ? state.m_Positions[idx] : glm::vec3(0.0f);
+            state.m_AttachedLocalOffsets.push_back(glm::vec3(invBoneWorldBind * glm::vec4(vertexWorld, 1.0f)));
+        }
+        state.m_AttachmentActive = true;
+    }
+
+    bool Scene::ResolveClothAttachmentTransform(const ClothRuntimeState& state, glm::mat4& outBoneWorld) const
+    {
+        auto attachOpt = TryGetEntityWithUUID(state.m_AttachEntity);
+        if (!attachOpt)
+            return false;
+
+        const glm::mat4 entityWorld = GetWorldTransform(static_cast<entt::entity>(*attachOpt));
+
+        // -1 (or a skeleton that has since gone away) → the entity's own world transform.
+        if (state.m_AttachBoneIndex < 0 || !attachOpt->HasComponent<SkeletonComponent>())
+        {
+            outBoneWorld = entityWorld;
+            return true;
+        }
+
+        const auto& skel = attachOpt->GetComponent<SkeletonComponent>().m_Skeleton;
+        if (!skel || static_cast<sizet>(state.m_AttachBoneIndex) >= skel->m_GlobalTransforms.size())
+        {
+            outBoneWorld = entityWorld;
+            return true;
+        }
+
+        // skeleton.m_GlobalTransforms[i] is the bone's model-space transform (bone-to-
+        // model, before the inverse bind pose used for skinning). Composing it with the
+        // character's world transform gives the bone's world transform.
+        outBoneWorld = entityWorld * skel->m_GlobalTransforms[static_cast<sizet>(state.m_AttachBoneIndex)];
+        return true;
+    }
+
+    void Scene::DriveClothAttachments(f32 dt)
+    {
+        if (!m_JoltScene || m_ClothRuntime.empty() || !std::isfinite(dt) || dt <= 0.0f)
+            return;
+
+        std::vector<glm::vec3> targets; // reused per cloth; few cloths, low frequency
+        for (auto& [entityID, state] : m_ClothRuntime)
+        {
+            if (!state.m_AttachmentActive || state.m_AttachedVertices.empty())
+                continue;
+
+            glm::mat4 boneWorld;
+            if (!ResolveClothAttachmentTransform(state, boneWorld))
+            {
+                // Attachment entity vanished (destroyed mid-play) — stop driving so the
+                // cloth is released to gravity rather than snapping to a stale transform.
+                state.m_AttachmentActive = false;
+                continue;
+            }
+
+            targets.clear();
+            targets.reserve(state.m_AttachedVertices.size());
+            for (const glm::vec3& localOffset : state.m_AttachedLocalOffsets)
+                targets.push_back(glm::vec3(boneWorld * glm::vec4(localOffset, 1.0f)));
+
+            m_JoltScene->DriveClothAttachment(entityID, state.m_AttachedVertices, targets, dt);
+        }
     }
 
     void Scene::ProcessSnowDeformers(Timestep ts, TMap<u64, glm::vec3>& prevPositions)
