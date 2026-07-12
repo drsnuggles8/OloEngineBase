@@ -1,8 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
-#include "OloEngine/Fluid/CPUFluidSolver.h" // FluidKillBox
-#include "OloEngine/Fluid/FluidSolverTypes.h"
+#include "OloEngine/Fluid/FluidSolverTypes.h" // FluidKillBox
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"

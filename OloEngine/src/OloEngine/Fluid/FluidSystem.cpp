@@ -235,9 +235,16 @@ namespace OloEngine
                 {
                     return a.Dynamic;
                 }
-                if (a.Dist2 != b.Dist2)
+                // Branchless strict-weak ordering on Dist2 without a float != /
+                // == comparison: only the two < probes decide, and equal
+                // distances fall through to the deterministic Id tie-break.
+                if (a.Dist2 < b.Dist2)
                 {
-                    return a.Dist2 < b.Dist2;
+                    return true;
+                }
+                if (b.Dist2 < a.Dist2)
+                {
+                    return false;
                 }
                 return static_cast<u64>(a.Id) < static_cast<u64>(b.Id); });
 
@@ -298,9 +305,10 @@ namespace OloEngine
                 }
                 if (angularLen > 0.0f && dt > 0.0f)
                 {
-                    // AddTorque queues a torque for this step; torque * dt
-                    // integrates to the desired angular impulse.
-                    body->AddTorque(angular / dt);
+                    // Apply the reaction as an angular impulse directly, so the
+                    // rotational response is independent of the frame timestep
+                    // (AddTorque would integrate torque * dt instead).
+                    body->AddAngularImpulse(angular);
                 }
             }
         }

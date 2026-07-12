@@ -30,7 +30,8 @@ namespace OloEngine
     //  - GBuffer  (`GBufferSlot`)          — deferred G-Buffer attachments (+ MSAA companions)
     //  - AO       (`AOSlot`)               — the shared AO producer/consumer surface
     //  - Scratch  (`ScratchSlot`)          — graph-internal transients (SSAO, JFA, Bloom mips,
-    //                                        GTAO denoise/edge, HZB, water refraction, fog half-res)
+    //                                        GTAO denoise/edge, HZB, water refraction,
+    //                                        fluid refraction, fog half-res)
     //  - Shadows  (`ShadowSlot`)           — CSM + the unified shadow atlas (spot & point
     //                                        entries share one texture, issue #435)
     //  - Post     (`PostProcessSlot`)      — post-process chain framebuffers + attachment views

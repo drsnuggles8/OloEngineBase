@@ -113,6 +113,9 @@ namespace OloEngine
         void AddForce(const glm::vec3& force, EForceMode forceMode = EForceMode::Force, bool forceWake = true);
         void AddForce(const glm::vec3& force, const glm::vec3& location, EForceMode forceMode = EForceMode::Force, bool forceWake = true);
         void AddTorque(const glm::vec3& torque, bool forceWake = true);
+        // Angular impulse (kg·m²/s about the COM) applied directly — independent
+        // of the frame timestep, unlike AddTorque which integrates torque·dt.
+        void AddAngularImpulse(const glm::vec3& angularImpulse, bool forceWake = true);
         void AddRadialImpulse(const glm::vec3& origin, f32 radius, f32 strength, EFalloffMode falloff, bool velocityChange);
 
         // Sleep state

@@ -157,14 +157,48 @@ namespace OloEngine
             return false;
         }
 
-        std::ofstream stream(filepath);
-        if (!stream.is_open())
+        // Ensure the target's parent directory exists — an ofstream silently
+        // fails to open into a missing directory (matches the asset serializers).
+        const std::filesystem::path targetPath(filepath);
+        if (targetPath.has_parent_path())
         {
-            OLO_CORE_ERROR("FluidSettingsSerializer: cannot open '{}' for writing", filepath);
+            std::error_code dirEc;
+            std::filesystem::create_directories(targetPath.parent_path(), dirEc);
+        }
+
+        // Atomic save: write to a temp file, flush, then rename over the
+        // original so a failed/interrupted write cannot leave a truncated
+        // target file (matches ServerConfigSerializer / AssetSerializer).
+        const std::string tempPath = filepath + ".tmp";
+        {
+            std::ofstream stream(tempPath);
+            if (!stream.is_open())
+            {
+                OLO_CORE_ERROR("FluidSettingsSerializer: cannot open '{}' for writing", tempPath);
+                return false;
+            }
+            stream << SerializeToString(settings);
+            stream.flush();
+            if (!stream.good())
+            {
+                OLO_CORE_ERROR("FluidSettingsSerializer: failed to write '{}'", tempPath);
+                stream.close();
+                std::error_code removeEc;
+                std::filesystem::remove(tempPath, removeEc);
+                return false;
+            }
+        }
+
+        std::error_code renameEc;
+        std::filesystem::rename(tempPath, filepath, renameEc);
+        if (renameEc)
+        {
+            OLO_CORE_ERROR("FluidSettingsSerializer: failed to rename '{}' -> '{}': {}", tempPath, filepath,
+                           renameEc.message());
+            std::filesystem::remove(tempPath, renameEc);
             return false;
         }
-        stream << SerializeToString(settings);
-        return stream.good();
+        return true;
     }
 
     Ref<FluidSettings> FluidSettingsSerializer::DeserializeAsset(const std::string& filepath)

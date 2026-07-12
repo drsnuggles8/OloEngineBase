@@ -9,14 +9,6 @@
 
 namespace OloEngine
 {
-    /// World-space axis-aligned kill box: particles inside are removed at the
-    /// start of a step (drains, level-exit volumes).
-    struct FluidKillBox
-    {
-        glm::vec3 Min{ 0.0f };
-        glm::vec3 Max{ 0.0f };
-    };
-
     // =========================================================================
     // CPUFluidSolver — deterministic reference implementation of the
     // Position-Based Fluids step (Macklin & Müller 2013).

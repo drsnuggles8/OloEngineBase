@@ -628,6 +628,21 @@ namespace OloEngine
         }
     }
 
+    void JoltBody::AddAngularImpulse(const glm::vec3& angularImpulse, bool forceWake)
+    {
+        if (m_BodyID.IsInvalid() || !IsDynamic())
+            return;
+
+        auto& bodyInterface = GetBodyInterface();
+        JPH::Vec3 joltAngularImpulse = JoltUtils::ToJoltVector(angularImpulse);
+        bodyInterface.AddAngularImpulse(m_BodyID, joltAngularImpulse);
+
+        if (forceWake)
+        {
+            Activate();
+        }
+    }
+
     void JoltBody::AddRadialImpulse(const glm::vec3& origin, f32 radius, f32 strength, EFalloffMode falloff, bool velocityChange)
     {
         if (m_BodyID.IsInvalid() || !IsDynamic())

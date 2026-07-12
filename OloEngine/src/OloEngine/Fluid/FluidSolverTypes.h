@@ -61,6 +61,15 @@ namespace OloEngine
         glm::vec3 AngularImpulse{ 0.0f }; // kg·m²/s, about the COM
     };
 
+    /// World-space axis-aligned kill box: particles inside are removed at the
+    /// start of a step (drains, level-exit volumes). Shared by both solver
+    /// backends.
+    struct FluidKillBox
+    {
+        glm::vec3 Min{ 0.0f };
+        glm::vec3 Max{ 0.0f };
+    };
+
     /// Solver tuning derived each tick from FluidSettings + FluidComponent.
     /// All values are validated/clamped by the caller (FluidSystem) before the
     /// solvers see them.

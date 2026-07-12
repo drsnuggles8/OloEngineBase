@@ -38,6 +38,7 @@ namespace OloEngine
           m_PendingEmitCount(other.m_PendingEmitCount),
           m_StepsSinceCountRefresh(other.m_StepsSinceCountRefresh),
           m_LastProxyCount(other.m_LastProxyCount),
+          m_LastSolverIterations(other.m_LastSolverIterations),
           m_GridCellCount(other.m_GridCellCount),
           m_PositionsSSBO(std::move(other.m_PositionsSSBO)),
           m_VelocitiesSSBO(std::move(other.m_VelocitiesSSBO)),
@@ -71,6 +72,7 @@ namespace OloEngine
         other.m_PendingEmitCount = 0;
         other.m_StepsSinceCountRefresh = 0;
         other.m_LastProxyCount = 0;
+        other.m_LastSolverIterations = 1;
         other.m_GridCellCount = 0;
     }
 
@@ -85,6 +87,7 @@ namespace OloEngine
             m_PendingEmitCount = other.m_PendingEmitCount;
             m_StepsSinceCountRefresh = other.m_StepsSinceCountRefresh;
             m_LastProxyCount = other.m_LastProxyCount;
+            m_LastSolverIterations = other.m_LastSolverIterations;
             m_GridCellCount = other.m_GridCellCount;
             m_PositionsSSBO = std::move(other.m_PositionsSSBO);
             m_VelocitiesSSBO = std::move(other.m_VelocitiesSSBO);
@@ -117,6 +120,7 @@ namespace OloEngine
             other.m_PendingEmitCount = 0;
             other.m_StepsSinceCountRefresh = 0;
             other.m_LastProxyCount = 0;
+            other.m_LastSolverIterations = 1;
             other.m_GridCellCount = 0;
         }
         return *this;
