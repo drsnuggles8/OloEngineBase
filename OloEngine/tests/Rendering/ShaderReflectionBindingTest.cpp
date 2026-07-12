@@ -83,7 +83,7 @@ namespace OloEngine::Tests
             << fs::current_path().generic_string() << ")";
 
         const auto shaders = SH::EnumerateProductionShaders(root);
-        ASSERT_FALSE(shaders.empty()) << "No .glsl files found under " << root;
+        ASSERT_FALSE(shaders.empty()) << "No .glsl/.comp files found under " << root;
 
         shaderc::Compiler compiler;
         ASSERT_TRUE(compiler.IsValid());
@@ -94,13 +94,7 @@ namespace OloEngine::Tests
         for (const auto& path : shaders)
         {
             const std::string source = SH::ReadWholeFile(path);
-            auto stages = SH::SplitByType(source);
-
-            // Standalone compute shaders may omit `#type` and just declare
-            // `layout(local_size_x = ...) in;` directly — match
-            // OpenGLComputeShader's behaviour.
-            if (stages.empty() && source.find("local_size_x") != std::string::npos)
-                stages.emplace_back(shaderc_glsl_compute_shader, source);
+            auto stages = SH::SplitStages(source);
 
             for (const auto& [kind, stageSource] : stages)
             {
