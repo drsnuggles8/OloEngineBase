@@ -2830,6 +2830,15 @@ namespace OloEngine
 
         auto applyDelta = [this](Entity entity, const glm::vec3& translationDelta, const glm::quat& rotationDelta)
         {
+            // Reject a non-finite delta before it reaches the controller or the
+            // transform — a single NaN would permanently corrupt the entity's
+            // position/rotation. The caller clears the pending delta regardless.
+            if (!std::isfinite(translationDelta.x) || !std::isfinite(translationDelta.y) || !std::isfinite(translationDelta.z) ||
+                !std::isfinite(rotationDelta.x) || !std::isfinite(rotationDelta.y) || !std::isfinite(rotationDelta.z) ||
+                !std::isfinite(rotationDelta.w))
+            {
+                return;
+            }
             if (m_JoltScene && entity.HasComponent<CharacterController3DComponent>())
             {
                 if (auto controller = m_JoltScene->GetCharacterController(entity))

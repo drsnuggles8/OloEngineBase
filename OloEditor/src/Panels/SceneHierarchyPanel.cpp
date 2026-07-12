@@ -7325,7 +7325,12 @@ namespace OloEngine
                     if (const auto& skeleton = entity.GetComponent<SkeletonComponent>().m_Skeleton;
                         skeleton && ImGui::TreeNode("Target Role Assignments"))
                     {
-                        const Animation::HumanoidBoneMap detected = Animation::HumanoidBoneMap::AutoDetect(*skeleton);
+                        if (m_CachedRoleSkeleton != skeleton.get())
+                        {
+                            m_CachedRoleMap = Animation::HumanoidBoneMap::AutoDetect(*skeleton);
+                            m_CachedRoleSkeleton = skeleton.get();
+                        }
+                        const Animation::HumanoidBoneMap& detected = m_CachedRoleMap;
                         const auto boneCount = skeleton->m_BoneNames.size();
                         for (sizet i = 0; i < boneCount; ++i)
                         {

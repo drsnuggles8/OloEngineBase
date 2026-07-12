@@ -4,6 +4,7 @@
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Animation/Retargeting/HumanoidBoneMap.h"
 
 #include <functional>
 #include <vector>
@@ -86,5 +87,11 @@ namespace OloEngine
 
         // Entity search filter
         char m_FilterText[256] = {};
+
+        // Cached HumanoidBoneMap::AutoDetect for the retargeting inspector's role
+        // tree — recomputing it every frame while the node is expanded is wasteful.
+        // Keyed on the skeleton pointer; refreshed when it changes.
+        const void* m_CachedRoleSkeleton = nullptr;
+        Animation::HumanoidBoneMap m_CachedRoleMap;
     };
 } // namespace OloEngine

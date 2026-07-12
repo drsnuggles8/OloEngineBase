@@ -105,7 +105,11 @@ namespace OloEngine::Animation
                 const glm::vec3 srcDelta = sourcePose[s].Translation - sourceRestLocal[s].Translation;
                 out.Translation = targetRest.Translation + options.RootTranslationScale * srcDelta;
             }
-            else if (options.Translation == RetargetOptions::TranslationMode::PerBoneRatio)
+            // Non-root bones only: the root keeps its target rest translation when
+            // RetargetRootTranslation is off, matching RetargetClip (a disabled
+            // root must not be moved by the per-bone ratio path).
+            else if (options.Translation == RetargetOptions::TranslationMode::PerBoneRatio &&
+                     static_cast<int>(t) != rootBone)
             {
                 // Bone-length-ratio transfer (issue #631 part 2): the source
                 // bone's translation delta carries over scaled to the target's

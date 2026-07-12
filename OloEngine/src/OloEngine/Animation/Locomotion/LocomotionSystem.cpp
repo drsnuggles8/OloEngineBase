@@ -143,7 +143,12 @@ namespace OloEngine::Animation
             }
 
             const glm::quat rotation = transform.GetRotation();
-            const f32 yaw = YawOf(rotation);
+            const f32 rawYaw = YawOf(rotation);
+            // A non-finite transform rotation (NaN injected by a script/physics
+            // glitch) would poison SmoothedTurnRate and PrevYaw permanently — keep
+            // the last finite yaw and skip this frame's turn-rate update instead.
+            const bool yawValid = std::isfinite(rawYaw);
+            const f32 yaw = yawValid ? rawYaw : state.PrevYaw;
 
             // ── Smoothing ─────────────────────────────────────────────────────
             const f32 alpha = 1.0f - std::exp(-loco.SpeedSmoothing * deltaTime);
@@ -152,7 +157,7 @@ namespace OloEngine::Animation
             state.SmoothedSpeed += (rawSpeed - state.SmoothedSpeed) * alpha;
 
             f32 rawTurnRate = 0.0f;
-            if (state.HasPrev)
+            if (state.HasPrev && yawValid)
             {
                 f32 yawDelta = yaw - state.PrevYaw;
                 while (yawDelta > glm::pi<f32>())

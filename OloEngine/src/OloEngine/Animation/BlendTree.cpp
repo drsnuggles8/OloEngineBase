@@ -464,6 +464,15 @@ namespace OloEngine
                 selection.Weight);
         }
 
+        // Only the recognized 2D blend types reach the weighted accumulation
+        // below; an unknown BlendType returns empty motion, matching Evaluate()'s
+        // bind-pose fallback for the same default case.
+        if (Type != BlendType::SimpleDirectional2D && Type != BlendType::FreeformDirectional2D &&
+            Type != BlendType::FreeformCartesian2D)
+        {
+            return {};
+        }
+
         // 2D types: same inverse-distance weights as Evaluate2D.
         glm::vec2 paramPos(params.GetFloat(BlendParameterX), params.GetFloat(BlendParameterY));
         std::vector<f32> weights;

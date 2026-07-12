@@ -2446,39 +2446,6 @@ namespace OloEngine
         }
     }
 
-    namespace
-    {
-        // String-keyed int map for RetargetingComponent's role overrides:
-        // count + (key, value) pairs, mirroring SerializeStringSet below.
-        void SerializeStringIntMap(FArchive& ar, std::unordered_map<std::string, i32>& map)
-        {
-            if (ar.IsSaving())
-            {
-                u64 count = map.size();
-                ar << count;
-                for (auto& [key, value] : map)
-                {
-                    std::string keyCopy = key;
-                    i32 valueCopy = value;
-                    ar << keyCopy << valueCopy;
-                }
-            }
-            else
-            {
-                map.clear();
-                u64 count{};
-                ar << count;
-                for (u64 i = 0; i < count; ++i)
-                {
-                    std::string key;
-                    i32 value{};
-                    ar << key << value;
-                    map.emplace(std::move(key), value);
-                }
-            }
-        }
-    } // namespace
-
     void SaveGameComponentSerializer::Serialize(FArchive& ar, LocomotionComponent& c)
     {
         ar << c.Enabled;
@@ -2584,8 +2551,10 @@ namespace OloEngine
         ar << c.Enabled << c.m_SourcePath << c.m_SourceEntity;
         ar << c.UseHumanoidRoles << c.PerBoneTranslation << c.TransferRootTranslation;
         ar << c.RootTranslationScale;
-        SerializeStringIntMap(ar, c.m_SourceRoleOverrides);
-        SerializeStringIntMap(ar, c.m_TargetRoleOverrides);
+        // Bounded, duplicate-checked round-trip via the generic archive operator
+        // (ArchiveExtensions.h) — same path as the quest journal's maps above.
+        ar << c.m_SourceRoleOverrides;
+        ar << c.m_TargetRoleOverrides;
 
         if (!ar.IsSaving())
         {
