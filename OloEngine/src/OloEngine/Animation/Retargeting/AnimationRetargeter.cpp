@@ -47,6 +47,20 @@ namespace OloEngine::Animation
             }
             return 0;
         }
+
+        // Per-bone translation scale for TranslationMode::PerBoneRatio: the
+        // target/source bone-length ratio (rest translation = offset from the
+        // parent joint, so its length IS the bone length). A source bone resting
+        // at its parent origin has no meaningful ratio — fall back to the
+        // rig-extent scale.
+        f32 BoneTranslationRatio(const glm::vec3& sourceRestTranslation, const glm::vec3& targetRestTranslation, f32 fallbackScale)
+        {
+            constexpr f32 kEpsilon = 1e-6f;
+            const f32 sourceLength = glm::length(sourceRestTranslation);
+            if (sourceLength < kEpsilon)
+                return fallbackScale;
+            return glm::length(targetRestTranslation) / sourceLength;
+        }
     } // namespace
 
     void AnimationRetargeter::RetargetLocalPose(
@@ -90,6 +104,16 @@ namespace OloEngine::Animation
             {
                 const glm::vec3 srcDelta = sourcePose[s].Translation - sourceRestLocal[s].Translation;
                 out.Translation = targetRest.Translation + options.RootTranslationScale * srcDelta;
+            }
+            else if (options.Translation == RetargetOptions::TranslationMode::PerBoneRatio)
+            {
+                // Bone-length-ratio transfer (issue #631 part 2): the source
+                // bone's translation delta carries over scaled to the target's
+                // proportions.
+                const f32 ratio = BoneTranslationRatio(sourceRestLocal[s].Translation, targetRest.Translation,
+                                                       options.RootTranslationScale);
+                const glm::vec3 srcDelta = sourcePose[s].Translation - sourceRestLocal[s].Translation;
+                out.Translation = targetRest.Translation + ratio * srcDelta;
             }
         }
     }
@@ -146,17 +170,25 @@ namespace OloEngine::Animation
                 }
             }
 
-            // Translation: target rest by default; transfer the scaled root delta for
-            // the root bone so locomotion / hip motion carries over.
+            // Translation: target rest by default; transfer the scaled delta for
+            // the root bone (locomotion / hip motion) and — in PerBoneRatio mode —
+            // for every mapped bone, scaled by its bone-length ratio (#631 part 2).
+            const bool isRootBone = static_cast<int>(t) == rootBone;
             const bool transferTranslation =
-                options.RetargetRootTranslation && static_cast<int>(t) == rootBone && !srcAnim->PositionKeys.empty();
+                !srcAnim->PositionKeys.empty() &&
+                (isRootBone ? options.RetargetRootTranslation
+                            : options.Translation == RetargetOptions::TranslationMode::PerBoneRatio);
             if (transferTranslation)
             {
+                const f32 scale = isRootBone
+                                      ? options.RootTranslationScale
+                                      : BoneTranslationRatio(srcRestBone.Translation, tgtRestBone.Translation,
+                                                             options.RootTranslationScale);
                 dst.PositionKeys.reserve(srcAnim->PositionKeys.size());
                 for (const auto& key : srcAnim->PositionKeys)
                 {
                     const glm::vec3 delta = key.Position - srcRestBone.Translation;
-                    dst.PositionKeys.push_back({ key.Time, tgtRestBone.Translation + options.RootTranslationScale * delta });
+                    dst.PositionKeys.push_back({ key.Time, tgtRestBone.Translation + scale * delta });
                 }
             }
             else
@@ -170,6 +202,34 @@ namespace OloEngine::Animation
             dst.ScaleKeys.push_back({ 0.0, tgtRestBone.Scale });
 
             out->BoneAnimations.push_back(std::move(dst));
+        }
+
+        // Carry the source clip's root-motion configuration onto the baked clip
+        // so extraction (issue #631 part 1) keeps working after a retarget. The
+        // root-bone index must be remapped into the TARGET skeleton: the baked
+        // clip's tracks are named for target bones and play against the target
+        // skeleton's bone indices. An unmapped source root disables extraction
+        // (its motion did not carry over).
+        out->RootMotion = sourceClip->RootMotion;
+        if (sourceClip->RootMotion.ExtractRootMotion)
+        {
+            int mappedRoot = SkeletonRetargetMap::kUnmapped;
+            for (sizet t = 0; t < targetSkeleton.m_BoneNames.size(); ++t)
+            {
+                if (map.GetSourceBone(static_cast<int>(t)) == static_cast<int>(sourceClip->RootMotion.RootBoneIndex))
+                {
+                    mappedRoot = static_cast<int>(t);
+                    break;
+                }
+            }
+            if (mappedRoot != SkeletonRetargetMap::kUnmapped)
+            {
+                out->RootMotion.RootBoneIndex = static_cast<u32>(mappedRoot);
+            }
+            else
+            {
+                out->RootMotion.ExtractRootMotion = false;
+            }
         }
 
         out->InitializeBoneCache();

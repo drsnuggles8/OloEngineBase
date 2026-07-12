@@ -40,6 +40,11 @@
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Animation/AnimationGraphAsset.h"
 #include "OloEngine/Animation/AnimationGraphSystem.h"
+#include "OloEngine/Animation/FootIKComponent.h"
+#include "OloEngine/Animation/LocomotionComponent.h"
+#include "OloEngine/Animation/Locomotion/LocomotionSystem.h"
+#include "OloEngine/Animation/Retargeting/RetargetingComponent.h"
+#include "OloEngine/Animation/Retargeting/RetargetingSystem.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Physics3D/JoltScene.h"
@@ -2262,6 +2267,20 @@ namespace OloEngine
         constexpr std::string_view kWorldTransforms = "WorldTransforms";
         // Morph-target weights sampled by the animation systems.
         constexpr std::string_view kMorphWeights = "MorphWeights";
+        // Pending per-entity root-motion deltas extracted by the animation
+        // systems (AnimationStateComponent / AnimationGraphComponent runtime
+        // fields), consumed by RootMotionApply — which turns them into character-
+        // controller displacement or TransformComponent writes BEFORE PhysicsKick
+        // integrates controller velocity (issue #631).
+        constexpr std::string_view kRootMotion = "RootMotion";
+        // The per-entity clip lists (AnimationStateComponent::m_AvailableClips):
+        // written by the live-retargeting bake, sampled by both animation
+        // systems (issue #631 part 2).
+        constexpr std::string_view kAnimationClips = "AnimationClips";
+        // AnimationGraphComponent::Parameters (+ stride-warped state playback
+        // rates): written by the locomotion controller, consumed by the graph
+        // evaluation (issue #631 part 4).
+        constexpr std::string_view kAnimationParams = "AnimationParams";
         // The rebuilt SceneSpatialIndex.
         constexpr std::string_view kSpatialIndex = "SpatialIndex";
         // AI sight-sensing results.
@@ -2315,19 +2334,56 @@ namespace OloEngine
                             { s.UpdateCinematics(ts); })
                 .Writes(kLocalTransforms);
 
+            // Locomotion controller (issue #631 part 4): measures character
+            // velocity (last tick's controller velocity / transform deltas —
+            // pre-kick reads of fenced Jolt state are legal), selects gait with
+            // hysteresis, writes graph parameters + stride warp for the graph
+            // evaluation to consume (RAW edge on AnimationParams).
+            sched.AddSystem("Locomotion", [](Scene& s, Timestep ts)
+                            { s.UpdateLocomotion(ts); })
+                .Reads(kLocalTransforms)
+                .Writes(kAnimationParams);
+
+            // Live-retargeting bake (issue #631 part 2): splices retargeted
+            // clips into per-entity clip lists BEFORE the animation systems
+            // sample them (RAW edge on AnimationClips). Idempotent per settings
+            // — steady-state ticks are a cheap settings-equality walk.
+            sched.AddSystem("Retargeting", [](Scene& s, Timestep ts)
+                            { s.UpdateRetargeting(ts); })
+                .Writes(kAnimationClips);
+
             // Animation samples skeleton pose + morph weights; it READS the posed
             // local transforms (read-after-write orders it after cinematics) and
             // writes the morph weights MorphEval consumes. It does NOT write
-            // entity transforms (bone pose lives in skeleton/component state).
+            // entity transforms (bone pose lives in skeleton/component state) —
+            // it publishes extracted root-motion deltas on the RootMotion channel
+            // instead; RootMotionApply is the transform/controller writer (#631).
             sched.AddSystem("Animation", [](Scene& s, Timestep ts)
                             { s.UpdateAnimation(ts); })
                 .Reads(kLocalTransforms)
-                .Writes(kMorphWeights);
+                .Reads(kAnimationClips)
+                .Writes(kMorphWeights)
+                .Writes(kRootMotion);
 
             sched.AddSystem("AnimationGraph", [](Scene& s, Timestep ts)
                             { s.UpdateAnimationGraphs(ts); })
                 .Reads(kLocalTransforms)
-                .Writes(kMorphWeights);
+                .Reads(kAnimationClips)
+                .Reads(kAnimationParams)
+                .Writes(kMorphWeights)
+                .Writes(kRootMotion);
+
+            // Apply the root-motion deltas the animation systems extracted this
+            // tick: feed a character controller's buffered displacement/rotation
+            // (consumed inside PhysicsKick's character phase) or move the entity
+            // transform directly. The RAW edge on RootMotion pins it after both
+            // extractors; the kLocalTransforms write both orders it before
+            // PhysicsKick's read (the seam that lets the SAME tick's physics step
+            // integrate the motion) and before the fence/propagate chain (#631).
+            sched.AddSystem("RootMotionApply", [](Scene& s, Timestep ts)
+                            { s.UpdateRootMotion(ts); })
+                .Reads(kRootMotion)
+                .ReadsWrites(kLocalTransforms);
 
             // Morph deformation runs after BOTH morph-weight writers (read-after-
             // write on MorphWeights).
@@ -2566,6 +2622,20 @@ namespace OloEngine
         }
     }
 
+    void Scene::UpdateLocomotion(Timestep ts)
+    {
+        // Velocity-driven locomotion controller (issue #631 part 4) — see
+        // LocomotionSystem. Runtime path only: in edit mode nothing moves the
+        // character, so there is nothing to measure.
+        Animation::LocomotionSystem::OnUpdate(this, ts.GetSeconds());
+    }
+
+    void Scene::UpdateRetargeting(Timestep /*ts*/)
+    {
+        // Live-retargeting clip bake (issue #631 part 2) — see RetargetingSystem.
+        Animation::RetargetingSystem::OnUpdate(this);
+    }
+
     void Scene::UpdateAnimation(Timestep ts)
     {
         // Update animations. Full-owning group over AnimationStateComponent +
@@ -2587,8 +2657,10 @@ namespace OloEngine
                     const SpringBoneComponent* springBone = ResolveSpringBone(entity, springState);
                     Animation::NoiseAnimationState* noiseState = nullptr;
                     const NoiseAnimationComponent* noise = ResolveNoiseAnimation(entity, noiseState);
+                    FootIKStateComponent* footIKState = nullptr;
+                    const FootIKComponent* footIK = ResolveFootIK(entity, footIKState);
                     auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
-                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform, springBone, springState, noise, noiseState);
+                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform, springBone, springState, noise, noiseState, footIK, footIKState);
 
                     // Sample morph target keyframes from the current animation clip
                     if (!animState.m_CurrentClip->MorphKeyframes.empty())
@@ -2733,9 +2805,81 @@ namespace OloEngine
                     MorphTargetComponent* graphMorph = graphEntity.HasComponent<MorphTargetComponent>()
                                                            ? &graphEntity.GetComponent<MorphTargetComponent>()
                                                            : nullptr;
-                    Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds(), graphIkTarget, graphEntityTransform, graphSpringBone, graphSpringState, graphNoise, graphNoiseState, graphMorph);
+                    FootIKStateComponent* graphFootIKState = nullptr;
+                    const FootIKComponent* graphFootIK = ResolveFootIK(graphEntity, graphFootIKState);
+                    Animation::AnimationGraphSystem::Update(graphComp, *skelComp.m_Skeleton, ts.GetSeconds(), graphIkTarget, graphEntityTransform, graphSpringBone, graphSpringState, graphNoise, graphNoiseState, graphMorph, graphFootIK, graphFootIKState);
                 }
             }
+        }
+    }
+
+    void Scene::UpdateRootMotion(Timestep /*ts*/)
+    {
+        // Apply the root-motion deltas the animation systems extracted this tick
+        // (issue #631). Deltas live in entity/model space:
+        //  * Character-controller entities feed the controller's buffered
+        //    displacement/rotation — PhysicsKick's character phase integrates it
+        //    this same tick, and the fence writes the resulting pose back to the
+        //    transform. Writing the transform directly instead would be clobbered
+        //    by that fence write-back, so the controller is authoritative.
+        //  * Plain entities move their TransformComponent directly (rotation and
+        //    scale applied so a scaled/turned character strides accordingly).
+        // Deltas are consumed (cleared) here; in editor preview nothing consumes
+        // them and the pinned pose simply plays in place.
+        OLO_PROFILE_FUNCTION();
+
+        auto applyDelta = [this](Entity entity, const glm::vec3& translationDelta, const glm::quat& rotationDelta)
+        {
+            if (m_JoltScene && entity.HasComponent<CharacterController3DComponent>())
+            {
+                if (auto controller = m_JoltScene->GetCharacterController(entity))
+                {
+                    // The delta is in entity-local space; the controller wants a
+                    // world displacement. Its own rotation is authoritative (the
+                    // fence syncs the transform FROM it).
+                    const glm::quat worldRotation = controller->GetRotation();
+                    controller->Move(worldRotation * translationDelta);
+                    controller->Rotate(rotationDelta);
+                    return;
+                }
+            }
+            auto& transform = entity.GetComponent<TransformComponent>();
+            const glm::quat rotation = transform.GetRotation();
+            transform.Translation += rotation * (transform.Scale * translationDelta);
+            transform.SetRotation(glm::normalize(rotation * rotationDelta));
+        };
+
+        // Graph-driven entities first: when an entity carries BOTH animation
+        // components the graph runs last and owns the pose, so its delta wins
+        // and the legacy component's pending delta is discarded below.
+        for (auto graphView = m_Registry.view<AnimationGraphComponent, TransformComponent>(); auto e : graphView)
+        {
+            auto& graphComp = graphView.get<AnimationGraphComponent>(e);
+            if (!graphComp.HasRootMotion)
+            {
+                continue;
+            }
+            applyDelta({ e, this }, graphComp.RootMotionTranslation, graphComp.RootMotionRotation);
+            graphComp.RootMotionTranslation = glm::vec3(0.0f);
+            graphComp.RootMotionRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+            graphComp.HasRootMotion = false;
+        }
+
+        for (auto animView = m_Registry.view<AnimationStateComponent, TransformComponent>(); auto e : animView)
+        {
+            auto& animState = animView.get<AnimationStateComponent>(e);
+            if (!animState.m_HasRootMotion)
+            {
+                continue;
+            }
+            const bool graphOwnsPose = m_Registry.all_of<AnimationGraphComponent>(e);
+            if (!graphOwnsPose)
+            {
+                applyDelta({ e, this }, animState.m_RootMotionTranslation, animState.m_RootMotionRotation);
+            }
+            animState.m_RootMotionTranslation = glm::vec3(0.0f);
+            animState.m_RootMotionRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+            animState.m_HasRootMotion = false;
         }
     }
 
@@ -3390,6 +3534,11 @@ namespace OloEngine
         // Process snow deformer entities in editor preview
         ProcessSnowDeformers(ts, m_EditorSnowPrevPositions);
 
+        // Live-retargeting bake also runs in edit mode so the retargeted clips
+        // preview without entering Play (issue #631 part 2). Idempotent per
+        // settings — steady-state ticks are a cheap equality walk.
+        Animation::RetargetingSystem::OnUpdate(this);
+
         // Update animations so they preview in the editor (IK responds to target movement).
         // Reuses the AnimationStateComponent + SkeletonComponent owning group (issue #443).
         {
@@ -3408,8 +3557,10 @@ namespace OloEngine
                     const SpringBoneComponent* springBone = ResolveSpringBone(entity, springState);
                     Animation::NoiseAnimationState* noiseState = nullptr;
                     const NoiseAnimationComponent* noise = ResolveNoiseAnimation(entity, noiseState);
+                    FootIKStateComponent* footIKState = nullptr;
+                    const FootIKComponent* footIK = ResolveFootIK(entity, footIKState);
                     auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
-                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform, springBone, springState, noise, noiseState);
+                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform, springBone, springState, noise, noiseState, footIK, footIKState);
 
                     // Sample morph target keyframes from the current animation clip
                     if (!animState.m_CurrentClip->MorphKeyframes.empty())
@@ -4010,6 +4161,89 @@ namespace OloEngine
         }
         outState = &entity.GetComponent<SpringBoneStateComponent>().State;
         return &springBone;
+    }
+
+    const FootIKComponent* Scene::ResolveFootIK(Entity entity, FootIKStateComponent*& outState)
+    {
+        outState = nullptr;
+        if (!entity.HasComponent<FootIKComponent>())
+        {
+            return nullptr;
+        }
+
+        auto& footIK = entity.GetComponent<FootIKComponent>();
+        if (!footIK.Enabled)
+        {
+            return nullptr;
+        }
+
+        if (!entity.HasComponent<FootIKStateComponent>())
+        {
+            entity.AddComponent<FootIKStateComponent>();
+        }
+        auto& state = entity.GetComponent<FootIKStateComponent>();
+        outState = &state;
+
+        const Ref<Skeleton> skeleton = entity.HasComponent<SkeletonComponent>()
+                                           ? entity.GetComponent<SkeletonComponent>().m_Skeleton
+                                           : nullptr;
+        const glm::mat4 entityWorld = entity.GetComponent<TransformComponent>().GetTransform();
+
+        // Refresh the per-foot ground cache: probe straight down from LAST
+        // tick's foot pose (the skeleton's global transforms still hold it).
+        // The animation systems run before PhysicsKick, where game-thread Jolt
+        // queries are legal (previous step fenced last tick — see the
+        // physics-shadow rules at GetGameplayScheduler). Without physics (edit
+        // mode) the cache clears and the feet stay fully animated.
+        auto probeFoot = [&](FootIKFootState& foot, u32 boneIndex)
+        {
+            foot.HasGround = false;
+            if (!m_JoltScene || !skeleton || boneIndex >= skeleton->m_GlobalTransforms.size())
+            {
+                return;
+            }
+            const glm::vec3 footWorld = glm::vec3(entityWorld * skeleton->m_GlobalTransforms[boneIndex][3]);
+            RayCastInfo ray;
+            ray.m_Origin = footWorld + glm::vec3(0.0f, footIK.RaycastUp, 0.0f);
+            ray.m_Direction = glm::vec3(0.0f, -1.0f, 0.0f);
+            ray.m_MaxDistance = footIK.RaycastUp + footIK.RaycastDown;
+            ray.m_ExcludedEntities.push_back(entity.GetUUID());
+            if (SceneQueryHit hit; m_JoltScene->CastRay(ray, hit) && hit.HasHit())
+            {
+                foot.HasGround = true;
+                foot.GroundPoint = hit.m_Position;
+                foot.GroundNormal = (glm::length(hit.m_Normal) > 1e-6f) ? glm::normalize(hit.m_Normal)
+                                                                        : glm::vec3(0.0f, 1.0f, 0.0f);
+            }
+        };
+        probeFoot(state.Left, footIK.LeftFootBone);
+        probeFoot(state.Right, footIK.RightFootBone);
+
+        // Resolve hand targets: an assigned target entity's world position
+        // overrides the authored world-space target (IKTargetComponent idiom).
+        auto resolveHand = [&](bool enabled, const glm::vec3& authored, UUID targetEntity,
+                               bool& outActive, glm::vec3& outTarget)
+        {
+            outActive = enabled;
+            if (!enabled)
+            {
+                return;
+            }
+            outTarget = authored;
+            if (targetEntity != 0)
+            {
+                if (auto target = TryGetEntityWithUUID(targetEntity); target.has_value() && target->HasComponent<TransformComponent>())
+                {
+                    outTarget = target->GetComponent<TransformComponent>().Translation;
+                }
+            }
+        };
+        resolveHand(footIK.LeftHandEnabled, footIK.LeftHandTarget, footIK.LeftHandTargetEntity,
+                    state.LeftHandActive, state.LeftHandResolvedTarget);
+        resolveHand(footIK.RightHandEnabled, footIK.RightHandTarget, footIK.RightHandTargetEntity,
+                    state.RightHandActive, state.RightHandResolvedTarget);
+
+        return &footIK;
     }
 
     const NoiseAnimationComponent* Scene::ResolveNoiseAnimation(Entity entity, Animation::NoiseAnimationState*& outState)
@@ -8147,6 +8381,43 @@ namespace OloEngine
         if (entity.HasComponent<NoiseAnimationStateComponent>())
         {
             entity.RemoveComponent<NoiseAnimationStateComponent>();
+        }
+    }
+
+    // Specialisation: when a LocomotionComponent is removed, drop the runtime
+    // controller state (gait, smoothing, stride-warp base speeds) so a
+    // re-added component restarts from idle (issue #631).
+    template<>
+    void Scene::OnComponentRemoved<LocomotionComponent>(Entity entity, LocomotionComponent& /*component*/)
+    {
+        if (entity.HasComponent<LocomotionStateComponent>())
+        {
+            entity.RemoveComponent<LocomotionStateComponent>();
+        }
+    }
+
+    // Specialisation: when a FootIKComponent is removed, drop the runtime
+    // adaptation state (plant locks, pelvis smoothing, ground cache) so a
+    // re-added component starts fresh from the animated pose (issue #631).
+    template<>
+    void Scene::OnComponentRemoved<FootIKComponent>(Entity entity, FootIKComponent& /*component*/)
+    {
+        if (entity.HasComponent<FootIKStateComponent>())
+        {
+            entity.RemoveComponent<FootIKStateComponent>();
+        }
+    }
+
+    // Specialisation: when a RetargetingComponent is removed, drop the baked
+    // clip cache so a re-added component rebakes from its authored settings
+    // (issue #631 part 2). (Defined after the RetargetingStateComponent no-op
+    // above so the RemoveComponent instantiation sees that specialisation.)
+    template<>
+    void Scene::OnComponentRemoved<RetargetingComponent>(Entity entity, RetargetingComponent& /*component*/)
+    {
+        if (entity.HasComponent<RetargetingStateComponent>())
+        {
+            entity.RemoveComponent<RetargetingStateComponent>();
         }
     }
 

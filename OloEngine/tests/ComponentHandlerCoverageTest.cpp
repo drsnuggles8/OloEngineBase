@@ -124,6 +124,9 @@ namespace OloEngine::Tests
             "DialogueStateComponent",
             "SpringBoneStateComponent",
             "NoiseAnimationStateComponent",
+            "RetargetingStateComponent",
+            "FootIKStateComponent",
+            "LocomotionStateComponent",
             "WorldTransformComponent",
         };
 
@@ -158,6 +161,9 @@ namespace OloEngine::Tests
             "VideoSurfaceComponent",
             "SpringBoneComponent",
             "NoiseAnimationComponent",
+            "RetargetingComponent",
+            "FootIKComponent",
+            "LocomotionComponent",
             "TerrainComponent",
         };
 

@@ -22,15 +22,32 @@ namespace OloEngine::Animation
     {
         // Transfer the root bone's local translation (overall locomotion / hip
         // height) from source to target, scaled by RootTranslationScale. Every
-        // OTHER bone's translation and scale is taken from the target's rest pose,
-        // so the target keeps its own proportions. Full per-bone translation
-        // retargeting is deferred (see docs/design/animation-retargeting.md).
+        // OTHER bone's translation and scale is taken from the target's rest pose
+        // (so the target keeps its own proportions) unless Translation is
+        // PerBoneRatio below.
         bool RetargetRootTranslation = true;
 
         // Uniform scale applied to the transferred root translation delta. Use
         // AnimationRetargeter::ComputeRootTranslationScale() to derive it from the
         // two rest poses when the rigs differ in overall scale; defaults to 1:1.
         f32 RootTranslationScale = 1.0f;
+
+        // How NON-root mapped bones transfer translation (issue #631 part 2 —
+        // deferral #2 of docs/design/animation-retargeting.md).
+        enum class TranslationMode : u8
+        {
+            // First-slice behavior: non-root bones keep the target rest
+            // translation; only the root optionally transfers.
+            RootOnly,
+            // Bone-length-ratio transfer: each mapped bone's translation delta
+            // from its source rest carries over scaled by
+            // |targetRest.Translation| / |sourceRest.Translation| — proportion-
+            // correct limb stretch / hip sway on a differently-sized rig. A bone
+            // resting at its parent origin (|sourceRest| ~ 0, no meaningful
+            // ratio) falls back to RootTranslationScale.
+            PerBoneRatio,
+        };
+        TranslationMode Translation = TranslationMode::RootOnly;
 
         // Target-skeleton index of the bone treated as the root for translation
         // transfer. kUseFirstRoot selects the first bone whose parent index is -1

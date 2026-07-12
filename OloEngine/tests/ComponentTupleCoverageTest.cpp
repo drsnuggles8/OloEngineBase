@@ -107,6 +107,9 @@ namespace OloEngine::Tests
                 base / "Animation" / "IKTargetComponent.h",
                 base / "Animation" / "SpringBoneComponent.h",
                 base / "Animation" / "NoiseAnimationComponent.h",
+                base / "Animation" / "Retargeting" / "RetargetingComponent.h",
+                base / "Animation" / "FootIKComponent.h",
+                base / "Animation" / "LocomotionComponent.h",
                 base / "Gameplay" / "Inventory" / "InventoryComponents.h",
                 base / "Gameplay" / "Quest" / "QuestComponents.h",
                 base / "Gameplay" / "Abilities" / "AbilityComponents.h",
@@ -204,6 +207,9 @@ namespace OloEngine::Tests
             "DialogueStateComponent",       // Active dialogue progression (current node, text-reveal); rebuilt at runtime.
             "SpringBoneStateComponent",     // Spring-bone sim state; SpringBoneComponent.h documents it as deliberately out of the tuple (sim restarts fresh on scene copy).
             "NoiseAnimationStateComponent", // Noise phase accumulator; NoiseAnimationComponent.h documents it as deliberately out of the tuple (phase restarts fresh at zero on scene copy).
+            "RetargetingStateComponent",    // Live-retargeting bake cache; RetargetingComponent.h documents it as deliberately out of the tuple (rebaked lazily on scene copy, issue #631).
+            "FootIKStateComponent",         // Foot-IK adaptation state (plant locks, pelvis smoothing, ground cache); FootIKComponent.h documents it as deliberately out of the tuple (adaptation restarts fresh on scene copy, issue #631).
+            "LocomotionStateComponent",     // Locomotion controller state (gait, smoothing, stride-warp base speeds); LocomotionComponent.h documents it as deliberately out of the tuple (restarts from idle on scene copy, issue #631).
             "WorldTransformComponent",      // Composed parent-chain world matrix; rebuilt every tick by Scene::PropagateWorldTransforms() (issue #499), never copied/serialized.
         };
 

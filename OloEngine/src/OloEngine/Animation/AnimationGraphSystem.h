@@ -11,6 +11,8 @@ namespace OloEngine
     struct SpringBoneComponent;
     struct NoiseAnimationComponent;
     struct MorphTargetComponent;
+    struct FootIKComponent;
+    struct FootIKStateComponent;
 } // namespace OloEngine
 
 namespace OloEngine::Animation
@@ -24,7 +26,9 @@ namespace OloEngine::Animation
         // entityWorldTransform converts IK targets from world space to model space.
         // noise/noiseState enable the procedural noise post-pass (runs *before*
         // IK); springBone/springBoneState enable the spring-bone post-pass (runs
-        // after IK). Each pair must be non-null for its pass to run.
+        // after IK); footIK/footIKState enable the ground-adaptation pass (runs
+        // between IK and spring bones — issue #631 part 3). Each pair must be
+        // non-null for its pass to run.
         // morphTarget, when non-null, receives morph-target (blend-shape) weights
         // sampled from the active clip(s) of the graph this frame; CPU evaluation
         // and mesh deformation happen later in the global morph pass.
@@ -38,6 +42,8 @@ namespace OloEngine::Animation
             SpringBoneState* springBoneState = nullptr,
             const NoiseAnimationComponent* noise = nullptr,
             NoiseAnimationState* noiseState = nullptr,
-            MorphTargetComponent* morphTarget = nullptr);
+            MorphTargetComponent* morphTarget = nullptr,
+            const FootIKComponent* footIK = nullptr,
+            FootIKStateComponent* footIKState = nullptr);
     };
 } // namespace OloEngine::Animation

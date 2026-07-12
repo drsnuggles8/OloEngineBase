@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/AnimationGraphSystem.h"
+#include "OloEngine/Animation/FootIKComponent.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
+#include "OloEngine/Animation/IK/FootIKPostPass.h"
 #include "OloEngine/Animation/IK/IKPostPass.h"
 #include "OloEngine/Animation/SpringBoneComponent.h"
 #include "OloEngine/Animation/Procedural/SpringBonePostPass.h"
@@ -26,7 +28,9 @@ namespace OloEngine::Animation
         SpringBoneState* springBoneState,
         const NoiseAnimationComponent* noise,
         NoiseAnimationState* noiseState,
-        MorphTargetComponent* morphTarget)
+        MorphTargetComponent* morphTarget,
+        const FootIKComponent* footIK,
+        FootIKStateComponent* footIKState)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -65,11 +69,24 @@ namespace OloEngine::Animation
             }
         }
 
-        // Evaluate the animation graph directly into the skeleton's local transform buffer
-        graphComp.RuntimeGraph->Update(deltaTime, boneCount, skeleton.m_LocalTransforms, skeleton.m_BoneNames, skeleton.m_ParentIndices, graphComp.BindPoseLocalTRS);
+        // Evaluate the animation graph directly into the skeleton's local
+        // transform buffer. Bind globals + pre-transforms feed root-motion
+        // model-space conversion (issue #631).
+        graphComp.RuntimeGraph->Update(deltaTime, boneCount, skeleton.m_LocalTransforms, skeleton.m_BoneNames, skeleton.m_ParentIndices, graphComp.BindPoseLocalTRS,
+                                       skeleton.m_BindPoseMatrices, skeleton.m_BonePreTransforms);
 
         // Copy parameters back (triggers may have been consumed)
         graphComp.Parameters = graphComp.RuntimeGraph->Parameters;
+
+        // Publish this tick's root-motion delta for Scene::UpdateRootMotion to
+        // consume (overwritten every tick; nothing consumes it in editor preview,
+        // where the pinned pose simply plays in place).
+        {
+            const RootMotionDelta& rootMotion = graphComp.RuntimeGraph->GetLastRootMotion();
+            graphComp.RootMotionTranslation = rootMotion.Translation;
+            graphComp.RootMotionRotation = rootMotion.Rotation;
+            graphComp.HasRootMotion = rootMotion.HasMotion;
+        }
 
         // Sample morph-target (blend-shape) weights from the graph's active
         // clip(s) into the entity's MorphTargetComponent. The graph just
@@ -107,6 +124,13 @@ namespace OloEngine::Animation
         if (ikTarget && (ikTarget->AimIKEnabled || ikTarget->LimbIKEnabled || ikTarget->ChainIKEnabled))
         {
             ApplyIKPostPass(skeleton, *ikTarget, entityWorldTransform);
+        }
+
+        // Ground-adaptation foot/hand IK after aim/limb/chain IK so it corrects
+        // the final intent pose (issue #631 part 3)
+        if (footIK && footIKState && footIK->Enabled)
+        {
+            ApplyFootIKPostPass(skeleton, *footIK, *footIKState, entityWorldTransform, deltaTime);
         }
 
         // Apply spring-bone secondary motion after IK so springs react to the

@@ -360,9 +360,38 @@ namespace OloEngine
             return;
         }
 
+        // Apply the authored CharacterController3DComponent settings. Before the
+        // #631 locomotion work the component was a pure serialization/scripting
+        // data bag — the controller always ran on the hard-coded defaults and
+        // every authored slope limit / step offset / gravity flag was silently
+        // ignored.
+        f32 slopeLimitDeg = kDefaultMaxSlopeDegrees;
+        if (m_Entity && m_Entity.HasComponent<CharacterController3DComponent>())
+        {
+            const auto& controllerComp = m_Entity.GetComponent<CharacterController3DComponent>();
+            if (std::isfinite(controllerComp.m_SlopeLimitDeg))
+            {
+                slopeLimitDeg = glm::clamp(controllerComp.m_SlopeLimitDeg, 0.0f, 90.0f);
+            }
+            if (std::isfinite(controllerComp.m_StepOffset))
+            {
+                m_StepOffset = glm::max(controllerComp.m_StepOffset, 0.0f);
+            }
+            m_HasGravity = !controllerComp.m_DisableGravity;
+            m_ControlMovementInAir = controllerComp.m_ControlMovementInAir;
+            m_ControlRotationInAir = controllerComp.m_ControlRotationInAir;
+            // Layer 0 (NON_MOVING) would silently disable every character
+            // contact (see the m_CollisionLayer declaration comment), so the
+            // component default of 0 means "unset" and keeps CHARACTER.
+            if (controllerComp.m_LayerID != 0)
+            {
+                m_CollisionLayer = controllerComp.m_LayerID;
+            }
+        }
+
         // Create character controller settings
         JPH::Ref<JPH::CharacterVirtualSettings> settings = new JPH::CharacterVirtualSettings();
-        settings->mMaxSlopeAngle = glm::radians(kDefaultMaxSlopeDegrees);         // Default 45 degree slope limit
+        settings->mMaxSlopeAngle = glm::radians(slopeLimitDeg);
         settings->mMaxStrength = kDefaultMaxStrength;                             // Maximum force the character can apply
         settings->mCharacterPadding = kDefaultCharacterPadding;                   // Small padding for stability
         settings->mPenetrationRecoverySpeed = kDefaultPenetrationRecoverySpeed;   // Recovery speed from penetration

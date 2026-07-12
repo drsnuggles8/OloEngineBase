@@ -7,6 +7,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Animation/RootMotion.h"
 
 namespace OloEngine
 {
@@ -62,6 +63,12 @@ namespace OloEngine
 
         // Morph target keyframes for facial animation / blend shape animation
         std::vector<MorphTargetKeyframe> MorphKeyframes;
+
+        // Root-motion playback configuration consumed by every play path
+        // (AnimationSystem, state machines, blend trees). Defaults to off;
+        // AnimationAsset stamps its authored settings here via SetAnimationClip,
+        // and tests/tools may set it directly (issue #631).
+        AnimationRootMotionSettings RootMotion;
 
         // Finds the animation for a given bone name
         const BoneAnimation* FindBoneAnimation(const std::string& boneName) const;
