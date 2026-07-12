@@ -163,6 +163,50 @@ namespace OloEngine
             return glm::mix(effectiveDuration(selection.IndexA), effectiveDuration(selection.IndexB), selection.Weight);
         }
 
+        // Inverse-distance weights over the playable 2D children. Shared by
+        // Evaluate2D (pose) and ExtractRootMotion (root delta) so the pose and
+        // the extracted motion always weight the SAME clips identically — the
+        // same one-source-of-truth rule the 1D path gets from
+        // SelectBlend1DNeighbors (and the parity discipline of issue #435).
+        // Returns the normalized weights (0 for non-playable children) in
+        // outWeights; outExactIndex >= 0 flags a child sitting exactly at
+        // paramPos, which the caller must sample exclusively. Returns false when
+        // no playable child contributes.
+        bool ComputeBlend2DWeights(const std::vector<BlendTree::BlendChild>& children, const glm::vec2& paramPos,
+                                   std::vector<f32>& outWeights, i32& outExactIndex)
+        {
+            auto childCount = children.size();
+            outWeights.assign(childCount, 0.0f);
+            outExactIndex = -1;
+            f32 totalWeight = 0.0f;
+
+            for (sizet i = 0; i < childCount; ++i)
+            {
+                if (!children[i].Clip || children[i].Speed <= 0.0f)
+                {
+                    continue;
+                }
+                f32 dist = glm::length(paramPos - children[i].Position);
+                if (dist < 1e-6f)
+                {
+                    outExactIndex = static_cast<i32>(i);
+                    return true;
+                }
+                outWeights[i] = 1.0f / (dist * dist);
+                totalWeight += outWeights[i];
+            }
+
+            if (totalWeight <= 0.0f)
+            {
+                return false;
+            }
+            for (auto& w : outWeights)
+            {
+                w /= totalWeight;
+            }
+            return true;
+        }
+
         // Inverse-distance-weighted average duration of the 2D children (matches Evaluate2D).
         f32 Compute2DDuration(const std::vector<BlendTree::BlendChild>& children, const glm::vec2& paramPos)
         {
@@ -254,46 +298,29 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Inverse distance weighting for 2D blend
+        // Inverse distance weighting for 2D blend — weights come from the shared
+        // helper so root-motion extraction can never disagree with the pose.
         glm::vec2 paramPos(paramX, paramY);
 
-        auto childCount = Children.size();
-        std::vector<f32> weights(childCount, 0.0f);
-        f32 totalWeight = 0.0f;
-
-        for (sizet i = 0; i < childCount; ++i)
+        std::vector<f32> weights;
+        i32 exactIndex = -1;
+        if (!ComputeBlend2DWeights(Children, paramPos, weights, exactIndex))
         {
-            if (!Children[i].Clip || Children[i].Speed <= 0.0f)
-            {
-                continue;
-            }
-            f32 dist = glm::length(paramPos - Children[i].Position);
-            if (dist < 1e-6f)
-            {
-                // Exact match - use this child exclusively
-                f32 timeSeconds = normalizedTime * Children[i].Clip->Duration;
-                SampleClipBoneTransforms(Children[i].Clip, timeSeconds, boneCount, ctx, out);
-                return;
-            }
-            weights[i] = 1.0f / (dist * dist);
-            totalWeight += weights[i];
-        }
-
-        // Normalize weights
-        if (totalWeight > 0.0f)
-        {
-            for (auto& w : weights)
-            {
-                w /= totalWeight;
-            }
-        }
-
-        // No playable child contributed — rest at bind pose (not identity).
-        if (totalWeight <= 0.0f)
-        {
+            // No playable child contributed — rest at bind pose (not identity).
             FillBindPose(ctx, boneCount, out);
             return;
         }
+
+        if (exactIndex >= 0)
+        {
+            // Exact match - use this child exclusively
+            const auto& child = Children[static_cast<sizet>(exactIndex)];
+            f32 timeSeconds = normalizedTime * child.Clip->Duration;
+            SampleClipBoneTransforms(child.Clip, timeSeconds, boneCount, ctx, out);
+            return;
+        }
+
+        auto childCount = Children.size();
 
         // Blend all children by weight using cumulative-weight slerp for rotations
         out.resize(boneCount);
@@ -367,6 +394,130 @@ namespace OloEngine
                 out[i].Scale = AnimatedModel::SampleBoneScale(boneAnim->ScaleKeys, timeSeconds);
             }
         }
+
+        // Root-motion in-place pinning (issue #631): remove the extracted
+        // (masked) motion from the root bone's sample so the mesh doesn't
+        // double-move once the delta is applied to the entity. This is the one
+        // choke point every graph-path clip sample goes through, so single-clip
+        // states, 1D/2D blends, cross-fades and one-shots all pin consistently.
+        // (A one-shot's motion is NOT extracted — it plays in place.)
+        if (const auto& rootMotion = clip->RootMotion; rootMotion.ExtractRootMotion &&
+                                                       rootMotion.RootBoneIndex < boneCount &&
+                                                       rootMotion.RootBoneIndex < boneNameCount)
+        {
+            if (const auto* rootAnim = clip->FindBoneAnimation(ctx.BoneNames[rootMotion.RootBoneIndex]); rootAnim)
+            {
+                const BoneTransform reference{
+                    AnimatedModel::SampleBonePosition(rootAnim->PositionKeys, 0.0f),
+                    AnimatedModel::SampleBoneRotation(rootAnim->RotationKeys, 0.0f),
+                    AnimatedModel::SampleBoneScale(rootAnim->ScaleKeys, 0.0f)
+                };
+                out[rootMotion.RootBoneIndex] = Animation::RootMotionUtils::MakeInPlaceRootPose(
+                    out[rootMotion.RootBoneIndex], reference,
+                    rootMotion.RootTranslationMask, rootMotion.RootRotationMask);
+            }
+        }
+    }
+
+    Animation::RootMotionDelta BlendTree::ExtractRootMotion(
+        f32 normalizedStart, f32 normalizedDelta,
+        const AnimationParameterSet& params, bool looping,
+        const PoseEvalContext& ctx) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        using Animation::RootMotionDelta;
+        namespace RootMotionUtils = Animation::RootMotionUtils;
+
+        if (Children.empty() || normalizedDelta <= 0.0f)
+        {
+            return {};
+        }
+
+        auto extractChild = [&](const BlendChild& child) -> RootMotionDelta
+        {
+            if (!child.Clip)
+            {
+                return {};
+            }
+            const f32 clipDuration = child.Clip->Duration;
+            return RootMotionUtils::ExtractConfiguredDelta(
+                *child.Clip, normalizedStart * clipDuration, normalizedDelta * clipDuration, looping, ctx);
+        };
+
+        if (Type == BlendType::Simple1D)
+        {
+            // Same selection as Evaluate1D/Compute1DDuration (issue #410 rule):
+            // the extracted motion blends exactly the clips the pose blends.
+            Blend1DSelection selection = SelectBlend1DNeighbors(Children, params.GetFloat(BlendParameterX));
+            if (!selection.HasPlayable)
+            {
+                return {};
+            }
+            if (selection.Single)
+            {
+                return extractChild(Children[selection.IndexA]);
+            }
+            return RootMotionUtils::Blend(
+                extractChild(Children[selection.IndexA]),
+                extractChild(Children[selection.IndexB]),
+                selection.Weight);
+        }
+
+        // Only the recognized 2D blend types reach the weighted accumulation
+        // below; an unknown BlendType returns empty motion, matching Evaluate()'s
+        // bind-pose fallback for the same default case.
+        if (Type != BlendType::SimpleDirectional2D && Type != BlendType::FreeformDirectional2D &&
+            Type != BlendType::FreeformCartesian2D)
+        {
+            return {};
+        }
+
+        // 2D types: same inverse-distance weights as Evaluate2D.
+        glm::vec2 paramPos(params.GetFloat(BlendParameterX), params.GetFloat(BlendParameterY));
+        std::vector<f32> weights;
+        i32 exactIndex = -1;
+        if (!ComputeBlend2DWeights(Children, paramPos, weights, exactIndex))
+        {
+            return {};
+        }
+        if (exactIndex >= 0)
+        {
+            return extractChild(Children[static_cast<sizet>(exactIndex)]);
+        }
+
+        // Weighted accumulation mirroring Evaluate2D: translations sum by
+        // weight, rotations combine via cumulative-weight slerp.
+        RootMotionDelta result;
+        f32 accumulatedWeight = 0.0f;
+        bool first = true;
+        auto childCount = Children.size();
+        for (sizet i = 0; i < childCount; ++i)
+        {
+            if (weights[i] < 1e-6f)
+            {
+                continue;
+            }
+            const RootMotionDelta childDelta = extractChild(Children[i]);
+            const glm::vec3 childT = childDelta.HasMotion ? childDelta.Translation : glm::vec3(0.0f);
+            const glm::quat childR = childDelta.HasMotion ? childDelta.Rotation : glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+
+            accumulatedWeight += weights[i];
+            result.HasMotion = result.HasMotion || childDelta.HasMotion;
+            if (first)
+            {
+                result.Translation = childT * weights[i];
+                result.Rotation = childR;
+                first = false;
+            }
+            else
+            {
+                const f32 slerpT = weights[i] / accumulatedWeight;
+                result.Translation += childT * weights[i];
+                result.Rotation = glm::normalize(glm::slerp(result.Rotation, childR, slerpT));
+            }
+        }
+        return result;
     }
 
     void BlendTree::BlendBoneTransforms(const std::vector<BoneTransform>& a,

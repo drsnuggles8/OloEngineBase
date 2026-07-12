@@ -7,6 +7,9 @@
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
 #include "OloEngine/Animation/SpringBoneComponent.h"
+#include "OloEngine/Animation/Retargeting/RetargetingComponent.h"
+#include "OloEngine/Animation/FootIKComponent.h"
+#include "OloEngine/Animation/LocomotionComponent.h"
 #include "OloEngine/Animation/NoiseAnimationComponent.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Audio/AudioListener.h"
@@ -2443,6 +2446,127 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, LocomotionComponent& c)
+    {
+        ar << c.Enabled;
+        ar << c.SpeedParameter << c.DirectionXParameter << c.DirectionYParameter;
+        ar << c.GaitParameter << c.TurnParameter;
+        ar << c.UseDesiredVelocity;
+        ar << c.WalkEnterSpeed << c.WalkExitSpeed << c.RunEnterSpeed << c.RunExitSpeed;
+        ar << c.SpeedSmoothing << c.DirectionReferenceSpeed;
+        ar << c.StrideWarp << c.WalkClipSpeed << c.RunClipSpeed << c.MaxStrideScale;
+
+        if (!ar.IsSaving())
+        {
+            // Validate + clamp to the OLO_SERIALIZE(Clamp) ranges.
+            auto sanitize = [](f32& v, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                }
+            };
+            sanitize(c.WalkEnterSpeed, 0.15f);
+            sanitize(c.WalkExitSpeed, 0.08f);
+            sanitize(c.RunEnterSpeed, 3.0f);
+            sanitize(c.RunExitSpeed, 2.5f);
+            sanitize(c.SpeedSmoothing, 12.0f);
+            sanitize(c.DirectionReferenceSpeed, 4.0f);
+            sanitize(c.WalkClipSpeed, 1.4f);
+            sanitize(c.RunClipSpeed, 4.0f);
+            sanitize(c.MaxStrideScale, 1.5f);
+            c.WalkEnterSpeed = std::clamp(c.WalkEnterSpeed, 0.0f, 100.0f);
+            c.WalkExitSpeed = std::clamp(c.WalkExitSpeed, 0.0f, 100.0f);
+            c.RunEnterSpeed = std::clamp(c.RunEnterSpeed, 0.0f, 100.0f);
+            c.RunExitSpeed = std::clamp(c.RunExitSpeed, 0.0f, 100.0f);
+            c.SpeedSmoothing = std::clamp(c.SpeedSmoothing, 0.0f, 100.0f);
+            c.DirectionReferenceSpeed = std::clamp(c.DirectionReferenceSpeed, 0.01f, 100.0f);
+            c.WalkClipSpeed = std::clamp(c.WalkClipSpeed, 0.0f, 100.0f);
+            c.RunClipSpeed = std::clamp(c.RunClipSpeed, 0.0f, 100.0f);
+            c.MaxStrideScale = std::clamp(c.MaxStrideScale, 1.0f, 4.0f);
+            c.DesiredVelocity = glm::vec3(0.0f); // runtime input, never restored
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, FootIKComponent& c)
+    {
+        ar << c.Enabled << c.LeftFootBone << c.RightFootBone << c.ChainLength;
+        ar << c.EnableToeRoll << c.LeftToeBone << c.RightToeBone;
+        ar << c.RaycastUp << c.RaycastDown << c.FootHeight;
+        ar << c.AdjustPelvis << c.PelvisBone << c.MaxPelvisDrop << c.PelvisLerpSpeed;
+        ar << c.FootLock << c.PlantVelocityThreshold << c.PlantLiftThreshold << c.UnlockBlendTime;
+        ar << c.AlignFootToSlope << c.MaxSlopeAngle << c.Weight;
+        ar << c.LeftHandEnabled << c.LeftHandBone << c.LeftHandTarget << c.LeftHandTargetEntity;
+        ar << c.RightHandEnabled << c.RightHandBone << c.RightHandTarget << c.RightHandTargetEntity;
+        ar << c.HandChainLength << c.HandWeight;
+
+        if (!ar.IsSaving())
+        {
+            // Validate + clamp to the same ranges the scene-YAML deserializer
+            // enforces (the OLO_SERIALIZE(Clamp) annotations).
+            auto sanitize = [](f32& v, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                }
+            };
+            sanitize(c.RaycastUp, 0.5f);
+            sanitize(c.RaycastDown, 1.0f);
+            sanitize(c.FootHeight, 0.1f);
+            sanitize(c.MaxPelvisDrop, 0.4f);
+            sanitize(c.PelvisLerpSpeed, 10.0f);
+            sanitize(c.PlantVelocityThreshold, 0.15f);
+            sanitize(c.PlantLiftThreshold, 0.06f);
+            sanitize(c.UnlockBlendTime, 0.12f);
+            sanitize(c.MaxSlopeAngle, 50.0f);
+            sanitize(c.Weight, 1.0f);
+            sanitize(c.HandWeight, 1.0f);
+            c.ChainLength = std::max(2u, c.ChainLength);
+            c.HandChainLength = std::max(2u, c.HandChainLength);
+            c.RaycastUp = std::clamp(c.RaycastUp, 0.0f, 10.0f);
+            c.RaycastDown = std::clamp(c.RaycastDown, 0.0f, 10.0f);
+            c.FootHeight = std::clamp(c.FootHeight, 0.0f, 1.0f);
+            c.MaxPelvisDrop = std::clamp(c.MaxPelvisDrop, 0.0f, 2.0f);
+            c.PelvisLerpSpeed = std::clamp(c.PelvisLerpSpeed, 0.0f, 100.0f);
+            c.PlantVelocityThreshold = std::clamp(c.PlantVelocityThreshold, 0.0f, 10.0f);
+            c.PlantLiftThreshold = std::clamp(c.PlantLiftThreshold, 0.0f, 1.0f);
+            c.UnlockBlendTime = std::clamp(c.UnlockBlendTime, 0.01f, 2.0f);
+            c.MaxSlopeAngle = std::clamp(c.MaxSlopeAngle, 0.0f, 90.0f);
+            c.Weight = std::clamp(c.Weight, 0.0f, 1.0f);
+            c.HandWeight = std::clamp(c.HandWeight, 0.0f, 1.0f);
+            if (!std::isfinite(c.LeftHandTarget.x) || !std::isfinite(c.LeftHandTarget.y) || !std::isfinite(c.LeftHandTarget.z))
+            {
+                c.LeftHandTarget = glm::vec3(0.0f);
+            }
+            if (!std::isfinite(c.RightHandTarget.x) || !std::isfinite(c.RightHandTarget.y) || !std::isfinite(c.RightHandTarget.z))
+            {
+                c.RightHandTarget = glm::vec3(0.0f);
+            }
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, RetargetingComponent& c)
+    {
+        ar << c.Enabled << c.m_SourcePath << c.m_SourceEntity;
+        ar << c.UseHumanoidRoles << c.PerBoneTranslation << c.TransferRootTranslation;
+        ar << c.RootTranslationScale;
+        // Bounded, duplicate-checked round-trip via the generic archive operator
+        // (ArchiveExtensions.h) — same path as the quest journal's maps above.
+        ar << c.m_SourceRoleOverrides;
+        ar << c.m_TargetRoleOverrides;
+
+        if (!ar.IsSaving())
+        {
+            // Same range the scene-YAML deserializer enforces (Clamp annotation).
+            if (!std::isfinite(c.RootTranslationScale))
+            {
+                c.RootTranslationScale = 0.0f;
+            }
+            c.RootTranslationScale = std::clamp(c.RootTranslationScale, 0.0f, 1000.0f);
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, NoiseAnimationComponent& c)
     {
         ar << c.Enabled << c.EndBoneIndex << c.ChainLength;
@@ -3518,6 +3642,9 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(NameplateComponent);
         REGISTER_SAVE_COMPONENT(IKTargetComponent);
         REGISTER_SAVE_COMPONENT(SpringBoneComponent);
+        REGISTER_SAVE_COMPONENT(RetargetingComponent);
+        REGISTER_SAVE_COMPONENT(FootIKComponent);
+        REGISTER_SAVE_COMPONENT(LocomotionComponent);
         REGISTER_SAVE_COMPONENT(NoiseAnimationComponent);
         REGISTER_SAVE_COMPONENT(UIWorldAnchorComponent);
         REGISTER_SAVE_COMPONENT(MorphTargetComponent);

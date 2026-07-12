@@ -112,6 +112,43 @@ if (entity.HasComponent<FogVolumeComponent>())
     SceneBinIO::Write(out, comp.m_AffectTransparent);
 }
 
+if (entity.HasComponent<FootIKComponent>())
+{
+    SceneBinIO::WriteU32(out, 1414616508u); // FootIKComponent
+    auto const& comp = entity.GetComponent<FootIKComponent>();
+    SceneBinIO::Write(out, comp.Enabled);
+    SceneBinIO::Write(out, comp.LeftFootBone);
+    SceneBinIO::Write(out, comp.RightFootBone);
+    SceneBinIO::Write(out, comp.ChainLength);
+    SceneBinIO::Write(out, comp.EnableToeRoll);
+    SceneBinIO::Write(out, comp.LeftToeBone);
+    SceneBinIO::Write(out, comp.RightToeBone);
+    SceneBinIO::Write(out, comp.RaycastUp);
+    SceneBinIO::Write(out, comp.RaycastDown);
+    SceneBinIO::Write(out, comp.FootHeight);
+    SceneBinIO::Write(out, comp.AdjustPelvis);
+    SceneBinIO::Write(out, comp.PelvisBone);
+    SceneBinIO::Write(out, comp.MaxPelvisDrop);
+    SceneBinIO::Write(out, comp.PelvisLerpSpeed);
+    SceneBinIO::Write(out, comp.FootLock);
+    SceneBinIO::Write(out, comp.PlantVelocityThreshold);
+    SceneBinIO::Write(out, comp.PlantLiftThreshold);
+    SceneBinIO::Write(out, comp.UnlockBlendTime);
+    SceneBinIO::Write(out, comp.AlignFootToSlope);
+    SceneBinIO::Write(out, comp.MaxSlopeAngle);
+    SceneBinIO::Write(out, comp.Weight);
+    SceneBinIO::Write(out, comp.LeftHandEnabled);
+    SceneBinIO::Write(out, comp.LeftHandBone);
+    SceneBinIO::Write(out, comp.LeftHandTarget);
+    SceneBinIO::Write(out, comp.LeftHandTargetEntity);
+    SceneBinIO::Write(out, comp.RightHandEnabled);
+    SceneBinIO::Write(out, comp.RightHandBone);
+    SceneBinIO::Write(out, comp.RightHandTarget);
+    SceneBinIO::Write(out, comp.RightHandTargetEntity);
+    SceneBinIO::Write(out, comp.HandChainLength);
+    SceneBinIO::Write(out, comp.HandWeight);
+}
+
 if (entity.HasComponent<InstancePortalComponent>())
 {
     SceneBinIO::WriteU32(out, 1784713623u); // InstancePortalComponent
@@ -126,6 +163,29 @@ if (entity.HasComponent<LocalizedTextComponent>())
     SceneBinIO::WriteU32(out, 3615502588u); // LocalizedTextComponent
     auto const& comp = entity.GetComponent<LocalizedTextComponent>();
     SceneBinIO::Write(out, comp.LocalizationKey);
+}
+
+if (entity.HasComponent<LocomotionComponent>())
+{
+    SceneBinIO::WriteU32(out, 1960829075u); // LocomotionComponent
+    auto const& comp = entity.GetComponent<LocomotionComponent>();
+    SceneBinIO::Write(out, comp.Enabled);
+    SceneBinIO::Write(out, comp.SpeedParameter);
+    SceneBinIO::Write(out, comp.DirectionXParameter);
+    SceneBinIO::Write(out, comp.DirectionYParameter);
+    SceneBinIO::Write(out, comp.GaitParameter);
+    SceneBinIO::Write(out, comp.TurnParameter);
+    SceneBinIO::Write(out, comp.UseDesiredVelocity);
+    SceneBinIO::Write(out, comp.WalkEnterSpeed);
+    SceneBinIO::Write(out, comp.WalkExitSpeed);
+    SceneBinIO::Write(out, comp.RunEnterSpeed);
+    SceneBinIO::Write(out, comp.RunExitSpeed);
+    SceneBinIO::Write(out, comp.SpeedSmoothing);
+    SceneBinIO::Write(out, comp.DirectionReferenceSpeed);
+    SceneBinIO::Write(out, comp.StrideWarp);
+    SceneBinIO::Write(out, comp.WalkClipSpeed);
+    SceneBinIO::Write(out, comp.RunClipSpeed);
+    SceneBinIO::Write(out, comp.MaxStrideScale);
 }
 
 if (entity.HasComponent<LuaScriptComponent>())
@@ -246,6 +306,45 @@ if (entity.HasComponent<RelationshipComponent>())
     SceneBinIO::WriteU32(out, static_cast<u32>(comp.m_Children.size()));
     for (auto const& be0 : comp.m_Children)
         SceneBinIO::Write(out, be0);
+}
+
+if (entity.HasComponent<RetargetingComponent>())
+{
+    SceneBinIO::WriteU32(out, 2780759970u); // RetargetingComponent
+    auto const& comp = entity.GetComponent<RetargetingComponent>();
+    SceneBinIO::Write(out, comp.Enabled);
+    SceneBinIO::Write(out, comp.m_SourcePath);
+    SceneBinIO::Write(out, comp.m_SourceEntity);
+    SceneBinIO::Write(out, comp.UseHumanoidRoles);
+    SceneBinIO::Write(out, comp.PerBoneTranslation);
+    SceneBinIO::Write(out, comp.TransferRootTranslation);
+    SceneBinIO::Write(out, comp.RootTranslationScale);
+    {
+        std::vector<std::string> bkeys0;
+        bkeys0.reserve(comp.m_SourceRoleOverrides.size());
+        for (auto const& bentry0 : comp.m_SourceRoleOverrides)
+            bkeys0.push_back(bentry0.first);
+        std::ranges::sort(bkeys0);
+        SceneBinIO::WriteU32(out, static_cast<u32>(bkeys0.size()));
+        for (auto const& bk0 : bkeys0)
+        {
+            SceneBinIO::Write(out, bk0);
+            SceneBinIO::Write(out, comp.m_SourceRoleOverrides.at(bk0));
+        }
+    }
+    {
+        std::vector<std::string> bkeys0;
+        bkeys0.reserve(comp.m_TargetRoleOverrides.size());
+        for (auto const& bentry0 : comp.m_TargetRoleOverrides)
+            bkeys0.push_back(bentry0.first);
+        std::ranges::sort(bkeys0);
+        SceneBinIO::WriteU32(out, static_cast<u32>(bkeys0.size()));
+        for (auto const& bk0 : bkeys0)
+        {
+            SceneBinIO::Write(out, bk0);
+            SceneBinIO::Write(out, comp.m_TargetRoleOverrides.at(bk0));
+        }
+    }
 }
 
 if (entity.HasComponent<SnowDeformerComponent>())

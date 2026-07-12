@@ -6,6 +6,7 @@
 #include "OloEngine/Animation/AnimationTransition.h"
 #include "OloEngine/Animation/AnimationParameter.h"
 #include "OloEngine/Animation/BlendNode.h"
+#include "OloEngine/Animation/RootMotion.h"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -38,6 +39,15 @@ namespace OloEngine
             return m_Started;
         }
         [[nodiscard("normalized time needed for exit-time transitions")]] f32 GetCurrentStateNormalizedTime() const;
+
+        // Root-motion delta the last Update() extracted (entity/model space,
+        // already masked per contributing clip). During a cross-fade the source
+        // and target contributions blend with the transition factor — exactly
+        // like the pose. Zero motion when no active clip extracts (issue #631).
+        [[nodiscard("extracted delta must be used")]] const Animation::RootMotionDelta& GetLastRootMotion() const
+        {
+            return m_LastRootMotion;
+        }
         [[nodiscard("state pointer needed for inspection")]] const AnimationState* GetState(const std::string& name) const;
         [[nodiscard("mutable state pointer needed for editing")]] AnimationState* GetMutableState(const std::string& name);
         [[nodiscard("states map needed for enumeration")]] const std::unordered_map<std::string, AnimationState>& GetStates() const
@@ -78,6 +88,9 @@ namespace OloEngine
 
         // Cached for GetCurrentStateNormalizedTime
         AnimationParameterSet m_LastParams;
+
+        // Root-motion delta extracted by the last Update() (see GetLastRootMotion)
+        Animation::RootMotionDelta m_LastRootMotion;
 
         // Cross-fade scratch, reused across Update() calls while m_InTransition
         // is true (issue #445) — Evaluate() always resize()s + fully overwrites

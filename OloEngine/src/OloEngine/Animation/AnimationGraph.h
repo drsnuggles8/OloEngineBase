@@ -6,8 +6,10 @@
 #include "OloEngine/Animation/AnimationParameter.h"
 #include "OloEngine/Animation/AnimationLayer.h"
 #include "OloEngine/Animation/BlendNode.h"
+#include "OloEngine/Animation/RootMotion.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <span>
 #include <string>
 #include <vector>
 #include <unordered_set>
@@ -24,10 +26,23 @@ namespace OloEngine
         // bindPoseLocal supplies each bone's rest local transform so bones a clip
         // does not animate fall back to bind pose rather than identity (#543); it
         // may be empty (identity fallback). boneNames drives by-name channel mapping.
+        // bindPoseGlobals/preTransforms feed root-motion model-space conversion
+        // (issue #631); empty spans degrade that conversion to identity.
         void Update(f32 dt, sizet boneCount, std::vector<glm::mat4>& outFinalBoneMatrices,
                     const std::vector<std::string>& boneNames,
                     const std::vector<i32>& parentIndices,
-                    const std::vector<BoneTransform>& bindPoseLocal);
+                    const std::vector<BoneTransform>& bindPoseLocal,
+                    std::span<const glm::mat4> bindPoseGlobals = {},
+                    std::span<const glm::mat4> preTransforms = {});
+
+        // Root-motion delta the last Update() extracted from the BASE layer
+        // (layer 0, Override mode), scaled by the layer weight. Additive and
+        // upper layers do not contribute root motion by design — matching the
+        // usual layered-locomotion convention (issue #631).
+        [[nodiscard("extracted delta must be used")]] const Animation::RootMotionDelta& GetLastRootMotion() const
+        {
+            return m_LastRootMotion;
+        }
 
         [[nodiscard("cloned graph must be assigned")]] Ref<AnimationGraph> Clone() const;
         void ResolveClips(const std::vector<Ref<AnimationClip>>& availableClips);
@@ -82,5 +97,8 @@ namespace OloEngine
         // step is not marked .Parallelizable(), so this is safe without locking.
         std::vector<BoneTransform> m_ScratchAccumulated;
         std::vector<BoneTransform> m_ScratchLayer;
+
+        // Root-motion delta extracted by the last Update() (see GetLastRootMotion)
+        Animation::RootMotionDelta m_LastRootMotion;
     };
 } // namespace OloEngine

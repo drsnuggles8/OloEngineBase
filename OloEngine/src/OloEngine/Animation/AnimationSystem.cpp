@@ -2,7 +2,10 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Animation/AnimationClip.h"
+#include "OloEngine/Animation/RootMotion.h"
+#include "OloEngine/Animation/FootIKComponent.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
+#include "OloEngine/Animation/IK/FootIKPostPass.h"
 #include "OloEngine/Animation/IK/IKPostPass.h"
 #include "OloEngine/Animation/SpringBoneComponent.h"
 #include "OloEngine/Animation/Procedural/SpringBonePostPass.h"
@@ -42,6 +45,28 @@ namespace OloEngine::Animation
             return result;
         }
 
+        // SampleClipTRS + root-motion in-place pinning: when this bone is the
+        // clip's extraction root, the extracted (masked) motion is removed from
+        // the sample so the mesh doesn't double-move once the delta is applied
+        // to the entity (issue #631). boneIndex is the skeleton bone index.
+        TRSFrame SampleClipTRSPinned(const Ref<AnimationClip>& clip, f32 timeSeconds, const std::string& boneName,
+                                     const BoneAnimation* cachedBoneAnim, sizet boneIndex)
+        {
+            TRSFrame frame = SampleClipTRS(clip, timeSeconds, boneName, cachedBoneAnim);
+            if (clip && clip->RootMotion.ExtractRootMotion &&
+                boneIndex == static_cast<sizet>(clip->RootMotion.RootBoneIndex))
+            {
+                const TRSFrame reference = SampleClipTRS(clip, 0.0f, boneName, cachedBoneAnim);
+                const BoneTransform pinned = RootMotionUtils::MakeInPlaceRootPose(
+                    { frame.translation, frame.rotation, frame.scale },
+                    { reference.translation, reference.rotation, reference.scale },
+                    clip->RootMotion.RootTranslationMask, clip->RootMotion.RootRotationMask);
+                frame.translation = pinned.Translation;
+                frame.rotation = pinned.Rotation;
+            }
+            return frame;
+        }
+
         [[nodiscard("composed matrix must be used")]] glm::mat4 TRSToMatrix(const TRSFrame& trs)
         {
             return glm::translate(glm::mat4(1.0f), trs.translation) *
@@ -52,7 +77,8 @@ namespace OloEngine::Animation
         // Compute the animated local transform for a single bone, blending the
         // current/next clip as needed. Returns nullopt when no active clip
         // animates this bone (the caller keeps the bind-pose transform).
-        std::optional<glm::mat4> EvaluateBoneLocalTransform(const AnimationStateComponent& animState, const std::string& boneName)
+        // boneIndex feeds per-clip root-motion pinning (issue #631).
+        std::optional<glm::mat4> EvaluateBoneLocalTransform(const AnimationStateComponent& animState, const std::string& boneName, sizet boneIndex)
         {
             if (animState.m_Blending && animState.m_NextClip)
             {
@@ -63,8 +89,8 @@ namespace OloEngine::Animation
 
                 if (boneAnimA && boneAnimB)
                 {
-                    TRSFrame trsA = SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnimA);
-                    TRSFrame trsB = SampleClipTRS(animState.m_NextClip, animState.m_NextTime, boneName, boneAnimB);
+                    TRSFrame trsA = SampleClipTRSPinned(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnimA, boneIndex);
+                    TRSFrame trsB = SampleClipTRSPinned(animState.m_NextClip, animState.m_NextTime, boneName, boneAnimB, boneIndex);
 
                     TRSFrame blendedTRS;
                     blendedTRS.translation = glm::mix(trsA.translation, trsB.translation, animState.m_BlendFactor);
@@ -75,11 +101,11 @@ namespace OloEngine::Animation
                 }
                 if (boneAnimA)
                 {
-                    return TRSToMatrix(SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnimA));
+                    return TRSToMatrix(SampleClipTRSPinned(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnimA, boneIndex));
                 }
                 if (boneAnimB)
                 {
-                    return TRSToMatrix(SampleClipTRS(animState.m_NextClip, animState.m_NextTime, boneName, boneAnimB));
+                    return TRSToMatrix(SampleClipTRSPinned(animState.m_NextClip, animState.m_NextTime, boneName, boneAnimB, boneIndex));
                 }
                 // Neither clip animates this bone — keep bind-pose local transform.
                 return std::nullopt;
@@ -89,7 +115,7 @@ namespace OloEngine::Animation
             {
                 if (const auto* boneAnim = animState.m_CurrentClip->FindBoneAnimation(boneName); boneAnim)
                 {
-                    return TRSToMatrix(SampleClipTRS(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnim));
+                    return TRSToMatrix(SampleClipTRSPinned(animState.m_CurrentClip, animState.m_CurrentTime, boneName, boneAnim, boneIndex));
                 }
             }
             // No current clip / bone not animated — keep bind-pose local transform.
@@ -107,7 +133,9 @@ namespace OloEngine::Animation
         const SpringBoneComponent* springBone,
         SpringBoneState* springBoneState,
         const NoiseAnimationComponent* noise,
-        NoiseAnimationState* noiseState)
+        NoiseAnimationState* noiseState,
+        const FootIKComponent* footIK,
+        FootIKStateComponent* footIKState)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -128,26 +156,65 @@ namespace OloEngine::Animation
             return t;
         };
 
+        // Capture pre-advance clip times for root-motion extraction (issue #631);
+        // the wrap/blend bookkeeping below rewrites them.
+        const f32 rootMotionStartCurrent = animState.m_CurrentTime;
+        const f32 rootMotionStartNext = animState.m_NextTime;
+        const bool wasBlending = animState.m_Blending && animState.m_NextClip;
+        const Ref<AnimationClip> blendTargetClip = animState.m_NextClip; // survives the completion swap
+
         animState.m_CurrentTime += deltaTime;
         animState.m_CurrentTime = LoopTime(animState.m_CurrentTime, animState.m_CurrentClip);
 
-        if (animState.m_Blending && animState.m_NextClip)
+        f32 blendAlpha = 0.0f;
+        if (wasBlending)
         {
             animState.m_BlendTime += deltaTime;
             animState.m_NextTime += deltaTime;
             animState.m_NextTime = LoopTime(animState.m_NextTime, animState.m_NextClip);
-            f32 blendAlpha = glm::clamp(animState.m_BlendTime / animState.m_BlendDuration, 0.0f, 1.0f);
+            blendAlpha = glm::clamp(animState.m_BlendTime / animState.m_BlendDuration, 0.0f, 1.0f);
             animState.m_BlendFactor = blendAlpha;
-            if (blendAlpha >= 1.0f)
+        }
+
+        // Extract this tick's root-motion delta (wrap-aware, per clip) before the
+        // blend-completion swap discards the source clip. Each contributing clip
+        // extracts against its own settings; the deltas blend with the same
+        // factor the pose blend uses. This path loops unconditionally (LoopTime),
+        // so extraction is always wrap-aware.
+        {
+            const PoseEvalContext rootMotionCtx{
+                .BoneNames = skeleton.m_BoneNames,
+                .BindPose = {},
+                .ParentIndices = skeleton.m_ParentIndices,
+                .BindPoseGlobals = skeleton.m_BindPoseMatrices,
+                .PreTransforms = skeleton.m_BonePreTransforms
+            };
+            RootMotionDelta delta;
+            if (animState.m_CurrentClip)
             {
-                // Finish blend
-                animState.m_CurrentClip = animState.m_NextClip;
-                animState.m_CurrentTime = animState.m_NextTime;
-                animState.m_NextClip = nullptr;
-                animState.m_Blending = false;
-                animState.m_BlendTime = 0.0f;
-                animState.m_BlendFactor = 0.0f;
+                delta = RootMotionUtils::ExtractConfiguredDelta(
+                    *animState.m_CurrentClip, rootMotionStartCurrent, deltaTime, true, rootMotionCtx);
             }
+            if (wasBlending && blendTargetClip)
+            {
+                const RootMotionDelta nextDelta = RootMotionUtils::ExtractConfiguredDelta(
+                    *blendTargetClip, rootMotionStartNext, deltaTime, true, rootMotionCtx);
+                delta = RootMotionUtils::Blend(delta, nextDelta, animState.m_BlendFactor);
+            }
+            animState.m_RootMotionTranslation = delta.Translation;
+            animState.m_RootMotionRotation = delta.Rotation;
+            animState.m_HasRootMotion = delta.HasMotion;
+        }
+
+        if (wasBlending && blendAlpha >= 1.0f)
+        {
+            // Finish blend
+            animState.m_CurrentClip = animState.m_NextClip;
+            animState.m_CurrentTime = animState.m_NextTime;
+            animState.m_NextClip = nullptr;
+            animState.m_Blending = false;
+            animState.m_BlendTime = 0.0f;
+            animState.m_BlendFactor = 0.0f;
         }
 
         // Reset all local transforms to bind-pose so bones not animated in
@@ -165,7 +232,7 @@ namespace OloEngine::Animation
         auto boneNameCount = skeleton.m_BoneNames.size();
         for (sizet i = 0; i < boneNameCount; ++i)
         {
-            if (auto animatedLocal = EvaluateBoneLocalTransform(animState, skeleton.m_BoneNames[i]); animatedLocal)
+            if (auto animatedLocal = EvaluateBoneLocalTransform(animState, skeleton.m_BoneNames[i], i); animatedLocal)
             {
                 skeleton.m_LocalTransforms[i] = *animatedLocal;
             }
@@ -184,6 +251,13 @@ namespace OloEngine::Animation
         if (ikTarget && (ikTarget->AimIKEnabled || ikTarget->LimbIKEnabled || ikTarget->ChainIKEnabled))
         {
             ApplyIKPostPass(skeleton, *ikTarget, entityWorldTransform);
+        }
+
+        // Ground-adaptation foot/hand IK after aim/limb/chain IK so it corrects
+        // the final intent pose (issue #631 part 3)
+        if (footIK && footIKState && footIK->Enabled)
+        {
+            ApplyFootIKPostPass(skeleton, *footIK, *footIKState, entityWorldTransform, deltaTime);
         }
 
         // Apply spring-bone secondary motion after IK so springs react to the

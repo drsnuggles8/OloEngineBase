@@ -17,19 +17,9 @@ namespace OloEngine
      * It follows the Hazel pattern for compatibility while adapting to OloEngine's
      * AnimationClip-based system.
      */
-    // Root-motion extraction / baking configuration. Bundled into one parameter
-    // object so the AnimationAsset constructor does not take multiple bool
-    // arguments (which are easy to transpose at a call site). Defined at namespace
-    // scope rather than nested so it can be used as a defaulted (`= {}`)
-    // constructor argument — Clang rejects that for a nested aggregate.
-    struct AnimationRootMotionSettings
-    {
-        bool ExtractRootMotion = false;
-        u32 RootBoneIndex = 0;
-        glm::vec3 RootTranslationMask = glm::vec3(1.0f);
-        glm::vec3 RootRotationMask = glm::vec3(1.0f);
-        bool DiscardRootMotion = false;
-    };
+    // AnimationRootMotionSettings now lives in Animation/RootMotion.h (pulled in
+    // via AnimationClip.h) so AnimationClip can carry the runtime copy the play
+    // paths consume (issue #631).
 
     class AnimationAsset : public Asset
     {
@@ -85,10 +75,28 @@ namespace OloEngine
             return m_IsDiscardRootMotion;
         }
 
-        // Animation clip access
+        // Animation clip access. Attaching a clip stamps this asset's authored
+        // root-motion settings onto it — the runtime play paths read the CLIP's
+        // copy, which is what finally consumes IsExtractRootMotion (issue #631).
         void SetAnimationClip(Ref<AnimationClip> clip)
         {
             m_AnimationClip = clip;
+            if (m_AnimationClip)
+            {
+                m_AnimationClip->RootMotion = GetRootMotionSettings();
+            }
+        }
+
+        // The authored settings as one bundle (mirrors the constructor input).
+        AnimationRootMotionSettings GetRootMotionSettings() const
+        {
+            AnimationRootMotionSettings settings;
+            settings.ExtractRootMotion = m_IsExtractRootMotion;
+            settings.RootBoneIndex = m_RootBoneIndex;
+            settings.RootTranslationMask = m_RootTranslationMask;
+            settings.RootRotationMask = m_RootRotationMask;
+            settings.DiscardRootMotion = m_IsDiscardRootMotion;
+            return settings;
         }
         Ref<AnimationClip> GetAnimationClip() const
         {

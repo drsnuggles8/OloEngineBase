@@ -74,25 +74,44 @@ component.
 
 ## Deferred (follow-ups)
 
-Tracked so the next pass knows what's left:
+All four follow-ups have now shipped:
 
 1. ~~**Humanoid bone-enum mapping**~~ — **done** (see "Humanoid bone-enum mapping"
    above): `HumanoidBone` + `HumanoidBoneMap::AutoDetect` +
-   `SkeletonRetargetMap::BuildByHumanoidRole`. Still deferred within this area:
-   per-bone *translation* retargeting via role (item #2), a live runtime
-   `RetargetingComponent` driving role mapping (item #3), and editor UI to pick a
-   role source / hand-correct a mis-detected role (item #4). The auto-mapper is
+   `SkeletonRetargetMap::BuildByHumanoidRole`. The auto-mapper is
    heuristic — Blender/Rigify's numbered-spine metarig is best-effort, and an
    unconventional rig may need `SetBone` overrides.
-2. **Full per-bone translation retargeting** — only the root translation is
-   transferred today; non-root bones take the target rest translation. A
-   bone-length-ratio scheme for limbs (and IK-preserving foot/hand placement) is
-   future work.
-3. **Live (un-baked) runtime retargeting** — a retarget source/option on the
-   clip-play path, driven by an ECS component, so the source clip need not be
-   baked ahead of time. This is where the cross-binding component work lands.
-4. **Editor authoring UI** — choosing a retarget source skeleton/clip per animated
-   entity, with a preview.
+2. ~~**Full per-bone translation retargeting**~~ — **done** (issue #631 part 2):
+   `RetargetOptions::TranslationMode::PerBoneRatio` transfers every mapped
+   non-root bone's translation delta scaled by the target/source bone-length
+   ratio (`|targetRest.Translation| / |sourceRest.Translation|`, falling back to
+   `RootTranslationScale` for a bone resting at its parent origin). Available in
+   both `RetargetLocalPose` and the `RetargetClip` bake; default stays
+   `RootOnly` (the first-slice behavior). IK-preserving foot/hand placement is
+   handled downstream by `FootIKComponent` (docs/design/locomotion.md).
+3. ~~**Live (un-baked) runtime retargeting**~~ — **done** (issue #631 part 2):
+   `RetargetingComponent` (`Animation/Retargeting/RetargetingComponent.h`) +
+   `RetargetingSystem`, running as the `"Retargeting"` gameplay-scheduler node
+   before the animation systems (and in the editor-preview tick). The source rig
+   + clips come from a scene entity (`m_SourceEntity`) or a model file
+   (`m_SourcePath`); the system lazily retargets every source clip onto the
+   entity's skeleton and splices the results into
+   `AnimationStateComponent::m_AvailableClips` under their source names — so
+   plain clip playback, animation graphs (`ResolveClips` by name) and
+   root-motion extraction (the baked clip carries the source's
+   `RootMotion` settings with the root index remapped) all work unchanged. It
+   rebakes only when the authored settings change (settings-equality check
+   against the runtime `RetargetingStateComponent` cache). Full cross-binding:
+   generated tuple/serializers, SaveGame `Serialize()`+`RegisterAll`, Lua
+   usertype, `OLO_PROPERTY` C# glue, editor DrawComponent undo.
+4. ~~**Editor authoring UI**~~ — **done** (issue #631 part 2): the
+   "Animation Retargeting" inspector block (SceneHierarchyPanel) — source
+   entity/model pickers (drag-drop `CONTENT_BROWSER_MODEL`), mode toggles, and a
+   "Target Role Assignments" table showing each bone's `AutoDetect` result with
+   a per-bone override combo (stored in `m_TargetRoleOverrides`, `*` marks a
+   hand-correction). Live preview: the bake also runs in edit mode, so playing a
+   baked clip in the Animation panel previews the retarget without entering
+   Play.
 
 ## Tests
 

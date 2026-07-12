@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "SceneHierarchyPanel.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Animation/Retargeting/HumanoidBone.h"
+#include "OloEngine/Animation/Retargeting/HumanoidBoneMap.h"
 #include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Localization/LocalizationManager.h"
 #include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
@@ -1955,6 +1957,9 @@ namespace OloEngine
             DisplayAddComponentEntry<IKTargetComponent>("IK Target");
             DisplayAddComponentEntry<SpringBoneComponent>("Spring Bones");
             DisplayAddComponentEntry<NoiseAnimationComponent>("Noise Animator");
+            DisplayAddComponentEntry<RetargetingComponent>("Animation Retargeting");
+            DisplayAddComponentEntry<FootIKComponent>("Foot IK (Ground Adaptation)");
+            DisplayAddComponentEntry<LocomotionComponent>("Locomotion Controller");
 
             ImGui::EndPopup();
         }
@@ -7177,6 +7182,190 @@ namespace OloEngine
                     ImGui::DragFloat("Chain Weight", &component.ChainWeight, 0.01f, 0.0f, 1.0f);
 
                     DrawEntityReferenceField("Chain Target Entity", "ChainTarget", component.ChainTargetEntity);
+                } });
+
+        DrawComponent<LocomotionComponent>("Locomotion Controller", entity, [](auto& component)
+                                           {
+                ImGui::Checkbox("Enabled", &component.Enabled);
+                if (component.Enabled)
+                {
+                    ImGui::SeparatorText("Parameters");
+                    ImGui::InputText("Speed Param", &component.SpeedParameter);
+                    ImGui::InputText("Move X Param", &component.DirectionXParameter);
+                    ImGui::InputText("Move Y Param", &component.DirectionYParameter);
+                    ImGui::InputText("Gait Param", &component.GaitParameter);
+                    ImGui::InputText("Turn Param", &component.TurnParameter);
+
+                    ImGui::SeparatorText("Velocity Source");
+                    ImGui::Checkbox("Use Desired Velocity", &component.UseDesiredVelocity);
+                    ImGui::SetItemTooltip("On: gameplay code steers via desiredVelocity (root-motion workflow). Off: velocity is measured from the character controller / transform.");
+
+                    ImGui::SeparatorText("Gait Hysteresis");
+                    ImGui::DragFloat("Walk Enter", &component.WalkEnterSpeed, 0.01f, 0.0f, 100.0f);
+                    ImGui::DragFloat("Walk Exit", &component.WalkExitSpeed, 0.01f, 0.0f, 100.0f);
+                    ImGui::DragFloat("Run Enter", &component.RunEnterSpeed, 0.01f, 0.0f, 100.0f);
+                    ImGui::DragFloat("Run Exit", &component.RunExitSpeed, 0.01f, 0.0f, 100.0f);
+                    ImGui::DragFloat("Speed Smoothing", &component.SpeedSmoothing, 0.1f, 0.0f, 100.0f);
+                    ImGui::DragFloat("Direction Ref Speed", &component.DirectionReferenceSpeed, 0.05f, 0.01f, 100.0f);
+
+                    ImGui::SeparatorText("Stride Warp");
+                    ImGui::Checkbox("Stride Warp", &component.StrideWarp);
+                    if (component.StrideWarp)
+                    {
+                        ImGui::DragFloat("Walk Clip Speed", &component.WalkClipSpeed, 0.05f, 0.0f, 100.0f);
+                        ImGui::DragFloat("Run Clip Speed", &component.RunClipSpeed, 0.05f, 0.0f, 100.0f);
+                        ImGui::DragFloat("Max Stride Scale", &component.MaxStrideScale, 0.01f, 1.0f, 4.0f);
+                    }
+                } });
+
+        DrawComponent<FootIKComponent>("Foot IK (Ground Adaptation)", entity, [this](auto& component)
+                                       {
+                ImGui::Checkbox("Enabled", &component.Enabled);
+                if (component.Enabled)
+                {
+                    ImGui::SeparatorText("Feet");
+                    if (auto left = static_cast<int>(component.LeftFootBone); ImGui::DragInt("Left Foot Bone", &left, 1.0f, 0, 512))
+                        component.LeftFootBone = static_cast<u32>(left);
+                    if (auto right = static_cast<int>(component.RightFootBone); ImGui::DragInt("Right Foot Bone", &right, 1.0f, 0, 512))
+                        component.RightFootBone = static_cast<u32>(right);
+                    if (auto chain = static_cast<int>(component.ChainLength); ImGui::DragInt("Chain Length", &chain, 1.0f, 2, 8))
+                        component.ChainLength = static_cast<u32>(std::max(chain, 2));
+                    ImGui::DragFloat("Foot Height", &component.FootHeight, 0.005f, 0.0f, 1.0f);
+                    ImGui::DragFloat("Raycast Up", &component.RaycastUp, 0.01f, 0.0f, 10.0f);
+                    ImGui::DragFloat("Raycast Down", &component.RaycastDown, 0.01f, 0.0f, 10.0f);
+                    ImGui::DragFloat("Weight", &component.Weight, 0.01f, 0.0f, 1.0f);
+
+                    ImGui::SeparatorText("Pelvis");
+                    ImGui::Checkbox("Adjust Pelvis", &component.AdjustPelvis);
+                    if (component.AdjustPelvis)
+                    {
+                        if (auto pelvis = static_cast<int>(component.PelvisBone); ImGui::DragInt("Pelvis Bone", &pelvis, 1.0f, 0, 512))
+                            component.PelvisBone = static_cast<u32>(pelvis);
+                        ImGui::DragFloat("Max Pelvis Drop", &component.MaxPelvisDrop, 0.01f, 0.0f, 2.0f);
+                        ImGui::DragFloat("Pelvis Lerp Speed", &component.PelvisLerpSpeed, 0.1f, 0.0f, 100.0f);
+                    }
+
+                    ImGui::SeparatorText("Foot Plant");
+                    ImGui::Checkbox("Foot Lock", &component.FootLock);
+                    if (component.FootLock)
+                    {
+                        ImGui::DragFloat("Plant Velocity Threshold", &component.PlantVelocityThreshold, 0.01f, 0.0f, 10.0f);
+                        ImGui::DragFloat("Plant Lift Threshold", &component.PlantLiftThreshold, 0.005f, 0.0f, 1.0f);
+                        ImGui::DragFloat("Unlock Blend Time", &component.UnlockBlendTime, 0.01f, 0.01f, 2.0f);
+                    }
+
+                    ImGui::SeparatorText("Slope");
+                    ImGui::Checkbox("Align Foot To Slope", &component.AlignFootToSlope);
+                    if (component.AlignFootToSlope)
+                    {
+                        ImGui::DragFloat("Max Slope Angle", &component.MaxSlopeAngle, 0.5f, 0.0f, 90.0f);
+                        ImGui::Checkbox("Toe Roll", &component.EnableToeRoll);
+                        if (component.EnableToeRoll)
+                        {
+                            if (auto lt = static_cast<int>(component.LeftToeBone); ImGui::DragInt("Left Toe Bone", &lt, 1.0f, 0, 512))
+                                component.LeftToeBone = static_cast<u32>(lt);
+                            if (auto rt = static_cast<int>(component.RightToeBone); ImGui::DragInt("Right Toe Bone", &rt, 1.0f, 0, 512))
+                                component.RightToeBone = static_cast<u32>(rt);
+                        }
+                    }
+
+                    ImGui::SeparatorText("Hands");
+                    ImGui::Checkbox("Left Hand", &component.LeftHandEnabled);
+                    if (component.LeftHandEnabled)
+                    {
+                        if (auto lh = static_cast<int>(component.LeftHandBone); ImGui::DragInt("Left Hand Bone", &lh, 1.0f, 0, 512))
+                            component.LeftHandBone = static_cast<u32>(lh);
+                        ImGui::DragFloat3("Left Hand Target", glm::value_ptr(component.LeftHandTarget), 0.1f);
+                        DrawEntityReferenceField("Left Hand Target Entity", "FootIKLeftHand", component.LeftHandTargetEntity);
+                    }
+                    ImGui::Checkbox("Right Hand", &component.RightHandEnabled);
+                    if (component.RightHandEnabled)
+                    {
+                        if (auto rh = static_cast<int>(component.RightHandBone); ImGui::DragInt("Right Hand Bone", &rh, 1.0f, 0, 512))
+                            component.RightHandBone = static_cast<u32>(rh);
+                        ImGui::DragFloat3("Right Hand Target", glm::value_ptr(component.RightHandTarget), 0.1f);
+                        DrawEntityReferenceField("Right Hand Target Entity", "FootIKRightHand", component.RightHandTargetEntity);
+                    }
+                    if (auto handChain = static_cast<int>(component.HandChainLength); ImGui::DragInt("Hand Chain Length", &handChain, 1.0f, 2, 8))
+                        component.HandChainLength = static_cast<u32>(std::max(handChain, 2));
+                    ImGui::DragFloat("Hand Weight", &component.HandWeight, 0.01f, 0.0f, 1.0f);
+                } });
+
+        DrawComponent<RetargetingComponent>("Animation Retargeting", entity, [this, entity](auto& component)
+                                            {
+                ImGui::Checkbox("Enabled", &component.Enabled);
+
+                // Source rig + clips: a scene entity (takes precedence) or a model file.
+                DrawEntityReferenceField("Source Entity", "RetargetSourceEntity", component.m_SourceEntity);
+                ImGui::InputText("Source Model", &component.m_SourcePath);
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_MODEL"))
+                    {
+                        component.m_SourcePath = PathFromUtf8Payload(*payload).string();
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+
+                ImGui::Checkbox("Humanoid Role Mapping", &component.UseHumanoidRoles);
+                ImGui::SetItemTooltip("Map bones by anatomical role (AutoDetect + overrides below), falling back to name matching. Off = name matching only.");
+                ImGui::Checkbox("Per-Bone Translation", &component.PerBoneTranslation);
+                ImGui::SetItemTooltip("Transfer non-root translation animation scaled by each bone's length ratio.");
+                ImGui::Checkbox("Transfer Root Translation", &component.TransferRootTranslation);
+                ImGui::DragFloat("Root Translation Scale", &component.RootTranslationScale, 0.01f, 0.0f, 1000.0f, "%.3f");
+                ImGui::SetItemTooltip("Scale for the transferred root translation. 0 = derive automatically from the two rigs' bind-pose extents.");
+
+                // Hand corrections for THIS entity's rig: shows what AutoDetect
+                // assigned each bone and lets a mis-detection be overridden. The
+                // retargeting system rebakes automatically when settings change;
+                // preview by playing a baked clip in the Animation panel (the
+                // bake also runs in edit mode).
+                if (component.UseHumanoidRoles && entity.HasComponent<SkeletonComponent>())
+                {
+                    if (const auto& skeleton = entity.GetComponent<SkeletonComponent>().m_Skeleton;
+                        skeleton && ImGui::TreeNode("Target Role Assignments"))
+                    {
+                        if (m_CachedRoleSkeleton != skeleton.get())
+                        {
+                            m_CachedRoleMap = Animation::HumanoidBoneMap::AutoDetect(*skeleton);
+                            m_CachedRoleSkeleton = skeleton.get();
+                        }
+                        const Animation::HumanoidBoneMap& detected = m_CachedRoleMap;
+                        const auto boneCount = skeleton->m_BoneNames.size();
+                        for (sizet i = 0; i < boneCount; ++i)
+                        {
+                            const std::string& boneName = skeleton->m_BoneNames[i];
+                            ImGui::PushID(static_cast<int>(i));
+
+                            // Effective role: explicit override wins over detection.
+                            const auto overrideIt = component.m_TargetRoleOverrides.find(boneName);
+                            const bool hasOverride = overrideIt != component.m_TargetRoleOverrides.end();
+                            const Animation::HumanoidBone detectedRole = detected.GetRole(static_cast<int>(i));
+                            const i32 effectiveRole = hasOverride ? overrideIt->second : static_cast<i32>(detectedRole);
+
+                            std::string label = (effectiveRole >= 0 && effectiveRole < static_cast<i32>(Animation::HumanoidBoneCount))
+                                                    ? std::string(Animation::ToString(static_cast<Animation::HumanoidBone>(effectiveRole)))
+                                                    : std::string("(none)");
+                            if (hasOverride)
+                                label += " *"; // hand-corrected
+                            if (ImGui::BeginCombo(boneName.c_str(), label.c_str()))
+                            {
+                                if (ImGui::Selectable("(auto)", !hasOverride))
+                                    component.m_TargetRoleOverrides.erase(boneName);
+                                if (ImGui::Selectable("(none)", hasOverride && overrideIt->second < 0))
+                                    component.m_TargetRoleOverrides[boneName] = -1;
+                                for (sizet role = 0; role < Animation::HumanoidBoneCount; ++role)
+                                {
+                                    const bool selected = hasOverride && overrideIt->second == static_cast<i32>(role);
+                                    if (ImGui::Selectable(std::string(Animation::ToString(static_cast<Animation::HumanoidBone>(role))).c_str(), selected))
+                                        component.m_TargetRoleOverrides[boneName] = static_cast<i32>(role);
+                                }
+                                ImGui::EndCombo();
+                            }
+                            ImGui::PopID();
+                        }
+                        ImGui::TreePop();
+                    }
                 } });
 
         DrawComponent<SpringBoneComponent>("Spring Bones", entity, [](auto& component)

@@ -10,6 +10,8 @@ namespace OloEngine
     struct IKTargetComponent;
     struct SpringBoneComponent;
     struct NoiseAnimationComponent;
+    struct FootIKComponent;
+    struct FootIKStateComponent;
 } // namespace OloEngine
 
 namespace OloEngine::Animation
@@ -26,7 +28,9 @@ namespace OloEngine::Animation
         // IK targets from world space to the model space expected by solvers.
         // noise/noiseState enable the procedural noise post-pass (runs *before*
         // IK); springBone/springBoneState enable the spring-bone post-pass (runs
-        // after IK). Each pair must be non-null for its pass to run.
+        // after IK); footIK/footIKState enable the ground-adaptation pass (runs
+        // between IK and spring bones — issue #631 part 3). Each pair must be
+        // non-null for its pass to run.
         static void Update(
             AnimationStateComponent& animState,
             Skeleton& skeleton,
@@ -36,6 +40,8 @@ namespace OloEngine::Animation
             const SpringBoneComponent* springBone = nullptr,
             SpringBoneState* springBoneState = nullptr,
             const NoiseAnimationComponent* noise = nullptr,
-            NoiseAnimationState* noiseState = nullptr);
+            NoiseAnimationState* noiseState = nullptr,
+            const FootIKComponent* footIK = nullptr,
+            FootIKStateComponent* footIKState = nullptr);
     };
 } // namespace OloEngine::Animation

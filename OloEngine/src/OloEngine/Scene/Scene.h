@@ -42,6 +42,8 @@ namespace OloEngine
     struct IKTargetComponent;
     struct SpringBoneComponent;
     struct NoiseAnimationComponent;
+    struct FootIKComponent;
+    struct FootIKStateComponent;
     struct AudioSoundGraphComponent;
     struct ClothComponent;
     class DialogueSystem;
@@ -210,6 +212,15 @@ namespace OloEngine
         // NoiseAnimationStateComponent exists, writing a pointer to its state
         // into `outState`.
         const NoiseAnimationComponent* ResolveNoiseAnimation(Entity entity, Animation::NoiseAnimationState*& outState);
+
+        // Resolve ground-adaptation foot/hand IK for the entity (issue #631
+        // part 3): lazily adds the runtime FootIKStateComponent, refreshes the
+        // per-foot ground cache from Jolt raycasts (probing from LAST tick's
+        // foot pose — the animation systems run pre-PhysicsKick where Jolt
+        // queries are legal), and resolves hand target entity overrides.
+        // Returns nullptr (outState untouched) when the entity has no enabled
+        // FootIKComponent.
+        const FootIKComponent* ResolveFootIK(Entity entity, FootIKStateComponent*& outState);
 
         [[nodiscard("Store this!")]] bool IsRunning() const
         {
@@ -797,8 +808,11 @@ namespace OloEngine
         void UpdateScripts(Timestep ts);         // C# + Lua entity OnUpdate
         void UpdateCinematics(Timestep ts);      // authored sequence playback
         void UpdateDialogue(Timestep ts);        // dialogue runner
+        void UpdateLocomotion(Timestep ts);      // velocity->animation-parameter controller (issue #631)
+        void UpdateRetargeting(Timestep ts);     // live-retarget clip bake (issue #631)
         void UpdateAnimation(Timestep ts);       // skeletal + morph-only sampling
         void UpdateAnimationGraphs(Timestep ts); // animation state machines
+        void UpdateRootMotion(Timestep ts);      // apply extracted root-motion deltas (issue #631)
         void EvaluateMorphTargets();             // deform meshes from morph weights
         void UpdateNavigation(Timestep ts);      // pathfinding / crowds
         void UpdatePerception(Timestep ts);      // AI sight sensing
