@@ -12,6 +12,18 @@ namespace OloEngine
 {
     struct NavAgentComponent;
 
+    // Mirrors the terminal states NavigationSystem's manual follower already
+    // exposes via NavAgentComponent::m_TargetUnreachable (see FindPathResult),
+    // so the crowd path can surface the same observable contract to consumers
+    // (BTMoveTo / scripts) regardless of which follower an agent is using.
+    enum class CrowdTargetState
+    {
+        None,        // no active move request
+        Pending,     // path/queue request in flight (REQUESTING / WAITING_FOR_*)
+        Valid,       // has a valid path leading to the exact requested position
+        Unreachable, // DetourCrowd failed to path, or only reached a partial/nearest point
+    };
+
     class CrowdManager
     {
       public:
@@ -26,7 +38,10 @@ namespace OloEngine
 
         i32 AddAgent(const glm::vec3& position, const NavAgentComponent& params);
         void RemoveAgent(i32 agentId);
-        void SetAgentTarget(i32 agentId, const glm::vec3& target);
+        // Returns false if the target is not near any navmesh polygon (no move
+        // request was issued at all) — the crowd equivalent of FindPathResult::Failed.
+        bool SetAgentTarget(i32 agentId, const glm::vec3& target);
+        [[nodiscard]] CrowdTargetState GetAgentTargetState(i32 agentId) const;
         void Update(f32 dt);
 
         [[nodiscard]] bool GetAgentPosition(i32 agentId, glm::vec3& outPosition) const;

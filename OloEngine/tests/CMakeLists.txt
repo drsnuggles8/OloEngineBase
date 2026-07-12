@@ -610,6 +610,7 @@ add_executable(OloEngine-Tests
 		Functional/Navigation/NavMeshOffMeshLinkBridgesGapTest.cpp
 		Functional/Navigation/NavAgentUnreachableTargetTerminatesTest.cpp
 		Functional/Navigation/NavMeshGeneratorBoundsValidationTest.cpp
+		Functional/Navigation/CrowdAvoidancePreventsOverlapTest.cpp
 		Functional/Scripting/LuaRaycastHitsPhysicsBodyTest.cpp
 		Functional/Scripting/LuaCompletesQuestViaIncrementObjectiveTest.cpp
 		Functional/Dialogue/DialogueAdvanceMovesToNextNodeTest.cpp

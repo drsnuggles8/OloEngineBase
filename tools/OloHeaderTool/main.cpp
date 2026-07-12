@@ -972,9 +972,9 @@ static const std::set<std::string> kComponentsCustomOnAdd = {
 // Components whose Scene::OnComponentRemoved<T> specialization is HAND-WRITTEN in
 // Scene.cpp because removal must release an external resource (a Jolt body /
 // constraint / vehicle / ragdoll / character-controller, a Box2D body, an audio
-// SoundGraph source, a video decode thread) or drop cached runtime state (the
-// SpringBone / NoiseAnimation state component). Every OTHER `struct *Component`
-// gets a generated no-op `OLO_ON_COMPONENT_REMOVED_NOOP(T)`.
+// SoundGraph source, a video decode thread, a DetourCrowd agent slot) or drop
+// cached runtime state (the SpringBone / NoiseAnimation state component). Every
+// OTHER `struct *Component` gets a generated no-op `OLO_ON_COMPONENT_REMOVED_NOOP(T)`.
 //
 // See kComponentsCustomOnAdd for why this is its own set and how it self-checks
 // (a missing specialization fails the OloEditor link via RemoveComponent<T>; a
@@ -993,6 +993,7 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
     "SpringBoneComponent",
     "NoiseAnimationComponent",
     "TerrainComponent",
+    "NavAgentComponent",
 };
 
 // Components that ARE all-trivial-fields (every data member is a primitive /
