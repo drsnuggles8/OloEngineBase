@@ -3,6 +3,7 @@
 #include "Platform/OpenGL/OpenGLContext.h"
 #include "Platform/OpenGL/OpenGLDebug.h"
 #include "Platform/OpenGL/OpenGLProgramBinaryCache.h"
+#include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
@@ -436,7 +437,12 @@ namespace OloEngine
         u32 programId = m_RendererID;
         UnregisterGLProgramLabel(programId);
         FrameResourceManager::Get().SubmitForDeletion([programId]()
-                                                      { glDeleteProgram(programId); });
+                                                      {
+                                                          // See Utils::UnbindProgramIfCurrent (issue #625): this
+                                                          // program may still be the bound program by the time this
+                                                          // deferred deletion runs.
+                                                          Utils::UnbindProgramIfCurrent(programId);
+                                                          glDeleteProgram(programId); });
     }
 
     void OpenGLShader::InitializeResourceRegistry(const Ref<Shader>& shaderRef)
@@ -1681,7 +1687,12 @@ namespace OloEngine
 
             UnregisterGLProgramLabel(oldProgram);
             FrameResourceManager::Get().SubmitForDeletion([oldProgram]()
-                                                          { glDeleteProgram(oldProgram); });
+                                                          {
+                                                              // See Utils::UnbindProgramIfCurrent (issue #625): the
+                                                              // reloaded-away program may still be bound by the time
+                                                              // this deferred deletion runs.
+                                                              Utils::UnbindProgramIfCurrent(oldProgram);
+                                                              glDeleteProgram(oldProgram); });
         }
     }
 
