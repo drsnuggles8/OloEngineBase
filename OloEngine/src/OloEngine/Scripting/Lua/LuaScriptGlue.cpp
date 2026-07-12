@@ -189,6 +189,9 @@ namespace OloEngine
             REGISTER_COMPONENT(NetworkIdentityComponent),
             REGISTER_COMPONENT(IKTargetComponent),
             REGISTER_COMPONENT(SpringBoneComponent),
+            REGISTER_COMPONENT(RetargetingComponent),
+            REGISTER_COMPONENT(FootIKComponent),
+            REGISTER_COMPONENT(LocomotionComponent),
             REGISTER_COMPONENT(NoiseAnimationComponent),
             REGISTER_COMPONENT(NameplateComponent),
             REGISTER_COMPONENT(InventoryComponent),
@@ -2051,6 +2054,69 @@ namespace OloEngine
                                               "weight", sol::property([](const SpringBoneComponent& c)
                                                                       { return c.Weight; }, [](SpringBoneComponent& c, f32 v)
                                                                       { if (std::isfinite(v)) c.Weight = std::clamp(v, 0.0f, 1.0f); }));
+
+        // --- LocomotionComponent (issue #631 part 4) ---
+        // Scripts steer a root-motion character by setting desiredVelocity and
+        // useDesiredVelocity; everything else is authored tuning.
+        lua.new_usertype<LocomotionComponent>("LocomotionComponent",
+                                              "enabled", &LocomotionComponent::Enabled,
+                                              "useDesiredVelocity", &LocomotionComponent::UseDesiredVelocity,
+                                              "desiredVelocity", sol::property([](const LocomotionComponent& c)
+                                                                               { return c.DesiredVelocity; }, [](LocomotionComponent& c, const glm::vec3& v)
+                                                                               { if (IsFiniteVec3(v)) c.DesiredVelocity = v; }),
+                                              "strideWarp", &LocomotionComponent::StrideWarp,
+                                              "walkEnterSpeed", sol::property([](const LocomotionComponent& c)
+                                                                              { return c.WalkEnterSpeed; }, [](LocomotionComponent& c, f32 v)
+                                                                              { if (std::isfinite(v) && v >= 0.0f) c.WalkEnterSpeed = v; }),
+                                              "runEnterSpeed", sol::property([](const LocomotionComponent& c)
+                                                                             { return c.RunEnterSpeed; }, [](LocomotionComponent& c, f32 v)
+                                                                             { if (std::isfinite(v) && v >= 0.0f) c.RunEnterSpeed = v; }));
+
+        // --- FootIKComponent (issue #631 part 3) ---
+        // Ground-adaptation knobs + hand IK targets; runtime state stays native.
+        lua.new_usertype<FootIKComponent>("FootIKComponent",
+                                          "enabled", &FootIKComponent::Enabled,
+                                          "leftFootBone", &FootIKComponent::LeftFootBone,
+                                          "rightFootBone", &FootIKComponent::RightFootBone,
+                                          "footLock", &FootIKComponent::FootLock,
+                                          "adjustPelvis", &FootIKComponent::AdjustPelvis,
+                                          "alignFootToSlope", &FootIKComponent::AlignFootToSlope,
+                                          "weight", sol::property([](const FootIKComponent& c)
+                                                                  { return c.Weight; }, [](FootIKComponent& c, f32 v)
+                                                                  { if (std::isfinite(v)) c.Weight = std::clamp(v, 0.0f, 1.0f); }),
+                                          "leftHandEnabled", &FootIKComponent::LeftHandEnabled,
+                                          "leftHandTarget", sol::property([](const FootIKComponent& c)
+                                                                          { return c.LeftHandTarget; }, [](FootIKComponent& c, const glm::vec3& v)
+                                                                          { if (IsFiniteVec3(v)) c.LeftHandTarget = v; }),
+                                          "leftHandTargetEntity", sol::property([](const FootIKComponent& c)
+                                                                                { return static_cast<u64>(c.LeftHandTargetEntity); }, [](FootIKComponent& c, u64 v)
+                                                                                { c.LeftHandTargetEntity = UUID(v); }),
+                                          "rightHandEnabled", &FootIKComponent::RightHandEnabled,
+                                          "rightHandTarget", sol::property([](const FootIKComponent& c)
+                                                                           { return c.RightHandTarget; }, [](FootIKComponent& c, const glm::vec3& v)
+                                                                           { if (IsFiniteVec3(v)) c.RightHandTarget = v; }),
+                                          "rightHandTargetEntity", sol::property([](const FootIKComponent& c)
+                                                                                 { return static_cast<u64>(c.RightHandTargetEntity); }, [](FootIKComponent& c, u64 v)
+                                                                                 { c.RightHandTargetEntity = UUID(v); }),
+                                          "handWeight", sol::property([](const FootIKComponent& c)
+                                                                      { return c.HandWeight; }, [](FootIKComponent& c, f32 v)
+                                                                      { if (std::isfinite(v)) c.HandWeight = std::clamp(v, 0.0f, 1.0f); }));
+
+        // --- RetargetingComponent (issue #631 part 2) ---
+        // Authored settings only; the baked-clip cache is runtime state. UUID
+        // bridged as u64 like the IKTargetComponent target entities.
+        lua.new_usertype<RetargetingComponent>("RetargetingComponent",
+                                               "enabled", &RetargetingComponent::Enabled,
+                                               "sourcePath", &RetargetingComponent::m_SourcePath,
+                                               "sourceEntity", sol::property([](const RetargetingComponent& c)
+                                                                             { return static_cast<u64>(c.m_SourceEntity); }, [](RetargetingComponent& c, u64 v)
+                                                                             { c.m_SourceEntity = UUID(v); }),
+                                               "useHumanoidRoles", &RetargetingComponent::UseHumanoidRoles,
+                                               "perBoneTranslation", &RetargetingComponent::PerBoneTranslation,
+                                               "transferRootTranslation", &RetargetingComponent::TransferRootTranslation,
+                                               "rootTranslationScale", sol::property([](const RetargetingComponent& c)
+                                                                                     { return c.RootTranslationScale; }, [](RetargetingComponent& c, f32 v)
+                                                                                     { if (std::isfinite(v)) c.RootTranslationScale = std::clamp(v, 0.0f, 1000.0f); }));
 
         // --- NoiseAnimationComponent ---
         lua.new_usertype<NoiseAnimationComponent>("NoiseAnimationComponent",

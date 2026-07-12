@@ -6,6 +6,8 @@
 #include "OloEngine/Animation/AnimationGraph.h"
 #include "OloEngine/Animation/AnimationParameter.h"
 
+#include <glm/gtc/quaternion.hpp>
+
 namespace OloEngine
 {
     struct AnimationGraphComponent
@@ -25,6 +27,14 @@ namespace OloEngine
         // copy like RuntimeGraph.
         std::vector<BoneTransform> BindPoseLocalTRS;
 
+        // Runtime, per-tick (not serialized): the masked root-motion delta the
+        // last graph update extracted from the base layer, in entity/model
+        // space. Overwritten every update; consumed and cleared by
+        // Scene::UpdateRootMotion on the runtime path (issue #631).
+        glm::vec3 RootMotionTranslation = glm::vec3(0.0f);
+        glm::quat RootMotionRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+        bool HasRootMotion = false;
+
         AnimationGraphComponent() = default;
 
         // Copying shares the RuntimeGraph Ref which causes aliasing.
@@ -43,6 +53,9 @@ namespace OloEngine
                 RuntimeGraph = nullptr;
                 Parameters = other.Parameters;
                 BindPoseLocalTRS.clear();
+                RootMotionTranslation = glm::vec3(0.0f);
+                RootMotionRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+                HasRootMotion = false;
             }
             return *this;
         }

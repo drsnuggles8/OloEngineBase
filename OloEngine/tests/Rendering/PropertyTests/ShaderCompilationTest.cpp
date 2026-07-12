@@ -1,7 +1,7 @@
 // =============================================================================
 // ShaderCompilationTest.cpp
 //
-// Layer-2 *catch-all* test: every production `.glsl` file under
+// Layer-2 *catch-all* test: every production `.glsl` / `.comp` file under
 // `OloEditor/assets/shaders/` (excluding `include/` headers and the
 // `tests/` compute-shader harnesses) is preprocessed and handed to
 // shaderc with the **Vulkan SPIR-V target environment** — exactly the
@@ -226,7 +226,8 @@ namespace OloEngine::Tests
             {
                 if (!entry.is_regular_file())
                     continue;
-                if (entry.path().extension() != ".glsl")
+                const fs::path ext = entry.path().extension();
+                if (ext != ".glsl" && ext != ".comp")
                     continue;
 
                 // Skip include/ (headers, no #type stages) and tests/
@@ -253,7 +254,7 @@ namespace OloEngine::Tests
             << fs::current_path().generic_string() << ")";
 
         const auto shaders = EnumerateProductionShaders(root);
-        ASSERT_FALSE(shaders.empty()) << "No .glsl files found under " << root;
+        ASSERT_FALSE(shaders.empty()) << "No .glsl/.comp files found under " << root;
 
         shaderc::Compiler compiler;
         ASSERT_TRUE(compiler.IsValid());
@@ -281,7 +282,26 @@ namespace OloEngine::Tests
             for (const auto& [kind, stageSource] : stages)
             {
                 shaderc::CompileOptions options;
-                options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
+                // Compute stages go through OpenGLComputeShader at runtime
+                // (native GLSL compile, no shaderc/SPIR-V step), which
+                // permits plain `uniform` declarations outside a block with
+                // no explicit `layout(location=L)` — legal core GLSL (the
+                // driver resolves locations via `glGetUniformLocation` at
+                // link time) that the Vulkan SPIR-V target env rejects
+                // outright and the OpenGL SPIR-V target env (ARB_gl_spirv
+                // semantics) requires an explicit location for. Auto-mapped
+                // locations under the OpenGL target env accept that syntax
+                // while still producing SPIR-V, the closest headless
+                // approximation of the real compile path.
+                if (kind == shaderc_glsl_compute_shader)
+                {
+                    options.SetTargetEnvironment(shaderc_target_env_opengl, shaderc_env_version_opengl_4_5);
+                    options.SetAutoMapLocations(true);
+                }
+                else
+                {
+                    options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
+                }
                 options.SetPreserveBindings(true);
                 options.SetAutoBindUniforms(false);
                 options.SetSuppressWarnings();

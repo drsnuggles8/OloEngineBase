@@ -363,6 +363,85 @@ namespace OloEngine
 		internal static extern void FluidKillVolumeComponent_SetEnabled(ulong entityID, bool value);
 		#endregion
 
+		#region FootIKComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FootIKComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint FootIKComponent_GetLeftFootBone(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetLeftFootBone(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint FootIKComponent_GetRightFootBone(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetRightFootBone(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint FootIKComponent_GetChainLength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetChainLength(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FootIKComponent_GetEnableToeRoll(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetEnableToeRoll(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint FootIKComponent_GetLeftToeBone(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetLeftToeBone(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint FootIKComponent_GetRightToeBone(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetRightToeBone(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float FootIKComponent_GetFootHeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetFootHeight(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FootIKComponent_GetAdjustPelvis(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetAdjustPelvis(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint FootIKComponent_GetPelvisBone(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetPelvisBone(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FootIKComponent_GetFootLock(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetFootLock(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FootIKComponent_GetAlignFootToSlope(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetAlignFootToSlope(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float FootIKComponent_GetWeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetWeight(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FootIKComponent_GetLeftHandEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetLeftHandEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint FootIKComponent_GetLeftHandBone(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetLeftHandBone(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FootIKComponent_GetRightHandEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetRightHandEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint FootIKComponent_GetRightHandBone(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetRightHandBone(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint FootIKComponent_GetHandChainLength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetHandChainLength(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float FootIKComponent_GetHandWeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FootIKComponent_SetHandWeight(ulong entityID, float value);
+		#endregion
+
 		#region LightProbeComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float LightProbeComponent_GetInfluenceRadius(ulong entityID);
@@ -399,6 +478,25 @@ namespace OloEngine
 		internal static extern bool LightProbeVolumeComponent_GetActive(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void LightProbeVolumeComponent_SetActive(ulong entityID, bool value);
+		#endregion
+
+		#region LocomotionComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool LocomotionComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LocomotionComponent_SetEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool LocomotionComponent_GetUseDesiredVelocity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LocomotionComponent_SetUseDesiredVelocity(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LocomotionComponent_GetDesiredVelocity(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LocomotionComponent_SetDesiredVelocity(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool LocomotionComponent_GetStrideWarp(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LocomotionComponent_SetStrideWarp(ulong entityID, bool value);
 		#endregion
 
 		#region MaterialComponent
@@ -892,6 +990,29 @@ namespace OloEngine
 		internal static extern bool ReflectionProbeComponent_GetActive(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void ReflectionProbeComponent_SetActive(ulong entityID, bool value);
+		#endregion
+
+		#region RetargetingComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool RetargetingComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void RetargetingComponent_SetEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool RetargetingComponent_GetUseHumanoidRoles(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void RetargetingComponent_SetUseHumanoidRoles(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool RetargetingComponent_GetPerBoneTranslation(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void RetargetingComponent_SetPerBoneTranslation(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool RetargetingComponent_GetTransferRootTranslation(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void RetargetingComponent_SetTransferRootTranslation(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float RetargetingComponent_GetRootTranslationScale(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void RetargetingComponent_SetRootTranslationScale(ulong entityID, float value);
 		#endregion
 
 		#region Rigidbody2DComponent

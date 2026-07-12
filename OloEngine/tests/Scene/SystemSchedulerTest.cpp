@@ -247,8 +247,11 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
     const std::vector<std::string> expected{
         "Scripts",
         "Cinematics",
+        "Locomotion",
+        "Retargeting",
         "Animation",
         "AnimationGraph",
+        "RootMotionApply",
         "MorphEval",
         "Fluid",
         "PhysicsKick",
@@ -300,6 +303,26 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     EXPECT_TRUE(sched.DependsOn("Animation", "Cinematics")); // animation sees posed entities
     EXPECT_TRUE(sched.DependsOn("MorphEval", "Animation"));  // morph eval after weight writers
     EXPECT_TRUE(sched.DependsOn("MorphEval", "AnimationGraph"));
+
+    // Locomotion seam (issue #631 part 4): the graph evaluation consumes the
+    // parameters the controller writes (RAW on AnimationParams).
+    EXPECT_TRUE(sched.DependsOn("AnimationGraph", "Locomotion"));
+
+    // Live-retargeting seam (issue #631 part 2): both animation systems sample
+    // the clip lists the bake writes (RAW on AnimationClips).
+    EXPECT_TRUE(sched.DependsOn("Animation", "Retargeting"));
+    EXPECT_TRUE(sched.DependsOn("AnimationGraph", "Retargeting"));
+
+    // Root-motion seam (issue #631): the applier consumes the deltas both
+    // animation systems publish (RAW on RootMotion), and PhysicsKick's
+    // transform read is ordered after the applier's transform write — that is
+    // the edge guaranteeing a character controller integrates THIS tick's
+    // extracted motion, not last tick's.
+    EXPECT_TRUE(sched.DependsOn("RootMotionApply", "Animation"));
+    EXPECT_TRUE(sched.DependsOn("RootMotionApply", "AnimationGraph"));
+    EXPECT_TRUE(sched.DependsOn("PhysicsKick", "RootMotionApply"));
+    EXPECT_TRUE(sched.DependsOn("PhysicsFence", "RootMotionApply"));
+    EXPECT_TRUE(sched.DependsOn("PropagateTransforms", "RootMotionApply"));
 
     // Physics kick/fence: the kick consumes posed transforms (buoyancy +
     // character/vehicle phases), the fence joins the world step and overwrites

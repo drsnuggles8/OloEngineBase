@@ -606,3 +606,144 @@ TEST(AnimationRetarget, RetargetClipViaHumanoidRoleDrivesDisjointTarget)
     const BoneTransform hips = BlendUtils::DecomposeMatrix(target->m_LocalTransforms[0]);
     ExpectVec3Near(hips.Translation, glm::vec3(0.0f, 3.0f, 0.6f), 1e-4f, "role-retargeted scaled root translation");
 }
+
+// -----------------------------------------------------------------------------
+// Per-bone translation retargeting (TranslationMode::PerBoneRatio) — issue #631
+// part 2 / deferral #2: a mapped non-root bone's translation delta carries over
+// scaled by the target/source bone-length ratio.
+// -----------------------------------------------------------------------------
+TEST(AnimationRetarget, PerBoneRatioTransfersScaledLimbTranslation)
+{
+    // One root + one child bone on each side; the target's child bone is twice
+    // as long (rest translation (0,2,0) vs (0,1,0) → ratio 2).
+    const std::vector<BoneTransform> srcRest = { MakeBone(glm::vec3(0.0f)), MakeBone(glm::vec3(0.0f, 1.0f, 0.0f)) };
+    const std::vector<BoneTransform> tgtRest = { MakeBone(glm::vec3(0.0f)), MakeBone(glm::vec3(0.0f, 2.0f, 0.0f)) };
+
+    SkeletonRetargetMap map;
+    map.SetBoneMapping(0, 0);
+    map.SetBoneMapping(1, 1);
+
+    // The source child stretches by (0, 0.5, 0.25) from its rest.
+    std::vector<BoneTransform> srcPose = srcRest;
+    srcPose[1].Translation = glm::vec3(0.0f, 1.5f, 0.25f);
+
+    RetargetOptions options;
+    options.Translation = RetargetOptions::TranslationMode::PerBoneRatio;
+
+    std::vector<BoneTransform> out(2);
+    AnimationRetargeter::RetargetLocalPose(map, srcPose, srcRest, tgtRest, options, out);
+
+    // ratio 2 → target child = rest (0,2,0) + 2 * (0,0.5,0.25) = (0,3,0.5).
+    ExpectVec3Near(out[1].Translation, glm::vec3(0.0f, 3.0f, 0.5f), 1e-4f,
+                   "per-bone ratio scales the child translation delta");
+}
+
+TEST(AnimationRetarget, PerBoneRatioFallsBackToRootScaleForZeroLengthSourceBone)
+{
+    // Source child rests at its parent origin — no meaningful length ratio; the
+    // transfer must fall back to RootTranslationScale instead of dividing by ~0.
+    const std::vector<BoneTransform> srcRest = { MakeBone(glm::vec3(0.0f)), MakeBone(glm::vec3(0.0f)) };
+    const std::vector<BoneTransform> tgtRest = { MakeBone(glm::vec3(0.0f)), MakeBone(glm::vec3(0.0f, 2.0f, 0.0f)) };
+
+    SkeletonRetargetMap map;
+    map.SetBoneMapping(1, 1);
+
+    std::vector<BoneTransform> srcPose = srcRest;
+    srcPose[1].Translation = glm::vec3(0.0f, 0.5f, 0.0f);
+
+    RetargetOptions options;
+    options.Translation = RetargetOptions::TranslationMode::PerBoneRatio;
+    options.RootTranslationScale = 3.0f;
+
+    std::vector<BoneTransform> out(2);
+    AnimationRetargeter::RetargetLocalPose(map, srcPose, srcRest, tgtRest, options, out);
+
+    ExpectVec3Near(out[1].Translation, glm::vec3(0.0f, 3.5f, 0.0f), 1e-4f,
+                   "zero-length source bone falls back to RootTranslationScale");
+}
+
+TEST(AnimationRetarget, DefaultRootOnlyModeKeepsTargetRestTranslation)
+{
+    // The pre-#631 behavior is the default: non-root mapped bones keep the
+    // target rest translation even when the source bone translates.
+    const std::vector<BoneTransform> srcRest = { MakeBone(glm::vec3(0.0f)), MakeBone(glm::vec3(0.0f, 1.0f, 0.0f)) };
+    const std::vector<BoneTransform> tgtRest = { MakeBone(glm::vec3(0.0f)), MakeBone(glm::vec3(0.0f, 2.0f, 0.0f)) };
+
+    SkeletonRetargetMap map;
+    map.SetBoneMapping(1, 1);
+
+    std::vector<BoneTransform> srcPose = srcRest;
+    srcPose[1].Translation = glm::vec3(0.0f, 1.5f, 0.25f);
+
+    std::vector<BoneTransform> out(2);
+    AnimationRetargeter::RetargetLocalPose(map, srcPose, srcRest, tgtRest, {}, out);
+
+    ExpectVec3Near(out[1].Translation, glm::vec3(0.0f, 2.0f, 0.0f), 1e-4f,
+                   "RootOnly mode preserves target proportions");
+}
+
+TEST(AnimationRetarget, RetargetClipPerBoneRatioBakesScaledTranslationKeys)
+{
+    auto source = BuildSkeleton({ "Hips", "Leg" }, { -1, 0 },
+                                { MakeBone(glm::vec3(0.0f)), MakeBone(glm::vec3(0.0f, 1.0f, 0.0f)) });
+    auto target = BuildSkeleton({ "Hips", "Leg" }, { -1, 0 },
+                                { MakeBone(glm::vec3(0.0f)), MakeBone(glm::vec3(0.0f, 2.0f, 0.0f)) });
+
+    SkeletonRetargetMap map = SkeletonRetargetMap::BuildByName(*source, *target);
+
+    auto clip = Ref<AnimationClip>::Create();
+    clip->Name = "Stretch";
+    clip->Duration = 1.0f;
+    BoneAnimation leg;
+    leg.BoneName = "Leg";
+    leg.PositionKeys.push_back({ 0.0, glm::vec3(0.0f, 1.0f, 0.0f) }); // rest
+    leg.PositionKeys.push_back({ 1.0, glm::vec3(0.0f, 1.5f, 0.0f) }); // +0.5 stretch
+    clip->BoneAnimations.push_back(std::move(leg));
+    clip->InitializeBoneCache();
+
+    RetargetOptions options;
+    options.Translation = RetargetOptions::TranslationMode::PerBoneRatio;
+
+    Ref<AnimationClip> baked = AnimationRetargeter::RetargetClip(clip, *source, *target, map, options);
+    ASSERT_TRUE(baked);
+    const BoneAnimation* bakedLeg = baked->FindBoneAnimation("Leg");
+    ASSERT_TRUE(bakedLeg);
+    ASSERT_EQ(bakedLeg->PositionKeys.size(), 2u);
+    // ratio 2 → key 1 = rest (0,2,0) + 2 * (0,0.5,0) = (0,3,0).
+    ExpectVec3Near(bakedLeg->PositionKeys[1].Position, glm::vec3(0.0f, 3.0f, 0.0f), 1e-4f,
+                   "baked translation key scaled by the bone-length ratio");
+}
+
+// -----------------------------------------------------------------------------
+// Root-motion settings carry across a clip bake (issue #631 parts 1+2 interlock):
+// the baked clip keeps extraction working with the root bone index remapped
+// into the TARGET skeleton.
+// -----------------------------------------------------------------------------
+TEST(AnimationRetarget, RetargetClipCarriesRootMotionSettingsWithRemappedRoot)
+{
+    // Source root is bone 1 in the SOURCE ordering; the target orders its bones
+    // differently so the mapped root lands on target index 0.
+    auto source = BuildSkeleton({ "Extra", "Hips" }, { -1, 0 },
+                                { MakeBone(glm::vec3(0.0f)), MakeBone(glm::vec3(0.0f)) });
+    auto target = BuildSkeleton({ "Hips", "Extra" }, { -1, 0 },
+                                { MakeBone(glm::vec3(0.0f)), MakeBone(glm::vec3(0.0f)) });
+
+    SkeletonRetargetMap map = SkeletonRetargetMap::BuildByName(*source, *target);
+
+    auto clip = Ref<AnimationClip>::Create();
+    clip->Name = "Walk";
+    clip->Duration = 1.0f;
+    BoneAnimation hips;
+    hips.BoneName = "Hips";
+    hips.PositionKeys.push_back({ 0.0, glm::vec3(0.0f) });
+    hips.PositionKeys.push_back({ 1.0, glm::vec3(0.0f, 0.0f, 1.0f) });
+    clip->BoneAnimations.push_back(std::move(hips));
+    clip->InitializeBoneCache();
+    clip->RootMotion.ExtractRootMotion = true;
+    clip->RootMotion.RootBoneIndex = 1; // "Hips" in SOURCE indices
+
+    Ref<AnimationClip> baked = AnimationRetargeter::RetargetClip(clip, *source, *target, map, {});
+    ASSERT_TRUE(baked);
+    EXPECT_TRUE(baked->RootMotion.ExtractRootMotion);
+    EXPECT_EQ(baked->RootMotion.RootBoneIndex, 0u) << "root bone index remapped into target indices";
+}

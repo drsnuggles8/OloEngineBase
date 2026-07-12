@@ -547,6 +547,123 @@ namespace OloEngine
 		}
 	}
 
+	public partial class FootIKComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.FootIKComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public uint LeftFootBone
+		{
+			get => InternalCalls.FootIKComponent_GetLeftFootBone(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetLeftFootBone(Entity.ID, value);
+		}
+
+		public uint RightFootBone
+		{
+			get => InternalCalls.FootIKComponent_GetRightFootBone(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetRightFootBone(Entity.ID, value);
+		}
+
+		public uint ChainLength
+		{
+			get => InternalCalls.FootIKComponent_GetChainLength(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetChainLength(Entity.ID, value);
+		}
+
+		public bool EnableToeRoll
+		{
+			get => InternalCalls.FootIKComponent_GetEnableToeRoll(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetEnableToeRoll(Entity.ID, value);
+		}
+
+		public uint LeftToeBone
+		{
+			get => InternalCalls.FootIKComponent_GetLeftToeBone(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetLeftToeBone(Entity.ID, value);
+		}
+
+		public uint RightToeBone
+		{
+			get => InternalCalls.FootIKComponent_GetRightToeBone(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetRightToeBone(Entity.ID, value);
+		}
+
+		public float FootHeight
+		{
+			get => InternalCalls.FootIKComponent_GetFootHeight(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetFootHeight(Entity.ID, value);
+		}
+
+		public bool AdjustPelvis
+		{
+			get => InternalCalls.FootIKComponent_GetAdjustPelvis(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetAdjustPelvis(Entity.ID, value);
+		}
+
+		public uint PelvisBone
+		{
+			get => InternalCalls.FootIKComponent_GetPelvisBone(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetPelvisBone(Entity.ID, value);
+		}
+
+		public bool FootLock
+		{
+			get => InternalCalls.FootIKComponent_GetFootLock(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetFootLock(Entity.ID, value);
+		}
+
+		public bool AlignFootToSlope
+		{
+			get => InternalCalls.FootIKComponent_GetAlignFootToSlope(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetAlignFootToSlope(Entity.ID, value);
+		}
+
+		public float Weight
+		{
+			get => InternalCalls.FootIKComponent_GetWeight(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetWeight(Entity.ID, value);
+		}
+
+		public bool LeftHandEnabled
+		{
+			get => InternalCalls.FootIKComponent_GetLeftHandEnabled(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetLeftHandEnabled(Entity.ID, value);
+		}
+
+		public uint LeftHandBone
+		{
+			get => InternalCalls.FootIKComponent_GetLeftHandBone(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetLeftHandBone(Entity.ID, value);
+		}
+
+		public bool RightHandEnabled
+		{
+			get => InternalCalls.FootIKComponent_GetRightHandEnabled(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetRightHandEnabled(Entity.ID, value);
+		}
+
+		public uint RightHandBone
+		{
+			get => InternalCalls.FootIKComponent_GetRightHandBone(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetRightHandBone(Entity.ID, value);
+		}
+
+		public uint HandChainLength
+		{
+			get => InternalCalls.FootIKComponent_GetHandChainLength(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetHandChainLength(Entity.ID, value);
+		}
+
+		public float HandWeight
+		{
+			get => InternalCalls.FootIKComponent_GetHandWeight(Entity.ID);
+			set => InternalCalls.FootIKComponent_SetHandWeight(Entity.ID, value);
+		}
+	}
+
 	public partial class LightProbeComponent : Component
 	{
 		public float InfluenceRadius
@@ -606,6 +723,37 @@ namespace OloEngine
 		{
 			get => InternalCalls.LightProbeVolumeComponent_GetActive(Entity.ID);
 			set => InternalCalls.LightProbeVolumeComponent_SetActive(Entity.ID, value);
+		}
+	}
+
+	public partial class LocomotionComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.LocomotionComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.LocomotionComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public bool UseDesiredVelocity
+		{
+			get => InternalCalls.LocomotionComponent_GetUseDesiredVelocity(Entity.ID);
+			set => InternalCalls.LocomotionComponent_SetUseDesiredVelocity(Entity.ID, value);
+		}
+
+		public Vector3 DesiredVelocity
+		{
+			get
+			{
+				InternalCalls.LocomotionComponent_GetDesiredVelocity(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.LocomotionComponent_SetDesiredVelocity(Entity.ID, ref value);
+		}
+
+		public bool StrideWarp
+		{
+			get => InternalCalls.LocomotionComponent_GetStrideWarp(Entity.ID);
+			set => InternalCalls.LocomotionComponent_SetStrideWarp(Entity.ID, value);
 		}
 	}
 
@@ -1425,6 +1573,39 @@ namespace OloEngine
 		{
 			get => InternalCalls.ReflectionProbeComponent_GetActive(Entity.ID);
 			set => InternalCalls.ReflectionProbeComponent_SetActive(Entity.ID, value);
+		}
+	}
+
+	public partial class RetargetingComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.RetargetingComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.RetargetingComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public bool UseHumanoidRoles
+		{
+			get => InternalCalls.RetargetingComponent_GetUseHumanoidRoles(Entity.ID);
+			set => InternalCalls.RetargetingComponent_SetUseHumanoidRoles(Entity.ID, value);
+		}
+
+		public bool PerBoneTranslation
+		{
+			get => InternalCalls.RetargetingComponent_GetPerBoneTranslation(Entity.ID);
+			set => InternalCalls.RetargetingComponent_SetPerBoneTranslation(Entity.ID, value);
+		}
+
+		public bool TransferRootTranslation
+		{
+			get => InternalCalls.RetargetingComponent_GetTransferRootTranslation(Entity.ID);
+			set => InternalCalls.RetargetingComponent_SetTransferRootTranslation(Entity.ID, value);
+		}
+
+		public float RootTranslationScale
+		{
+			get => InternalCalls.RetargetingComponent_GetRootTranslationScale(Entity.ID);
+			set => InternalCalls.RetargetingComponent_SetRootTranslationScale(Entity.ID, value);
 		}
 	}
 

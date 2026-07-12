@@ -6,6 +6,7 @@
 #include "OloEngine/Animation/BlendNode.h"
 #include "OloEngine/Animation/AnimationParameter.h"
 #include "OloEngine/Animation/AnimationClip.h"
+#include "OloEngine/Animation/RootMotion.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <vector>
@@ -43,6 +44,17 @@ namespace OloEngine
                       std::vector<BoneTransform>& outBoneTransforms) const;
 
         [[nodiscard("duration needed for time normalization")]] f32 GetDuration(const AnimationParameterSet& params) const;
+
+        // Root-motion extraction over one tick of this tree (issue #631): each
+        // contributing child extracts its own wrap-aware clip delta over
+        // [normalizedStart, normalizedStart + normalizedDelta] scaled into its
+        // own time domain, and the deltas combine with the SAME weights the pose
+        // blend uses (1D bracketing pair / 2D inverse-distance weights) so pose
+        // and motion can never disagree about which clips contribute.
+        [[nodiscard("extracted delta must be used")]] Animation::RootMotionDelta ExtractRootMotion(
+            f32 normalizedStart, f32 normalizedDelta,
+            const AnimationParameterSet& params, bool looping,
+            const PoseEvalContext& ctx) const;
 
         // Static blend utilities - used by BlendTree and AnimationStateMachine.
         // SampleClipBoneTransforms maps clip channels to bones BY NAME via ctx

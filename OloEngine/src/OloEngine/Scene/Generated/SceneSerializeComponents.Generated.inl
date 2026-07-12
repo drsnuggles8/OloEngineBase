@@ -180,6 +180,45 @@ if (entity.HasComponent<FogVolumeComponent>())
     out << YAML::EndMap; // FogVolumeComponent
 }
 
+if (entity.HasComponent<FootIKComponent>())
+{
+    out << YAML::Key << "FootIKComponent";
+    out << YAML::BeginMap; // FootIKComponent
+    auto const& comp = entity.GetComponent<FootIKComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.Enabled;
+    out << YAML::Key << "LeftFootBone" << YAML::Value << comp.LeftFootBone;
+    out << YAML::Key << "RightFootBone" << YAML::Value << comp.RightFootBone;
+    out << YAML::Key << "ChainLength" << YAML::Value << comp.ChainLength;
+    out << YAML::Key << "EnableToeRoll" << YAML::Value << comp.EnableToeRoll;
+    out << YAML::Key << "LeftToeBone" << YAML::Value << comp.LeftToeBone;
+    out << YAML::Key << "RightToeBone" << YAML::Value << comp.RightToeBone;
+    out << YAML::Key << "RaycastUp" << YAML::Value << comp.RaycastUp;
+    out << YAML::Key << "RaycastDown" << YAML::Value << comp.RaycastDown;
+    out << YAML::Key << "FootHeight" << YAML::Value << comp.FootHeight;
+    out << YAML::Key << "AdjustPelvis" << YAML::Value << comp.AdjustPelvis;
+    out << YAML::Key << "PelvisBone" << YAML::Value << comp.PelvisBone;
+    out << YAML::Key << "MaxPelvisDrop" << YAML::Value << comp.MaxPelvisDrop;
+    out << YAML::Key << "PelvisLerpSpeed" << YAML::Value << comp.PelvisLerpSpeed;
+    out << YAML::Key << "FootLock" << YAML::Value << comp.FootLock;
+    out << YAML::Key << "PlantVelocityThreshold" << YAML::Value << comp.PlantVelocityThreshold;
+    out << YAML::Key << "PlantLiftThreshold" << YAML::Value << comp.PlantLiftThreshold;
+    out << YAML::Key << "UnlockBlendTime" << YAML::Value << comp.UnlockBlendTime;
+    out << YAML::Key << "AlignFootToSlope" << YAML::Value << comp.AlignFootToSlope;
+    out << YAML::Key << "MaxSlopeAngle" << YAML::Value << comp.MaxSlopeAngle;
+    out << YAML::Key << "Weight" << YAML::Value << comp.Weight;
+    out << YAML::Key << "LeftHandEnabled" << YAML::Value << comp.LeftHandEnabled;
+    out << YAML::Key << "LeftHandBone" << YAML::Value << comp.LeftHandBone;
+    out << YAML::Key << "LeftHandTarget" << YAML::Value << comp.LeftHandTarget;
+    out << YAML::Key << "LeftHandTargetEntity" << YAML::Value << static_cast<u64>(comp.LeftHandTargetEntity);
+    out << YAML::Key << "RightHandEnabled" << YAML::Value << comp.RightHandEnabled;
+    out << YAML::Key << "RightHandBone" << YAML::Value << comp.RightHandBone;
+    out << YAML::Key << "RightHandTarget" << YAML::Value << comp.RightHandTarget;
+    out << YAML::Key << "RightHandTargetEntity" << YAML::Value << static_cast<u64>(comp.RightHandTargetEntity);
+    out << YAML::Key << "HandChainLength" << YAML::Value << comp.HandChainLength;
+    out << YAML::Key << "HandWeight" << YAML::Value << comp.HandWeight;
+    out << YAML::EndMap; // FootIKComponent
+}
+
 if (entity.HasComponent<InstancePortalComponent>())
 {
     out << YAML::Key << "InstancePortalComponent";
@@ -198,6 +237,31 @@ if (entity.HasComponent<LocalizedTextComponent>())
     auto const& comp = entity.GetComponent<LocalizedTextComponent>();
     out << YAML::Key << "LocalizationKey" << YAML::Value << comp.LocalizationKey;
     out << YAML::EndMap; // LocalizedTextComponent
+}
+
+if (entity.HasComponent<LocomotionComponent>())
+{
+    out << YAML::Key << "LocomotionComponent";
+    out << YAML::BeginMap; // LocomotionComponent
+    auto const& comp = entity.GetComponent<LocomotionComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.Enabled;
+    out << YAML::Key << "SpeedParameter" << YAML::Value << comp.SpeedParameter;
+    out << YAML::Key << "DirectionXParameter" << YAML::Value << comp.DirectionXParameter;
+    out << YAML::Key << "DirectionYParameter" << YAML::Value << comp.DirectionYParameter;
+    out << YAML::Key << "GaitParameter" << YAML::Value << comp.GaitParameter;
+    out << YAML::Key << "TurnParameter" << YAML::Value << comp.TurnParameter;
+    out << YAML::Key << "UseDesiredVelocity" << YAML::Value << comp.UseDesiredVelocity;
+    out << YAML::Key << "WalkEnterSpeed" << YAML::Value << comp.WalkEnterSpeed;
+    out << YAML::Key << "WalkExitSpeed" << YAML::Value << comp.WalkExitSpeed;
+    out << YAML::Key << "RunEnterSpeed" << YAML::Value << comp.RunEnterSpeed;
+    out << YAML::Key << "RunExitSpeed" << YAML::Value << comp.RunExitSpeed;
+    out << YAML::Key << "SpeedSmoothing" << YAML::Value << comp.SpeedSmoothing;
+    out << YAML::Key << "DirectionReferenceSpeed" << YAML::Value << comp.DirectionReferenceSpeed;
+    out << YAML::Key << "StrideWarp" << YAML::Value << comp.StrideWarp;
+    out << YAML::Key << "WalkClipSpeed" << YAML::Value << comp.WalkClipSpeed;
+    out << YAML::Key << "RunClipSpeed" << YAML::Value << comp.RunClipSpeed;
+    out << YAML::Key << "MaxStrideScale" << YAML::Value << comp.MaxStrideScale;
+    out << YAML::EndMap; // LocomotionComponent
 }
 
 if (entity.HasComponent<LuaScriptComponent>())
@@ -343,6 +407,43 @@ if (entity.HasComponent<RelationshipComponent>())
         out << static_cast<u64>(e);
     out << YAML::EndSeq;
     out << YAML::EndMap; // RelationshipComponent
+}
+
+if (entity.HasComponent<RetargetingComponent>())
+{
+    out << YAML::Key << "RetargetingComponent";
+    out << YAML::BeginMap; // RetargetingComponent
+    auto const& comp = entity.GetComponent<RetargetingComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.Enabled;
+    out << YAML::Key << "SourcePath" << YAML::Value << comp.m_SourcePath;
+    out << YAML::Key << "SourceEntity" << YAML::Value << static_cast<u64>(comp.m_SourceEntity);
+    out << YAML::Key << "UseHumanoidRoles" << YAML::Value << comp.UseHumanoidRoles;
+    out << YAML::Key << "PerBoneTranslation" << YAML::Value << comp.PerBoneTranslation;
+    out << YAML::Key << "TransferRootTranslation" << YAML::Value << comp.TransferRootTranslation;
+    out << YAML::Key << "RootTranslationScale" << YAML::Value << comp.RootTranslationScale;
+    {
+        std::vector<std::string> keys0;
+        keys0.reserve(comp.m_SourceRoleOverrides.size());
+        for (auto const& entry0 : comp.m_SourceRoleOverrides)
+            keys0.push_back(entry0.first);
+        std::ranges::sort(keys0);
+        out << YAML::Key << "SourceRoleOverrides" << YAML::Value << YAML::BeginMap;
+        for (auto const& k0 : keys0)
+            out << YAML::Key << k0 << YAML::Value << comp.m_SourceRoleOverrides.at(k0);
+        out << YAML::EndMap;
+    }
+    {
+        std::vector<std::string> keys0;
+        keys0.reserve(comp.m_TargetRoleOverrides.size());
+        for (auto const& entry0 : comp.m_TargetRoleOverrides)
+            keys0.push_back(entry0.first);
+        std::ranges::sort(keys0);
+        out << YAML::Key << "TargetRoleOverrides" << YAML::Value << YAML::BeginMap;
+        for (auto const& k0 : keys0)
+            out << YAML::Key << k0 << YAML::Value << comp.m_TargetRoleOverrides.at(k0);
+        out << YAML::EndMap;
+    }
+    out << YAML::EndMap; // RetargetingComponent
 }
 
 if (entity.HasComponent<SnowDeformerComponent>())

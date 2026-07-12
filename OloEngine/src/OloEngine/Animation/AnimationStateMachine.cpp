@@ -61,6 +61,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        m_LastRootMotion = {};
+
         if (m_CurrentState.empty())
         {
             outBoneTransforms.resize(boneCount);
@@ -79,7 +81,11 @@ namespace OloEngine
 
         f32 currentDuration = currentState->GetEffectiveDuration(params);
 
-        // Advance time (Speed is already factored into GetEffectiveDuration)
+        // Advance time (Speed is already factored into GetEffectiveDuration).
+        // The pre-advance time feeds root-motion extraction below — the wrap
+        // subtraction would otherwise silently discard the overshoot the
+        // extractor needs to accumulate across the loop boundary (issue #631).
+        const f32 currentStartTime = m_CurrentStateTime;
         m_CurrentStateTime += dt;
 
         // Handle looping
@@ -91,6 +97,8 @@ namespace OloEngine
             }
         }
 
+        m_LastRootMotion = currentState->ExtractRootMotion(currentStartTime, dt, currentDuration, params, ctx);
+
         if (m_InTransition)
         {
             m_TransitionElapsed += dt;
@@ -101,6 +109,7 @@ namespace OloEngine
             auto* targetState = GetState(m_TransitionTargetState);
             if (targetState)
             {
+                const f32 targetStartTime = m_TargetStateTime;
                 m_TargetStateTime += dt;
                 f32 targetDuration = targetState->GetEffectiveDuration(params);
                 if (targetState->Looping && targetDuration > 0.0f)
@@ -110,6 +119,12 @@ namespace OloEngine
                         m_TargetStateTime -= targetDuration;
                     }
                 }
+
+                // Blend the source and target root-motion contributions with the
+                // transition factor — the same factor the pose blend uses below.
+                const Animation::RootMotionDelta targetRootMotion =
+                    targetState->ExtractRootMotion(targetStartTime, dt, targetDuration, params, ctx);
+                m_LastRootMotion = Animation::RootMotionUtils::Blend(m_LastRootMotion, targetRootMotion, m_TransitionBlendFactor);
             }
 
             if (m_TransitionBlendFactor >= 1.0f)

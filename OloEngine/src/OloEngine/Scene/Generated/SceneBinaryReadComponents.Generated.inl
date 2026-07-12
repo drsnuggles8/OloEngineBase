@@ -231,6 +231,86 @@ case 1503688276u: // FogVolumeComponent
         return false;
     break;
 }
+case 1414616508u: // FootIKComponent
+{
+    auto& comp = deserializedEntity.AddComponent<FootIKComponent>();
+    if (!SceneBinIO::Read(reader, comp.Enabled))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.LeftFootBone))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.RightFootBone))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.ChainLength))
+        return false;
+    comp.ChainLength = std::max(comp.ChainLength, static_cast<u32>(2u));
+    if (!SceneBinIO::Read(reader, comp.EnableToeRoll))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.LeftToeBone))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.RightToeBone))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.RaycastUp))
+        return false;
+    comp.RaycastUp = std::clamp(comp.RaycastUp, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (!SceneBinIO::Read(reader, comp.RaycastDown))
+        return false;
+    comp.RaycastDown = std::clamp(comp.RaycastDown, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (!SceneBinIO::Read(reader, comp.FootHeight))
+        return false;
+    comp.FootHeight = std::clamp(comp.FootHeight, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.AdjustPelvis))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.PelvisBone))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.MaxPelvisDrop))
+        return false;
+    comp.MaxPelvisDrop = std::clamp(comp.MaxPelvisDrop, static_cast<f32>(0.0f), static_cast<f32>(2.0f));
+    if (!SceneBinIO::Read(reader, comp.PelvisLerpSpeed))
+        return false;
+    comp.PelvisLerpSpeed = std::clamp(comp.PelvisLerpSpeed, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.FootLock))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.PlantVelocityThreshold))
+        return false;
+    comp.PlantVelocityThreshold = std::clamp(comp.PlantVelocityThreshold, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (!SceneBinIO::Read(reader, comp.PlantLiftThreshold))
+        return false;
+    comp.PlantLiftThreshold = std::clamp(comp.PlantLiftThreshold, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.UnlockBlendTime))
+        return false;
+    comp.UnlockBlendTime = std::clamp(comp.UnlockBlendTime, static_cast<f32>(0.01f), static_cast<f32>(2.0f));
+    if (!SceneBinIO::Read(reader, comp.AlignFootToSlope))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.MaxSlopeAngle))
+        return false;
+    comp.MaxSlopeAngle = std::clamp(comp.MaxSlopeAngle, static_cast<f32>(0.0f), static_cast<f32>(90.0f));
+    if (!SceneBinIO::Read(reader, comp.Weight))
+        return false;
+    comp.Weight = std::clamp(comp.Weight, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.LeftHandEnabled))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.LeftHandBone))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.LeftHandTarget))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.LeftHandTargetEntity))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.RightHandEnabled))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.RightHandBone))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.RightHandTarget))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.RightHandTargetEntity))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.HandChainLength))
+        return false;
+    comp.HandChainLength = std::max(comp.HandChainLength, static_cast<u32>(2u));
+    if (!SceneBinIO::Read(reader, comp.HandWeight))
+        return false;
+    comp.HandWeight = std::clamp(comp.HandWeight, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    break;
+}
 case 1784713623u: // InstancePortalComponent
 {
     auto& comp = deserializedEntity.AddComponent<InstancePortalComponent>();
@@ -247,6 +327,54 @@ case 3615502588u: // LocalizedTextComponent
     auto& comp = deserializedEntity.AddComponent<LocalizedTextComponent>();
     if (!SceneBinIO::Read(reader, comp.LocalizationKey))
         return false;
+    break;
+}
+case 1960829075u: // LocomotionComponent
+{
+    auto& comp = deserializedEntity.AddComponent<LocomotionComponent>();
+    if (!SceneBinIO::Read(reader, comp.Enabled))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.SpeedParameter))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.DirectionXParameter))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.DirectionYParameter))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.GaitParameter))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.TurnParameter))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.UseDesiredVelocity))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.WalkEnterSpeed))
+        return false;
+    comp.WalkEnterSpeed = std::clamp(comp.WalkEnterSpeed, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.WalkExitSpeed))
+        return false;
+    comp.WalkExitSpeed = std::clamp(comp.WalkExitSpeed, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.RunEnterSpeed))
+        return false;
+    comp.RunEnterSpeed = std::clamp(comp.RunEnterSpeed, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.RunExitSpeed))
+        return false;
+    comp.RunExitSpeed = std::clamp(comp.RunExitSpeed, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.SpeedSmoothing))
+        return false;
+    comp.SpeedSmoothing = std::clamp(comp.SpeedSmoothing, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.DirectionReferenceSpeed))
+        return false;
+    comp.DirectionReferenceSpeed = std::clamp(comp.DirectionReferenceSpeed, static_cast<f32>(0.01f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.StrideWarp))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.WalkClipSpeed))
+        return false;
+    comp.WalkClipSpeed = std::clamp(comp.WalkClipSpeed, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.RunClipSpeed))
+        return false;
+    comp.RunClipSpeed = std::clamp(comp.RunClipSpeed, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.MaxStrideScale))
+        return false;
+    comp.MaxStrideScale = std::clamp(comp.MaxStrideScale, static_cast<f32>(1.0f), static_cast<f32>(4.0f));
     break;
 }
 case 4238546909u: // LuaScriptComponent
@@ -445,6 +573,58 @@ case 3765764758u: // RelationshipComponent
             if (!SceneBinIO::Read(reader, bv0))
                 return false;
             comp.m_Children.push_back(std::move(bv0));
+        }
+    }
+    break;
+}
+case 2780759970u: // RetargetingComponent
+{
+    auto& comp = deserializedEntity.AddComponent<RetargetingComponent>();
+    if (!SceneBinIO::Read(reader, comp.Enabled))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.m_SourcePath))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.m_SourceEntity))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.UseHumanoidRoles))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.PerBoneTranslation))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.TransferRootTranslation))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.RootTranslationScale))
+        return false;
+    comp.RootTranslationScale = std::clamp(comp.RootTranslationScale, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    {
+        u32 bn0 = 0;
+        if (!SceneBinIO::ReadU32(reader, bn0) || bn0 > SceneBinIO::MaxContainerElements)
+            return false;
+        comp.m_SourceRoleOverrides.clear();
+        for (u32 bi0 = 0; bi0 < bn0; ++bi0)
+        {
+            std::string bk0;
+            if (!SceneBinIO::Read(reader, bk0))
+                return false;
+            decltype(comp.m_SourceRoleOverrides)::mapped_type bv0{};
+            if (!SceneBinIO::Read(reader, bv0))
+                return false;
+            comp.m_SourceRoleOverrides[std::move(bk0)] = std::move(bv0);
+        }
+    }
+    {
+        u32 bn0 = 0;
+        if (!SceneBinIO::ReadU32(reader, bn0) || bn0 > SceneBinIO::MaxContainerElements)
+            return false;
+        comp.m_TargetRoleOverrides.clear();
+        for (u32 bi0 = 0; bi0 < bn0; ++bi0)
+        {
+            std::string bk0;
+            if (!SceneBinIO::Read(reader, bk0))
+                return false;
+            decltype(comp.m_TargetRoleOverrides)::mapped_type bv0{};
+            if (!SceneBinIO::Read(reader, bv0))
+                return false;
+            comp.m_TargetRoleOverrides[std::move(bk0)] = std::move(bv0);
         }
     }
     break;

@@ -101,6 +101,9 @@ namespace OloEngine
     struct NameplateComponent;
     struct IKTargetComponent;
     struct SpringBoneComponent;
+    struct RetargetingComponent;
+    struct FootIKComponent;
+    struct LocomotionComponent;
     struct NoiseAnimationComponent;
     struct UIWorldAnchorComponent;
     struct MorphTargetComponent;
@@ -216,6 +219,9 @@ namespace OloEngine
         static void Serialize(FArchive& ar, NameplateComponent& c);
         static void Serialize(FArchive& ar, IKTargetComponent& c);
         static void Serialize(FArchive& ar, SpringBoneComponent& c);
+        static void Serialize(FArchive& ar, RetargetingComponent& c);
+        static void Serialize(FArchive& ar, FootIKComponent& c);
+        static void Serialize(FArchive& ar, LocomotionComponent& c);
         static void Serialize(FArchive& ar, NoiseAnimationComponent& c);
         static void Serialize(FArchive& ar, UIWorldAnchorComponent& c);
         static void Serialize(FArchive& ar, MorphTargetComponent& c);

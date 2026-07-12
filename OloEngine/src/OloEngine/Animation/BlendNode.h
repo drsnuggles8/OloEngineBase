@@ -31,10 +31,18 @@ namespace OloEngine
     // animate fall back to it rather than to identity (mirrors AnimationSystem).
     // Either span may be empty (e.g. a skeleton without a captured bind pose),
     // in which case the corresponding fallback degrades to identity.
+    //
+    // The last three spans feed root-motion extraction (issue #631): parent
+    // indices + bind-pose GLOBAL matrices + per-bone pre-transforms convert a
+    // root-local delta into entity/model space. They may be empty (tests,
+    // skeleton-less callers) — the conversion then degrades to identity.
     struct PoseEvalContext
     {
         std::span<const std::string> BoneNames;  // index-aligned to the output pose
         std::span<const BoneTransform> BindPose; // bind-pose local TRS per bone (may be empty)
+        std::span<const int> ParentIndices;      // -1 = root (may be empty)
+        std::span<const glm::mat4> BindPoseGlobals;
+        std::span<const glm::mat4> PreTransforms;
     };
 
     class BlendNode : public RefCounted
