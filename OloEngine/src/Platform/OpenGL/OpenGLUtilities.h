@@ -43,7 +43,15 @@ namespace OloEngine::Utils
         }
         ~GLClearProgramGuard()
         {
-            if (m_PreviousProgram != 0)
+            // glIsProgram guards against a program deleted between construction
+            // and destruction (issue #625): a program deleted while still bound
+            // elsewhere is only deletion-*flagged* by GL until something unbinds
+            // it — which this guard's own constructor may just have done. Should
+            // that be the completing unbind, m_PreviousProgram is no longer a
+            // valid id and restoring it would raise GL_INVALID_VALUE. Skipping
+            // the restore leaves 0 bound, which is safe: the next real draw binds
+            // its own program explicitly.
+            if (m_PreviousProgram != 0 && glIsProgram(static_cast<GLuint>(m_PreviousProgram)))
                 glUseProgram(static_cast<GLuint>(m_PreviousProgram));
         }
         GLClearProgramGuard(const GLClearProgramGuard&) = delete;
@@ -54,6 +62,28 @@ namespace OloEngine::Utils
       private:
         GLint m_PreviousProgram = 0;
     };
+
+    // Unbinds `program` from GL_CURRENT_PROGRAM if it is currently bound. Call
+    // this immediately before glDeleteProgram(program) at any site where the
+    // program may still be bound — deferred deletions in particular (issue
+    // #625): by the time a FrameResourceManager-deferred deletion lambda
+    // actually runs, an unrelated render tick may have left this exact program
+    // bound with nothing since to unbind it. Deleting a still-bound program
+    // only *flags* it for deletion — GL keeps it valid and current until
+    // something else calls glUseProgram, which then completes the deletion.
+    // Left unhandled, that completing unbind is commonly GLClearProgramGuard's
+    // own scoped unbind, which then fails to restore the now-invalid id
+    // (GL_INVALID_VALUE). Unbinding here first makes the deletion immediate and
+    // deterministic instead of a landmine for later code.
+    inline void UnbindProgramIfCurrent(const u32 program) noexcept
+    {
+        if (program == 0)
+            return;
+        GLint current = 0;
+        glGetIntegerv(GL_CURRENT_PROGRAM, &current);
+        if (static_cast<u32>(current) == program)
+            glUseProgram(0);
+    }
 
     [[nodiscard("Store this!")]] constexpr GLenum TextureTarget(const bool multisampled) noexcept;
     void PrepareTexture(const u32 id, const int samples, const GLenum format, const int width, const int height);

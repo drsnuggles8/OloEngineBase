@@ -81,6 +81,21 @@ driver revalidates at *work* commands (draws/clears), not at `glUseProgram`.
    not per program — a stable occurrence count means one-off recompiles; a
    growing count means something recompiles per frame and is urgent.
 
+## A related failure: restoring a program deleted while it was "current" (issue #625)
+
+`GLClearProgramGuard`'s restore half assumes the saved `m_PreviousProgram` id is
+still valid at scope exit. It can stop being valid *because of the guard's own
+constructor*: if that program was already flagged for deletion by
+`glDeleteProgram` while still bound elsewhere (GL defers real deletion of a
+current program until something unbinds it), the guard's own `glUseProgram(0)`
+is what completes the deletion — and the destructor's restore then fails with
+`GL_INVALID_VALUE`. The destructor now guards with `glIsProgram()` before
+restoring, and the engine's shader teardown paths unbind-if-current before
+`glDeleteProgram` so this should no longer arise in practice. Full writeup —
+including why the engine's deferred-deletion queue makes the flagged-for-deletion
+state outlive the deleting test by several frames — is in
+`docs/agent-rules/testing-architecture.md` §6.6.
+
 ## Reusable lessons
 
 - **Don't trust the folk etiology for driver warnings.** Id 131218's usual

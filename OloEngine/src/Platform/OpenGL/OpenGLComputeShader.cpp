@@ -2,6 +2,7 @@
 #include "Platform/OpenGL/OpenGLComputeShader.h"
 #include "Platform/OpenGL/OpenGLDebug.h"
 #include "Platform/OpenGL/OpenGLShader.h"
+#include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
@@ -73,7 +74,12 @@ namespace OloEngine
         u32 programId = m_RendererID;
         UnregisterGLProgramLabel(programId);
         FrameResourceManager::Get().SubmitForDeletion([programId]()
-                                                      { glDeleteProgram(programId); });
+                                                      {
+                                                          // See Utils::UnbindProgramIfCurrent (issue #625): this
+                                                          // program may still be the bound program by the time this
+                                                          // deferred deletion runs.
+                                                          Utils::UnbindProgramIfCurrent(programId);
+                                                          glDeleteProgram(programId); });
     }
 
     void OpenGLComputeShader::Compile(const std::string& source)
@@ -251,7 +257,12 @@ namespace OloEngine
         u32 oldProgramId = m_RendererID;
         UnregisterGLProgramLabel(oldProgramId);
         FrameResourceManager::Get().SubmitForDeletion([oldProgramId]()
-                                                      { glDeleteProgram(oldProgramId); });
+                                                      {
+                                                          // See Utils::UnbindProgramIfCurrent (issue #625): the
+                                                          // reloaded-away program may still be bound by the time
+                                                          // this deferred deletion runs.
+                                                          Utils::UnbindProgramIfCurrent(oldProgramId);
+                                                          glDeleteProgram(oldProgramId); });
 
         m_RendererID = 0;
         m_IsValid = false;
