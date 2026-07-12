@@ -2,7 +2,7 @@
 
 // =============================================================================
 // ShaderHarness — file-walk + shaderc-compile helpers shared by Rendering tests
-// that need to operate on every production .glsl file on disk.
+// that need to operate on every production .glsl / .comp file on disk.
 //
 // Mirrors what `OpenGLShader::PreProcess` + `CompileOrGetVulkanBinaries` do at
 // runtime (split on `#type`, compile each stage with target_env = vulkan 1.2,
@@ -191,8 +191,11 @@ namespace OloEngine::Tests::ShaderHarness
         fs::path m_Root;
     };
 
-    /// Walk `root` recursively for `.glsl` files, skipping `include/`
-    /// (headers, no `#type` stages) and `tests/` (compute-shader harnesses).
+    /// Walk `root` recursively for `.glsl` and `.comp` files, skipping
+    /// `include/` (headers, no `#type` stages) and `tests/` (compute-shader
+    /// harnesses). `.comp` files are plain single-stage GLSL compute
+    /// shaders with no `#type` header — see `SplitStages` below for how
+    /// they're parsed.
     inline std::vector<fs::path> EnumerateProductionShaders(const fs::path& root)
     {
         std::vector<fs::path> out;
@@ -200,7 +203,8 @@ namespace OloEngine::Tests::ShaderHarness
         {
             if (!entry.is_regular_file())
                 continue;
-            if (entry.path().extension() != ".glsl")
+            const fs::path ext = entry.path().extension();
+            if (ext != ".glsl" && ext != ".comp")
                 continue;
 
             if (const std::string rel = fs::relative(entry.path(), root).generic_string(); rel.starts_with("include/") || rel.starts_with("tests/"))
@@ -212,10 +216,37 @@ namespace OloEngine::Tests::ShaderHarness
         return out;
     }
 
+    /// Split a shader source into (kind, source) stage pairs. Handles both
+    /// `#type`-delimited multi-stage `.glsl` files (via SplitByType) and
+    /// standalone `.comp` / compute-only `.glsl` files that have no `#type`
+    /// header and just declare `layout(local_size_x = ...) in;` directly —
+    /// matches `OpenGLComputeShader`'s behaviour of treating the whole file
+    /// as a single compute stage.
+    inline std::vector<std::pair<shaderc_shader_kind, std::string>> SplitStages(const std::string& src)
+    {
+        auto stages = SplitByType(src);
+        if (stages.empty() && src.find("local_size_x") != std::string::npos)
+            stages.emplace_back(shaderc_glsl_compute_shader, src);
+        return stages;
+    }
+
     /// Compile a single `#type`-stage source to SPIR-V using the same options
     /// the engine uses at runtime (target_env = Vulkan 1.2, preserve_bindings,
-    /// no auto-bind). Returns the shaderc result so callers can inspect the
-    /// compilation status and SPIR-V output.
+    /// no auto-bind) for vertex/fragment/geometry/tessellation stages, which
+    /// go through `OpenGLShader::CompileOrGetVulkanBinaries`. Compute stages
+    /// go through the separate `OpenGLComputeShader`, which compiles GLSL
+    /// natively (no shaderc/SPIR-V step at runtime) and therefore permits
+    /// plain `uniform` declarations outside a block with no explicit
+    /// `layout(location=L)` — legal core GLSL (locations are resolved via
+    /// `glGetUniformLocation` at link time) that the Vulkan SPIR-V target
+    /// env rejects outright ("non-opaque uniforms outside a block") and the
+    /// OpenGL SPIR-V target env (ARB_gl_spirv semantics) requires an
+    /// explicit location for. Compiling compute stages under the OpenGL
+    /// target env with auto-mapped locations accepts that syntax while
+    /// still producing SPIR-V for spirv-cross reflection (UBO sizes/
+    /// offsets, bindings), which is the closest headless approximation of
+    /// the real compile path. Returns the shaderc result so callers can
+    /// inspect the compilation status and SPIR-V output.
     inline shaderc::SpvCompilationResult CompileStageToSpv(
         const fs::path& shaderPath,
         const std::string& stageSource,
@@ -224,7 +255,15 @@ namespace OloEngine::Tests::ShaderHarness
         shaderc::Compiler& compiler)
     {
         shaderc::CompileOptions options;
-        options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
+        if (kind == shaderc_glsl_compute_shader)
+        {
+            options.SetTargetEnvironment(shaderc_target_env_opengl, shaderc_env_version_opengl_4_5);
+            options.SetAutoMapLocations(true);
+        }
+        else
+        {
+            options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
+        }
         options.SetPreserveBindings(true);
         options.SetAutoBindUniforms(false);
         options.SetSuppressWarnings();

@@ -129,9 +129,7 @@ namespace OloEngine::Tests
         for (const auto& path : shaders)
         {
             const std::string source = SH::ReadWholeFile(path);
-            auto stages = SH::SplitByType(source);
-            if (stages.empty() && source.find("local_size_x") != std::string::npos)
-                stages.emplace_back(shaderc_glsl_compute_shader, source);
+            auto stages = SH::SplitStages(source);
 
             for (const auto& [kind, stageSource] : stages)
             {
@@ -373,9 +371,7 @@ namespace OloEngine::Tests
         for (const auto& path : shaders)
         {
             const std::string source = SH::ReadWholeFile(path);
-            auto stages = SH::SplitByType(source);
-            if (stages.empty() && source.find("local_size_x") != std::string::npos)
-                stages.emplace_back(shaderc_glsl_compute_shader, source);
+            auto stages = SH::SplitStages(source);
 
             for (const auto& [kind, stageSource] : stages)
             {

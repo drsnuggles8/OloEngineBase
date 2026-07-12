@@ -1008,7 +1008,13 @@ namespace OloEngine
                            // Post-process / fullscreen passes reuse slot 0 with
                            // pass-local input names.
                            name == "u_Current" || name == "u_EntityID" ||
-                           name == "u_CurveTexture" || name.contains("Overdraw");
+                           name == "u_CurveTexture" || name.contains("Overdraw") ||
+                           // Compute dispatches never coexist with a bound material
+                           // (the engine rebinds slot 0 per-dispatch, same as
+                           // TEX_USER_0-2's documented pass-local reuse) — issue #627.
+                           name == "u_HDRColor" || name == "u_ScatterVolume" ||
+                           name == "u_ShadowMapCSM" || name == "u_HZB" ||
+                           name == "u_Butterfly" || name == "u_H0";
                 case TEX_SPECULAR:
                     // Slot 1 is reused across shader contexts: Metallic/Roughness in PBR,
                     // Depth textures in particle effects, Bloom textures in post-processing,
@@ -1018,23 +1024,33 @@ namespace OloEngine
                            name.contains("Depth") || name.contains("Bloom") ||
                            name == "u_History" || name == "u_FogTexture" ||
                            name == "u_BandTexture" || name == "u_JFAResult" ||
-                           name == "u_EntityID";
+                           name == "u_EntityID" ||
+                           // Compute dispatch pass-local reuse (issue #627).
+                           name == "u_ShadowAtlas";
                 case TEX_NORMAL:
                     return name.contains("Normal") || name.contains("normal") ||
                            // Slot 2 is reused as the velocity input slot for TAA / motion-blur passes.
-                           name == "u_Velocity";
+                           name == "u_Velocity" ||
+                           // Compute dispatch pass-local reuse (issue #627).
+                           name == "u_HistoryVolume";
                 case TEX_HEIGHT:
                     return name.contains("Height") || name.contains("height") ||
                            name.contains("Displacement") || name.contains("displacement") ||
                            // Slot 3 is reused as the fog-history input slot for the fog pass.
-                           name == "u_FogHistory";
+                           name == "u_FogHistory" ||
+                           // Compute dispatch pass-local reuse (issue #627).
+                           name == "u_HZBDepth";
                 case TEX_AMBIENT:
                     return name.contains("AO") || name.contains("Ambient") ||
                            name.contains("ambient") || name.contains("Occlusion") ||
-                           name.contains("occlusion");
+                           name.contains("occlusion") ||
+                           // Compute dispatch pass-local reuse (issue #627).
+                           name == "u_ViewNormals" || name == "u_InputDepth";
                 case TEX_EMISSIVE:
                     return name.contains("Emissive") || name.contains("emissive") ||
-                           name.contains("Emission") || name.contains("emission");
+                           name.contains("Emission") || name.contains("emission") ||
+                           // Compute dispatch pass-local reuse (issue #627).
+                           name == "u_HilbertLUT";
                 case TEX_ROUGHNESS:
                     return name.contains("Roughness") || name.contains("roughness");
                 case TEX_METALLIC:

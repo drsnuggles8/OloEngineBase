@@ -112,9 +112,7 @@ namespace OloEngine::Tests
         for (const auto& path : shaders)
         {
             const std::string source = SH::ReadWholeFile(path);
-            auto stages = SH::SplitByType(source);
-            if (stages.empty() && source.find("local_size_x") != std::string::npos)
-                stages.emplace_back(shaderc_glsl_compute_shader, source);
+            auto stages = SH::SplitStages(source);
 
             for (const auto& [kind, stageSource] : stages)
             {
@@ -246,9 +244,7 @@ namespace OloEngine::Tests
         for (const auto& path : shaders)
         {
             const std::string source = SH::ReadWholeFile(path);
-            auto stages = SH::SplitByType(source);
-            if (stages.empty() && source.find("local_size_x") != std::string::npos)
-                stages.emplace_back(shaderc_glsl_compute_shader, source);
+            auto stages = SH::SplitStages(source);
 
             for (const auto& [kind, stageSource] : stages)
             {
@@ -272,6 +268,20 @@ namespace OloEngine::Tests
                         if (binding == ShaderBindingLayout::TEX_USER_0 ||
                             binding == ShaderBindingLayout::TEX_USER_1 ||
                             binding == ShaderBindingLayout::TEX_USER_2)
+                            continue;
+
+                        // Compute shaders are dispatched as single-purpose,
+                        // single-shader passes: the engine explicitly binds
+                        // every input the dispatch reads immediately before
+                        // `glDispatchCompute` (there's no "material" whose
+                        // texture set persists across draws the way there
+                        // is for graphics slots). So every compute-stage
+                        // texture binding is inherently pass-local reuse —
+                        // the same rationale as TEX_USER_0-2 above, just
+                        // for the whole low-slot range compute shaders
+                        // reuse (issue #627) — and isn't part of this
+                        // cross-shader type-consistency contract.
+                        if (kind == shaderc_glsl_compute_shader)
                             continue;
 
                         const auto& type = refl.get_type(res.type_id);
