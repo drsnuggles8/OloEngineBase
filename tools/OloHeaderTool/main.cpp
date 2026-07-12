@@ -905,6 +905,9 @@ static const std::set<std::string> kComponentsNotInTuple = {
     "DialogueStateComponent",
     "SpringBoneStateComponent",
     "NoiseAnimationStateComponent",
+    "RetargetingStateComponent",
+    "FootIKStateComponent",
+    "LocomotionStateComponent",
     "WorldTransformComponent",
 };
 
@@ -930,6 +933,9 @@ static const std::set<std::string> kComponentsNotInSaveGame = {
     "DialogueStateComponent",
     "SpringBoneStateComponent",
     "NoiseAnimationStateComponent",
+    "RetargetingStateComponent",
+    "FootIKStateComponent",
+    "LocomotionStateComponent",
     "WorldTransformComponent",
     "AudioSoundGraphComponent",
     "LocalizedTextComponent",
@@ -992,6 +998,9 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
     "VideoSurfaceComponent",
     "SpringBoneComponent",
     "NoiseAnimationComponent",
+    "RetargetingComponent",
+    "FootIKComponent",
+    "LocomotionComponent",
     "TerrainComponent",
 };
 
@@ -1169,8 +1178,11 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "PerceptionComponent",
     "PhaseComponent",
     "PhysicsJoint3DComponent",
+    "FootIKStateComponent",
+    "LocomotionStateComponent",
     "ProceduralSkyComponent",
     "ReflectionProbeComponent",
+    "RetargetingStateComponent",
     "Rigidbody3DComponent",
     "ScriptComponent",
     "SphereAreaLightComponent",

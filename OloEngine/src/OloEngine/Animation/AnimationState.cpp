@@ -43,6 +43,46 @@ namespace OloEngine
         }
     }
 
+    Animation::RootMotionDelta AnimationState::ExtractRootMotion(
+        f32 stateStartTime, f32 dt, f32 effectiveDuration,
+        const AnimationParameterSet& params, const PoseEvalContext& ctx) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (effectiveDuration <= 0.0f || dt <= 0.0f)
+        {
+            return {};
+        }
+        const f32 normalizedStart = stateStartTime / effectiveDuration;
+        const f32 normalizedDelta = dt / effectiveDuration;
+
+        switch (Type)
+        {
+            case MotionType::SingleClip:
+            {
+                if (!Clip)
+                {
+                    return {};
+                }
+                // Same time mapping Evaluate uses: normalized * Clip->Duration.
+                // A non-looping state past its end samples past the last key,
+                // which the extractor clamps to zero further motion.
+                return Animation::RootMotionUtils::ExtractConfiguredDelta(
+                    *Clip, normalizedStart * Clip->Duration, normalizedDelta * Clip->Duration, Looping, ctx);
+            }
+            case MotionType::BlendTree:
+            {
+                if (!Tree)
+                {
+                    return {};
+                }
+                return Tree->ExtractRootMotion(normalizedStart, normalizedDelta, params, Looping, ctx);
+            }
+            default:
+                return {};
+        }
+    }
+
     f32 AnimationState::GetClipDuration() const
     {
         if (Type == MotionType::SingleClip && Clip && Speed > 0.0f)

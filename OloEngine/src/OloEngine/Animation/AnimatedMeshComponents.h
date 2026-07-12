@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/Model.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include "SkeletonData.h"
 #include "Skeleton.h"
 #include "AnimationClip.h"
@@ -190,6 +191,15 @@ namespace OloEngine
          */
         std::vector<UUID> m_BoneEntityIds;               // Maps skeleton bones to scene entities
         glm::mat4 m_RootBoneTransform = glm::mat4(1.0f); // Transform of animated root bone relative to entity
+
+        // Runtime, per-tick (not serialized): the masked root-motion delta the
+        // last animation update extracted, in entity/model space. Overwritten
+        // every update; consumed and cleared by Scene::UpdateRootMotion on the
+        // runtime path (issue #631). In editor preview nothing consumes it — the
+        // pose is pinned in place and the entity stays put.
+        glm::vec3 m_RootMotionTranslation = glm::vec3(0.0f);
+        glm::quat m_RootMotionRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+        bool m_HasRootMotion = false;
 
         AnimationStateComponent() = default;
         explicit AnimationStateComponent(const Ref<AnimationClip>& clip, float timeSeconds = 0.0f)

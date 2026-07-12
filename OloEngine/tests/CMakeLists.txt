@@ -218,6 +218,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SceneRenderEvidenceTest.cpp
 		Rendering/PropertyTests/ClothVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ClothCapeVisualEvidenceTest.cpp
+		Rendering/PropertyTests/LocomotionVisualEvidenceTest.cpp
 		Rendering/PropertyTests/RebindMenuVisualEvidenceTest.cpp
 		# Headless-attach stretch of issue #316: hosts the read-only MCP server
 		# inside the test binary against the offscreen render-graph FB so
@@ -326,6 +327,8 @@ add_executable(OloEngine-Tests
 		Animation/NoiseSolverTest.cpp
 		Animation/AnimationRetargetTest.cpp
 		Animation/AnimationGraphBoneMappingTest.cpp
+		Animation/RootMotionTest.cpp
+		Animation/FootIKTest.cpp
 		# Cinematic Sequencer Tests
 		Cinematic/CinematicCurveTest.cpp
 		Cinematic/CinematicPlayerTest.cpp
@@ -588,6 +591,9 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/InitialLinearVelocityIsAppliedTest.cpp
 		Functional/Audio/AudioListenerPositionUpdatesViaSceneTickTest.cpp
 		Functional/AnimationPhysics/AnimationGraphStateMachineTickTest.cpp
+		Functional/AnimationPhysics/LiveRetargetingTest.cpp
+		Functional/AnimationPhysics/LocomotionControllerTest.cpp
+		Functional/AnimationPhysics/HumanoidLocomotionWalkTest.cpp
 		Functional/AnimationPhysics/MorphTargetGraphAnimationTest.cpp
 		Functional/Navigation/NavAgentReachesTargetTest.cpp
 		Functional/Asset/AssetManagerImportsStagedAssetTest.cpp

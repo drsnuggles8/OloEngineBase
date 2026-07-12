@@ -25,9 +25,14 @@ namespace OloEngine
     void AnimationGraph::Update(f32 dt, sizet boneCount, std::vector<glm::mat4>& outFinalBoneMatrices,
                                 const std::vector<std::string>& boneNames,
                                 const std::vector<i32>& parentIndices,
-                                const std::vector<BoneTransform>& bindPoseLocal)
+                                const std::vector<BoneTransform>& bindPoseLocal,
+                                std::span<const glm::mat4> bindPoseGlobals,
+                                std::span<const glm::mat4> preTransforms)
     {
         OLO_PROFILE_FUNCTION();
+
+        m_LastRootMotion = {};
+
         if (Layers.empty() || boneCount == 0)
         {
             outFinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
@@ -35,8 +40,9 @@ namespace OloEngine
         }
 
         // Shared per-skeleton sampling context: clip channels map to bones by
-        // name (not array index) and un-keyed bones fall back to bind pose (#543).
-        const PoseEvalContext ctx{ boneNames, bindPoseLocal };
+        // name (not array index) and un-keyed bones fall back to bind pose
+        // (#543). The skeleton spans feed root-motion extraction (#631).
+        const PoseEvalContext ctx{ boneNames, bindPoseLocal, parentIndices, bindPoseGlobals, preTransforms };
 
         // Start each bone at its bind-pose local transform so a full-weight
         // Override layer that leaves a bone un-keyed rests it at bind pose
@@ -74,6 +80,17 @@ namespace OloEngine
 
             // Apply layer with weight and bone mask using skeleton bone names
             ApplyLayerTransforms(layer, layerTransforms, boneNames, accumulatedTransforms);
+        }
+
+        // Root motion comes from the BASE layer only (layer 0, Override mode) —
+        // additive/upper layers pose on top of locomotion but never move the
+        // character. A partially-weighted base layer scales its pose influence,
+        // so the extracted motion scales identically (issue #631).
+        if (const auto& baseLayer = Layers[0];
+            baseLayer.StateMachine && baseLayer.Weight > 0.0f && baseLayer.Mode == AnimationLayer::BlendMode::Override)
+        {
+            const f32 baseWeight = glm::clamp(baseLayer.Weight, 0.0f, 1.0f);
+            m_LastRootMotion = Animation::RootMotionUtils::Blend({}, baseLayer.StateMachine->GetLastRootMotion(), baseWeight);
         }
 
         // Convert BoneTransform to matrices

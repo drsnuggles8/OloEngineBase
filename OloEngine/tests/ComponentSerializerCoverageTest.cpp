@@ -90,6 +90,9 @@ namespace OloEngine::Tests
                 root / "Animation" / "IKTargetComponent.h",
                 root / "Animation" / "SpringBoneComponent.h",
                 root / "Animation" / "NoiseAnimationComponent.h",
+                root / "Animation" / "Retargeting" / "RetargetingComponent.h",
+                root / "Animation" / "FootIKComponent.h",
+                root / "Animation" / "LocomotionComponent.h",
                 root / "Gameplay" / "Inventory" / "InventoryComponents.h",
                 root / "Gameplay" / "Quest" / "QuestComponents.h",
                 root / "Gameplay" / "Abilities" / "AbilityComponents.h",
@@ -161,6 +164,9 @@ namespace OloEngine::Tests
             "NetworkLODComponent",          // Networking-derived LOD level; set by the interest manager per tick.
             "NoiseAnimationStateComponent", // Per-tick noise-animation phase/offset state; recomputed each tick, not authored.
             "PhaseComponent",               // Animation phase runtime state; recomputed each tick.
+            "FootIKStateComponent",         // Foot-IK adaptation state (plant locks, pelvis smoothing, per-tick ground cache); recomputed at runtime, never authored (issue #631).
+            "LocomotionStateComponent",     // Locomotion controller state (gait, smoothing, stride-warp base speeds); recomputed at runtime, never authored (issue #631).
+            "RetargetingStateComponent",    // Live-retargeting bake cache (baked clips + last-baked settings); rebuilt lazily at runtime, never authored (issue #631).
             "SpringBoneStateComponent",     // Per-tick spring-bone simulation state (velocity, current position); recomputed each tick.
             "UIResolvedRectComponent",      // Layout-resolved UI rect; computed each tick by the UI system.
             "WorldTransformComponent",      // Composed parent-chain world matrix; rebuilt every tick by Scene::PropagateWorldTransforms() (issue #499).

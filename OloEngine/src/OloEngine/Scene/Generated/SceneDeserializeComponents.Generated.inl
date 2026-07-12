@@ -154,6 +154,53 @@ if (auto node = entity["FogVolumeComponent"]; node)
     comp.m_AffectTransparent = node["AffectTransparent"].as<bool>(comp.m_AffectTransparent);
 }
 
+if (auto node = entity["FootIKComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<FootIKComponent>();
+    comp.Enabled = node["Enabled"].as<bool>(comp.Enabled);
+    comp.LeftFootBone = node["LeftFootBone"].as<u32>(comp.LeftFootBone);
+    comp.RightFootBone = node["RightFootBone"].as<u32>(comp.RightFootBone);
+    comp.ChainLength = std::max(node["ChainLength"].as<u32>(comp.ChainLength), static_cast<u32>(2u));
+    comp.EnableToeRoll = node["EnableToeRoll"].as<bool>(comp.EnableToeRoll);
+    comp.LeftToeBone = node["LeftToeBone"].as<u32>(comp.LeftToeBone);
+    comp.RightToeBone = node["RightToeBone"].as<u32>(comp.RightToeBone);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RaycastUp"], v))
+        comp.RaycastUp = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RaycastDown"], v))
+        comp.RaycastDown = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FootHeight"], v))
+        comp.FootHeight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    comp.AdjustPelvis = node["AdjustPelvis"].as<bool>(comp.AdjustPelvis);
+    comp.PelvisBone = node["PelvisBone"].as<u32>(comp.PelvisBone);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxPelvisDrop"], v))
+        comp.MaxPelvisDrop = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(2.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PelvisLerpSpeed"], v))
+        comp.PelvisLerpSpeed = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    comp.FootLock = node["FootLock"].as<bool>(comp.FootLock);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PlantVelocityThreshold"], v))
+        comp.PlantVelocityThreshold = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PlantLiftThreshold"], v))
+        comp.PlantLiftThreshold = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["UnlockBlendTime"], v))
+        comp.UnlockBlendTime = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(2.0f));
+    comp.AlignFootToSlope = node["AlignFootToSlope"].as<bool>(comp.AlignFootToSlope);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxSlopeAngle"], v))
+        comp.MaxSlopeAngle = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(90.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Weight"], v))
+        comp.Weight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    comp.LeftHandEnabled = node["LeftHandEnabled"].as<bool>(comp.LeftHandEnabled);
+    comp.LeftHandBone = node["LeftHandBone"].as<u32>(comp.LeftHandBone);
+    comp.LeftHandTarget = node["LeftHandTarget"].as<glm::vec3>(comp.LeftHandTarget);
+    comp.LeftHandTargetEntity = node["LeftHandTargetEntity"].as<u64>(static_cast<u64>(comp.LeftHandTargetEntity));
+    comp.RightHandEnabled = node["RightHandEnabled"].as<bool>(comp.RightHandEnabled);
+    comp.RightHandBone = node["RightHandBone"].as<u32>(comp.RightHandBone);
+    comp.RightHandTarget = node["RightHandTarget"].as<glm::vec3>(comp.RightHandTarget);
+    comp.RightHandTargetEntity = node["RightHandTargetEntity"].as<u64>(static_cast<u64>(comp.RightHandTargetEntity));
+    comp.HandChainLength = std::max(node["HandChainLength"].as<u32>(comp.HandChainLength), static_cast<u32>(2u));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["HandWeight"], v))
+        comp.HandWeight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+}
+
 if (auto node = entity["InstancePortalComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<InstancePortalComponent>();
@@ -166,6 +213,37 @@ if (auto node = entity["LocalizedTextComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<LocalizedTextComponent>();
     comp.LocalizationKey = node["LocalizationKey"].as<std::string>(comp.LocalizationKey);
+}
+
+if (auto node = entity["LocomotionComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<LocomotionComponent>();
+    comp.Enabled = node["Enabled"].as<bool>(comp.Enabled);
+    comp.SpeedParameter = node["SpeedParameter"].as<std::string>(comp.SpeedParameter);
+    comp.DirectionXParameter = node["DirectionXParameter"].as<std::string>(comp.DirectionXParameter);
+    comp.DirectionYParameter = node["DirectionYParameter"].as<std::string>(comp.DirectionYParameter);
+    comp.GaitParameter = node["GaitParameter"].as<std::string>(comp.GaitParameter);
+    comp.TurnParameter = node["TurnParameter"].as<std::string>(comp.TurnParameter);
+    comp.UseDesiredVelocity = node["UseDesiredVelocity"].as<bool>(comp.UseDesiredVelocity);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WalkEnterSpeed"], v))
+        comp.WalkEnterSpeed = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WalkExitSpeed"], v))
+        comp.WalkExitSpeed = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RunEnterSpeed"], v))
+        comp.RunEnterSpeed = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RunExitSpeed"], v))
+        comp.RunExitSpeed = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SpeedSmoothing"], v))
+        comp.SpeedSmoothing = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["DirectionReferenceSpeed"], v))
+        comp.DirectionReferenceSpeed = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(100.0f));
+    comp.StrideWarp = node["StrideWarp"].as<bool>(comp.StrideWarp);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WalkClipSpeed"], v))
+        comp.WalkClipSpeed = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RunClipSpeed"], v))
+        comp.RunClipSpeed = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxStrideScale"], v))
+        comp.MaxStrideScale = std::clamp(v, static_cast<f32>(1.0f), static_cast<f32>(4.0f));
 }
 
 if (auto node = entity["LuaScriptComponent"]; node)
@@ -304,6 +382,39 @@ if (auto node = entity["RelationshipComponent"]; node)
         for (auto const& e : seqNode)
             if (decltype(comp.m_Children)::value_type v{}; ::YAML::convert<decltype(comp.m_Children)::value_type>::decode(e, v))
                 comp.m_Children.push_back(v);
+    }
+}
+
+if (auto node = entity["RetargetingComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<RetargetingComponent>();
+    comp.Enabled = node["Enabled"].as<bool>(comp.Enabled);
+    comp.m_SourcePath = node["SourcePath"].as<std::string>(comp.m_SourcePath);
+    comp.m_SourceEntity = node["SourceEntity"].as<u64>(static_cast<u64>(comp.m_SourceEntity));
+    comp.UseHumanoidRoles = node["UseHumanoidRoles"].as<bool>(comp.UseHumanoidRoles);
+    comp.PerBoneTranslation = node["PerBoneTranslation"].as<bool>(comp.PerBoneTranslation);
+    comp.TransferRootTranslation = node["TransferRootTranslation"].as<bool>(comp.TransferRootTranslation);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RootTranslationScale"], v))
+        comp.RootTranslationScale = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (auto mapNode0 = node["SourceRoleOverrides"]; mapNode0 && mapNode0.IsMap())
+    {
+        comp.m_SourceRoleOverrides.clear();
+        for (auto const& entry0 : mapNode0)
+        {
+            const std::string k0 = entry0.first.as<std::string>();
+            if (decltype(comp.m_SourceRoleOverrides)::mapped_type v{}; ::YAML::convert<decltype(comp.m_SourceRoleOverrides)::mapped_type>::decode(entry0.second, v))
+                comp.m_SourceRoleOverrides[k0] = v;
+        }
+    }
+    if (auto mapNode0 = node["TargetRoleOverrides"]; mapNode0 && mapNode0.IsMap())
+    {
+        comp.m_TargetRoleOverrides.clear();
+        for (auto const& entry0 : mapNode0)
+        {
+            const std::string k0 = entry0.first.as<std::string>();
+            if (decltype(comp.m_TargetRoleOverrides)::mapped_type v{}; ::YAML::convert<decltype(comp.m_TargetRoleOverrides)::mapped_type>::decode(entry0.second, v))
+                comp.m_TargetRoleOverrides[k0] = v;
+        }
     }
 }
 
