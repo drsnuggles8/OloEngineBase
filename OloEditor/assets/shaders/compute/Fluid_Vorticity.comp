@@ -1,0 +1,118 @@
+#version 460 core
+
+// =============================================================================
+// Fluid_Vorticity.comp - per-particle vorticity omega (#630).
+//
+// PBF step 5: omega_i = sum_{j != i} cross(v_j - v_i, gradW_spiky(x_ij)) over
+// the neighbours of the FINAL predicted positions (u_Fluid.StepFlags.x holds
+// the final Jacobi parity). No explicit distance guard - spikyGrad returns the
+// zero vector outside the support radius, exactly like the CPU loop.
+// Omega is stored in Aux xyz (lambda in w is stale and no longer needed).
+//
+// CPU mirror: CPUFluidSolver.cpp (Step - "5. Vorticity").
+//
+// Bindings: UBO 47 (FluidUBO), SSBO 22 velocities, 23 predicted A,
+//           24 predicted B, 25 aux, 26 grid heads, 27 grid next, 28 counters.
+// =============================================================================
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/FluidKernels.glsl"
+
+layout(std430, binding = 22) readonly buffer FluidVelocitiesBuffer
+{
+    vec4 velocities[];
+};
+
+layout(std430, binding = 23) readonly buffer FluidPredictedABuffer
+{
+    vec4 predictedA[];
+};
+
+layout(std430, binding = 24) readonly buffer FluidPredictedBBuffer
+{
+    vec4 predictedB[];
+};
+
+layout(std430, binding = 25) buffer FluidAuxBuffer
+{
+    vec4 aux[]; // xyz = omega (written here), w = stale lambda
+};
+
+layout(std430, binding = 26) readonly buffer FluidGridHeadBuffer
+{
+    uint gridHead[];
+};
+
+layout(std430, binding = 27) readonly buffer FluidGridNextBuffer
+{
+    uint gridNext[];
+};
+
+layout(std430, binding = 28) readonly buffer FluidCountersBuffer
+{
+    uint Count;
+    uint EmitCount;
+    uint KillCount;
+    uint ScratchCount;
+} counters;
+
+vec3 readPredicted(uint idx)
+{
+    return (u_Fluid.StepFlags.x == 0u) ? predictedA[idx].xyz : predictedB[idx].xyz;
+}
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= counters.Count)
+    {
+        return;
+    }
+
+    float h = u_Fluid.GravityH.w;
+    float spikyScaleValue = u_Fluid.KernelScales.y;
+    // SPH volume weight vol = m/rho0 — without it the discrete curl is ~1/vol
+    // too large and confinement detonates. CPU mirror: CPUFluidSolver.cpp.
+    float volumeWeight = u_Fluid.KernelScales.w * u_Fluid.PbfParams.x;
+
+    vec3 pi = readPredicted(i);
+    vec3 vi = velocities[i].xyz;
+    vec3 omega = vec3(0.0);
+
+    // 27-cell neighbour walk. CPU mirror: CPUFluidSolver.cpp (ForEachNeighbour).
+    vec3 rel = (pi - u_Fluid.BoundsMinCellSize.xyz) / u_Fluid.BoundsMinCellSize.w;
+    ivec3 center = ivec3(floor(rel));
+    for (int dz = -1; dz <= 1; ++dz)
+    {
+        for (int dy = -1; dy <= 1; ++dy)
+        {
+            for (int dx = -1; dx <= 1; ++dx)
+            {
+                ivec3 cell = center + ivec3(dx, dy, dz);
+                if (cell.x < 0 || cell.y < 0 || cell.z < 0 ||
+                    cell.x >= int(u_Fluid.GridDims.x) ||
+                    cell.y >= int(u_Fluid.GridDims.y) ||
+                    cell.z >= int(u_Fluid.GridDims.z))
+                {
+                    continue;
+                }
+                uint cellIndex = (uint(cell.z) * u_Fluid.GridDims.y + uint(cell.y)) * u_Fluid.GridDims.x + uint(cell.x);
+                for (uint cursor = gridHead[cellIndex]; cursor != 0u; cursor = gridNext[cursor - 1u])
+                {
+                    uint j = cursor - 1u;
+                    if (j == i)
+                    {
+                        continue;
+                    }
+
+                    // CPU mirror: CPUFluidSolver.cpp (Step - omega accumulation).
+                    vec3 offsetVec = pi - readPredicted(j);
+                    omega += volumeWeight * cross(velocities[j].xyz - vi, spikyGrad(offsetVec, h, spikyScaleValue));
+                }
+            }
+        }
+    }
+
+    aux[i].xyz = omega;
+}

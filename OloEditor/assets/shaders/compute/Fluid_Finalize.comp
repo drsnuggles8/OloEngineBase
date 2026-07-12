@@ -1,0 +1,68 @@
+#version 460 core
+
+// =============================================================================
+// Fluid_Finalize.comp - commit the step (#630).
+//
+// PBF step 7: x = x*_final (StepFlags.x = final Jacobi parity), v = the
+// XSPH/vorticity-corrected velocity from the pong buffer. Writing position w
+// as 0.0 also resets the kill flag for the next step.
+//
+// CPU mirror: CPUFluidSolver.cpp (Step - "7. Commit").
+//
+// Bindings: UBO 47 (FluidUBO), SSBO 21 positions, 22 velocities,
+//           23 predicted A, 24 predicted B, 28 counters, 32 velocities alt.
+// =============================================================================
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/FluidKernels.glsl"
+
+layout(std430, binding = 21) writeonly buffer FluidPositionsBuffer
+{
+    vec4 positions[];
+};
+
+layout(std430, binding = 22) writeonly buffer FluidVelocitiesBuffer
+{
+    vec4 velocities[];
+};
+
+layout(std430, binding = 23) readonly buffer FluidPredictedABuffer
+{
+    vec4 predictedA[];
+};
+
+layout(std430, binding = 24) readonly buffer FluidPredictedBBuffer
+{
+    vec4 predictedB[];
+};
+
+layout(std430, binding = 28) readonly buffer FluidCountersBuffer
+{
+    uint Count;
+    uint EmitCount;
+    uint KillCount;
+    uint ScratchCount;
+} counters;
+
+layout(std430, binding = 32) readonly buffer FluidVelocitiesAltBuffer
+{
+    vec4 velocitiesAlt[];
+};
+
+vec3 readPredicted(uint idx)
+{
+    return (u_Fluid.StepFlags.x == 0u) ? predictedA[idx].xyz : predictedB[idx].xyz;
+}
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= counters.Count)
+    {
+        return;
+    }
+
+    positions[i] = vec4(readPredicted(i), 0.0);
+    velocities[i] = velocitiesAlt[i];
+}

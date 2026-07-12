@@ -28,6 +28,8 @@ namespace OloEngine
         RenderGraphNode* ForwardOverlay = nullptr;
         RenderGraphNode* Foliage = nullptr;
         RenderGraphNode* Water = nullptr;
+        RenderGraphNode* FluidIntermediates = nullptr;
+        RenderGraphNode* FluidComposite = nullptr;
         RenderGraphNode* Decal = nullptr;
         RenderGraphNode* SSAO = nullptr;
         RenderGraphNode* GTAO = nullptr;

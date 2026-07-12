@@ -66,6 +66,7 @@ namespace OloEngine
         serializers[AssetType::StateMachine] = CreateScope<StateMachineSerializer>();
         serializers[AssetType::InstancePlacement] = CreateScope<InstancePlacementSerializer>();
         serializers[AssetType::CinematicSequence] = CreateScope<CinematicSequenceAssetSerializer>();
+        serializers[AssetType::FluidSettings] = CreateScope<FluidSettingsAssetSerializer>();
     }
 
     void AssetImporter::Shutdown()

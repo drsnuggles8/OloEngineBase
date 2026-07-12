@@ -127,6 +127,42 @@ if (entity.HasComponent<EnvironmentMapComponent>())
     out << YAML::EndMap; // EnvironmentMapComponent
 }
 
+if (entity.HasComponent<FluidComponent>())
+{
+    out << YAML::Key << "FluidComponent";
+    out << YAML::BeginMap; // FluidComponent
+    auto const& comp = entity.GetComponent<FluidComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::Key << "Settings" << YAML::Value << static_cast<u64>(comp.m_Settings);
+    out << YAML::Key << "DomainHalfExtents" << YAML::Value << comp.m_DomainHalfExtents;
+    out << YAML::Key << "MaxParticles" << YAML::Value << comp.m_MaxParticles;
+    out << YAML::Key << "SolverMode" << YAML::Value << static_cast<int>(comp.m_SolverMode);
+    out << YAML::Key << "PrefillFraction" << YAML::Value << comp.m_PrefillFraction;
+    out << YAML::EndMap; // FluidComponent
+}
+
+if (entity.HasComponent<FluidEmitterComponent>())
+{
+    out << YAML::Key << "FluidEmitterComponent";
+    out << YAML::BeginMap; // FluidEmitterComponent
+    auto const& comp = entity.GetComponent<FluidEmitterComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::Key << "Rate" << YAML::Value << comp.m_Rate;
+    out << YAML::Key << "Speed" << YAML::Value << comp.m_Speed;
+    out << YAML::Key << "SpreadRadius" << YAML::Value << comp.m_SpreadRadius;
+    out << YAML::EndMap; // FluidEmitterComponent
+}
+
+if (entity.HasComponent<FluidKillVolumeComponent>())
+{
+    out << YAML::Key << "FluidKillVolumeComponent";
+    out << YAML::BeginMap; // FluidKillVolumeComponent
+    auto const& comp = entity.GetComponent<FluidKillVolumeComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::Key << "HalfExtents" << YAML::Value << comp.m_HalfExtents;
+    out << YAML::EndMap; // FluidKillVolumeComponent
+}
+
 if (entity.HasComponent<FogVolumeComponent>())
 {
     out << YAML::Key << "FogVolumeComponent";

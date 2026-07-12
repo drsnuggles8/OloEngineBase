@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
+#include "OloEngine/Renderer/FluidRenderData.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Camera/PerspectiveCamera.h"
 #include "OloEngine/Renderer/Material.h"
@@ -816,6 +817,11 @@ namespace OloEngine
         }
 
         static void SetParticleRenderCallback(RenderCallback callback);
+
+        /// Queue one fluid domain's screen-space draw for this frame (issue
+        /// #630). Consumed by FluidIntermediatesPass/FluidCompositePass; the
+        /// list clears every frame like the particle render callback.
+        static void SubmitFluidDraw(const FluidRenderData& draw);
 
         static void SetUICompositeRenderCallback(RenderCallback callback);
 
@@ -1707,6 +1713,7 @@ namespace OloEngine
             std::vector<i32> SelectionOutlineEntityIDs;
             RenderCallback PendingParticleRenderCallback;
             RenderCallback PendingUICompositeRenderCallback;
+            std::vector<FluidRenderData> PendingFluidDraws; // #630, drained by ConfigurePassesForFrame
         };
 
         static Renderer3DData s_Data;

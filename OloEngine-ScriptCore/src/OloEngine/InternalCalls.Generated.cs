@@ -330,6 +330,39 @@ namespace OloEngine
 		internal static extern void DirectionalLightComponent_SetCastShadows(ulong entityID, bool value);
 		#endregion
 
+		#region FluidComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FluidComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FluidComponent_SetEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float FluidComponent_GetPrefillFraction(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FluidComponent_SetPrefillFraction(ulong entityID, float value);
+		#endregion
+
+		#region FluidEmitterComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FluidEmitterComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FluidEmitterComponent_SetEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float FluidEmitterComponent_GetRate(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FluidEmitterComponent_SetRate(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float FluidEmitterComponent_GetSpeed(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FluidEmitterComponent_SetSpeed(ulong entityID, float value);
+		#endregion
+
+		#region FluidKillVolumeComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool FluidKillVolumeComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void FluidKillVolumeComponent_SetEnabled(ulong entityID, bool value);
+		#endregion
+
 		#region FootIKComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool FootIKComponent_GetEnabled(ulong entityID);

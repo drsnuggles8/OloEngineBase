@@ -1,0 +1,77 @@
+#version 460 core
+
+// =============================================================================
+// FluidSmooth.comp — bilateral smoothing of the fluid view-depth splat
+// (issue #630, pillar B).
+//
+// FluidIntermediatesPass ping-pongs this kernel A→B→A over the R32F view-
+// depth target so the discrete sphere-impostor shells fuse into a continuous
+// surface for the composite's normal reconstruction. Weights are
+// gaussian(spatial) × gaussian(depth difference): the depth term stops the
+// blur from bleeding across silhouette edges (foreground fluid vs background
+// fluid) and the 0-depth "no fluid" sentinel is excluded entirely — both as
+// the centre (passes through 0) and as a neighbour contribution.
+//
+// SPIR-V-clean (#627 will sweep .comp through shaderc): all scalar params in
+// the std140 FluidRenderUBO at binding 48, images are opaque, no bare
+// non-opaque uniforms, no implicit int→float conversions.
+//
+// Bindings: UBO 48 (FluidRenderUBO), image unit 0 = source r32f (readonly),
+//           image unit 1 = destination r32f (writeonly).
+// =============================================================================
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+#include "../include/FluidRenderCommon.glsl"
+
+layout(binding = 0, r32f) uniform readonly image2D u_FluidDepthIn;
+layout(binding = 1, r32f) uniform writeonly image2D u_FluidDepthOut;
+
+void main()
+{
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(u_FluidDepthOut);
+    if (texel.x >= size.x || texel.y >= size.y)
+    {
+        return;
+    }
+
+    float centerDepth = imageLoad(u_FluidDepthIn, texel).r;
+    if (centerDepth <= 0.0)
+    {
+        // No fluid at this texel — preserve the sentinel.
+        imageStore(u_FluidDepthOut, texel, vec4(0.0, 0.0, 0.0, 0.0));
+        return;
+    }
+
+    int radius = clamp(int(u_FluidRender.SmoothParams.x), 1, 8);
+    float sigmaSpatial = max(float(radius) * 0.5, 0.5);
+    float sigmaDepth = max(u_FluidRender.SmoothParams.y, 1.0e-4);
+    float invTwoSigmaSpatialSq = 1.0 / (2.0 * sigmaSpatial * sigmaSpatial);
+    float invTwoSigmaDepthSq = 1.0 / (2.0 * sigmaDepth * sigmaDepth);
+
+    float depthSum = 0.0;
+    float weightSum = 0.0;
+    for (int dy = -radius; dy <= radius; ++dy)
+    {
+        for (int dx = -radius; dx <= radius; ++dx)
+        {
+            ivec2 sampleTexel = clamp(texel + ivec2(dx, dy), ivec2(0), size - ivec2(1));
+            float sampleDepth = imageLoad(u_FluidDepthIn, sampleTexel).r;
+            if (sampleDepth <= 0.0)
+            {
+                continue; // no fluid — never blend the sentinel into the surface
+            }
+
+            float spatialSq = float(dx * dx + dy * dy);
+            float depthDelta = sampleDepth - centerDepth;
+            float weight = exp(-spatialSq * invTwoSigmaSpatialSq
+                               - depthDelta * depthDelta * invTwoSigmaDepthSq);
+            depthSum += sampleDepth * weight;
+            weightSum += weight;
+        }
+    }
+
+    float smoothedDepth = weightSum > 0.0 ? depthSum / weightSum : centerDepth;
+    imageStore(u_FluidDepthOut, texel, vec4(smoothedDepth, 0.0, 0.0, 0.0));
+}

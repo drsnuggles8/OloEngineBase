@@ -30,7 +30,8 @@ namespace OloEngine
     //  - GBuffer  (`GBufferSlot`)          — deferred G-Buffer attachments (+ MSAA companions)
     //  - AO       (`AOSlot`)               — the shared AO producer/consumer surface
     //  - Scratch  (`ScratchSlot`)          — graph-internal transients (SSAO, JFA, Bloom mips,
-    //                                        GTAO denoise/edge, HZB, water refraction, fog half-res)
+    //                                        GTAO denoise/edge, HZB, water refraction,
+    //                                        fluid refraction, fog half-res)
     //  - Shadows  (`ShadowSlot`)           — CSM + the unified shadow atlas (spot & point
     //                                        entries share one texture, issue #435)
     //  - Post     (`PostProcessSlot`)      — post-process chain framebuffers + attachment views
@@ -155,6 +156,11 @@ namespace OloEngine
             // Copied from scene color before water renders; sampled by water
             // shaders for refraction distortion. Internal to WaterRenderPass.
             RGTextureHandle WaterRefraction;
+
+            // Fluid refraction scratch texture (RGBA16F, viewport-sized).
+            // Copied from scene color before the fluid composite; sampled for
+            // screen-space refraction. Internal to FluidCompositePass (#630).
+            RGTextureHandle FluidRefraction;
 
             // Fog half-resolution scratch framebuffer. RGBA16F at
             // ceil(viewport/2). Written by Fog pass A (analytic evaluation or

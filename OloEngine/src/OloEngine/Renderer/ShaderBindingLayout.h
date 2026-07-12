@@ -440,6 +440,62 @@ namespace OloEngine
         static_assert(sizeof(FroxelFogUBO) % 16 == 0, "FroxelFogUBO must be 16-byte aligned for std140");
         static_assert(sizeof(FroxelFogUBO) == 240, "FroxelFogUBO std140 size drifted from GLSL expectation (240 B)");
 
+        // @brief GPU fluid solver parameters UBO (Position-Based Fluids, issue #630).
+        //
+        // Shared by every Fluid_*.comp pass. Uploaded once per solver step and
+        // re-uploaded between constraint iterations when StepFlags.x (the
+        // Jacobi ping-pong parity) changes. Kill boxes ride inline so the kill
+        // pass needs no extra SSBO (kFluidMaxKillBoxes entries; Counts.w holds
+        // the live count).
+        struct FluidUBO
+        {
+            static constexpr u32 kMaxKillBoxes = 8;
+
+            glm::vec4 BoundsMinCellSize;         // xyz = domain AABB min, w = grid cell size
+            glm::vec4 BoundsMaxDt;               // xyz = domain AABB max, w = step dt
+            glm::vec4 GravityH;                  // xyz = gravity, w = smoothing radius h
+            glm::vec4 KernelScales;              // x = poly6 scale, y = spiky-gradient scale, z = W(deltaQ*h) (s_corr denominator), w = particle mass
+            glm::vec4 PbfParams;                 // x = 1/restDensity, y = CFM epsilon, z = s_corr k, w = s_corr n
+            glm::vec4 ViscosityParams;           // x = XSPH c, y = vorticity epsilon, z = max speed, w = particle radius
+            glm::vec4 CouplingParams;            // x = coupling stiffness, y = impulse fixed-point scale, z = max |delta p| per iteration (kFluidMaxDeltaPFraction * h), w = Jacobi under-relaxation (kFluidJacobiRelaxation)
+            glm::uvec4 GridDims;                 // xyz = grid cell counts, w = total cell count
+            glm::uvec4 Counts;                   // x = max particles, y = emit count, z = body proxy count, w = kill box count
+            glm::uvec4 StepFlags;                // x = Jacobi read-parity (0 = A, 1 = B), y/z/w = unused
+            glm::vec4 KillBoxMin[kMaxKillBoxes]; // xyz = kill AABB min (w unused)
+            glm::vec4 KillBoxMax[kMaxKillBoxes]; // xyz = kill AABB max (w unused)
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(FluidUBO));
+            }
+        };
+
+        static_assert(sizeof(FluidUBO) % 16 == 0, "FluidUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(FluidUBO) == 416, "FluidUBO std140 size drifted from GLSL expectation (416 B)");
+
+        // @brief Screen-space fluid rendering parameters UBO (issue #630).
+        //
+        // Shared by the fluid splat / smooth / composite passes. Camera
+        // matrices come from the standard CameraUBO (binding 0); this block
+        // carries only the fluid-specific appearance + filter tuning.
+        struct FluidRenderUBO
+        {
+            glm::vec4 TintRadius;       // xyz = surface tint, w = particle world radius
+            glm::vec4 AbsorptionParams; // xyz = Beer-Lambert absorption color, w = absorption scale
+            glm::vec4 FoamParams;       // x = foam speed threshold, y = foam intensity, z/w = unused
+            glm::vec4 SmoothParams;     // x = blur radius (px), y = depth falloff, z = camera near, w = camera far
+            glm::vec4 ScreenParams;     // xy = viewport size (px), zw = texel size
+            glm::uvec4 Counts;          // x = particle count, y = entity id (as u32), z = env cubemap bound (0/1), w = unused
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(FluidRenderUBO));
+            }
+        };
+
+        static_assert(sizeof(FluidRenderUBO) % 16 == 0, "FluidRenderUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(FluidRenderUBO) == 96, "FluidRenderUBO std140 size drifted from GLSL expectation (96 B)");
+
         // @brief Forward+ clustered (froxel) light culling parameters UBO.
         //
         // The grid is a fixed-count 3D cluster grid (issue #435): X/Y screen
@@ -726,6 +782,8 @@ namespace OloEngine
         static constexpr u32 UBO_UPSCALER = 44;             // Spatial upscaler / CAS·RCAS sharpening params (sharpness + texel size) — PostProcess_CAS.glsl / PostProcess_RCAS.glsl
         static constexpr u32 UBO_EASU = 45;                 // FSR1 EASU upscale constants (input/output size + tap texel + DRS bounds) — PostProcess_EASU.glsl
         static constexpr u32 UBO_FROXEL_FOG = 46;           // Froxel volumetric fog params (volume dims, depth slicing, temporal reprojection — issue #435)
+        static constexpr u32 UBO_FLUID = 47;                // GPU fluid solver params (PBF kernels, grid dims, Jolt coupling — issue #630)
+        static constexpr u32 UBO_FLUID_RENDER = 48;         // Screen-space fluid rendering params (tint, absorption, foam, smoothing — issue #630)
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -814,7 +872,14 @@ namespace OloEngine
         // shader-graph user base shifts up by one, per the established
         // procedure for new engine slots.
         static constexpr u32 TEX_FROXEL_FOG = 53;
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 54; // First shader graph user texture slot (must be after all engine-reserved slots)
+        // Screen-space fluid intermediates (issue #630): the bilateral-smoothed
+        // view-space depth and the additive thickness/foam accumulation target,
+        // written by the fluid depth/smooth/thickness passes and sampled by the
+        // fluid composite. The shader-graph user base shifts up by two, per the
+        // established procedure for new engine slots.
+        static constexpr u32 TEX_FLUID_DEPTH = 54;     // R32F view-space depth (smoothed)
+        static constexpr u32 TEX_FLUID_THICKNESS = 55; // RG16F: r = thickness, g = speed-weighted thickness (foam)
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 56;  // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -854,6 +919,20 @@ namespace OloEngine
         // Automatic exposure / eye adaptation (histogram metering -> ToneMap)
         static constexpr u32 SSBO_AUTO_EXPOSURE_HISTOGRAM = 19; // 256-bin log-luminance histogram (AutoExposureHistogram.comp -> AutoExposureAverage.comp)
         static constexpr u32 SSBO_AUTO_EXPOSURE_STATE = 20;     // [0]=exposure multiplier (<=0 => use manual), [1]=adapted luminance (persists across frames)
+
+        // GPU fluid solver (Position-Based Fluids, issue #630) — Fluid_*.comp
+        static constexpr u32 SSBO_FLUID_POSITIONS = 21;      // vec4[max]: xyz world position, w = kill flag (< 0 marked dead)
+        static constexpr u32 SSBO_FLUID_VELOCITIES = 22;     // vec4[max]: xyz velocity
+        static constexpr u32 SSBO_FLUID_PREDICTED_A = 23;    // vec4[max]: predicted positions, Jacobi ping
+        static constexpr u32 SSBO_FLUID_PREDICTED_B = 24;    // vec4[max]: predicted positions, Jacobi pong
+        static constexpr u32 SSBO_FLUID_AUX = 25;            // vec4[max]: xyz vorticity omega, w lambda
+        static constexpr u32 SSBO_FLUID_GRID_HEAD = 26;      // u32[cells]: neighbour-grid linked-list heads (index+1, 0 = empty)
+        static constexpr u32 SSBO_FLUID_GRID_NEXT = 27;      // u32[max]: neighbour-grid linked-list next pointers (index+1)
+        static constexpr u32 SSBO_FLUID_COUNTERS = 28;       // GPUFluidCounters (count/emit/kill/scratch)
+        static constexpr u32 SSBO_FLUID_EMIT_STAGING = 29;   // GPUFluidEmitEntry[batch]: CPU-staged emissions
+        static constexpr u32 SSBO_FLUID_BODY_PROXIES = 30;   // FluidBodyProxy[kFluidMaxBodyProxies]: Jolt coupling shapes (CPU-uploaded)
+        static constexpr u32 SSBO_FLUID_BODY_IMPULSES = 31;  // GPUFluidBodyImpulse[kFluidMaxBodyProxies]: fixed-point reaction accumulators
+        static constexpr u32 SSBO_FLUID_VELOCITIES_ALT = 32; // vec4[max]: XSPH/vorticity-corrected velocities (pong)
 
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE
@@ -989,6 +1068,9 @@ namespace OloEngine
                     return name.contains("EASU") || name.contains("easu");
                 case UBO_FROXEL_FOG:
                     return name.contains("FroxelFog") || name.contains("froxelFog");
+                case UBO_FLUID:
+                case UBO_FLUID_RENDER:
+                    return name.contains("Fluid") || name.contains("fluid");
                 default:
                     return false;
             }
@@ -1126,6 +1208,11 @@ namespace OloEngine
                 case TEX_FROXEL_FOG:
                     // Integrated froxel fog volume (issue #435): u_FroxelFogVolume.
                     return name.contains("FroxelFog") || name.contains("froxelFog");
+                case TEX_FLUID_DEPTH:
+                case TEX_FLUID_THICKNESS:
+                    // Screen-space fluid intermediates (issue #630):
+                    // u_FluidDepth / u_FluidThickness.
+                    return name.contains("Fluid") || name.contains("fluid");
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)

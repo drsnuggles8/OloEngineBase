@@ -13,6 +13,8 @@
 #include "OloEngine/Renderer/Passes/DeferredOpaqueDecalPass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Passes/FogRenderPass.h"
+#include "OloEngine/Renderer/Passes/FluidCompositePass.h"
+#include "OloEngine/Renderer/Passes/FluidIntermediatesPass.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
 #include "OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
 #include "OloEngine/Renderer/Passes/FXAARenderPass.h"
@@ -148,6 +150,8 @@ namespace OloEngine
         Ref<WaterRenderPass> Water;
         Ref<DecalRenderPass> Decal;
         Ref<GPUDrivenOcclusionPass> GPUOcclusion;
+        Ref<FluidIntermediatesPass> FluidIntermediates; // #630 depth splat + smooth + thickness
+        Ref<FluidCompositePass> FluidComposite;         // #630 SceneColor RMW shading pass
 
         void Reset()
         {
@@ -156,6 +160,8 @@ namespace OloEngine
             Water.Reset();
             Decal.Reset();
             GPUOcclusion.Reset();
+            FluidIntermediates.Reset();
+            FluidComposite.Reset();
         }
     };
 

@@ -15,7 +15,7 @@ namespace OloEngine::RenderPipelineBuilderInternal
         // class-specific setter wiring is required here. The chain is:
         //   Scene (forward) OR DeferredLighting (deferred)
         //     -> ForwardOverlay (deferred only) -> Foliage -> Decal -> Water
-        //     -> Particle -> OITResolve
+        //     -> FluidComposite -> Particle -> OITResolve
         // BuildRenderPipelineGraph registers the SceneColor producer
         // (Scene / DeferredLighting) before this stage, so the modifier
         // Setups run in the correct order and the name-based lookup
@@ -28,6 +28,13 @@ namespace OloEngine::RenderPipelineBuilderInternal
         AddExistingNode(graph, inputs.Passes->Foliage);
         AddExistingNode(graph, inputs.Passes->Decal);
         AddExistingNode(graph, inputs.Passes->Water);
+
+        // Screen-space fluid (issue #630): intermediates first (name-based
+        // dependency discovery is registration-ordered), then the composite
+        // joins the SceneColor RMW chain AFTER Water — registering it before
+        // Water would compose the fluid under the water surface.
+        AddExistingNode(graph, inputs.Passes->FluidIntermediates);
+        AddExistingNode(graph, inputs.Passes->FluidComposite);
     }
 
     void RegisterSceneAndLightingNodes(RenderGraph& graph,

@@ -1,0 +1,66 @@
+#version 460 core
+
+// =============================================================================
+// Fluid_Compact.comp - scatter surviving particles into scratch buffers (#630).
+//
+// Runs after Fluid_KillMark. Every live particle (position w >= 0) claims a
+// dense scratch index via atomicAdd(ScratchCount) and copies itself into the
+// predicted-A / velocities-alt buffers (both are free scratch at this point of
+// the step). Fluid_CompactCommit copies the dense arrays back.
+//
+// The resulting particle ORDER is nondeterministic (atomic append) - the CPU
+// solver's swap-with-last compaction differs in order too; only the set of
+// survivors and their count are contractual.
+//
+// Bindings: SSBO 21 positions, 22 velocities, 23 predicted A (scratch out),
+//           28 counters, 32 velocities alt (scratch out). UBO 47 (FluidUBO,
+//           via include; unused here).
+// =============================================================================
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/FluidKernels.glsl"
+
+layout(std430, binding = 21) readonly buffer FluidPositionsBuffer
+{
+    vec4 positions[]; // xyz = world position, w = kill flag (< 0 marked dead)
+};
+
+layout(std430, binding = 22) readonly buffer FluidVelocitiesBuffer
+{
+    vec4 velocities[];
+};
+
+layout(std430, binding = 23) writeonly buffer FluidPredictedABuffer
+{
+    vec4 predictedA[]; // scratch destination for surviving positions
+};
+
+layout(std430, binding = 28) buffer FluidCountersBuffer
+{
+    uint Count;
+    uint EmitCount;
+    uint KillCount;
+    uint ScratchCount;
+} counters;
+
+layout(std430, binding = 32) writeonly buffer FluidVelocitiesAltBuffer
+{
+    vec4 velocitiesAlt[]; // scratch destination for surviving velocities
+};
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= counters.Count)
+    {
+        return;
+    }
+
+    if (positions[i].w >= 0.0)
+    {
+        uint dst = atomicAdd(counters.ScratchCount, 1u);
+        predictedA[dst] = positions[i];
+        velocitiesAlt[dst] = velocities[i];
+    }
+}

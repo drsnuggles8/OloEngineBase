@@ -121,6 +121,7 @@ The full per-OS build matrix (including Linux and WSL specifics) lives in [docs/
 - **Unified 2D/3D pipeline** — sprites and 3D meshes through one renderer.
 - **Skeletal animation** — Assimp-imported skeletons, animation graphs and state machines, additive layers, and humanoid retargeting; secondary motion via spring bones and cloth.
 - **GPU-driven particles** — compute-based particle simulation.
+- **Real-time particle fluids** — GPU Position-Based Fluids solver (compute spatial hash + density-constraint solve) with screen-space fluid rendering, deterministic CPU fallback, and two-way Jolt rigid-body coupling.
 
 ### Physics
 - **3D** — Jolt Physics for rigid bodies, joints, characters, and vehicles.

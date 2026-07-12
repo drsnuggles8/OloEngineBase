@@ -3319,6 +3319,107 @@ namespace OloEngine
         }
     };
 
+    // ── GPU Fluid Simulation (Position-Based Fluids, issue #630) ─────────
+
+    enum class FluidSolverMode : i32
+    {
+        Auto = 0, // GPU when a GL context exists, CPU otherwise (headless / OloServer)
+        GPU = 1,
+        CPU = 2 // deterministic CPU reference solver (also forced by OLO_FLUID_SEQUENTIAL=1)
+    };
+
+    /// A particle-fluid domain. The simulation runs inside an axis-aligned box
+    /// centred on the entity's world translation (entity rotation is
+    /// deliberately ignored — the solver grid is axis-aligned). Solver tuning
+    /// beyond the domain itself comes from the referenced FluidSettings asset.
+    struct FluidComponent
+    {
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        AssetHandle m_Settings = 0; // FluidSettings asset; 0 = engine defaults
+
+        OLO_SERIALIZE(Clamp, Min = 0.25f, Max = 256.0f)
+        glm::vec3 m_DomainHalfExtents = { 4.0f, 4.0f, 4.0f };
+
+        OLO_SERIALIZE(Clamp, Min = 64, Max = 1000000)
+        u32 m_MaxParticles = 65536;
+
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 2)
+        FluidSolverMode m_SolverMode = FluidSolverMode::Auto;
+
+        // Fill the lower fraction of the domain with resting fluid when the
+        // simulation starts (dam-break / pre-filled pool without an emitter).
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        OLO_PROPERTY()
+        f32 m_PrefillFraction = 0.0f;
+
+        FluidComponent() = default;
+        FluidComponent(const FluidComponent&) = default;
+        FluidComponent& operator=(const FluidComponent&) = default;
+        FluidComponent(FluidComponent&&) noexcept = default;
+        FluidComponent& operator=(FluidComponent&&) noexcept = default;
+
+        auto operator==(const FluidComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+
+    /// Emits fluid particles into the FluidComponent domain that contains the
+    /// emitter's world position. Particles spawn on a disc of m_SpreadRadius
+    /// perpendicular to the emitter's forward axis (local -Z, rotated by the
+    /// entity's world rotation) with initial speed m_Speed along it.
+    struct FluidEmitterComponent
+    {
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 200000.0f)
+        OLO_PROPERTY()
+        f32 m_Rate = 500.0f; // particles per second
+
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        OLO_PROPERTY()
+        f32 m_Speed = 4.0f; // initial speed, m/s
+
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
+        f32 m_SpreadRadius = 0.15f; // spawn-disc radius, metres
+
+        FluidEmitterComponent() = default;
+        FluidEmitterComponent(const FluidEmitterComponent&) = default;
+        FluidEmitterComponent& operator=(const FluidEmitterComponent&) = default;
+        FluidEmitterComponent(FluidEmitterComponent&&) noexcept = default;
+        FluidEmitterComponent& operator=(FluidEmitterComponent&&) noexcept = default;
+
+        auto operator==(const FluidEmitterComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+
+    /// Deletes fluid particles inside an axis-aligned box centred on the
+    /// entity's world translation (drains, level-exit volumes).
+    struct FluidKillVolumeComponent
+    {
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 256.0f)
+        glm::vec3 m_HalfExtents = { 1.0f, 1.0f, 1.0f };
+
+        FluidKillVolumeComponent() = default;
+        FluidKillVolumeComponent(const FluidKillVolumeComponent&) = default;
+        FluidKillVolumeComponent& operator=(const FluidKillVolumeComponent&) = default;
+        FluidKillVolumeComponent(FluidKillVolumeComponent&&) noexcept = default;
+        FluidKillVolumeComponent& operator=(FluidKillVolumeComponent&&) noexcept = default;
+
+        auto operator==(const FluidKillVolumeComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+
     // ── Local Fog Volume ─────────────────────────────────────────────────
 
     enum class FogVolumeShape : i32

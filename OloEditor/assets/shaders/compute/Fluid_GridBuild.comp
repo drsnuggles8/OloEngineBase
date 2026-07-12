@@ -1,0 +1,64 @@
+#version 460 core
+
+// =============================================================================
+// Fluid_GridBuild.comp - dense uniform neighbour grid, atomic linked lists (#630).
+//
+// One thread per particle: compute the grid cell of the predicted position and
+// prepend the particle to that cell's linked list. Heads and next pointers
+// store index + 1 (0 = empty). The head buffer is zero-filled CPU-side via
+// StorageBuffer::ClearData before this dispatch - there is no clear shader.
+//
+// Built once per step on the predicted positions (predicted A - Integrate just
+// wrote them; the constraint loop's ping-pong does not move particles between
+// cells, matching the CPU solver's build-once scheme).
+//
+// CPU mirror: CPUFluidSolver.cpp (BuildGrid) - identical cell math:
+//   rel = (p - boundsMin) / cellSize; cell = min(uvec3(max(rel, 0)), dims - 1).
+//
+// Bindings: UBO 47 (FluidUBO), SSBO 23 predicted A, 26 grid heads,
+//           27 grid next, 28 counters.
+// =============================================================================
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/FluidKernels.glsl"
+
+layout(std430, binding = 23) readonly buffer FluidPredictedABuffer
+{
+    vec4 predictedA[];
+};
+
+layout(std430, binding = 26) buffer FluidGridHeadBuffer
+{
+    uint gridHead[]; // per cell: linked-list head, index + 1 (0 = empty)
+};
+
+layout(std430, binding = 27) writeonly buffer FluidGridNextBuffer
+{
+    uint gridNext[]; // per particle: next pointer, index + 1 (0 = end)
+};
+
+layout(std430, binding = 28) readonly buffer FluidCountersBuffer
+{
+    uint Count;
+    uint EmitCount;
+    uint KillCount;
+    uint ScratchCount;
+} counters;
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= counters.Count)
+    {
+        return;
+    }
+
+    // CPU mirror: CPUFluidSolver.cpp (BuildGrid) - exact cell math.
+    vec3 rel = (predictedA[i].xyz - u_Fluid.BoundsMinCellSize.xyz) / u_Fluid.BoundsMinCellSize.w;
+    uvec3 cell = min(uvec3(max(rel, vec3(0.0))), u_Fluid.GridDims.xyz - uvec3(1u));
+    uint cellIndex = (cell.z * u_Fluid.GridDims.y + cell.y) * u_Fluid.GridDims.x + cell.x;
+
+    // Atomic list prepend: head/next store index + 1, 0 = empty.
+    gridNext[i] = atomicExchange(gridHead[cellIndex], i + 1u);
+}

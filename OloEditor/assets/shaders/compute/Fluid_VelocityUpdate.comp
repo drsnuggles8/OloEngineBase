@@ -1,0 +1,76 @@
+#version 460 core
+
+// =============================================================================
+// Fluid_VelocityUpdate.comp - velocity from position change (#630).
+//
+// PBF step 4: v = (x*_final - x) / dt, then clamp |v| to the max speed.
+// u_Fluid.StepFlags.x here holds the FINAL Jacobi parity (the buffer the last
+// Fluid_Displace iteration wrote: SolverIterations odd -> B, even -> A).
+//
+// CPU mirror: CPUFluidSolver.cpp (Step - "4. Velocity update"). NOTE: the CPU
+// step has no clamp here (its clamps sit in steps 1 and 6); the GPU adds one
+// per the #630 GPU-chain spec as a cheap stability guard. It only engages when
+// a particle crosses more than maxSpeed*dt in one step - unreachable in the
+// parity scenarios, so the backends stay equivalent within test tolerance.
+//
+// Bindings: UBO 47 (FluidUBO), SSBO 21 positions, 22 velocities,
+//           23 predicted A, 24 predicted B, 28 counters.
+// =============================================================================
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/FluidKernels.glsl"
+
+layout(std430, binding = 21) readonly buffer FluidPositionsBuffer
+{
+    vec4 positions[];
+};
+
+layout(std430, binding = 22) writeonly buffer FluidVelocitiesBuffer
+{
+    vec4 velocities[];
+};
+
+layout(std430, binding = 23) readonly buffer FluidPredictedABuffer
+{
+    vec4 predictedA[];
+};
+
+layout(std430, binding = 24) readonly buffer FluidPredictedBBuffer
+{
+    vec4 predictedB[];
+};
+
+layout(std430, binding = 28) readonly buffer FluidCountersBuffer
+{
+    uint Count;
+    uint EmitCount;
+    uint KillCount;
+    uint ScratchCount;
+} counters;
+
+vec3 readPredicted(uint idx)
+{
+    return (u_Fluid.StepFlags.x == 0u) ? predictedA[idx].xyz : predictedB[idx].xyz;
+}
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= counters.Count)
+    {
+        return;
+    }
+
+    float dtInv = 1.0 / u_Fluid.BoundsMaxDt.w;
+    float maxSpeed = u_Fluid.ViscosityParams.z;
+
+    // CPU mirror: CPUFluidSolver.cpp (Step - velocity from displacement).
+    vec3 v = (readPredicted(i) - positions[i].xyz) * dtInv;
+    float speed2 = dot(v, v);
+    if (speed2 > maxSpeed * maxSpeed)
+    {
+        v *= maxSpeed / sqrt(speed2);
+    }
+    velocities[i] = vec4(v, 0.0);
+}

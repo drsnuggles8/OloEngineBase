@@ -1,0 +1,62 @@
+#version 460 core
+
+// =============================================================================
+// Fluid_KillMark.comp - mark particles inside any kill AABB as dead (#630).
+//
+// Kill boxes ride inline in the FluidUBO (Counts.w live entries). A marked
+// particle sets its position w to -1 so the following Fluid_Compact pass can
+// drop it. Invocation 0 also resets the compact scratch cursor - safe because
+// no other thread touches ScratchCount in this pass.
+//
+// CPU mirror: CPUFluidSolver.cpp (Step - kill-volume sweep): inclusive
+// point-in-AABB test (min <= p <= max) on the pre-step positions.
+//
+// Bindings: UBO 47 (FluidUBO), SSBO 21 positions, 28 counters.
+// =============================================================================
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/FluidKernels.glsl"
+
+layout(std430, binding = 21) buffer FluidPositionsBuffer
+{
+    vec4 positions[]; // xyz = world position, w = kill flag (< 0 marked dead)
+};
+
+layout(std430, binding = 28) buffer FluidCountersBuffer
+{
+    uint Count;
+    uint EmitCount;
+    uint KillCount;
+    uint ScratchCount;
+} counters;
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+
+    // Reset the compact append cursor before the guard so it runs even when
+    // Count == 0 (no other thread reads or writes ScratchCount in this pass).
+    if (i == 0u)
+    {
+        counters.ScratchCount = 0u;
+    }
+
+    if (i >= counters.Count)
+    {
+        return;
+    }
+
+    vec3 p = positions[i].xyz;
+    for (uint b = 0u; b < u_Fluid.Counts.w; ++b)
+    {
+        // CPU mirror: CPUFluidSolver.cpp (Step) - inclusive AABB containment.
+        if (all(greaterThanEqual(p, u_Fluid.KillBoxMin[b].xyz)) &&
+            all(lessThanEqual(p, u_Fluid.KillBoxMax[b].xyz)))
+        {
+            positions[i].w = -1.0;
+            atomicAdd(counters.KillCount, 1u);
+            break;
+        }
+    }
+}

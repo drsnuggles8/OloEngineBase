@@ -25,6 +25,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <array>
 #include <string>
@@ -108,12 +109,15 @@ namespace OloEngine
         // current context.
         u32 m_ActiveTextureUnit = 0;
 
-        // Per-slot bindings. OloEngine reserves texture units through
-        // TEX_SHADER_GRAPH_0 = 50, so track at least 51 slots to catch leaks
-        // in the engine-reserved range. Clamp the capture loop against the
-        // driver's actual limit in case it reports fewer than our local cap.
-        static constexpr u32 kTextureSlots = 51;
-        static constexpr u32 kUboSlots = 32;
+        // Per-slot bindings. Track every engine-reserved texture unit
+        // (through TEX_SHADER_GRAPH_0, via MAX_ENGINE_TEXTURE_SLOTS) and
+        // every registered UBO binding (through UBO_FLUID_RENDER) so leaks in
+        // the reserved ranges are caught — these referenced the registry
+        // numerically before and had silently drifted (they claimed 50/32
+        // while the registry had grown past both). Clamp the capture loop
+        // against the driver's actual limit in case it reports fewer.
+        static constexpr u32 kTextureSlots = ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS;
+        static constexpr u32 kUboSlots = ShaderBindingLayout::UBO_FLUID_RENDER + 1;
         // Per-texture-unit bindings for every target the engine actually
         // binds. 2D covers colour/normal/roughness/AO; 2D_ARRAY is used by
         // CSM shadow maps; CUBE_MAP by IBL / environment maps. A pass

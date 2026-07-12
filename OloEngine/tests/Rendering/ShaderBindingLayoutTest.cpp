@@ -197,6 +197,18 @@ TEST(ShaderBindingLayout, SSBOSlotUniqueness)
     checkSlot(ShaderBindingLayout::SSBO_EMIT_STAGING, "SSBO_EMIT_STAGING");
     checkSlot(ShaderBindingLayout::SSBO_FOLIAGE_INSTANCES, "SSBO_FOLIAGE_INSTANCES");
     checkSlot(ShaderBindingLayout::SSBO_SNOW_DEFORMERS, "SSBO_SNOW_DEFORMERS");
+    checkSlot(ShaderBindingLayout::SSBO_FLUID_POSITIONS, "SSBO_FLUID_POSITIONS");
+    checkSlot(ShaderBindingLayout::SSBO_FLUID_VELOCITIES, "SSBO_FLUID_VELOCITIES");
+    checkSlot(ShaderBindingLayout::SSBO_FLUID_PREDICTED_A, "SSBO_FLUID_PREDICTED_A");
+    checkSlot(ShaderBindingLayout::SSBO_FLUID_PREDICTED_B, "SSBO_FLUID_PREDICTED_B");
+    checkSlot(ShaderBindingLayout::SSBO_FLUID_AUX, "SSBO_FLUID_AUX");
+    checkSlot(ShaderBindingLayout::SSBO_FLUID_GRID_HEAD, "SSBO_FLUID_GRID_HEAD");
+    checkSlot(ShaderBindingLayout::SSBO_FLUID_GRID_NEXT, "SSBO_FLUID_GRID_NEXT");
+    checkSlot(ShaderBindingLayout::SSBO_FLUID_COUNTERS, "SSBO_FLUID_COUNTERS");
+    checkSlot(ShaderBindingLayout::SSBO_FLUID_EMIT_STAGING, "SSBO_FLUID_EMIT_STAGING");
+    checkSlot(ShaderBindingLayout::SSBO_FLUID_BODY_PROXIES, "SSBO_FLUID_BODY_PROXIES");
+    checkSlot(ShaderBindingLayout::SSBO_FLUID_BODY_IMPULSES, "SSBO_FLUID_BODY_IMPULSES");
+    checkSlot(ShaderBindingLayout::SSBO_FLUID_VELOCITIES_ALT, "SSBO_FLUID_VELOCITIES_ALT");
 }
 
 // =============================================================================

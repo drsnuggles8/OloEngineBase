@@ -168,6 +168,24 @@ OLO_ADD_INTERNAL_CALL(DirectionalLightComponent_SetIntensity);
 OLO_ADD_INTERNAL_CALL(DirectionalLightComponent_GetCastShadows);
 OLO_ADD_INTERNAL_CALL(DirectionalLightComponent_SetCastShadows);
 
+// FluidComponent
+OLO_ADD_INTERNAL_CALL(FluidComponent_GetEnabled);
+OLO_ADD_INTERNAL_CALL(FluidComponent_SetEnabled);
+OLO_ADD_INTERNAL_CALL(FluidComponent_GetPrefillFraction);
+OLO_ADD_INTERNAL_CALL(FluidComponent_SetPrefillFraction);
+
+// FluidEmitterComponent
+OLO_ADD_INTERNAL_CALL(FluidEmitterComponent_GetEnabled);
+OLO_ADD_INTERNAL_CALL(FluidEmitterComponent_SetEnabled);
+OLO_ADD_INTERNAL_CALL(FluidEmitterComponent_GetRate);
+OLO_ADD_INTERNAL_CALL(FluidEmitterComponent_SetRate);
+OLO_ADD_INTERNAL_CALL(FluidEmitterComponent_GetSpeed);
+OLO_ADD_INTERNAL_CALL(FluidEmitterComponent_SetSpeed);
+
+// FluidKillVolumeComponent
+OLO_ADD_INTERNAL_CALL(FluidKillVolumeComponent_GetEnabled);
+OLO_ADD_INTERNAL_CALL(FluidKillVolumeComponent_SetEnabled);
+
 // FootIKComponent
 OLO_ADD_INTERNAL_CALL(FootIKComponent_GetEnabled);
 OLO_ADD_INTERNAL_CALL(FootIKComponent_SetEnabled);

@@ -145,6 +145,7 @@ namespace OloEngine
         friend class StateMachineSerializer;
         friend class InstancePlacementSerializer;
         friend class CinematicSequenceAssetSerializer;
+        friend class FluidSettingsAssetSerializer;
 
         bool IsValid() const
         {

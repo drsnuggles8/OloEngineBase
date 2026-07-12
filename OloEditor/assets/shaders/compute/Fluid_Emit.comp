@@ -1,0 +1,66 @@
+#version 460 core
+
+// =============================================================================
+// Fluid_Emit.comp - copy CPU-staged emissions into live particle slots (#630).
+//
+// One thread per staged entry (u_Fluid.Counts.y entries in SSBO 29). Each
+// claims a slot with atomicAdd on the live counter; if the buffer is full the
+// claim is undone (Particle_Emit.comp wrap-guard pattern).
+//
+// Bindings: UBO 47 (FluidUBO), SSBO 21 positions, 22 velocities, 28 counters,
+//           29 emit staging.
+// =============================================================================
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/FluidKernels.glsl"
+
+layout(std430, binding = 21) buffer FluidPositionsBuffer
+{
+    vec4 positions[]; // xyz = world position, w = kill flag (< 0 marked dead)
+};
+
+layout(std430, binding = 22) buffer FluidVelocitiesBuffer
+{
+    vec4 velocities[]; // xyz = velocity, w unused
+};
+
+layout(std430, binding = 28) buffer FluidCountersBuffer
+{
+    uint Count;        // live particle count
+    uint EmitCount;    // staged emissions this step (CPU-written; UBO Counts.y is the authoritative copy)
+    uint KillCount;    // particles marked dead this step
+    uint ScratchCount; // compact pass's append cursor
+} counters;
+
+struct FluidEmitEntry
+{
+    vec4 Position; // xyz = world spawn position, w unused
+    vec4 Velocity; // xyz = initial velocity, w unused
+};
+
+layout(std430, binding = 29) readonly buffer FluidEmitStagingBuffer
+{
+    FluidEmitEntry emitEntries[];
+};
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= u_Fluid.Counts.y)
+    {
+        return;
+    }
+
+    // Atomically claim the next live slot.
+    uint slot = atomicAdd(counters.Count, 1u);
+    if (slot >= u_Fluid.Counts.x)
+    {
+        // Buffer full - undo the claim (wrap-guard, Particle_Emit.comp pattern).
+        atomicAdd(counters.Count, uint(-1));
+        return;
+    }
+
+    positions[slot] = vec4(emitEntries[i].Position.xyz, 0.0); // w = 0: alive
+    velocities[slot] = vec4(emitEntries[i].Velocity.xyz, 0.0);
+}

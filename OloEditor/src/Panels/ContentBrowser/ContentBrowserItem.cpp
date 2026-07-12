@@ -73,6 +73,8 @@ namespace OloEngine
         { ".olosoundgraph", ContentFileType::SoundGraph },
         // Cinematic Sequences
         { ".olocine", ContentFileType::Cinematic },
+        // Fluid Settings
+        { ".olofluid", ContentFileType::FluidSettings },
         // Save Games
         { ".olosave", ContentFileType::SaveGame },
     };
@@ -165,6 +167,9 @@ namespace OloEngine
                 break;
             case ContentFileType::Cinematic:
                 ImGui::TextColored(ImVec4(0.9f, 0.7f, 0.4f, 1.0f), "Cinematic Sequence");
+                break;
+            case ContentFileType::FluidSettings:
+                ImGui::TextColored(ImVec4(0.4f, 0.7f, 0.95f, 1.0f), "Fluid Settings");
                 break;
             default:
                 break;
