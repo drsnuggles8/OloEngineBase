@@ -565,6 +565,50 @@ TEST(CrowdManagerPositiveTest, RemoveAgentDecrementsCount)
     EXPECT_FALSE(crowd.IsAgentActive(id));
 }
 
+TEST(CrowdManagerPositiveTest, SetAgentTargetOnMeshSucceedsAndReportsValid)
+{
+    auto navMesh = BuildFlatPlaneNavMesh();
+    ASSERT_NE(navMesh, nullptr);
+
+    CrowdManager crowd;
+    crowd.Initialize(navMesh);
+
+    NavAgentComponent agent;
+    i32 id = crowd.AddAgent({ -5.0f, 0.0f, 0.0f }, agent);
+    ASSERT_GE(id, 0);
+
+    EXPECT_TRUE(crowd.SetAgentTarget(id, { 5.0f, 0.0f, 0.0f }));
+    EXPECT_NE(crowd.GetAgentTargetState(id), CrowdTargetState::None);
+}
+
+TEST(CrowdManagerPositiveTest, SetAgentTargetFarOffMeshFails)
+{
+    auto navMesh = BuildFlatPlaneNavMesh();
+    ASSERT_NE(navMesh, nullptr);
+
+    CrowdManager crowd;
+    crowd.Initialize(navMesh);
+
+    NavAgentComponent agent;
+    i32 id = crowd.AddAgent({ 0.0f, 0.0f, 0.0f }, agent);
+    ASSERT_GE(id, 0);
+
+    // Nowhere near any navmesh polygon — findNearestPoly must fail within the
+    // crowd's query half-extents, so no move request is issued at all.
+    EXPECT_FALSE(crowd.SetAgentTarget(id, { 10000.0f, 10000.0f, 10000.0f }));
+}
+
+TEST(CrowdManagerPositiveTest, GetAgentTargetStateInvalidAgentReturnsNone)
+{
+    auto navMesh = BuildFlatPlaneNavMesh();
+    ASSERT_NE(navMesh, nullptr);
+
+    CrowdManager crowd;
+    crowd.Initialize(navMesh);
+
+    EXPECT_EQ(crowd.GetAgentTargetState(999), CrowdTargetState::None);
+}
+
 TEST(NavAgentComponentTest, CopyOnlySerializedFields)
 {
     NavAgentComponent original;

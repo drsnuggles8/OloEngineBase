@@ -87,15 +87,15 @@ namespace OloEngine
             m_Crowd->removeAgent(agentId);
     }
 
-    void CrowdManager::SetAgentTarget(i32 agentId, const glm::vec3& target)
+    bool CrowdManager::SetAgentTarget(i32 agentId, const glm::vec3& target)
     {
         OLO_PROFILE_FUNCTION();
 
         if (!IsValidAgentId(agentId))
-            return;
+            return false;
 
         if (const dtCrowdAgent* ag = m_Crowd->getAgent(agentId); !ag || !ag->active)
-            return;
+            return false;
 
         const f32 targetPos[3] = { target.x, target.y, target.z };
         const f32* ext = m_Crowd->getQueryHalfExtents();
@@ -109,8 +109,38 @@ namespace OloEngine
         f32 nearest[3]{};
         query->findNearestPoly(targetPos, ext, &filter, &targetRef, nearest);
 
-        if (targetRef)
-            m_Crowd->requestMoveTarget(agentId, targetRef, nearest);
+        if (!targetRef)
+            return false;
+
+        return m_Crowd->requestMoveTarget(agentId, targetRef, nearest);
+    }
+
+    CrowdTargetState CrowdManager::GetAgentTargetState(i32 agentId) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!IsValidAgentId(agentId))
+            return CrowdTargetState::None;
+
+        const dtCrowdAgent* ag = m_Crowd->getAgent(agentId);
+        if (!ag || !ag->active)
+            return CrowdTargetState::None;
+
+        switch (ag->targetState)
+        {
+            case DT_CROWDAGENT_TARGET_NONE:
+                return CrowdTargetState::None;
+            case DT_CROWDAGENT_TARGET_FAILED:
+                return CrowdTargetState::Unreachable;
+            case DT_CROWDAGENT_TARGET_VALID:
+            case DT_CROWDAGENT_TARGET_VELOCITY:
+                // `partial` mirrors the manual follower's FindPathResult::Partial —
+                // a path exists but only reaches the nearest reachable point, not
+                // the exact requested position.
+                return ag->partial ? CrowdTargetState::Unreachable : CrowdTargetState::Valid;
+            default: // REQUESTING / WAITING_FOR_QUEUE / WAITING_FOR_PATH
+                return CrowdTargetState::Pending;
+        }
     }
 
     void CrowdManager::Update(f32 dt)

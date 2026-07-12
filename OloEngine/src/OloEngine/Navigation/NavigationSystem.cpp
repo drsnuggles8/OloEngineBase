@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Navigation/NavigationSystem.h"
+#include "OloEngine/Navigation/CrowdManager.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
@@ -30,16 +31,77 @@ namespace OloEngine
             auto& agent = entity.GetComponent<NavAgentComponent>();
             auto& transform = entity.GetComponent<TransformComponent>();
 
-            // If using crowd manager, sync from crowd
-            if (crowdMgr && crowdMgr->IsValid() && agent.m_CrowdAgentId >= 0)
+            // If a crowd is running, every NavAgent participates in it (even one with
+            // no target yet) so DetourCrowd's separation/avoidance accounts for it
+            // against its neighbours. Register lazily on first tick rather than via
+            // OnComponentAdded — that naturally handles "navmesh baked/set after the
+            // component was added" ordering, and a SetNavMesh reset (which zeroes
+            // every m_CrowdAgentId) re-registers everyone next frame for free.
+            if (crowdMgr && crowdMgr->IsValid())
             {
-                if (glm::vec3 pos; crowdMgr->GetAgentPosition(agent.m_CrowdAgentId, pos))
+                if (agent.m_CrowdAgentId < 0)
+                    agent.m_CrowdAgentId = crowdMgr->AddAgent(transform.Translation, agent);
+
+                if (agent.m_CrowdAgentId >= 0)
                 {
-                    if (agent.m_LockYAxis)
-                        pos.y = transform.Translation.y;
-                    transform.Translation = pos;
+                    // Issue the move request once per target (mirrors the manual
+                    // follower's "!m_HasPath && m_HasTarget" repath gate below —
+                    // m_HasPath here means "request issued", not "corners computed").
+                    if (agent.m_HasTarget && !agent.m_HasPath && !agent.m_TargetUnreachable)
+                    {
+                        if (crowdMgr->SetAgentTarget(agent.m_CrowdAgentId, agent.m_TargetPosition))
+                        {
+                            agent.m_HasPath = true;
+                        }
+                        else
+                        {
+                            // No navmesh polygon near the target at all — the crowd
+                            // equivalent of FindPathResult::Failed.
+                            agent.m_HasPath = false;
+                            agent.m_TargetUnreachable = true;
+                        }
+                    }
+
+                    if (glm::vec3 pos; crowdMgr->GetAgentPosition(agent.m_CrowdAgentId, pos))
+                    {
+                        if (agent.m_LockYAxis)
+                            pos.y = transform.Translation.y;
+                        transform.Translation = pos;
+                    }
+
+                    if (agent.m_HasTarget && agent.m_HasPath)
+                    {
+                        switch (crowdMgr->GetAgentTargetState(agent.m_CrowdAgentId))
+                        {
+                            case CrowdTargetState::Unreachable:
+                                // Latch, same as the manual follower's partial-path case —
+                                // the agent keeps walking toward the nearest reachable point.
+                                agent.m_TargetUnreachable = true;
+                                break;
+                            case CrowdTargetState::Valid:
+                            {
+                                glm::vec3 toTarget = agent.m_TargetPosition - transform.Translation;
+                                if (agent.m_LockYAxis)
+                                    toTarget.y = 0.0f;
+                                constexpr f32 EPSILON = 1e-4f;
+                                if (glm::length(toTarget) < std::max(agent.m_StoppingDistance, EPSILON))
+                                {
+                                    agent.m_HasPath = false;
+                                    agent.m_HasTarget = false;
+                                }
+                                break;
+                            }
+                            case CrowdTargetState::None:
+                            case CrowdTargetState::Pending:
+                                break;
+                        }
+                    }
+
+                    continue;
                 }
-                continue;
+                // Crowd is full or the add otherwise failed — fall through to the
+                // naive follower for this frame; m_CrowdAgentId stays -1 so the next
+                // tick retries registration.
             }
 
             // Manual pathfinding for agents not in crowd. Once a target is flagged

@@ -165,6 +165,7 @@ namespace OloEngine::Tests
             "FootIKComponent",
             "LocomotionComponent",
             "TerrainComponent",
+            "NavAgentComponent",
         };
 
         // The full universe of declared `struct *Component`, reconstructed as

@@ -6,8 +6,9 @@
 //
 // Cross-subsystem seam under test:
 //   NavMeshGenerator (Recast bake) × NavMeshQuery::FindPath (Detour
-//   DT_PARTIAL_RESULT) × NavigationSystem (per-frame agent stepping) ×
-//   NavAgentComponent × BTMoveTo (behavior-tree consumer).
+//   DT_PARTIAL_RESULT) × CrowdManager (DetourCrowd) × NavigationSystem
+//   (per-frame agent stepping) × NavAgentComponent × BTMoveTo (behavior-tree
+//   consumer).
 //
 // Regression target: FindPath used to report a PARTIAL path (target off-navmesh
 // or in a disconnected region) as full success. The manual path-follower would
@@ -21,8 +22,17 @@
 // NavMeshOffMeshLinkBridgesGapTest). An agent sits on platform 1; the target is
 // on platform 2 — reachable only as a partial path to the gap edge.
 //
+// Since SetNavMesh brings up a real CrowdManager (issue #616), a single
+// NavAgentComponent here is actually driven by the crowd follower, not the raw
+// manual one — this test now doubles as coverage that CrowdManager surfaces the
+// SAME terminal m_TargetUnreachable/m_HasTarget contract PR #618 established for
+// the manual follower (dtCrowdAgent::partial / DT_CROWDAGENT_TARGET_FAILED
+// mapped in CrowdManager::GetAgentTargetState). NavMeshQueryFindPathBetweenPointsTest
+// exercises NavMeshQuery::FindPath directly without a NavAgentComponent, so the
+// raw manual-follower FindPathResult path stays covered independently.
+//
 // Two assertions:
-//   1. The raw NavigationSystem follower LATCHES m_TargetUnreachable (instead of
+//   1. The active follower (crowd, here) LATCHES m_TargetUnreachable (instead of
 //      silently clearing the target) and does not teleport across the gap.
 //   2. BTMoveTo TERMINATES with Failure within a bounded number of ticks rather
 //      than spinning on Running.
@@ -99,9 +109,10 @@ class NavAgentUnreachableTargetTerminatesTest : public FunctionalTest
     Entity m_Agent;
 };
 
-// The raw follower must latch "unreachable" and hold the target observable, not
-// walk the agent across the gap and not silently drop the target.
-TEST_F(NavAgentUnreachableTargetTerminatesTest, ManualFollowerLatchesUnreachableInsteadOfArriving)
+// The active follower (the crowd, since SetNavMesh brings one up) must latch
+// "unreachable" and hold the target observable, not walk the agent across the
+// gap and not silently drop the target.
+TEST_F(NavAgentUnreachableTargetTerminatesTest, FollowerLatchesUnreachableInsteadOfArriving)
 {
     {
         auto& agent = m_Agent.GetComponent<NavAgentComponent>();

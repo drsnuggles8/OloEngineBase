@@ -712,6 +712,20 @@ namespace OloEngine
             m_ClothRuntime.erase(entityUUID);
         }
 
+        // Release the crowd agent slot (issue #616) — m_Registry.destroy() below
+        // doesn't fire OnComponentRemoved<NavAgentComponent>, so without this an
+        // agent belonging to a destroyed entity keeps occupying a DetourCrowd slot
+        // and steering as a ghost neighbour forever.
+        if (m_CrowdManager && entity.HasComponent<NavAgentComponent>())
+        {
+            auto& navAgent = entity.GetComponent<NavAgentComponent>();
+            if (navAgent.m_CrowdAgentId >= 0)
+            {
+                m_CrowdManager->RemoveAgent(navAgent.m_CrowdAgentId);
+                navAgent.m_CrowdAgentId = -1;
+            }
+        }
+
         m_Registry.destroy(entity);
         m_EntityMap.Remove(entityUUID);
 
@@ -3872,6 +3886,25 @@ namespace OloEngine
         {
             m_JoltScene->DestroyTerrainBody(entity.GetUUID());
             component.m_RuntimeCollisionBodyToken = 0;
+        }
+    }
+
+    // Specialisation: when a NavAgentComponent is removed at runtime, release its
+    // slot in the crowd (issue #616). Without this hook a removed component leaves
+    // its DetourCrowd agent registered forever — a "ghost" that keeps consuming a
+    // fixed-size crowd slot and steering/avoidance weight against neighbours with
+    // nothing driving it (NavigationSystem's view skips the entity once the
+    // component is gone, so nothing else would ever call RemoveAgent for it).
+    // Registration itself stays lazy (NavigationSystem::OnUpdate, on first tick
+    // with m_CrowdAgentId < 0) rather than hooked here on add — see the comment
+    // there for why.
+    template<>
+    void Scene::OnComponentRemoved<NavAgentComponent>(Entity, NavAgentComponent& component)
+    {
+        if (m_CrowdManager && component.m_CrowdAgentId >= 0)
+        {
+            m_CrowdManager->RemoveAgent(component.m_CrowdAgentId);
+            component.m_CrowdAgentId = -1;
         }
     }
 
