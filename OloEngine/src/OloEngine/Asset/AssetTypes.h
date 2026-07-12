@@ -44,13 +44,14 @@ namespace OloEngine
         StateMachine = 32,
         InstancePlacement = 33,
         CinematicSequence = 34,
+        FluidSettings = 35,
     };
 
-    // If AssetType grows past CinematicSequence, bump kMaxKnownValue in
+    // If AssetType grows past FluidSettings, bump kMaxKnownValue in
     // OloEngine/tests/AssetExtensionsCoverageTest.cpp or that test will
     // silently skip the new entries.
-    static_assert(std::to_underlying(AssetType::CinematicSequence) == 34,
-                  "AssetType::CinematicSequence moved; update kMaxKnownValue in "
+    static_assert(std::to_underlying(AssetType::FluidSettings) == 35,
+                  "AssetType::FluidSettings moved; update kMaxKnownValue in "
                   "AssetExtensionsCoverageTest.cpp to match the new max value.");
 
     enum class AssetFlag : u16
@@ -186,6 +187,8 @@ namespace OloEngine
                     return "InstancePlacement";
                 case AssetType::CinematicSequence:
                     return "CinematicSequence";
+                case AssetType::FluidSettings:
+                    return "FluidSettings";
             }
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
@@ -271,6 +274,8 @@ namespace OloEngine
                 return AssetType::InstancePlacement;
             if (assetType == "CinematicSequence")
                 return AssetType::CinematicSequence;
+            if (assetType == "FluidSettings")
+                return AssetType::FluidSettings;
 
             return AssetType::None;
         }

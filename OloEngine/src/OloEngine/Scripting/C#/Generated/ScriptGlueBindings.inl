@@ -1628,6 +1628,144 @@ static void DirectionalLightComponent_SetCastShadows(UUID entityID, bool value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// FluidComponent                                                                 //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool FluidComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FluidComponent>();
+    return comp.m_Enabled;
+}
+
+static void FluidComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FluidComponent>();
+    comp.m_Enabled = value;
+}
+
+static float FluidComponent_GetPrefillFraction(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FluidComponent>();
+    return comp.m_PrefillFraction;
+}
+
+static void FluidComponent_SetPrefillFraction(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<FluidComponent>();
+    comp.m_PrefillFraction = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
+// FluidEmitterComponent                                                          //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool FluidEmitterComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FluidEmitterComponent>();
+    return comp.m_Enabled;
+}
+
+static void FluidEmitterComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FluidEmitterComponent>();
+    comp.m_Enabled = value;
+}
+
+static float FluidEmitterComponent_GetRate(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FluidEmitterComponent>();
+    return comp.m_Rate;
+}
+
+static void FluidEmitterComponent_SetRate(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<FluidEmitterComponent>();
+    comp.m_Rate = value;
+}
+
+static float FluidEmitterComponent_GetSpeed(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FluidEmitterComponent>();
+    return comp.m_Speed;
+}
+
+static void FluidEmitterComponent_SetSpeed(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<FluidEmitterComponent>();
+    comp.m_Speed = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
+// FluidKillVolumeComponent                                                       //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool FluidKillVolumeComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FluidKillVolumeComponent>();
+    return comp.m_Enabled;
+}
+
+static void FluidKillVolumeComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<FluidKillVolumeComponent>();
+    comp.m_Enabled = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // LightProbeComponent                                                            //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

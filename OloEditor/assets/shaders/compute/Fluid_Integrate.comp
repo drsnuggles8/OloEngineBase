@@ -1,0 +1,67 @@
+#version 460 core
+
+// =============================================================================
+// Fluid_Integrate.comp - external forces + position prediction (#630).
+//
+// PBF step 1: v += g*dt, clamp |v| to the max speed, predict
+// x* = clamp(x + v*dt, boundsMin + r, boundsMax - r), write the clamped
+// velocity back. Predictions land in the Jacobi ping buffer (predicted A) -
+// iteration 0 of the constraint loop reads parity A.
+//
+// CPU mirror: CPUFluidSolver.cpp (Step - "1. External forces + prediction").
+//
+// Bindings: UBO 47 (FluidUBO), SSBO 21 positions, 22 velocities,
+//           23 predicted A, 28 counters.
+// =============================================================================
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/FluidKernels.glsl"
+
+layout(std430, binding = 21) readonly buffer FluidPositionsBuffer
+{
+    vec4 positions[];
+};
+
+layout(std430, binding = 22) buffer FluidVelocitiesBuffer
+{
+    vec4 velocities[];
+};
+
+layout(std430, binding = 23) writeonly buffer FluidPredictedABuffer
+{
+    vec4 predictedA[];
+};
+
+layout(std430, binding = 28) readonly buffer FluidCountersBuffer
+{
+    uint Count;
+    uint EmitCount;
+    uint KillCount;
+    uint ScratchCount;
+} counters;
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= counters.Count)
+    {
+        return;
+    }
+
+    float dt = u_Fluid.BoundsMaxDt.w;
+    float maxSpeed = u_Fluid.ViscosityParams.z;
+    float particleRadius = u_Fluid.ViscosityParams.w;
+    vec3 innerMin = u_Fluid.BoundsMinCellSize.xyz + vec3(particleRadius);
+    vec3 innerMax = u_Fluid.BoundsMaxDt.xyz - vec3(particleRadius);
+
+    // CPU mirror: CPUFluidSolver.cpp (Step) - gravity, speed clamp, clamped prediction.
+    vec3 v = velocities[i].xyz + u_Fluid.GravityH.xyz * dt;
+    float speed2 = dot(v, v);
+    if (speed2 > maxSpeed * maxSpeed)
+    {
+        v *= maxSpeed / sqrt(speed2);
+    }
+    velocities[i] = vec4(v, 0.0);
+    predictedA[i] = vec4(clamp(positions[i].xyz + v * dt, innerMin, innerMax), 0.0);
+}

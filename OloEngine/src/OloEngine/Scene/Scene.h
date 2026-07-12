@@ -38,6 +38,7 @@ namespace OloEngine
     class Skeleton;
     class Prefab;
     class JoltScene;
+    class FluidWorld;
     class SceneStreamer;
     struct IKTargetComponent;
     struct SpringBoneComponent;
@@ -269,6 +270,16 @@ namespace OloEngine
         JoltScene* GetPhysicsScene() const
         {
             return m_JoltScene.get();
+        }
+
+        // Fluid access (issue #630): the per-scene registry of PBF solver
+        // instances, created lazily by FluidSystem on the first tick that sees
+        // a FluidComponent. Defined out-of-line (FluidWorld is only
+        // forward-declared here).
+        [[nodiscard]] FluidWorld& GetFluidWorld();
+        [[nodiscard]] FluidWorld* TryGetFluidWorld() const
+        {
+            return m_FluidWorld.get();
         }
 
         // Latest world-space particle positions of a live cloth soft body (issue #460),
@@ -904,6 +915,12 @@ namespace OloEngine
 
         b2WorldId m_PhysicsWorld = b2_nullWorldId;
         std::unique_ptr<JoltScene> m_JoltScene;
+
+        // PBF fluid solver instances (issue #630), lazily created by
+        // FluidSystem; destroyed with the scene on the game thread (the GPU
+        // solver owns GL buffers). unique_ptr with an incomplete FluidWorld is
+        // fine — ~Scene() is defined in Scene.cpp where the type is complete.
+        std::unique_ptr<FluidWorld> m_FluidWorld;
 
         // In-flight async physics world step (issue #453): launched by
         // KickPhysicsStep, joined by FencePhysicsStep within the SAME tick — it

@@ -28,6 +28,13 @@ namespace OloEngine::RenderPipelineBuilderInternal
         AddExistingNode(graph, inputs.Passes->Foliage);
         AddExistingNode(graph, inputs.Passes->Decal);
         AddExistingNode(graph, inputs.Passes->Water);
+
+        // Screen-space fluid (issue #630): intermediates first (name-based
+        // dependency discovery is registration-ordered), then the composite
+        // joins the SceneColor RMW chain AFTER Water — registering it before
+        // Water would compose the fluid under the water surface.
+        AddExistingNode(graph, inputs.Passes->FluidIntermediates);
+        AddExistingNode(graph, inputs.Passes->FluidComposite);
     }
 
     void RegisterSceneAndLightingNodes(RenderGraph& graph,

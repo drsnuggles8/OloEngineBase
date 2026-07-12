@@ -254,6 +254,9 @@ namespace OloEngine
             SnapshotComponentIfExists<FoliageComponent>(entity);
             SnapshotComponentIfExists<WaterComponent>(entity);
             SnapshotComponentIfExists<SnowDeformerComponent>(entity);
+            SnapshotComponentIfExists<FluidComponent>(entity);
+            SnapshotComponentIfExists<FluidEmitterComponent>(entity);
+            SnapshotComponentIfExists<FluidKillVolumeComponent>(entity);
             SnapshotComponentIfExists<FogVolumeComponent>(entity);
             SnapshotComponentIfExists<DecalComponent>(entity);
             SnapshotComponentIfExists<LODGroupComponent>(entity);

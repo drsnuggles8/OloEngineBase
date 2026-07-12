@@ -137,6 +137,39 @@ if (auto node = entity["EnvironmentMapComponent"]; node)
     comp.m_Tint = node["Tint"].as<glm::vec3>(comp.m_Tint);
 }
 
+if (auto node = entity["FluidComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<FluidComponent>();
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    comp.m_Settings = node["Settings"].as<u64>(static_cast<u64>(comp.m_Settings));
+    comp.m_DomainHalfExtents = node["DomainHalfExtents"].as<glm::vec3>(comp.m_DomainHalfExtents);
+    comp.m_DomainHalfExtents = glm::clamp(comp.m_DomainHalfExtents, glm::vec3(0.25f), glm::vec3(256.0f));
+    comp.m_MaxParticles = std::clamp(node["MaxParticles"].as<u32>(comp.m_MaxParticles), static_cast<u32>(64), static_cast<u32>(1000000));
+    comp.m_SolverMode = static_cast<decltype(comp.m_SolverMode)>(std::clamp(node["SolverMode"].as<int>(static_cast<int>(comp.m_SolverMode)), static_cast<int>(0), static_cast<int>(2)));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PrefillFraction"], v))
+        comp.m_PrefillFraction = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+}
+
+if (auto node = entity["FluidEmitterComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<FluidEmitterComponent>();
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Rate"], v))
+        comp.m_Rate = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(200000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Speed"], v))
+        comp.m_Speed = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SpreadRadius"], v))
+        comp.m_SpreadRadius = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+}
+
+if (auto node = entity["FluidKillVolumeComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<FluidKillVolumeComponent>();
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    comp.m_HalfExtents = node["HalfExtents"].as<glm::vec3>(comp.m_HalfExtents);
+    comp.m_HalfExtents = glm::clamp(comp.m_HalfExtents, glm::vec3(0.01f), glm::vec3(256.0f));
+}
+
 if (auto node = entity["FogVolumeComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<FogVolumeComponent>();

@@ -156,6 +156,53 @@ case 2313188451u: // EnvironmentMapComponent
         return false;
     break;
 }
+case 3295986542u: // FluidComponent
+{
+    auto& comp = deserializedEntity.AddComponent<FluidComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Enabled))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.m_Settings))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.m_DomainHalfExtents))
+        return false;
+    comp.m_DomainHalfExtents = glm::clamp(comp.m_DomainHalfExtents, glm::vec3(0.25f), glm::vec3(256.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxParticles))
+        return false;
+    comp.m_MaxParticles = std::clamp(comp.m_MaxParticles, static_cast<u32>(64), static_cast<u32>(1000000));
+    if (!SceneBinIO::Read(reader, comp.m_SolverMode))
+        return false;
+    comp.m_SolverMode = static_cast<decltype(comp.m_SolverMode)>(std::clamp(static_cast<int>(comp.m_SolverMode), static_cast<int>(0), static_cast<int>(2)));
+    if (!SceneBinIO::Read(reader, comp.m_PrefillFraction))
+        return false;
+    comp.m_PrefillFraction = std::clamp(comp.m_PrefillFraction, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    break;
+}
+case 3199506318u: // FluidEmitterComponent
+{
+    auto& comp = deserializedEntity.AddComponent<FluidEmitterComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Enabled))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.m_Rate))
+        return false;
+    comp.m_Rate = std::clamp(comp.m_Rate, static_cast<f32>(0.0f), static_cast<f32>(200000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Speed))
+        return false;
+    comp.m_Speed = std::clamp(comp.m_Speed, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_SpreadRadius))
+        return false;
+    comp.m_SpreadRadius = std::clamp(comp.m_SpreadRadius, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    break;
+}
+case 3823642088u: // FluidKillVolumeComponent
+{
+    auto& comp = deserializedEntity.AddComponent<FluidKillVolumeComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Enabled))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.m_HalfExtents))
+        return false;
+    comp.m_HalfExtents = glm::clamp(comp.m_HalfExtents, glm::vec3(0.01f), glm::vec3(256.0f));
+    break;
+}
 case 1503688276u: // FogVolumeComponent
 {
     auto& comp = deserializedEntity.AddComponent<FogVolumeComponent>();

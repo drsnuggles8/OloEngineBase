@@ -1,0 +1,142 @@
+Scene: FluidDamBreak.olo
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  FXAAEnabled: true
+Entities:
+  - Entity: 910000000000001
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 20, 0]
+      Rotation: [-0.7853982, 0.3926991, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.5, -0.70710677, -0.5]
+      Color: [1, 0.9607843, 0.8980392]
+      Intensity: 2
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 500
+      CascadeSplitLambda: 0.5
+      CascadeDebugVisualization: false
+  - Entity: 910000000000002
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, -0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [24, 1, 24]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.45, 0.45, 0.48]
+      Metallic: 0
+      Roughness: 0.9
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 0
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+  - Entity: 910000000000003
+    TagComponent:
+      Tag: Fluid Pool (dam break)
+    TransformComponent:
+      Translation: [0, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    FluidComponent:
+      Enabled: true
+      Settings: 0
+      DomainHalfExtents: [3, 2, 2]
+      MaxParticles: 16384
+      SolverMode: 0
+      PrefillFraction: 0.4
+  - Entity: 910000000000004
+    TagComponent:
+      Tag: Fluid Faucet (pouring)
+    TransformComponent:
+      Translation: [1.8, 3.6, 0]
+      Rotation: [-1.5707963, 0, 0]
+      Scale: [1, 1, 1]
+    FluidEmitterComponent:
+      Enabled: true
+      Rate: 1500
+      Speed: 3
+      SpreadRadius: 0.2
+  - Entity: 910000000000005
+    TagComponent:
+      Tag: Drain (disabled - enable to empty the pool)
+    TransformComponent:
+      Translation: [-2.5, 0.3, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    FluidKillVolumeComponent:
+      Enabled: false
+      HalfExtents: [0.5, 0.35, 0.5]
+  - Entity: 910000000000006
+    TagComponent:
+      Tag: Light Crate (floats)
+    TransformComponent:
+      Translation: [-1, 2.6, 0]
+      Rotation: [0, 0.3, 0]
+      Scale: [0.6, 0.6, 0.6]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.75, 0.55, 0.25]
+      Metallic: 0
+      Roughness: 0.6
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 40
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+  - Entity: 910000000000007
+    TagComponent:
+      Tag: Heavy Block (sinks)
+    TransformComponent:
+      Translation: [1, 2.6, 0.8]
+      Rotation: [0.1, 0.2, 0.05]
+      Scale: [0.5, 0.5, 0.5]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.35, 0.4]
+      Metallic: 0.6
+      Roughness: 0.35
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 900
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+  - Entity: 910000000000008
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [7, 5, 7]
+      Rotation: [-0.42, 0.7853982, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

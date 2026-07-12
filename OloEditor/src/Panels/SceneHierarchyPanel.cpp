@@ -1873,6 +1873,9 @@ namespace OloEngine
             DisplayAddComponentEntry<DecalComponent>("Decal");
             DisplayAddComponentEntry<WaterComponent>("Water");
             DisplayAddComponentEntry<BuoyancyComponent>("Buoyancy");
+            DisplayAddComponentEntry<FluidComponent>("Fluid");
+            DisplayAddComponentEntry<FluidEmitterComponent>("Fluid Emitter");
+            DisplayAddComponentEntry<FluidKillVolumeComponent>("Fluid Kill Volume");
 
             ImGui::Separator();
 
@@ -5953,6 +5956,78 @@ namespace OloEngine
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("0 = full removal, 1 = compact only");
                 ImGui::Checkbox("Emit Ejecta", &component.m_EmitEjecta); });
+
+        DrawComponent<FluidComponent>("Fluid", entity, [](auto& component)
+                                      {
+                ImGui::Checkbox("Enabled##Fluid", &component.m_Enabled);
+
+                ImGui::SeparatorText("Domain");
+                ImGui::DragFloat3("Half Extents##Fluid", glm::value_ptr(component.m_DomainHalfExtents), 0.1f, 0.25f, 256.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Axis-aligned simulation box centred on the entity's world position (entity rotation is ignored).");
+
+                int maxParticles = static_cast<int>(component.m_MaxParticles);
+                if (ImGui::DragInt("Max Particles", &maxParticles, 256.0f, 64, 1000000))
+                    component.m_MaxParticles = static_cast<u32>(std::max(maxParticles, 64));
+
+                const char* modeNames[] = { "Auto", "GPU", "CPU" };
+                if (int mode = static_cast<int>(component.m_SolverMode); ImGui::Combo("Solver##Fluid", &mode, modeNames, IM_ARRAYSIZE(modeNames)))
+                    component.m_SolverMode = static_cast<FluidSolverMode>(mode);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Auto: GPU when a renderer exists, CPU when headless. CPU is the deterministic reference solver (also forced by OLO_FLUID_SEQUENTIAL=1).");
+
+                ImGui::DragFloat("Prefill Fraction", &component.m_PrefillFraction, 0.01f, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Fill this fraction of the domain height with resting fluid at simulation start (dam-break / pool).");
+
+                ImGui::SeparatorText("Settings");
+                const std::string fluidSettingsLabel = component.m_Settings != 0
+                    ? "Settings: " + std::to_string(static_cast<u64>(component.m_Settings))
+                    : "Settings: <engine defaults — drag a .olofluid here>";
+                ImGui::Button(fluidSettingsLabel.c_str(), ImVec2(-1.0f, 0.0f));
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                    {
+                        std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                        if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                        {
+                            AssetHandle handle = assetManager->ImportAsset(assetPath);
+                            if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::FluidSettings)
+                            {
+                                component.m_Settings = handle;
+                            }
+                            else if (handle != 0)
+                            {
+                                OLO_WARN("Drag-dropped asset is not a FluidSettings (type: {0})",
+                                         AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                            }
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                if (component.m_Settings != 0)
+                {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Clear##FluidSettings"))
+                        component.m_Settings = 0;
+                } });
+
+        DrawComponent<FluidEmitterComponent>("Fluid Emitter", entity, [](auto& component)
+                                             {
+                ImGui::Checkbox("Enabled##FluidEmitter", &component.m_Enabled);
+                ImGui::DragFloat("Rate", &component.m_Rate, 10.0f, 0.0f, 200000.0f, "%.0f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Particles per second, emitted along the entity's forward (-Z) axis into the fluid domain that contains the emitter.");
+                ImGui::DragFloat("Speed", &component.m_Speed, 0.1f, 0.0f, 100.0f, "%.1f");
+                ImGui::DragFloat("Spread Radius", &component.m_SpreadRadius, 0.01f, 0.0f, 10.0f, "%.2f"); });
+
+        DrawComponent<FluidKillVolumeComponent>("Fluid Kill Volume", entity, [](auto& component)
+                                                {
+                ImGui::Checkbox("Enabled##FluidKill", &component.m_Enabled);
+                ImGui::DragFloat3("Half Extents##FluidKill", glm::value_ptr(component.m_HalfExtents), 0.1f, 0.01f, 256.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Fluid particles inside this axis-aligned box (centred on the entity) are deleted — drains, level exits."); });
 
         DrawComponent<FogVolumeComponent>("Fog Volume", entity, [](auto& component)
                                           {

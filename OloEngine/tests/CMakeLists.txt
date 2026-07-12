@@ -146,6 +146,9 @@ add_executable(OloEngine-Tests
 		Rendering/OcclusionStateTest.cpp
 		Rendering/OcclusionIntegrationTest.cpp
 		Rendering/WaterRenderingTest.cpp
+		Rendering/FluidRenderMathTest.cpp
+		Fluid/FluidKernelContractTest.cpp
+		Fluid/CPUFluidSolverContractTest.cpp
 		Rendering/PCSSShadowTest.cpp
 		Rendering/RenderingRegressionTest.cpp
 		Rendering/SelectionOutlineTest.cpp
@@ -159,6 +162,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/PlanarReflectionVisualEvidenceTest.cpp
 		Rendering/PropertyTests/HZBGeneratorResizeTest.cpp
 		Rendering/PropertyTests/GPUOcclusionCullGPUTest.cpp
+		Rendering/PropertyTests/GPUFluidSolverParityTest.cpp
 		Rendering/PropertyTests/OcclusionCullVisualEvidenceTest.cpp
 		Rendering/PropertyTests/OcclusionCullDeferredVisualEvidenceTest.cpp
 		Rendering/PropertyTests/DeferredInstancedShadingEvidenceTest.cpp
@@ -180,6 +184,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/StarNestSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
+		Rendering/PropertyTests/FluidVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterStaleTexturePublicationTest.cpp
 		Rendering/PropertyTests/CompressedTextureVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TextureAutoCookPackTest.cpp
@@ -535,6 +540,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/VehicleTest.cpp
 		Functional/AnimationPhysics/RagdollTest.cpp
 		Functional/AnimationPhysics/WaterBuoyancyTest.cpp
+		Functional/AnimationPhysics/FluidCouplingTest.cpp
 		Functional/AnimationPhysics/AnimationKeepsTickingUnderPhysicsLoadTest.cpp
 		Functional/SaveGame/SceneRoundTripAfterTickTest.cpp
 		Functional/Networking/PhysicsTransformReplicationTest.cpp

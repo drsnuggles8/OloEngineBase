@@ -97,6 +97,36 @@ if (entity.HasComponent<EnvironmentMapComponent>())
     SceneBinIO::Write(out, comp.m_Tint);
 }
 
+if (entity.HasComponent<FluidComponent>())
+{
+    SceneBinIO::WriteU32(out, 3295986542u); // FluidComponent
+    auto const& comp = entity.GetComponent<FluidComponent>();
+    SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_Settings);
+    SceneBinIO::Write(out, comp.m_DomainHalfExtents);
+    SceneBinIO::Write(out, comp.m_MaxParticles);
+    SceneBinIO::Write(out, comp.m_SolverMode);
+    SceneBinIO::Write(out, comp.m_PrefillFraction);
+}
+
+if (entity.HasComponent<FluidEmitterComponent>())
+{
+    SceneBinIO::WriteU32(out, 3199506318u); // FluidEmitterComponent
+    auto const& comp = entity.GetComponent<FluidEmitterComponent>();
+    SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_Rate);
+    SceneBinIO::Write(out, comp.m_Speed);
+    SceneBinIO::Write(out, comp.m_SpreadRadius);
+}
+
+if (entity.HasComponent<FluidKillVolumeComponent>())
+{
+    SceneBinIO::WriteU32(out, 3823642088u); // FluidKillVolumeComponent
+    auto const& comp = entity.GetComponent<FluidKillVolumeComponent>();
+    SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_HalfExtents);
+}
+
 if (entity.HasComponent<FogVolumeComponent>())
 {
     SceneBinIO::WriteU32(out, 1503688276u); // FogVolumeComponent

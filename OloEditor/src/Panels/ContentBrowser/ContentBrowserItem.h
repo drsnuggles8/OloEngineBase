@@ -27,7 +27,8 @@ namespace OloEngine
         ShaderGraph,
         SoundGraph,
         SaveGame,
-        Cinematic
+        Cinematic,
+        FluidSettings
     };
 
     // Bitflag actions returned by ContentBrowserItem::Render()

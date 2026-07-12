@@ -250,6 +250,7 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
         "Animation",
         "AnimationGraph",
         "MorphEval",
+        "Fluid",
         "PhysicsKick",
         "Dialogue",
         "Quest",
@@ -307,6 +308,13 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     EXPECT_TRUE(sched.DependsOn("PhysicsKick", "Cinematics"));
     EXPECT_TRUE(sched.DependsOn("PhysicsFence", "PhysicsKick"));
     EXPECT_TRUE(sched.DependsOn("PhysicsFence", "Animation"));
+
+    // Fluid queues coupling impulses on Jolt bodies (the kBodyForces channel),
+    // which the kick's world step integrates — the queue-before-step contract
+    // (issue #630). Fluid reads posed transforms, so it also sits after the
+    // authored-transform writers.
+    EXPECT_TRUE(sched.DependsOn("PhysicsKick", "Fluid"));
+    EXPECT_TRUE(sched.DependsOn("Fluid", "Cinematics"));
 
     // The physics shadow's legality is the ABSENCE of paths: Dialogue and Quest
     // must be unordered against both physics nodes (they may run on the game

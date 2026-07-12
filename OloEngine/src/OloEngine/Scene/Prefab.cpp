@@ -138,6 +138,9 @@ namespace OloEngine
     MACRO(FoliageComponent, "FoliageComponent")                               \
     MACRO(WaterComponent, "WaterComponent")                                   \
     MACRO(SnowDeformerComponent, "SnowDeformerComponent")                     \
+    MACRO(FluidComponent, "FluidComponent")                                   \
+    MACRO(FluidEmitterComponent, "FluidEmitterComponent")                     \
+    MACRO(FluidKillVolumeComponent, "FluidKillVolumeComponent")               \
     MACRO(FogVolumeComponent, "FogVolumeComponent")                           \
     MACRO(DecalComponent, "DecalComponent")                                   \
     MACRO(LODGroupComponent, "LODGroupComponent")                             \

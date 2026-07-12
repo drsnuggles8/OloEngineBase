@@ -76,6 +76,9 @@ namespace OloEngine
     struct WaterComponent;
     struct BuoyancyComponent;
     struct SnowDeformerComponent;
+    struct FluidComponent;
+    struct FluidEmitterComponent;
+    struct FluidKillVolumeComponent;
     struct FogVolumeComponent;
     struct DecalComponent;
     struct LODGroupComponent;
@@ -188,6 +191,9 @@ namespace OloEngine
         static void Serialize(FArchive& ar, WaterComponent& c);
         static void Serialize(FArchive& ar, BuoyancyComponent& c);
         static void Serialize(FArchive& ar, SnowDeformerComponent& c);
+        static void Serialize(FArchive& ar, FluidComponent& c);
+        static void Serialize(FArchive& ar, FluidEmitterComponent& c);
+        static void Serialize(FArchive& ar, FluidKillVolumeComponent& c);
         static void Serialize(FArchive& ar, FogVolumeComponent& c);
         static void Serialize(FArchive& ar, DecalComponent& c);
         static void Serialize(FArchive& ar, LODGroupComponent& c);

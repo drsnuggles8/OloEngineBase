@@ -2077,6 +2077,62 @@ namespace OloEngine
         ar << c.m_EmitEjecta;
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, FluidComponent& c)
+    {
+        ar << c.m_Enabled << c.m_Settings;
+        ar << c.m_DomainHalfExtents << c.m_MaxParticles;
+        ar << c.m_SolverMode << c.m_PrefillFraction;
+
+        if (ar.IsLoading())
+        {
+            if (!std::isfinite(c.m_DomainHalfExtents.x) || !std::isfinite(c.m_DomainHalfExtents.y) ||
+                !std::isfinite(c.m_DomainHalfExtents.z))
+                c.m_DomainHalfExtents = glm::vec3(4.0f);
+            else
+                c.m_DomainHalfExtents = glm::clamp(c.m_DomainHalfExtents, glm::vec3(0.25f), glm::vec3(256.0f));
+            c.m_MaxParticles = std::clamp(c.m_MaxParticles, 64u, 1000000u);
+            if (static_cast<i32>(c.m_SolverMode) < 0 || static_cast<i32>(c.m_SolverMode) > 2)
+                c.m_SolverMode = FluidSolverMode::Auto;
+            if (!std::isfinite(c.m_PrefillFraction))
+                c.m_PrefillFraction = 0.0f;
+            else
+                c.m_PrefillFraction = std::clamp(c.m_PrefillFraction, 0.0f, 1.0f);
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, FluidEmitterComponent& c)
+    {
+        ar << c.m_Enabled << c.m_Rate << c.m_Speed << c.m_SpreadRadius;
+
+        if (ar.IsLoading())
+        {
+            auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                    v = fallback;
+                else
+                    v = std::clamp(v, lo, hi);
+            };
+            sanitize(c.m_Rate, 0.0f, 200000.0f, 500.0f);
+            sanitize(c.m_Speed, 0.0f, 100.0f, 4.0f);
+            sanitize(c.m_SpreadRadius, 0.0f, 10.0f, 0.15f);
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, FluidKillVolumeComponent& c)
+    {
+        ar << c.m_Enabled << c.m_HalfExtents;
+
+        if (ar.IsLoading())
+        {
+            if (!std::isfinite(c.m_HalfExtents.x) || !std::isfinite(c.m_HalfExtents.y) ||
+                !std::isfinite(c.m_HalfExtents.z))
+                c.m_HalfExtents = glm::vec3(1.0f);
+            else
+                c.m_HalfExtents = glm::clamp(c.m_HalfExtents, glm::vec3(0.01f), glm::vec3(256.0f));
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, FogVolumeComponent& c)
     {
         ar << c.m_Shape << c.m_Extents << c.m_Color;
@@ -3496,6 +3552,9 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(WaterComponent);
         REGISTER_SAVE_COMPONENT(BuoyancyComponent);
         REGISTER_SAVE_COMPONENT(SnowDeformerComponent);
+        REGISTER_SAVE_COMPONENT(FluidComponent);
+        REGISTER_SAVE_COMPONENT(FluidEmitterComponent);
+        REGISTER_SAVE_COMPONENT(FluidKillVolumeComponent);
         REGISTER_SAVE_COMPONENT(FogVolumeComponent);
         REGISTER_SAVE_COMPONENT(DecalComponent);
         REGISTER_SAVE_COMPONENT(LODGroupComponent);

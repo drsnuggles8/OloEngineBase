@@ -46,6 +46,10 @@
 #include "OloEngine/Physics3D/JoltShapes.h"
 #include "OloEngine/Physics3D/BuoyancySystem.h"
 #include "OloEngine/Physics3D/ClothWindSystem.h"
+#include "OloEngine/Fluid/FluidSettings.h"
+#include "OloEngine/Fluid/FluidSystem.h"
+#include "OloEngine/Fluid/FluidWorld.h"
+#include "OloEngine/Fluid/GPUFluidSolver.h"
 #include "OloEngine/UI/UILayoutSystem.h"
 #include "OloEngine/UI/UIRenderer.h"
 #include "OloEngine/UI/UIInputSystem.h"
@@ -1290,6 +1294,12 @@ namespace OloEngine
         // Mirror OnRuntimeStop so returning to edit mode doesn't leak stale
         // animation-clock history into shaders that consume PrevAnimationTime.
         m_LastAnimationTime = -1.0f;
+
+        // Simulate runs on the editor scene in place — drop the fluid solver
+        // state (particles, GPU buffers) so the next Simulate starts fresh.
+        // Play mode needs no equivalent: the runtime scene is a copy that is
+        // destroyed on stop. Game thread here, so GL teardown is safe.
+        m_FluidWorld.reset();
     }
 
     void Scene::SetNavMesh(const Ref<NavMesh>& navMesh)
@@ -2015,6 +2025,15 @@ namespace OloEngine
                        shift.x, shift.y, shift.z, m_WorldOrigin.x, m_WorldOrigin.y, m_WorldOrigin.z);
     }
 
+    FluidWorld& Scene::GetFluidWorld()
+    {
+        if (!m_FluidWorld)
+        {
+            m_FluidWorld = std::make_unique<FluidWorld>();
+        }
+        return *m_FluidWorld;
+    }
+
     void Scene::StepPhysics(Timestep const ts)
     {
         // Guard against ticking before OnPhysics2DStart created a world —
@@ -2025,6 +2044,13 @@ namespace OloEngine
         {
             b2World_Step(m_PhysicsWorld, ts.GetSeconds(), kPhysics2DVelocityIterations);
         }
+
+        // Fluid domains step + queue coupling impulses BEFORE the Jolt step
+        // (issue #630) — mirrors the runtime path, where the "Fluid" scheduler
+        // node is ordered Before("PhysicsKick"). Keep the two call sites in
+        // sync. Runs even without a Jolt scene: the fluid still simulates
+        // against its domain walls (coupling is skipped inside).
+        FluidSystem::OnUpdate(this, ts.GetSeconds());
 
         // Update 3D physics
         if (m_JoltScene)
@@ -2271,6 +2297,10 @@ namespace OloEngine
         // NEITHER this channel NOR a physics-touched channel may sit between them
         // — the physics shadow.
         constexpr std::string_view kPhysicsInFlight = "PhysicsInFlight";
+        // Forces/impulses queued on Jolt bodies BEFORE the step (fluid coupling
+        // today; queue-before-step contract, see JoltBody::AddForce). Written by
+        // Fluid, consumed by PhysicsKick whose step integrates them.
+        constexpr std::string_view kBodyForces = "BodyForces";
     } // namespace GameplayChannel
 
     SystemScheduler& Scene::GetGameplayScheduler()
@@ -2335,6 +2365,22 @@ namespace OloEngine
                             { s.EvaluateMorphTargets(); })
                 .Reads(kMorphWeights);
 
+            // Fluid (issue #630): step every FluidComponent domain and queue
+            // two-way coupling impulses on overlapped Jolt bodies. Must run
+            // BEFORE PhysicsKick so the queued impulses are integrated by this
+            // tick's world step (the same queue-before-step contract as
+            // BuoyancySystem, which runs inside the kick itself). UNMARKED
+            // (join-all barrier) on purpose: the GPU solver issues GL compute
+            // dispatches, which are game-thread-only — same reasoning as
+            // ParticlesGPU / SnowDeformers in the audit table below. The editor
+            // Simulate path mirrors this ordering with a direct call at the top
+            // of Scene::StepPhysics — keep the two call sites in sync.
+            sched.AddSystem("Fluid", [](Scene& s, Timestep ts)
+                            { FluidSystem::OnUpdate(&s, ts.GetSeconds()); })
+                .Reads(kLocalTransforms)
+                .Writes(kBodyForces)
+                .Before("PhysicsKick");
+
             // Kick the physics step: buoyancy force queueing + contact-event
             // drain + the ECS-reading character/vehicle phase run here on the
             // game thread (hence Reads(LocalTransforms)), then the ECS-free
@@ -2343,6 +2389,7 @@ namespace OloEngine
             sched.AddSystem("PhysicsKick", [](Scene& s, Timestep ts)
                             { s.KickPhysicsStep(ts); })
                 .Reads(kLocalTransforms)
+                .Reads(kBodyForces)
                 .Writes(kPhysicsInFlight);
 
             // ── The physics shadow ─────────────────────────────────────────────
@@ -2457,6 +2504,12 @@ namespace OloEngine
             //                       (SnowAccumulationSystem::SubmitDeformers,
             //                       SnowEjectaSystem::EmitAt) must stay on the GL
             //                       thread.
+            //   Fluid      UNSAFE — the GPU PBF solver issues GL compute
+            //                       dispatches (issue #630) and the coupling path
+            //                       queues Jolt body impulses; both game-thread
+            //                       only. Stays an unmarked barrier ordered
+            //                       Before(PhysicsKick) so queued impulses are
+            //                       integrated this tick.
             // (Dialogue / Quest run in the physics shadow above — game thread, no
             // worker audit needed. Navigation / MorphEval are pinned main-thread:
             // TransformComponent writes / GL vertex-buffer upload.)
@@ -6649,6 +6702,49 @@ namespace OloEngine
                                                      planarReflectionActive,
                                                      planarReflectionIntensity,
                                                      planarReflectionDistortion);
+            }
+
+            // Screen-space fluid draws (issue #630): every enabled fluid domain
+            // whose GPU solver is live submits its SSBOs + appearance to the
+            // FluidIntermediates/FluidComposite passes. CPU-solver domains are
+            // not rendered yet (headless-oriented backend; the GPU path is what
+            // Auto resolves to whenever a renderer exists).
+            if (m_FluidWorld && m_FluidWorld->GetInstanceCount() > 0)
+            {
+                auto fluidView = m_Registry.view<TransformComponent, FluidComponent, IDComponent>();
+                for (auto entity : fluidView)
+                {
+                    const auto& fluid = fluidView.get<FluidComponent>(entity);
+                    if (!fluid.m_Enabled)
+                        continue;
+
+                    FluidInstance* instance = m_FluidWorld->Find(fluidView.get<IDComponent>(entity).ID);
+                    if (!instance || !instance->Gpu || !instance->Gpu->IsValid() ||
+                        instance->Gpu->GetParticleUpperBound() == 0)
+                        continue;
+
+                    Ref<FluidSettings> settingsAsset;
+                    if (fluid.m_Settings != 0 && Project::GetActive() &&
+                        AssetManager::IsAssetHandleValid(fluid.m_Settings))
+                    {
+                        settingsAsset = AssetManager::GetAsset<FluidSettings>(fluid.m_Settings);
+                    }
+                    static const FluidSettings s_DefaultFluidSettings;
+                    const FluidSettings& settings = settingsAsset ? *settingsAsset : s_DefaultFluidSettings;
+
+                    FluidRenderData draw;
+                    draw.PositionsSSBOId = instance->Gpu->GetPositionsSSBO()->GetRendererID();
+                    draw.VelocitiesSSBOId = instance->Gpu->GetVelocitiesSSBO()->GetRendererID();
+                    draw.CountersSSBOId = instance->Gpu->GetCountersSSBO()->GetRendererID();
+                    draw.ParticleUpperBound = instance->Gpu->GetParticleUpperBound();
+                    draw.ParticleRadius = settings.m_ParticleRadius;
+                    draw.Tint = settings.m_Tint;
+                    draw.AbsorptionColor = settings.m_AbsorptionColor;
+                    draw.AbsorptionScale = settings.m_AbsorptionScale;
+                    draw.FoamSpeedThreshold = settings.m_FoamVorticityThreshold;
+                    draw.EntityID = static_cast<i32>(static_cast<u32>(entity));
+                    Renderer3D::SubmitFluidDraw(draw);
+                }
             }
 
             // Underwater fog (WATER_FUTURE_IMPROVEMENTS.md §7.2). The tone-map

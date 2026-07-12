@@ -36,6 +36,11 @@ namespace OloEngine
         s_Data.PendingParticleRenderCallback = std::move(callback);
     }
 
+    void Renderer3D::SubmitFluidDraw(const FluidRenderData& draw)
+    {
+        s_Data.PendingFluidDraws.push_back(draw);
+    }
+
     void Renderer3D::SetUICompositeRenderCallback(RenderCallback callback)
     {
         s_Data.PendingUICompositeRenderCallback = std::move(callback);

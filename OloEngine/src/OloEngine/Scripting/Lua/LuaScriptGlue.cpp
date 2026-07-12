@@ -202,6 +202,9 @@ namespace OloEngine
             // 3D Physics
             REGISTER_COMPONENT(Rigidbody3DComponent),
             REGISTER_COMPONENT(BuoyancyComponent),
+            REGISTER_COMPONENT(FluidComponent),
+            REGISTER_COMPONENT(FluidEmitterComponent),
+            REGISTER_COMPONENT(FluidKillVolumeComponent),
             REGISTER_COMPONENT(BoxCollider3DComponent),
             REGISTER_COMPONENT(SphereCollider3DComponent),
             REGISTER_COMPONENT(CapsuleCollider3DComponent),
@@ -1066,6 +1069,37 @@ namespace OloEngine
                                             "submergenceRamp", sol::property([](const BuoyancyComponent& b)
                                                                              { return b.m_SubmergenceRamp; }, [](BuoyancyComponent& b, f32 v)
                                                                              { if (std::isfinite(v) && v > 0.0f) b.m_SubmergenceRamp = v; }));
+
+        // --- Fluid components (issue #630) ---
+        // Gameplay-facing knobs for the PBF fluid: toggle domains, drive
+        // emitters (cutscene faucets), and arm kill volumes. Setters validate
+        // finiteness and clamp to the component's serialized ranges.
+        lua.new_usertype<FluidComponent>("FluidComponent",
+                                         "enabled", &FluidComponent::m_Enabled,
+                                         "prefillFraction", sol::property([](const FluidComponent& f)
+                                                                          { return f.m_PrefillFraction; }, [](FluidComponent& f, f32 v)
+                                                                          { if (std::isfinite(v)) f.m_PrefillFraction = std::clamp(v, 0.0f, 1.0f); }),
+                                         "domainHalfExtents", sol::property([](const FluidComponent& f)
+                                                                            { return f.m_DomainHalfExtents; }, [](FluidComponent& f, const glm::vec3& v)
+                                                                            { if (IsFiniteVec3(v)) f.m_DomainHalfExtents = glm::clamp(v, glm::vec3(0.25f), glm::vec3(256.0f)); }));
+
+        lua.new_usertype<FluidEmitterComponent>("FluidEmitterComponent",
+                                                "enabled", &FluidEmitterComponent::m_Enabled,
+                                                "rate", sol::property([](const FluidEmitterComponent& e)
+                                                                      { return e.m_Rate; }, [](FluidEmitterComponent& e, f32 v)
+                                                                      { if (std::isfinite(v)) e.m_Rate = std::clamp(v, 0.0f, 200000.0f); }),
+                                                "speed", sol::property([](const FluidEmitterComponent& e)
+                                                                       { return e.m_Speed; }, [](FluidEmitterComponent& e, f32 v)
+                                                                       { if (std::isfinite(v)) e.m_Speed = std::clamp(v, 0.0f, 100.0f); }),
+                                                "spreadRadius", sol::property([](const FluidEmitterComponent& e)
+                                                                              { return e.m_SpreadRadius; }, [](FluidEmitterComponent& e, f32 v)
+                                                                              { if (std::isfinite(v)) e.m_SpreadRadius = std::clamp(v, 0.0f, 10.0f); }));
+
+        lua.new_usertype<FluidKillVolumeComponent>("FluidKillVolumeComponent",
+                                                   "enabled", &FluidKillVolumeComponent::m_Enabled,
+                                                   "halfExtents", sol::property([](const FluidKillVolumeComponent& k)
+                                                                                { return k.m_HalfExtents; }, [](FluidKillVolumeComponent& k, const glm::vec3& v)
+                                                                                { if (IsFiniteVec3(v)) k.m_HalfExtents = glm::clamp(v, glm::vec3(0.01f), glm::vec3(256.0f)); }));
 
         // --- CharacterController3DComponent ---
         lua.new_usertype<CharacterController3DComponent>("CharacterController3DComponent",

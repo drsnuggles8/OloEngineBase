@@ -1,0 +1,156 @@
+#version 460 core
+
+// =============================================================================
+// Fluid_VelocityApply.comp - vorticity confinement + XSPH viscosity (#630).
+//
+// PBF step 6, over neighbours of the FINAL predicted positions (StepFlags.x =
+// final Jacobi parity), for dist < h:
+//   gradMag += |omega_j| * gradW_spiky(x_ij)     (gradient of the vorticity magnitude)
+//   xsph    += (v_j - v_i) * W_poly6(dist)
+// then
+//   if |gradMag| > 1e-6: v += eps * cross(gradMag/|gradMag|, omega_i) * dt   (eq. 16)
+//   v += c * xsph                                                            (eq. 17)
+//   clamp |v| to max speed
+// and write the result to the velocity pong buffer (velocities alt) - the
+// primary velocity buffer must stay intact while other threads still read it
+// (the CPU solver uses m_VelocityScratch for exactly this reason).
+//
+// CPU mirror: CPUFluidSolver.cpp (Step - "6. Vorticity confinement + XSPH").
+//
+// Bindings: UBO 47 (FluidUBO), SSBO 22 velocities, 23 predicted A,
+//           24 predicted B, 25 aux, 26 grid heads, 27 grid next, 28 counters,
+//           32 velocities alt.
+// =============================================================================
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/FluidKernels.glsl"
+
+layout(std430, binding = 22) readonly buffer FluidVelocitiesBuffer
+{
+    vec4 velocities[];
+};
+
+layout(std430, binding = 23) readonly buffer FluidPredictedABuffer
+{
+    vec4 predictedA[];
+};
+
+layout(std430, binding = 24) readonly buffer FluidPredictedBBuffer
+{
+    vec4 predictedB[];
+};
+
+layout(std430, binding = 25) readonly buffer FluidAuxBuffer
+{
+    vec4 aux[]; // xyz = omega (written by Fluid_Vorticity)
+};
+
+layout(std430, binding = 26) readonly buffer FluidGridHeadBuffer
+{
+    uint gridHead[];
+};
+
+layout(std430, binding = 27) readonly buffer FluidGridNextBuffer
+{
+    uint gridNext[];
+};
+
+layout(std430, binding = 28) readonly buffer FluidCountersBuffer
+{
+    uint Count;
+    uint EmitCount;
+    uint KillCount;
+    uint ScratchCount;
+} counters;
+
+layout(std430, binding = 32) writeonly buffer FluidVelocitiesAltBuffer
+{
+    vec4 velocitiesAlt[];
+};
+
+vec3 readPredicted(uint idx)
+{
+    return (u_Fluid.StepFlags.x == 0u) ? predictedA[idx].xyz : predictedB[idx].xyz;
+}
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= counters.Count)
+    {
+        return;
+    }
+
+    float h = u_Fluid.GravityH.w;
+    float poly6ScaleValue = u_Fluid.KernelScales.x;
+    float spikyScaleValue = u_Fluid.KernelScales.y;
+    float xsphC = u_Fluid.ViscosityParams.x;
+    float vorticityEpsilon = u_Fluid.ViscosityParams.y;
+    float maxSpeed = u_Fluid.ViscosityParams.z;
+    float dt = u_Fluid.BoundsMaxDt.w;
+    // SPH volume weight vol = m/rho0. CPU mirror: CPUFluidSolver.cpp.
+    float volumeWeight = u_Fluid.KernelScales.w * u_Fluid.PbfParams.x;
+
+    vec3 pi = readPredicted(i);
+    vec3 vi = velocities[i].xyz;
+    vec3 gradMag = vec3(0.0);
+    vec3 xsph = vec3(0.0);
+
+    // 27-cell neighbour walk. CPU mirror: CPUFluidSolver.cpp (ForEachNeighbour).
+    vec3 rel = (pi - u_Fluid.BoundsMinCellSize.xyz) / u_Fluid.BoundsMinCellSize.w;
+    ivec3 center = ivec3(floor(rel));
+    for (int dz = -1; dz <= 1; ++dz)
+    {
+        for (int dy = -1; dy <= 1; ++dy)
+        {
+            for (int dx = -1; dx <= 1; ++dx)
+            {
+                ivec3 cell = center + ivec3(dx, dy, dz);
+                if (cell.x < 0 || cell.y < 0 || cell.z < 0 ||
+                    cell.x >= int(u_Fluid.GridDims.x) ||
+                    cell.y >= int(u_Fluid.GridDims.y) ||
+                    cell.z >= int(u_Fluid.GridDims.z))
+                {
+                    continue;
+                }
+                uint cellIndex = (uint(cell.z) * u_Fluid.GridDims.y + uint(cell.y)) * u_Fluid.GridDims.x + uint(cell.x);
+                for (uint cursor = gridHead[cellIndex]; cursor != 0u; cursor = gridNext[cursor - 1u])
+                {
+                    uint j = cursor - 1u;
+                    if (j == i)
+                    {
+                        continue;
+                    }
+
+                    // CPU mirror: CPUFluidSolver.cpp (Step - gradMag/xsph accumulation).
+                    vec3 offsetVec = pi - readPredicted(j);
+                    float dist = length(offsetVec);
+                    if (dist >= h)
+                    {
+                        continue;
+                    }
+                    gradMag += volumeWeight * length(aux[j].xyz) * spikyGrad(offsetVec, h, spikyScaleValue);
+                    xsph += volumeWeight * (velocities[j].xyz - vi) * poly6(dist, h, poly6ScaleValue);
+                }
+            }
+        }
+    }
+
+    // CPU mirror: CPUFluidSolver.cpp (Step - confinement then XSPH then clamp).
+    vec3 v = vi;
+    float gradLen = length(gradMag);
+    if (gradLen > 1.0e-6)
+    {
+        vec3 confinement = vorticityEpsilon * cross(gradMag / gradLen, aux[i].xyz);
+        v += confinement * dt;
+    }
+    v += xsphC * xsph;
+
+    float speed2 = dot(v, v);
+    if (speed2 > maxSpeed * maxSpeed)
+    {
+        v *= maxSpeed / sqrt(speed2);
+    }
+    velocitiesAlt[i] = vec4(v, 0.0);
+}

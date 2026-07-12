@@ -363,6 +363,12 @@ based on local depth.
 
 ### 5.4 Ripple Injection
 
+> Related (issue #630): the engine now has a real particle fluid — the PBF
+> solver under `OloEngine/src/OloEngine/Fluid/` (`FluidComponent`) — which
+> covers localized liquid volumes (pools, dam breaks, pouring) with two-way
+> Jolt coupling. Ripple injection below remains open for the *ocean surface*
+> heightfield itself; small splash volumes can instead place a fluid domain.
+
 Allow gameplay events (explosions, character wading, rain) to inject
 disturbances into the water surface:
 

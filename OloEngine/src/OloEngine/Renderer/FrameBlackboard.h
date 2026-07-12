@@ -156,6 +156,11 @@ namespace OloEngine
             // shaders for refraction distortion. Internal to WaterRenderPass.
             RGTextureHandle WaterRefraction;
 
+            // Fluid refraction scratch texture (RGBA16F, viewport-sized).
+            // Copied from scene color before the fluid composite; sampled for
+            // screen-space refraction. Internal to FluidCompositePass (#630).
+            RGTextureHandle FluidRefraction;
+
             // Fog half-resolution scratch framebuffer. RGBA16F at
             // ceil(viewport/2). Written by Fog pass A (analytic evaluation or
             // froxel-volume fetch), sampled by Fog pass B (bilateral

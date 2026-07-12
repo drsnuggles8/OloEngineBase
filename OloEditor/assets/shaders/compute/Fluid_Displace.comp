@@ -1,0 +1,282 @@
+#version 460 core
+
+// =============================================================================
+// Fluid_Displace.comp - PBF position correction + body-proxy collision (#630).
+//
+//   dp_i = (m/rho0) * sum_{j != i} (lambda_i + lambda_j + s_corr) * gradW_spiky
+//   s_corr = -k * (W_poly6(r) / W_poly6(deltaQ * h))^n     (eq. 13, anti-clump)
+// then, per body proxy: rotate into the proxy's local frame, evaluate the
+// analytic SDF, push the particle out along the world normal, and accumulate
+// the reaction impulse J = -correction * (m/dt) * couplingStiffness (angular
+// L = cross(p - com, J)) into the fixed-point accumulators - EVERY iteration,
+// matching the CPU solver. Finally clamp to the inner domain bounds and write
+// the OTHER Jacobi parity buffer (read parity = u_Fluid.StepFlags.x).
+//
+// CPU mirror: CPUFluidSolver.cpp (Step - "3b. Position correction +
+// collisions" and the proxy push-out/feedback loop; ProxySignedDistance).
+//
+// Bindings: UBO 47 (FluidUBO), SSBO 23 predicted A, 24 predicted B, 25 aux,
+//           26 grid heads, 27 grid next, 28 counters, 30 body proxies,
+//           31 body impulses.
+// =============================================================================
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+#include "../include/FluidKernels.glsl"
+
+layout(std430, binding = 23) buffer FluidPredictedABuffer
+{
+    vec4 predictedA[];
+};
+
+layout(std430, binding = 24) buffer FluidPredictedBBuffer
+{
+    vec4 predictedB[];
+};
+
+layout(std430, binding = 25) readonly buffer FluidAuxBuffer
+{
+    vec4 aux[]; // w = lambda (written by Fluid_Lambda)
+};
+
+layout(std430, binding = 26) readonly buffer FluidGridHeadBuffer
+{
+    uint gridHead[];
+};
+
+layout(std430, binding = 27) readonly buffer FluidGridNextBuffer
+{
+    uint gridNext[];
+};
+
+layout(std430, binding = 28) readonly buffer FluidCountersBuffer
+{
+    uint Count;
+    uint EmitCount;
+    uint KillCount;
+    uint ScratchCount;
+} counters;
+
+struct FluidBodyProxy
+{
+    vec4 Position;        // xyz = center of mass (world), w = shape type (0 sphere, 1 box, 2 capsule)
+    vec4 Rotation;        // world-from-local quaternion (x, y, z, w)
+    vec4 HalfExtents;     // sphere: x = radius; box: xyz = half extents; capsule: x = radius, y = half height
+    vec4 LinearVelocity;  // xyz = COM linear velocity, w = inverse mass
+    vec4 AngularVelocity; // xyz = angular velocity, w unused
+};
+
+layout(std430, binding = 30) readonly buffer FluidBodyProxiesBuffer
+{
+    FluidBodyProxy proxies[];
+};
+
+struct FluidBodyImpulse
+{
+    int ImpulseX;
+    int ImpulseY;
+    int ImpulseZ;
+    int AngularX;
+    int AngularY;
+    int AngularZ;
+    int Pad0;
+    int Pad1;
+};
+
+layout(std430, binding = 31) buffer FluidBodyImpulsesBuffer
+{
+    FluidBodyImpulse bodyImpulses[]; // i32 fixed-point, scale = CouplingParams.y
+};
+
+vec3 readPredicted(uint idx)
+{
+    return (u_Fluid.StepFlags.x == 0u) ? predictedA[idx].xyz : predictedB[idx].xyz;
+}
+
+void writePredicted(uint idx, vec3 p)
+{
+    if (u_Fluid.StepFlags.x == 0u)
+    {
+        predictedB[idx] = vec4(p, 0.0);
+    }
+    else
+    {
+        predictedA[idx] = vec4(p, 0.0);
+    }
+}
+
+// Signed distance from localPoint to the proxy surface in the proxy's local
+// frame, plus the outward surface normal.
+// CPU mirror: CPUFluidSolver.cpp (ProxySignedDistance) - keep formula-identical.
+float proxySignedDistance(in FluidBodyProxy proxy, in vec3 localPoint, out vec3 outLocalNormal)
+{
+    uint shapeType = uint(proxy.Position.w + 0.5);
+    if (shapeType == 0u) // Sphere
+    {
+        float radius = proxy.HalfExtents.x;
+        float dist = length(localPoint);
+        outLocalNormal = dist > 1.0e-6 ? localPoint / dist : vec3(0.0, 1.0, 0.0);
+        return dist - radius;
+    }
+    if (shapeType == 2u) // Capsule (Y axis)
+    {
+        float radius = proxy.HalfExtents.x;
+        float halfHeight = proxy.HalfExtents.y;
+        vec3 toAxis = vec3(localPoint.x,
+                           localPoint.y - clamp(localPoint.y, -halfHeight, halfHeight),
+                           localPoint.z);
+        float dist = length(toAxis);
+        outLocalNormal = dist > 1.0e-6 ? toAxis / dist : vec3(0.0, 1.0, 0.0);
+        return dist - radius;
+    }
+
+    // Box (and default).
+    vec3 halfExtents = proxy.HalfExtents.xyz;
+    vec3 q = abs(localPoint) - halfExtents;
+    if (q.x > 0.0 || q.y > 0.0 || q.z > 0.0)
+    {
+        // Outside: distance to the nearest face/edge/corner.
+        vec3 clamped = max(q, vec3(0.0));
+        float dist = length(clamped);
+        vec3 outward = sign(localPoint) * clamped;
+        outLocalNormal = dist > 1.0e-6 ? outward / dist : vec3(0.0, 1.0, 0.0);
+        return dist;
+    }
+    // Inside: push toward the closest face.
+    vec3 depths = -q; // positive penetration per axis
+    if (depths.x <= depths.y && depths.x <= depths.z)
+    {
+        outLocalNormal = vec3(localPoint.x >= 0.0 ? 1.0 : -1.0, 0.0, 0.0);
+        return -depths.x;
+    }
+    if (depths.y <= depths.z)
+    {
+        outLocalNormal = vec3(0.0, localPoint.y >= 0.0 ? 1.0 : -1.0, 0.0);
+        return -depths.y;
+    }
+    outLocalNormal = vec3(0.0, 0.0, localPoint.z >= 0.0 ? 1.0 : -1.0);
+    return -depths.z;
+}
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= counters.Count)
+    {
+        return;
+    }
+
+    float h = u_Fluid.GravityH.w;
+    float poly6ScaleValue = u_Fluid.KernelScales.x;
+    float spikyScaleValue = u_Fluid.KernelScales.y;
+    float sCorrDenom = u_Fluid.KernelScales.z;
+    float mass = u_Fluid.KernelScales.w;
+    float restDensityInv = u_Fluid.PbfParams.x;
+    float sCorrK = u_Fluid.PbfParams.z;
+    float sCorrN = u_Fluid.PbfParams.w;
+    float dtInv = 1.0 / u_Fluid.BoundsMaxDt.w;
+    float particleRadius = u_Fluid.ViscosityParams.w;
+    float couplingStiffness = u_Fluid.CouplingParams.x;
+    float impulseFixedScale = u_Fluid.CouplingParams.y;
+    vec3 innerMin = u_Fluid.BoundsMinCellSize.xyz + vec3(particleRadius);
+    vec3 innerMax = u_Fluid.BoundsMaxDt.xyz - vec3(particleRadius);
+
+    vec3 pi = readPredicted(i);
+    float lambdaI = aux[i].w;
+    vec3 delta = vec3(0.0);
+
+    // 27-cell neighbour walk. CPU mirror: CPUFluidSolver.cpp (ForEachNeighbour).
+    vec3 rel = (pi - u_Fluid.BoundsMinCellSize.xyz) / u_Fluid.BoundsMinCellSize.w;
+    ivec3 center = ivec3(floor(rel));
+    for (int dz = -1; dz <= 1; ++dz)
+    {
+        for (int dy = -1; dy <= 1; ++dy)
+        {
+            for (int dx = -1; dx <= 1; ++dx)
+            {
+                ivec3 cell = center + ivec3(dx, dy, dz);
+                if (cell.x < 0 || cell.y < 0 || cell.z < 0 ||
+                    cell.x >= int(u_Fluid.GridDims.x) ||
+                    cell.y >= int(u_Fluid.GridDims.y) ||
+                    cell.z >= int(u_Fluid.GridDims.z))
+                {
+                    continue;
+                }
+                uint cellIndex = (uint(cell.z) * u_Fluid.GridDims.y + uint(cell.y)) * u_Fluid.GridDims.x + uint(cell.x);
+                for (uint cursor = gridHead[cellIndex]; cursor != 0u; cursor = gridNext[cursor - 1u])
+                {
+                    uint j = cursor - 1u;
+                    if (j == i)
+                    {
+                        continue;
+                    }
+
+                    // CPU mirror: CPUFluidSolver.cpp (Step - "3b. Position correction").
+                    vec3 offsetVec = pi - readPredicted(j);
+                    float dist = length(offsetVec);
+                    if (dist >= h)
+                    {
+                        continue;
+                    }
+                    float w = poly6(dist, h, poly6ScaleValue);
+                    float sCorr = 0.0;
+                    if (sCorrDenom > 0.0) // skip anti-clump when W(deltaQ*h) vanished
+                    {
+                        float ratio = w / sCorrDenom;
+                        sCorr = -sCorrK * pow(ratio, sCorrN);
+                    }
+                    delta += (lambdaI + aux[j].w + sCorr) * spikyGrad(offsetVec, h, spikyScaleValue);
+                }
+            }
+        }
+    }
+
+    // dp_i = (m/rho0) * sum (Macklin & Mueller eq. 12, generalised to non-unit
+    // mass). CPU mirror: CPUFluidSolver.cpp (Step - m_DeltaP assignment).
+    // CouplingParams.w = Jacobi under-relaxation (kFluidJacobiRelaxation):
+    // overlapping density constraints over-correct when satisfied
+    // simultaneously; the CPU solver applies the same factor.
+    vec3 correction = delta * (mass * restDensityInv * u_Fluid.CouplingParams.w);
+    // Explosion guard: cap the per-iteration correction (kFluidMaxDeltaPFraction * h,
+    // uploaded in CouplingParams.z). CPU mirror: CPUFluidSolver.cpp (maxDeltaP clamp).
+    float maxDeltaP = u_Fluid.CouplingParams.z;
+    float correctionLen2 = dot(correction, correction);
+    if (correctionLen2 > maxDeltaP * maxDeltaP)
+    {
+        correction *= maxDeltaP / sqrt(correctionLen2);
+    }
+    vec3 p = pi + correction;
+
+    // Rigid-body proxies: SDF push-out + reaction impulse, EVERY iteration.
+    // CPU mirror: CPUFluidSolver.cpp (Step - proxy loop after m_DeltaP apply).
+    for (uint b = 0u; b < u_Fluid.Counts.z; ++b)
+    {
+        FluidBodyProxy proxy = proxies[b];
+        vec3 com = proxy.Position.xyz;
+        vec3 localPoint = quatConjugateRotate(proxy.Rotation, p - com);
+        vec3 localNormal = vec3(0.0);
+        float signedDist = proxySignedDistance(proxy, localPoint, localNormal);
+        float penetration = particleRadius - signedDist;
+        if (penetration <= 0.0)
+        {
+            continue;
+        }
+        vec3 worldNormal = quatRotate(proxy.Rotation, localNormal);
+        vec3 correction = worldNormal * penetration;
+        p += correction;
+
+        // Reaction impulse J = -correction * (m/dt) * couplingStiffness;
+        // angular L = cross(p - com, J) with p AFTER the push-out (CPU order).
+        // GLSL atomics are int/uint only, so accumulate fixed-point i32.
+        vec3 impulse = -correction * (mass * dtInv * couplingStiffness);
+        vec3 angular = cross(p - com, impulse);
+        atomicAdd(bodyImpulses[b].ImpulseX, int(round(impulse.x * impulseFixedScale)));
+        atomicAdd(bodyImpulses[b].ImpulseY, int(round(impulse.y * impulseFixedScale)));
+        atomicAdd(bodyImpulses[b].ImpulseZ, int(round(impulse.z * impulseFixedScale)));
+        atomicAdd(bodyImpulses[b].AngularX, int(round(angular.x * impulseFixedScale)));
+        atomicAdd(bodyImpulses[b].AngularY, int(round(angular.y * impulseFixedScale)));
+        atomicAdd(bodyImpulses[b].AngularZ, int(round(angular.z * impulseFixedScale)));
+    }
+
+    writePredicted(i, clamp(p, innerMin, innerMax));
+}

@@ -475,6 +475,15 @@ namespace OloEngine
             SceneCompositePasses.Particle->SetRenderCallback(std::move(data.PendingParticleRenderCallback));
         }
 
+        if (RenderStreamPasses.FluidIntermediates)
+        {
+            // Must happen before ComputeBlackboardFingerprint: the composite's
+            // Setup and the FluidRefraction declaration both key off
+            // HasPendingDraws() (issue #630).
+            RenderStreamPasses.FluidIntermediates->SetFrameDraws(std::move(data.PendingFluidDraws));
+            data.PendingFluidDraws.clear();
+        }
+
         if (SceneCompositePasses.SSAO)
         {
             SceneCompositePasses.SSAO->SetSettings(data.PostProcess);
@@ -1329,6 +1338,8 @@ namespace OloEngine
         HashPassState(h, RenderStreamPasses.ForwardOverlay);
         HashPassState(h, RenderStreamPasses.Foliage);
         HashPassState(h, RenderStreamPasses.Water);
+        HashPassState(h, RenderStreamPasses.FluidIntermediates);
+        HashPassState(h, RenderStreamPasses.FluidComposite);
         HashPassState(h, RenderStreamPasses.Decal);
         HashPassState(h, PostProcessPasses.SSS);
         HashPassState(h, PostProcessPasses.AOApply);
@@ -1356,6 +1367,10 @@ namespace OloEngine
         // Water needs a refraction texture only when it has draws this frame.
         HashBool(h, RenderStreamPasses.Water &&
                         RenderStreamPasses.Water->GetCommandBucket().GetCommandCount() > 0u);
+        // Fluid draws gate both the composite's Setup declarations and the
+        // FluidRefraction scratch declaration below — hash it (#530 class).
+        HashBool(h, RenderStreamPasses.FluidIntermediates &&
+                        RenderStreamPasses.FluidIntermediates->HasPendingDraws());
 
         // Non-zero sentinel so callers can use 0 to mean "no cache".
         if (h == 0u)
@@ -1406,6 +1421,8 @@ namespace OloEngine
                         pipeline.SceneCompositePasses.SSAO->ResizeFramebuffer(sceneW, sceneH);
                     if (pipeline.SceneCompositePasses.GTAO)
                         pipeline.SceneCompositePasses.GTAO->ResizeFramebuffer(sceneW, sceneH);
+                    if (pipeline.RenderStreamPasses.FluidIntermediates)
+                        pipeline.RenderStreamPasses.FluidIntermediates->ResizeFramebuffer(sceneW, sceneH);
 
                     // The scene-band size just changed WITHOUT a window/viewport
                     // resize (a runtime FSR1 Upscale-mode toggle: e.g. Performance
@@ -2017,6 +2034,21 @@ namespace OloEngine
             board.Scratch.WaterRefraction = declareGraphOnlyTexture("WaterRefraction", refrDesc);
         }
 
+        // Fluid refraction scratch (issue #630): only when fluid draws exist
+        // this frame — the gate is hashed into the frame fingerprint.
+        if (pipeline.RenderStreamPasses.FluidIntermediates &&
+            pipeline.RenderStreamPasses.FluidIntermediates->HasPendingDraws() &&
+            board.Scene.SceneColor.IsValid())
+        {
+            RGResourceDesc fluidRefrDesc;
+            fluidRefrDesc.Kind = ResourceHandle::Kind::Texture2D;
+            fluidRefrDesc.Format = RGResourceFormat::RGBA16Float;
+            fluidRefrDesc.Width = postProcessWidth;
+            fluidRefrDesc.Height = postProcessHeight;
+            fluidRefrDesc.DebugName = "FluidRefraction";
+            board.Scratch.FluidRefraction = declareGraphOnlyTexture("FluidRefraction", fluidRefrDesc);
+        }
+
         if (pipeline.PostProcessPasses.SSS &&
             data.Snow.Enabled &&
             data.Snow.SSSBlurEnabled &&
@@ -2611,6 +2643,8 @@ namespace OloEngine
         inputs.Passes.ForwardOverlay = RenderStreamPasses.ForwardOverlay.Raw();
         inputs.Passes.Foliage = RenderStreamPasses.Foliage.Raw();
         inputs.Passes.Water = RenderStreamPasses.Water.Raw();
+        inputs.Passes.FluidIntermediates = RenderStreamPasses.FluidIntermediates.Raw();
+        inputs.Passes.FluidComposite = RenderStreamPasses.FluidComposite.Raw();
         inputs.Passes.Decal = RenderStreamPasses.Decal.Raw();
         inputs.Passes.SSAO = SceneCompositePasses.SSAO.Raw();
         inputs.Passes.GTAO = SceneCompositePasses.GTAO.Raw();
@@ -2721,6 +2755,16 @@ namespace OloEngine
         RenderStreamPasses.Water = Ref<WaterRenderPass>::Create();
         RenderStreamPasses.Water->SetName("WaterPass");
         RenderStreamPasses.Water->Init(finalPassSpec);
+
+        // Screen-space fluid (issue #630): intermediates (depth splat + smooth
+        // + thickness into pass-owned targets) feeding the SceneColor-RMW
+        // composite. Names are set in the ctors.
+        RenderStreamPasses.FluidIntermediates = Ref<FluidIntermediatesPass>::Create();
+        RenderStreamPasses.FluidIntermediates->Init(finalPassSpec);
+        RenderStreamPasses.FluidIntermediates->SetupFramebuffer(finalPassSpec.Width, finalPassSpec.Height);
+        RenderStreamPasses.FluidComposite = Ref<FluidCompositePass>::Create();
+        RenderStreamPasses.FluidComposite->Init(finalPassSpec);
+        RenderStreamPasses.FluidComposite->SetIntermediatesPass(RenderStreamPasses.FluidIntermediates);
 
         RenderStreamPasses.Decal = Ref<DecalRenderPass>::Create();
         RenderStreamPasses.Decal->SetName("DecalPass");

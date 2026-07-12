@@ -502,6 +502,51 @@ namespace OloEngine
 		}
 	}
 
+	public partial class FluidComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.FluidComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.FluidComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public float PrefillFraction
+		{
+			get => InternalCalls.FluidComponent_GetPrefillFraction(Entity.ID);
+			set => InternalCalls.FluidComponent_SetPrefillFraction(Entity.ID, value);
+		}
+	}
+
+	public partial class FluidEmitterComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.FluidEmitterComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.FluidEmitterComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public float Rate
+		{
+			get => InternalCalls.FluidEmitterComponent_GetRate(Entity.ID);
+			set => InternalCalls.FluidEmitterComponent_SetRate(Entity.ID, value);
+		}
+
+		public float Speed
+		{
+			get => InternalCalls.FluidEmitterComponent_GetSpeed(Entity.ID);
+			set => InternalCalls.FluidEmitterComponent_SetSpeed(Entity.ID, value);
+		}
+	}
+
+	public partial class FluidKillVolumeComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.FluidKillVolumeComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.FluidKillVolumeComponent_SetEnabled(Entity.ID, value);
+		}
+	}
+
 	public partial class LightProbeComponent : Component
 	{
 		public float InfluenceRadius

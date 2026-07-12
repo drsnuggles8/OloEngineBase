@@ -35,6 +35,8 @@
 #include "OloEngine/Animation/AnimationGraphSerializer.h"
 #include "OloEngine/Cinematic/CinematicSequence.h"
 #include "OloEngine/Cinematic/CinematicSequenceSerializer.h"
+#include "OloEngine/Fluid/FluidSettings.h"
+#include "OloEngine/Fluid/FluidSettingsSerializer.h"
 #include "OloEngine/Asset/MeshColliderAsset.h"
 #include "OloEngine/Asset/SoundConfigAsset.h"
 #include "OloEngine/Core/YAMLConverters.h"
@@ -4524,6 +4526,91 @@ namespace OloEngine
 
         sequence->m_Handle = assetInfo.Handle;
         return sequence;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////
+    // FluidSettingsAssetSerializer
+    //////////////////////////////////////////////////////////////////////////////////
+
+    void FluidSettingsAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto settings = asset.As<FluidSettings>();
+        if (!settings)
+        {
+            OLO_CORE_ERROR("FluidSettingsAssetSerializer::Serialize - asset is not a FluidSettings");
+            return;
+        }
+
+        std::filesystem::path filepath = Project::GetProjectDirectory() / metadata.FilePath;
+        if (!FluidSettingsSerializer::Serialize(settings, filepath.string()))
+        {
+            OLO_CORE_ERROR("FluidSettingsAssetSerializer::Serialize - Failed to write: {}", filepath.string());
+        }
+    }
+
+    bool FluidSettingsAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::filesystem::path filepath = Project::GetProjectDirectory() / metadata.FilePath;
+        auto settings = FluidSettingsSerializer::DeserializeAsset(filepath.string());
+        if (!settings)
+        {
+            OLO_CORE_ERROR("FluidSettingsAssetSerializer::TryLoadData - Failed to load: {}", metadata.FilePath.string());
+            return false;
+        }
+        settings->m_Handle = metadata.Handle;
+        asset = settings;
+        return true;
+    }
+
+    void FluidSettingsAssetSerializer::RegisterDependencies([[maybe_unused]] const AssetMetadata& metadata) const
+    {
+    }
+
+    bool FluidSettingsAssetSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto settings = AssetManager::GetAsset<FluidSettings>(handle);
+        if (!settings)
+        {
+            OLO_CORE_ERROR("FluidSettingsAssetSerializer::SerializeToAssetPack - Invalid fluid settings asset");
+            return false;
+        }
+
+        std::string yamlString = FluidSettingsSerializer::SerializeToString(settings);
+        if (yamlString.empty())
+        {
+            OLO_CORE_ERROR("FluidSettingsAssetSerializer::SerializeToAssetPack - Failed to serialize settings to string");
+            return false;
+        }
+
+        outInfo.Offset = stream.GetStreamPosition();
+        stream.WriteString(yamlString);
+        outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+        return true;
+    }
+
+    Ref<Asset> FluidSettingsAssetSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        stream.SetStreamPosition(assetInfo.PackedOffset);
+        std::string yamlString;
+        stream.ReadString(yamlString);
+
+        auto settings = FluidSettingsSerializer::DeserializeFromString(yamlString);
+        if (!settings)
+        {
+            OLO_CORE_ERROR("FluidSettingsAssetSerializer::DeserializeFromAssetPack - Failed to deserialize settings from string");
+            return nullptr;
+        }
+
+        settings->m_Handle = assetInfo.Handle;
+        return settings;
     }
 
     //////////////////////////////////////////////////////////////////////////////////

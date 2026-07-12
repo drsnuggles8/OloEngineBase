@@ -96,6 +96,7 @@ namespace OloEngine
         s_ExtensionMap["olofsm"] = AssetType::StateMachine;
         s_ExtensionMap["oloinstances"] = AssetType::InstancePlacement;
         s_ExtensionMap["olocine"] = AssetType::CinematicSequence;
+        s_ExtensionMap["olofluid"] = AssetType::FluidSettings;
 
         // Script files
         s_ExtensionMap["cs"] = AssetType::ScriptFile;
