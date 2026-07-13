@@ -163,7 +163,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	protobuf
 	GIT_REPOSITORY	https://github.com/protocolbuffers/protobuf.git
-	GIT_TAG			35cd01f9fe9afbeea38cc7b979a3b6bfcde82c03  # v35.1
+	GIT_TAG			7875e9179e46112a510194c499ee3a50778e0512  # v36-dev
 	GIT_SHALLOW		FALSE
 	EXCLUDE_FROM_ALL
 )
