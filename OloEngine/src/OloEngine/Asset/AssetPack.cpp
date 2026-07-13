@@ -539,6 +539,14 @@ namespace OloEngine
                 return nullptr;
             }
 
+            // Stamp the pack's recorded format version onto every reader handed out, so a
+            // per-asset DeserializeFromAssetPack can gate a field appended in a later
+            // version (`stream.GetArchiveVersion() >= kIntroducedIn`) instead of reading
+            // bytes an older pack never wrote and desyncing everything after it
+            // (docs/agent-rules/binary-format-versioning.md). Doing it at this single
+            // choke point means no call site can forget.
+            reader->SetArchiveVersion(m_AssetPackFile.Header.Version);
+
             return reader;
         }
         catch (const std::exception& e)

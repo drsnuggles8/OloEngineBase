@@ -1,0 +1,128 @@
+Scene: VirtualGeometrySponza.olo
+# ─────────────────────────────────────────────────────────────────────────────
+# Nanite-style virtualized geometry on a real production asset (issue #629).
+#
+# Sponza: 262,267 triangles across 103 submeshes and 25 materials, rendered as
+# VIRTUAL geometry — one cluster LOD DAG per submesh, GPU-culled and rasterized
+# through the visibility buffer. This is the asset the builder used to reject
+# outright (multi-submesh sources were unsupported), so it is the scene that
+# actually shows what Nanite buys you:
+#
+#   * No authored LODs. The same 262k-triangle source mesh is used at every
+#     distance; the DAG cut picks the coarsest clusters whose projected error is
+#     under ErrorThresholdPixels, per cluster, per frame.
+#   * Per-submesh materials. Each of the 103 parts is its own GPU instance with
+#     its own material, so Sponza shades exactly as it does through the classic
+#     path — clusters never span a material boundary (a group is simplified as a
+#     unit, so a straddling cluster could not be shaded by either material).
+#   * Micro-triangle throughput. Drop ErrorThresholdPixels toward 0.25 and the
+#     cut refines to sub-pixel triangles that the COMPUTE software rasterizer
+#     handles; raise it toward 8 and watch the cluster count collapse. Watch
+#     both in the Statistics panel's "Virtual Geometry (Nanite)" section.
+#
+# A/B against SponzaDeferred.olo — same geometry through the classic mesh path.
+#
+# REQUIRES THE DEFERRED RENDERING PATH. VirtualGeometryPass self-disables on
+# Forward / Forward+ (the compute rasterizer writes a visibility buffer that the
+# material-resolve pass reconstructs the G-Buffer from, and the forward paths have
+# no G-Buffer to resolve into). The renderer starts on Forward and the path is not
+# scene-serialized, so on load: Renderer Settings -> Rendering Path -> Deferred.
+# The Virtual Mesh inspector shows a warning + a one-click switch while the wrong
+# path is active.
+#
+# NOTE: the first load cooks the DAG for all 103 submeshes and is slow. The cook is
+# cached (.omesh) and shipped in the asset pack, so every later load is instant.
+# ─────────────────────────────────────────────────────────────────────────────
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1.2
+  BloomIntensity: 0.35
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: true
+  SSAORadius: 0.6
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+Entities:
+  # ── Camera: down the nave, the classic Sponza vantage ──
+  - Entity: 810000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [-8, 2, 0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.1
+        PerspectiveFar: 500
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox + IBL ──
+  - Entity: 810000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+  # ── Sun: virtual clusters rasterize into the CSM, so Sponza self-shadows ──
+  - Entity: 810000000000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 20, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.4, -0.85, -0.3]
+      Color: [1, 0.95, 0.85]
+      Intensity: 6
+      CastShadows: true
+      ShadowBias: 0.0015
+      ShadowNormalBias: 0.15
+      MaxShadowDistance: 2000
+      CascadeSplitLambda: 0.92
+
+  # ═══ Sponza as VIRTUAL geometry ═══
+  # No MaterialComponent on purpose: each of the 103 submeshes is shaded with the
+  # material it was imported with. Adding a MaterialComponent would override ALL
+  # of them with one material — useful to prove the resolve, wrong for this scene.
+  - Entity: 810000000000010
+    TagComponent:
+      Tag: Sponza (Virtual)
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301234
+      ErrorThresholdPixels: 1
+      CastShadows: true

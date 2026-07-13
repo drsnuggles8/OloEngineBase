@@ -64,6 +64,9 @@ namespace OloEngine
         void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) override;
         void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) override;
         void DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID) override;
+        void MultiDrawElementsIndirectCountRaw(u32 vaoID, u32 indirectBufferID, u32 indirectOffsetBytes,
+                                               u32 parameterBufferID, u32 parameterOffsetBytes,
+                                               u32 maxDrawCount, u32 strideBytes) override;
 
         void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) override;
         void MemoryBarrier(MemoryBarrierFlags flags) override;
@@ -95,11 +98,17 @@ namespace OloEngine
         void EndConditionalRender() override;
 
         [[nodiscard("Store this!")]] u32 GetMaxUniformBlockSize() const override;
+        [[nodiscard("Store this!")]] bool SupportsInt64ShaderAtomics() const override
+        {
+            return m_SupportsInt64Atomics;
+        }
 
       private:
         bool m_DepthTestEnabled = false;
         bool m_DepthMaskEnabled = true;
         bool m_StencilTestEnabled = false;
         GLint m_MaxDrawBuffers = 0; // Cached from glGetIntegerv(GL_MAX_DRAW_BUFFERS) in Init().
+        // Cached in Init(): GL_ARB_gpu_shader_int64 && GL_NV_shader_atomic_int64 (issue #629).
+        bool m_SupportsInt64Atomics = false;
     };
 } // namespace OloEngine

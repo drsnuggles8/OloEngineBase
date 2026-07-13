@@ -50,7 +50,7 @@ namespace OloEngine::Tests
         /// production shader that declares a storage buffer at a slot
         /// above this is using an undeclared binding — exactly the kind
         /// of drift this test catches.
-        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_FLUID_VELOCITIES_ALT;
+        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_VIRTUAL_GROUP_STATES;
 
         struct BindingFailure
         {

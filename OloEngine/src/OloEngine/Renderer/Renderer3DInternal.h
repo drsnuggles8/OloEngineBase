@@ -28,6 +28,7 @@
 #include "OloEngine/Renderer/Passes/PlanarReflectionRenderPass.h"
 #include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryPass.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
@@ -152,6 +153,7 @@ namespace OloEngine
         Ref<GPUDrivenOcclusionPass> GPUOcclusion;
         Ref<FluidIntermediatesPass> FluidIntermediates; // #630 depth splat + smooth + thickness
         Ref<FluidCompositePass> FluidComposite;         // #630 SceneColor RMW shading pass
+        Ref<VirtualGeometryPass> VirtualGeometry;       // #629 cluster LOD DAG cull + raster
 
         void Reset()
         {
@@ -162,6 +164,7 @@ namespace OloEngine
             GPUOcclusion.Reset();
             FluidIntermediates.Reset();
             FluidComposite.Reset();
+            VirtualGeometry.Reset();
         }
     };
 

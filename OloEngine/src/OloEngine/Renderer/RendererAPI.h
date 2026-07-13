@@ -97,6 +97,14 @@ namespace OloEngine
         // Raw-VAO variant used by the GPU-frustum-cull path which only has a
         // RendererID (the dispatcher's BindVAOIfNeeded() cache populates it).
         virtual void DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID) = 0;
+        // Multi-draw indirect with a GPU-sourced draw count (core GL 4.6, issue #629):
+        // reads DrawElementsIndirectCommand records from indirectBufferID starting at
+        // indirectOffsetBytes and the u32 draw count from parameterBufferID at
+        // parameterOffsetBytes; maxDrawCount caps the count, strideBytes is the
+        // command record stride.
+        virtual void MultiDrawElementsIndirectCountRaw(u32 vaoID, u32 indirectBufferID, u32 indirectOffsetBytes,
+                                                       u32 parameterBufferID, u32 parameterOffsetBytes,
+                                                       u32 maxDrawCount, u32 strideBytes) = 0;
 
         // Compute shader dispatch
         virtual void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) = 0;
@@ -155,6 +163,12 @@ namespace OloEngine
 
         // GPU capability queries
         [[nodiscard("Store this!")]] virtual u32 GetMaxUniformBlockSize() const = 0;
+        // True when the driver exposes 64-bit shader integers AND 64-bit shader
+        // atomics (GL_ARB_gpu_shader_int64 + GL_NV_shader_atomic_int64), which
+        // lets the virtualized-geometry software rasterizer resolve its
+        // visibility buffer with a single atomicMin on a packed uint64_t instead
+        // of the portable two-pass 2x32 scheme (issue #629). Cached at Init.
+        [[nodiscard("Store this!")]] virtual bool SupportsInt64ShaderAtomics() const = 0;
 
         [[nodiscard("Store this!")]] static API GetAPI()
         {

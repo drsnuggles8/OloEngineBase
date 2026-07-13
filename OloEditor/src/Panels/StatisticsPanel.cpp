@@ -8,8 +8,11 @@
 #include "OloEngine/Renderer/Debug/DebugUtils.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Scene/Components.h"
+
+#include <string>
 
 #include <glad/gl.h>
 #include <imgui.h>
@@ -147,6 +150,59 @@ namespace OloEngine
             if (stats3D.TotalEmitters > 0)
             {
                 ImGui::Text("Emitters: %u (Culled: %u)", stats3D.TotalEmitters, stats3D.CulledEmitters);
+            }
+        }
+
+        // Virtual Geometry (Nanite cluster LOD DAG, issue #629). Shown only when
+        // virtual meshes are actually registered/submitted this frame.
+        {
+            auto& vgRegistry = VirtualMeshRegistry::Get();
+            const VirtualResidencyStats& residency = vgRegistry.GetResidencyStats();
+            u32 const frameInstances = static_cast<u32>(vgRegistry.GetFrameInstances().size());
+            if (residency.TotalPages > 0 || frameInstances > 0)
+            {
+                if (ImGui::CollapsingHeader("Virtual Geometry (Nanite)", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    ImGui::Text("Instances this frame: %u", frameInstances);
+
+                    ImGui::Separator();
+                    ImGui::TextDisabled("Streaming residency");
+                    ImGui::Text("Resident pages: %u / %u", residency.ResidentPages, residency.TotalPages);
+                    ImGui::Text("Pinned pages: %u", residency.PinnedPages);
+                    if (residency.BudgetSlots == 0)
+                    {
+                        ImGui::Text("Budget: unbounded (eager)");
+                    }
+                    else
+                    {
+                        ImGui::Text("Budget slots: %u", residency.BudgetSlots);
+                    }
+                    ImGui::Text("Page uploads: %llu", static_cast<unsigned long long>(residency.PageUploads));
+                    ImGui::Text("Page evictions: %llu", static_cast<unsigned long long>(residency.PageEvictions));
+
+                    // Cluster-cull stats need a small blocking GPU readback of the
+                    // args buffer; only fetched here, inside the open header, so a
+                    // collapsed section (or a scene without virtual meshes) pays
+                    // nothing.
+                    ImGui::Separator();
+                    ImGui::TextDisabled("Cluster cull (this frame)");
+                    VirtualCullStats const cull = vgRegistry.ReadFrameCullStats();
+                    ImGui::Text("Tested clusters: %u", cull.TestedClusters);
+                    ImGui::Text("DAG-cut selected: %u", cull.CutSelected);
+                    ImGui::Text("Drawn: %u  (HW %u / SW %u)", cull.DrawnClusters(), cull.HardwareDraws,
+                                cull.SoftwareRasterized);
+
+                    // Debug visualization: drives the "VirtualGeometryDebug"
+                    // capture target (olo_render_capture_target / MCP inspection).
+                    ImGui::Separator();
+                    ImGui::TextDisabled("Debug capture (\"VirtualGeometryDebug\")");
+                    static const char* const s_DebugModes[] = { "Off", "Cluster ID", "LOD level", "Overdraw" };
+                    int debugMode = static_cast<int>(vgRegistry.GetDebugMode());
+                    if (ImGui::Combo("Debug view##VirtualGeom", &debugMode, s_DebugModes, IM_ARRAYSIZE(s_DebugModes)))
+                    {
+                        vgRegistry.SetDebugMode(static_cast<VirtualDebugMode>(debugMode));
+                    }
+                }
             }
         }
 

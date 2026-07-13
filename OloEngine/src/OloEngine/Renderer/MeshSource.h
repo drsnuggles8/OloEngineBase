@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Vertex.h"
+#include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
@@ -21,6 +22,7 @@
 #include <string>
 #include <limits>
 #include <optional>
+#include <vector>
 
 namespace OloEngine
 {
@@ -175,6 +177,39 @@ namespace OloEngine
             m_Built = false;
             CalculateSubmeshBounds();
             CalculateBounds();
+        }
+
+        // Materials imported from the source file, indexed by Submesh::m_MaterialIndex.
+        //
+        // Distinct from m_Materials below, which maps a submesh index to a *MaterialAsset
+        // handle* and is only ever populated on the asset-pack path. Nothing populated it
+        // on the editor path, so a MeshSource asset carried no materials at all and every
+        // consumer that resolves materials through the MeshSource (MeshComponent,
+        // VirtualMeshComponent) rendered with the flat engine-default material. Model has
+        // always had the real Ref<Material> objects; this just carries them across so a
+        // MeshSource asset is self-sufficient.
+        [[nodiscard]] const std::vector<Ref<Material>>& GetImportedMaterials() const
+        {
+            return m_ImportedMaterials;
+        }
+        void SetImportedMaterials(std::vector<Ref<Material>> materials)
+        {
+            m_ImportedMaterials = std::move(materials);
+        }
+        // Material for a submesh, or nullptr when the mesh carries none / the index is out
+        // of range. Callers fall back to their own default.
+        [[nodiscard]] Ref<Material> GetImportedMaterialForSubmesh(u32 submeshIndex) const
+        {
+            if (submeshIndex >= static_cast<u32>(m_Submeshes.Num()))
+            {
+                return nullptr;
+            }
+            u32 const materialIndex = m_Submeshes[static_cast<i32>(submeshIndex)].m_MaterialIndex;
+            if (materialIndex >= static_cast<u32>(m_ImportedMaterials.size()))
+            {
+                return nullptr;
+            }
+            return m_ImportedMaterials[materialIndex];
         }
 
         // Material management
@@ -441,6 +476,23 @@ namespace OloEngine
             }
         }
 
+        // Cooked virtualized-geometry cluster DAG (OVGM blob, issue #629).
+        // Produced at import time and persisted through the .omesh cache's
+        // VirtualMesh section; VirtualMeshRegistry deserializes it instead of
+        // rebuilding the DAG from raw geometry. Empty = not cooked.
+        [[nodiscard]] bool HasVirtualMeshBlob() const
+        {
+            return !m_VirtualMeshBlob.empty();
+        }
+        [[nodiscard]] const std::vector<u8>& GetVirtualMeshBlob() const
+        {
+            return m_VirtualMeshBlob;
+        }
+        void SetVirtualMeshBlob(std::vector<u8> blob)
+        {
+            m_VirtualMeshBlob = std::move(blob);
+        }
+
         // Asset interface
         static AssetType GetStaticType()
         {
@@ -462,7 +514,8 @@ namespace OloEngine
         TArray<Vertex> m_Vertices;
         TArray<u32> m_Indices;
         TArray<Submesh> m_Submeshes;
-        TMap<u32, AssetHandle> m_Materials; // Material mapping for submeshes
+        TMap<u32, AssetHandle> m_Materials;             // Material mapping for submeshes (asset-pack path)
+        std::vector<Ref<Material>> m_ImportedMaterials; // Materials from the source file, by Submesh::m_MaterialIndex
 
         // Rigging data (Hazel-style: separated from vertex data)
         Ref<Skeleton> m_Skeleton;
@@ -484,6 +537,9 @@ namespace OloEngine
         // Bounding volumes
         BoundingBox m_BoundingBox;
         BoundingSphere m_BoundingSphere;
+
+        // Cooked OVGM cluster-DAG blob (see accessors above)
+        std::vector<u8> m_VirtualMeshBlob;
 
         bool m_Built = false;
         bool m_PreOptimized = false;

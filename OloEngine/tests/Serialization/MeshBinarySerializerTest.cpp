@@ -184,6 +184,75 @@ TEST_F(MeshBinarySerializerTest, WriteAndReadStaticMesh)
     std::filesystem::remove(path);
 }
 
+// v2 cook slice (issue #629): a cooked OVGM blob attached to the MeshSource
+// must survive the .omesh round-trip byte-exactly through the appended
+// VirtualMesh section. (OVGM semantic validation is VirtualMeshSerializer's
+// own test surface — this section carries the bytes verbatim.)
+TEST_F(MeshBinarySerializerTest, VirtualMeshBlobRoundTripsThroughV2Section)
+{
+    auto original = MakeSimpleMesh();
+    std::vector<u8> blob(4097);
+    for (sizet i = 0; i < blob.size(); ++i)
+    {
+        blob[i] = static_cast<u8>((i * 31u + 7u) & 0xFFu);
+    }
+    original->SetVirtualMeshBlob(blob);
+
+    auto path = GetTestCachePath("virtual_mesh_blob.omesh");
+    ASSERT_TRUE(MeshBinarySerializer::Write(path, *original, 424242));
+
+    auto loaded = MeshBinarySerializer::Read(path);
+    ASSERT_NE(loaded, nullptr);
+    ASSERT_TRUE(loaded->HasVirtualMeshBlob());
+    ASSERT_EQ(loaded->GetVirtualMeshBlob().size(), blob.size());
+    EXPECT_EQ(loaded->GetVirtualMeshBlob(), blob);
+
+    // The geometry still round-trips alongside the new section
+    EXPECT_EQ(loaded->GetVertices().Num(), original->GetVertices().Num());
+    EXPECT_EQ(loaded->GetIndices().Num(), original->GetIndices().Num());
+
+    std::filesystem::remove(path);
+}
+
+// Version-range back-compat (docs/agent-rules/binary-format-versioning.md):
+// a version-1 file — 7-entry section directory, no VirtualMesh section — must
+// still load in the v2 reader. Simulated by patching the header version of a
+// blob-less v2 file: the version word lives in the (unchecksummed) FileHeader,
+// and the v1 read path then sizes the directory read to 7 entries.
+TEST_F(MeshBinarySerializerTest, VersionOneFileStillLoadsWithoutVirtualMeshSection)
+{
+    auto original = MakeSimpleMesh();
+    auto path = GetTestCachePath("v1_compat.omesh");
+    ASSERT_TRUE(MeshBinarySerializer::Write(path, *original, 777));
+
+    // Patch FileHeader::Version (u32 at byte offset 4) from 2 to 1.
+    {
+        std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
+        ASSERT_TRUE(file.is_open());
+        file.seekp(4);
+        u32 const v1 = 1;
+        file.write(reinterpret_cast<const char*>(&v1), sizeof(v1));
+    }
+
+    auto loaded = MeshBinarySerializer::Read(path);
+    ASSERT_NE(loaded, nullptr) << "the v2 reader must accept a v1 file (range check + version-sized directory)";
+    EXPECT_EQ(loaded->GetVertices().Num(), original->GetVertices().Num());
+    EXPECT_EQ(loaded->GetIndices().Num(), original->GetIndices().Num());
+    EXPECT_FALSE(loaded->HasVirtualMeshBlob());
+
+    // A version NEWER than this build must be rejected, not misparsed.
+    {
+        std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
+        ASSERT_TRUE(file.is_open());
+        file.seekp(4);
+        u32 const vFuture = OMeshFormat::CurrentVersion + 1;
+        file.write(reinterpret_cast<const char*>(&vFuture), sizeof(vFuture));
+    }
+    EXPECT_EQ(MeshBinarySerializer::Read(path), nullptr);
+
+    std::filesystem::remove(path);
+}
+
 TEST_F(MeshBinarySerializerTest, ReadTimestampWorks)
 {
     auto mesh = MakeSimpleMesh();

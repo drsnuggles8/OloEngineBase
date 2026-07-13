@@ -21,6 +21,8 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMesh.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.h"
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Task/ParallelFor.h"
 
@@ -441,6 +443,14 @@ namespace OloEngine
             {
                 m_Directory = sourcePath.parent_path().string();
 
+                // Carry the cached virtual-geometry DAG blob (#629) back onto the Model.
+                // CookVirtualMesh early-outs when m_CookedVirtualMeshBlob is non-empty, and
+                // CreateCombinedMeshSource attaches whatever is in it — so without this the
+                // blob is silently EMPTY on every warm-cache load, and any Model-based
+                // consumer would hand the registry a source with no precooked DAG.
+                m_CookedVirtualMeshBlob = cachedMesh->GetVirtualMeshBlob();
+                m_CachedCombinedSource = cachedMesh;
+
                 // Create individual Mesh objects from submeshes
                 cachedMesh->Build();
                 for (i32 i = 0; i < cachedMesh->GetSubmeshes().Num(); ++i)
@@ -605,11 +615,19 @@ namespace OloEngine
         // Calculate bounding volumes for the entire model
         CalculateBounds();
 
-        // Save geometry to binary cache for next load
+        // Save geometry to binary cache for next load. Cook the virtualized-
+        // geometry cluster DAG first (issue #629) so the cache's VirtualMesh
+        // section — and any MeshSource this Model hands out afterwards —
+        // carries it and VirtualMeshRegistry never rebuilds from raw geometry.
         {
             auto combinedMeshSource = CreateCombinedMeshSource();
             if (combinedMeshSource)
             {
+                CookVirtualMesh(*combinedMeshSource);
+                if (!m_CookedVirtualMeshBlob.empty())
+                {
+                    combinedMeshSource->SetVirtualMeshBlob(m_CookedVirtualMeshBlob);
+                }
                 MeshCache::SaveMeshToCache(sourcePath, *combinedMeshSource, cachePrefix);
             }
         }
@@ -1615,6 +1633,24 @@ namespace OloEngine
             return nullptr;
         }
 
+        // Warm .omesh path: the cache already holds the COMBINED source, and every
+        // m_Meshes[i] is a submesh *view* into it (Ref<Mesh>::Create(cachedMesh, i)) —
+        // GetMeshSource() returns that same shared source for all of them. The
+        // concatenation loop below copies each mesh's ENTIRE source, so running it here
+        // would duplicate the whole model once per submesh (Sponza: 25 x 262k triangles =
+        // 6.5M, which blew up the virtual-geometry cook and the GPU arenas). Only the cold
+        // path, where every Mesh owns a distinct single-submesh source, may concatenate.
+        if (m_CachedCombinedSource)
+        {
+            Ref<MeshSource> combined = m_CachedCombinedSource;
+            combined->SetImportedMaterials(m_Materials);
+            if (!m_CookedVirtualMeshBlob.empty() && combined->GetVirtualMeshBlob().empty())
+            {
+                combined->SetVirtualMeshBlob(m_CookedVirtualMeshBlob);
+            }
+            return combined;
+        }
+
         // Calculate total vertex and index counts
         sizet totalVertices = 0;
         sizet totalIndices = 0;
@@ -1705,10 +1741,66 @@ namespace OloEngine
         // UVs/indices across submeshes (AnimatedModel does the same thing for the same reason).
         combinedMeshSource->SetPreOptimized(true);
 
+        // Attach the virtualized-geometry cook if LoadModel produced one, so
+        // the MeshSource returned to asset loaders matches the cached one.
+        if (!m_CookedVirtualMeshBlob.empty())
+        {
+            combinedMeshSource->SetVirtualMeshBlob(m_CookedVirtualMeshBlob);
+        }
+
+        // Carry the imported materials across. Submesh::m_MaterialIndex already indexes
+        // m_Materials (see the DFS-order contract above), so the MeshSource asset becomes
+        // self-sufficient: a consumer holding only a MeshSource handle can resolve the
+        // per-submesh material without re-importing the source file. Without this, every
+        // MeshSource-handle consumer (MeshComponent, VirtualMeshComponent) fell back to
+        // the flat engine-default material and rendered untextured grey.
+        combinedMeshSource->SetImportedMaterials(m_Materials);
+
         OLO_CORE_INFO("Model::CreateCombinedMeshSource: Combined {} meshes into {} vertices, {} indices, {} submeshes",
                       m_Meshes.size(), combinedMeshSource->GetVertices().Num(),
                       combinedMeshSource->GetIndices().Num(), combinedMeshSource->GetSubmeshes().Num());
 
         return combinedMeshSource;
+    }
+
+    void Model::CookVirtualMesh(const MeshSource& combined)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_CookedVirtualMeshBlob.empty())
+        {
+            return; // already cooked for this Model
+        }
+
+        // Skinned meshes deform at runtime, so a static cluster DAG would be wrong for them.
+        // Multi-submesh sources ARE supported: BuildSet produces one DAG per submesh so a
+        // cluster never spans a material boundary.
+        if (combined.HasSkeleton() || !combined.GetBoneInfo().IsEmpty())
+        {
+            return;
+        }
+
+        // Below this the runtime build is effectively free, so a cook section
+        // would only bloat the cache.
+        constexpr u32 kMinCookTriangles = 128;
+        u32 const triangleCount = static_cast<u32>(combined.GetIndices().Num()) / 3u;
+        if (triangleCount < kMinCookTriangles)
+        {
+            return;
+        }
+
+        VirtualMeshSet const built = VirtualMeshBuilder::BuildSet(combined);
+        if (!built.IsValid())
+        {
+            OLO_CORE_WARN("Model::CookVirtualMesh: cluster-DAG build failed ({} triangles) — "
+                          "the mesh will fall back to a runtime build if used virtually",
+                          triangleCount);
+            return;
+        }
+
+        m_CookedVirtualMeshBlob = VirtualMeshSerializer::SerializeSetToBlob(built);
+        OLO_CORE_INFO("Model::CookVirtualMesh: cooked {} triangles into {} part(s) / {} clusters ({} KB)",
+                      triangleCount, built.Parts.size(), built.TotalClusters(),
+                      m_CookedVirtualMeshBlob.size() / 1024);
     }
 } // namespace OloEngine

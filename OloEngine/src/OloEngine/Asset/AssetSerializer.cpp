@@ -47,6 +47,8 @@
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Asset/MeshCache.h"
+#include "OloEngine/Serialization/AssetPackFile.h"
+#include "OloEngine/Serialization/MeshBinaryFormat.h"
 #include <yaml-cpp/yaml.h>
 #include <stb_image/stb_image.h>
 #include <algorithm>
@@ -2443,22 +2445,17 @@ namespace OloEngine
             return false;
         }
 
-        // Try loading from binary mesh cache first
-        if (MeshCache::IsMeshCacheValid(path))
-        {
-            auto meshSource = MeshCache::LoadMeshFromCache(path);
-            if (meshSource)
-            {
-                meshSource->Build();
-                meshSource->SetHandle(metadata.Handle);
-                asset = meshSource;
-                OLO_CORE_TRACE("MeshSourceSerializer::TryLoadData - Loaded from cache: {}", path.string());
-                return true;
-            }
-        }
-
-        // Cache miss — import via Assimp through Model, which writes the cache for next time
-        OLO_CORE_INFO("MeshSourceSerializer::TryLoadData - Cache miss, importing via Assimp: {}", path.string());
+        // Always load through Model, warm cache or cold.
+        //
+        // There used to be a MeshCache-only fast path here that returned the cached
+        // MeshSource directly. It skipped Model entirely — and therefore skipped the
+        // materials, which only Model knows how to import. A MeshSource asset loaded on
+        // the second run (warm cache) thus had NO materials, so every consumer that
+        // resolves materials through the MeshSource rendered flat grey, while the very
+        // same mesh under a ModelComponent rendered textured. Model::LoadModel already
+        // reads geometry from the same cache and only re-imports the source file for its
+        // materials, so this costs the material import and nothing else; it is exactly the
+        // cost ModelComponent has always paid.
         Model model(path.string());
         auto meshSource = model.CreateCombinedMeshSource();
         if (!meshSource || meshSource->GetVertices().IsEmpty())
@@ -2990,6 +2987,30 @@ namespace OloEngine
                                          vertCount * sizeof(MorphTargetVertex));
                     }
                 }
+            }
+        }
+
+        // ── Virtualized-geometry cluster-LOD-DAG blob (issue #629, pack v4) ──
+        // MUST stay last in the record: it is gated on the pack version at the read
+        // site, so a v1-v3 pack simply stops here. The blob is the OVGM payload the
+        // mesh cook already produced (Model::CookVirtualMesh -> MeshSource's blob);
+        // shipping it means a packaged game LOADS the DAG instead of rebuilding it
+        // synchronously on the render thread at first draw, every launch.
+        {
+            const auto& virtualMeshBlob = meshSource->GetVirtualMeshBlob();
+            auto const blobSize = static_cast<u64>(virtualMeshBlob.size());
+            if (blobSize > OMeshFormat::MaxVirtualMeshBlobSize)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Virtual-mesh blob ({} bytes) exceeds cap ({}), "
+                               "rejecting before write",
+                               blobSize, OMeshFormat::MaxVirtualMeshBlobSize);
+                return false;
+            }
+            stream.WriteRaw<u64>(blobSize);
+            if (blobSize > 0)
+            {
+                stream.WriteData(reinterpret_cast<const char*>(virtualMeshBlob.data()),
+                                 virtualMeshBlob.size());
             }
         }
 
@@ -3637,6 +3658,36 @@ namespace OloEngine
         if (hasMorphTargets && !ReadMorphTargetsFromPack(stream, meshSource, vertexCount))
         {
             return nullptr;
+        }
+
+        // ── Virtualized-geometry cluster-LOD-DAG blob (issue #629, pack v4) ──
+        // Gated on the version that introduced it: a v1-v3 pack never wrote these
+        // bytes, so reading them would consume whatever follows in the pack and
+        // desync (docs/agent-rules/binary-format-versioning.md). Without a blob the
+        // registry just falls back to a synchronous runtime build, so a corrupt or
+        // oversized blob is a warn-and-skip, not a hard asset failure.
+        if (stream.GetArchiveVersion() >= AssetPackFile::VirtualMeshPackVersion)
+        {
+            u64 virtualMeshBlobSize = 0;
+            stream.ReadRaw<u64>(virtualMeshBlobSize);
+            if (virtualMeshBlobSize > OMeshFormat::MaxVirtualMeshBlobSize)
+            {
+                OLO_CORE_WARN("MeshSourceSerializer::DeserializeFromAssetPack - Virtual-mesh blob size ({}) exceeds cap ({}); "
+                              "skipping the precooked DAG (it will be rebuilt at runtime if used virtually)",
+                              virtualMeshBlobSize, OMeshFormat::MaxVirtualMeshBlobSize);
+                return nullptr; // the stream position is now untrustworthy — fail the asset
+            }
+            if (virtualMeshBlobSize > 0)
+            {
+                std::vector<u8> virtualMeshBlob(static_cast<sizet>(virtualMeshBlobSize));
+                if (!stream.ReadData(reinterpret_cast<char*>(virtualMeshBlob.data()),
+                                     static_cast<sizet>(virtualMeshBlobSize)))
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to read the virtual-mesh blob");
+                    return nullptr;
+                }
+                meshSource->SetVirtualMeshBlob(std::move(virtualMeshBlob));
+            }
         }
 
         meshSource->SetHandle(assetInfo.Handle);

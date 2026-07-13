@@ -30,6 +30,7 @@ namespace OloEngine
         RenderGraphNode* Water = nullptr;
         RenderGraphNode* FluidIntermediates = nullptr;
         RenderGraphNode* FluidComposite = nullptr;
+        RenderGraphNode* VirtualGeometry = nullptr; // #629 cluster LOD DAG cull + raster
         RenderGraphNode* Decal = nullptr;
         RenderGraphNode* SSAO = nullptr;
         RenderGraphNode* GTAO = nullptr;

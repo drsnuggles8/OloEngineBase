@@ -207,6 +207,17 @@ namespace OloEngine
         static void BeginScene(const Camera& camera, const glm::mat4& transform);
         static void EndScene();
         static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true, i32 entityID = -1, const LODGroup* lodGroup = nullptr);
+        // Virtualized geometry (issue #629): queues a cluster-LOD-DAG instance
+        // for the GPU-driven VirtualGeometryPass. Builds + registers the DAG for
+        // the mesh source on first sight (synchronous for now; the cook slice
+        // moves this offline). Rendered by the Deferred path only.
+        // overrideMaterial: an explicit MaterialComponent, or nullptr to shade each submesh
+        // with the material it was imported with. defaultMaterial is the last resort for a
+        // submesh that carries none.
+        static void SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
+                                      const glm::mat4& modelMatrix, const Material* overrideMaterial,
+                                      const Material& defaultMaterial, i32 entityID,
+                                      f32 errorThresholdPixels, bool castShadows);
         // Animated drawing commands
         static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = false, i32 entityID = -1);
         // Same as DrawAnimatedMesh but also carries the previous-frame bone matrices used by the

@@ -32,6 +32,8 @@
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Scene/Streaming/StreamingRegionSerializer.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Debug/Instrumentor.h"
@@ -1871,6 +1873,7 @@ namespace OloEngine
             DisplayAddComponentEntry<TerrainComponent>("Terrain");
             DisplayAddComponentEntry<FoliageComponent>("Foliage");
             DisplayAddComponentEntry<SnowDeformerComponent>("Snow Deformer");
+            DisplayAddComponentEntry<VirtualMeshComponent>("Virtual Mesh");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
             DisplayAddComponentEntry<DecalComponent>("Decal");
             DisplayAddComponentEntry<WaterComponent>("Water");
@@ -5961,6 +5964,67 @@ namespace OloEngine
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("0 = full removal, 1 = compact only");
                 ImGui::Checkbox("Emit Ejecta", &component.m_EmitEjecta); });
+
+        DrawComponent<VirtualMeshComponent>("Virtual Mesh", entity, [](auto& component)
+                                            {
+            // Virtual geometry is deferred-by-design: the compute software
+            // rasterizer writes a visibility buffer whose material-resolve pass
+            // reconstructs the G-Buffer, and Forward/Forward+ have no G-Buffer to
+            // resolve into — so VirtualGeometryPass self-disables outside Deferred
+            // (RenderPipelineBuilderScene). Without this notice the component just
+            // renders nothing, with nothing on screen to explain why.
+            if (auto& rendererSettings = Renderer3D::GetRendererSettings();
+                rendererSettings.Path != RenderingPath::Deferred)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("Not rendering: virtual geometry requires the Deferred rendering path.");
+                ImGui::PopStyleColor();
+                if (ImGui::Button("Switch to Deferred"))
+                {
+                    rendererSettings.Path = RenderingPath::Deferred;
+                    Renderer3D::ApplyRendererSettings();
+                }
+                ImGui::Separator();
+            }
+
+            ImGui::Checkbox("Enabled", &component.m_Enabled);
+
+            // MeshSource asset display + drag-drop target (same generic
+            // CONTENT_BROWSER_ITEM + type-filter idiom as AudioSoundGraph).
+            std::string handleLabel = component.m_MeshSource != 0
+                ? "Mesh: " + std::to_string(static_cast<u64>(component.m_MeshSource))
+                : "Mesh: <none — drag a mesh asset here>";
+            ImGui::Button(handleLabel.c_str(), ImVec2(-1.0f, 0.0f));
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                    if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                    {
+                        AssetHandle handle = assetManager->ImportAsset(assetPath);
+                        if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::MeshSource)
+                        {
+                            component.m_MeshSource = handle;
+                        }
+                        else if (handle != 0)
+                        {
+                            OLO_WARN("Drag-dropped asset is not a MeshSource (type: {0})",
+                                     AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                        }
+                        else
+                        {
+                            // No additional handling required.
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            ImGui::DragFloat("Error Threshold (px)", &component.m_ErrorThresholdPixels, 0.05f, 0.05f, 64.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Screen-space error target for the cluster LOD cut; lower = more detail");
+            ImGui::Checkbox("Cast Shadows", &component.m_CastShadows); });
 
         DrawComponent<FluidComponent>("Fluid", entity, [](auto& component)
                                       {

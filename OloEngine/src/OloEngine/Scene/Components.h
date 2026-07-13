@@ -3319,6 +3319,38 @@ namespace OloEngine
         }
     };
 
+    // ── Virtualized geometry (Nanite-style cluster LOD DAG, issue #629) ──
+
+    /// Renders a MeshSource through the virtualized-geometry cluster pipeline:
+    /// the mesh is baked into a cluster LOD DAG (offline via the cook, or
+    /// on-demand at first sight) and drawn by the GPU-driven
+    /// VirtualGeometryPass with per-cluster view-dependent LOD selection and
+    /// culling. Deferred rendering path only. The entity's MaterialComponent
+    /// (or the default material) supplies surface shading, exactly like
+    /// MeshComponent.
+    struct VirtualMeshComponent
+    {
+        bool m_Enabled = true;
+
+        AssetHandle m_MeshSource = 0; // MeshSource asset baked into the cluster DAG
+
+        OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 64.0f)
+        f32 m_ErrorThresholdPixels = 1.0f; // screen-space error target for the DAG cut
+
+        bool m_CastShadows = true;
+
+        VirtualMeshComponent() = default;
+        VirtualMeshComponent(const VirtualMeshComponent&) = default;
+        VirtualMeshComponent& operator=(const VirtualMeshComponent&) = default;
+        VirtualMeshComponent(VirtualMeshComponent&&) noexcept = default;
+        VirtualMeshComponent& operator=(VirtualMeshComponent&&) noexcept = default;
+
+        auto operator==(const VirtualMeshComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+
     // ── GPU Fluid Simulation (Position-Based Fluids, issue #630) ─────────
 
     enum class FluidSolverMode : i32

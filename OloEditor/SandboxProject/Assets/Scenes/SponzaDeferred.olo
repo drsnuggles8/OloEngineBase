@@ -165,7 +165,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     ModelComponent:
-      FilePath: assets/models/Sponza/glTF/Sponza.gltf
+      FilePath: SandboxProject/Assets/Models/Sponza/Sponza.gltf
       Visible: true
   # ── DamagedHelmet (focal object — easier to spot G-Buffer artifacts on a high-roughness sweep) ──
   - Entity: 790000000000011

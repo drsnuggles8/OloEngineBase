@@ -2080,6 +2080,21 @@ namespace OloEngine
         ar << c.m_EmitEjecta;
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, VirtualMeshComponent& c)
+    {
+        ar << c.m_Enabled << c.m_MeshSource;
+        ar << c.m_ErrorThresholdPixels << c.m_CastShadows;
+
+        if (ar.IsLoading())
+        {
+            if (!std::isfinite(c.m_ErrorThresholdPixels))
+            {
+                c.m_ErrorThresholdPixels = 1.0f;
+            }
+            c.m_ErrorThresholdPixels = std::clamp(c.m_ErrorThresholdPixels, 0.05f, 64.0f);
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, FluidComponent& c)
     {
         ar << c.m_Enabled << c.m_Settings;
@@ -3676,6 +3691,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(WaterComponent);
         REGISTER_SAVE_COMPONENT(BuoyancyComponent);
         REGISTER_SAVE_COMPONENT(SnowDeformerComponent);
+        REGISTER_SAVE_COMPONENT(VirtualMeshComponent);
         REGISTER_SAVE_COMPONENT(FluidComponent);
         REGISTER_SAVE_COMPONENT(FluidEmitterComponent);
         REGISTER_SAVE_COMPONENT(FluidKillVolumeComponent);

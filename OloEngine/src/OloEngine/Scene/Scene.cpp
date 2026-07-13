@@ -45,6 +45,7 @@
 #include "OloEngine/Animation/Locomotion/LocomotionSystem.h"
 #include "OloEngine/Animation/Retargeting/RetargetingComponent.h"
 #include "OloEngine/Animation/Retargeting/RetargetingSystem.h"
+#include "OloEngine/Renderer/MaterialAsset.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Physics3D/JoltScene.h"
@@ -7328,6 +7329,48 @@ namespace OloEngine
                         }
                     }
                 }
+            }
+        }
+
+        // Virtualized geometry (issue #629): queue cluster-LOD-DAG instances for
+        // the GPU-driven VirtualGeometryPass.
+        //
+        // Gated on Deferred, and the gate must live HERE rather than in the pass.
+        // VirtualGeometryPass self-disables outside Deferred, but ShadowRenderPass
+        // calls VirtualGeometryShadow::RenderCascade unconditionally — so submitting
+        // on Forward/Forward+ rasterized the clusters into the shadow map while
+        // nothing ever drew them, i.e. shadows cast by an invisible caster. Skipping
+        // submission also avoids building the DAG for geometry that cannot render.
+        if (Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred)
+        {
+            auto virtualView = m_Registry.view<TransformComponent, VirtualMeshComponent>();
+            for (auto entity : virtualView)
+            {
+                const auto& virtualMesh = virtualView.get<VirtualMeshComponent>(entity);
+                if (!virtualMesh.m_Enabled || static_cast<u64>(virtualMesh.m_MeshSource) == 0)
+                {
+                    continue;
+                }
+
+                auto meshSource = AssetManager::GetAsset<MeshSource>(virtualMesh.m_MeshSource);
+                if (!meshSource)
+                {
+                    continue;
+                }
+
+                // A MaterialComponent, when present, overrides every submesh. Otherwise each
+                // submesh is shaded with the material it was imported with — resolved inside
+                // SubmitVirtualMesh, which is the only place that knows the mesh's part list.
+                const Material* overrideMaterial = m_Registry.all_of<MaterialComponent>(entity)
+                                                       ? &m_Registry.get<MaterialComponent>(entity).m_Material
+                                                       : nullptr;
+
+                bool const castsShadow = virtualMesh.m_CastShadows && meshHasActiveShadows;
+                Renderer3D::SubmitVirtualMesh(virtualMesh.m_MeshSource, meshSource,
+                                              GetWorldTransform(entity), overrideMaterial,
+                                              GetDefaultMaterial(),
+                                              static_cast<i32>(std::to_underlying(entity)),
+                                              virtualMesh.m_ErrorThresholdPixels, castsShadow);
             }
         }
 

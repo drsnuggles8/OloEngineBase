@@ -588,6 +588,30 @@ namespace OloEngine
                 StreamPos(payload) - directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::MorphTargets))].Offset;
         }
 
+        // ── VirtualMesh Section (v2+, optional) — cooked OVGM DAG blob ──
+        if (meshSource.HasVirtualMeshBlob())
+        {
+            const auto& blob = meshSource.GetVirtualMeshBlob();
+            if (blob.size() > OMeshFormat::MaxVirtualMeshBlobSize)
+            {
+                OLO_CORE_WARN("MeshBinarySerializer::Write: VirtualMesh blob ({} bytes) exceeds cap ({}) — "
+                              "skipping the section for '{}'",
+                              blob.size(), OMeshFormat::MaxVirtualMeshBlobSize, path.string());
+            }
+            else
+            {
+                auto& entry = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::VirtualMesh))];
+                entry.Offset = StreamPos(payload);
+
+                OMeshFormat::VirtualMeshHeader vmHeader;
+                vmHeader.BlobSize = blob.size();
+                WriteBytes(payload, &vmHeader, sizeof(vmHeader));
+                WriteBytes(payload, blob.data(), blob.size());
+
+                entry.Size = StreamPos(payload) - entry.Offset;
+            }
+        }
+
         // ── Patch section directory at start of payload ──
         payload.seekp(0);
         WriteBytes(payload, &directory, sizeof(directory));
@@ -666,10 +690,14 @@ namespace OloEngine
             OLO_CORE_ERROR("MeshBinarySerializer::Read: Invalid magic number in '{}'", path.string());
             return nullptr;
         }
-        if (header.Version != OMeshFormat::CurrentVersion)
+        // Range check, not equality (docs/agent-rules/binary-format-versioning.md):
+        // a v1 file simply lacks the appended sections; anything newer than this
+        // build (or older than the floor) is rejected.
+        if (header.Version < OMeshFormat::MinSupportedVersion || header.Version > OMeshFormat::CurrentVersion)
         {
-            OLO_CORE_WARN("MeshBinarySerializer::Read: Version mismatch in '{}' (got {}, expected {})",
-                          path.string(), header.Version, OMeshFormat::CurrentVersion);
+            OLO_CORE_WARN("MeshBinarySerializer::Read: Unsupported version in '{}' (got {}, supported {}..{})",
+                          path.string(), header.Version, OMeshFormat::MinSupportedVersion,
+                          OMeshFormat::CurrentVersion);
             return nullptr;
         }
 
@@ -752,16 +780,20 @@ namespace OloEngine
                                     : 0;
         }
 
-        // Read section directory
+        // Read the section directory, sized by the FILE's version — a v1 file
+        // carries 7 entries; the appended entries stay zeroed (Size == 0), so
+        // every later "is the section present" check naturally skips them.
+        u16 const fileSectionCount = OMeshFormat::SectionCountForVersion(header.Version);
         OMeshFormat::SectionDirectory directory;
-        if (!ReadBytes(payload, &directory, sizeof(directory)))
+        if (!ReadBytes(payload, directory.Sections.data(),
+                       static_cast<u64>(fileSectionCount) * sizeof(OMeshFormat::SectionEntry)))
         {
             OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to read section directory from '{}'", path.string());
             return nullptr;
         }
 
         // Validate all section entries against payload bounds
-        constexpr u64 directoryEnd = sizeof(OMeshFormat::SectionDirectory);
+        u64 const directoryEnd = static_cast<u64>(fileSectionCount) * sizeof(OMeshFormat::SectionEntry);
         struct ValidRange
         {
             u64 Start;
@@ -1391,6 +1423,47 @@ namespace OloEngine
             }
         }
 
+        // ── VirtualMesh Section (v2+, optional) — cooked OVGM DAG blob ──
+        // Carried verbatim; the OVGM blob is self-validating (own magic, caps,
+        // cross-reference checks) when VirtualMeshRegistry deserializes it, so
+        // only the container framing is validated here.
+        {
+            const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::VirtualMesh))];
+            if (sec.Size > 0)
+            {
+                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
+
+                OMeshFormat::VirtualMeshHeader vmHeader;
+                ReadBytes(payload, &vmHeader, sizeof(vmHeader));
+
+                if (vmHeader.BlobSize > OMeshFormat::MaxVirtualMeshBlobSize ||
+                    vmHeader.BlobSize != sec.Size - sizeof(vmHeader))
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: VirtualMesh blob size {} inconsistent with "
+                                   "section size {} in '{}'",
+                                   vmHeader.BlobSize, sec.Size, path.string());
+                    return nullptr;
+                }
+
+                std::vector<u8> blob(vmHeader.BlobSize);
+                if (vmHeader.BlobSize > 0)
+                {
+                    if (!ReadBytes(payload, blob.data(), vmHeader.BlobSize))
+                    {
+                        OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to read VirtualMesh blob from '{}'",
+                                       path.string());
+                        return nullptr;
+                    }
+                    meshSource->SetVirtualMeshBlob(std::move(blob));
+                }
+
+                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "VirtualMesh", path))
+                {
+                    return nullptr;
+                }
+            }
+        }
+
         OLO_CORE_TRACE("MeshBinarySerializer::Read: Loaded '{}' ({} verts, {} indices, {} submeshes)",
                        path.filename().string(),
                        meshSource->GetVertices().Num(),
@@ -1421,6 +1494,11 @@ namespace OloEngine
             return false;
         }
 
+        // Deliberately STRICT here (unlike Read's range check): this gates the
+        // disk-cache validity test, so an older-version cache reads as stale
+        // and re-imports once — upgrading it to the current version (and
+        // gaining the v2 VirtualMesh cook) — while Read() still accepts any
+        // supported version for non-cache consumers.
         if (header.Magic != OMeshFormat::MagicNumber || header.Version != OMeshFormat::CurrentVersion)
         {
             return false;

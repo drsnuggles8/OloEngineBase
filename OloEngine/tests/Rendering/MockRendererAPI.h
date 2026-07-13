@@ -37,6 +37,11 @@ namespace OloEngine::Testing
             m_MaxUniformBlockSize = size;
         }
 
+        void SetSupportsInt64ShaderAtomics(bool supported)
+        {
+            m_SupportsInt64Atomics = supported;
+        }
+
         // ----------------------------------------------------------------
         // Recording accessors
         // ----------------------------------------------------------------
@@ -315,6 +320,12 @@ namespace OloEngine::Testing
             Record("DrawElementsIndirectRaw");
             ++m_DrawCallCount;
         }
+        void MultiDrawElementsIndirectCountRaw(u32 /*vaoID*/, u32 /*bufID*/, u32 /*indirectOffset*/, u32 /*paramBufID*/,
+                                               u32 /*paramOffset*/, u32 /*maxDrawCount*/, u32 /*stride*/) override
+        {
+            Record("MultiDrawElementsIndirectCountRaw");
+            ++m_DrawCallCount;
+        }
         void DispatchCompute(u32 /*x*/, u32 /*y*/, u32 /*z*/) override
         {
             Record("DispatchCompute");
@@ -384,6 +395,10 @@ namespace OloEngine::Testing
         [[nodiscard("Store this!")]] u32 GetMaxUniformBlockSize() const override
         {
             return m_MaxUniformBlockSize;
+        }
+        [[nodiscard("Store this!")]] bool SupportsInt64ShaderAtomics() const override
+        {
+            return m_SupportsInt64Atomics;
         }
         void SetBlendStateForAttachment(u32 attachment, bool enabled) override
         {
@@ -467,6 +482,7 @@ namespace OloEngine::Testing
         u32 m_DrawCallCount = 0;
         u32 m_NextTextureID = 1;
         u32 m_MaxUniformBlockSize = 65536u;
+        bool m_SupportsInt64Atomics = false;
         Viewport m_Viewport{ 0, 0, 1920, 1080 };
         bool m_StencilEnabled = false;
     };

@@ -44,6 +44,16 @@ namespace OloEngine::RenderPipelineBuilderInternal
         graph.AddNode(PrepareGraphNode("ShadowPass", inputs.Passes->Shadow));
         AddExistingNode(graph, inputs.Passes->Scene);
 
+        // Virtualized geometry (#629): DAG-cut cull compute + hardware MDI
+        // raster into the borrowed G-Buffer. Registered right after ScenePass
+        // (the G-Buffer owner and first writer) and BEFORE decals / AO /
+        // lighting so every downstream G-Buffer consumer sees the clusters.
+        // Self-disables outside Deferred.
+        if (inputs.Deferred && inputs.Passes->VirtualGeometry)
+        {
+            graph.AddNode(PrepareGraphNode("VirtualGeometryPass", inputs.Passes->VirtualGeometry));
+        }
+
         // GPU-driven occlusion cull (#431) — runs right after ScenePass so the
         // non-instanced opaque occluders are already in the scene depth, and
         // BEFORE the AO pass so it is the first SceneColor writer in the

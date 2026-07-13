@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryShadow.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 
@@ -461,6 +462,20 @@ namespace OloEngine
                 caster.renderer->RenderShadows(caster.depthShader);
             }
         }
+
+        // ── Virtualized geometry (#629): GPU-driven cluster casters ──
+        // CSM cascades AND local-light atlas entries (spot tiles / point-light
+        // cube faces). Runs its own cluster cull against this view's light VP,
+        // then replays the compacted segments with the depth-only virtual-mesh
+        // shader into the current target + viewport (the caller already set the
+        // atlas tile viewport). Reads the shadow camera UBO uploaded above. The
+        // ortho-style error scale is only approximate for the atlas' perspective
+        // VPs, but the DAG cut is watertight at any threshold, so shadows stay
+        // crack-free; a distance-accurate perspective error scale is a refinement.
+        u32 const shadowViewResolution = (type == ShadowPassType::CSM)
+                                             ? shadowMap.GetResolution()
+                                             : shadowMap.GetAtlasEntryRect(layerOrLight).Size;
+        VirtualGeometryShadow::RenderCascade(lightVPRel, shadowViewResolution);
     }
 
     // Returns true when the caster has valid world bounds AND those bounds lie

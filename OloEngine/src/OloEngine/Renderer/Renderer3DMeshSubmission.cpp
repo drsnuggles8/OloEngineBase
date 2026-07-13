@@ -13,6 +13,7 @@
 #include "OloEngine/Renderer/Commands/DrawKey.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
@@ -104,6 +105,81 @@ namespace OloEngine
                matches(s_Data.VoxelGBufferShader) || matches(s_Data.FoliageGBufferShader) ||
                matches(s_Data.DecalGBufferShader) || matches(s_Data.DecalGBufferNormalShader) ||
                matches(s_Data.DecalGBufferRMAShader) || matches(s_Data.DecalGBufferEmissiveShader);
+    }
+
+    void Renderer3D::SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
+                                       const glm::mat4& modelMatrix, const Material* overrideMaterial,
+                                       const Material& defaultMaterial, i32 entityID,
+                                       f32 errorThresholdPixels, bool castShadows)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (static_cast<u64>(meshHandle) == 0 || !meshSource)
+        {
+            return;
+        }
+
+        auto& registry = VirtualMeshRegistry::Get();
+        if (!registry.IsRegistered(meshHandle) && !registry.RegisterMeshSource(meshHandle, *meshSource))
+        {
+            return; // unsupported source — warned once at registration
+        }
+
+        VirtualMeshRegistry::MeshParts const parts = registry.FindParts(meshHandle);
+        if (!parts.Valid)
+        {
+            return;
+        }
+
+        VirtualMeshSubmission submission;
+        submission.Mesh = meshHandle;
+        submission.Transform = modelMatrix;
+        submission.PrevTransform = GetAndRecordPrevTransform(entityID, modelMatrix);
+        submission.EntityID = entityID;
+        if (!std::isfinite(errorThresholdPixels))
+        {
+            errorThresholdPixels = 1.0f;
+        }
+        submission.ErrorThresholdPixels = std::clamp(errorThresholdPixels, 0.05f, 64.0f);
+        submission.CastShadows = castShadows;
+
+        // One material slot per part. Precedence: an explicit MaterialComponent overrides
+        // everything, else the material the SUBMESH was imported with (so a multi-material
+        // mesh like Sponza shades each part correctly), else the caller's default.
+        submission.MaterialDataIndices.reserve(parts.Count);
+        submission.PartAlphaMasked.reserve(parts.Count);
+        submission.PartTwoSided.reserve(parts.Count);
+        for (u32 partIndex = 0; partIndex < parts.Count; ++partIndex)
+        {
+            const auto& entry = registry.GetEntry(parts.FirstEntry + partIndex);
+
+            const Material* material = overrideMaterial;
+            if (material == nullptr)
+            {
+                if (Ref<Material> imported = meshSource->GetImportedMaterialForSubmesh(entry.SubmeshIndex); imported)
+                {
+                    material = imported.get();
+                }
+            }
+            if (material == nullptr)
+            {
+                material = &defaultMaterial;
+            }
+
+            PODMaterialData const materialData = CreatePODMaterialDataForMaterial(*material, 0);
+            submission.MaterialDataIndices.push_back(FrameDataBufferManager::Get().AllocateMaterialData(materialData));
+
+            // Anything that is not fully opaque needs the cutout/blend test, which only the
+            // hardware fragment shader can run — flag it so the cull keeps it off the compute
+            // rasterizer (VirtualInstanceGpuRecord::kFlagAlphaMasked).
+            submission.PartAlphaMasked.push_back(material->GetAlphaMode() != AlphaMode::Opaque ? 1u : 0u);
+
+            // Two-sided geometry (foliage sheets) must not be backface-culled — the classic
+            // path does the same in Renderer3DDrawHelpers::BuildRenderState.
+            submission.PartTwoSided.push_back(material->GetFlag(MaterialFlag::TwoSided) ? 1u : 0u);
+        }
+
+        registry.Submit(submission);
     }
 
     auto Renderer3D::CreatePODMaterialDataForMaterial(const Material& material, RendererID shaderRendererID) -> PODMaterialData

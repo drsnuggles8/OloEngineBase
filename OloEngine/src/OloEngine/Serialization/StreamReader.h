@@ -27,6 +27,28 @@ namespace OloEngine
         /// @return true if the full amount was read successfully
         bool ReadData(std::span<std::byte> destination);
 
+        /// @brief Format version of the archive being read (FArchive's ArArchiveVersion
+        /// equivalent for the fixed-order asset-pack streams).
+        ///
+        /// A pack stream is NOT self-describing at the field level: every ReadRaw pulls
+        /// the next N bytes unconditionally, so a field appended in a later format
+        /// version MUST be gated on the version that introduced it or reading an older
+        /// pack silently desyncs every subsequent field (docs/agent-rules/
+        /// binary-format-versioning.md, issue #454). AssetPack::GetAssetStreamReader
+        /// stamps every reader it hands out with the pack's recorded Header.Version, so
+        /// a read site can gate with `stream.GetArchiveVersion() >= kIntroducedIn`.
+        /// Defaults to AssetPackFile::Version so a stream that is not pack-backed (unit
+        /// tests, ad-hoc readers) sees the current layout.
+        [[nodiscard]] u32 GetArchiveVersion() const
+        {
+            return m_ArchiveVersion;
+        }
+
+        void SetArchiveVersion(u32 version)
+        {
+            m_ArchiveVersion = version;
+        }
+
         operator bool() const
         {
             return IsStreamGood();
@@ -102,6 +124,12 @@ namespace OloEngine
             else
                 ReadObject<T>(element);
         }
+
+        // "Newest" by default, so every `>= kIntroducedIn` gate passes and a stream that
+        // is not asset-pack-backed reads the current layout. AssetPack overwrites this
+        // with the pack's real Header.Version, which is the only case where an OLDER
+        // layout can actually appear on disk.
+        u32 m_ArchiveVersion = ~0u;
     };
 
 } // namespace OloEngine

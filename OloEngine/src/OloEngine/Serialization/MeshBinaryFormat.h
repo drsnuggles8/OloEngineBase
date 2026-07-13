@@ -9,7 +9,7 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .omesh Binary Mesh Format — Version 1
+    // .omesh Binary Mesh Format — Version 2
     //
     // Layout:
     //   [FileHeader]
@@ -21,15 +21,23 @@ namespace OloEngine
     //   [BoneInfluence Section]      — optional: per-vertex bone weights
     //   [MorphTarget Section]        — optional: blend shape deltas
     //   [BoneInfo Section]           — optional: inverse bind poses
+    //   [VirtualMesh Section]        — optional (v2+): cooked OVGM cluster-DAG blob
     //
     // All multi-byte values are little-endian.
     // String table entries: u32 length + UTF-8 bytes (no null terminator).
+    //
+    // Versioning (docs/agent-rules/binary-format-versioning.md): the version
+    // check accepts the [MinSupportedVersion, CurrentVersion] range and the
+    // SectionDirectory is sized per the FILE's version — a v1 file carries 7
+    // directory entries, v2+ carries kSectionCount. New sections must only
+    // ever be APPENDED to SectionType so old readers index correctly.
     // ============================================================================
 
     namespace OMeshFormat
     {
         constexpr u32 MagicNumber = 0x4853454D; // "MESH" in little-endian
-        constexpr u32 CurrentVersion = 1;
+        constexpr u32 CurrentVersion = 2;       // v2: appended VirtualMesh section
+        constexpr u32 MinSupportedVersion = 1;
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed
         constexpr u32 FlagPreOptimized = 2; // Mesh was already optimized before caching
 
@@ -40,9 +48,12 @@ namespace OloEngine
         constexpr u32 MaxMaterialCount = 10'000;
         constexpr u32 MaxBoneCount = 1'024;
         constexpr u32 MaxMorphTargetCount = 1'000;
-        constexpr u64 MaxEncodedSize = 2'000'000'000; // 2 GB
+        constexpr u64 MaxEncodedSize = 2'000'000'000;       // 2 GB
+        constexpr u64 MaxVirtualMeshBlobSize = 512'000'000; // 512 MB — OVGM cook blob cap
 
-        // Section identifiers
+        // Section identifiers. APPEND ONLY — the on-disk directory is indexed
+        // by these values, and SectionCountForVersion() below assumes every
+        // version's sections are a prefix of the next version's.
         enum class SectionType : u16
         {
             Geometry = 0,
@@ -52,10 +63,19 @@ namespace OloEngine
             BoneInfluences = 4,
             MorphTargets = 5,
             BoneInfo = 6,
-            Count = 7 // sentinel
+            VirtualMesh = 7, // v2+: cooked OVGM cluster-DAG blob (issue #629)
+            Count = 8        // sentinel
         };
 
         constexpr auto kSectionCount = std::to_underlying(SectionType::Count);
+
+        // Number of SectionDirectory entries present in a file of the given
+        // version — a reader must size its directory read by the FILE's
+        // version, not its own.
+        [[nodiscard]] constexpr u16 SectionCountForVersion(u32 version)
+        {
+            return version >= 2 ? kSectionCount : 7;
+        }
 
         struct FileHeader
         {
@@ -189,6 +209,15 @@ namespace OloEngine
             //   If dense:  VertexCount × MorphTargetVertex
         };
 
+        // VirtualMesh section header (v2+). The payload is a self-validating
+        // OVGM blob (see Renderer/VirtualGeometry/VirtualMesh.h — own magic,
+        // caps and cross-reference checks), stored verbatim.
+        struct VirtualMeshHeader
+        {
+            u64 BlobSize = 0;
+            // Followed by BlobSize bytes of OVGM data
+        };
+
     } // namespace OMeshFormat
 
     // ============================================================================
@@ -307,7 +336,9 @@ namespace OloEngine
 
     static_assert(std::is_trivially_copyable_v<OMeshFormat::SectionDirectory>);
     static_assert(std::is_standard_layout_v<OMeshFormat::SectionDirectory>);
-    static_assert(sizeof(OMeshFormat::SectionDirectory) == 112);
+    static_assert(sizeof(OMeshFormat::SectionDirectory) == 128);
+    static_assert(OMeshFormat::SectionCountForVersion(1) == 7);
+    static_assert(OMeshFormat::SectionCountForVersion(OMeshFormat::CurrentVersion) == OMeshFormat::kSectionCount);
 
     static_assert(std::is_trivially_copyable_v<OMeshFormat::GeometryHeader>);
     static_assert(std::is_standard_layout_v<OMeshFormat::GeometryHeader>);
@@ -352,6 +383,10 @@ namespace OloEngine
     static_assert(std::is_trivially_copyable_v<OMeshFormat::MorphTargetEntry>);
     static_assert(std::is_standard_layout_v<OMeshFormat::MorphTargetEntry>);
     static_assert(sizeof(OMeshFormat::MorphTargetEntry) == 4);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::VirtualMeshHeader>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::VirtualMeshHeader>);
+    static_assert(sizeof(OMeshFormat::VirtualMeshHeader) == 8);
 
     // OAnimFormat
     static_assert(std::is_trivially_copyable_v<OAnimFormat::FileHeader>);

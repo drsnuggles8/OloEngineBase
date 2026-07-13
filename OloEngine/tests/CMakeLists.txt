@@ -94,6 +94,8 @@ add_executable(OloEngine-Tests
 		Rendering/TerrainCameraRelativeLODTest.cpp
 		Rendering/LODTest.cpp
 		Rendering/MeshOptimizationTest.cpp
+		Rendering/VirtualMeshBuilderTest.cpp
+		Rendering/VirtualClusterCullParityTest.cpp
 		Rendering/MeshSourceBoundsTest.cpp
 		Rendering/MeshBVHRaycastTest.cpp
 		Rendering/PODCommandTest.cpp
@@ -184,6 +186,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/StarNestSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
+		Rendering/PropertyTests/VirtualGeometryVisualEvidenceTest.cpp
+		Rendering/PropertyTests/VirtualMeshAssetPackTest.cpp
 		Rendering/PropertyTests/FluidVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterStaleTexturePublicationTest.cpp
 		Rendering/PropertyTests/CompressedTextureVisualEvidenceTest.cpp

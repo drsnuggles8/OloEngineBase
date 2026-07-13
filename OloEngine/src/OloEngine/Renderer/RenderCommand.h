@@ -285,6 +285,16 @@ namespace OloEngine
             s_RendererAPI->DrawElementsIndirectRaw(vaoID, indirectBufferID);
         }
 
+        // Multi-draw indirect with a GPU-sourced draw count (core GL 4.6, issue #629).
+        static void MultiDrawElementsIndirectCountRaw(u32 vaoID, u32 indirectBufferID, u32 indirectOffsetBytes,
+                                                      u32 parameterBufferID, u32 parameterOffsetBytes,
+                                                      u32 maxDrawCount, u32 strideBytes)
+        {
+            s_RendererAPI->MultiDrawElementsIndirectCountRaw(vaoID, indirectBufferID, indirectOffsetBytes,
+                                                             parameterBufferID, parameterOffsetBytes,
+                                                             maxDrawCount, strideBytes);
+        }
+
         // Compute shader dispatch
         static void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ)
         {
@@ -387,6 +397,11 @@ namespace OloEngine
         [[nodiscard("Store this!")]] static u32 GetMaxUniformBlockSize()
         {
             return s_RendererAPI->GetMaxUniformBlockSize();
+        }
+
+        [[nodiscard("Store this!")]] static bool SupportsInt64ShaderAtomics()
+        {
+            return s_RendererAPI->SupportsInt64ShaderAtomics();
         }
 
         static RendererAPI& GetRendererAPI()

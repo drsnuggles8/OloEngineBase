@@ -22,6 +22,7 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 
 #include <algorithm>
 #include <array>
@@ -160,6 +161,9 @@ namespace OloEngine
         // Begin new frame for double-buffered resources. May block on the
         // frame fence when the GPU is behind — that wait IS the gpuWait metric.
         FrameResourceManager::Get().BeginFrame();
+
+        // Virtualized geometry (#629): reset this frame's instance submissions.
+        VirtualMeshRegistry::Get().BeginFrame();
         profiler.AddGPUWaitTime(FrameResourceManager::Get().GetLastBeginFrameWaitMs());
 
         // Advance the always-on GPU frame/pass timers: resolve a completed
@@ -888,6 +892,14 @@ namespace OloEngine
             SceneCompositePasses.DeferredGPUOcclusion->SetPerSampleLighting(deferred && data.Settings.Deferred.PerSampleLighting);
         }
 
+        // Virtualized geometry (#629): same per-sample rule — in per-sample MSAA
+        // it rasterizes into the multisample G-Buffer and resolves afterwards.
+        if (RenderStreamPasses.VirtualGeometry)
+        {
+            const bool deferred = (data.Settings.Path == RenderingPath::Deferred);
+            RenderStreamPasses.VirtualGeometry->SetPerSampleLighting(deferred && data.Settings.Deferred.PerSampleLighting);
+        }
+
         // Phase 6: propagate OIT toggle to transparent passes that still
         // participate in the WB-OIT path, plus the prepare/resolve passes,
         // every frame so UI changes take effect immediately.
@@ -1258,6 +1270,22 @@ namespace OloEngine
         HashU32(h, data.Shadow.GetAtlasResolution());
         HashU32(h, data.Shadow.GetCSMRendererID());
         HashU32(h, data.Shadow.GetAtlasRendererID());
+
+        // IBL renderer IDs — same rule as the shadow IDs above, and for the same
+        // reason: PopulateBlackboard imports them by raw GL ID.
+        //
+        // These were missing, and it was a live bug: switching scenes destroys the old
+        // EnvironmentMap (deleting its irradiance/prefilter/BRDF GL textures) and builds
+        // new ones, but nothing else in the fingerprint changes — so PopulateBlackboard
+        // short-circuited, the graph kept the DELETED IDs, and DeferredLightingPass bound
+        // them every frame: "GL_INVALID_OPERATION ... <texture> is not a valid texture
+        // name", thousands of times. It masqueraded as intermittent because GL often
+        // recycles the freed texture names, in which case the stale ID happens to be
+        // valid again and nothing looks wrong.
+        HashU32(h, data.GlobalIrradianceMapID);
+        HashU32(h, data.GlobalPrefilterMapID);
+        HashU32(h, data.GlobalBRDFLutMapID);
+        HashU32(h, data.GlobalEnvironmentMapID);
 
         // Post-process technique selection + per-effect toggles
         HashU32(h, static_cast<u32>(std::to_underlying(data.PostProcess.ActiveAOTechnique)));
@@ -2645,6 +2673,7 @@ namespace OloEngine
         inputs.Passes.Water = RenderStreamPasses.Water.Raw();
         inputs.Passes.FluidIntermediates = RenderStreamPasses.FluidIntermediates.Raw();
         inputs.Passes.FluidComposite = RenderStreamPasses.FluidComposite.Raw();
+        inputs.Passes.VirtualGeometry = RenderStreamPasses.VirtualGeometry.Raw();
         inputs.Passes.Decal = RenderStreamPasses.Decal.Raw();
         inputs.Passes.SSAO = SceneCompositePasses.SSAO.Raw();
         inputs.Passes.GTAO = SceneCompositePasses.GTAO.Raw();
@@ -2755,6 +2784,12 @@ namespace OloEngine
         RenderStreamPasses.Water = Ref<WaterRenderPass>::Create();
         RenderStreamPasses.Water->SetName("WaterPass");
         RenderStreamPasses.Water->Init(finalPassSpec);
+
+        // Virtualized geometry (issue #629): DAG-cut cull compute + hardware
+        // MDI raster into the borrowed ScenePass G-Buffer. Deferred-path only.
+        RenderStreamPasses.VirtualGeometry = Ref<VirtualGeometryPass>::Create();
+        RenderStreamPasses.VirtualGeometry->Init(scenePassSpec);
+        RenderStreamPasses.VirtualGeometry->SetScenePass(FrameCorePasses.Scene);
 
         // Screen-space fluid (issue #630): intermediates (depth splat + smooth
         // + thickness into pass-owned targets) feeding the SceneColor-RMW

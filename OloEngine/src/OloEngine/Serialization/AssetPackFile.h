@@ -11,7 +11,17 @@ namespace OloEngine
     struct AssetPackFile
     {
         static constexpr u32 MagicNumber = 0x504C4F4F; // "OLOO" in little endian
-        static constexpr u32 Version = 3;
+
+        // v4 (issue #629): MeshSource records carry a trailing virtualized-geometry
+        // (cluster LOD DAG) blob. Appended at the END of the MeshSource payload and
+        // gated on `stream.GetArchiveVersion() >= kVirtualMeshPackVersion` at the read
+        // site, so a v1-v3 pack — which never wrote those bytes — still reads cleanly.
+        static constexpr u32 Version = 4;
+
+        // The pack version that introduced the MeshSource virtual-mesh blob. Read sites
+        // gate on this rather than on `Version` so the constant stays meaningful after
+        // the next bump.
+        static constexpr u32 VirtualMeshPackVersion = 4;
 
         // Oldest FileHeader::Version this build will still load (issue #454). A pack
         // built by a newer engine (Header.Version > Version) is rejected outright --

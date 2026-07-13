@@ -147,8 +147,18 @@ namespace OloEngine
         Ref<Mesh> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
         std::vector<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type, const aiScene* scene);
         Ref<Material> ProcessMaterial(const aiMaterial* mat, const aiScene* scene);
+        // Builds the virtualized-geometry cluster DAG (issue #629) for the
+        // combined source and serializes it into m_CookedVirtualMeshBlob, so
+        // both the .omesh cache write and any later CreateCombinedMeshSource
+        // result carry the cook. No-op for multi-submesh / rigged / tiny meshes.
+        void CookVirtualMesh(const MeshSource& combined);
 
         std::vector<Ref<Mesh>> m_Meshes;
+        // The already-combined MeshSource restored from the .omesh cache. On that path every
+        // m_Meshes[i] is a submesh *view* into this one source rather than a source of its own,
+        // so CreateCombinedMeshSource must return it instead of concatenating (see there).
+        Ref<MeshSource> m_CachedCombinedSource;
+        std::vector<u8> m_CookedVirtualMeshBlob;         // OVGM cook; attached by CreateCombinedMeshSource
         std::vector<Ref<Material>> m_Materials;          // Materials corresponding to each mesh
         std::unordered_map<u32, u32> m_MaterialIndexMap; // Maps Assimp material indices to m_Materials indices
         std::string m_Directory;

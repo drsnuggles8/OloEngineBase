@@ -1,0 +1,392 @@
+#version 460 core
+
+// VirtualClusterCull.comp — DAG-cut selection + frustum + cone backface cull
+// for the virtualized-geometry cluster pipeline (issue #629, slice 2).
+//
+// One dispatch per virtual-mesh instance (u_InstanceIndex), one thread per
+// cluster. Selection mirrors the CPU reference cut rule in
+// VirtualMesh::IsClusterSelectedProjected (parity pinned by
+// VirtualClusterCullParityTest): a cluster is drawn iff the projected error of
+// its member group is OVER the instance threshold AND it is original geometry
+// (RefinedGroup == ~0u) or the projected error of the group that produced it is
+// at or under the threshold. Group errors are monotone and group LOD spheres
+// nested (builder invariants), so the resulting cut is watertight.
+//
+// Survivors are compacted into per-instance segments of the shared draw-command
+// buffer via atomicAdd on this instance's DrawArgs.DrawCount, which the raster
+// side reads directly as the glMultiDrawElementsIndirectCount parameter — the
+// visible count never touches the CPU.
+//
+// Frustum planes are derived from u_ViewProjection with the same row-of-VP
+// technique as InstanceFrustumCull.comp / Frustum::Update() — keeping that
+// math in sync with the C++ side is a load-bearing invariant.
+
+layout(local_size_x = 64) in;
+
+// Mirrors OloEngine::VirtualClusterGpuRecord (VirtualMeshGpuData.h, 64 B std430).
+// Drift here produces silent culling corruption; pinned by static_asserts + parity test.
+struct VirtualCluster {
+    vec4 CullSphere;   // xyz mesh-local center, w radius
+    vec4 Cone;         // xyz mesh-local axis, w cutoff (>= 1 disables)
+    uint VertexBase;
+    uint IndexBase;
+    uint IndexCount;
+    uint GroupIndex;
+    uint RefinedGroup; // ~0u for LOD-0 clusters
+    uint _p0; uint _p1; uint _p2;
+};
+
+// Mirrors OloEngine::VirtualGroupGpuRecord (32 B std430).
+struct VirtualGroup {
+    vec4 LODSphere;    // xyz mesh-local center, w radius
+    float Error;       // absolute object-space error; FLT_MAX marks terminal groups
+    float _p0; float _p1; float _p2;
+};
+
+// Mirrors OloEngine::VirtualInstanceGpuRecord (224 B std430).
+struct VirtualInstance {
+    mat4 Transform;      // render-origin-relative
+    mat4 PrevTransform;
+    mat4 NormalMatrix;
+    uint ClusterBase;
+    uint ClusterCount;
+    uint GroupBase;
+    int  EntityID;
+    float MaxScale;
+    float ErrorThresholdPixels;
+    uint CommandBase;
+    uint Flags;          // bit0 = uniform scale (enables the cone test)
+};
+
+// DrawElementsIndirectCommand, 32 B stride (matches GPUFrustumCuller's IndirectCommandPOD).
+struct DrawCommand {
+    uint Count;
+    uint InstanceCount;
+    uint FirstIndex;
+    uint BaseVertex;
+    uint BaseInstance;
+    uint _p0; uint _p1; uint _p2;
+};
+
+// Mirrors OloEngine::VirtualDrawArgs (16 B stride — the raster side binds this
+// buffer as GL_PARAMETER_BUFFER with offset instanceIndex * 16).
+struct DrawArgs {
+    uint DrawCount;
+    uint TestedCount;
+    uint CutSelected;
+    uint SwCount;
+};
+
+// Mirrors OloEngine::VirtualVisibleCluster (16 B std430).
+struct VisibleCluster {
+    uint InstanceIndex;
+    uint ClusterIndex;
+    uint _p0; uint _p1;
+};
+
+layout(std430, binding = 33) readonly buffer VirtualClusters { VirtualCluster clusters[]; };
+layout(std430, binding = 34) readonly buffer VirtualGroups { VirtualGroup groups[]; };
+layout(std430, binding = 35) readonly buffer VirtualInstances { VirtualInstance instances[]; };
+layout(std430, binding = 36) writeonly buffer VirtualDrawCommands { DrawCommand commands[]; };
+layout(std430, binding = 37) buffer VirtualDrawArgsBuf { DrawArgs args[]; };
+layout(std430, binding = 38) writeonly buffer VirtualVisible { VisibleCluster visible[]; };
+
+// Software-raster work list (slice 3): header count + records, appended for
+// clusters whose projected coverage is under u_SwRasterThresholdPixels.
+layout(std430, binding = 40) buffer VirtualSwList {
+    uint Count;
+    uint _h0; uint _h1; uint _h2;
+    VisibleCluster Records[];
+} swList;
+
+// Streaming residency states (slice 5), one uint per group/page:
+//   bit0 = page resident (CPU-written), bit1 = requested (GPU), bit2 = touched (GPU LRU).
+layout(std430, binding = 43) buffer VirtualGroupStates { uint groupStates[]; };
+
+layout(std140, binding = 0) uniform CameraMatrices
+{
+    mat4 u_ViewProjection;
+    mat4 u_View;
+    mat4 u_Projection;
+    vec3 u_CameraPosition;
+    float _padding0;
+};
+
+uniform uint u_InstanceIndex;
+uniform float u_ViewportHeight;           // pixels
+uniform float u_SwRasterThresholdPixels;  // projected-radius routing threshold; 0 disables the SW path
+uniform int u_OrthoMode;                  // 1 = orthographic view (shadow cascades): constant error scale,
+                                          //     no cone/backface or SW routing (shadows need back faces)
+uniform float u_OrthoErrorScale;          // ortho mode: pixels per world-space error unit
+
+// Hi-Z occlusion (issue #629): reject clusters whose screen-space bounding
+// rectangle is entirely behind THIS frame's scene-depth pyramid (occluders
+// already drawn by ScenePass). Same-frame, so bounds project with the current
+// u_ViewProjection — no reprojection (unlike the instance phase-1 cull). Never
+// in ortho/shadow mode: shadow maps must rasterize every caster. Conservative,
+// exactly like InstanceOcclusionCull.comp — a false survivor only wastes a
+// draw, a false cull would punch a visible hole.
+layout(binding = 0) uniform sampler2D u_HZB; // max-reduction depth pyramid (device-Z, smaller = nearer)
+uniform int   u_OcclusionEnabled;    // 0 = skip the Hi-Z test entirely
+uniform vec2  u_HZBSize;             // HZB texture size in texels (power-of-2)
+uniform vec2  u_HZBUVFactor;         // viewport / HZB size — screenUV -> HZB UV
+uniform int   u_HZBMipCount;         // mip levels in the HZB pyramid
+uniform float u_OcclusionDepthBias;  // device-Z slack before a reject fires
+
+const uint kNoRefinedGroup = 0xFFFFFFFFu;
+
+// Near-plane distance recovered from the standard GL perspective projection:
+// n = P[3][2] / (P[2][2] - 1). Guarded so a degenerate projection cannot
+// produce a zero/negative denominator in the error projection.
+float NearPlane()
+{
+    return max(u_Projection[3][2] / (u_Projection[2][2] - 1.0), 1e-4);
+}
+
+// Approximate perspective-projected screen-space error in PIXELS. Mirrors
+// VirtualLODBounds::ProjectError (mesh space) after transforming the sphere and
+// error to world space: u_Projection[1][1] == cot(fovY/2); * 0.5 maps the NDC
+// height to [0,1]; * viewport height yields pixels.
+float ProjectErrorPixels(vec3 worldCenter, float worldRadius, float worldError)
+{
+    float dist = length(worldCenter - u_CameraPosition);
+    float denom = max(dist - worldRadius, NearPlane());
+    return worldError / denom * (u_Projection[1][1] * 0.5) * u_ViewportHeight;
+}
+
+float ProjectGroupErrorPixels(VirtualGroup grp, VirtualInstance inst)
+{
+    vec3 worldCenter = (inst.Transform * vec4(grp.LODSphere.xyz, 1.0)).xyz;
+    float worldRadius = grp.LODSphere.w * inst.MaxScale;
+    // FLT_MAX * scale may overflow to +inf — both compare > threshold, which is
+    // exactly the terminal-group semantic (never refined away).
+    float worldError = grp.Error * inst.MaxScale;
+    if (u_OrthoMode != 0)
+    {
+        // Orthographic projection: error size on screen is distance-independent
+        return worldError * u_OrthoErrorScale;
+    }
+    return ProjectErrorPixels(worldCenter, worldRadius, worldError);
+}
+
+// Same row-of-VP plane extraction as InstanceFrustumCull.comp / Frustum::Update().
+vec4 extractPlane(int col, float colSign)
+{
+    vec4 p = vec4(
+        u_ViewProjection[0][3] + colSign * u_ViewProjection[0][col],
+        u_ViewProjection[1][3] + colSign * u_ViewProjection[1][col],
+        u_ViewProjection[2][3] + colSign * u_ViewProjection[2][col],
+        u_ViewProjection[3][3] + colSign * u_ViewProjection[3][col]
+    );
+    float len = length(p.xyz);
+    return p / len;
+}
+
+// True when the world-space cull sphere is fully hidden by the current-frame
+// HZB (safe to cull). Mirrors InstanceOcclusionCull.comp::isOccluded, but with
+// the CURRENT view-projection (the pyramid is this frame's scene depth, not a
+// retained previous-frame one). Conservative: returns false — keep the cluster —
+// whenever the projection is unreliable.
+bool IsOccluded(vec3 worldCenter, float worldRadius)
+{
+    // Screen-space rectangle + nearest device-Z of the sphere's world AABB.
+    vec2 rectMin = vec2( 1e30);
+    vec2 rectMax = vec2(-1e30);
+    float nearestZ = 1e30;
+    for (int i = 0; i < 8; ++i)
+    {
+        vec3 corner = worldCenter + worldRadius * vec3(
+            (i & 1) != 0 ? 1.0 : -1.0,
+            (i & 2) != 0 ? 1.0 : -1.0,
+            (i & 4) != 0 ? 1.0 : -1.0);
+        vec4 clip = u_ViewProjection * vec4(corner, 1.0);
+        if (clip.w <= 0.0)
+            return false; // straddles / behind camera — cannot project safely
+        vec3 ndc = clip.xyz / clip.w;
+        rectMin = min(rectMin, ndc.xy * 0.5 + 0.5);
+        rectMax = max(rectMax, ndc.xy * 0.5 + 0.5);
+        nearestZ = min(nearestZ, ndc.z * 0.5 + 0.5);
+    }
+
+    // Only reject when the whole rectangle was on-screen; a partially off-screen
+    // box has no reliable HZB coverage, so keep it.
+    if (rectMin.x < 0.0 || rectMin.y < 0.0 || rectMax.x > 1.0 || rectMax.y > 1.0)
+        return false;
+    if (rectMax.x <= rectMin.x || rectMax.y <= rectMin.y)
+        return false;
+
+    // Map the screen rect into the HZB's valid sub-rect, then to mip-0 texels.
+    vec2 rectMinTexel = (rectMin * u_HZBUVFactor) * u_HZBSize;
+    vec2 rectMaxTexel = (rectMax * u_HZBUVFactor) * u_HZBSize;
+
+    // Smallest mip whose texels cover the footprint with at most a 2x2 fetch
+    // (UE NaniteHZBCull MipLevelForRect).
+    vec2 sizeTexels = rectMaxTexel - rectMinTexel;
+    float maxSide = max(sizeTexels.x, sizeTexels.y);
+    int mip = clamp(int(ceil(log2(max(maxSide, 1.0)))), 0, u_HZBMipCount - 1);
+
+    int mipW = max(int(u_HZBSize.x) >> mip, 1);
+    int mipH = max(int(u_HZBSize.y) >> mip, 1);
+    ivec2 lo = ivec2(floor(rectMinTexel)) >> mip;
+    ivec2 hi = ivec2(floor(rectMaxTexel)) >> mip;
+    hi = min(hi, lo + ivec2(1));
+    lo = clamp(lo, ivec2(0), ivec2(mipW - 1, mipH - 1));
+    hi = clamp(hi, ivec2(0), ivec2(mipW - 1, mipH - 1));
+
+    // Farthest occluder over the footprint = MAX of the covered texels. Point
+    // sampling is required (bilinear would average a max-reduction pyramid and
+    // under-estimate the occluder -> over-cull -> holes).
+    float occluderZ = 0.0;
+    for (int y = lo.y; y <= hi.y; ++y)
+        for (int x = lo.x; x <= hi.x; ++x)
+            occluderZ = max(occluderZ, texelFetch(u_HZB, ivec2(x, y), mip).r);
+
+    // Occluded when the cluster's nearest point is still behind every occluder.
+    return nearestZ > occluderZ + u_OcclusionDepthBias;
+}
+
+void main()
+{
+    uint localIndex = gl_GlobalInvocationID.x;
+    VirtualInstance inst = instances[u_InstanceIndex];
+    if (localIndex >= inst.ClusterCount)
+        return;
+
+    atomicAdd(args[u_InstanceIndex].TestedCount, 1);
+
+    uint clusterIndex = inst.ClusterBase + localIndex;
+    VirtualCluster cluster = clusters[clusterIndex];
+
+    // ── Residency-clamped, view-dependent DAG cut ──
+    // This cluster's own geometry lives in its member group's page; without it
+    // the coarser ancestor draws instead (its refinement check below sees our
+    // page missing), so request it and bail — never a hole, never a crack.
+    if ((groupStates[cluster.GroupIndex] & 1u) == 0u)
+    {
+        atomicOr(groupStates[cluster.GroupIndex], 2u);
+        return;
+    }
+
+    VirtualGroup memberGroup = groups[cluster.GroupIndex];
+    if (!(ProjectGroupErrorPixels(memberGroup, inst) > inst.ErrorThresholdPixels))
+        return; // the coarser replacement of this cluster is already accurate enough
+
+    if (cluster.RefinedGroup != kNoRefinedGroup)
+    {
+        VirtualGroup refinedGroup = groups[cluster.RefinedGroup];
+        if (!(ProjectGroupErrorPixels(refinedGroup, inst) <= inst.ErrorThresholdPixels))
+        {
+            // A finer level is wanted. Its clusters live in the refined
+            // group's page: if that page is resident they draw instead of us;
+            // if not, WE keep drawing (no hole) and request the finer page.
+            // All members of that page share the same resident bit, so the
+            // finer set appears atomically — the cut stays watertight.
+            if ((groupStates[cluster.RefinedGroup] & 1u) != 0u)
+                return;
+            atomicOr(groupStates[cluster.RefinedGroup], 2u);
+        }
+    }
+
+    // LRU touch: this page's geometry is in the drawn cut this frame
+    atomicOr(groupStates[cluster.GroupIndex], 4u);
+
+    atomicAdd(args[u_InstanceIndex].CutSelected, 1);
+
+    // ── Frustum cull (world-space cull sphere vs. the 6 VP planes) ──
+    vec3 worldCenter = (inst.Transform * vec4(cluster.CullSphere.xyz, 1.0)).xyz;
+    float worldRadius = cluster.CullSphere.w * inst.MaxScale;
+
+    vec4 planes[6];
+    planes[0] = extractPlane(0,  1.0); // Left
+    planes[1] = extractPlane(0, -1.0); // Right
+    planes[2] = extractPlane(1,  1.0); // Bottom
+    planes[3] = extractPlane(1, -1.0); // Top
+    planes[4] = extractPlane(2,  1.0); // Near
+    planes[5] = extractPlane(2, -1.0); // Far
+
+    for (int i = 0; i < 6; ++i)
+    {
+        if (dot(planes[i].xyz, worldCenter) + planes[i].w < -worldRadius)
+            return; // outside this plane
+    }
+
+    // ── Normal-cone backface rejection (uniform-scale instances only; never
+    // in ortho/shadow mode — shadow maps rasterize back faces) ──
+    // meshoptimizer sphere-based form: reject when
+    //   dot(center - camera, axis) >= cutoff * |center - camera| + radius.
+    if (u_OrthoMode == 0 && (inst.Flags & 1u) != 0u && cluster.Cone.w < 1.0)
+    {
+        vec3 worldAxis = normalize(mat3(inst.Transform) * cluster.Cone.xyz);
+        vec3 toCluster = worldCenter - u_CameraPosition;
+        if (dot(toCluster, worldAxis) >= cluster.Cone.w * length(toCluster) + worldRadius)
+            return; // entire cluster faces away
+    }
+
+    // ── Hi-Z occlusion cull (main/perspective view only — shadow cascades must
+    // rasterize every caster). Tests the cluster's cull sphere against this
+    // frame's scene-depth pyramid; conservative, so it never removes a visible
+    // cluster (no cracks). Clusters hidden behind already-drawn opaque geometry
+    // are dropped before both the hardware MDI and software-raster routing. ──
+    if (u_OcclusionEnabled != 0 && u_OrthoMode == 0 && u_HZBMipCount > 0 &&
+        IsOccluded(worldCenter, worldRadius))
+    {
+        return; // fully behind recorded scene depth
+    }
+
+    // ── Routing: small-coverage clusters go to the compute software
+    // rasterizer; large or near-plane-crossing clusters take the hardware
+    // MDI path (the SW raster does no clipping) ──
+    //
+    // bit1 = alpha-masked/blended material. Those NEVER software-rasterize: the compute
+    // rasterizer resolves depth with an atomic min and has no texture access, so it cannot
+    // run the cutout test — a fully transparent texel would still win the depth race, and
+    // the resolve pass (which does run the cutout) would then discard it, leaving whatever
+    // was behind it unshaded. Sponza's potted plants rendered as white speckle exactly this
+    // way. The hardware path has a real fragment shader and discards before writing depth.
+    // Same restriction UE5's Nanite has: masked materials are excluded from the fast raster.
+    bool alphaMasked = (inst.Flags & 2u) != 0u;
+    if (u_SwRasterThresholdPixels > 0.0 && u_OrthoMode == 0 && !alphaMasked)
+    {
+        float dist = length(worldCenter - u_CameraPosition);
+        float denom = max(dist - worldRadius, NearPlane());
+        float projRadiusPixels = worldRadius / denom * (u_Projection[1][1] * 0.5) * u_ViewportHeight;
+        // planes[4] is the near plane: sphere fully in front <=> signed
+        // distance exceeds the radius (with margin for w-precision).
+        float nearDistance = dot(planes[4].xyz, worldCenter) + planes[4].w;
+        bool nearSafe = nearDistance > worldRadius * 1.05;
+        if (projRadiusPixels < u_SwRasterThresholdPixels && nearSafe)
+        {
+            uint swSlot = atomicAdd(swList.Count, 1);
+            VisibleCluster swRecord;
+            swRecord.InstanceIndex = u_InstanceIndex;
+            swRecord.ClusterIndex = clusterIndex;
+            swRecord._p0 = 0u;
+            swRecord._p1 = 0u;
+            swList.Records[swSlot] = swRecord;
+            atomicAdd(args[u_InstanceIndex].SwCount, 1);
+            return;
+        }
+    }
+
+    // ── Survivor: compacted append into this instance's command segment ──
+    uint localSlot = atomicAdd(args[u_InstanceIndex].DrawCount, 1);
+    uint globalSlot = inst.CommandBase + localSlot;
+
+    DrawCommand command;
+    command.Count = cluster.IndexCount;
+    command.InstanceCount = 1u;
+    command.FirstIndex = cluster.IndexBase;
+    command.BaseVertex = cluster.VertexBase;
+    command.BaseInstance = globalSlot; // gl_BaseInstance keys the VisibleCluster record
+    command._p0 = 0u;
+    command._p1 = 0u;
+    command._p2 = 0u;
+    commands[globalSlot] = command;
+
+    VisibleCluster record;
+    record.InstanceIndex = u_InstanceIndex;
+    record.ClusterIndex = clusterIndex;
+    record._p0 = 0u;
+    record._p1 = 0u;
+    visible[globalSlot] = record;
+}

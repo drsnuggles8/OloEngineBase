@@ -1,0 +1,33 @@
+#version 460 core
+
+// VirtualDebugColorize.comp — turns the per-pixel overdraw count (R32UI) into a
+// heat colour in the RGBA8 debug target (issue #629). Dispatched by
+// VirtualGeometryPass only in the Overdraw debug mode, after both raster paths
+// have accumulated their per-fragment counts. Empty pixels stay black.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(rgba8, binding = 0) uniform writeonly image2D u_DebugColor;
+layout(r32ui, binding = 1) uniform readonly uimage2D u_DebugCount;
+
+uniform uint u_Width;
+uniform uint u_Height;
+uniform float u_OverdrawScale; // count that maps to the hot end of the ramp
+
+// blue (low) -> green (mid) -> red (high)
+vec3 Heat(float t)
+{
+    t = clamp(t, 0.0, 1.0);
+    return vec3(t, 1.0 - abs(t - 0.5) * 2.0, 1.0 - t);
+}
+
+void main()
+{
+    uvec2 px = gl_GlobalInvocationID.xy;
+    if (px.x >= u_Width || px.y >= u_Height)
+        return;
+
+    uint count = imageLoad(u_DebugCount, ivec2(px)).r;
+    vec3 c = (count == 0u) ? vec3(0.0) : Heat(float(count) / max(u_OverdrawScale, 1.0));
+    imageStore(u_DebugColor, ivec2(px), vec4(c, 1.0));
+}

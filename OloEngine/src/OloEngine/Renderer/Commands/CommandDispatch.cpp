@@ -124,6 +124,22 @@ namespace OloEngine
         }
     }
 
+    void CommandDispatch::InvalidateTextureSlot(u32 slot)
+    {
+        // For a pass that binds a texture unit with RAW GL (glBindTextureUnit) behind this
+        // cache's back. The cache would otherwise still claim the slot holds whatever it last
+        // put there, and BindTrackedTextureUnit would SKIP the real bind if the next texture
+        // happens to have that same GL ID — leaving the raw-bound texture live in the slot.
+        //
+        // That is exactly what VirtualGeometryPass hit: it binds the Hi-Z pyramid to unit 0
+        // for the cull compute, and unit 0 is also u_AlbedoMap. Any material whose albedo ID
+        // matched the stale cache entry silently sampled the HZB depth texture as its albedo.
+        if (slot < s_Data.BoundTextureIDs.size())
+        {
+            s_Data.BoundTextureIDs[slot] = 0;
+        }
+    }
+
     void CommandDispatch::InvalidateTextureBinding(u32 textureID)
     {
         if (textureID == 0)
@@ -787,6 +803,11 @@ namespace OloEngine
         {
             s_Data.ForwardPlus->UploadDisabledUBO();
         }
+    }
+
+    void CommandDispatch::UploadMaterialForDirectDraw(const PODMaterialData& mat, u16 materialDataIndex)
+    {
+        UploadMaterialState(mat, materialDataIndex);
     }
 
     void CommandDispatch::ResetState()

@@ -40,6 +40,8 @@
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionState.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionCuller.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryShadow.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
@@ -471,6 +473,10 @@ namespace OloEngine
         // Release the persistent Hi-Z occlusion pyramid (#431).
         s_Data.OcclusionHZB.Shutdown();
         s_Data.OcclusionHZBValid = false;
+
+        // Release the virtualized-geometry GPU pools (#629) while GL is alive.
+        VirtualMeshRegistry::Get().Shutdown();
+        VirtualGeometryShadow::Shutdown();
 
         // Shutdown wind system
         WindSystem::Shutdown();
