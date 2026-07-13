@@ -25,7 +25,7 @@ message(STATUS "Downloading third party libraries using CMake's FetchContent and
 FetchContent_Declare(
 	assimp
 	GIT_REPOSITORY	https://github.com/assimp/assimp.git
-	GIT_TAG			3edb902014ae609bc7e2106c974e7b4c42b2e573  # master @ 2026-06-05
+	GIT_TAG			f1de01d68eb224cf9f97ac3a3b1cad9aa92ec7ac  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
@@ -75,7 +75,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	googletest
 	GIT_REPOSITORY https://github.com/google/googletest.git
-	GIT_TAG 973323ed64a05b128418e7eab67016db5ba049df  # main @ 2026-06-05
+	GIT_TAG f132c893119698e10daef8525d0ad7a3f05176f2  # main @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 # Pin Jolt to a fixed commit (not a floating branch). A floating `GIT_TAG master`
@@ -141,7 +141,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	yaml-cpp
 	GIT_REPOSITORY	https://github.com/jbeder/yaml-cpp.git
-	GIT_TAG			ee52744a3196c32f29536b4671c703146cac9cb6  # master @ 2026-06-05
+	GIT_TAG			881f6108e5c8d290d33acbba2b01a803b1142df5  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
@@ -296,7 +296,7 @@ set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
-	GIT_TAG 4be08b1ecf7709f15e4274fb2ddac37e121d7d9a  # docking @ 2026-06-05
+	GIT_TAG 6029ee3789a2b7898f6423ec0c88cc4e5425f5a9  # docking @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if(imgui_ADDED)
@@ -319,7 +319,7 @@ endif()
 
 CPMAddPackage(NAME imguizmo
 	GITHUB_REPOSITORY CedricGuillemet/ImGuizmo
-	GIT_TAG 87fb88b13a4f6bb04cd6ecd4e9d1625929935ff1  # master @ 2026-06-05
+	GIT_TAG fd138a7ce089cfcbfee16da8e8692f37a0e9481e  # master @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if (imguizmo_ADDED)
@@ -363,7 +363,7 @@ endif()
 # Pinned to a fixed tag SHA for reproducible builds (#294 convention).
 CPMAddPackage(NAME cpp_httplib
   GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-  GIT_TAG 2132205e1a69c9fce8096f085b1b8d72efc759fa  # v0.49.0
+  GIT_TAG 62d899feac3cf9215a55f2b43da250fdd98d2156  # v0.50.1
   GIT_SHALLOW FALSE
   DOWNLOAD_ONLY YES)
 if(cpp_httplib_ADDED)
