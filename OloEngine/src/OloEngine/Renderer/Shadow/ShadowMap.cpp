@@ -112,6 +112,10 @@ namespace OloEngine
         // Reset per-frame state
         m_UBOData.DirectionalShadowEnabled = 0;
         m_UBOData.AtlasEntryCount = 0;
+        // The diagnostics candidate list describes ONE frame's allocation
+        // (issue #607); a frame with no shadow candidates must report an empty
+        // layout, not last frame's winners.
+        m_AtlasLayout.clear();
     }
 
     void ShadowMap::ComputeCSMCascades(

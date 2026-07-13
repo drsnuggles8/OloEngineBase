@@ -198,8 +198,23 @@ namespace OloEngine::MCP
                 }
 
                 // 2. Wait until the new pose has actually been rendered.
+                //
+                // Without a pose there is normally nothing to wait for — but the
+                // viewport framebuffer still holds whatever was LAST drawn, so a
+                // capture taken immediately after a scene open / setting change can
+                // return the previous scene's pixels with no error and no clue
+                // (issue #607; the same staleness hazard olo_render_capture_target
+                // grew 'forceFrame' for). Opting in renders + settles fresh frames
+                // first.
                 if (posed)
                     waitTimedOut = !AwaitRenderedFrames(server, appliedFrame, settleFrames);
+                else if (args.value("forceFrame", false) && server.Context().GetFrameIndex)
+                {
+                    const u64 baseFrame = server.MarshalRead([&server]() -> Json
+                                                             { return Json{ { "frame", server.Context().GetFrameIndex() } }; })
+                                              .value("frame", static_cast<u64>(0));
+                    waitTimedOut = !AwaitRenderedFrames(server, baseFrame, settleFrames);
+                }
 
                 // 3. Capture — and restore the user's camera in the same main-thread
                 // job, so the restore happens exactly once whatever the capture did.
@@ -280,6 +295,7 @@ namespace OloEngine::MCP
                                    .Prop("camera", Schema::Object().Desc("Capture from this pose, then restore the prior camera. Same shape as olo_camera_set_pose: position [x,y,z] plus target [x,y,z] or yaw/pitch (degrees); optional fov."))
                                    .Prop("orbit", Schema::Object().Desc("Capture from this orbit pose, then restore. Same shape as olo_camera_orbit: target [x,y,z], yaw/pitch (degrees), distance; optional fov."))
                                    .Prop("settleFrames", Schema::Int().Min(1).Max(30).Desc("Frames to render at the new pose before capturing (default 2). Raise for temporal effects (TAA, fog history) to settle."))
+                                   .Prop("forceFrame", Schema::Bool().Desc("Without a 'camera'/'orbit' pose, render and settle fresh frames before capturing (default false). Use right after a scene open / setting change so the image cannot be a stale frame."))
                                    .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_Screenshot;

@@ -117,11 +117,37 @@ namespace OloEngine::MCP
 
             if (!s_StartError.empty())
                 ImGui::TextColored(ImVec4(0.90f, 0.30f, 0.30f, 1.0f), "%s", s_StartError.c_str());
-            // Script-load failures don't block the server, but a silently-dropped
-            // tool is confusing — surface them so the author can fix the .lua file.
-            if (!s_ScriptWarning.empty())
-                ImGui::TextColored(ImVec4(0.90f, 0.65f, 0.25f, 1.0f), "%s", s_ScriptWarning.c_str());
         }
+
+        // Script tools (issue #357 / ADR 0005; live reload from issue #607). The
+        // rescan is now safe while the server is RUNNING — the tool registry is
+        // swapped copy-on-write, and every connected agent is sent a
+        // notifications/tools/list_changed — so the button is offered in BOTH states
+        // instead of only before Start. Equivalent to the olo_script_tools_reload
+        // tool an agent can call itself.
+        ImGui::Separator();
+        if (ImGui::Button("Reload script tools"))
+        {
+            s_ScriptWarning.clear();
+            if (const auto scriptDir = DefaultScriptToolsDirectory(); scriptDir.empty())
+            {
+                s_ScriptWarning = "Script tools: no project is open.";
+            }
+            else
+            {
+                const McpScriptToolsReport report = LoadScriptTools(server, scriptDir);
+                s_ScriptWarning = std::format("Script tools: {} registered from {} file(s), {} failure(s).",
+                                              report.ToolsRegistered, report.FilesLoaded, report.Failures);
+                for (const std::string& message : report.Messages)
+                    s_ScriptWarning += "\n  - " + message;
+            }
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(rescans <project assets>/McpTools/*.lua — no restart needed)");
+        // Script-load failures don't block the server, but a silently-dropped tool is
+        // confusing — surface them so the author can fix the .lua file.
+        if (!s_ScriptWarning.empty())
+            ImGui::TextColored(ImVec4(0.90f, 0.65f, 0.25f, 1.0f), "%s", s_ScriptWarning.c_str());
 
         ImGui::Separator();
         if (bool redact = server.RedactPaths(); ImGui::Checkbox("Redact file paths in output", &redact))
@@ -174,7 +200,7 @@ namespace OloEngine::MCP
 
         ImGui::Text("Exposed (%s): %d tools, %d resources, %d prompts",
                     server.AllowWrites() ? "writes ON" : "read-only",
-                    static_cast<int>(server.Tools().size()),
+                    static_cast<int>(server.ToolCount()),
                     static_cast<int>(server.Resources().size()),
                     static_cast<int>(server.Prompts().size()));
 

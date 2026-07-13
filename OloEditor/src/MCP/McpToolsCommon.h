@@ -353,4 +353,5 @@ namespace OloEngine::MCP
     void RegisterScriptingTools(McpServer& server);
     void RegisterCameraTools(McpServer& server);
     void RegisterPhysicsTools(McpServer& server);
+    void RegisterInputTools(McpServer& server);
 } // namespace OloEngine::MCP

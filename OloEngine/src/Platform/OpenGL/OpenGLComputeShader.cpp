@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
+#include "OloEngine/Renderer/ShaderRegistry.h"
 
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -25,6 +26,11 @@ namespace OloEngine
         lastSlash = lastSlash == std::string::npos ? 0 : (lastSlash + 1);
         const auto count = lastDot == std::string::npos ? (filepath.size() - lastSlash) : (lastDot - lastSlash);
         m_Name = filepath.substr(lastSlash, count);
+
+        // Reloadable by name like every other file-backed shader (issue #607) —
+        // registered before the compile so a compute shader that fails to build
+        // at boot can still be fixed on disk and reloaded without a restart.
+        ShaderRegistry::Get().RegisterComputeShader(m_Name, this);
 
         const std::string rawSource = FileSystem::ReadFileText(filepath);
         if (rawSource.empty())
@@ -64,6 +70,10 @@ namespace OloEngine
     OpenGLComputeShader::~OpenGLComputeShader()
     {
         OLO_PROFILE_FUNCTION();
+
+        // Drop the name->shader entry before this address can be recycled (see
+        // the matching comment in ~OpenGLShader).
+        ShaderRegistry::Get().UnregisterComputeShader(this);
 
         if (m_IsValid)
         {

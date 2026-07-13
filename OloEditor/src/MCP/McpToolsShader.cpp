@@ -2,10 +2,12 @@
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpShaderReload.h"
+#include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/ShaderRegistry.h"
 
 #include <algorithm>
 #include <limits>
@@ -131,32 +133,71 @@ namespace OloEngine::MCP
 
         // ---- olo_shader_list (main-marshaled; GetAllShaders is unguarded) ------
         // Inventory of every registered shader so the agent can discover names/ids
-        // to feed olo_shader_get.
+        // to feed olo_shader_get / olo_shader_reload. Each entry carries a
+        // `reloadable` flag (issue #607) so the list and olo_shader_reload can no
+        // longer disagree: a shader is reloadable iff it is backed by a file on
+        // disk, which the engine's ShaderRegistry knows for library-owned and
+        // pass-owned shaders alike.
         ToolResult Handle_ShaderList(McpServer& server, const Json& /*args*/)
         {
             Json j = server.MarshalRead([]() -> Json
                                         {
                 const auto& shaders = ShaderDebugger::GetInstance().GetAllShaders();
+                const auto& registry = ShaderRegistry::Get();
                 Json arr = Json::array();
                 for (const auto& [id, info] : shaders)
                 {
                     arr.push_back(Json{ { "id", id },
                                         { "name", info.m_Name },
                                         { "hasErrors", info.m_HasErrors },
+                                        { "reloadable", registry.Contains(info.m_Name) },
                                         { "instructionCount", info.m_LastCompilation.m_InstructionCount } });
                 }
                 return Json{ { "count", static_cast<int>(arr.size()) }, { "shaders", std::move(arr) } }; });
             return ToolResult::Text(j.dump(2));
         }
 
+        // Best-effort compile/link log via the same read path as
+        // olo_shader_errors (ShaderDebugger, populated in debug builds). Match by
+        // name, preferring the entry for the current program id (the id changes
+        // across a reload; a failed link resets it to 0).
+        std::string ReadShaderLog(const std::string& name, u32 rendererId)
+        {
+            const auto& shaders = ShaderDebugger::GetInstance().GetAllShaders();
+            const ShaderDebugger::ShaderInfo* best = nullptr;
+            for (const auto& [id, info] : shaders)
+            {
+                if (info.m_Name != name)
+                    continue;
+                if (id == rendererId)
+                {
+                    best = &info;
+                    break;
+                }
+                if (best == nullptr || info.m_HasErrors)
+                    best = &info;
+            }
+            return best != nullptr ? best->m_LastCompilation.m_ErrorMessage : std::string{};
+        }
+
         // ---- olo_shader_reload (main-marshaled; recompiles a shader from disk) --
         // The shader inner loop: edit a .glsl -> reload -> read the compile/link
-        // log -> screenshot, without restarting the editor. Mirrors the editor's
-        // own "Recompile" action (ShaderEditorPanel) which reloads the shader in
-        // BOTH the Renderer3D and Renderer2D libraries. Shader::Reload() re-reads
-        // the file and recompiles+links synchronously (force-finishing any async
-        // link), so the post-reload status is authoritative. GL work is
-        // main-thread-only, so it runs inside MarshalRead.
+        // log -> screenshot, without restarting the editor.
+        //
+        // Name resolution is uniform across EVERY file-backed shader (issue #607):
+        //   1. the Renderer3D / Renderer2D ShaderLibrary (mirrors the editor's own
+        //      "Recompile" action in ShaderEditorPanel, which reloads the shader in
+        //      both libraries);
+        //   2. otherwise the engine's process-wide ShaderRegistry, which every
+        //      file-backed shader — including pass-owned ones like
+        //      VirtualMeshGBuffer and every .comp — registers itself in from its
+        //      constructor. Those used to be un-reloadable even though
+        //      olo_shader_list reported them, which forced an editor restart per
+        //      shader edit.
+        //
+        // Shader::Reload() re-reads the file and recompiles+links synchronously
+        // (force-finishing any async link), so the post-reload status is
+        // authoritative. GL work is main-thread-only, so it runs inside MarshalRead.
         ToolResult Handle_ShaderReload(McpServer& server, const Json& args)
         {
             std::string name;
@@ -170,15 +211,21 @@ namespace OloEngine::MCP
                 ShaderReload::Result r;
                 r.Name = name;
 
-                // Reload in every library that holds the name (matches the editor's
-                // Recompile button). The reported status aggregates ALL reloaded
-                // copies: r.Ok is true only if every copy is Ready, and the
-                // representative used for the status / program-id / log is the
-                // first copy that FAILED (so a failure isn't masked by a sibling
-                // that linked) — otherwise the first copy.
+                // The reported status aggregates ALL reloaded copies: r.Ok is true
+                // only if every copy is Ready, and the representative used for the
+                // status / program-id / log is the first copy that FAILED (so a
+                // failure isn't masked by a sibling that linked) — otherwise the
+                // first copy.
                 Ref<Shader> representative;
                 bool allReady = true;
-                const auto reloadIn = [&name, &r, &allReady, &representative](ShaderLibrary& lib, std::string_view label)
+                const auto adopt = [&allReady, &representative](const Ref<Shader>& shader, bool ready)
+                {
+                    allReady = allReady && ready;
+                    if (!representative || (!ready && representative->IsReady()))
+                        representative = shader;
+                };
+
+                const auto reloadIn = [&name, &r, &adopt](ShaderLibrary& lib, std::string_view label)
                 {
                     if (!lib.Exists(name))
                         return;
@@ -188,29 +235,64 @@ namespace OloEngine::MCP
                     shader->Reload();
                     r.Found = true;
                     r.Libraries.emplace_back(label);
-                    const bool ready = shader->IsReady();
-                    allReady = allReady && ready;
-                    if (!representative || (!ready && representative->IsReady()))
-                        representative = shader;
+                    adopt(shader, shader->IsReady());
                 };
                 reloadIn(Renderer3D::GetShaderLibrary(), "Renderer3D");
                 reloadIn(Renderer2D::GetShaderLibrary(), "Renderer2D");
 
+                // Pass-owned graphics shaders (VirtualMeshGBuffer, the fluid splat
+                // shaders, ...). Only consulted when no library held the name — a
+                // library shader is registered here too, and reloading it twice
+                // would needlessly churn its GL program.
+                if (!r.Found)
+                {
+                    auto passOwned = ShaderRegistry::Get().FindShaders(name);
+                    for (Ref<Shader>& shader : passOwned)
+                    {
+                        shader->Reload();
+                        r.Found = true;
+                        r.Libraries.emplace_back(ShaderReload::kPassOwnedLabel);
+                        adopt(shader, shader->IsReady());
+                    }
+                }
+
+                // Pass-owned COMPUTE shaders (GTAO/SSAO/SSR/VirtualCluster*/...).
+                // ComputeShader has no ShaderCompilationStatus — IsValid() is the
+                // whole contract — so map it onto Ready/Failed and flag the kind.
+                if (!r.Found)
+                {
+                    auto computeShaders = ShaderRegistry::Get().FindComputeShaders(name);
+                    if (!computeShaders.empty())
+                    {
+                        r.Kind = ShaderReload::ShaderKind::Compute;
+                        Ref<ComputeShader> computeRep;
+                        for (Ref<ComputeShader>& shader : computeShaders)
+                        {
+                            shader->Reload();
+                            r.Found = true;
+                            r.Libraries.emplace_back(ShaderReload::kPassOwnedLabel);
+                            const bool valid = shader->IsValid();
+                            allReady = allReady && valid;
+                            if (!computeRep || (!valid && computeRep->IsValid()))
+                                computeRep = shader;
+                        }
+                        r.Status = computeRep->IsValid() ? ShaderCompilationStatus::Ready
+                                                         : ShaderCompilationStatus::Failed;
+                        r.Ok = allReady;
+                        r.RendererId = computeRep->GetRendererID();
+                        r.Log = ReadShaderLog(name, r.RendererId);
+                        return ShaderReload::ToJson(r);
+                    }
+                }
+
                 if (!r.Found || !representative)
                 {
-                    // olo_shader_list reports every GL program the shader debugger
-                    // knows about (post-process / compute shaders such as GTAO,
-                    // SSAO, SSR included), but only shaders owned by the
-                    // Renderer3D / Renderer2D shader libraries can be hot-reloaded
-                    // by name (the rest are owned by their render pass and the
-                    // engine keeps no name->Shader registry for them). List the
-                    // reloadable names so the agent can pick a valid one instead of
-                    // guessing from olo_shader_list.
-                    std::vector<std::string> reloadable = Renderer3D::GetShaderLibrary().GetAllShaderNames();
-                    const std::vector<std::string> names2D = Renderer2D::GetShaderLibrary().GetAllShaderNames();
-                    reloadable.insert(reloadable.end(), names2D.begin(), names2D.end());
-                    std::sort(reloadable.begin(), reloadable.end());
-                    reloadable.erase(std::unique(reloadable.begin(), reloadable.end()), reloadable.end());
+                    // Every file-backed shader registers itself, so this list is
+                    // the complete set of reloadable names — a shader that appears
+                    // in olo_shader_list but not here is a source-string shader
+                    // (boot / fallback / shader-graph), which has no file on disk
+                    // to reload from.
+                    const std::vector<std::string> reloadable = ShaderRegistry::Get().GetAllNames();
                     std::string list;
                     for (const auto& reloadableName : reloadable)
                     {
@@ -219,41 +301,18 @@ namespace OloEngine::MCP
                         list += reloadableName;
                     }
                     return Json{ { "__error",
-                                   "Shader '" + name + "' is not in a reloadable shader library. Only shaders "
-                                   "managed by the Renderer3D / Renderer2D libraries can be hot-reloaded by name "
-                                   "(post-process / compute shaders like GTAO, SSAO, SSR are owned by their render "
-                                   "pass and are not reloadable). Reloadable shaders: " +
+                                   "Shader '" + name + "' is not reloadable: no shader by that name is backed by a "
+                                   "file on disk (source-string shaders such as the boot / fallback / shader-graph "
+                                   "programs cannot be reloaded). Reloadable shaders: " +
                                        list } };
                 }
 
                 // Authoritative, build-independent status (does not rely on the
-                // debug-only ShaderDebugger). r.Ok reflects EVERY reloaded copy;
-                // the status / program-id / log come from the representative (a
-                // failed copy if any failed, else the first copy).
+                // debug-only ShaderDebugger).
                 r.Status = representative->GetCompilationStatus();
                 r.Ok = allReady;
                 r.RendererId = representative->GetRendererID();
-
-                // Best-effort compile/link log via the same read path as
-                // olo_shader_errors (ShaderDebugger, populated in debug builds).
-                // Match by name, preferring the entry for the current program id
-                // (the id changes across a reload; a failed link resets it to 0).
-                const auto& shaders = ShaderDebugger::GetInstance().GetAllShaders();
-                const ShaderDebugger::ShaderInfo* best = nullptr;
-                for (const auto& [id, info] : shaders)
-                {
-                    if (info.m_Name != name)
-                        continue;
-                    if (id == r.RendererId)
-                    {
-                        best = &info;
-                        break;
-                    }
-                    if (best == nullptr || info.m_HasErrors)
-                        best = &info;
-                }
-                if (best != nullptr)
-                    r.Log = best->m_LastCompilation.m_ErrorMessage;
+                r.Log = ReadShaderLog(name, r.RendererId);
 
                 return ShaderReload::ToJson(r); });
 
@@ -307,8 +366,10 @@ namespace OloEngine::MCP
             tool.Title = "List shaders";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
-                "Inventory of all registered shaders (id, name, hasErrors, instruction count). Use it to "
-                "discover a shader name/id to pass to olo_shader_get.";
+                "Inventory of all registered shaders (id, name, hasErrors, reloadable, instruction count). Use "
+                "it to discover a shader name/id to pass to olo_shader_get / olo_shader_reload. 'reloadable' is "
+                "true when the shader is backed by a file on disk (library- AND pass-owned shaders, including "
+                "compute); it is false only for source-string shaders (boot / fallback / shader-graph).";
             tool.InputSchema = Schema::EmptyObject();
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderList;
@@ -324,19 +385,23 @@ namespace OloEngine::MCP
             // id each call), so not read-only and not idempotent; destroys nothing.
             tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
             tool.Description =
-                "Reload and recompile one shader from disk by name — the shader inner loop: edit a .glsl, "
-                "reload, read the compile/link log, screenshot, all without restarting the editor. Re-reads "
-                "the file and recompiles+links synchronously in BOTH the Renderer3D and Renderer2D libraries "
-                "(whichever hold the name). Returns the post-reload status (ready/failed/compiling/pending), "
-                "the GL program id, which libraries held it, and the compile/link error log (empty on a clean "
-                "reload; populated from the shader debugger in debug builds). Only shaders owned by the "
-                "Renderer3D / Renderer2D libraries are reloadable (the main scene shaders); post-process / "
-                "compute shaders like GTAO/SSAO/SSR are not, and asking for one returns an error that lists "
-                "the reloadable names. Note: in a Debug build, recompiling a shader that contains a GLSL syntax "
-                "error trips an engine debug assert on the main thread (same as the editor's own Recompile "
-                "button) — the call then times out and can crash the editor, so reserve this for edits you "
-                "expect to compile; to inspect a shader's existing errors without recompiling, use "
-                "olo_shader_errors / olo_shader_get instead.";
+                "Reload and recompile one shader from disk by name — the shader inner loop: edit a .glsl or "
+                ".comp, reload, read the compile/link log, screenshot, all without restarting the editor. "
+                "Re-reads the file and recompiles+links synchronously. EVERY file-backed shader is reloadable: "
+                "the Renderer3D / Renderer2D library shaders (reloaded in both libraries when both hold the "
+                "name, matching the editor's Recompile button) AND pass-owned shaders such as "
+                "VirtualMeshGBuffer / VirtualVisibilityResolve and the compute shaders (GTAO, SSAO, SSR, "
+                "VirtualCluster*, FluidSmooth, ...), which resolve through the engine's ShaderRegistry. Use the "
+                "'reloadable' flag from olo_shader_list; only source-string shaders (boot / fallback / "
+                "shader-graph) have no file to reload from, and asking for one returns an error listing the "
+                "reloadable names. Returns the post-reload status (ready/failed/compiling/pending), whether it "
+                "was a graphics or compute program ('kind'), the GL program id, who owned it ('libraries': "
+                "Renderer3D / Renderer2D / PassOwned), and the compile/link error log (empty on a clean reload; "
+                "populated from the shader debugger in debug builds). Note: in a Debug build, recompiling a "
+                "shader that contains a GLSL syntax error trips an engine debug assert on the main thread (same "
+                "as the editor's own Recompile button) — the call then times out and can crash the editor, so "
+                "reserve this for edits you expect to compile; to inspect a shader's existing errors without "
+                "recompiling, use olo_shader_errors / olo_shader_get instead.";
             tool.InputSchema = Schema::Object()
                                    .Prop("name", Schema::String().Desc("Shader name to reload (as shown by olo_shader_list)."))
                                    .Required({ "name" })

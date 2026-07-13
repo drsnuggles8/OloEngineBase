@@ -52,6 +52,31 @@ namespace OloEngine
         if (!m_Enabled)
             return;
 
+        // Publish the pass-owned raw GL identity LUT so it resolves through
+        // RenderGraph::GetRegisteredResources() — without this both
+        // olo_render_list_targets and olo_render_capture_target are blind to it
+        // (issue #607). Import-only: the pass binds it directly by raw id, so
+        // there is deliberately no Read/Write declaration to change the graph's
+        // ordering or culling.
+        //
+        // Reached only past the !m_Enabled early-out, so the import appears
+        // exactly on the frames the pass runs. That gate is fed by
+        // data.PostProcess.ColorGradingEnabled, which is already hashed into the
+        // pipeline fingerprint (RenderPipeline.cpp HashBool(ColorGradingEnabled)),
+        // so the topology-keyed caches invalidate correctly when it flips
+        // (docs/agent-rules/render-pipeline-caches.md).
+        if (m_IdentityLUTTexture != 0)
+        {
+            // 16x16x16 identity LUT laid out as a 256x16 strip (see CreateIdentityLUT).
+            RGResourceDesc lutDesc =
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, kIdentityLUTTargetName);
+            lutDesc.Format = RGResourceFormat::RGBA8UNorm;
+            lutDesc.Width = 256;
+            lutDesc.Height = 16;
+            [[maybe_unused]] const RGTextureHandle lutHandle =
+                builder.ImportTexture(kIdentityLUTTargetName, m_IdentityLUTTexture, lutDesc);
+        }
+
         if (blackboard.Post.ColorGradingColor.IsValid())
         {
             constexpr std::string_view colorGradingVersionTag = "ColorGradingPass";

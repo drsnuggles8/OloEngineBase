@@ -142,16 +142,38 @@ namespace OloEngine
         declareExport(board.GBuffer.VelocityMS, m_SelectedVelocityMS);
         declareExport(board.GBuffer.SceneDepthMS, m_SelectedSceneDepthMS);
 
-        // Publish the cluster/LOD/overdraw debug capture target (issue #629) when
-        // a debug mode is active and its texture already exists (created lazily in
-        // Execute, so it becomes capturable from the second debug frame on).
-        // Named so olo_render_capture_target / olo_render_list_targets resolve it.
+        // Publish the cluster/LOD/overdraw debug capture target (issue #629) when a
+        // debug mode is active. Named so olo_render_capture_target /
+        // olo_render_list_targets resolve it.
+        //
+        // The targets are CREATED here, not only in Execute (issue #607). Setup runs
+        // on a graph rebuild, and the rebuild is what a debug-mode change triggers
+        // (Renderer3D::RenderPipeline::ComputeBlackboardFingerprint hashes the mode +
+        // the debug texture id — see the comment there). If the import waited for
+        // Execute to lazily create the texture, the FIRST rebuild would see id 0 and
+        // import nothing, so the resource only appeared if some LATER, unrelated
+        // change happened to rebuild the graph again. Over MCP that read as
+        // "Unknown render-graph resource 'VirtualGeometryDebug'" forever: the mode
+        // was only settable from the Statistics panel, whose next ImGui interaction
+        // happened to dirty the graph. Creating the texture in Setup makes the
+        // target importable on the very rebuild the mode change caused.
+        // (Requires a live GL context — Setup runs inside Renderer3D::EndScene on
+        // the render thread, same as Execute.)
         auto& registry = VirtualMeshRegistry::Get();
-        if (registry.GetDebugMode() != VirtualDebugMode::Off && registry.GetDebugColorTextureID() != 0)
+        if (registry.GetDebugMode() != VirtualDebugMode::Off)
         {
-            [[maybe_unused]] const RGTextureHandle debugTarget = builder.ImportTexture(
-                "VirtualGeometryDebug", registry.GetDebugColorTextureID(),
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "VirtualGeometryDebug"));
+            if (m_ScenePass)
+            {
+                if (const Ref<GBuffer>& gbuffer = m_ScenePass->GetGBuffer(); gbuffer && gbuffer->GetFramebuffer())
+                    registry.EnsureDebugTargets(gbuffer->GetWidth(), gbuffer->GetHeight());
+            }
+
+            if (registry.GetDebugColorTextureID() != 0)
+            {
+                [[maybe_unused]] const RGTextureHandle debugTarget = builder.ImportTexture(
+                    "VirtualGeometryDebug", registry.GetDebugColorTextureID(),
+                    RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "VirtualGeometryDebug"));
+            }
         }
     }
 

@@ -242,6 +242,13 @@ namespace OloEngine::MCP::RenderOverrides
 
     // The raw intermediate buffer the viewport can be switched to. Exactly one is
     // shown at a time (or None = the normal composite).
+    // The vg* modes are the virtualized-geometry (Nanite-style) visualisations
+    // (issue #607 / #629). They do NOT live on PostProcessSettings — they are the
+    // VirtualMeshRegistry's debug mode, the same knob olo_virtual_geometry_set
+    // { debugMode } drives. They are listed here because an agent hunting for a
+    // debug view looks at olo_render_set_debug_view FIRST; the handler routes
+    // them to the one registry write path so the two tools can never disagree
+    // about what is currently on.
     enum class DebugView
     {
         None,
@@ -250,6 +257,9 @@ namespace OloEngine::MCP::RenderOverrides
         SSR,
         SSGI,
         Overdraw,
+        VGClusterId,
+        VGLod,
+        VGOverdraw,
     };
 
     struct DebugViewInfo
@@ -259,14 +269,27 @@ namespace OloEngine::MCP::RenderOverrides
         std::string_view Description;
     };
 
-    inline constexpr std::array<DebugViewInfo, 6> kDebugViews = { {
+    inline constexpr std::array<DebugViewInfo, 9> kDebugViews = { {
         { "none", DebugView::None, "Normal composite (clear all debug views)" },
         { "ssao", DebugView::SSAO, "Raw SSAO occlusion buffer" },
         { "gtao", DebugView::GTAO, "Raw GTAO occlusion buffer" },
         { "ssr", DebugView::SSR, "Raw screen-space reflection buffer" },
         { "ssgi", DebugView::SSGI, "Raw screen-space GI (indirect-diffuse) buffer" },
         { "overdraw", DebugView::Overdraw, "Per-pixel overdraw heatmap (fragment shade count)" },
+        { "vgclusterid", DebugView::VGClusterId,
+          "Virtual geometry: per-pixel cluster id (hashed colour); capture 'VirtualGeometryDebug'" },
+        { "vglod", DebugView::VGLod,
+          "Virtual geometry: per-pixel DAG LOD level ramp; capture 'VirtualGeometryDebug'" },
+        { "vgoverdraw", DebugView::VGOverdraw,
+          "Virtual geometry: per-pixel cluster fragment count heat ramp; capture 'VirtualGeometryDebug'" },
     } };
+
+    // True for the three virtualized-geometry modes, whose state lives on the
+    // VirtualMeshRegistry rather than PostProcessSettings.
+    [[nodiscard]] inline constexpr bool IsVirtualGeometryView(DebugView view)
+    {
+        return view == DebugView::VGClusterId || view == DebugView::VGLod || view == DebugView::VGOverdraw;
+    }
 
     // Resolve a debug-view mode token (case / separator insensitive). "off" is
     // accepted as an alias for "none". Returns false for an unknown token.
@@ -332,6 +355,14 @@ namespace OloEngine::MCP::RenderOverrides
         bool OverdrawDebugView = false;
         bool PassEnabled = false; // backing pass enabled so the view renders (true for "none")
         std::string Note;         // actionable hint when PassEnabled is false; empty otherwise
+
+        // The VirtualMeshRegistry's live debug mode ("off" | "clusterid" | "lod" |
+        // "overdraw") — the SAME state olo_virtual_geometry_set reports, echoed
+        // here so the two tools visibly agree.
+        std::string VirtualGeometryDebugMode = "off";
+        // Render-graph target to capture for the active view, when the view is
+        // written to a buffer rather than the viewport (the vg* modes).
+        std::string CaptureTarget;
     };
 
     [[nodiscard]] inline Json ToJson(const DebugViewResult& r)
@@ -343,7 +374,10 @@ namespace OloEngine::MCP::RenderOverrides
         j["ssrDebugView"] = r.SSRDebugView;
         j["ssgiDebugView"] = r.SSGIDebugView;
         j["overdrawDebugView"] = r.OverdrawDebugView;
+        j["virtualGeometryDebugMode"] = r.VirtualGeometryDebugMode;
         j["passEnabled"] = r.PassEnabled;
+        if (!r.CaptureTarget.empty())
+            j["captureTarget"] = r.CaptureTarget;
         if (!r.Note.empty())
             j["note"] = r.Note;
         return j;

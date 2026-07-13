@@ -429,6 +429,13 @@ namespace OloEngine::MCP
             // Behavioural hints (readOnlyHint, etc.); omitted unless a non-empty object.
             if (tool.Annotations.is_object() && !tool.Annotations.empty())
                 entry["annotations"] = tool.Annotations;
+            // Display icons (SEP-973, spec 2025-11-25). Emitted ONLY when the array is
+            // non-empty: the spec models `icons` as an optional field, and an empty
+            // array would advertise "this tool has icons" while carrying none, which a
+            // client may render as a broken/blank slot. RegisterTool already rejected a
+            // malformed value, so a present array is well-formed here.
+            if (tool.Icons.is_array() && !tool.Icons.empty())
+                entry["icons"] = tool.Icons;
             // Grouping category under the spec's `_meta` extension point; omitted for
             // uncategorized tools so their entry is unchanged from before toolsets.
             if (!tool.Toolset.empty())
@@ -656,24 +663,135 @@ namespace OloEngine::MCP
         return ValidateValueAgainstSchema(schema, args, std::string{});
     }
 
+    bool McpServer::IsValidIcons(const Json& icons)
+    {
+        if (icons.is_null())
+            return true; // absent — the common case, and legal.
+        if (!icons.is_array() || icons.empty())
+            return false;
+        for (const Json& icon : icons)
+        {
+            if (!icon.is_object())
+                return false;
+            const auto src = icon.find("src");
+            if (src == icon.end() || !src->is_string() || src->get<std::string>().empty())
+                return false;
+            if (const auto mime = icon.find("mimeType"); mime != icon.end() && !mime->is_string())
+                return false;
+            if (const auto sizes = icon.find("sizes"); sizes != icon.end())
+            {
+                // SEP-973 models `sizes` as an array of "WxH" (or "any") strings.
+                if (!sizes->is_array())
+                    return false;
+                for (const Json& size : *sizes)
+                {
+                    if (!size.is_string())
+                        return false;
+                }
+            }
+        }
+        return true;
+    }
+
     void McpServer::RegisterTool(ToolDef tool)
     {
-        // Fail loudly at registration: every tool is registered in code at startup,
-        // so a malformed name is a programmer error, not a runtime condition. Catch
-        // it here instead of letting clients choke on the name later.
+        // Fail loudly at registration: every NATIVE tool is registered in code at
+        // startup, so a malformed name / icons value is a programmer error, not a
+        // runtime condition. Catch it here instead of letting clients choke later.
+        // (Script tools never reach this path with a malformed value — the Lua
+        // registration validates and REJECTS with a logged message, because scripts
+        // are runtime data; see McpScriptTools.cpp.)
         OLO_CORE_VERIFY(IsValidToolName(tool.Name),
                         "[MCP] Invalid tool name '{}': must be 1-128 chars of [A-Za-z0-9_.-].", tool.Name);
-        m_Tools.push_back(std::move(tool));
+        OLO_CORE_VERIFY(IsValidIcons(tool.Icons),
+                        "[MCP] Invalid icons for tool '{}': expected a non-empty array of {{ src, mimeType?, sizes? }}.",
+                        tool.Name);
+
+        // Copy-on-write publish (see the ToolsSnapshot contract): build the new
+        // vector, then swap it in atomically. Registration is a startup-time,
+        // ~40-element operation, so the copy is irrelevant; the payoff is that the
+        // dispatch read path needs no lock at all.
+        std::lock_guard writeLock(m_ToolsWriteMutex);
+        auto next = std::make_shared<ToolList>(*ToolsSnapshot());
+        next->push_back(std::move(tool));
+        m_Tools.store(std::shared_ptr<const ToolList>(std::move(next)), std::memory_order_release);
+    }
+
+    void McpServer::ReplaceScriptTools(std::vector<ToolDef> scriptTools)
+    {
+        {
+            std::lock_guard writeLock(m_ToolsWriteMutex);
+            const ToolSnapshot current = ToolsSnapshot();
+
+            auto next = std::make_shared<ToolList>();
+            next->reserve(current->size() + scriptTools.size());
+            for (const ToolDef& tool : *current)
+            {
+                if (!tool.ScriptOwned)
+                    next->push_back(tool);
+            }
+            for (ToolDef& tool : scriptTools)
+                next->push_back(std::move(tool));
+
+            // The swap is the linearization point. A dispatch thread that already
+            // took a snapshot keeps running against the OLD vector — including the
+            // ToolDefs whose handlers own the previous Lua state, which therefore
+            // stays alive exactly as long as some call still needs it.
+            m_Tools.store(std::shared_ptr<const ToolList>(std::move(next)), std::memory_order_release);
+        }
+
+        NotifyToolsListChanged();
     }
 
     void McpServer::UnregisterScriptTools()
     {
-        // The tool vector is read lock-free by dispatch worker threads; mutating
-        // it while serving would be a data race. LoadScriptTools' replace-rescan
-        // only happens from the stopped state (panel restart / editor init).
-        OLO_CORE_VERIFY(!IsRunning(), "[MCP] UnregisterScriptTools requires a stopped server.");
-        std::erase_if(m_Tools, [](const ToolDef& tool)
-                      { return tool.ScriptOwned; });
+        ReplaceScriptTools({});
+    }
+
+    void McpServer::NotifyToolsListChanged()
+    {
+        // Bump FIRST: an SSE stream that polls the generation must never observe a
+        // stale generation alongside a fresh tool list (it would skip the notify).
+        m_ToolsGeneration.fetch_add(1, std::memory_order_release);
+
+        std::vector<NotificationSink> sinks;
+        {
+            std::lock_guard lock(m_ListenerMutex);
+            sinks.reserve(m_Listeners.size());
+            for (const auto& [token, sink] : m_Listeners)
+                sinks.push_back(sink);
+        }
+        // Invoke OUTSIDE the lock: a sink that re-enters the server (or removes
+        // itself) must not deadlock on m_ListenerMutex.
+        const Json notification{ { "jsonrpc", "2.0" }, { "method", "notifications/tools/list_changed" } };
+        for (const NotificationSink& sink : sinks)
+        {
+            if (sink)
+                sink(notification);
+        }
+    }
+
+    u64 McpServer::AddNotificationListener(NotificationSink sink)
+    {
+        std::lock_guard lock(m_ListenerMutex);
+        const u64 token = m_NextListenerToken++;
+        m_Listeners.emplace_back(token, std::move(sink));
+        return token;
+    }
+
+    void McpServer::RemoveNotificationListener(u64 token)
+    {
+        std::lock_guard lock(m_ListenerMutex);
+        std::erase_if(m_Listeners, [token](const std::pair<u64, NotificationSink>& entry)
+                      { return entry.first == token; });
+    }
+
+    void McpServer::SetServerIcons(Json icons)
+    {
+        OLO_CORE_VERIFY(IsValidIcons(icons),
+                        "[MCP] Invalid serverInfo icons: expected a non-empty array of {{ src, mimeType?, sizes? }}.");
+        std::lock_guard lock(m_ServerIconsMutex);
+        m_ServerIcons = std::move(icons);
     }
 
     void McpServer::RegisterResource(ResourceDef resource)
@@ -1193,8 +1311,8 @@ namespace OloEngine::MCP
 
         res.set_chunked_content_provider(
             "text/event-stream",
-            [this, cursor = startCursor, lastWrite = std::chrono::steady_clock::now(), greeted = false](
-                std::size_t /*offset*/, httplib::DataSink& sink) mutable -> bool
+            [this, cursor = startCursor, lastWrite = std::chrono::steady_clock::now(), greeted = false,
+             toolsGeneration = ToolsGeneration()](std::size_t /*offset*/, httplib::DataSink& sink) mutable -> bool
             {
                 // Server tearing down: end the stream gracefully so the worker thread
                 // is free to be joined by Stop().
@@ -1214,6 +1332,22 @@ namespace OloEngine::MCP
                     if (!sink.write(hello.data(), hello.size()))
                         return false;
                     greeted = true;
+                    lastWrite = std::chrono::steady_clock::now();
+                }
+
+                // Tool-list changes (script-tool live reload, #607). Polled off the
+                // monotonic generation counter rather than pushed from the reloading
+                // thread: this DataSink may only be written from the stream's own
+                // worker thread, so a cross-thread push would be a data race. A
+                // 250 ms-granularity notify is exactly right for a "re-list your
+                // tools" hint. Advertised via capabilities.tools.listChanged.
+                if (const u64 generation = ToolsGeneration(); generation != toolsGeneration)
+                {
+                    const std::string frame = FormatSseData(
+                        Json{ { "jsonrpc", "2.0" }, { "method", "notifications/tools/list_changed" } });
+                    if (!sink.write(frame.data(), frame.size()))
+                        return false;
+                    toolsGeneration = generation;
                     lastWrite = std::chrono::steady_clock::now();
                 }
 
@@ -1498,7 +1632,13 @@ namespace OloEngine::MCP
         result["protocolVersion"] = version;
         // `logging` is advertised because the GET /mcp SSE stream pushes diagnostics
         // events as `notifications/message` log notifications (issue #306 item B).
-        result["capabilities"] = Json{ { "tools", { { "listChanged", false } } },
+        //
+        // `tools.listChanged` is TRUE since the script-tool live-reload item (#607):
+        // olo_script_tools_reload (and the MCP panel's "Reload script tools" button)
+        // rescan <project assets>/McpTools while the server is serving and swap the
+        // registry, then emit `notifications/tools/list_changed` on every live SSE
+        // stream. Resources and prompts are still fixed for a server run.
+        result["capabilities"] = Json{ { "tools", { { "listChanged", true } } },
                                        { "resources", { { "subscribe", false }, { "listChanged", false } } },
                                        { "prompts", { { "listChanged", false } } },
                                        { "logging", Json::object() } };
@@ -1511,6 +1651,13 @@ namespace OloEngine::MCP
                                        "scene/ECS state, performance, shaders, assets, physics, screenshots, "
                                        "and opt-in consented editor writes." },
                                      { "version", "0.0.1" } };
+        // serverInfo.icons (SEP-973): emitted only when the host supplied some, so a
+        // default session's serverInfo is byte-identical to before.
+        {
+            std::lock_guard lock(m_ServerIconsMutex);
+            if (m_ServerIcons.is_array() && !m_ServerIcons.empty())
+                result["serverInfo"]["icons"] = m_ServerIcons;
+        }
         result["instructions"] =
             "Read-only diagnostics for a running OloEngine editor session. Use olo_log_tail "
             "to see the most recent engine log messages, olo_events_tail for a 'what just "
@@ -1522,8 +1669,9 @@ namespace OloEngine::MCP
 
     Json McpServer::HandleToolsList(const Json& id) const
     {
+        const ToolSnapshot snapshot = ToolsSnapshot();
         Json tools = Json::array();
-        for (const auto& tool : m_Tools)
+        for (const auto& tool : *snapshot)
             tools.push_back(BuildToolEntry(tool));
         return MakeResult(id, Json{ { "tools", std::move(tools) } });
     }
@@ -1564,9 +1712,10 @@ namespace OloEngine::MCP
                 terms.push_back(std::move(term));
         }
 
+        const ToolSnapshot snapshot = ToolsSnapshot();
         Json matched = Json::array();
         std::map<std::string, std::size_t> toolsetCounts; // sorted by canonical (lowercased) name
-        for (const auto& tool : m_Tools)
+        for (const auto& tool : *snapshot)
         {
             // Case-fold each tool's toolset once and reuse it for both the catalogue
             // key and the filter compare. This keeps the two in lockstep: a mixed-case
@@ -1614,8 +1763,13 @@ namespace OloEngine::MCP
         if (!params.contains("name") || !params["name"].is_string())
             return MakeError(id, kInvalidParams, "Invalid params: 'name' is required");
 
+        // Pin the tool snapshot for the WHOLE call (see the ToolsSnapshot contract):
+        // a concurrent script-tool reload may swap the registry mid-dispatch, and
+        // `tool` must stay valid — as must the Lua state its handler closes over.
+        const ToolSnapshot snapshot = ToolsSnapshot();
+
         const std::string name = params["name"].get<std::string>();
-        const ToolDef* tool = FindTool(name);
+        const ToolDef* tool = FindTool(*snapshot, name);
         if (tool == nullptr)
             return MakeError(id, kInvalidParams, "Unknown tool: " + name);
 
@@ -1781,9 +1935,9 @@ namespace OloEngine::MCP
         return MakeResult(id, std::move(resultObj));
     }
 
-    const ToolDef* McpServer::FindTool(const std::string& name) const
+    const ToolDef* McpServer::FindTool(const ToolList& tools, const std::string& name)
     {
-        for (const auto& tool : m_Tools)
+        for (const auto& tool : tools)
         {
             if (tool.Name == name)
                 return &tool;

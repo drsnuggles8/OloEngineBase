@@ -218,6 +218,13 @@ namespace OloEngine
                                       const glm::mat4& modelMatrix, const Material* overrideMaterial,
                                       const Material& defaultMaterial, i32 entityID,
                                       f32 errorThresholdPixels, bool castShadows);
+        // Flatten a Material into the exact POD record the frame material table
+        // uploads for a draw (factors, alpha mode/cutoff, and the resolved GL
+        // texture id per slot, incl. the global-IBL fallback). Public because it
+        // is the single source of truth for "what the GPU was actually given" —
+        // olo_material_get (MCP, issue #607) reports it verbatim rather than
+        // re-deriving the resolution and risking a confidently wrong answer.
+        static auto CreatePODMaterialDataForMaterial(const Material& material, RendererID shaderRendererID) -> PODMaterialData;
         // Animated drawing commands
         static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = false, i32 entityID = -1);
         // Same as DrawAnimatedMesh but also carries the previous-frame bone matrices used by the
@@ -1370,7 +1377,6 @@ namespace OloEngine
         static bool IsDeferredCapableShader(const Ref<Shader>& shader);
         static auto GetRenderStreamNode(RenderStreamType stream) -> CommandBufferRenderPass*;
         static auto ValidateDrawMeshRendererIDs(const char* context, u32 vaoID, u32 shaderID) -> bool;
-        static auto CreatePODMaterialDataForMaterial(const Material& material, RendererID shaderRendererID) -> PODMaterialData;
 
         // Shared Deferred-vs-forward-overlay shader routing decision for the
         // instanced submission paths (DrawMeshInstanced's CPU-cull path and

@@ -9,6 +9,8 @@
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <unordered_map>
 #include <vector>
 
@@ -184,6 +186,17 @@ namespace OloEngine
         [[nodiscard]] f32 GetSwRasterThresholdPixels() const
         {
             return m_SwRasterThresholdPixels;
+        }
+        // Auto-mode routing threshold: a cluster whose projected screen radius is
+        // below this many pixels goes to the compute software rasterizer. Exposed
+        // so the HW/SW split can be swept live over MCP (issue #607) instead of
+        // only through the two extreme modes. Clamped to a sane range — 0 would
+        // silently disable SW raster in Auto and a huge value would force it.
+        void SetSwRasterThresholdPixels(f32 thresholdPixels)
+        {
+            if (!std::isfinite(thresholdPixels))
+                return;
+            m_SwRasterThresholdPixels = std::clamp(thresholdPixels, 0.0f, 4096.0f);
         }
 
         // Debug/test override: force the portable two-pass 2x32 software-raster

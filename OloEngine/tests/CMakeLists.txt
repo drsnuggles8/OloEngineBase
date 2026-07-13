@@ -414,6 +414,7 @@ add_executable(OloEngine-Tests
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsAssets.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsCamera.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsDiagnostics.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsInput.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsPerf.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsPhysics.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsRender.cpp
@@ -421,6 +422,16 @@ add_executable(OloEngine-Tests
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsScripting.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsShader.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpScriptApi.cpp
+		# Consented MCP synthetic-input WRITE tool: olo_input_inject (#607) — click /
+		# drag / key / text into the running editor so an agent can verify an
+		# interactive handler actually FIRES. Same dispatch seam (session write gate +
+		# inputSchema enforcement at McpServer.cpp) plus the pure core
+		# (MCP/McpInputInject.h: key-name mapping, coordinate-space math, and the
+		# frame-quantized plan whose timing decides whether an injected click is seen
+		# at all). The injection ACTION is a context hook (ImGui/GLFW in the editor),
+		# so the test injects a fake and never opens a window. Header-only on the
+		# editor side, so no extra editor TU is pulled in.
+		MCP/McpInputInjectTest.cpp
 		# Pure reasoning behind olo_physics_why_no_collision (#306 item A). Header-
 		# only (MCP/McpPhysicsExplain.h), so no extra editor TU is pulled in.
 		MCP/McpPhysicsExplainTest.cpp
@@ -447,6 +458,23 @@ add_executable(OloEngine-Tests
 		# (#316 Part 4, LLM-analysis exports). Header-only (MCP/McpRenderGraphTopology.h),
 		# no extra editor TU pulled in.
 		MCP/McpRenderGraphTopologyTest.cpp
+		# Pure octahedral-normal decode / depth linearization / per-channel shaping
+		# behind olo_render_probe_pixel (#607: the per-pixel numeric G-Buffer readout).
+		# Header-only (MCP/McpRenderProbePixel.h), no extra editor TU pulled in.
+		MCP/McpRenderProbePixelTest.cpp
+		# Pure light-grid aggregation (per-slice / per-cluster histogram, overflow +
+		# empty cluster counts) behind olo_cluster_grid_stats (#607). Header-only
+		# (MCP/McpClusterGridStats.h), no extra editor TU pulled in.
+		MCP/McpClusterGridStatsTest.cpp
+		# Pure froxel <-> world mapping (the shaders' exponential z-slice
+		# distribution + view-ray secant scaling) behind olo_froxel_fog_probe (#607,
+		# relates to #435). Header-only (MCP/McpFroxelFogProbe.h), no extra editor TU.
+		MCP/McpFroxelFogProbeTest.cpp
+		# Pure array-layer selection behind olo_render_capture_target's 'layer'
+		# argument (#607): the CSM cascade array / shadow-atlas raw-depth views, and
+		# the "a layer view must not silently capture layer 0" rule. Header-only
+		# (MCP/McpShadowCapture.h), no extra editor TU pulled in.
+		MCP/McpShadowCaptureLayerTest.cpp
 		# Unified diagnostics event ring buffer behind olo_events_tail (#306 item B).
 		# Header-only engine facility (Debug/DiagnosticsEventLog.h, compiled into
 		# OloEngine), so no extra editor TU is pulled in.
@@ -494,6 +522,11 @@ add_executable(OloEngine-Tests
 		# Pulls the editor-decoupled McpScriptTools.cpp TU (sol2 + engine only).
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpScriptTools.cpp
 		MCP/McpScriptToolsTest.cpp
+		# MCP protocol surface from #607: tool + serverInfo `icons` (SEP-973), the
+		# now-true capabilities.tools.listChanged, and the copy-on-write tool-registry
+		# snapshot the live script-tool reload rests on. Exercises the McpServer.cpp TU
+		# already pulled in above; no extra editor TU.
+		MCP/McpProtocolIconsTest.cpp
 		# First consented, undoable MCP WRITE tool: olo_set_collision_layer (#306
 		# item C, first slice). Exercises the session write gate + inputSchema
 		# enforcement at the McpServer.cpp dispatch seam, and the shared apply core

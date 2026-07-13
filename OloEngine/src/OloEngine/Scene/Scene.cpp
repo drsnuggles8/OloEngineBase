@@ -5296,6 +5296,17 @@ namespace OloEngine
         Renderer2D::EndScene();
     }
 
+    // UUID of a shadow-casting light entity, for the per-frame shadow-atlas
+    // candidate record (ShadowMap::AtlasCasterRecord, issue #607). Diagnostics
+    // only: an entity without an IDComponent (never happens for a scene entity,
+    // but the light views don't require one) reports 0 rather than asserting.
+    static u64 GetShadowCandidateEntityUuid(const entt::registry& registry, entt::entity entity)
+    {
+        if (const auto* id = registry.try_get<IDComponent>(entity); id != nullptr)
+            return static_cast<u64>(id->ID);
+        return 0;
+    }
+
     // Static cached default material for 3D rendering
     static Ref<Material> s_DefaultMaterial = nullptr;
 
@@ -5716,6 +5727,7 @@ namespace OloEngine
                 Kind SourceKind = Kind::Point;
                 i32 UboLightIndex = -1; // -1 when the light fell past the MultiLight cap
                 u32 FpIndex = 0;        // index into the matching fp* vector
+                u64 LightEntity = 0;    // owning entity's UUID (diagnostics only — olo_shadow_atlas_layout, #607)
                 glm::vec3 Position{ 0.0f };
                 glm::vec3 Direction{ 0.0f, 0.0f, -1.0f }; // spot only
                 f32 Range = 0.0f;
@@ -5758,6 +5770,7 @@ namespace OloEngine
                     candidate.SourceKind = LocalShadowCandidate::Kind::Point;
                     candidate.UboLightIndex = inUbo ? lightIndex : -1;
                     candidate.FpIndex = static_cast<u32>(fpPointLights.size()) - 1;
+                    candidate.LightEntity = GetShadowCandidateEntityUuid(m_Registry, entity);
                     candidate.Position = transform.Translation;
                     candidate.Range = pointLight.m_Range;
                     candidate.Intensity = pointLight.m_Intensity;
@@ -5810,6 +5823,7 @@ namespace OloEngine
                     candidate.SourceKind = LocalShadowCandidate::Kind::Spot;
                     candidate.UboLightIndex = inUbo ? lightIndex : -1;
                     candidate.FpIndex = static_cast<u32>(fpSpotLights.size()) - 1;
+                    candidate.LightEntity = GetShadowCandidateEntityUuid(m_Registry, entity);
                     candidate.Position = transform.Translation;
                     candidate.Direction = spotDir;
                     candidate.Range = spotLight.m_Range;
@@ -5858,6 +5872,7 @@ namespace OloEngine
                     candidate.SourceKind = LocalShadowCandidate::Kind::SphereArea;
                     candidate.UboLightIndex = inUbo ? lightIndex : -1;
                     candidate.FpIndex = static_cast<u32>(fpSphereAreaLights.size()) - 1;
+                    candidate.LightEntity = GetShadowCandidateEntityUuid(m_Registry, entity);
                     candidate.Position = transform.Translation;
                     candidate.Range = areaLight.m_Range;
                     candidate.Intensity = areaLight.m_Intensity;
@@ -5907,11 +5922,41 @@ namespace OloEngine
 
                 const auto allocation = ShadowAtlas::Allocate(scored, shadowMap.GetAtlasResolution());
 
+                // Diagnostics record of the FULL candidate list — winners and
+                // starved losers alike (issue #607, olo_shadow_atlas_layout).
+                // Built here because this is the only place both the inputs
+                // (which light, what score) and the outcome exist; everything
+                // below discards the losers.
+                std::vector<ShadowMap::AtlasCasterRecord> layout;
+                layout.reserve(shadowCandidates.size());
+                for (sizet i = 0; i < shadowCandidates.size(); ++i)
+                {
+                    ShadowMap::AtlasCasterRecord record;
+                    record.LightEntity = shadowCandidates[i].LightEntity;
+                    record.Type = scored[i].Type;
+                    record.SourceKind = shadowCandidates[i].SourceKind == LocalShadowCandidate::Kind::Spot
+                                            ? "SpotLight"
+                                        : shadowCandidates[i].SourceKind == LocalShadowCandidate::Kind::Point
+                                            ? "PointLight"
+                                            : "SphereAreaLight";
+                    record.Score = scored[i].Score;
+                    layout.push_back(record);
+                }
+
                 u32 totalEntries = 0;
+                u32 rank = 0;
                 for (const auto& accepted : allocation.Accepted)
                 {
                     const auto& candidate = shadowCandidates[accepted.CandidateIndex];
                     const f32 baseEntryF = static_cast<f32>(accepted.BaseEntry);
+
+                    // Accepted comes back in descending-score order, so the loop
+                    // counter IS the priority rank (issue #607).
+                    ShadowMap::AtlasCasterRecord& record = layout[accepted.CandidateIndex];
+                    record.Allocated = true;
+                    record.Rank = rank++;
+                    record.BaseEntry = accepted.BaseEntry;
+                    record.EntryCount = accepted.EntryCount;
 
                     if (candidate.SourceKind == LocalShadowCandidate::Kind::Spot)
                     {
@@ -5942,6 +5987,7 @@ namespace OloEngine
                     totalEntries = std::max(totalEntries, accepted.BaseEntry + accepted.EntryCount);
                 }
                 shadowMap.SetAtlasEntryCount(totalEntries);
+                shadowMap.SetAtlasLayout(std::move(layout));
             }
 
             // Shadow sampling matrices go up camera-relative (issue #429) so

@@ -29,6 +29,7 @@
 #include "Panels/ShaderEditorPanel.h"
 #include "Panels/AudioEventsPanel.h"
 
+#include "MCP/McpServer.h" // McpInputEvent / McpInputPlan (the input-injection queue below holds them by value)
 #include "UndoRedo/EditorCommand.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
@@ -36,6 +37,7 @@
 #include "OloEngine/Scene/SceneMeshRaycast.h"
 
 #include <atomic>
+#include <deque>
 #include <future>
 #include <mutex>
 #include <string>
@@ -43,10 +45,7 @@
 
 namespace OloEngine
 {
-    namespace MCP
-    {
-        class McpServer;
-    }
+    // (MCP::McpServer and the input-injection payload structs come from MCP/McpServer.h.)
 
     class AssetLoadedEvent;
     class AssetReloadedEvent;
@@ -184,6 +183,20 @@ namespace OloEngine
         // Async entity picking (PBO double-buffered readback)
         void InitEntityPicking();
         void ShutdownEntityPicking();
+
+        // ---- MCP synthetic input injection (olo_input_inject, issue #607) -------
+        // Accept a frame-quantized plan (called on the game thread from the MCP
+        // server's MarshalRead job) and drain exactly ONE of its frames at the top of
+        // each OnUpdate. Never inject from the HTTP worker: ImGuiIO is not
+        // thread-safe and neither is the engine event dispatch.
+        MCP::McpInputInjectResult QueueMcpInput(const MCP::McpInputPlan& plan);
+        void DrainMcpInputQueue();
+        // Feed one synthetic event into the editor's OWN input stream. See the .cpp
+        // for why this goes through the ImGui GLFW backend callbacks rather than the
+        // OS or ImGuiIO alone.
+        void ApplyMcpInputEvent(const MCP::McpInputEvent& event);
+        [[nodiscard]] MCP::McpInputViewportInfo GetMcpInputViewportInfo() const;
+        [[nodiscard]] MCP::McpInputStateSnapshot GetMcpInputState() const;
 
       private:
         OloEngine::OrthographicCameraController m_CameraController;
@@ -327,6 +340,17 @@ namespace OloEngine
         // inflated a "1920x1080" override's frame times ~6x (#316). This flag
         // forces one reassert of the viewport-derived size on the next update.
         bool m_ViewportSizeReassertNeeded = false;
+        // Pending synthetic-input frames (olo_input_inject, #607). Front-popped one
+        // per OnUpdate; game-thread-only (enqueued from a MarshalRead job, which also
+        // runs on the game thread), so it needs no lock.
+        std::deque<std::vector<MCP::McpInputEvent>> m_McpInputQueue;
+        // Synthetic modifier keys currently held by an in-flight plan. Re-asserted
+        // into ImGuiIO every drained frame because the ImGui GLFW backend recomputes
+        // io.KeyMods from the REAL keyboard on every callback, which would otherwise
+        // clear them the instant the click that needs them is dispatched.
+        bool m_McpSyntheticCtrl = false;
+        bool m_McpSyntheticShift = false;
+        bool m_McpSyntheticAlt = false;
 
         // Undo/Redo
         CommandHistory m_CommandHistory;

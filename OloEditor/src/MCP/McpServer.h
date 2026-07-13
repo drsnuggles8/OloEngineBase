@@ -43,6 +43,7 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 // Forward-declare cpp-httplib's types so this header (included by EditorLayer)
@@ -174,10 +175,17 @@ namespace OloEngine::MCP
         bool ProjectWrite = false;
         // True for a tool registered from a project Lua script (McpScriptTools,
         // issue #357 / ADR 0005) rather than compiled-in. Script tools are
-        // replaced wholesale by LoadScriptTools while the server is STOPPED (a
-        // panel restart rescans the project's McpTools/ directory); see
-        // UnregisterScriptTools.
+        // replaced wholesale by LoadScriptTools — now safely even while the
+        // server is RUNNING, via the copy-on-write tool snapshot (issue #607
+        // live-reload item); see ReplaceScriptTools / UnregisterScriptTools.
         bool ScriptOwned = false;
+        // Optional MCP `icons` array (SEP-973, spec 2025-11-25): display icons a
+        // client may show next to the tool. Each element is an object with a
+        // required string `src` (an http(s) or data: URI) plus optional
+        // `mimeType` and `sizes` (an array of "48x48"-style strings). Null /
+        // empty => omitted from tools/list entirely (never emit an empty
+        // `icons` key). Validated by McpServer::IsValidIcons at registration.
+        Json Icons;
     };
 
     // Snapshot of the editor camera's full pose, returned by GetCameraPose and
@@ -245,6 +253,103 @@ namespace OloEngine::MCP
         bool Changed = false;
         std::string SceneName;
         std::string Message;
+    };
+
+    // ---- Synthetic input injection (olo_input_inject, issue #607) --------------
+    // The editor is normally NOT the foreground window when an agent drives it, so
+    // OS-level injection (SendInput / SetCursorPos) is both useless and dangerous —
+    // it would land in whatever window IS focused. Instead the editor feeds these
+    // events into its OWN input stream (the ImGui GLFW backend callbacks, which fan
+    // out to both ImGuiIO and the engine's chained Event dispatch). The tool layer
+    // builds a frame-quantized plan; the editor drains one frame of it per tick.
+
+    // One primitive synthetic event.
+    struct McpInputEvent
+    {
+        enum class Kind
+        {
+            MousePos,    // move the cursor to (X, Y)
+            MouseButton, // press/release mouse button `Code`
+            Key,         // press/release GLFW key `Code`
+            Char         // type unicode codepoint `Code`
+        };
+
+        Kind Type = Kind::MousePos;
+        // MousePos only: OS window CLIENT coordinates, logical pixels, origin
+        // top-left — exactly what GLFW's cursor-pos callback receives.
+        f32 X = 0.0f;
+        f32 Y = 0.0f;
+        // MouseButton: GLFW mouse-button index. Key: GLFW key code (== OloEngine
+        // KeyCode). Char: unicode codepoint.
+        i32 Code = 0;
+        // MouseButton / Key only: true = press, false = release.
+        bool Down = false;
+    };
+
+    // A frame-quantized injection plan. `Frames[i]` is applied at the start of the
+    // i-th editor frame after the plan is accepted — one frame per element, never
+    // several in one tick. This is load-bearing, not conservatism: ImGui only sees
+    // a click if the button is DOWN for at least one full frame (a same-frame
+    // press+release never fires IsItemClicked), and the editor's viewport picking is
+    // two frames behind the cursor (async PBO readback), so a click must trail the
+    // move by several frames to hit the entity the agent aimed at.
+    struct McpInputPlan
+    {
+        std::vector<std::vector<McpInputEvent>> Frames;
+    };
+
+    // Outcome of accepting a plan (returned by EditorMcpContext::InjectInput).
+    // `Available` is false in a host with no editor window — the tool then reports
+    // that honestly instead of pretending it injected.
+    struct McpInputInjectResult
+    {
+        bool Available = false;
+        bool Ok = false;
+        u64 BaseFrame = 0;  // editor frame index when the plan was accepted
+        u32 FrameCount = 0; // frames the plan spans (drains over BaseFrame+1 .. +FrameCount)
+        std::string Message;
+    };
+
+    // Viewport / window geometry the tool layer needs to turn viewport-relative
+    // coordinates into the window-client coordinates the injected events carry.
+    // All lengths are LOGICAL pixels except where noted.
+    struct McpInputViewportInfo
+    {
+        bool Available = false;
+        // Viewport panel content-area origin, in ImGui screen coordinates.
+        f32 PanelX = 0.0f;
+        f32 PanelY = 0.0f;
+        // The OS window's client-area origin, in the SAME ImGui screen coordinates.
+        // With multi-viewport enabled ImGui screen coords are desktop coords, so this
+        // is the window position; without it, (0, 0).
+        f32 WindowX = 0.0f;
+        f32 WindowY = 0.0f;
+        // The viewport's logical render size (EditorLayer::m_ViewportSize) and the DPI
+        // factor between it and the captured framebuffer. The framebuffer olo_screenshot
+        // reads back is LogicalWidth*DpiScale x LogicalHeight*DpiScale physical pixels.
+        f32 LogicalWidth = 0.0f;
+        f32 LogicalHeight = 0.0f;
+        f32 DpiScale = 1.0f;
+        // OS window client-area size, logical pixels.
+        u32 WindowWidth = 0;
+        u32 WindowHeight = 0;
+    };
+
+    // Post-injection observation: what the editor looks like once the plan drained.
+    // Lets olo_input_inject report the state change a click caused (the whole point
+    // of the tool) without a second round-trip.
+    struct McpInputStateSnapshot
+    {
+        bool Available = false;
+        bool Pending = false;     // plan frames still queued (the caller gave up waiting)
+        u64 SelectedEntityId = 0; // 0 = nothing selected
+        std::string SelectedEntityName;
+        u64 HoveredEntityId = 0;
+        std::string HoveredEntityName;
+        bool ViewportHovered = false;
+        // Cursor position ImGui currently believes in, in window-client logical pixels.
+        f32 MouseX = 0.0f;
+        f32 MouseY = 0.0f;
     };
 
     // Editor state the main-marshaled tools read. EditorLayer fills these in; the
@@ -330,6 +435,20 @@ namespace OloEngine::MCP
         // project-write tool (entering Play executes the user's game scripts). Null
         // in a headless host with no editor.
         std::function<McpScenePlayResult(bool play)> SetScenePlayState;
+
+        // ---- Synthetic input injection (olo_input_inject, issue #607) ----------
+        // Report the viewport / window geometry the tool needs to resolve
+        // viewport-relative coordinates, accept a frame-quantized input plan (queued;
+        // drained one frame per editor tick), and read back what the editor looks like
+        // afterwards. All three are main-thread-only (ImGui / GLFW / EnTT), so the
+        // server calls them from a MarshalRead job. Injection is a consented PROJECT
+        // WRITE — a synthetic click can move a gizmo and a synthetic key can delete an
+        // entity — so olo_input_inject is ProjectWrite and gated by "Allow writes".
+        // Null in a headless host with no editor window; the tool then reports that
+        // input injection is unavailable rather than crashing.
+        std::function<McpInputViewportInfo()> GetInputViewportInfo;
+        std::function<McpInputInjectResult(const McpInputPlan& plan)> InjectInput;
+        std::function<McpInputStateSnapshot()> GetInputState;
     };
 
     // An MCP resource: a passive, addressable blob (vs. an active tool). The reader
@@ -468,10 +587,42 @@ namespace OloEngine::MCP
         {
             return m_Context;
         }
-        [[nodiscard]] const std::vector<ToolDef>& Tools() const
+
+        // ---- the tool registry: a copy-on-write, atomically swapped snapshot ----
+        //
+        // Dispatch worker threads read the tool vector LOCK-FREE on the hot path,
+        // and script-tool live reload (issue #607) must be able to REPLACE that
+        // vector while the server is serving. Both hold only because the vector is
+        // immutable once published: every writer (RegisterTool / ReplaceScriptTools,
+        // serialized by m_ToolsWriteMutex) builds a fresh vector and atomically
+        // stores it; every reader takes a `shared_ptr` snapshot and holds it for as
+        // long as it needs the ToolDefs (a whole tools/call, in HandleToolsCall) —
+        // which also keeps a *replaced* script tool's Lua runtime alive until the
+        // call using it finishes. There is NO lock on the read path.
+        //
+        // Never hand out a reference into the snapshot's vector: a concurrent swap
+        // would leave it dangling the moment the temporary shared_ptr dies. Take a
+        // ToolSnapshot and keep it in scope instead.
+        using ToolList = std::vector<ToolDef>;
+        using ToolSnapshot = std::shared_ptr<const ToolList>;
+
+        [[nodiscard]] ToolSnapshot ToolsSnapshot() const
         {
-            return m_Tools;
+            return m_Tools.load(std::memory_order_acquire);
         }
+        [[nodiscard]] sizet ToolCount() const
+        {
+            return ToolsSnapshot()->size();
+        }
+        // Monotonic counter bumped on every tool-list swap (ReplaceScriptTools).
+        // The GET /mcp SSE stream polls it and emits a
+        // `notifications/tools/list_changed` when it moves, so a connected agent
+        // re-lists after a live script rescan.
+        [[nodiscard]] u64 ToolsGeneration() const
+        {
+            return m_ToolsGeneration.load(std::memory_order_acquire);
+        }
+
         [[nodiscard]] const std::vector<ResourceDef>& Resources() const
         {
             return m_Resources;
@@ -499,12 +650,30 @@ namespace OloEngine::MCP
         void RegisterResource(ResourceDef resource);
         void RegisterPrompt(PromptDef prompt);
 
-        // Remove every ScriptOwned tool (issue #357 / ADR 0005) so LoadScriptTools
-        // can rescan the project's script directory with replace semantics. MUST
-        // be called while the server is stopped — the tool vector is read lock-free
-        // by dispatch threads, so it must never mutate while serving. Enforced
-        // loudly (OLO_CORE_VERIFY) in the definition.
+        // Swap every ScriptOwned tool for `scriptTools` in one atomic publish
+        // (issue #357 / ADR 0005 + the #607 live-reload item): the new vector is
+        // (every non-ScriptOwned tool, in order) + (scriptTools). Safe while the
+        // server is RUNNING — readers hold a snapshot, so an in-flight call keeps
+        // executing against the tools (and the Lua state) it started with. Bumps
+        // ToolsGeneration() and broadcasts `notifications/tools/list_changed` to
+        // every registered notification listener and every live SSE stream.
+        void ReplaceScriptTools(std::vector<ToolDef> scriptTools);
+
+        // Drop every ScriptOwned tool. Thin wrapper over ReplaceScriptTools({}).
         void UnregisterScriptTools();
+
+        // Optional `icons` for the server itself (SEP-973): emitted under
+        // `initialize`'s `serverInfo.icons` only when non-empty. Set before Start()
+        // (guarded, but it is startup configuration, not a runtime knob).
+        void SetServerIcons(Json icons);
+
+        // Validate an MCP `icons` value (SEP-973 shape): a non-empty array whose
+        // every element is an object with a non-empty string `src`, an optional
+        // string `mimeType`, and an optional `sizes` array of strings. A null /
+        // absent value is valid (it means "no icons") — check `icons.is_null()`
+        // separately when you need "present". Pure; exposed for tests and for the
+        // Lua registration path.
+        [[nodiscard]] static bool IsValidIcons(const Json& icons);
 
         // ---- Progress + cancellation (issue #357 item B) -----------------------
         //
@@ -583,6 +752,18 @@ namespace OloEngine::MCP
         // Where a dispatched tool call's `notifications/progress` are delivered,
         // called synchronously on the dispatching thread as the tool emits them.
         using NotificationSink = std::function<void(const Json& notification)>;
+
+        // Subscribe to SERVER-INITIATED notifications (today: only
+        // `notifications/tools/list_changed`, fired by ReplaceScriptTools). The
+        // sink is invoked on whichever thread performed the swap, so it must be
+        // cheap and must not re-enter the server. Returns a token for removal.
+        //
+        // The HTTP transport does NOT use this (a live SSE stream is written from
+        // its own worker thread and cannot be poked from another one safely); it
+        // polls ToolsGeneration() instead. The listener list exists for embedders
+        // and for the headless dispatch tests, which have no socket.
+        u64 AddNotificationListener(NotificationSink sink);
+        void RemoveNotificationListener(u64 token);
 
         // ProcessRequestBody with a notification side-channel (issue #357 item
         // B): progress notifications emitted by the dispatched call(s) via
@@ -685,15 +866,34 @@ namespace OloEngine::MCP
         [[nodiscard]] ConsentDecision RequestConsent(const ToolDef& tool, const Json& arguments,
                                                      const std::shared_ptr<std::atomic<bool>>& cancelFlag);
 
-        [[nodiscard]] const ToolDef* FindTool(const std::string& name) const;
+        // Locate a tool inside a snapshot the CALLER holds alive for as long as it
+        // uses the returned pointer (see the ToolsSnapshot contract above).
+        [[nodiscard]] static const ToolDef* FindTool(const ToolList& tools, const std::string& name);
         [[nodiscard]] const ResourceDef* FindResource(const std::string& uri) const;
         [[nodiscard]] const PromptDef* FindPrompt(const std::string& name) const;
         [[nodiscard]] bool CheckAuth(const httplib::Request& req) const;
 
+        // Bump ToolsGeneration() and fan the tools/list_changed notification out to
+        // the registered listeners. Called by ReplaceScriptTools.
+        void NotifyToolsListChanged();
+
         EditorMcpContext m_Context;
-        std::vector<ToolDef> m_Tools;
+        // Copy-on-write, atomically published (see ToolsSnapshot). Writers serialize
+        // on m_ToolsWriteMutex; readers are lock-free.
+        std::atomic<ToolSnapshot> m_Tools{ std::make_shared<const ToolList>() };
+        std::mutex m_ToolsWriteMutex;
+        std::atomic<u64> m_ToolsGeneration{ 0 };
         std::vector<ResourceDef> m_Resources;
         std::vector<PromptDef> m_Prompts;
+
+        // Server-initiated notification listeners (AddNotificationListener).
+        mutable std::mutex m_ListenerMutex;
+        std::vector<std::pair<u64, NotificationSink>> m_Listeners;
+        u64 m_NextListenerToken = 1;
+
+        // serverInfo.icons (SEP-973); empty => omitted from initialize.
+        mutable std::mutex m_ServerIconsMutex;
+        Json m_ServerIcons;
 
         Scope<httplib::Server> m_Http;
         std::thread m_ListenThread;

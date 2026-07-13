@@ -300,7 +300,6 @@
     "OloEngine/tests/MCP/McpPhysicsExplainTest.cpp": "unit",
     "OloEngine/tests/MCP/McpRenderExplainTest.cpp": "unit",
     "OloEngine/tests/MCP/McpRenderOverridesTest.cpp": "unit",
-    "OloEngine/tests/MCP/McpShaderReloadTest.cpp": "unit",
     "OloEngine/tests/MCP/McpStructuredOutputTest.cpp": "unit",
     "OloEngine/tests/MCP/McpToolAnnotationsTest.cpp": "unit",
     "OloEngine/tests/MathTest.cpp": "unit",

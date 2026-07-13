@@ -11,6 +11,8 @@
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <array>
+#include <utility>
+#include <vector>
 
 namespace OloEngine
 {
@@ -88,6 +90,46 @@ namespace OloEngine
             const glm::vec3& position,
             f32 range);
 
+        // One shadow-atlas CANDIDATE of the current frame, recorded by the Scene
+        // shadow setup right after ShadowAtlas::Allocate ran (issue #607).
+        //
+        // ShadowAtlas::Allocate is a pure ranking + packing function whose inputs
+        // (which light, what score) and losers (the casters that were starved)
+        // evaporate the moment Scene's loop ends — only the winners' matrices and
+        // tile rects survive, in the UBO. That makes a shadow-prioritisation bug
+        // (a starved caster, a light packed at a 256px tile it needed 1024 for)
+        // invisible in a screenshot AND unqueryable afterwards. Keeping the full
+        // candidate list for the frame is what makes olo_shadow_atlas_layout able
+        // to answer "why is this light's shadow missing / blocky?".
+        //
+        // Cleared by BeginFrame(), so it always describes the frame just set up.
+        struct AtlasCasterRecord
+        {
+            u64 LightEntity = 0; // owning light entity's UUID (0 when unknown)
+            ShadowAtlas::CasterType Type = ShadowAtlas::CasterType::Spot;
+            // Which component produced it: "SpotLight" / "PointLight" / "SphereAreaLight".
+            // Sphere-area lights compete as 6-face point casters, so Type alone
+            // cannot distinguish them.
+            const char* SourceKind = "SpotLight";
+            f32 Score = 0.0f;       // ShadowAtlas::ComputeScore (0 = culled / not worth a tile)
+            bool Allocated = false; // false = STARVED this frame (out of entries / lights / atlas space)
+            u32 Rank = 0;           // priority rank among the ALLOCATED casters (0 = highest score); meaningless when starved
+            u32 BaseEntry = 0;      // first atlas entry index (valid only when Allocated)
+            u32 EntryCount = 0;     // 1 for spot, 6 for a point/sphere-area cube (valid only when Allocated)
+        };
+
+        // Replace this frame's candidate record (Scene calls it once, after the
+        // allocation). Kept separate from SetAtlasEntry so the hot upload path is
+        // untouched — this is diagnostics-only state.
+        void SetAtlasLayout(std::vector<AtlasCasterRecord> layout)
+        {
+            m_AtlasLayout = std::move(layout);
+        }
+        [[nodiscard]] const std::vector<AtlasCasterRecord>& GetAtlasLayout() const
+        {
+            return m_AtlasLayout;
+        }
+
         // Store one atlas entry (world-space light VP + pixel tile rect).
         void SetAtlasEntry(u32 entryIndex, const glm::mat4& lightVP, const ShadowAtlas::TileRect& rect);
         void SetAtlasEntryCount(u32 count)
@@ -140,6 +182,16 @@ namespace OloEngine
         }
         [[nodiscard]] u32 GetCSMRendererID() const;
         [[nodiscard]] u32 GetAtlasRendererID() const;
+
+        // Render-graph resource names of the two raw-depth views below (issue
+        // #607). They are pass-owned raw GL texture views, so until they are
+        // declared under a stable name both olo_render_list_targets and
+        // olo_render_capture_target are blind to them and the PCSS blocker
+        // search's actual input cannot be inspected from an agent session.
+        // Pinned here (not spelled at the declaration site) so the name the
+        // pipeline declares and the name a tool asks for cannot drift.
+        static constexpr const char* kCSMRawTargetName = "ShadowCSMRaw";
+        static constexpr const char* kAtlasRawTargetName = "ShadowAtlasRaw";
 
         // Raw-depth (comparison-OFF) views aliasing the CSM / atlas depth
         // textures, bound as plain sampler2DArray so the PCSS blocker search
@@ -271,6 +323,10 @@ namespace OloEngine
         // World-space atlas entry state (UBO carries the camera-relative copies)
         std::array<glm::mat4, MAX_SHADOW_ATLAS_ENTRIES> m_AtlasEntryWorldMatrices{};
         std::array<ShadowAtlas::TileRect, MAX_SHADOW_ATLAS_ENTRIES> m_AtlasEntryRects{};
+
+        // Diagnostics-only candidate list for the current frame (see
+        // AtlasCasterRecord). Never read by the render path.
+        std::vector<AtlasCasterRecord> m_AtlasLayout;
 
         // Shadow UBO
         Ref<UniformBuffer> m_ShadowUBO;
