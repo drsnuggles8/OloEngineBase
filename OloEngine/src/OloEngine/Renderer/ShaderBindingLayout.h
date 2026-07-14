@@ -1116,7 +1116,13 @@ namespace OloEngine
                            // TEX_USER_0-2's documented pass-local reuse) — issue #627.
                            name == "u_HDRColor" || name == "u_ScatterVolume" ||
                            name == "u_ShadowMapCSM" || name == "u_HZB" ||
-                           name == "u_Butterfly" || name == "u_H0";
+                           name == "u_Butterfly" || name == "u_H0" ||
+                           // Virtual-geometry debug overlay (issue #629): a fullscreen pass
+                           // whose only input is the cluster/LOD/overdraw image, composited
+                           // over the lit frame at the end of DeferredLightingPass. Same
+                           // pass-local slot-0 reuse as the entries above — no material is
+                           // bound during a fullscreen draw.
+                           name == "u_VirtualDebugColor";
                 case TEX_SPECULAR:
                     // Slot 1 is reused across shader contexts: Metallic/Roughness in PBR,
                     // Depth textures in particle effects, Bloom textures in post-processing,

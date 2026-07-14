@@ -627,10 +627,20 @@ namespace OloEngine
             m_DebugHeight = viewportHeight;
         }
 
-        // Clear both targets for this frame (colour -> opaque black, count -> 0).
+        // Clear both targets for this frame (colour -> TRANSPARENT black, count -> 0).
+        //
+        // Alpha is the "a virtual fragment landed here" bit, and the viewport overlay
+        // (VirtualDebugOverlay.glsl, composited at the end of DeferredLightingPass) depends on
+        // it: it discards where alpha == 0 so the lit frame shows through, and replaces the
+        // pixel where alpha == 1. Clearing to OPAQUE black — which this used to do — makes
+        // every pixel look "written" and blacks out the entire viewport outside the virtual
+        // geometry. Both writers set alpha = 1 exactly where they touch a pixel
+        // (VirtualDebugViz.glsl's imageStore; VirtualDebugColorize.comp for a non-zero count).
+        //
+        // Nothing reads this alpha as colour: the debug capture target is inspected per-RGB.
         {
             Utils::GLClearProgramGuard programGuard;
-            f32 const clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+            f32 const clearColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
             glClearTexImage(m_DebugColorTexID, 0, GL_RGBA, GL_FLOAT, clearColor);
             u32 const clearCount = 0u;
             glClearTexImage(m_DebugCountTexID, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, &clearCount);

@@ -28,6 +28,13 @@ void main()
         return;
 
     uint count = imageLoad(u_DebugCount, ivec2(px)).r;
+
+    // Alpha is the "a virtual fragment landed here" bit, not a colour — the viewport overlay
+    // (VirtualDebugOverlay.glsl) discards on it so the lit frame shows through everywhere the
+    // virtual geometry did not draw. Writing alpha = 1 unconditionally (as this used to) marks
+    // every empty pixel as written and blacks out the whole viewport. RGB is unchanged, so the
+    // capture target and its test — which inspect RGB only — see exactly what they did before.
     vec3 c = (count == 0u) ? vec3(0.0) : Heat(float(count) / max(u_OverdrawScale, 1.0));
-    imageStore(u_DebugColor, ivec2(px), vec4(c, 1.0));
+    float a = (count == 0u) ? 0.0 : 1.0;
+    imageStore(u_DebugColor, ivec2(px), vec4(c, a));
 }

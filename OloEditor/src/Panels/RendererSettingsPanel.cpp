@@ -515,6 +515,38 @@ namespace OloEngine
                     deferred.DebugChannel = static_cast<u32>(channelIdx);
                     Renderer3D::ApplyRendererSettings();
                 }
+
+                // --- Virtualized geometry (Nanite, issue #629) ---
+                ImGui::Separator();
+                ImGui::TextDisabled("Virtualized Geometry (Nanite)");
+
+                if (ImGui::Checkbox("Enable virtual geometry", &settings.VirtualGeometryEnabled))
+                {
+                    Renderer3D::ApplyRendererSettings();
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Master switch for the cluster-LOD-DAG renderer.\n\n"
+                                      "When OFF, every VirtualMeshComponent is drawn through the\n"
+                                      "CLASSIC mesh path instead — same geometry, same materials,\n"
+                                      "no cluster LOD. The scene does not change; only the renderer\n"
+                                      "does, which makes this a true A/B when virtual geometry is\n"
+                                      "the suspect in a visual bug.");
+                }
+
+                if (ImGui::Checkbox("Show debug view in viewport", &settings.VirtualDebugToViewport))
+                {
+                    Renderer3D::ApplyRendererSettings();
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Composite the active virtual-geometry debug view (cluster id /\n"
+                                      "LOD / overdraw) over the lit viewport image.\n\n"
+                                      "Pick WHICH view in the Statistics panel -> Virtual Geometry\n"
+                                      "(Nanite) -> Debug view. With this off, that view is written\n"
+                                      "only to the 'VirtualGeometryDebug' MCP capture target and is\n"
+                                      "invisible here.");
+                }
             }
             else
             {

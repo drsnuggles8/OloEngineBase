@@ -65,6 +65,17 @@ namespace OloEngine
         }
 
       private:
+        // Composite the virtualized-geometry cluster/LOD/overdraw debug image over the LIT
+        // scene colour (issue #629). No-op unless VirtualMeshRegistry's debug mode is active
+        // AND RendererSettings::VirtualDebugToViewport is set.
+        //
+        // This lives at the END of Execute rather than in VirtualGeometryPass because that
+        // pass runs BEFORE lighting — it writes the G-Buffer — so anything it drew into scene
+        // colour would be overwritten by the lighting draw. Before this existed, flipping the
+        // Statistics panel's "Debug view" combo changed nothing a human could see: the debug
+        // image was only reachable as an MCP capture target.
+        void BlitVirtualGeometryDebugOverlay();
+
         struct SelectedInputs
         {
             RGTextureHandle GBufferAlbedo;
@@ -83,8 +94,9 @@ namespace OloEngine
             RGTextureHandle BrdfLut;
         };
 
-        Ref<Shader> m_Shader;     // sampler2D variant (non-MSAA / resolved)
-        Ref<Shader> m_ShaderMSAA; // sampler2DMS variant (per-sample)
+        Ref<Shader> m_Shader;              // sampler2D variant (non-MSAA / resolved)
+        Ref<Shader> m_ShaderMSAA;          // sampler2DMS variant (per-sample)
+        Ref<Shader> m_VirtualDebugOverlay; // lazily loaded; only when the debug overlay is on
         Ref<GBuffer> m_GBuffer;
         Ref<Framebuffer> m_SceneFramebuffer;
         Ref<UniformBuffer> m_ControlsUBO;

@@ -5623,6 +5623,52 @@ namespace OloEngine
         return 0;
     }
 
+    // Submit every submesh of a MeshSource through the CLASSIC (non-virtualized) mesh path:
+    // one DrawMesh packet per submesh, each shaded with the shared material-resolution rule,
+    // plus its shadow caster.
+    //
+    // Called from TWO places, and deliberately shared rather than copied: the MeshComponent
+    // loop, and the VirtualMeshComponent loop's fallback when virtual geometry is globally
+    // disabled (RendererSettings::VirtualGeometryEnabled). The entire point of that toggle is
+    // to be an HONEST A/B — "the same mesh, drawn the old way" — which it cannot be if the
+    // fallback is a second, separately-maintained transcription of this loop. Every bug this
+    // subsystem has produced came from two paths that were supposed to agree and quietly did
+    // not (issue #629); this one is not going to be the next.
+    static void SubmitMeshSourceClassic(const Ref<MeshSource>& meshSource, const glm::mat4& worldTransform,
+                                        const Material* overrideMaterial, i32 entityID,
+                                        const LODGroup* lodGroup, bool meshHasActiveShadows)
+    {
+        if (!meshSource || meshSource->GetSubmeshes().IsEmpty())
+        {
+            return;
+        }
+
+        for (i32 i = 0; i < meshSource->GetSubmeshes().Num(); ++i)
+        {
+            auto submesh = Ref<Mesh>::Create(meshSource, i);
+            const Material& material = ResolveSubmeshMaterial(overrideMaterial, meshSource.get(),
+                                                              static_cast<u32>(i), GetDefaultMaterial());
+
+            if (auto* packet = Renderer3D::DrawMesh(submesh, worldTransform, material, true, entityID, lodGroup); packet)
+                Renderer3D::SubmitPacket(packet);
+
+            // Shadow caster for this submesh. Alpha-masked / blended materials are excluded
+            // because the shared shadow-depth shader doesn't sample the albedo alpha, so
+            // otherwise see-through geometry would project as solid silhouettes.
+            const bool castsShadow = meshHasActiveShadows && MaterialCastsShadows(material);
+            if (castsShadow && submesh)
+            {
+                if (auto va = submesh->GetVertexArray(); va)
+                {
+                    Renderer3D::AddMeshShadowCaster(va->GetRendererID(), submesh->GetIndexCount(),
+                                                    submesh->GetBaseIndex(), worldTransform,
+                                                    GetShadowVaoID(submesh),
+                                                    submesh->GetTransformedBoundingBox(worldTransform));
+                }
+            }
+        }
+    }
+
     void Scene::ProcessScene3DSharedLogic(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix,
                                           const glm::vec3& cameraPosition,
                                           f32 cameraNearClip, f32 cameraFarClip)
@@ -7304,6 +7350,12 @@ namespace OloEngine
         const bool meshHasActiveShadows = Renderer3D::IsShadowPassAvailable() && Renderer3D::GetShadowMap().IsEnabled() &&
                                           Renderer3D::GetShadowMap().AnyShadowsRequested();
 
+        // Virtual geometry only renders on Deferred, so only there does its loop "own" an entity
+        // that carries both components (see the skip inside the mesh loop). Computed once —
+        // the whole point is that the two loops agree about who draws what.
+        const bool virtualPathOwnsMeshEntities =
+            Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred;
+
         // Draw mesh entities (skip animated entities - they're rendered separately)
         {
             auto view = m_Registry.view<TransformComponent, MeshComponent>();
@@ -7320,6 +7372,25 @@ namespace OloEngine
                 if (!mesh.m_MeshSource)
                 {
                     continue;
+                }
+
+                // An entity carrying BOTH a MeshComponent and an active VirtualMeshComponent used
+                // to be drawn TWICE — once here and once by the virtual loop below — which
+                // z-fights, doubles the shadow caster, and doubles the triangle cost, while the
+                // editor merely printed an inspector warning nobody reads. The more specific
+                // component wins: the virtual loop owns this entity (and, when the master switch
+                // is off, its classic fallback still draws it exactly once). Skipping here rather
+                // than there also means the entity is drawn exactly once in BOTH toggle states.
+                //
+                // Only on Deferred: outside it the virtual loop does not run at all, so the
+                // MeshComponent is this entity's only chance to render and must not be skipped.
+                if (virtualPathOwnsMeshEntities && m_Registry.all_of<VirtualMeshComponent>(entity))
+                {
+                    if (const auto& vm = m_Registry.get<VirtualMeshComponent>(entity);
+                        vm.m_Enabled && static_cast<u64>(vm.m_MeshSource) != 0)
+                    {
+                        continue;
+                    }
                 }
 
                 const glm::mat4 worldTransform = GetWorldTransform(entity);
@@ -7349,37 +7420,10 @@ namespace OloEngine
                     }
                 }
 
-                // Draw each submesh with entity ID
-                if (mesh.m_MeshSource && !mesh.m_MeshSource->GetSubmeshes().IsEmpty())
-                {
-                    for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
-                    {
-                        auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
-                        const Material& material = ResolveSubmeshMaterial(overrideMaterial, mesh.m_MeshSource.get(),
-                                                                          static_cast<u32>(i), GetDefaultMaterial());
-
-                        if (auto* packet = Renderer3D::DrawMesh(submesh, worldTransform, material, true, entityID, lodGroup); packet)
-                            Renderer3D::SubmitPacket(packet);
-
-                        // Shadow caster for this submesh. Alpha-masked / blended materials are
-                        // excluded for the same reason as the ModelComponent path below: the
-                        // shared shadow-depth shader doesn't sample the albedo alpha, so
-                        // otherwise see-through geometry would project as solid silhouettes.
-                        // Asked per submesh now that each can carry its own material.
-                        const bool castsShadow = meshHasActiveShadows && MaterialCastsShadows(material);
-                        if (castsShadow && submesh)
-                        {
-                            auto va = submesh->GetVertexArray();
-                            if (va)
-                            {
-                                Renderer3D::AddMeshShadowCaster(
-                                    va->GetRendererID(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
-                                    worldTransform, GetShadowVaoID(submesh),
-                                    submesh->GetTransformedBoundingBox(worldTransform));
-                            }
-                        }
-                    }
-                }
+                // Draw each submesh with entity ID. Shared with the VirtualMeshComponent
+                // fallback path — see SubmitMeshSourceClassic.
+                SubmitMeshSourceClassic(mesh.m_MeshSource, worldTransform, overrideMaterial, entityID, lodGroup,
+                                        meshHasActiveShadows);
             }
         }
 
@@ -7394,6 +7438,11 @@ namespace OloEngine
         // submission also avoids building the DAG for geometry that cannot render.
         if (Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred)
         {
+            // The master switch (RendererSettings::VirtualGeometryEnabled). When off, this loop
+            // still runs — it falls each entity back to the classic mesh path rather than
+            // skipping it, so the scene looks the same and only the renderer differs.
+            const bool virtualGeometryEnabled = Renderer3D::GetRendererSettings().VirtualGeometryEnabled;
+
             auto virtualView = m_Registry.view<TransformComponent, VirtualMeshComponent>();
             for (auto entity : virtualView)
             {
@@ -7416,11 +7465,25 @@ namespace OloEngine
                                                        ? &m_Registry.get<MaterialComponent>(entity).m_Material
                                                        : nullptr;
 
+                const glm::mat4 worldTransform = GetWorldTransform(entity);
+                const i32 entityID = static_cast<i32>(std::to_underlying(entity));
+
+                // Master switch off (RendererSettings::VirtualGeometryEnabled): draw the very
+                // same MeshSource through the classic mesh path instead of dropping it. Same
+                // geometry, same material-resolution rule, same shadow-caster rule — the only
+                // difference is the renderer. That is what makes the toggle a usable A/B.
+                if (!virtualGeometryEnabled)
+                {
+                    SubmitMeshSourceClassic(meshSource, worldTransform, overrideMaterial, entityID,
+                                            /*lodGroup*/ nullptr,
+                                            meshHasActiveShadows && virtualMesh.m_CastShadows);
+                    continue;
+                }
+
                 bool const castsShadow = virtualMesh.m_CastShadows && meshHasActiveShadows;
                 Renderer3D::SubmitVirtualMesh(virtualMesh.m_MeshSource, meshSource,
-                                              GetWorldTransform(entity), overrideMaterial,
-                                              GetDefaultMaterial(),
-                                              static_cast<i32>(std::to_underlying(entity)),
+                                              worldTransform, overrideMaterial,
+                                              GetDefaultMaterial(), entityID,
                                               virtualMesh.m_ErrorThresholdPixels, castsShadow);
             }
         }

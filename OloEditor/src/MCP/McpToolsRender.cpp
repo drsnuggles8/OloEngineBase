@@ -2242,6 +2242,9 @@ namespace OloEngine::MCP
         {
             const auto& registry = VirtualMeshRegistry::Get();
             Json j;
+            const auto& settings = Renderer3D::GetRendererSettings();
+            j["enabled"] = settings.VirtualGeometryEnabled;
+            j["debugToViewport"] = settings.VirtualDebugToViewport;
             j["debugMode"] = VirtualDebugModeToken(registry.GetDebugMode());
             j["swRasterMode"] = VirtualSwRasterModeToken(registry.GetSwRasterMode());
             j["swRasterThresholdPixels"] = registry.GetSwRasterThresholdPixels();
@@ -2256,6 +2259,8 @@ namespace OloEngine::MCP
             const bool hasSwRasterMode = args.contains("swRasterMode") && args["swRasterMode"].is_string();
             const bool hasThreshold = args.contains("swRasterThresholdPixels") && args["swRasterThresholdPixels"].is_number();
             const bool hasForcePortable = args.contains("forcePortableSwRaster") && args["forcePortableSwRaster"].is_boolean();
+            const bool hasEnabled = args.contains("enabled") && args["enabled"].is_boolean();
+            const bool hasDebugToViewport = args.contains("debugToViewport") && args["debugToViewport"].is_boolean();
 
             VirtualDebugMode debugMode{};
             if (hasDebugMode && !ParseVirtualDebugMode(args["debugMode"].get<std::string>(), debugMode))
@@ -2273,12 +2278,15 @@ namespace OloEngine::MCP
                     return ToolResult::Error("Invalid 'swRasterThresholdPixels': expected a finite number in [0, 4096].");
             }
 
-            const bool anyChange = hasDebugMode || hasSwRasterMode || hasThreshold || hasForcePortable;
+            const bool anyChange =
+                hasDebugMode || hasSwRasterMode || hasThreshold || hasForcePortable || hasEnabled || hasDebugToViewport;
             const bool forcePortable = hasForcePortable && args["forcePortableSwRaster"].get<bool>();
+            const bool enabled = hasEnabled && args["enabled"].get<bool>();
+            const bool debugToViewport = hasDebugToViewport && args["debugToViewport"].get<bool>();
 
             const Json applied = server.MarshalRead(
                 [hasDebugMode, debugMode, hasSwRasterMode, swRasterMode, hasThreshold, threshold,
-                 hasForcePortable, forcePortable]() -> Json
+                 hasForcePortable, forcePortable, hasEnabled, enabled, hasDebugToViewport, debugToViewport]() -> Json
                 {
                     auto& registry = VirtualMeshRegistry::Get();
                     Json previous = VirtualGeometrySettingsJson();
@@ -2290,6 +2298,19 @@ namespace OloEngine::MCP
                         registry.SetSwRasterThresholdPixels(threshold);
                     if (hasForcePortable)
                         registry.SetForcePortableSwRaster(forcePortable);
+
+                    // The master switch and the viewport-overlay toggle live on RendererSettings,
+                    // not the registry — `enabled` changes which SUBMISSION path Scene.cpp takes
+                    // (virtual vs classic), which is a scene-level decision, not a registry one.
+                    if (hasEnabled || hasDebugToViewport)
+                    {
+                        auto& rs = Renderer3D::GetRendererSettings();
+                        if (hasEnabled)
+                            rs.VirtualGeometryEnabled = enabled;
+                        if (hasDebugToViewport)
+                            rs.VirtualDebugToViewport = debugToViewport;
+                        Renderer3D::ApplyRendererSettings();
+                    }
                     return Json{ { "previous", std::move(previous) } };
                 });
 
@@ -3355,10 +3376,17 @@ namespace OloEngine::MCP
                 "safe cluster does, 'disabled' = hardware MDI only) and 'swRasterThresholdPixels' moves "
                 "the auto-mode projected-radius cutoff — together they are the SW-vs-HW parity A/B. "
                 "'forcePortableSwRaster' forces the portable two-pass 2x32 visibility path even on a "
-                "driver with 64-bit atomics. Call with no arguments to read the current state. Virtual "
+                "driver with 64-bit atomics. 'enabled' is the MASTER SWITCH: turning it off draws every "
+                "VirtualMeshComponent through the CLASSIC mesh path instead (same geometry, same "
+                "materials, no cluster LOD), which is the virtual-vs-classic A/B — the scene is "
+                "unchanged and only the renderer differs. 'debugToViewport' composites the active "
+                "debugMode over the lit viewport image instead of only into the capture target. "
+                "Call with no arguments to read the current state. Virtual "
                 "geometry renders on the DEFERRED path only. The change is EPHEMERAL renderer state: "
                 "never saved, restored by a scene reload.";
             tool.InputSchema = Schema::Object()
+                                   .Prop("enabled", Schema::Bool().Desc("Master switch. false = draw every VirtualMeshComponent through the classic mesh path instead (the virtual-vs-classic A/B); the geometry does not disappear."))
+                                   .Prop("debugToViewport", Schema::Bool().Desc("Composite the active debugMode over the lit viewport image, not just into the 'VirtualGeometryDebug' capture target."))
                                    .Prop("debugMode", Schema::String().Enum({ "off", "clusterid", "lod", "overdraw" }).Desc("Per-pixel debug visualization written to the 'VirtualGeometryDebug' capture target. 'off' disables it (no cost)."))
                                    .Prop("swRasterMode", Schema::String().Enum({ "auto", "forcesoftware", "disabled" }).Desc("Software-rasterizer routing: 'auto' (coverage-based, default), 'forcesoftware' (every near-plane-safe cluster), 'disabled' (hardware MDI only)."))
                                    .Prop("swRasterThresholdPixels", Schema::Number().Min(0).Max(4096).Desc("Auto-mode cutoff: a cluster whose projected screen radius is below this many pixels is software-rasterized (default 24)."))
