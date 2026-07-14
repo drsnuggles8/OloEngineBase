@@ -13,11 +13,15 @@
 # The test harness will rewrite this file with fresh numbers from the
 # current run and pass unconditionally while the env var is set.
 #
-# Regression policy (see PerfRegressionTests.cpp):
-#   - Measured >= 2.5x baseline  -> FAIL
-#   - Measured >= 1.5x baseline  -> WARN (ADD_FAILURE; still reported as a
-#                                         failure, but classified as a warn
-#                                         in the message text)
+# Regression policy (see PerfRegressionTests.cpp). Enforcement is
+# OPT-IN: by default both WARN- and FAIL-level regressions are RECORDED
+# (gtest property + perf_history TSV) and logged via GTEST_LOG_(WARNING),
+# but do NOT fail the test — these low-microsecond GPU microbenchmarks
+# flake under machine/GPU contention (issue #324). Set
+# OLOENGINE_PERF_STRICT=1 to turn a regression into an ADD_FAILURE
+# failure on a quiet machine.
+#   - Measured >= 2.5x baseline  -> FAIL-level (fails only when STRICT)
+#   - Measured >= 1.5x baseline  -> WARN-level (fails only when STRICT)
 #   - Faster than baseline       -> PASS, never fail on improvements
 #
 # Metric: minimum of 20 GL_TIME_ELAPSED samples after 5 warmup draws.
@@ -27,6 +31,10 @@
 bloom_downsample_512x512 15360
 bloom_threshold_512x512 5120
 bloom_upsample_512x512 12288
+classic_geometry_frame_1280x720 6445056
 scene_draw_burst_512x512 328704
 tone_map_512x512 9216
+virtual_geometry_frame_1280x720 4628480
+virtual_hwraster_frame_1280x720 1782784
+virtual_swraster_frame_1280x720 2304000
 whole_frame_postprocess_512x512 22528
