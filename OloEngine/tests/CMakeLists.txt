@@ -229,6 +229,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ShaderCompileFailureRecoveryTest.cpp
 		Rendering/PropertyTests/AssetPreviewRendererTest.cpp
 		Rendering/PropertyTests/RendererAttachedTest.cpp
+		Rendering/RendererMemoryTrackerTest.cpp
 		Rendering/RendererShutdownTest.cpp
 		Rendering/RenderPathDriftTest.cpp
 		Rendering/VirtualMeshRegistryRejectionTest.cpp

@@ -55,6 +55,13 @@ namespace OloEngine
 
         m_LastUpdateTime = std::chrono::duration<f64>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 
+        // Clear the shutdown latch. Shutdown() sets it and nothing used to clear it, so after
+        // the first Renderer::Shutdown() the tracker was permanently half-dead: TrackDeallocation
+        // early-returns on m_IsShutdown while TrackAllocation keeps recording, which turns EVERY
+        // resource type into a phantom leaker across an Init/Shutdown/Init cycle (the test binary
+        // and the editor's project-reload both do exactly that).
+        m_IsShutdown = false;
+
         // Set initialization flag
         m_IsInitialized.store(true);
 
@@ -111,7 +118,10 @@ namespace OloEngine
         m_HistoryIndex = 0;
         m_LastUpdateTime = DebugUtils::GetCurrentTimeSeconds();
 
-        // Reset initialization flag so Initialize() can be called again
+        // Reset initialization flag so Initialize() can be called again, and clear the shutdown
+        // latch with it — a Reset() that left the tracker refusing every deallocation would be
+        // worse than useless (see Initialize()).
+        m_IsShutdown = false;
         m_IsInitialized.store(false);
 
         OLO_CORE_INFO("Renderer Memory Tracker reset");
@@ -165,10 +175,28 @@ namespace OloEngine
         info.m_Timestamp = DebugUtils::GetCurrentTimeSeconds();
         info.m_IsGPU = isGPU;
 
-        // Check for double allocation
-        if (m_Allocations.find(address) != m_Allocations.end())
+        // A live entry already sitting at this address means the previous owner was destroyed
+        // WITHOUT untracking (the map is keyed on the CPU heap address, so the allocator
+        // handing the block straight back to a same-size-class object is the normal case, not
+        // a rare one). Retire the corpse's size/count before overwriting it: the old code just
+        // clobbered the entry, so its bytes were added again and never subtracted, and the
+        // per-type totals in the Statistics panel drifted upward for the rest of the session.
+        //
+        // The warning names the leaker's OWN file:line — that is the constructor whose
+        // destructor is missing its OLO_TRACK_DEALLOC, which is the actual thing to go fix.
+        if (const auto stale = m_Allocations.find(address); stale != m_Allocations.end())
         {
-            OLO_CORE_WARN("Double allocation detected at address {0}", address);
+            const AllocationInfo& old = stale->second;
+            OLO_CORE_WARN("Double allocation at address {0}: '{1}' ({2} bytes, tracked at {3}:{4}) was never "
+                          "untracked before '{5}' reused the address — its destructor is missing OLO_TRACK_DEALLOC",
+                          address, old.m_Name, old.m_Size, old.m_File, old.m_Line, name);
+
+            const sizet oldType = static_cast<sizet>(std::to_underlying(old.m_Type));
+            m_TypeUsage[oldType] -= std::min(m_TypeUsage[oldType], old.m_Size);
+            if (m_TypeCounts[oldType] > 0)
+            {
+                --m_TypeCounts[oldType];
+            }
         }
 
         m_Allocations[address] = info;
