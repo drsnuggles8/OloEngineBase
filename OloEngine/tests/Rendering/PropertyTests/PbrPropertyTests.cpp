@@ -603,6 +603,116 @@ namespace OloEngine::Tests
     }
 
     // =========================================================================
+    // UV-DEGENERATE triangle: getNormalFromMap() must never return NaN.
+    //
+    // A triangle whose three corners carry the SAME texcoord has a constant
+    // interpolated UV, so dFdx(texCoords) == dFdy(texCoords) == 0 and the
+    // derivative-based tangent T = normalize(Q1*st2.t - Q2*st1.t) degenerates
+    // to normalize(vec3(0)) = NaN. That NaN propagates through the TBN into
+    // the returned world normal, and — in the Deferred path — straight into
+    // the G-Buffer, where the lighting pass turns it into a blown-out white
+    // pixel.
+    //
+    // This is not a synthetic worry: Sponza's source mesh contains 314 such
+    // triangles (zero UV area, non-zero 3D area), and the Nanite-style cluster
+    // LOD DAG (issue #629) carries them into LOD 0 verbatim and produces more
+    // while simplifying — which is what drew a white lacework along every leaf
+    // silhouette of the potted vines. 100% of those white pixels had a NaN
+    // G-Buffer normal, measured over MCP.
+    //
+    // Contract: with no usable tangent frame there is nothing to rotate the
+    // tangent-space normal by, so the geometric normal must be returned
+    // unchanged. Finiteness is the load-bearing half; the exact fallback value
+    // is asserted too so a "return vec3(0)" style fix can't pass.
+    // =========================================================================
+    TEST(PbrNormalMapTest, DegenerateUvGradientFallsBackToGeometricNormal)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kSize = 64;
+
+        // A NON-flat tangent normal (0.75, 0.25, ...) so a broken fallback that
+        // silently keeps rotating by a garbage TBN cannot coincidentally land on
+        // the expected value.
+        const std::vector<u8> texel = []
+        {
+            std::vector<u8> px(kSize * kSize * 4);
+            for (std::size_t i = 0; i < static_cast<std::size_t>(kSize) * kSize; ++i)
+            {
+                px[i * 4 + 0] = 192;
+                px[i * 4 + 1] = 64;
+                px[i * 4 + 2] = 255;
+                px[i * 4 + 3] = 255;
+            }
+            return px;
+        }();
+
+        struct TextureGuard
+        {
+            GLuint m_Id = 0;
+            ~TextureGuard()
+            {
+                if (m_Id != 0)
+                    ::glDeleteTextures(1, &m_Id);
+            }
+        } normalTexGuard;
+        ::glCreateTextures(GL_TEXTURE_2D, 1, &normalTexGuard.m_Id);
+        const GLuint normalTex = normalTexGuard.m_Id;
+        ::glTextureStorage2D(normalTex, 1, GL_RGBA8, kSize, kSize);
+        ::glTextureSubImage2D(normalTex, 0, 0, 0, kSize, kSize, GL_RGBA, GL_UNSIGNED_BYTE, texel.data());
+        ::glTextureParameteri(normalTex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        ::glTextureParameteri(normalTex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        FramebufferSpecification spec{};
+        spec.Width = kSize;
+        spec.Height = kSize;
+        spec.Attachments = { FramebufferTextureFormat::RGBA16F };
+        Ref<Framebuffer> fb = Framebuffer::Create(spec);
+        Ref<Shader> shader = Shader::Create("assets/shaders/tests/PbrDegenerateUvProbe.glsl");
+        ASSERT_TRUE(shader) << "PbrDegenerateUvProbe.glsl failed to compile";
+        FullscreenPass pass;
+
+        std::vector<f32> pixels;
+        {
+            GLStateGuard stateGuard("PbrNormalMapTest::DegenerateUv", GLStateGuard::Policy::Restore);
+            fb->Bind();
+            ::glViewport(0, 0, kSize, kSize);
+            ::glDisable(GL_BLEND);
+            ::glDisable(GL_DEPTH_TEST);
+            ::glDisable(GL_CULL_FACE);
+            shader->Bind();
+            pass.Draw(normalTex);
+            ::glFinish();
+            fb->Unbind();
+
+            ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(0), kSize, kSize, pixels);
+        }
+
+        // Encoded geometric normal (0,0,1) -> (0.5, 0.5, 1.0).
+        constexpr f32 kTol = 5e-3f;
+        u32 nonFinite = 0;
+        for (u32 y = 4; y < kSize - 4; ++y)
+        {
+            for (u32 x = 4; x < kSize - 4; ++x)
+            {
+                const std::size_t idx = (static_cast<std::size_t>(y) * kSize + x) * 4;
+                if (!std::isfinite(pixels[idx + 0]) || !std::isfinite(pixels[idx + 1]) ||
+                    !std::isfinite(pixels[idx + 2]))
+                {
+                    ++nonFinite;
+                    continue;
+                }
+                EXPECT_NEAR(pixels[idx + 0], 0.5f, kTol) << "R at (" << x << "," << y << ")";
+                EXPECT_NEAR(pixels[idx + 1], 0.5f, kTol) << "G at (" << x << "," << y << ")";
+                EXPECT_NEAR(pixels[idx + 2], 1.0f, kTol) << "B at (" << x << "," << y << ")";
+            }
+        }
+        EXPECT_EQ(nonFinite, 0u)
+            << nonFinite << " pixels got a NaN/Inf normal from a UV-degenerate triangle "
+            << "(normalize(vec3(0)) in getNormalFromMap's tangent construction)";
+    }
+
+    // =========================================================================
     // Low roughness concentrates the specular highlight.
     //
     // A physically-meaningful GGX NDF must produce a narrower, taller peak

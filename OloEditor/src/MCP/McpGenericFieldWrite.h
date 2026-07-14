@@ -16,22 +16,37 @@
 // the MCP test binary (which deliberately does NOT link McpTools.cpp) exercises
 // the real schema + parse + coerce + apply code, not a re-implementation.
 //
-// Why a hand-built field registry (and not OloHeaderTool codegen)
-//   C++ has no runtime reflection, and `OLO_PROPERTY` is a pure compile-time
-//   marker consumed by OloHeaderTool to emit *static* C#/Lua glue — there is no
-//   runtime (component-name, field-name) -> typed-setter table to borrow. So the
-//   registry below is type-safe codegen-free reflection: each entry pairs a script
-//   facing name with a real pointer-to-member, and a templated closure does the
-//   JSON->field coercion, the no-op detection, and the undoable command build. The
-//   field NAMES match the m_-stripped keys an agent already sees in
-//   `olo_scene_get_entity`'s YAML (and the OLO_PROPERTY convention), so the write
-//   contract lines up with the read contract.
+// The field registry is GENERATED (issue #607)
+//   C++ has no runtime reflection, so each entry still pairs a script-facing name
+//   with a real pointer-to-member and a templated closure that does the JSON->field
+//   coercion, the range clamp, the no-op detection, and the undoable command build.
+//   What changed is where the list comes from: BuildRegistry() now #includes
+//   MCP/Generated/McpFieldRegistry.Generated.inl, emitted by OloHeaderTool from the
+//   SAME full data-member scan that drives the scene serializer. The original
+//   hand-written list covered 9 components out of ~100 and quietly rotted as
+//   components were added (VirtualMeshComponent, MeshComponent, the physics bodies,
+//   … were all unreachable), which is what motivated the codegen.
 //
-//   Adding a field is one `MakeField<Component>(...)` line in BuildRegistry(); a
-//   future slice could repopulate the same registry from an OloHeaderTool-generated
-//   list once codegen for it exists. Until then this is a curated set, not every
-//   field — by design, not omission (an agent discovers exactly what's writable via
-//   `olo_entity_list_fields`).
+//   The generator emits one entry per PUBLIC, JSON-coercible member of every
+//   `struct *Component`, minus its runtime-only exclusion set (the *StateComponent
+//   family, UIResolvedRectComponent, WorldTransformComponent, IDComponent) and minus
+//   any field marked OLO_SERIALIZE(Skip) or typed with no scalar JSON shape (u64 /
+//   ivec / quat / mat / nested struct / Ref<T> / any container). The field NAMES are
+//   the m_-stripped keys an agent already sees in `olo_scene_get_entity`'s YAML, so
+//   the write contract lines up with the read contract.
+//
+//   RANGES: a field whose scene-serializer load path clamps or rejects out-of-range
+//   values carries the same bounds here (from its OLO_SERIALIZE(Clamp, Min=…, Max=…)
+//   annotation, or from the generator's kMcpFieldClamps table for a component the
+//   serializer keeps hand-written). A write outside the range is CLAMPED, not
+//   silently accepted, so MCP can never put a component into a state a scene load
+//   could not produce — and the response says `clamped: true` with the original
+//   `requestedValue`.
+//
+//   HONESTY: the write result echoes the value READ BACK from the live component
+//   after the command ran (not the value we intended to write) plus an explicit
+//   `changed` flag, so a caller can verify a write actually took effect instead of
+//   trusting that the call returned successfully.
 
 #include "MCP/McpSchemaBuilder.h"
 #include "UndoRedo/ComponentCommands.h"
@@ -260,6 +275,63 @@ namespace OloEngine::MCP::GenericFieldWrite
         }
     }
 
+    // ---- field ranges (mirroring the scene serializer's load-time clamps) -----
+
+    // An inclusive [Min, Max] range on a numeric field — either bound may be absent
+    // (a one-sided floor / ceiling). Bounds travel as `double`: every rangeable field
+    // type (f32 / i32 / u32 / small int / enum underlying / a float vector component)
+    // is exactly representable in a double, so the clamp is lossless.
+    struct FieldRange
+    {
+        std::optional<double> Min;
+        std::optional<double> Max;
+
+        [[nodiscard]] bool IsEmpty() const
+        {
+            return !Min && !Max;
+        }
+    };
+
+    [[nodiscard]] inline double ApplyBounds(double v, const FieldRange& range)
+    {
+        if (range.Min && v < *range.Min)
+            v = *range.Min;
+        if (range.Max && v > *range.Max)
+            v = *range.Max;
+        return v;
+    }
+
+    // Range the coerced value in place. A glm vector clamps component-wise (the same
+    // semantics as the serializer's OLO_SERIALIZE(Clamp) on a glm::vec3, which emits
+    // a glm::clamp). bool / string / handle have no meaningful range — the generator
+    // never emits one for them, and this is a no-op if one ever appeared.
+    template<typename F>
+    inline void RangeField(F& value, const FieldRange& range)
+    {
+        if (range.IsEmpty())
+            return;
+
+        if constexpr (std::is_same_v<F, bool> || std::is_same_v<F, std::string> || std::is_same_v<F, UUID>)
+        {
+            // no ordering contract — intentionally unclamped
+        }
+        else if constexpr (std::is_enum_v<F>)
+        {
+            using U = std::underlying_type_t<F>;
+            const double ranged = ApplyBounds(static_cast<double>(static_cast<U>(value)), range);
+            value = static_cast<F>(static_cast<U>(ranged));
+        }
+        else if constexpr (std::is_same_v<F, glm::vec2> || std::is_same_v<F, glm::vec3> || std::is_same_v<F, glm::vec4>)
+        {
+            for (glm::length_t i = 0; i < static_cast<glm::length_t>(F::length()); ++i)
+                value[i] = static_cast<float>(ApplyBounds(static_cast<double>(value[i]), range));
+        }
+        else if constexpr (std::is_arithmetic_v<F>)
+        {
+            value = static_cast<F>(ApplyBounds(static_cast<double>(value), range));
+        }
+    }
+
     // ---- the field registry --------------------------------------------------
 
     // Outcome of applying a field write. On success `Data` is the structured result
@@ -280,27 +352,33 @@ namespace OloEngine::MCP::GenericFieldWrite
         std::string Component;
         std::string Field;
         std::string Type; // FieldTypeName<F>()
+        FieldRange Range; // empty unless the serializer enforces a load-time range
 
-        // Coerce `value`, no-op-detect, and (when changed) push a single undoable
-        // ComponentChangeCommand<C>. The entity is already resolved + known to exist.
+        // Coerce `value`, range-clamp it, no-op-detect, and (when changed) push a
+        // single undoable ComponentChangeCommand<C>. The entity is already resolved +
+        // known to exist. The reported `value` is READ BACK from the live component
+        // after the command ran, never the value we merely intended to write.
         std::function<ApplyResult(const Ref<Scene>&, CommandHistory&, Entity, u64, const Json&)> Apply;
         // The field's current value as JSON, or nullopt when the entity lacks C.
         std::function<std::optional<Json>(Entity)> Read;
     };
 
     // Build one registry entry from a component type + a script-facing field name +
-    // a pointer-to-member. The field type F is deduced, which selects the coercion /
-    // serialization / change-detection specializations above.
+    // a pointer-to-member (+ an optional load-time range). The field type F is
+    // deduced, which selects the coercion / serialization / change-detection /
+    // clamping specializations above.
     template<typename C, typename F>
-    [[nodiscard]] inline FieldEntry MakeField(std::string component, std::string field, F C::* member)
+    [[nodiscard]] inline FieldEntry MakeField(std::string component, std::string field, F C::* member,
+                                              FieldRange range = {})
     {
         FieldEntry entry;
         entry.Component = component;
         entry.Field = field;
         entry.Type = std::string(FieldTypeName<F>());
+        entry.Range = range;
 
-        entry.Apply = [member, component, field](const Ref<Scene>& scene, CommandHistory& history,
-                                                 Entity entity, u64 uuid, const Json& value) -> ApplyResult
+        entry.Apply = [member, component, field, range](const Ref<Scene>& scene, CommandHistory& history,
+                                                        Entity entity, u64 uuid, const Json& value) -> ApplyResult
         {
             ApplyResult result;
             if (!entity.HasComponent<C>())
@@ -317,16 +395,30 @@ namespace OloEngine::MCP::GenericFieldWrite
                 return result;
             }
 
-            const C& current = entity.GetComponent<C>();
-            const Json previousValue = FieldToJson<F>(current.*member);
-            const bool changed = FieldChanged<F>(current.*member, coerced);
-            if (changed)
+            // Range the request the same way a scene load would, and remember whether
+            // that actually moved the value so the caller is told (never silently).
+            const F requested = coerced;
+            RangeField<F>(coerced, range);
+            const bool clamped = FieldChanged<F>(requested, coerced);
+
+            // Copy the previous value out BEFORE the command runs: the command
+            // replaces the component, so a reference into it would be stale after.
+            const F previous = entity.GetComponent<C>().*member;
+            const bool willChange = FieldChanged<F>(previous, coerced);
+            if (willChange)
             {
+                const C& current = entity.GetComponent<C>();
                 C newData = current;
                 newData.*member = coerced;
                 history.Execute(std::make_unique<ComponentChangeCommand<C>>(
                     scene, UUID(uuid), current, newData, "Set " + component + "." + field));
             }
+
+            // Read the value BACK OUT of the live component — the honest answer to
+            // "did the write take effect?". If the command silently failed to apply,
+            // `value` shows the old value and `changed` is false.
+            const F applied = entity.GetComponent<C>().*member;
+            const bool changed = FieldChanged<F>(previous, applied);
 
             result.Ok = true;
             result.Data = Json{
@@ -334,13 +426,19 @@ namespace OloEngine::MCP::GenericFieldWrite
                 { "component", component },
                 { "field", field },
                 { "type", std::string(FieldTypeName<F>()) },
-                { "previousValue", previousValue },
-                { "value", FieldToJson<F>(coerced) },
+                { "previousValue", FieldToJson<F>(previous) },
+                // Read back from the component AFTER the write, not the coerced input.
+                { "value", FieldToJson<F>(applied) },
                 { "changed", changed },
                 // `undoable` reflects whether a command was actually pushed (a no-op
-                // change pushes nothing): a single Ctrl-Z reverts only when changed.
+                // write pushes nothing): a single Ctrl-Z reverts only when changed.
                 { "undoable", changed },
+                // True when the requested value was outside the field's serializer-
+                // enforced range and was clamped into it.
+                { "clamped", clamped },
             };
+            if (clamped)
+                result.Data["requestedValue"] = FieldToJson<F>(requested);
             return result;
         };
 
@@ -354,65 +452,39 @@ namespace OloEngine::MCP::GenericFieldWrite
         return entry;
     }
 
-    // The curated set of writable fields. Field names are the m_-stripped keys an
+    // The writable-field registry, GENERATED by OloHeaderTool (issue #607) from the
+    // same component data-member scan that drives the scene serializer — see the
+    // header comment at the top of this file. Field names are the m_-stripped keys an
     // agent already sees in olo_scene_get_entity's YAML; the component name is the
-    // struct's name (also its serializer key), stringized from the type by the
-    // helper macro so the two can't drift. Extend by adding an OLO_GFW_FIELD line
-    // (and confirming the member exists in Components.h).
+    // struct's name (also its serializer key), stringized from the type by the helper
+    // macro so the two can't drift.
     //
-    // OLO_GFW_FIELD(Comp, "FieldName", Member) registers Comp::Member under the
-    // component name "Comp" and the script-facing field name "FieldName". Scoped to
-    // this function and #undef'd at the end so it never leaks out of the header.
+    // The generated .inl is a flat list of:
+    //   registry.push_back(OLO_GFW_FIELD(Comp, "FieldName", Member));
+    //   registry.push_back(OLO_GFW_FIELD_RANGE(Comp, "FieldName", Member, min, max));
+    // where a bound is OLO_GFW_BOUND(expr) or OLO_GFW_NO_BOUND. The macros are scoped
+    // to this function and #undef'd below so they never leak out of the header.
+    //
+    // To make a new component/field writable: give it a public data member of a
+    // supported type (bool / int / uint / small int / float / glm::vec2|3|4 / enum /
+    // std::string / AssetHandle) and rebuild GenerateBindings. To keep a runtime-only
+    // field out, mark it OLO_SERIALIZE(Skip); to keep a whole runtime-only component
+    // out, add it to kComponentsNotMcpEditable in tools/OloHeaderTool/main.cpp.
 #define OLO_GFW_FIELD(Comp, FieldName, Member) MakeField<Comp>(#Comp, FieldName, &Comp::Member)
+#define OLO_GFW_FIELD_RANGE(Comp, FieldName, Member, MinBound, MaxBound) \
+    MakeField<Comp>(#Comp, FieldName, &Comp::Member, FieldRange{ MinBound, MaxBound })
+#define OLO_GFW_BOUND(Expr) std::optional<double>(static_cast<double>(Expr))
+#define OLO_GFW_NO_BOUND std::optional<double>()
     [[nodiscard]] inline std::vector<FieldEntry> BuildRegistry()
     {
         std::vector<FieldEntry> registry;
-
-        // Transform (rotation is a derived euler/quat pair behind setters, not a
-        // plain member, so it is intentionally not here — translation + scale are).
-        registry.push_back(OLO_GFW_FIELD(TransformComponent, "Translation", Translation));
-        registry.push_back(OLO_GFW_FIELD(TransformComponent, "Scale", Scale));
-
-        // Identity / labels.
-        registry.push_back(OLO_GFW_FIELD(TagComponent, "Tag", Tag));
-
-        // 2D renderers.
-        registry.push_back(OLO_GFW_FIELD(SpriteRendererComponent, "Color", Color));
-        registry.push_back(OLO_GFW_FIELD(SpriteRendererComponent, "TilingFactor", TilingFactor));
-        registry.push_back(OLO_GFW_FIELD(CircleRendererComponent, "Color", Color));
-        registry.push_back(OLO_GFW_FIELD(CircleRendererComponent, "Thickness", Thickness));
-        registry.push_back(OLO_GFW_FIELD(CircleRendererComponent, "Fade", Fade));
-
-        // Camera flags (projection/FOV live behind SceneCamera setters).
-        registry.push_back(OLO_GFW_FIELD(CameraComponent, "Primary", Primary));
-        registry.push_back(OLO_GFW_FIELD(CameraComponent, "FixedAspectRatio", FixedAspectRatio));
-
-        // Lights — the highest-value iteration knobs for a rendering agent.
-        registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "Color", m_Color));
-        registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "Intensity", m_Intensity));
-        registry.push_back(OLO_GFW_FIELD(DirectionalLightComponent, "CastShadows", m_CastShadows));
-
-        registry.push_back(OLO_GFW_FIELD(PointLightComponent, "Color", m_Color));
-        registry.push_back(OLO_GFW_FIELD(PointLightComponent, "Intensity", m_Intensity));
-        registry.push_back(OLO_GFW_FIELD(PointLightComponent, "Range", m_Range));
-        registry.push_back(OLO_GFW_FIELD(PointLightComponent, "CastShadows", m_CastShadows));
-
-        registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "Color", m_Color));
-        registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "Intensity", m_Intensity));
-        registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "Range", m_Range));
-        registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "InnerCutoff", m_InnerCutoff));
-        registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "OuterCutoff", m_OuterCutoff));
-        registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "CastShadows", m_CastShadows));
-
-        registry.push_back(OLO_GFW_FIELD(SphereAreaLightComponent, "Color", m_Color));
-        registry.push_back(OLO_GFW_FIELD(SphereAreaLightComponent, "Intensity", m_Intensity));
-        registry.push_back(OLO_GFW_FIELD(SphereAreaLightComponent, "Radius", m_Radius));
-        registry.push_back(OLO_GFW_FIELD(SphereAreaLightComponent, "Range", m_Range));
-        registry.push_back(OLO_GFW_FIELD(SphereAreaLightComponent, "CastShadows", m_CastShadows));
-
+#include "MCP/Generated/McpFieldRegistry.Generated.inl"
         return registry;
     }
 #undef OLO_GFW_FIELD
+#undef OLO_GFW_FIELD_RANGE
+#undef OLO_GFW_BOUND
+#undef OLO_GFW_NO_BOUND
 
     // The process-wide registry, built once. `inline` => one shared instance across
     // every TU that includes this header (McpTools.cpp + the test binary).
@@ -634,9 +706,16 @@ namespace OloEngine::MCP::GenericFieldWrite
                 const std::optional<Json> current = entry.Read(entity);
                 if (!current) // entity lacks this component
                     break;
-                fields.push_back(Json{ { "field", entry.Field },
-                                       { "type", entry.Type },
-                                       { "value", *current } });
+                Json field = Json{ { "field", entry.Field },
+                                   { "type", entry.Type },
+                                   { "value", *current } };
+                // Surface the serializer-enforced range so an agent knows the valid
+                // interval BEFORE writing (a write outside it is clamped, not refused).
+                if (entry.Range.Min)
+                    field["min"] = *entry.Range.Min;
+                if (entry.Range.Max)
+                    field["max"] = *entry.Range.Max;
+                fields.push_back(std::move(field));
             }
             if (!fields.empty())
                 components.push_back(Json{ { "component", componentName }, { "fields", std::move(fields) } });

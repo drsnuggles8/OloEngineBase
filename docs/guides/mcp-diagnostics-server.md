@@ -173,6 +173,8 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_scene_play` / `olo_scene_stop` | **(consented write)** enter / leave Play mode — the same as the editor's Play/Stop buttons, so an agent can verify anything that only runs in Play (physics, cloth, scripts). Transient + fully reversible (stop restores the authored scene); idempotent (`changed:false` when already in that state); `olo_scene_summary` reports `isPlaying` to confirm. Gated behind **Agent writes** |
 | `olo_scene_list_entities` | paginated entity list (id, name, parent, child count) + name filter |
 | `olo_scene_get_entity` | one entity's full component data (YAML) by UUID |
+| `olo_entity_list_fields` | the writable (component, field) pairs of one entity with each field's type, current value, and — for a range-validated field — its `min`/`max`. The read-only discovery half of `olo_entity_set_field`; optional `component` filter. See [Component field writes](#component-field-writes-olo_entity_set_field) |
+| `olo_entity_set_field` | **(consented write)** set one component field by (`component`, `field`, `value`) — undoable (a single Ctrl-Z), UUID-keyed. The registry is **generated from every component definition** (issue #607), so it spans the whole ECS surface (meshes/materials/VirtualMesh, lights, fog/probes, physics bodies + colliders, text/UI, nav, water, terrain, …), not a curated handful. Out-of-range values are **clamped** to the serializer's own range (`clamped:true` + `requestedValue`); the result echoes `value` **read back from the component** plus `changed:true/false`. Gated behind **Agent writes**. See [Component field writes](#component-field-writes-olo_entity_set_field) |
 | `olo_perf_snapshot` | fps, frame/CPU/GPU time (real whole-frame GPU timer), `gpuWaitMs` (CPU blocked on the GPU fence — the direct GPU-bound signal), draw calls, instancing, triangles, plus `renderWidth`/`renderHeight` — the ACTUAL SceneColor render resolution; cross-check it against any `olo_viewport_set_size` override before trusting timings |
 | `olo_perf_bottlenecks` | CPU/GPU/Memory/IO bottleneck + confidence + recommendations (uses real cpu/gpu/gpuWait numbers) |
 | `olo_perf_frame_history` | downsampled recent-frame time series |
@@ -254,6 +256,71 @@ Threading: the write handler runs on a cpp-httplib worker thread and blocks ther
 while the main (UI) thread renders the modal and records your decision — the same
 main-thread-marshal discipline the read tools use, so the editor's render loop never
 blocks on an agent.
+
+### Component field writes (`olo_entity_set_field`)
+
+`olo_entity_set_field` mutates one component field on one entity, through the
+editor's undo stack (`ComponentChangeCommand<T>`, UUID-keyed — a single Ctrl-Z).
+`olo_entity_list_fields` is its read-only discovery half.
+
+**The registry is generated, not curated (issue #607).** It used to be a
+hand-written list of nine components, so most of the engine — `VirtualMeshComponent`,
+`MeshComponent`, the physics bodies, `TextComponent`, the fog/probe volumes — was
+simply unwritable, and a live debugging session had to fall back to hand-editing
+scene YAML and reloading. OloHeaderTool now emits the registry
+(`OloEditor/src/MCP/Generated/McpFieldRegistry.Generated.inl`) from the **same
+component data-member scan that drives the scene serializer**, so a new component is
+MCP-writable the moment it compiles — no touch-point to forget.
+
+What is writable:
+
+- **Every public data member** of every `struct *Component` whose type has a scalar
+  JSON shape: `bool`, `int`/`uint`/small ints, `float`, `glm::vec2|3|4`, an `enum`
+  (as its integer value), `std::string`, and `AssetHandle` (a decimal-digit **string**
+  — a u64 exceeds JSON's safe-integer range).
+- **Not** writable, by design: per-tick runtime state (the `*StateComponent` family,
+  `AnimationStateComponent`, `UIResolvedRectComponent`, `WorldTransformComponent`),
+  entity identity (`IDComponent` — its UUID is the addressing key), any field marked
+  `OLO_SERIALIZE(Skip)` (e.g. `NavAgentComponent`'s pathfinder state), any non-public
+  member (`TransformComponent::Rotation` — a derived euler/quat pair behind setters),
+  and any field with no scalar JSON shape (a `Ref<T>`, a nested struct, a container,
+  a `glm::quat`/`mat4`/`ivec*`). A component whose members are *all* of that kind
+  (e.g. `ParticleSystemComponent`, `AudioSourceComponent`, whose authored parameters
+  live inside a nested non-POD object) therefore exposes **no** writable fields yet —
+  addressing sub-objects is a follow-up.
+
+**Ranges are enforced, and a clamp is reported.** A field whose scene-load path
+clamps or rejects out-of-range values carries the same bounds here — from its
+`OLO_SERIALIZE(Clamp, Min=…, Max=…)` annotation, or (for a component whose serializer
+is hand-written) from the generator's `kMcpFieldClamps` table. So MCP can never put a
+component into a state a scene load could not produce. Bounds are visible up front in
+`olo_entity_list_fields` (`min`/`max` per field). *Known gap:* a hand-written
+serializer's strict `> 0` guards (e.g. `LightProbeVolumeComponent::Spacing`,
+`ReflectionProbeComponent::InfluenceRadius`) are **not** approximated with an invented
+epsilon and stay unclamped here; the fix is to migrate those hand-written clamps onto
+`OLO_SERIALIZE(Clamp, …)`, after which MCP inherits them for free.
+
+**The response is verifiable — do not trust "the call returned".** `value` is read
+back **out of the live component after the write**, not echoed from the input, and
+`changed` says whether anything actually moved:
+
+```jsonc
+// olo_entity_set_field { "entity": "12345…", "component": "VirtualMeshComponent",
+//                        "field": "ErrorThresholdPixels", "value": 1000 }
+{ "entity": "12345…", "component": "VirtualMeshComponent", "field": "ErrorThresholdPixels",
+  "type": "float", "previousValue": 1.0,
+  "value": 64.0,             // ← READ BACK from the component; the clamped result
+  "requestedValue": 1000.0,  // ← what you asked for
+  "clamped": true,           // ← it was out of range
+  "changed": true, "undoable": true }
+
+// A no-op write says so instead of looking like a success:
+{ …, "value": 2.0, "changed": false, "undoable": false, "clamped": false }
+```
+
+An unknown component or field is a **tool error** that lists the valid alternatives
+(`Editable components: …` / `Editable fields: …`), so a typo self-corrects in one
+round-trip rather than looking like a write that quietly did nothing.
 
 ### Toolsets & on-demand tool discovery (`tools/search`)
 

@@ -281,8 +281,37 @@ vec3 getNormalFromMap(sampler2D normalMap, vec2 texCoords, vec3 worldPos, vec3 n
     vec2 st2 = dFdy(texCoords);
 
     vec3 N = normalize(normal);
-    vec3 T = normalize(Q1 * st2.t - Q2 * st1.t);
-    vec3 B = -normalize(cross(N, T));
+
+    // A UV-DEGENERATE triangle — one whose corners share a texcoord, so the
+    // interpolated UV is constant and both st derivatives are zero — makes the
+    // derivative tangent collapse to the zero vector. normalize(vec3(0)) is NaN,
+    // and that NaN poisons the TBN, the returned normal, the G-Buffer it is
+    // written to, and finally the deferred lighting, which resolves it as a
+    // blown-out white pixel. Real assets have these: Sponza's mesh ships 314 of
+    // them (zero UV area, non-zero 3D area), and mesh simplification — the
+    // Nanite-style cluster LOD DAG (issue #629) — produces more, which is what
+    // drew a white lacework along every leaf silhouette of the potted vines.
+    //
+    // With no UV gradient there is no tangent frame to rotate the tangent-space
+    // normal by, so the only meaningful answer is the geometric normal. Same for
+    // a tangent that comes out parallel to N (the cross product then collapses).
+    // Guard with `!(x > eps)` rather than `x < eps` so a NaN derivative — the
+    // other way this math can go bad — also takes the fallback.
+    // Pinned by PbrNormalMapTest.DegenerateUvGradientFallsBackToGeometricNormal.
+    const float kDegenerateEpsilon = 1e-20;
+
+    vec3 tRaw = Q1 * st2.t - Q2 * st1.t;
+    float tLenSq = dot(tRaw, tRaw);
+    if (!(tLenSq > kDegenerateEpsilon))
+        return N;
+
+    vec3 T = tRaw * inversesqrt(tLenSq);
+    vec3 bRaw = cross(N, T);
+    float bLenSq = dot(bRaw, bRaw);
+    if (!(bLenSq > kDegenerateEpsilon))
+        return N;
+
+    vec3 B = -bRaw * inversesqrt(bLenSq);
     mat3 TBN = mat3(T, B, N);
 
     return normalize(TBN * tangentNormal);

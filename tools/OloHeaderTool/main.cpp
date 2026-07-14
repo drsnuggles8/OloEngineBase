@@ -3270,6 +3270,215 @@ static void EmitSceneBinaryCoveredIds(std::ostream& out, const std::map<std::str
     }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// MCP generic-field-write registry codegen (issue #607)
+//
+// The editor's MCP diagnostics server exposes `olo_entity_set_field`, an
+// undoable, UUID-keyed write over a (component, field) -> typed-setter registry
+// (OloEditor/src/MCP/McpGenericFieldWrite.h). That registry used to be a
+// hand-written list of 9 components — exactly the sort of hand-maintained
+// touch-point that silently rots as components are added. It is now generated
+// from the SAME full data-member scan (CollectComponentFields) that drives the
+// scene serializer, so every component whose fields are practically editable is
+// reachable from MCP the moment it compiles.
+//
+// The parser already does the hard, fail-safe part for us:
+//   * a NON-PUBLIC member is never collected (it only marks the component
+//     non-trivial), so the generated `&Comp::Member` always compiles;
+//   * an OLO_SERIALIZE(Skip) member (runtime-only state) is dropped entirely;
+//   * an unrecognised / non-trivial member type is skipped.
+// Crucially, `ComponentSerInfo::fields` is populated even for a NON-trivial
+// component — `trivial` only says "every member was recognised". So a component
+// the scene serializer keeps hand-written (Rigidbody3DComponent, MeshComponent,
+// …) still contributes its recognised public fields here, which is exactly what
+// a debugging agent reaches for.
+// ════════════════════════════════════════════════════════════════════════════
+
+// Components deliberately NOT exposed to `olo_entity_set_field`: per-tick
+// runtime-derived state that is recomputed every frame (writing it from MCP is
+// meaningless at best, corrupting at worst) and entity identity (the UUID is the
+// addressing key — rewriting it would break the very handle used to address the
+// entity). This mirrors kComponentsNotInTuple minus TagComponent, which IS a
+// legitimate editable label. Guarded by McpFieldRegistryTest.
+static const std::set<std::string> kComponentsNotMcpEditable = {
+    "IDComponent",
+    "WorldTransformComponent",
+    // AnimationStateComponent is in the scene-copy tuple and IS serialized, but every
+    // field is playback state the animation system rewrites each tick (current time,
+    // blend factor, clip index): an MCP write is overwritten on the next frame at best
+    // and desyncs the blend at worst. Drive animation through the graph/state machine,
+    // not by poking this.
+    "AnimationStateComponent",
+    "UIResolvedRectComponent",
+    "DialogueStateComponent",
+    "SpringBoneStateComponent",
+    "NoiseAnimationStateComponent",
+    "RetargetingStateComponent",
+    "FootIKStateComponent",
+    "LocomotionStateComponent",
+};
+
+// Ranges the SceneSerializer's HAND-WRITTEN deserialize enforces but which are
+// not expressible as an OLO_SERIALIZE(Clamp) annotation yet (the component is in
+// kComponentsCustomSerialize, so its annotations would be ignored by the
+// serializer codegen — the range lives in the hand-written block instead). An MCP
+// write that bypassed these would put the component into a state a scene load
+// could never produce, so they are re-declared here, keyed "Component.Field".
+//
+// ONLY inclusive numeric bounds that are literally present in the hand-written
+// deserialize are listed — each entry is traceable to a line in
+// SceneSerializer.cpp::DeserializeEntityComponents. Strict `> 0` guards (e.g.
+// LightProbeVolumeComponent::Spacing, ReflectionProbeComponent::InfluenceRadius)
+// are deliberately NOT approximated with an invented epsilon; they stay
+// unclamped here and are called out in docs/guides/mcp-diagnostics-server.md.
+// The real fix — and the follow-up this leaves behind — is to migrate those
+// hand-written clamps onto OLO_SERIALIZE(Clamp, Min=…, Max=…), after which MCP
+// inherits them for free with no entry in this table.
+struct McpRange
+{
+    std::optional<std::string> min;
+    std::optional<std::string> max;
+};
+static const std::map<std::string, McpRange> kMcpFieldClamps = {
+    // SphereAreaLightComponent — deserialize REJECTS a negative value (keeps the
+    // default); MCP clamps to the same floor rather than silently accepting it.
+    { "SphereAreaLightComponent.Intensity", { std::string("0.0f"), std::nullopt } },
+    { "SphereAreaLightComponent.Radius", { std::string("0.0f"), std::nullopt } },
+    { "SphereAreaLightComponent.Range", { std::string("0.0f"), std::nullopt } },
+    // ReflectionProbeComponent — `std::clamp(m_Resolution, 16u, 2048u)` + `< 0.0f`
+    // rejects on Intensity / BlendDistance.
+    { "ReflectionProbeComponent.Resolution", { std::string("16u"), std::string("2048u") } },
+    { "ReflectionProbeComponent.Intensity", { std::string("0.0f"), std::nullopt } },
+    { "ReflectionProbeComponent.BlendDistance", { std::string("0.0f"), std::nullopt } },
+    // LightProbeVolumeComponent — `< 0.0f` reject on Intensity.
+    { "LightProbeVolumeComponent.Intensity", { std::string("0.0f"), std::nullopt } },
+    // StreamingVolumeComponent — `std::max(LoadRadius, 1.0f)`.
+    { "StreamingVolumeComponent.LoadRadius", { std::string("1.0f"), std::nullopt } },
+};
+
+// The field types the MCP write tool can coerce from JSON and echo back
+// (McpGenericFieldWrite.h's CoerceJson / FieldToJson / FieldChanged). Everything
+// else — a plain u64, an integer-vector / quaternion / matrix, a nested struct, a
+// Ref<T>, and every container (vector / set / map) — has no scalar JSON shape in
+// the tool's contract and is skipped. Skipping is safe and silent: the field is
+// simply not writable, and `olo_entity_list_fields` shows exactly what is.
+static bool IsMcpEditableField(const SerField& f)
+{
+    if (f.isVector || f.isSet || f.isMap)
+        return false;
+    switch (f.type)
+    {
+        case PropType::Bool:
+        case PropType::Int:
+        case PropType::UInt:
+        case PropType::SmallInt:
+        case PropType::SmallUInt:
+        case PropType::Float:
+        case PropType::Vec2:
+        case PropType::Vec3:
+        case PropType::Vec4:
+        case PropType::String:
+        case PropType::AssetHandle:
+        case PropType::Enum:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// Whether a range (clamp) can be applied to this field type by the MCP tool —
+// the numeric types plus the float vectors (clamped component-wise), mirroring
+// the serializer's own kClampEligible set (scalars + glm::vec3) but widened to
+// vec2/vec4 since the same component-wise clamp is well-defined there.
+static bool IsMcpRangeableField(const SerField& f)
+{
+    switch (f.type)
+    {
+        case PropType::Int:
+        case PropType::UInt:
+        case PropType::SmallInt:
+        case PropType::SmallUInt:
+        case PropType::Float:
+        case PropType::Enum:
+        case PropType::Vec2:
+        case PropType::Vec3:
+        case PropType::Vec4:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static std::string McpBound(const std::optional<std::string>& expr)
+{
+    return expr ? ("OLO_GFW_BOUND(" + *expr + ")") : std::string("OLO_GFW_NO_BOUND");
+}
+
+// Emit the registry body #include'd inside GenericFieldWrite::BuildRegistry().
+// Returns the number of (component, field) pairs emitted.
+static std::size_t EmitMcpFieldRegistry(std::ostream& out, const std::map<std::string, ComponentSerInfo>& comps)
+{
+    out << "// Auto-generated by OloHeaderTool — DO NOT EDIT MANUALLY\n";
+    out << "// Re-generate with: cmake --build build --target GenerateBindings\n";
+    out << "//\n";
+    out << "// The MCP `olo_entity_set_field` / `olo_entity_list_fields` field registry\n";
+    out << "// (issue #607). One entry per public, JSON-coercible data member of every\n";
+    out << "// `struct *Component` under OloEngine/src, minus the runtime-only components\n";
+    out << "// in the generator's kComponentsNotMcpEditable set and minus every field the\n";
+    out << "// shared field scan drops (non-public, OLO_SERIALIZE(Skip), or a type with no\n";
+    out << "// scalar JSON shape: u64 / ivec / quat / mat / struct / Ref<T> / container).\n";
+    out << "//\n";
+    out << "// A ranged entry (OLO_GFW_FIELD_RANGE) carries the SAME bounds the scene\n";
+    out << "// serializer enforces on load — from the field's OLO_SERIALIZE(Clamp, …)\n";
+    out << "// annotation, or (for a component the serializer keeps hand-written) from the\n";
+    out << "// generator's kMcpFieldClamps table. A write outside the range is CLAMPED and\n";
+    out << "// reported as `clamped: true` with the original `requestedValue`.\n";
+    out << "//\n";
+    out << "// #include'd inside GenericFieldWrite::BuildRegistry(), where `registry`\n";
+    out << "// (std::vector<FieldEntry>&) and the OLO_GFW_* macros are in scope.\n\n";
+
+    std::size_t emitted = 0;
+    for (auto const& [name, info] : comps)
+    {
+        if (kComponentsNotMcpEditable.contains(name))
+            continue;
+
+        std::vector<const SerField*> fields;
+        for (auto const& f : info.fields)
+        {
+            if (IsMcpEditableField(f))
+                fields.push_back(&f);
+        }
+        if (fields.empty())
+            continue;
+
+        out << "// " << name << "\n";
+        for (const SerField* f : fields)
+        {
+            McpRange range;
+            if (f->hasClamp && IsMcpRangeableField(*f))
+                range = McpRange{ f->clampMin, f->clampMax };
+            if (auto it = kMcpFieldClamps.find(name + "." + f->key);
+                it != kMcpFieldClamps.end() && IsMcpRangeableField(*f))
+                range = it->second;
+
+            if (range.min || range.max)
+            {
+                out << "registry.push_back(OLO_GFW_FIELD_RANGE(" << name << ", \"" << f->key << "\", "
+                    << f->member << ", " << McpBound(range.min) << ", " << McpBound(range.max) << "));\n";
+            }
+            else
+            {
+                out << "registry.push_back(OLO_GFW_FIELD(" << name << ", \"" << f->key << "\", "
+                    << f->member << "));\n";
+            }
+            ++emitted;
+        }
+        out << "\n";
+    }
+    return emitted;
+}
+
 // ─── C++ Mono Bindings Emitter ──────────────────────────────────────────────────
 
 static void EmitCppBindings(std::ostream& out, const std::vector<ComponentDef>& components)
@@ -3740,11 +3949,34 @@ static bool WriteSceneSerializerBlocks(const fs::path& sceneOutDir, const std::m
     return serOk && deserOk && binWriteOk && binReadOk && binCoveredOk;
 }
 
+// Emit the MCP generic-field-write registry to
+// <mcp_out_dir>/McpFieldRegistry.Generated.inl, #include'd by
+// OloEditor/src/MCP/McpGenericFieldWrite.h inside BuildRegistry(). Same
+// non-empty guard as every other list: an empty registry would silently strip
+// EVERY writable field from `olo_entity_set_field` (the tool would still answer,
+// just refuse everything) — refuse and fail the build loudly instead.
+static bool WriteMcpFieldRegistry(const fs::path& mcpOutDir, const std::map<std::string, ComponentSerInfo>& componentFields)
+{
+    std::ostringstream ss;
+    const std::size_t emitted = EmitMcpFieldRegistry(ss, componentFields);
+    if (emitted == 0)
+    {
+        std::cerr << "ERROR: MCP field-registry codegen found 0 writable component fields — "
+                     "the field parser almost certainly broke. Refusing to overwrite "
+                     "McpFieldRegistry.Generated.inl with an empty registry.\n";
+        return false;
+    }
+    std::cout << "OloHeaderTool: MCP field registry — " << emitted << " writable fields ("
+              << kComponentsNotMcpEditable.size() << " runtime-only components excluded)\n";
+    return ReportWrite(mcpOutDir / "McpFieldRegistry.Generated.inl", ss.str());
+}
+
 int main(int argc, char* argv[])
 {
-    if (argc < 6)
+    if (argc < 7)
     {
-        std::cerr << "Usage: OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir> <scene_out_dir> <savegame_out_dir>\n";
+        std::cerr << "Usage: OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir> <scene_out_dir> "
+                     "<savegame_out_dir> <mcp_out_dir>\n";
         return 1;
     }
 
@@ -3753,6 +3985,7 @@ int main(int argc, char* argv[])
     fs::path csOutDir = argv[3];
     fs::path sceneOutDir = argv[4];
     fs::path saveGameOutDir = argv[5];
+    fs::path mcpOutDir = argv[6];
 
     if (!fs::exists(scanDir))
     {
@@ -3806,7 +4039,14 @@ int main(int argc, char* argv[])
         // enum-type set lets the field parser recognise enum-typed members (which
         // round-trip as an int) instead of treating them as unknown non-trivial.
         auto enumTypes = CollectEnumTypes(scanDir);
-        if (!WriteSceneSerializerBlocks(sceneOutDir, CollectComponentFields(scanDir, enumTypes)))
+        const std::map<std::string, ComponentSerInfo> componentFields = CollectComponentFields(scanDir, enumTypes);
+        if (!WriteSceneSerializerBlocks(sceneOutDir, componentFields))
+            errors = true;
+        // The MCP `olo_entity_set_field` registry (issue #607) — same field scan,
+        // a different consumer: every public, JSON-coercible member of every
+        // component (including the ones the serializer keeps hand-written, whose
+        // recognised fields the scan still collects).
+        if (!WriteMcpFieldRegistry(mcpOutDir, componentFields))
             errors = true;
     }
 
