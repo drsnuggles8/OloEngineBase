@@ -40,12 +40,28 @@ namespace OloEngine
     // cache must still round-trip it. Realize() prefers the handle and falls
     // back to the path only when the file is actually there.
     //
-    // KNOWN GAP: a texture EMBEDDED in the model file (glTF/FBX base64 or binary chunk)
-    // has neither an asset handle nor an on-disk path — Model decodes it straight into a
-    // GPU texture. Such a texture therefore does not survive either container, and the
-    // material comes back without it (the mesh still renders, with the factors). Fixing it
-    // means cooking embedded textures into real Texture assets at import time (so they get
-    // a handle and get packed); tracked as a follow-up, not attempted here.
+    // EMBEDDED TEXTURES (was a known gap; now closed upstream of this codec).
+    // A texture embedded in the model file (glTF/FBX base64 data URI or binary chunk) has
+    // neither an asset handle nor an on-disk path of its own, so it used to survive NEITHER
+    // container: Describe() produced an empty TextureRef and the material came back with its
+    // factors but no maps — a shipped build silently lost the textures of every model that
+    // embeds them, which is most GLB files.
+    //
+    // The fix is in the IMPORTER, not here: Model::LoadMaterialTextures now COOKS an embedded
+    // bitmap into a real .png asset under <AssetDir>/cache/embedded/ and ImportAsset()s it, so
+    // it gains a stable, deterministic path AND a registry handle like any other texture — after
+    // which the handle-plus-path scheme below already works, unchanged. The cooked name is
+    // derived from FNV-1a-64(model path | Assimp texture ref) plus the colour-space intent, so
+    // it is stable across re-imports (the pack does not churn and scene references do not rot),
+    // and the intent is spelled into the filename because the packed-runtime loader and the pack
+    // cook both decide sRGB from the FILENAME.
+    // Pinned by ImportedMaterialPackTest.EmbeddedTextureSurvivesThe{OmeshCache,AssetPack}.
+    //
+    // STILL OPEN: AnimatedModel::LoadMaterialTextures (the rigged/skinned importer) never had
+    // embedded-texture support at all — it does not take the aiScene and never calls
+    // GetEmbeddedTexture, so a "*0" reference falls through to the on-disk loader and fails.
+    // A rigged GLB therefore loses its embedded textures at IMPORT time, before serialization is
+    // even reached. That is a separate importer bug, not a codec one.
     // ============================================================================
     namespace ImportedMaterialCodec
     {

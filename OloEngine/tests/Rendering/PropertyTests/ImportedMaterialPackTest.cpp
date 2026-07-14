@@ -45,8 +45,14 @@
 
 #include <stb_image/stb_image_write.h>
 
+#include <glad/gl.h>
+
+#include <algorithm>
+#include <array>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <string>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -724,4 +730,352 @@ TEST(ImportedMaterialCodecTest, GarbageBlobIsRejectedInsteadOfMisparsed)
     ASSERT_GT(blob.size(), 16u);
     blob.resize(16);
     EXPECT_FALSE(Decode(blob, decoded));
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// EMBEDDED textures (the KNOWN GAP the codec header used to document)
+//
+// A texture EMBEDDED in a glTF/GLB/FBX — a base64 data URI, or a binary chunk — has
+// no file on disk and no AssetHandle. Model decoded it straight into a GPU texture
+// and nothing else, so ImportedMaterialCodec (which references textures BY HANDLE,
+// with a source-path fallback) had nothing to write down: DescribeTexture produced an
+// EMPTY TextureRef and RealizeTexture skipped the slot without even a warning.
+//
+// The consequence was not subtle. Cold-import a GLB and it renders correctly; reopen
+// the editor (warm .omesh load) and the material comes back with its factors and NO
+// MAPS, and a shipped/packed build loses the textures of every model that embeds them
+// — which is most GLB files in the wild.
+//
+// The fix is upstream of the codec: Model now COOKS an embedded texture into a real
+// .png asset under <AssetDir>/cache/embedded/ at import time and ImportAsset()s it, so
+// it gains a stable path AND a registry handle like any other texture — after which
+// both containers already worked, with zero codec changes.
+//
+// These tests author a glTF whose ONLY albedo is a base64 data URI (no texture file
+// exists anywhere on disk) and drive it through both containers, comparing the actual
+// GPU PIXELS — not merely "non-null" — against the cold import.
+// ═════════════════════════════════════════════════════════════════════════════
+
+namespace
+{
+    std::string Base64Encode(const u8* data, sizet size)
+    {
+        static constexpr char kAlphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        std::string out;
+        out.reserve(((size + 2) / 3) * 4);
+        for (sizet i = 0; i < size; i += 3)
+        {
+            const u32 b0 = data[i];
+            const u32 b1 = (i + 1 < size) ? data[i + 1] : 0u;
+            const u32 b2 = (i + 2 < size) ? data[i + 2] : 0u;
+            const u32 triple = (b0 << 16) | (b1 << 8) | b2;
+
+            out.push_back(kAlphabet[(triple >> 18) & 0x3F]);
+            out.push_back(kAlphabet[(triple >> 12) & 0x3F]);
+            out.push_back((i + 1 < size) ? kAlphabet[(triple >> 6) & 0x3F] : '=');
+            out.push_back((i + 2 < size) ? kAlphabet[triple & 0x3F] : '=');
+        }
+        return out;
+    }
+
+    // The 4x4 albedo the fixture embeds. Deliberately NOT uniform: a test that compared
+    // two all-black textures would pass while proving nothing, so every assertion below
+    // also checks the readback actually varies.
+    std::vector<u32> EmbeddedAlbedoPixels()
+    {
+        return {
+            0xFF0000FFu, 0xFF00FF00u, 0xFFFF0000u, 0xFFFFFFFFu,
+            0xFF112233u, 0xFF445566u, 0xFF778899u, 0xFFAABBCCu,
+            0xFF00FFFFu, 0xFFFF00FFu, 0xFFFFFF00u, 0xFF000000u,
+            0xFF203040u, 0xFF506070u, 0xFF8090A0u, 0xFFB0C0D0u
+        };
+    }
+
+    // Author a minimal glTF 2.0 whose geometry AND albedo are both base64 data URIs, so
+    // NOTHING but the .gltf file exists on disk. This is the "embedded texture" case the
+    // codec header called out; a GLB binary chunk lands on the very same Assimp path
+    // (aiScene::mTextures + a "*N" material reference), which is what the production code
+    // keys off, so the data-URI form exercises it without hand-packing a binary container.
+    fs::path AuthorGltfWithEmbeddedAlbedo(const fs::path& assets, const std::vector<u32>& pixels,
+                                          int width, int height)
+    {
+        // Encode the PNG via a scratch file OUTSIDE the asset directory, then slurp its
+        // bytes and delete it: the .gltf must be the only thing the importer can see, so a
+        // stray .png inside Assets/ would give the loader a real file to fall back on and
+        // quietly defeat the point of the fixture.
+        const fs::path scratchPng = assets.parent_path() / "embed_source.png";
+        if (::stbi_write_png(scratchPng.string().c_str(), width, height, 4, pixels.data(), width * 4) == 0)
+        {
+            return {};
+        }
+        std::vector<u8> pngBytes;
+        {
+            std::ifstream in(scratchPng, std::ios::binary);
+            if (!in)
+            {
+                return {};
+            }
+            pngBytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
+        std::error_code removeEc;
+        fs::remove(scratchPng, removeEc);
+        if (pngBytes.empty())
+        {
+            return {};
+        }
+        const std::string pngB64 = Base64Encode(pngBytes.data(), pngBytes.size());
+
+        // 3 positions (vec3) + 3 uvs (vec2) + 3 indices (u16) = 36 + 24 + 6 = 66 bytes.
+        std::vector<u8> buffer;
+        const auto pushFloat = [&buffer](float v)
+        {
+            u8 bytes[sizeof(float)];
+            std::memcpy(bytes, &v, sizeof(float));
+            buffer.insert(buffer.end(), std::begin(bytes), std::end(bytes));
+        };
+        const auto pushU16 = [&buffer](u16 v)
+        {
+            buffer.push_back(static_cast<u8>(v & 0xFFu));
+            buffer.push_back(static_cast<u8>((v >> 8) & 0xFFu));
+        };
+        for (const auto& p : { std::array<float, 3>{ 0.f, 0.f, 0.f },
+                               std::array<float, 3>{ 1.f, 0.f, 0.f },
+                               std::array<float, 3>{ 0.f, 1.f, 0.f } })
+        {
+            pushFloat(p[0]);
+            pushFloat(p[1]);
+            pushFloat(p[2]);
+        }
+        for (const auto& uv : { std::array<float, 2>{ 0.f, 0.f },
+                                std::array<float, 2>{ 1.f, 0.f },
+                                std::array<float, 2>{ 0.f, 1.f } })
+        {
+            pushFloat(uv[0]);
+            pushFloat(uv[1]);
+        }
+        pushU16(0);
+        pushU16(1);
+        pushU16(2);
+
+        const std::string bufB64 = Base64Encode(buffer.data(), buffer.size());
+
+        const fs::path gltfPath = assets / "embedded.gltf";
+        std::ofstream gltf(gltfPath);
+        gltf << R"({"asset":{"version":"2.0"},"scene":0,)"
+             << R"("scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],)"
+             << R"("meshes":[{"primitives":[{"attributes":{"POSITION":0,"TEXCOORD_0":1},"indices":2,"material":0}]}],)"
+             << R"("materials":[{"name":"EmbeddedPainted","pbrMetallicRoughness":{)"
+             << R"("baseColorTexture":{"index":0},"baseColorFactor":[1,1,1,1],)"
+             << R"("metallicFactor":0.25,"roughnessFactor":0.75}}],)"
+             << R"("textures":[{"source":0}],)"
+             << R"("images":[{"mimeType":"image/png","uri":"data:image/png;base64,)" << pngB64 << R"("}],)"
+             << R"("buffers":[{"byteLength":)" << buffer.size()
+             << R"(,"uri":"data:application/octet-stream;base64,)" << bufB64 << R"("}],)"
+             << R"("bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36,"target":34962},)"
+             << R"({"buffer":0,"byteOffset":36,"byteLength":24,"target":34962},)"
+             << R"({"buffer":0,"byteOffset":60,"byteLength":6,"target":34963}],)"
+             << R"("accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3",)"
+             << R"("min":[0,0,0],"max":[1,1,0]},)"
+             << R"({"bufferView":1,"componentType":5126,"count":3,"type":"VEC2"},)"
+             << R"({"bufferView":2,"componentType":5123,"count":3,"type":"SCALAR"}]})";
+        gltf.close();
+        return gltfPath;
+    }
+
+    // The texture's ACTUAL contents, straight off the GPU (level 0, RGBA8). The point of
+    // reading the GPU rather than a file is that it compares what the renderer will
+    // sample — independent of which path (cooked file / registry handle / in-memory
+    // decode) the material happened to resolve through.
+    std::vector<u8> ReadTexturePixels(const Ref<Texture2D>& texture)
+    {
+        if (!texture || texture->GetWidth() == 0 || texture->GetHeight() == 0)
+        {
+            return {};
+        }
+        std::vector<u8> pixels(static_cast<sizet>(texture->GetWidth()) * texture->GetHeight() * 4u);
+        ::glGetTextureImage(texture->GetRendererID(), 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                            static_cast<GLsizei>(pixels.size()), pixels.data());
+        return pixels;
+    }
+
+    bool HasVaryingPixels(const std::vector<u8>& pixels)
+    {
+        return !pixels.empty() &&
+               std::any_of(pixels.begin(), pixels.end(), [&](u8 b)
+                           { return b != pixels[0]; });
+    }
+} // namespace
+
+// The .omesh dev cache: cold-import writes it, warm-load reads it. Before the cook, the
+// warm load came back with a material that had NO albedo at all.
+TEST_F(ImportedMaterialPackTest, EmbeddedTextureSurvivesTheOmeshCache)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    const fs::path assets = m_TempDir / "Assets";
+    const std::vector<u32> pixels = EmbeddedAlbedoPixels();
+    const fs::path modelPath = AuthorGltfWithEmbeddedAlbedo(assets, pixels, 4, 4);
+    ASSERT_FALSE(modelPath.empty()) << "failed to author the embedded-texture glTF fixture";
+
+    // The fixture's whole point: there is NO texture file anywhere on disk to fall back on.
+    for (const auto& entry : fs::directory_iterator(assets))
+    {
+        ASSERT_NE(entry.path().extension(), ".png")
+            << "fixture is wrong: a loose .png exists, so the texture is not really embedded";
+    }
+
+    MeshCache::InvalidateCache(modelPath);
+    MeshCache::InvalidateCache(modelPath, "static_uvflip_v1");
+
+    // ── Cold import: Assimp hands us the embedded bitmap; this is the ground truth ──
+    std::vector<u8> coldPixels;
+    {
+        Model cold{ modelPath.string() };
+        ASSERT_FALSE(cold.GetMaterials().empty()) << "the cold import produced no materials";
+        Ref<Material> const material = cold.GetMaterials()[0];
+        ASSERT_TRUE(material);
+        Ref<Texture2D> const albedo = material->GetAlbedoMap();
+        ASSERT_TRUE(albedo) << "fixture is wrong: Assimp did not surface the embedded texture at all, so this test "
+                               "could never observe the serialization bug it exists to pin";
+        EXPECT_TRUE(albedo->GetSpecification().SRGB) << "a baseColorTexture is a COLOUR texture";
+
+        coldPixels = ReadTexturePixels(albedo);
+        ASSERT_EQ(coldPixels.size(), pixels.size() * 4u);
+        ASSERT_TRUE(HasVaryingPixels(coldPixels))
+            << "the cold albedo is a uniform block — comparing it to anything would prove nothing";
+    }
+    // A glTF is not an OBJ, so it takes the un-prefixed cache variant (the
+    // "static_uvflip_v1" prefix is the OBJ default-flipped-UV one).
+    ASSERT_TRUE(MeshCache::IsMeshCacheValid(modelPath))
+        << "the cold import did not write an .omesh, so the warm half below would be vacuous";
+
+    // ── Warm load: geometry AND materials come from the .omesh, with no Assimp re-import ──
+    Model warm{ modelPath.string() };
+    ASSERT_FALSE(warm.GetMaterials().empty()) << "the warm load lost the materials entirely";
+    Ref<Material> const warmMaterial = warm.GetMaterials()[0];
+    ASSERT_TRUE(warmMaterial);
+
+    Ref<Texture2D> const warmAlbedo = warmMaterial->GetAlbedoMap();
+    ASSERT_TRUE(warmAlbedo)
+        << "the warm .omesh load came back with NO albedo. An embedded texture has neither a handle nor a path, so "
+           "ImportedMaterialCodec wrote an empty TextureRef and the material lost its map — the mesh renders with "
+           "the factors only. Model must COOK the embedded bitmap into a real texture asset at import time.";
+    EXPECT_TRUE(warmAlbedo->GetSpecification().SRGB)
+        << "the albedo came back LINEAR — an embedded base-colour map must keep its sRGB intent through the cache";
+
+    const std::vector<u8> warmPixels = ReadTexturePixels(warmAlbedo);
+    ASSERT_TRUE(HasVaryingPixels(warmPixels));
+    EXPECT_EQ(warmPixels, coldPixels)
+        << "the albedo survived the .omesh but its CONTENT changed — the cook must round-trip the exact pixels "
+           "(orientation included), not merely produce some texture";
+}
+
+// The asset pack: what a SHIPPED build reads. The codec references textures by handle,
+// so the cooked texture must be a REGISTERED asset (that is what puts it in the pack).
+TEST_F(ImportedMaterialPackTest, EmbeddedTextureSurvivesTheAssetPack)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    const fs::path assets = m_TempDir / "Assets";
+    const std::vector<u32> pixels = EmbeddedAlbedoPixels();
+    const fs::path modelPath = AuthorGltfWithEmbeddedAlbedo(assets, pixels, 4, 4);
+    ASSERT_FALSE(modelPath.empty());
+
+    MeshCache::InvalidateCache(modelPath);
+    MeshCache::InvalidateCache(modelPath, "static_uvflip_v1");
+
+    const AssetHandle meshHandle = m_AssetManager->ImportAsset(modelPath);
+    ASSERT_NE(static_cast<u64>(meshHandle), 0ULL);
+
+    Ref<MeshSource> const cold = AssetManager::GetAsset<MeshSource>(meshHandle);
+    ASSERT_TRUE(cold);
+    ASSERT_FALSE(cold->GetImportedMaterials().empty()) << "the import carries no materials";
+    Ref<Material> const coldMaterial = cold->GetImportedMaterials()[0];
+    ASSERT_TRUE(coldMaterial);
+    Ref<Texture2D> const coldAlbedo = coldMaterial->GetAlbedoMap();
+    ASSERT_TRUE(coldAlbedo) << "fixture is wrong: the import surfaced no embedded albedo";
+
+    const std::vector<u8> coldPixels = ReadTexturePixels(coldAlbedo);
+    ASSERT_TRUE(HasVaryingPixels(coldPixels));
+
+    // THE packed-runtime requirement. A packed build has no loose files and no Assimp: it
+    // addresses textures purely by AssetHandle, and the pack contains exactly the assets in
+    // the REGISTRY. A cooked texture that is not registered would neither be packed nor
+    // addressable, so the material would ship mapless however good the .omesh looked.
+    const auto descs = ImportedMaterialCodec::Describe(cold->GetImportedMaterials());
+    ASSERT_FALSE(descs.empty());
+    EXPECT_FALSE(descs[0].Albedo.IsEmpty())
+        << "the codec wrote an EMPTY albedo TextureRef — the embedded texture has neither a handle nor a path, which "
+           "is exactly how a shipped build loses it";
+    EXPECT_NE(static_cast<u64>(descs[0].Albedo.Handle), 0ULL)
+        << "the cooked embedded texture has no ASSET HANDLE. The path fallback is editor-only (a packed build has no "
+           "loose files), so without a handle the texture is unreachable in a shipped game.";
+    EXPECT_TRUE(descs[0].Albedo.SRGB);
+    EXPECT_NE(static_cast<u64>(m_AssetManager->GetAssetHandleFromFilePath(descs[0].Albedo.Path)), 0ULL)
+        << "the cooked texture is not in the asset registry, so the asset-pack builder (which enumerates the "
+           "registry) would never include it";
+
+    // ── Through the real pack serializer, and back ──
+    Ref<MeshSource> const packed = PackRoundTrip(meshHandle);
+    ASSERT_TRUE(packed);
+    ASSERT_FALSE(packed->GetImportedMaterials().empty())
+        << "the pack round-trip lost the imported materials — every submesh falls back to the engine default";
+    Ref<Material> const packedMaterial = packed->GetImportedMaterials()[0];
+    ASSERT_TRUE(packedMaterial);
+
+    Ref<Texture2D> const packedAlbedo = packedMaterial->GetAlbedoMap();
+    ASSERT_TRUE(packedAlbedo)
+        << "the material came back from the asset pack with NO albedo — this is the shipped-game texture loss the "
+           "cook exists to prevent";
+
+    const std::vector<u8> packedPixels = ReadTexturePixels(packedAlbedo);
+    ASSERT_TRUE(HasVaryingPixels(packedPixels));
+    EXPECT_EQ(packedPixels, coldPixels) << "the packed albedo's CONTENT differs from the imported one";
+    EXPECT_FLOAT_EQ(packedMaterial->GetMetallicFactor(), 0.25f); // the factors still ride along
+    EXPECT_FLOAT_EQ(packedMaterial->GetRoughnessFactor(), 0.75f);
+}
+
+// STABILITY: the cooked texture's handle must not change between imports. If it did, the
+// asset pack would churn on every build and any scene reference to the texture would rot.
+// The cooked filename is derived from FNV-1a-64(model path | Assimp texture ref) + the
+// colour-space intent — no counters, no timestamps — and ImportAsset returns the EXISTING
+// handle for a path it has already registered.
+TEST_F(ImportedMaterialPackTest, CookedEmbeddedTextureKeepsAStableHandleAcrossReimports)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    const fs::path assets = m_TempDir / "Assets";
+    const fs::path modelPath = AuthorGltfWithEmbeddedAlbedo(assets, EmbeddedAlbedoPixels(), 4, 4);
+    ASSERT_FALSE(modelPath.empty());
+
+    const auto importAndDescribeAlbedo = [&]() -> ImportedMaterialCodec::TextureRef
+    {
+        MeshCache::InvalidateCache(modelPath);
+        MeshCache::InvalidateCache(modelPath, "static_uvflip_v1");
+        Model model{ modelPath.string() };
+        EXPECT_FALSE(model.GetMaterials().empty());
+        const auto descs = ImportedMaterialCodec::Describe(model.GetMaterials());
+        return descs.empty() ? ImportedMaterialCodec::TextureRef{} : descs[0].Albedo;
+    };
+
+    const ImportedMaterialCodec::TextureRef first = importAndDescribeAlbedo();
+    ASSERT_NE(static_cast<u64>(first.Handle), 0ULL) << "the first import did not cook a handled texture";
+
+    const ImportedMaterialCodec::TextureRef second = importAndDescribeAlbedo();
+    EXPECT_EQ(static_cast<u64>(second.Handle), static_cast<u64>(first.Handle))
+        << "re-importing the same model produced a DIFFERENT handle for the same embedded texture. The asset pack "
+           "would change on every build and every scene reference to the texture would rot.";
+    EXPECT_EQ(second.Path, first.Path)
+        << "the cooked filename is not deterministic";
+
+    // Exactly ONE cooked file for the one embedded texture — a counter-based or random
+    // name would have left a second copy behind.
+    const fs::path cookedDir = assets / "cache" / "embedded";
+    ASSERT_TRUE(fs::exists(cookedDir));
+    sizet cooked = 0;
+    for (const auto& entry : fs::directory_iterator(cookedDir))
+    {
+        cooked += (entry.path().extension() == ".png") ? 1u : 0u;
+    }
+    EXPECT_EQ(cooked, 1u) << "re-import duplicated the cooked texture instead of reusing it";
 }

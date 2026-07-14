@@ -168,6 +168,10 @@ namespace OloEngine
         std::vector<Ref<Material>> m_Materials;          // Materials corresponding to each mesh
         std::unordered_map<u32, u32> m_MaterialIndexMap; // Maps Assimp material indices to m_Materials indices
         std::string m_Directory;
+        // The model file this Model was loaded from. Used (with the Assimp texture
+        // reference) to derive the STABLE cooked filename of an embedded texture, so
+        // re-importing the same model reuses the same cooked asset and its handle.
+        std::string m_SourcePath;
         std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;
         std::optional<TextureOverride> m_TextureOverride;
         bool m_FlipUV = false;

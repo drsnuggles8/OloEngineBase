@@ -24,6 +24,9 @@ registry.push_back(OLO_GFW_FIELD(AnimationGraphComponent, "HasRootMotion", HasRo
 
 // AudioListenerComponent
 registry.push_back(OLO_GFW_FIELD(AudioListenerComponent, "Active", Active));
+registry.push_back(OLO_GFW_FIELD(AudioListenerComponent, "Config.ConeInnerAngle", Config.ConeInnerAngle));
+registry.push_back(OLO_GFW_FIELD(AudioListenerComponent, "Config.ConeOuterAngle", Config.ConeOuterAngle));
+registry.push_back(OLO_GFW_FIELD(AudioListenerComponent, "Config.ConeOuterGain", Config.ConeOuterGain));
 
 // AudioSoundGraphComponent
 registry.push_back(OLO_GFW_FIELD(AudioSoundGraphComponent, "SoundGraphHandle", SoundGraphHandle));
@@ -272,19 +275,27 @@ registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "CastShadows", CastShad
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "CullDistance", CullDistance));
 
 // InventoryComponent
+registry.push_back(OLO_GFW_FIELD(InventoryComponent, "PlayerInventory.MaxWeight", PlayerInventory.MaxWeight));
 registry.push_back(OLO_GFW_FIELD(InventoryComponent, "Currency", Currency));
 
 // ItemContainerComponent
+registry.push_back(OLO_GFW_FIELD(ItemContainerComponent, "Contents.MaxWeight", Contents.MaxWeight));
 registry.push_back(OLO_GFW_FIELD(ItemContainerComponent, "IsShop", IsShop));
 registry.push_back(OLO_GFW_FIELD(ItemContainerComponent, "LootTableID", LootTableID));
 registry.push_back(OLO_GFW_FIELD(ItemContainerComponent, "HasBeenLooted", HasBeenLooted));
 
 // ItemPickupComponent
+registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "Item.InstanceID", Item.InstanceID));
+registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "Item.ItemDefinitionID", Item.ItemDefinitionID));
+registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "Item.StackCount", Item.StackCount));
+registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "Item.Durability", Item.Durability));
+registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "Item.MaxDurability", Item.MaxDurability));
 registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "PickupRadius", PickupRadius));
 registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "AutoPickup", AutoPickup));
 registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "DespawnTimer", DespawnTimer));
 
 // LODGroupComponent
+registry.push_back(OLO_GFW_FIELD(LODGroupComponent, "LODGroup.Bias", m_LODGroup.Bias));
 registry.push_back(OLO_GFW_FIELD(LODGroupComponent, "Enabled", m_Enabled));
 
 // LightProbeComponent
@@ -394,6 +405,78 @@ registry.push_back(OLO_GFW_FIELD_RANGE(NoiseAnimationComponent, "Lacunarity", La
 registry.push_back(OLO_GFW_FIELD_RANGE(NoiseAnimationComponent, "Gain", Gain, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
 registry.push_back(OLO_GFW_FIELD(NoiseAnimationComponent, "Seed", Seed));
 registry.push_back(OLO_GFW_FIELD_RANGE(NoiseAnimationComponent, "Weight", Weight, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+
+// ParticleSystemComponent
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.Playing", System.Playing));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.Looping", System.Looping));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.Duration", System.Duration));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.PlaybackSpeed", System.PlaybackSpeed));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.WarmUpTime", System.WarmUpTime));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.SimulationSpace", System.SimulationSpace));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.BlendMode", System.BlendMode));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.RenderMode", System.RenderMode));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.DepthSortEnabled", System.DepthSortEnabled));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.UseGPU", System.UseGPU));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.WindInfluence", System.WindInfluence));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.GPUNoiseStrength", System.GPUNoiseStrength));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.GPUNoiseFrequency", System.GPUNoiseFrequency));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.GPUGroundCollision", System.GPUGroundCollision));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.GPUGroundY", System.GPUGroundY));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.GPUCollisionBounce", System.GPUCollisionBounce));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.GPUCollisionFriction", System.GPUCollisionFriction));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.SoftParticlesEnabled", System.SoftParticlesEnabled));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.SoftParticleDistance", System.SoftParticleDistance));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.VelocityInheritance", System.VelocityInheritance));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.LODDistance1", System.LODDistance1));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.LODMaxDistance", System.LODMaxDistance));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.Emitter.RateOverTime", System.Emitter.RateOverTime));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.Emitter.InitialSpeed", System.Emitter.InitialSpeed));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.Emitter.SpeedVariance", System.Emitter.SpeedVariance));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.Emitter.LifetimeMin", System.Emitter.LifetimeMin));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.Emitter.LifetimeMax", System.Emitter.LifetimeMax));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.Emitter.InitialSize", System.Emitter.InitialSize));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.Emitter.SizeVariance", System.Emitter.SizeVariance));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.Emitter.InitialRotation", System.Emitter.InitialRotation));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.Emitter.RotationVariance", System.Emitter.RotationVariance));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.Emitter.InitialColor", System.Emitter.InitialColor));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.ColorModule.Enabled", System.ColorModule.Enabled));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.SizeModule.Enabled", System.SizeModule.Enabled));
+registry.push_back(OLO_GFW_FIELD_RANGE(ParticleSystemComponent, "System.SizeModule.SizeCurve.KeyCount", System.SizeModule.SizeCurve.KeyCount, OLO_GFW_BOUND(0), OLO_GFW_BOUND(8)));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.VelocityModule.Enabled", System.VelocityModule.Enabled));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.VelocityModule.LinearAcceleration", System.VelocityModule.LinearAcceleration));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.VelocityModule.SpeedMultiplier", System.VelocityModule.SpeedMultiplier));
+registry.push_back(OLO_GFW_FIELD_RANGE(ParticleSystemComponent, "System.VelocityModule.SpeedCurve.KeyCount", System.VelocityModule.SpeedCurve.KeyCount, OLO_GFW_BOUND(0), OLO_GFW_BOUND(8)));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.RotationModule.Enabled", System.RotationModule.Enabled));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.RotationModule.AngularVelocity", System.RotationModule.AngularVelocity));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.GravityModule.Enabled", System.GravityModule.Enabled));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.GravityModule.Gravity", System.GravityModule.Gravity));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.DragModule.Enabled", System.DragModule.Enabled));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.DragModule.DragCoefficient", System.DragModule.DragCoefficient));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.NoiseModule.Enabled", System.NoiseModule.Enabled));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.NoiseModule.Strength", System.NoiseModule.Strength));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.NoiseModule.Frequency", System.NoiseModule.Frequency));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.CollisionModule.Enabled", System.CollisionModule.Enabled));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.CollisionModule.Mode", System.CollisionModule.Mode));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.CollisionModule.PlaneNormal", System.CollisionModule.PlaneNormal));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.CollisionModule.PlaneOffset", System.CollisionModule.PlaneOffset));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.CollisionModule.Bounce", System.CollisionModule.Bounce));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.CollisionModule.LifetimeLoss", System.CollisionModule.LifetimeLoss));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.CollisionModule.KillOnCollide", System.CollisionModule.KillOnCollide));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.TrailModule.Enabled", System.TrailModule.Enabled));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.TrailModule.MaxTrailPoints", System.TrailModule.MaxTrailPoints));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.TrailModule.TrailLifetime", System.TrailModule.TrailLifetime));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.TrailModule.MinVertexDistance", System.TrailModule.MinVertexDistance));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.TrailModule.WidthStart", System.TrailModule.WidthStart));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.TrailModule.WidthEnd", System.TrailModule.WidthEnd));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.TrailModule.ColorStart", System.TrailModule.ColorStart));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.TrailModule.ColorEnd", System.TrailModule.ColorEnd));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.SubEmitterModule.Enabled", System.SubEmitterModule.Enabled));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.TextureSheetModule.Enabled", System.TextureSheetModule.Enabled));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.TextureSheetModule.GridX", System.TextureSheetModule.GridX));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.TextureSheetModule.GridY", System.TextureSheetModule.GridY));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.TextureSheetModule.TotalFrames", System.TextureSheetModule.TotalFrames));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.TextureSheetModule.Mode", System.TextureSheetModule.Mode));
+registry.push_back(OLO_GFW_FIELD(ParticleSystemComponent, "System.TextureSheetModule.SpeedRange", System.TextureSheetModule.SpeedRange));
 
 // PerceptibleComponent
 registry.push_back(OLO_GFW_FIELD(PerceptibleComponent, "Team", Team));
@@ -647,6 +730,12 @@ registry.push_back(OLO_GFW_FIELD(TerrainComponent, "ProceduralFrequency", m_Proc
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "ProceduralLacunarity", m_ProceduralLacunarity));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "ProceduralPersistence", m_ProceduralPersistence));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "ProceduralErosionIterations", m_ProceduralErosionIterations));
+registry.push_back(OLO_GFW_FIELD(TerrainComponent, "HeightShaping.RidgeBlend", m_HeightShaping.RidgeBlend));
+registry.push_back(OLO_GFW_FIELD(TerrainComponent, "HeightShaping.WarpStrength", m_HeightShaping.WarpStrength));
+registry.push_back(OLO_GFW_FIELD(TerrainComponent, "HeightShaping.WarpFrequency", m_HeightShaping.WarpFrequency));
+registry.push_back(OLO_GFW_FIELD(TerrainComponent, "HeightShaping.TerraceSteps", m_HeightShaping.TerraceSteps));
+registry.push_back(OLO_GFW_FIELD(TerrainComponent, "HeightShaping.TerraceSharpness", m_HeightShaping.TerraceSharpness));
+registry.push_back(OLO_GFW_FIELD(TerrainComponent, "HeightShaping.HeightExponent", m_HeightShaping.HeightExponent));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "AutoMaterial", m_AutoMaterial));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "SplatmapGenResolution", m_SplatmapGenResolution));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "TessellationEnabled", m_TessellationEnabled));

@@ -398,3 +398,187 @@ TEST(McpFieldRegistry, UnknownFieldOnKnownComponentListsItsFields)
     EXPECT_NE(result.Error.find("has no editable field"), std::string::npos);
     EXPECT_NE(result.Error.find("ErrorThresholdPixels"), std::string::npos);
 }
+
+// ---- 5. sub-object addressing (nested non-POD members) -----------------------
+//
+// Some components keep their ENTIRE authored surface inside a nested object, so a
+// scan that only looked at a component's own top-level members left them with zero
+// writable fields. ParticleSystemComponent was the worst case: everything an author
+// tunes lives in its `ParticleSystem System` member (itself a `class`, whose own
+// authored parameters nest one level further into ParticleEmitter / the modules).
+// `olo_entity_set_field ParticleSystemComponent …` answered "Unknown or non-editable
+// component" for every field name that exists.
+//
+// The generator now DESCENDS into a nested record — reusing the very same
+// classification that drives the scene serializer's nested-struct support, with a
+// laxer acceptance rule (a PARTIAL classification is fine: take the public,
+// JSON-coercible members it recognised, ignore the rest) — and emits a dotted field
+// name addressed by a member-access chain.
+
+TEST(McpFieldRegistry, CoversFieldsNestedInsideANonPodMember)
+{
+    // The component that motivated the slice: previously ZERO writable fields.
+    ASSERT_TRUE(RegistryHasComponent("ParticleSystemComponent"))
+        << "ParticleSystemComponent's whole authored surface lives inside its `System` member";
+
+    // One level down (a public field of the nested `class ParticleSystem`)…
+    EXPECT_TRUE(RegistryHas("ParticleSystemComponent", "System.Playing"));
+    EXPECT_TRUE(RegistryHas("ParticleSystemComponent", "System.Duration"));
+    EXPECT_TRUE(RegistryHas("ParticleSystemComponent", "System.WindInfluence"));
+    // …and two levels down (a public field of ParticleSystem's own nested members).
+    EXPECT_TRUE(RegistryHas("ParticleSystemComponent", "System.Emitter.RateOverTime"));
+    EXPECT_TRUE(RegistryHas("ParticleSystemComponent", "System.Emitter.InitialColor"));
+    EXPECT_TRUE(RegistryHas("ParticleSystemComponent", "System.GravityModule.Gravity"));
+
+    // Other components pick the descent up for free — these were all unreachable.
+    EXPECT_TRUE(RegistryHas("TerrainComponent", "HeightShaping.WarpStrength"));
+    EXPECT_TRUE(RegistryHas("AudioListenerComponent", "Config.ConeInnerAngle"));
+    EXPECT_TRUE(RegistryHas("LODGroupComponent", "LODGroup.Bias"));
+}
+
+// A nested write goes through the identical path a top-level one does: coerce,
+// no-op detect, ONE undoable command, and a value READ BACK from the live component.
+TEST(McpFieldRegistry, NestedFieldWriteRoundTripsAndUndoes)
+{
+    Fixture f;
+    auto& particles = f.TheEntity.AddComponent<OloEngine::ParticleSystemComponent>();
+    particles.System.Emitter.RateOverTime = 10.0f;
+
+    const auto result = GFW::Apply(f.Scene_, f.History, f.Uuid, "ParticleSystemComponent",
+                                   "System.Emitter.RateOverTime", Json(250.0));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_EQ(result.Data["type"], "float");
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+    EXPECT_TRUE(result.Data["undoable"].get<bool>());
+    EXPECT_FLOAT_EQ(result.Data["previousValue"].get<f32>(), 10.0f);
+
+    // The LIVE component actually moved (not just the reported value).
+    const f32 live = f.TheEntity.GetComponent<OloEngine::ParticleSystemComponent>().System.Emitter.RateOverTime;
+    EXPECT_FLOAT_EQ(live, 250.0f);
+    EXPECT_FLOAT_EQ(result.Data["value"].get<f32>(), live);
+
+    ASSERT_TRUE(f.History.CanUndo());
+    f.History.Undo();
+    EXPECT_FLOAT_EQ(f.TheEntity.GetComponent<OloEngine::ParticleSystemComponent>().System.Emitter.RateOverTime, 10.0f);
+}
+
+// A vec4 two levels deep coerces and clamps exactly like a top-level one.
+TEST(McpFieldRegistry, NestedVectorFieldRoundTrips)
+{
+    Fixture f;
+    f.TheEntity.AddComponent<OloEngine::ParticleSystemComponent>();
+
+    const auto result = GFW::Apply(f.Scene_, f.History, f.Uuid, "ParticleSystemComponent",
+                                   "System.Emitter.InitialColor", Json::array({ 0.25, 0.5, 0.75, 1.0 }));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_EQ(result.Data["type"], "vec4");
+
+    const glm::vec4 live = f.TheEntity.GetComponent<OloEngine::ParticleSystemComponent>().System.Emitter.InitialColor;
+    EXPECT_FLOAT_EQ(live.x, 0.25f);
+    EXPECT_FLOAT_EQ(live.y, 0.5f);
+    EXPECT_FLOAT_EQ(live.z, 0.75f);
+    EXPECT_FLOAT_EQ(live.w, 1.0f);
+}
+
+// A nested field inherits its load-time range the same way a top-level one does —
+// and here that is a MEMORY-SAFETY contract, not a taste one. ParticleCurve::KeyCount
+// is a length into a fixed `std::array<Key, 8>` that Evaluate() indexes as
+// `Keys[KeyCount - 1]`; every scene-load path bounds it with
+// `std::min(…, Keys.size())`. Sub-object addressing made the field reachable, so it
+// carries OLO_SERIALIZE(Clamp, Min = 0, Max = 8) and MCP inherits that bound: a write
+// of 100 CANNOT put the curve into a state a scene load could not produce.
+TEST(McpFieldRegistry, NestedFieldInheritsTheSerializerClampInsteadOfIndexingOutOfBounds)
+{
+    Fixture f;
+    f.TheEntity.AddComponent<OloEngine::ParticleSystemComponent>();
+
+    const auto result = GFW::Apply(f.Scene_, f.History, f.Uuid, "ParticleSystemComponent",
+                                   "System.SizeModule.SizeCurve.KeyCount", Json(100));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    // ASSERT, not EXPECT: an unclamped write carries no `requestedValue` at all, and
+    // reading a missing JSON key would abort the process rather than fail the test.
+    ASSERT_TRUE(result.Data["clamped"].get<bool>())
+        << "the write was accepted verbatim — KeyCount is now " << result.Data["value"]
+        << " on an 8-slot Keys array, which ParticleCurve::Evaluate would index out of bounds";
+    EXPECT_EQ(result.Data["requestedValue"].get<u32>(), 100u);
+    EXPECT_EQ(result.Data["value"].get<u32>(), 8u);
+
+    const auto& curve = f.TheEntity.GetComponent<OloEngine::ParticleSystemComponent>().System.SizeModule.SizeCurve;
+    EXPECT_EQ(curve.KeyCount, 8u);
+    EXPECT_LE(curve.KeyCount, static_cast<u32>(curve.Keys.size())); // never out of bounds
+}
+
+// The descent stops at a container: an element of a std::vector / set / map has no
+// static field name a dotted path could address, so none is invented.
+TEST(McpFieldRegistry, DescentDoesNotInventFieldsForContainerElements)
+{
+    EXPECT_FALSE(RegistryHas("ParticleSystemComponent", "System.Emitter.Bursts"));
+    EXPECT_FALSE(RegistryHas("ParticleSystemComponent", "System.ForceFields"));
+    EXPECT_FALSE(RegistryHas("ParticleSystemComponent", "ChildSystems"));
+    EXPECT_FALSE(RegistryHas("LODGroupComponent", "LODGroup.Levels"));
+}
+
+// Descending must not smuggle RUNTIME state back in through the side door.
+// InstancedMeshComponent::_MergedCache is a public member ("Internal — do not write
+// from user code; not serialized") whose PlacementHandle is a plain AssetHandle, so
+// the descent WOULD have exposed it; it carries OLO_SERIALIZE(Skip), the same
+// mechanism a top-level runtime field uses. The component's authored fields stay.
+TEST(McpFieldRegistry, DescentRespectsSkipOnARuntimeCacheSubObject)
+{
+    EXPECT_FALSE(RegistryHas("InstancedMeshComponent", "_MergedCache.PlacementHandle"));
+    EXPECT_FALSE(RegistryHas("InstancedMeshComponent", "_MergedCache.InlineSize"));
+    EXPECT_TRUE(RegistryHas("InstancedMeshComponent", "CullDistance")); // authored — still there
+}
+
+// Nested fields are DISCOVERABLE, not just writable-if-you-guess-the-name:
+// olo_entity_list_fields reports each dotted name with its current value.
+TEST(McpFieldRegistry, ListFieldsReportsNestedDottedFields)
+{
+    Fixture f;
+    auto& particles = f.TheEntity.AddComponent<OloEngine::ParticleSystemComponent>();
+    particles.System.Emitter.RateOverTime = 42.0f;
+
+    bool found = false;
+    const Json out = GFW::ListFields(f.Scene_, f.Uuid, "ParticleSystemComponent", found);
+    ASSERT_TRUE(found);
+    ASSERT_EQ(out["components"].size(), 1u);
+
+    bool sawNested = false;
+    for (const auto& field : out["components"][0]["fields"])
+    {
+        if (field["field"] == "System.Emitter.RateOverTime")
+        {
+            sawNested = true;
+            EXPECT_EQ(field["type"], "float");
+            EXPECT_FLOAT_EQ(field["value"].get<f32>(), 42.0f);
+        }
+    }
+    EXPECT_TRUE(sawNested) << "a nested field must be discoverable via olo_entity_list_fields";
+}
+
+// ---- 6. what sub-object addressing deliberately does NOT reach ---------------
+//
+// Two components still expose no authored field, and neither is a gap a dotted
+// member-access path can close. Pinned here so the limitation is a stated contract
+// rather than a silent surprise, and so the day someone closes it the test tells them
+// to update this comment.
+//
+//   * AudioSourceComponent keeps every authored parameter in a PRIVATE cold blob
+//     (`std::unique_ptr<AudioSourceColdData> m_Cold`) reached through GetConfig().
+//     A member-access chain cannot cross a private member, and the field scan
+//     correctly refuses to emit one that would not compile. Its 16 parameters ARE
+//     already declared — as OLO_PROPERTY Get/Set EXPRESSIONS — so the honest fix is
+//     to teach the MCP emitter to consume those, not to bolt a second accessor table
+//     onto the field scan. That is a distinct mechanism (side-effecting setters that
+//     must also push to the live Ref<AudioSource>), not this slice.
+//   * MorphTargetComponent's authored surface is a DYNAMIC keyset
+//     (`std::unordered_map<std::string, f32> Weights`), which needs map-key
+//     addressing ("Weights.<targetName>"), not sub-object addressing: the field names
+//     do not exist until a MorphTargetSet is bound at runtime, so no static registry
+//     entry can name them.
+TEST(McpFieldRegistry, KnownGapsWithNoStaticFieldPathStayUnreachable)
+{
+    EXPECT_FALSE(RegistryHas("AudioSourceComponent", "Volume"));        // private cold blob
+    EXPECT_FALSE(RegistryHas("AudioSourceComponent", "Config.Volume")); // …not reachable by a path either
+    EXPECT_FALSE(RegistryHas("MorphTargetComponent", "Weights"));       // dynamic keyset, not a field
+}

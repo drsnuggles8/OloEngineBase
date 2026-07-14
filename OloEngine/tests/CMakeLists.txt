@@ -550,6 +550,14 @@ add_executable(OloEngine-Tests
 		# (MCP/McpGenericFieldWrite.h). Header-only on the editor side, so no extra
 		# editor TU is pulled in.
 		MCP/McpGenericFieldWriteTest.cpp
+		# The GENERATED writable-field registry behind those two tools (#607):
+		# OloHeaderTool emits MCP/Generated/McpFieldRegistry.Generated.inl from the same
+		# component data-member scan that drives the scene serializer, including the
+		# sub-object descent that makes a field nested inside a non-POD member
+		# ("System.Emitter.RateOverTime") addressable. Guards breadth, the runtime-only
+		# exclusions, and that a nested field inherits its serializer clamp.
+		# NOTE: this file existed but was never listed here, so none of it ran.
+		MCP/McpFieldRegistryTest.cpp
 		# Consented MCP WRITE tool: olo_reload_script (#306 item C) — reload the C#
 		# script assembly. Same dispatch seam (session write gate + inputSchema
 		# enforcement at McpServer.cpp) and shared shaping (MCP/McpReloadScript.h:

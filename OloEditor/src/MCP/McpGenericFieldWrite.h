@@ -364,20 +364,31 @@ namespace OloEngine::MCP::GenericFieldWrite
     };
 
     // Build one registry entry from a component type + a script-facing field name +
-    // a pointer-to-member (+ an optional load-time range). The field type F is
-    // deduced, which selects the coercion / serialization / change-detection /
-    // clamping specializations above.
-    template<typename C, typename F>
-    [[nodiscard]] inline FieldEntry MakeField(std::string component, std::string field, F C::* member,
-                                              FieldRange range = {})
+    // an ACCESSOR (a callable `C& -> F&`) (+ an optional load-time range). The field
+    // type F is deduced from the accessor's return type, which selects the coercion /
+    // serialization / change-detection / clamping specializations above.
+    //
+    // The accessor — rather than a bare pointer-to-member — is what makes a NESTED
+    // field addressable: the generator emits `[](C& c) -> auto& { return c.System.Emitter.RateOverTime; }`
+    // for the dotted field name "System.Emitter.RateOverTime", and everything below
+    // (coerce, clamp, no-op detect, undo command, read-back) is identical to a
+    // top-level field. A plain member still goes through the pointer-to-member
+    // overload right underneath, which just wraps it in the same accessor shape.
+    template<typename C, typename Access>
+    [[nodiscard]] inline FieldEntry MakeFieldAccess(std::string component, std::string field, Access access,
+                                                    FieldRange range = {})
     {
+        using F = std::remove_cvref_t<decltype(access(std::declval<C&>()))>;
+        static_assert(std::is_lvalue_reference_v<decltype(access(std::declval<C&>()))>,
+                      "MakeFieldAccess: the accessor must return an lvalue reference into the component");
+
         FieldEntry entry;
         entry.Component = component;
         entry.Field = field;
         entry.Type = std::string(FieldTypeName<F>());
         entry.Range = range;
 
-        entry.Apply = [member, component, field, range](const Ref<Scene>& scene, CommandHistory& history,
+        entry.Apply = [access, component, field, range](const Ref<Scene>& scene, CommandHistory& history,
                                                         Entity entity, u64 uuid, const Json& value) -> ApplyResult
         {
             ApplyResult result;
@@ -403,13 +414,13 @@ namespace OloEngine::MCP::GenericFieldWrite
 
             // Copy the previous value out BEFORE the command runs: the command
             // replaces the component, so a reference into it would be stale after.
-            const F previous = entity.GetComponent<C>().*member;
+            const F previous = access(entity.GetComponent<C>());
             const bool willChange = FieldChanged<F>(previous, coerced);
             if (willChange)
             {
                 const C& current = entity.GetComponent<C>();
                 C newData = current;
-                newData.*member = coerced;
+                access(newData) = coerced;
                 history.Execute(std::make_unique<ComponentChangeCommand<C>>(
                     scene, UUID(uuid), current, newData, "Set " + component + "." + field));
             }
@@ -417,7 +428,7 @@ namespace OloEngine::MCP::GenericFieldWrite
             // Read the value BACK OUT of the live component — the honest answer to
             // "did the write take effect?". If the command silently failed to apply,
             // `value` shows the old value and `changed` is false.
-            const F applied = entity.GetComponent<C>().*member;
+            const F applied = access(entity.GetComponent<C>());
             const bool changed = FieldChanged<F>(previous, applied);
 
             result.Ok = true;
@@ -442,14 +453,25 @@ namespace OloEngine::MCP::GenericFieldWrite
             return result;
         };
 
-        entry.Read = [member](Entity entity) -> std::optional<Json>
+        entry.Read = [access](Entity entity) -> std::optional<Json>
         {
             if (!entity.HasComponent<C>())
                 return std::nullopt;
-            return FieldToJson<F>(entity.GetComponent<C>().*member);
+            return FieldToJson<F>(access(entity.GetComponent<C>()));
         };
 
         return entry;
+    }
+
+    // Pointer-to-member convenience overload — the shape the hand-written registry
+    // used and the one the MCP tests exercise directly. Wraps the member pointer in
+    // the accessor above so there is exactly one implementation of the write path.
+    template<typename C, typename F>
+    [[nodiscard]] inline FieldEntry MakeField(std::string component, std::string field, F C::* member,
+                                              FieldRange range = {})
+    {
+        return MakeFieldAccess<C>(std::move(component), std::move(field), [member](C& c) -> F&
+                                  { return c.*member; }, range);
     }
 
     // The writable-field registry, GENERATED by OloHeaderTool (issue #607) from the
@@ -460,19 +482,34 @@ namespace OloEngine::MCP::GenericFieldWrite
     // macro so the two can't drift.
     //
     // The generated .inl is a flat list of:
-    //   registry.push_back(OLO_GFW_FIELD(Comp, "FieldName", Member));
-    //   registry.push_back(OLO_GFW_FIELD_RANGE(Comp, "FieldName", Member, min, max));
+    //   registry.push_back(OLO_GFW_FIELD(Comp, "FieldName", MemberExpr));
+    //   registry.push_back(OLO_GFW_FIELD_RANGE(Comp, "FieldName", MemberExpr, min, max));
     // where a bound is OLO_GFW_BOUND(expr) or OLO_GFW_NO_BOUND. The macros are scoped
     // to this function and #undef'd below so they never leak out of the header.
     //
+    // SUB-OBJECT ADDRESSING: `MemberExpr` is a member-ACCESS CHAIN, not a single name
+    // — `Translation` for a top-level field, `System.Emitter.RateOverTime` for a field
+    // that lives inside a nested object — and `FieldName` is the matching dotted key
+    // ("System.Emitter.RateOverTime"). The macro pastes the chain into an accessor
+    // lambda, so both cases land on the same MakeFieldAccess write path. This is what
+    // makes ParticleSystemComponent (whose entire authored surface lives inside a
+    // `ParticleSystem System` member) writable; without it that component exposed
+    // literally zero fields. The generator derives the chain from the SAME nested-
+    // record classification that drives the scene serializer's nested-struct support,
+    // so there is no second type classifier to drift.
+    //
     // To make a new component/field writable: give it a public data member of a
     // supported type (bool / int / uint / small int / float / glm::vec2|3|4 / enum /
-    // std::string / AssetHandle) and rebuild GenerateBindings. To keep a runtime-only
-    // field out, mark it OLO_SERIALIZE(Skip); to keep a whole runtime-only component
-    // out, add it to kComponentsNotMcpEditable in tools/OloHeaderTool/main.cpp.
-#define OLO_GFW_FIELD(Comp, FieldName, Member) MakeField<Comp>(#Comp, FieldName, &Comp::Member)
-#define OLO_GFW_FIELD_RANGE(Comp, FieldName, Member, MinBound, MaxBound) \
-    MakeField<Comp>(#Comp, FieldName, &Comp::Member, FieldRange{ MinBound, MaxBound })
+    // std::string / AssetHandle) — directly, or inside a public nested struct/class
+    // member — and rebuild GenerateBindings. To keep a runtime-only field out, mark it
+    // OLO_SERIALIZE(Skip); to keep a whole runtime-only component out, add it to
+    // kComponentsNotMcpEditable in tools/OloHeaderTool/main.cpp.
+#define OLO_GFW_FIELD(Comp, FieldName, MemberExpr) \
+    MakeFieldAccess<Comp>(#Comp, FieldName, [](Comp& c) -> auto& { return c.MemberExpr; })
+#define OLO_GFW_FIELD_RANGE(Comp, FieldName, MemberExpr, MinBound, MaxBound) \
+    MakeFieldAccess<Comp>(                                                   \
+        #Comp, FieldName, [](Comp& c) -> auto& { return c.MemberExpr; },     \
+        FieldRange{ MinBound, MaxBound })
 #define OLO_GFW_BOUND(Expr) std::optional<double>(static_cast<double>(Expr))
 #define OLO_GFW_NO_BOUND std::optional<double>()
     [[nodiscard]] inline std::vector<FieldEntry> BuildRegistry()
