@@ -108,3 +108,7 @@ OloEditor/SandboxProject/Assets/Scenes/PerfStress/
 # tracked generated file made every parallel PR false-conflict on docs/testing.md
 # (GitHub ignores the merge=union driver). Regenerate locally on demand.
 docs/test-catalogue.*.md
+
+# External assets fetched on demand by scripts/Fetch-Assets.ps1 (see scripts/assets/asset-manifest.json).
+# Too large for git history, or licensed to be fetched rather than redistributed.
+OloEditor/SandboxProject/Assets/Models/Stanford/

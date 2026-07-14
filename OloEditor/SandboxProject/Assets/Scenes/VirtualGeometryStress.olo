@@ -1,0 +1,505 @@
+Scene: VirtualGeometryStress.olo
+# ---------------------------------------------------------------------------
+# THE NANITE STRESS SCENE (issue #629) - the "can it actually do the thing" scene.
+#
+# 24 x Stanford XYZ RGB Asian Dragon @ 7,219,045 triangles each
+#   = 173,257,080 TRIANGLES of source geometry in one scene.
+#
+# For scale that is ~660x Sponza. The classic renderer cannot draw this, which is
+# exactly the point - and you can prove it to yourself in five seconds:
+#
+#     Renderer Settings -> Deferred -> untick "Enable virtual geometry"
+#
+# That falls every dragon back to the classic mesh path (same geometry, same
+# materials, no cluster LOD) and the frame collapses. Tick it back on and it
+# recovers. That A/B was impossible before that switch existed.
+#
+# Measured headless on comparable load (VirtualGeometryPerf, 15.7M tris, GPU time):
+#     classic 6.45 ms  |  virtual 3.86 ms  ->  ~1.7x faster
+#
+# Note: an earlier measurement of this said 6.4x, and it was WRONG - inflated by a bug
+# (now fixed) where virtual geometry silently cast no shadows unless a classic mesh was
+# in the scene. The virtual path was winning partly by not doing the work. With shadows
+# correctly rendered on both paths the honest figure is ~1.7x, and most of the remaining
+# virtual-side cost is the shadow pass (see issue #651: Nanite shadow rendering costs
+# ~5.7x the geometry pass it shadows). Fixing #651 is what should move this number.
+#
+# WHAT TO LOOK AT - Statistics panel -> "Virtual Geometry (Nanite)":
+#   * Debug view -> Cluster ID : every cluster a distinct colour. Fly toward a
+#     dragon and watch its clusters SUBDIVIDE as it covers more pixels.
+#   * Debug view -> LOD level  : green = finest, red = coarsest. The far dragons
+#     are red, the near one green, and the transition is seamless - no popping and
+#     no cracks, because the cut is chosen per cluster against a screen-space error
+#     bound, not per mesh against a distance threshold.
+#   * Debug view -> Overdraw   : per-pixel cluster fragment heat map.
+#   * "Tested clusters" vs "DAG-cut selected" : the cull's rejection rate.
+#   * "Drawn: HW / SW" : how the coverage heuristic splits clusters between the
+#     hardware rasterizer and the compute software rasterizer. In this scene the
+#     dragons are small enough on screen that essentially everything goes to the
+#     SOFTWARE rasterizer - which is the regime it was built for.
+#   Tick "Show debug view in viewport" (Renderer Settings) to composite the debug
+#   view over the lit frame instead of only writing it to the MCP capture target.
+#
+# The dragons RECEDE INTO THE DISTANCE deliberately: the near ones push large
+# triangles through the hardware raster path, the far ones project to sub-pixel
+# triangles. A scene with every instance at one depth would test a single point on
+# that curve, and the least interesting one.
+#
+# THE ASSET IS NOT IN GIT (137 MB). Fetch it once:
+#     scripts\Fetch-Assets.ps1 -Tag nanite
+# Without it the scene still loads - the dragons simply do not resolve and you get
+# an empty hall. It will not crash.
+# Credit: Stanford Computer Graphics Laboratory, 3D Scanning Repository.
+#
+# REQUIRES THE DEFERRED PATH. VirtualGeometryPass self-disables on Forward and
+# Forward+. The renderer starts on Forward and the path is not scene-serialized,
+# so on load: Renderer Settings -> Rendering Path -> Deferred. The Virtual Mesh
+# inspector shows a warning and a one-click switch while the wrong path is active.
+#
+# FIRST LOAD IS SLOW: cooking a cluster LOD DAG for 7.2M triangles takes a couple
+# of minutes. The cook is cached (.omesh), so later loads are fast.
+# ---------------------------------------------------------------------------
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+Entities:
+  - Entity: 820000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 3, 16]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.1
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 820000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+  - Entity: 820000000000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 30, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.35, -0.88, -0.32]
+      Color: [1, 0.96, 0.9]
+      Intensity: 4
+      CastShadows: true
+      ShadowBias: 0.0015
+  - Entity: 820000000000004
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, -1, -60]
+      Rotation: [0, 0, 0]
+      Scale: [80, 0.2, 200]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.32, 0.31, 0.29]
+      Metallic: 0
+      Roughness: 0.85
+  - Entity: 820000000000010
+    TagComponent:
+      Tag: Dragon_r0_L
+    TransformComponent:
+      Translation: [-5.5, -1, -6.0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000011
+    TagComponent:
+      Tag: Dragon_r0_R
+    TransformComponent:
+      Translation: [5.5, -1, -6.0]
+      Rotation: [0, -1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000012
+    TagComponent:
+      Tag: Dragon_r1_L
+    TransformComponent:
+      Translation: [-5.5, -1, -17.0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000013
+    TagComponent:
+      Tag: Dragon_r1_R
+    TransformComponent:
+      Translation: [5.5, -1, -17.0]
+      Rotation: [0, -1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000014
+    TagComponent:
+      Tag: Dragon_r2_L
+    TransformComponent:
+      Translation: [-5.5, -1, -28.0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000015
+    TagComponent:
+      Tag: Dragon_r2_R
+    TransformComponent:
+      Translation: [5.5, -1, -28.0]
+      Rotation: [0, -1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000016
+    TagComponent:
+      Tag: Dragon_r3_L
+    TransformComponent:
+      Translation: [-5.5, -1, -39.0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000017
+    TagComponent:
+      Tag: Dragon_r3_R
+    TransformComponent:
+      Translation: [5.5, -1, -39.0]
+      Rotation: [0, -1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000018
+    TagComponent:
+      Tag: Dragon_r4_L
+    TransformComponent:
+      Translation: [-5.5, -1, -50.0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000019
+    TagComponent:
+      Tag: Dragon_r4_R
+    TransformComponent:
+      Translation: [5.5, -1, -50.0]
+      Rotation: [0, -1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000020
+    TagComponent:
+      Tag: Dragon_r5_L
+    TransformComponent:
+      Translation: [-5.5, -1, -61.0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000021
+    TagComponent:
+      Tag: Dragon_r5_R
+    TransformComponent:
+      Translation: [5.5, -1, -61.0]
+      Rotation: [0, -1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000022
+    TagComponent:
+      Tag: Dragon_r6_L
+    TransformComponent:
+      Translation: [-5.5, -1, -72.0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000023
+    TagComponent:
+      Tag: Dragon_r6_R
+    TransformComponent:
+      Translation: [5.5, -1, -72.0]
+      Rotation: [0, -1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000024
+    TagComponent:
+      Tag: Dragon_r7_L
+    TransformComponent:
+      Translation: [-5.5, -1, -83.0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000025
+    TagComponent:
+      Tag: Dragon_r7_R
+    TransformComponent:
+      Translation: [5.5, -1, -83.0]
+      Rotation: [0, -1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000026
+    TagComponent:
+      Tag: Dragon_r8_L
+    TransformComponent:
+      Translation: [-5.5, -1, -94.0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000027
+    TagComponent:
+      Tag: Dragon_r8_R
+    TransformComponent:
+      Translation: [5.5, -1, -94.0]
+      Rotation: [0, -1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000028
+    TagComponent:
+      Tag: Dragon_r9_L
+    TransformComponent:
+      Translation: [-5.5, -1, -105.0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000029
+    TagComponent:
+      Tag: Dragon_r9_R
+    TransformComponent:
+      Translation: [5.5, -1, -105.0]
+      Rotation: [0, -1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000030
+    TagComponent:
+      Tag: Dragon_r10_L
+    TransformComponent:
+      Translation: [-5.5, -1, -116.0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000031
+    TagComponent:
+      Tag: Dragon_r10_R
+    TransformComponent:
+      Translation: [5.5, -1, -116.0]
+      Rotation: [0, -1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000032
+    TagComponent:
+      Tag: Dragon_r11_L
+    TransformComponent:
+      Translation: [-5.5, -1, -127.0]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
+  - Entity: 820000000000033
+    TagComponent:
+      Tag: Dragon_r11_R
+    TransformComponent:
+      Translation: [5.5, -1, -127.0]
+      Rotation: [0, -1.5707963, 0]
+      Scale: [0.02, 0.02, 0.02]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301304
+      ErrorThresholdPixels: 1
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.72, 0.55]
+      Metallic: 0.1
+      Roughness: 0.45
