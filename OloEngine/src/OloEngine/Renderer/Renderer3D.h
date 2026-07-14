@@ -199,6 +199,19 @@ namespace OloEngine
         // render" gates only.
         static bool HasInitialized();
 
+        // Diagnostics: which GPU-resource-holding members of s_Data are still alive?
+        //
+        // Shutdown() must release every one of them. A Ref<> it forgets survives into
+        // STATIC destruction at process exit, where its destructor frees GPU buffers
+        // through FrameResourceManager / RendererMemoryTracker / GPUResourceInspector —
+        // Meyer's singletons that are already gone — and segfaults the process on the way
+        // out, AFTER the test binary has printed a clean pass. Ref<GPUFrustumCuller> hid
+        // there for exactly that reason. Pinned by RendererShutdownTest.
+        //
+        // Returns the names of the members still holding resources; empty after a correct
+        // Shutdown(). Add any new GPU-owning s_Data member here AND to Shutdown().
+        [[nodiscard]] static std::vector<std::string> DebugLiveGpuOwningStatics();
+
         // Asset hot-reload handler — ensures next frame picks up new RendererIDs
         static void OnAssetReloaded(const AssetReloadedEvent& e);
 

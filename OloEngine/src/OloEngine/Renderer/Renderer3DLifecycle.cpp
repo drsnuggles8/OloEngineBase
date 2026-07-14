@@ -456,6 +456,33 @@ namespace OloEngine
         return s_Data.CoreInitialized;
     }
 
+    std::vector<std::string> Renderer3D::DebugLiveGpuOwningStatics()
+    {
+        std::vector<std::string> live;
+        auto note = [&live](const char* name, bool alive)
+        {
+            if (alive)
+            {
+                live.emplace_back(name);
+            }
+        };
+
+        // Every s_Data member that owns GPU memory and must be released by Shutdown().
+        // GPUFrustumCuller is listed FIRST because it is the one that was missing: it
+        // outlived Shutdown, was destroyed at static-destruction time, and segfaulted the
+        // process on exit after a clean-looking pass.
+        note("GPUFrustumCuller", s_Data.GPUFrustumCuller != nullptr);
+        note("RGraph", s_Data.RGraph != nullptr);
+        note("MultiLightBuffer", s_Data.MultiLightBuffer != nullptr);
+        note("ModelInstanceBuffer", s_Data.ModelInstanceBuffer != nullptr);
+        note("BoneMatricesUBO", s_Data.BoneMatricesUBO != nullptr);
+        note("TerrainUBO", s_Data.TerrainUBO != nullptr);
+        note("FoliageUBO", s_Data.FoliageUBO != nullptr);
+        note("WaterUBO", s_Data.WaterUBO != nullptr);
+
+        return live;
+    }
+
     void Renderer3D::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
@@ -522,6 +549,15 @@ namespace OloEngine
         s_Data.SharedSceneUBOs.Reset();
         s_Data.MultiLightBuffer.Reset();
         s_Data.ModelInstanceBuffer.Reset();
+        // The two-phase GPU culler (#431) owns a pool of StorageBuffers / InstanceBuffers.
+        // It was created in Init but never released here, so it outlived Shutdown and was
+        // destroyed during STATIC destruction at process exit — by which time the Meyer's
+        // singletons its buffers' destructors call (FrameResourceManager,
+        // RendererMemoryTracker, GPUResourceInspector) are already gone. That segfaulted the
+        // test binary on the way out (exit 139), after every result had printed, so it looked
+        // like a passing run. Only the occlusion tests populate the pool, which is why it took
+        // a suite-wide bisect to find. Pinned by RendererShutdownTest.
+        s_Data.GPUFrustumCuller.Reset();
         s_Data.BoneMatricesUBO.Reset();
         s_Data.TerrainUBO.Reset();
         s_Data.FoliageUBO.Reset();
