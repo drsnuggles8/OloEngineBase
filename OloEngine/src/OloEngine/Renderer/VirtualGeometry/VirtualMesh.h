@@ -31,6 +31,26 @@ namespace OloEngine
     // any blob with LevelCount above this — keeping every buildable mesh loadable.
     inline constexpr u32 kMaxVirtualMeshLevels = 64;
 
+    // Cook identity (issue #629). The blob's own version guards the WIRE FORMAT; this guards
+    // the COOK — the geometry the builder produced.
+    //
+    // A cooked DAG rides inside the mesh's `.omesh` cache entry, whose validity is only
+    // (source path hash, flipUV, source mtime). Nothing there notices that the BUILDER
+    // changed. And because the DAG bakes its own copy of the vertex data, a stale cook is
+    // fully self-consistent: it passes every structural validation in the deserializer and
+    // then quietly draws different geometry from the classic path, forever, until someone
+    // touches the source file or hand-deletes the cache. That cost real time during #629.
+    //
+    // So the blob records this version plus a fingerprint of the build config it was cooked
+    // with, and the reader REJECTS a mismatch — which drops the registry onto its existing
+    // runtime-build fallback (VirtualMeshRegistry::RegisterMeshSource).
+    //
+    // >>> BUMP THIS whenever VirtualMeshBuilder's clusterization/simplification/emission
+    //     changes in a way that alters the produced geometry. <<<
+    // (A change to VirtualMeshBuildConfig's DEFAULTS needs no bump — the fingerprint below
+    //  already covers it.)
+    inline constexpr u32 kVirtualMeshBuilderVersion = 1;
+
     // Sphere + object-space error used for view-dependent LOD selection.
     // For groups these are conservative: the sphere of a group contains the spheres of all
     // groups it refines, and the error never decreases from child group to parent group.
@@ -156,6 +176,13 @@ namespace OloEngine
     // so cooks written before multi-submesh support still load.
     namespace VirtualMeshSerializer
     {
+        // Fingerprint of the cook this build produces: kVirtualMeshBuilderVersion mixed with a
+        // hash of the DEFAULT (sanitized) VirtualMeshBuildConfig — the config every cook path
+        // uses. Written into every blob header and required to match on read, so changing the
+        // builder or a config default invalidates every previously cached DAG instead of
+        // leaving it to render forever. Exposed for the round-trip tests.
+        [[nodiscard]] u32 CurrentCookFingerprint();
+
         [[nodiscard]] std::vector<u8> SerializeToBlob(const VirtualMesh& mesh);
         [[nodiscard]] bool DeserializeFromBlob(std::span<const u8> blob, VirtualMesh& out);
 

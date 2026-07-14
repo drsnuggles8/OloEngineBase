@@ -311,10 +311,16 @@ void main()
     }
 
     // ── Normal-cone backface rejection (uniform-scale instances only; never
-    // in ortho/shadow mode — shadow maps rasterize back faces) ──
+    // in ortho/shadow mode — shadow maps rasterize back faces; never for a
+    // TWO-SIDED material — bit2 — whose back faces are visible, so "every
+    // triangle in this cluster faces away" is not a reason to drop it. The
+    // classic path has no cone cull at all, so this test was the one place the
+    // virtual path could lose whole clusters of a double-sided sheet seen from
+    // behind) ──
     // meshoptimizer sphere-based form: reject when
     //   dot(center - camera, axis) >= cutoff * |center - camera| + radius.
-    if (u_OrthoMode == 0 && (inst.Flags & 1u) != 0u && cluster.Cone.w < 1.0)
+    bool twoSided = (inst.Flags & 4u) != 0u;
+    if (u_OrthoMode == 0 && (inst.Flags & 1u) != 0u && !twoSided && cluster.Cone.w < 1.0)
     {
         vec3 worldAxis = normalize(mat3(inst.Transform) * cluster.Cone.xyz);
         vec3 toCluster = worldCenter - u_CameraPosition;
@@ -344,6 +350,10 @@ void main()
     // was behind it unshaded. Sponza's potted plants rendered as white speckle exactly this
     // way. The hardware path has a real fragment shader and discards before writing depth.
     // Same restriction UE5's Nanite has: masked materials are excluded from the fast raster.
+    //
+    // bit2 (two-sided) does NOT exclude a cluster from the SW path: the rasterizer keeps
+    // negative-area triangles for those instances and the resolve flips the barycentric
+    // sign, so double-sided geometry keeps the fast path instead of being forced to HW.
     bool alphaMasked = (inst.Flags & 2u) != 0u;
     if (u_SwRasterThresholdPixels > 0.0 && u_OrthoMode == 0 && !alphaMasked)
     {

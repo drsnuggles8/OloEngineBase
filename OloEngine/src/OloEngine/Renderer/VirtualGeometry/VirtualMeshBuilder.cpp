@@ -246,6 +246,56 @@ namespace OloEngine::VirtualMeshBuilder
             }
         }
 
+        // Census of UV-degenerate triangles in a finished DAG, split by where they came from
+        // (issue #629). A UV-degenerate triangle (zero texture-space area, real 3D area) makes
+        // the derivative tangent frame collapse; the shader guards it, but the count matters:
+        // LOD-0 clusters inherit them from the source mesh verbatim, while SIMPLIFICATION
+        // creates more — meshopt_simplifyWithAttributes penalises UV *deviation* through the
+        // attribute quadric but has no notion of texture AREA, so nothing stops a collapse
+        // that makes three corners UV-collinear. There is no meshopt flag/weight that forbids
+        // it, so this reports rather than prevents; see the shader guard in PBRCommon.glsl.
+        void ReportUvDegenerates(const VirtualMesh& mesh, u32 submeshIndex)
+        {
+            u32 leafDegenerate = 0; // in LOD-0 clusters (RefinedGroup == -1) — inherited from the source
+            u32 leafTriangles = 0;
+            u32 refinedDegenerate = 0; // in simplified clusters — created by the simplifier
+            u32 refinedTriangles = 0;
+
+            for (const VirtualCluster& cluster : mesh.Clusters)
+            {
+                const bool isLeaf = cluster.RefinedGroup < 0;
+                (isLeaf ? leafTriangles : refinedTriangles) += cluster.TriangleCount;
+
+                for (u32 t = 0; t < cluster.TriangleCount; ++t)
+                {
+                    const u8* tri = &mesh.ClusterTriangles[cluster.TriangleOffset + (static_cast<sizet>(t) * 3)];
+                    const Vertex& v0 = mesh.Vertices[mesh.ClusterVertexRefs[cluster.VertexOffset + tri[0]]];
+                    const Vertex& v1 = mesh.Vertices[mesh.ClusterVertexRefs[cluster.VertexOffset + tri[1]]];
+                    const Vertex& v2 = mesh.Vertices[mesh.ClusterVertexRefs[cluster.VertexOffset + tri[2]]];
+
+                    const f32 area3D = glm::length(glm::cross(v1.Position - v0.Position, v2.Position - v0.Position));
+                    const glm::vec2 duv1 = v1.TexCoord - v0.TexCoord;
+                    const glm::vec2 duv2 = v2.TexCoord - v0.TexCoord;
+                    const f32 uvArea = std::abs((duv1.x * duv2.y) - (duv2.x * duv1.y));
+
+                    if ((area3D > 0.0f) && !(uvArea > 0.0f))
+                    {
+                        ++(isLeaf ? leafDegenerate : refinedDegenerate);
+                    }
+                }
+            }
+
+            if (leafDegenerate + refinedDegenerate > 0)
+            {
+                OLO_CORE_WARN("VirtualMeshBuilder: submesh {} carries {} UV-degenerate triangles "
+                              "({} of {} inherited from the source in LOD-0 clusters, {} of {} CREATED by "
+                              "simplification). They shade with the geometric normal (PBRCommon.glsl guards "
+                              "the collapsed tangent); no meshoptimizer option prevents the collapse.",
+                              submeshIndex, leafDegenerate + refinedDegenerate,
+                              leafDegenerate, leafTriangles, refinedDegenerate, refinedTriangles);
+            }
+        }
+
         [[nodiscard]] std::vector<u32> Simplify(const BuildContext& ctx, const std::vector<u32>& merged,
                                                 const std::vector<u8>& locks, sizet targetIndexCount, f32& outAbsoluteError)
         {
@@ -535,6 +585,8 @@ namespace OloEngine::VirtualMeshBuilder
         OLO_CORE_TRACE("VirtualMeshBuilder: submesh {} -> {} clusters in {} groups across {} levels from {} triangles",
                        submeshIndex, result.Clusters.size(), result.Groups.size(), result.LevelCount,
                        result.SourceTriangleCount);
+
+        ReportUvDegenerates(result, submeshIndex);
 
         return result;
     }

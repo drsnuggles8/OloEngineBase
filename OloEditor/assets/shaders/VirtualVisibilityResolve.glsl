@@ -29,6 +29,12 @@ void main()
 #type fragment
 #version 460 core
 
+// PBRCommon owns the ONE normal-map decode + TBN construction shared with the
+// hardware raster (VirtualMeshGBuffer.glsl) and the classic path. This pass used
+// to hand-roll its own and they drifted — sampled-vs-reconstructed tangent-space
+// z (issue #440 silently re-introduced for every software-rasterized cluster) and
+// an inverted bitangent. See the block above getNormalFromMap in PBRCommon.glsl.
+#include "include/PBRCommon.glsl"
 #include "include/VirtualDebugViz.glsl"
 
 // Mirrors OloEngine::VirtualClusterGpuRecord (64 B std430)
@@ -153,13 +159,20 @@ vec2 octEncodeGB(vec3 n)
 // Screen-space barycentrics of `pixel` (window coords, pixel-centre samples)
 // for the window-space triangle (s0, s1, s2). Unnormalized weights match the
 // software rasterizer's edge functions exactly.
+//
+// The signed area is NEGATIVE for a back-facing (clockwise in window space)
+// triangle, which the rasterizer now emits for TWO-SIDED materials
+// (kFlagTwoSided, issue #629). Divide by the signed area, not by max(area, eps):
+// clamping it to +1e-12 turned every back-face barycentric into ~1e12 garbage.
+// Only a genuinely zero-area (degenerate) triangle needs the epsilon floor.
 vec3 ScreenBarycentrics(vec2 pixel, vec2 s0, vec2 s1, vec2 s2)
 {
     float w0 = (s1.x - pixel.x) * (s2.y - pixel.y) - (s2.x - pixel.x) * (s1.y - pixel.y);
     float w1 = (s2.x - pixel.x) * (s0.y - pixel.y) - (s0.x - pixel.x) * (s2.y - pixel.y);
     float w2 = (s0.x - pixel.x) * (s1.y - pixel.y) - (s1.x - pixel.x) * (s0.y - pixel.y);
     float area = w0 + w1 + w2;
-    return vec3(w0, w1, w2) / max(area, 1e-12);
+    float safeArea = (abs(area) > 1e-12) ? area : 1e-12;
+    return vec3(w0, w1, w2) / safeArea;
 }
 
 void main()
@@ -229,6 +242,13 @@ void main()
     vec3 wp2 = vec3(inst.Transform * vec4(v2.PositionU.xyz, 1.0));
     vec3 worldPos = wp0 * bPersp.x + wp1 * bPersp.y + wp2 * bPersp.z;
 
+    // Analytic screen-space derivatives of world position at the same +1px offsets
+    // — exactly what dFdx/dFdy(v_WorldPos) yields on the hardware path, but valid
+    // in a fullscreen pass where the neighbouring pixel may be a different
+    // triangle/cluster/instance entirely. Feeds the shared TBN below.
+    vec3 wpDx = (wp0 * bScreenX.x + wp1 * bScreenX.y + wp2 * bScreenX.z) - worldPos;
+    vec3 wpDy = (wp0 * bScreenY.x + wp1 * bScreenY.y + wp2 * bScreenY.z) - worldPos;
+
     vec3 localNormal = v0.NormalV.xyz * bPersp.x + v1.NormalV.xyz * bPersp.y + v2.NormalV.xyz * bPersp.z;
     vec3 N = normalize(mat3(inst.NormalMatrix) * localNormal);
 
@@ -267,21 +287,12 @@ void main()
 
     if (u_UseNormalMap == 1)
     {
-        // TBN from the triangle's analytic edges (no screen-space derivatives)
-        vec3 dp1 = wp1 - wp0;
-        vec3 dp2 = wp2 - wp0;
-        vec2 duv1 = uv1 - uv0;
-        vec2 duv2 = uv2 - uv0;
-        float det = duv1.x * duv2.y - duv2.x * duv1.y;
-        if (abs(det) > 1e-12)
-        {
-            vec3 T = normalize((dp1 * duv2.y - dp2 * duv1.y) / det);
-            T = normalize(T - N * dot(N, T));
-            vec3 B = cross(N, T);
-            vec3 tangentNormal = textureGrad(u_NormalMap, uv, uvDx, uvDy).xyz * 2.0 - 1.0;
-            tangentNormal.xy *= u_NormalScale;
-            N = normalize(mat3(T, B, N) * tangentNormal);
-        }
+        // ONE shared implementation with the hardware raster + the classic path
+        // (PBRCommon::getNormalFromMap): same z reconstruction (#440 — a BC5/RGTC
+        // two-channel map has blue = 0, so sampling z would invert the normal),
+        // same handedness, same UV-degenerate NaN guard. This pass supplies the
+        // derivatives analytically because a fullscreen resolve cannot use dFdx.
+        N = getNormalFromMapGrad(u_NormalMap, uv, wpDx, wpDy, uvDx, uvDy, N, u_NormalScale);
     }
 
     // Screen-space velocity: current NDC from the fragment position, previous

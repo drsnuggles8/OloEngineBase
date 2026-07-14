@@ -1030,6 +1030,12 @@ TEST(VirtualMeshSerializer, RejectsCorruptedBlobs)
 
     VirtualMesh out;
 
+    // OVGM header: magic, wire version, builder version, build-config fingerprint, then the
+    // 7 counts (issue #629 added the two cook-identity words). Every byte poke below is
+    // relative to it, so it MUST track the writer — it used to be a bare `36` and, when the
+    // header grew, each poke silently landed in the wrong section and corrupted nothing.
+    constexpr sizet kHeaderBytes = 11 * sizeof(u32);
+
     // Empty / truncated input
     EXPECT_FALSE(VirtualMeshSerializer::DeserializeFromBlob({}, out));
     EXPECT_FALSE(VirtualMeshSerializer::DeserializeFromBlob(std::span<const u8>(blob.data(), 8), out));
@@ -1050,10 +1056,15 @@ TEST(VirtualMeshSerializer, RejectsCorruptedBlobs)
         EXPECT_FALSE(VirtualMeshSerializer::DeserializeFromBlob(corrupted, out));
     }
 
-    // Unknown (future) version
+    // Unknown (future) wire version. Must be a version this build does NOT write —
+    // the blob format is at v2 since the cook-identity header (issue #629), so hard-coding
+    // "2" here silently stopped testing anything. Derive it from a byte that cannot collide:
+    // read the version the writer actually emitted and add one.
     {
         auto corrupted = blob;
-        u32 const futureVersion = 2;
+        u32 currentVersion = 0;
+        std::memcpy(&currentVersion, corrupted.data() + 4, sizeof(u32));
+        u32 const futureVersion = currentVersion + 1;
         std::memcpy(corrupted.data() + 4, &futureVersion, sizeof(u32));
         EXPECT_FALSE(VirtualMeshSerializer::DeserializeFromBlob(corrupted, out));
     }
@@ -1069,7 +1080,7 @@ TEST(VirtualMeshSerializer, RejectsCorruptedBlobs)
     // Out-of-range group index on the first cluster
     {
         auto corrupted = blob;
-        sizet const clusterTableOffset = 36 + vm.Vertices.size() * 32; // header + vertices
+        sizet const clusterTableOffset = kHeaderBytes + vm.Vertices.size() * 32; // header + vertices
         sizet const groupIndexOffset = clusterTableOffset + 4 * sizeof(u32);
         i32 const bogusGroup = static_cast<i32>(vm.Groups.size()) + 7;
         std::memcpy(corrupted.data() + groupIndexOffset, &bogusGroup, sizeof(i32));
@@ -1080,12 +1091,12 @@ TEST(VirtualMeshSerializer, RejectsCorruptedBlobs)
     {
         auto corrupted = blob;
         f32 const nan = std::numeric_limits<f32>::quiet_NaN();
-        std::memcpy(corrupted.data() + 36, &nan, sizeof(f32));
+        std::memcpy(corrupted.data() + kHeaderBytes, &nan, sizeof(f32));
         EXPECT_FALSE(VirtualMeshSerializer::DeserializeFromBlob(corrupted, out));
     }
 
-    // Wire-format section offsets (header 36, vertex 32, cluster 68, group 32 bytes)
-    sizet const clusterTable = 36 + vm.Vertices.size() * 32;
+    // Wire-format section offsets (vertex 32, cluster 68, group 32 bytes)
+    sizet const clusterTable = kHeaderBytes + vm.Vertices.size() * 32;
     sizet const groupTable = clusterTable + vm.Clusters.size() * 68;
     sizet const refsTable = groupTable + vm.Groups.size() * 32;
     sizet const trianglesTable = refsTable + vm.ClusterVertexRefs.size() * 4;

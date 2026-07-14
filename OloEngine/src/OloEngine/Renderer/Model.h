@@ -52,6 +52,12 @@ namespace OloEngine
         // Parallel draw methods - uses SubmitMeshesParallel for efficient multi-threaded command generation
         void DrawParallel(const glm::mat4& transform, const Material& fallbackMaterial, i32 entityID = -1) const;
         void DrawParallel(const glm::mat4& transform, i32 entityID = -1) const;
+        // Full material precedence: an explicit override (the entity's MaterialComponent, or
+        // nullptr for none) -> the material each submesh was imported with -> fallbackMaterial.
+        // Shares OloEngine::ResolveSubmeshMaterial with the MeshComponent and virtualized
+        // paths so the three cannot drift apart again (issue #629).
+        void DrawParallel(const glm::mat4& transform, const Material* overrideMaterial,
+                          const Material& fallbackMaterial, i32 entityID) const;
 
         void GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<CommandPacket*>& outCommands) const;
         void GetDrawCommands(const glm::mat4& transform, const Ref<const Material>& material, std::vector<CommandPacket*>& outCommands) const;

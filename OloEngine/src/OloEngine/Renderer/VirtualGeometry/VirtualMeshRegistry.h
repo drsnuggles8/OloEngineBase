@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace OloEngine
@@ -145,6 +146,13 @@ namespace OloEngine
         // use. Safe to call repeatedly; returns whether the mesh is usable.
         bool RegisterMeshSource(AssetHandle handle, const MeshSource& source);
         [[nodiscard]] bool IsRegistered(AssetHandle handle) const;
+
+        // Drops the cached DAG for a mesh asset so the next submission rebuilds it from the
+        // (reloaded) source. RegisterMeshSource caches by AssetHandle and its callers take an
+        // IsRegistered() fast path, so WITHOUT this a MeshSource hot-reload left the old DAG
+        // live for the process lifetime — the virtual path kept drawing the pre-edit geometry
+        // while the classic path drew the new. Called from Renderer3D::OnAssetReloaded.
+        void Invalidate(AssetHandle handle);
 
         // The parts (one per submesh) registered for this mesh. Count == 0 when the mesh is
         // unknown or nothing built.
@@ -366,6 +374,9 @@ namespace OloEngine
         std::unordered_map<AssetHandle, MeshParts> m_EntryLookup;
         std::vector<MeshEntry> m_Entries; // stable order => deterministic pool layout
         bool m_PoolsDirty = false;
+        // Meshes whose AlphaMode::Blend parts have already been reported as skipped —
+        // PrepareFrame runs every frame, the warning must not.
+        std::unordered_set<u64> m_BlendRejectionWarned;
 
         std::vector<VirtualMeshSubmission> m_Submissions;
         std::vector<FrameInstance> m_FrameInstances;

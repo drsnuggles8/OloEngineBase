@@ -47,6 +47,7 @@
 #include "OloEngine/Animation/Retargeting/RetargetingSystem.h"
 #include "OloEngine/Renderer/MaterialAsset.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Physics3D/JoltShapes.h"
@@ -7323,20 +7324,16 @@ namespace OloEngine
 
                 const glm::mat4 worldTransform = GetWorldTransform(entity);
 
-                // Get material or use cached default
-                const Material& material = m_Registry.all_of<MaterialComponent>(entity)
-                                               ? m_Registry.get<MaterialComponent>(entity).m_Material
-                                               : GetDefaultMaterial();
-
-                // Check if this entity should cast shadows. Alpha-masked /
-                // blended materials are excluded for the same reason as the
-                // ModelComponent path below: the shared shadow-depth shader
-                // doesn't sample the albedo alpha, so otherwise see-through
-                // geometry would project as solid silhouettes.
-                bool castsShadow = meshHasActiveShadows &&
-                                   (!m_Registry.all_of<MaterialComponent>(entity) ||
-                                    (!m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting) &&
-                                     m_Registry.get<MaterialComponent>(entity).m_Material.GetAlphaMode() == AlphaMode::Opaque));
+                // A MaterialComponent, when present, overrides EVERY submesh; otherwise each
+                // submesh is shaded with the material it was imported with, and only then the
+                // engine default. Resolved per submesh below through the one shared helper the
+                // virtualized path uses (SubmeshMaterialResolve.h) — this loop used to stop at
+                // "MaterialComponent else default", which flattened a multi-material glTF
+                // (Sponza imports as 25 submeshes, one per material) onto a single flat
+                // engine-default material. Issue #629.
+                const Material* overrideMaterial = m_Registry.all_of<MaterialComponent>(entity)
+                                                       ? &m_Registry.get<MaterialComponent>(entity).m_Material
+                                                       : nullptr;
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(std::to_underlying(entity));
@@ -7358,10 +7355,18 @@ namespace OloEngine
                     for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
                     {
                         auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
+                        const Material& material = ResolveSubmeshMaterial(overrideMaterial, mesh.m_MeshSource.get(),
+                                                                          static_cast<u32>(i), GetDefaultMaterial());
+
                         if (auto* packet = Renderer3D::DrawMesh(submesh, worldTransform, material, true, entityID, lodGroup); packet)
                             Renderer3D::SubmitPacket(packet);
 
-                        // Shadow caster for this submesh
+                        // Shadow caster for this submesh. Alpha-masked / blended materials are
+                        // excluded for the same reason as the ModelComponent path below: the
+                        // shared shadow-depth shader doesn't sample the albedo alpha, so
+                        // otherwise see-through geometry would project as solid silhouettes.
+                        // Asked per submesh now that each can carry its own material.
+                        const bool castsShadow = meshHasActiveShadows && MaterialCastsShadows(material);
                         if (castsShadow && submesh)
                         {
                             auto va = submesh->GetVertexArray();
@@ -7641,18 +7646,18 @@ namespace OloEngine
 
                 const glm::mat4 worldTransform = GetWorldTransform(entity);
 
-                // Get material or use cached default
-                const Material& material = m_Registry.all_of<MaterialComponent>(entity)
-                                               ? m_Registry.get<MaterialComponent>(entity).m_Material
-                                               : GetDefaultMaterial();
+                // Same precedence as the MeshComponent loop: MaterialComponent override ->
+                // the material this submesh was imported with -> engine default (#629).
+                const Material* overrideMaterial = m_Registry.all_of<MaterialComponent>(entity)
+                                                       ? &m_Registry.get<MaterialComponent>(entity).m_Material
+                                                       : nullptr;
+                const Material& material = ResolveSubmeshMaterial(overrideMaterial, submesh.m_Mesh->GetMeshSource().get(),
+                                                                  submesh.m_Mesh->GetSubmeshIndex(), GetDefaultMaterial());
 
                 // Exclude alpha-masked/blended materials: see comment on the
                 // MeshComponent branch above (shared shadow-depth shader has
                 // no alpha sampling).
-                bool castsShadow = meshHasActiveShadows &&
-                                   (!m_Registry.all_of<MaterialComponent>(entity) ||
-                                    (!m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting) &&
-                                     m_Registry.get<MaterialComponent>(entity).m_Material.GetAlphaMode() == AlphaMode::Opaque));
+                bool castsShadow = meshHasActiveShadows && MaterialCastsShadows(material);
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(std::to_underlying(entity));
@@ -7698,10 +7703,17 @@ namespace OloEngine
                     continue;
                 }
 
-                // Model::DrawParallel uses the model's own materials loaded from file
+                // Same precedence as every other mesh path: MaterialComponent override ->
+                // the material each submesh was imported with -> engine default. The model
+                // used to ignore an authored MaterialComponent entirely (#629).
+                const Material* overrideMaterial = m_Registry.all_of<MaterialComponent>(entity)
+                                                       ? &m_Registry.get<MaterialComponent>(entity).m_Material
+                                                       : nullptr;
+
                 // Pass entity ID for mouse picking support
                 const auto modelTransform = GetWorldTransform(entity);
-                model.m_Model->DrawParallel(modelTransform, static_cast<int>(std::to_underlying(entity)));
+                model.m_Model->DrawParallel(modelTransform, overrideMaterial, GetDefaultMaterial(),
+                                            static_cast<int>(std::to_underlying(entity)));
 
                 // Submit each submesh as a shadow caster — Model::DrawParallel
                 // only enqueues color draws, so without this loop ModelComponent
@@ -7715,18 +7727,13 @@ namespace OloEngine
                         if (!submesh)
                             continue;
 
-                        if (const u32 matIdx = submesh->GetSubmesh().m_MaterialIndex; matIdx < materials.size() && materials[matIdx])
-                        {
-                            const auto& mat = *materials[matIdx];
-                            if (mat.GetFlag(MaterialFlag::DisableShadowCasting))
-                                continue;
-                            // ShadowDepth.glsl has no UV/albedo sampling, so an
-                            // alpha-masked banner would otherwise project its
-                            // full geometry as a solid shadow. Skip until a
-                            // separate alpha-aware shadow shader exists.
-                            if (mat.GetAlphaMode() != AlphaMode::Opaque)
-                                continue;
-                        }
+                        // ShadowDepth.glsl has no UV/albedo sampling, so an alpha-masked
+                        // banner would otherwise project its full geometry as a solid
+                        // shadow. Skip until a separate alpha-aware shadow shader exists.
+                        const u32 matIdx = submesh->GetSubmesh().m_MaterialIndex;
+                        const Material* imported = (matIdx < materials.size() && materials[matIdx]) ? materials[matIdx].get() : nullptr;
+                        if (!MaterialCastsShadows(ResolveSubmeshMaterial(overrideMaterial, imported, GetDefaultMaterial())))
+                            continue;
 
                         auto va = submesh->GetVertexArray();
                         if (!va)
@@ -7755,10 +7762,11 @@ namespace OloEngine
 
                 const glm::mat4 worldTransform = GetWorldTransform(entity);
 
-                // Get material or use cached default
-                const Material& material = m_Registry.all_of<MaterialComponent>(entity)
-                                               ? m_Registry.get<MaterialComponent>(entity).m_Material
-                                               : GetDefaultMaterial();
+                // Same precedence as the static MeshComponent loop: MaterialComponent
+                // override -> the submesh's imported material -> engine default (#629).
+                const Material* overrideMaterial = m_Registry.all_of<MaterialComponent>(entity)
+                                                       ? &m_Registry.get<MaterialComponent>(entity).m_Material
+                                                       : nullptr;
 
                 // Get bone matrices from skeleton
                 const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
@@ -7767,19 +7775,19 @@ namespace OloEngine
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(std::to_underlying(entity));
 
-                // Exclude alpha-masked/blended materials (see MeshComponent
-                // branch comment above for the underlying shader limitation).
-                bool castsShadow = meshHasActiveShadows &&
-                                   (!m_Registry.all_of<MaterialComponent>(entity) ||
-                                    (!m_Registry.get<MaterialComponent>(entity).m_Material.GetFlag(MaterialFlag::DisableShadowCasting) &&
-                                     m_Registry.get<MaterialComponent>(entity).m_Material.GetAlphaMode() == AlphaMode::Opaque));
-
                 // Draw each submesh as an animated mesh
                 if (!mesh.m_MeshSource->GetSubmeshes().IsEmpty())
                 {
                     for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
                     {
                         auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
+                        const Material& material = ResolveSubmeshMaterial(overrideMaterial, mesh.m_MeshSource.get(),
+                                                                          static_cast<u32>(i), GetDefaultMaterial());
+
+                        // Exclude alpha-masked/blended materials (see MeshComponent
+                        // branch comment above for the underlying shader limitation).
+                        const bool castsShadow = meshHasActiveShadows && MaterialCastsShadows(material);
+
                         auto* packet = Renderer3D::DrawAnimatedMesh(submesh, worldTransform, material, boneMatrices, prevBoneMatrices, false, entityID);
                         if (packet)
                         {

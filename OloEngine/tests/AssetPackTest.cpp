@@ -113,9 +113,21 @@ TEST(AssetPackFileTest, DefaultHeaderHasCorrectMagicAndVersion)
 {
     AssetPackFile::FileHeader header;
     EXPECT_EQ(header.MagicNumber, 0x504C4F4F);
-    // v4 (#629) appended the MeshSource virtualized-geometry blob.
-    EXPECT_EQ(header.Version, 4u);
+    // v4 (#629) appended the MeshSource virtualized-geometry blob;
+    // v5 (#629) appended the MeshSource imported-material table.
+    EXPECT_EQ(header.Version, 5u);
     EXPECT_EQ(header.Version, AssetPackFile::Version);
+}
+
+// The imported-material table is the second trailing, version-gated MeshSource field.
+// Same contract as the virtual-mesh blob: a pre-v5 pack never wrote it, so the reader
+// must not consume those bytes. Pin the constant so a future bump can't move the gate
+// out from under the read site in MeshSourceSerializer::DeserializeFromAssetPack.
+TEST(AssetPackFileTest, ImportedMaterialsAreGatedAtVersionFive)
+{
+    EXPECT_EQ(AssetPackFile::ImportedMaterialsPackVersion, 5u);
+    EXPECT_LE(AssetPackFile::ImportedMaterialsPackVersion, AssetPackFile::Version);
+    EXPECT_GT(AssetPackFile::ImportedMaterialsPackVersion, AssetPackFile::VirtualMeshPackVersion);
 }
 
 // The virtual-mesh blob is a trailing, version-gated field: a pack written before v4

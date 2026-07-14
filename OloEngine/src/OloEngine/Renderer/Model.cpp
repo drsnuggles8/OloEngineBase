@@ -21,6 +21,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
+#include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMesh.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.h"
 #include "OloEngine/Asset/MeshCache.h"
@@ -458,18 +459,76 @@ namespace OloEngine
                     m_Meshes.push_back(Ref<Mesh>::Create(cachedMesh, static_cast<u32>(i)));
                 }
 
+                // Materials: take them from the cache when it has them.
+                //
+                // The .omesh cache carries the imported materials since format v4
+                // (issue #629) — factors, alpha mode/cutoff, flags and per-slot texture
+                // references — so a warm load no longer has to re-import the source file
+                // just to rebuild them. That re-import (the block below) is a FULL Assimp
+                // parse of e.g. Sponza on every warm load; it now only runs for a pre-v4
+                // cache (which ReadTimestamp already treats as stale, so in practice never)
+                // or when a TextureOverride is in play — an override is per-load state that
+                // must NOT come from a cache file keyed only by source path + UV flip
+                // (see the matching guard at the cache-write site below).
+                //
+                // The table is only trusted when it can actually ADDRESS every submesh:
+                // every m_MaterialIndex the cached submeshes carry must land on a non-null
+                // entry. A short, holed or table-less cache is NOT rendered with — we fall
+                // back to the Assimp re-import below, which is slow but correct. Rendering a
+                // submesh with the wrong material is worse than re-importing: an opaque
+                // submesh that lands on an alpha-masked entry whose albedo failed to load
+                // gets discarded by the cutoff and VANISHES from the frame (issue #629).
+                bool materialsFromCache = false;
+                if (!m_TextureOverride && !cachedMesh->GetImportedMaterials().empty())
+                {
+                    const auto& cachedMaterials = cachedMesh->GetImportedMaterials();
+                    const auto& cachedSubmeshes = cachedMesh->GetSubmeshes();
+
+                    bool tableAddressesEverySubmesh = true;
+                    for (i32 i = 0; i < cachedSubmeshes.Num(); ++i)
+                    {
+                        const u32 matIdx = cachedSubmeshes[i].m_MaterialIndex;
+                        // UINT32_MAX is the importer's "this submesh had no material" sentinel;
+                        // it legitimately falls through to the caller's default.
+                        if (matIdx == UINT32_MAX)
+                        {
+                            continue;
+                        }
+                        if (matIdx >= static_cast<u32>(cachedMaterials.size()) || !cachedMaterials[matIdx])
+                        {
+                            OLO_CORE_WARN("Model::LoadModel: cached material table does not address submesh {} "
+                                          "(materialIndex={}, table size={}) — re-importing materials from '{}'",
+                                          i, matIdx, cachedMaterials.size(), path);
+                            tableAddressesEverySubmesh = false;
+                            break;
+                        }
+                    }
+
+                    if (tableAddressesEverySubmesh)
+                    {
+                        m_Materials = cachedMaterials;
+                        materialsFromCache = true;
+                    }
+                }
+
                 // Load materials from the source file.
                 //
                 // Fresh load runs ProcessNode under aiProcess_PreTransformVertices,
                 // so m_Meshes ends up in the DFS order that ProcessNode visits.
-                // CreateCombinedMeshSource writes submeshes in that same order
-                // and sets m_MaterialIndex = the m_Meshes index. To rebuild the
-                // material array correctly we must:
+                // CreateCombinedMeshSource writes submeshes in that same order and
+                // copies each one's DEDUPLICATED material index (ProcessMesh resolved
+                // it through m_MaterialIndexMap). To rebuild an array those indices
+                // address, we must reproduce that same deduplication here — one entry
+                // per UNIQUE aiMaterial, in first-visit DFS order (#629). Rebuilding
+                // one entry per mesh instead (what this did before) produced an array
+                // the cached indices no longer address, so warm and cold loads resolved
+                // different materials. To do it we must:
                 //   (a) re-import with the same flags so the tree we walk matches
                 //       what fresh load saw (PreTransformVertices flattens the
                 //       hierarchy and can reorder/merge meshes), and
                 //   (b) walk that tree in DFS order — never use scene->mMeshes
                 //       flat order, which can differ from DFS visit order.
+                if (!materialsFromCache)
                 {
                     Assimp::Importer importer;
                     // Must mirror the fresh-import flags below — otherwise the
@@ -503,7 +562,11 @@ namespace OloEngine
                         };
                         collectDFS(scene->mRootNode, sceneMeshIndices, collectDFS);
 
-                        m_Materials.resize(m_Meshes.size());
+                        // Deduplicate exactly as ProcessMesh does on the cold path: one
+                        // entry per UNIQUE aiMaterial, in order of first DFS appearance.
+                        // The cached submeshes' m_MaterialIndex values index THIS array.
+                        m_Materials.clear();
+                        m_MaterialIndexMap.clear();
                         const auto numToProcess = std::min(sceneMeshIndices.size(), m_Meshes.size());
                         for (sizet i = 0; i < numToProcess; ++i)
                         {
@@ -511,28 +574,25 @@ namespace OloEngine
                             if (sceneMeshIdx >= scene->mNumMeshes)
                                 continue;
                             const u32 matIdx = scene->mMeshes[sceneMeshIdx]->mMaterialIndex;
-                            if (matIdx < scene->mNumMaterials)
-                            {
-                                m_Materials[i] = ProcessMaterial(scene->mMaterials[matIdx], scene);
-                            }
+                            if (matIdx >= scene->mNumMaterials)
+                                continue;
+                            if (m_MaterialIndexMap.contains(matIdx))
+                                continue;
+                            m_MaterialIndexMap[matIdx] = static_cast<u32>(m_Materials.size());
+                            m_Materials.push_back(ProcessMaterial(scene->mMaterials[matIdx], scene));
                         }
 
                         if (sceneMeshIndices.size() != m_Meshes.size())
                         {
                             OLO_CORE_WARN("Model::LoadModel: cache has {} submeshes but DFS walk produced {} — "
-                                          "materials beyond the overlap will use a default. Stale cache?",
+                                          "some submeshes will resolve to a default material. Stale cache?",
                                           m_Meshes.size(), sceneMeshIndices.size());
-                            for (sizet i = numToProcess; i < m_Meshes.size(); ++i)
-                            {
-                                if (!m_Materials[i])
-                                    m_Materials[i] = Ref<Material>::Create();
-                            }
                         }
                     }
                     else
                     {
                         OLO_CORE_WARN("Model::LoadModel: Failed to load materials from '{}' for cached geometry", path);
-                        m_Materials.resize(m_Meshes.size());
+                        m_Materials.clear(); // every submesh resolves to the caller's default
                     }
                 }
 
@@ -627,6 +687,18 @@ namespace OloEngine
                 if (!m_CookedVirtualMeshBlob.empty())
                 {
                     combinedMeshSource->SetVirtualMeshBlob(m_CookedVirtualMeshBlob);
+                }
+
+                // The .omesh now also carries the imported materials (v4, issue #629) — but a
+                // TextureOverride is per-LOAD state, and the cache file is keyed only by source
+                // path + UV flip. Writing override-baked materials into it would hand them to
+                // the next, non-overridden load of the same model. So ship the geometry and
+                // omit the materials; that load then re-imports them from the source file (the
+                // pre-v4 behaviour) instead of inheriting someone else's textures.
+                // The MeshSource here is a cache-only copy on this path, so clearing is local.
+                if (m_TextureOverride)
+                {
+                    combinedMeshSource->SetImportedMaterials({});
                 }
                 MeshCache::SaveMeshToCache(sourcePath, *combinedMeshSource, cachePrefix);
             }
@@ -1541,6 +1613,12 @@ namespace OloEngine
 
     void Model::DrawParallel(const glm::mat4& transform, const Material& fallbackMaterial, i32 entityID) const
     {
+        DrawParallel(transform, nullptr, fallbackMaterial, entityID);
+    }
+
+    void Model::DrawParallel(const glm::mat4& transform, const Material* overrideMaterial,
+                             const Material& fallbackMaterial, i32 entityID) const
+    {
         OLO_PROFILE_FUNCTION();
 
         if (m_Meshes.empty())
@@ -1554,12 +1632,11 @@ namespace OloEngine
         {
             const Submesh& submesh = m_Meshes[i]->GetSubmesh();
 
-            // Determine material: use submesh material if valid, otherwise fallback
-            Material meshMaterial = fallbackMaterial;
-            if (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
-            {
-                meshMaterial = *m_Materials[submesh.m_MaterialIndex];
-            }
+            // override -> imported -> fallback, through the shared resolve (#629).
+            const Material* imported = (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
+                                           ? m_Materials[submesh.m_MaterialIndex].get()
+                                           : nullptr;
+            Material meshMaterial = ResolveSubmeshMaterial(overrideMaterial, imported, fallbackMaterial);
 
             meshDescriptors.push_back({
                 m_Meshes[i],
@@ -1578,11 +1655,6 @@ namespace OloEngine
 
     void Model::DrawParallel(const glm::mat4& transform, i32 entityID) const
     {
-        OLO_PROFILE_FUNCTION();
-
-        if (m_Meshes.empty())
-            return;
-
         // Static default material
         static Material s_DefaultMaterial = []() -> Material
         {
@@ -1593,34 +1665,7 @@ namespace OloEngine
             return Material{};
         }();
 
-        // Collect mesh descriptors for parallel submission
-        std::vector<Renderer3D::MeshSubmitDesc> meshDescriptors;
-        meshDescriptors.reserve(m_Meshes.size());
-
-        for (sizet i = 0; i < m_Meshes.size(); ++i)
-        {
-            const Submesh& submesh = m_Meshes[i]->GetSubmesh();
-
-            // Determine material
-            Material meshMaterial = s_DefaultMaterial;
-            if (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
-            {
-                meshMaterial = *m_Materials[submesh.m_MaterialIndex];
-            }
-
-            meshDescriptors.push_back({
-                m_Meshes[i],
-                transform,
-                meshMaterial,
-                true,     // IsStatic
-                entityID, // EntityID for picking
-                false,    // IsAnimated
-                nullptr   // BoneMatrices
-            });
-        }
-
-        // Submit all meshes in parallel
-        Renderer3D::SubmitMeshesParallel(meshDescriptors);
+        DrawParallel(transform, nullptr, s_DefaultMaterial, entityID);
     }
 
     Ref<MeshSource> Model::CreateCombinedMeshSource() const
@@ -1711,7 +1756,25 @@ namespace OloEngine
             submesh.m_BaseIndex = baseIndex;
             submesh.m_VertexCount = static_cast<u32>(srcVertices.Num());
             submesh.m_IndexCount = static_cast<u32>(srcIndices.Num());
-            submesh.m_MaterialIndex = static_cast<u32>(meshIdx); // Use mesh index as material index
+            // Carry the SOURCE submesh's material index across verbatim. ProcessMesh already
+            // resolved it through m_MaterialIndexMap, so it indexes the DEDUPLICATED
+            // m_Materials array (or is UINT32_MAX when the mesh had no material).
+            //
+            // This used to be `meshIdx` ("one material slot per submesh"), i.e. an index into a
+            // DIFFERENT array than the deduplicated m_Materials that ships alongside it. Today
+            // the two happen to coincide, because LoadModel imports with
+            // aiProcess_PreTransformVertices, which MERGES primitives sharing a material — every
+            // model comes out of Assimp with exactly one mesh per unique material (measured:
+            // Sponza's 103 glTF primitives / 25 materials import as 25 meshes / 25 materials).
+            // So `meshIdx` was coincidentally right, and the bug is LATENT: the first load path
+            // that yields two meshes sharing one material (importer flags change, PTV dropped
+            // for instancing, a merge refused) makes every submesh past the material count index
+            // off the end of m_Materials into engine-default grey. Take the submesh's own,
+            // already-deduplicated index instead and the coincidence stops mattering. Issue #629.
+            const auto srcSubmeshIndex = static_cast<i32>(mesh->GetSubmeshIndex());
+            submesh.m_MaterialIndex = (srcSubmeshIndex >= 0 && srcSubmeshIndex < srcMeshSource->GetSubmeshes().Num())
+                                          ? srcMeshSource->GetSubmeshes()[srcSubmeshIndex].m_MaterialIndex
+                                          : UINT32_MAX;
             submesh.m_IsRigged = false;
             submesh.m_NodeName = "Mesh_" + std::to_string(meshIdx);
 

@@ -3,6 +3,7 @@
 
 #include "OloEngine/Serialization/MeshBinarySerializer.h"
 #include "OloEngine/Serialization/MeshBinaryFormat.h"
+#include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Animation/Skeleton.h"
@@ -210,6 +211,64 @@ TEST_F(MeshBinarySerializerTest, VirtualMeshBlobRoundTripsThroughV2Section)
     // The geometry still round-trips alongside the new section
     EXPECT_EQ(loaded->GetVertices().Num(), original->GetVertices().Num());
     EXPECT_EQ(loaded->GetIndices().Num(), original->GetIndices().Num());
+
+    std::filesystem::remove(path);
+}
+
+// v4 slice (issue #629): the materials the mesh was IMPORTED with must ride along in
+// the cache. Without them, Model::LoadModel had to re-run a full Assimp import of the
+// source file on every warm load purely to rebuild materials — and MeshSourceSerializer,
+// which reads a MeshSource, had no materials to hand the asset pack, so a shipped game
+// rendered every mesh flat grey.
+//
+// Textureless materials here on purpose: this pins the non-GPU half of the table
+// (factors / alpha mode / cutoff / flags / per-submesh index mapping) so it runs on
+// headless CI too. The texture-handle half needs a GL context and lives in
+// Rendering/PropertyTests/ImportedMaterialPackTest.cpp.
+TEST_F(MeshBinarySerializerTest, ImportedMaterialsRoundTripThroughV4Section)
+{
+    auto original = MakeSimpleMesh();
+
+    auto stone = Material::CreatePBR("Stone", glm::vec3(0.6f, 0.5f, 0.4f), 0.25f, 0.7f);
+    stone->SetAlphaMode(AlphaMode::Mask);
+    stone->SetAlphaCutoff(0.42f);
+    stone->SetNormalScale(0.5f);
+    stone->SetOcclusionStrength(0.25f);
+    stone->SetFlag(MaterialFlag::TwoSided, true);
+    auto glass = Material::CreatePBR("Glass", glm::vec3(0.9f, 0.95f, 1.0f), 0.0f, 0.05f);
+    glass->SetAlphaMode(AlphaMode::Blend);
+    original->SetImportedMaterials({ stone, glass });
+
+    auto path = GetTestCachePath("imported_materials.omesh");
+    ASSERT_TRUE(MeshBinarySerializer::Write(path, *original, 909090));
+
+    auto loaded = MeshBinarySerializer::Read(path);
+    ASSERT_NE(loaded, nullptr);
+    ASSERT_EQ(loaded->GetImportedMaterials().size(), 2u);
+
+    // The submesh MakeSimpleMesh authors has m_MaterialIndex 0 — resolve through the
+    // accessor the renderer actually calls.
+    auto resolved = loaded->GetImportedMaterialForSubmesh(0);
+    ASSERT_TRUE(resolved);
+    EXPECT_EQ(resolved->GetName(), "Stone");
+    EXPECT_EQ(resolved->GetAlphaMode(), AlphaMode::Mask);
+    EXPECT_FLOAT_EQ(resolved->GetAlphaCutoff(), 0.42f);
+    EXPECT_FLOAT_EQ(resolved->GetMetallicFactor(), 0.25f);
+    EXPECT_FLOAT_EQ(resolved->GetRoughnessFactor(), 0.7f);
+    EXPECT_FLOAT_EQ(resolved->GetNormalScale(), 0.5f);
+    EXPECT_FLOAT_EQ(resolved->GetOcclusionStrength(), 0.25f);
+    EXPECT_TRUE(resolved->GetFlag(MaterialFlag::TwoSided));
+    EXPECT_FLOAT_EQ(resolved->GetBaseColorFactor().r, 0.6f);
+
+    const auto& second = loaded->GetImportedMaterials()[1];
+    ASSERT_TRUE(second);
+    EXPECT_EQ(second->GetName(), "Glass");
+    EXPECT_EQ(second->GetAlphaMode(), AlphaMode::Blend);
+    EXPECT_FLOAT_EQ(second->GetRoughnessFactor(), 0.05f);
+
+    // The geometry still round-trips alongside the new section.
+    EXPECT_EQ(loaded->GetVertices().Num(), original->GetVertices().Num());
+    EXPECT_EQ(loaded->GetSubmeshes().Num(), original->GetSubmeshes().Num());
 
     std::filesystem::remove(path);
 }

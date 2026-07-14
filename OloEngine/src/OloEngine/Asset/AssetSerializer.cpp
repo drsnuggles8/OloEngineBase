@@ -46,6 +46,7 @@
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Serialization/ImportedMaterialCodec.h"
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/MeshBinaryFormat.h"
@@ -2991,11 +2992,16 @@ namespace OloEngine
         }
 
         // ── Virtualized-geometry cluster-LOD-DAG blob (issue #629, pack v4) ──
-        // MUST stay last in the record: it is gated on the pack version at the read
-        // site, so a v1-v3 pack simply stops here. The blob is the OVGM payload the
-        // mesh cook already produced (Model::CookVirtualMesh -> MeshSource's blob);
-        // shipping it means a packaged game LOADS the DAG instead of rebuilding it
-        // synchronously on the render thread at first draw, every launch.
+        // Appended, version-gated fields from here on. Each is gated on the pack
+        // version at the read site, so a pack written before that version simply
+        // stops before it (docs/agent-rules/binary-format-versioning.md). Order is
+        // the wire order: v4's blob first, then v5's material table. NEVER insert a
+        // new field before an older one.
+        //
+        // The blob is the OVGM payload the mesh cook already produced
+        // (Model::CookVirtualMesh -> MeshSource's blob); shipping it means a packaged
+        // game LOADS the DAG instead of rebuilding it synchronously on the render
+        // thread at first draw, every launch.
         {
             const auto& virtualMeshBlob = meshSource->GetVirtualMeshBlob();
             auto const blobSize = static_cast<u64>(virtualMeshBlob.size());
@@ -3011,6 +3017,51 @@ namespace OloEngine
             {
                 stream.WriteData(reinterpret_cast<const char*>(virtualMeshBlob.data()),
                                  virtualMeshBlob.size());
+            }
+        }
+
+        // ── Imported-material table (issue #629, pack v5) ──
+        // The materials the mesh was imported with, indexed by Submesh::m_MaterialIndex.
+        // The pack used to carry only the `TMap<u32, AssetHandle> m_Materials` map, which
+        // the import path never populates — so a SHIPPED game had no materials at all and
+        // every submesh fell back to the flat engine-default. Textures inside the table are
+        // referenced by ASSET HANDLE (resolved here, at cook time, from the texture's source
+        // path through the editor registry), because those handles are exactly what the pack
+        // ships the textures under; a loose path would be unusable in a packed build.
+        {
+            std::vector<ImportedMaterialCodec::MaterialDesc> const materialDescs =
+                ImportedMaterialCodec::Describe(meshSource->GetImportedMaterials());
+
+            // A texture that is not a registered asset has no handle, so the pack does not
+            // ship it and the shipped game cannot resolve it (the path fallback only works
+            // in the editor, where loose files still exist). Say so at COOK time — that is
+            // the last moment a developer can fix it by importing the texture.
+            for (const auto& desc : materialDescs)
+            {
+                for (const auto* slot : { &desc.Albedo, &desc.MetallicRoughness, &desc.Normal, &desc.AO, &desc.Emissive })
+                {
+                    if (static_cast<u64>(slot->Handle) == 0 && !slot->Path.empty())
+                    {
+                        OLO_CORE_WARN("MeshSourceSerializer::SerializeToAssetPack - material '{}' references texture '{}', "
+                                      "which is not a registered asset; it will be MISSING in the packed build",
+                                      desc.Name, slot->Path);
+                    }
+                }
+            }
+
+            std::vector<u8> const materialBlob = ImportedMaterialCodec::Encode(materialDescs);
+            auto const blobSize = static_cast<u64>(materialBlob.size());
+            if (blobSize > ImportedMaterialCodec::MaxBlobSize)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Imported-material blob ({} bytes) exceeds cap ({}), "
+                               "rejecting before write",
+                               blobSize, ImportedMaterialCodec::MaxBlobSize);
+                return false;
+            }
+            stream.WriteRaw<u64>(blobSize);
+            if (blobSize > 0)
+            {
+                stream.WriteData(reinterpret_cast<const char*>(materialBlob.data()), materialBlob.size());
             }
         }
 
@@ -3687,6 +3738,45 @@ namespace OloEngine
                     return nullptr;
                 }
                 meshSource->SetVirtualMeshBlob(std::move(virtualMeshBlob));
+            }
+        }
+
+        // ── Imported-material table (issue #629, pack v5) ──
+        // Same gate, next appended field: a v1-v4 pack never wrote it. Read the bytes
+        // first and only THEN resolve the textures — resolving calls back into the asset
+        // manager (a nested asset load), and no stream reads may follow it.
+        // A malformed table costs the materials, not the mesh: the consumer falls back to
+        // its own default material, exactly as it did before this field existed.
+        if (stream.GetArchiveVersion() >= AssetPackFile::ImportedMaterialsPackVersion)
+        {
+            u64 materialBlobSize = 0;
+            stream.ReadRaw<u64>(materialBlobSize);
+            if (materialBlobSize > ImportedMaterialCodec::MaxBlobSize)
+            {
+                OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Imported-material blob size ({}) exceeds cap ({})",
+                               materialBlobSize, ImportedMaterialCodec::MaxBlobSize);
+                return nullptr; // the stream position is now untrustworthy — fail the asset
+            }
+            if (materialBlobSize > 0)
+            {
+                std::vector<u8> materialBlob(static_cast<sizet>(materialBlobSize));
+                if (!stream.ReadData(reinterpret_cast<char*>(materialBlob.data()),
+                                     static_cast<sizet>(materialBlobSize)))
+                {
+                    OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Failed to read the imported-material blob");
+                    return nullptr;
+                }
+
+                std::vector<Ref<Material>> importedMaterials;
+                if (ImportedMaterialCodec::DecodeMaterials(materialBlob, importedMaterials))
+                {
+                    meshSource->SetImportedMaterials(std::move(importedMaterials));
+                }
+                else
+                {
+                    OLO_CORE_WARN("MeshSourceSerializer::DeserializeFromAssetPack - Imported-material table is malformed; "
+                                  "the mesh loads without materials");
+                }
             }
         }
 

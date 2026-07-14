@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionState.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
@@ -153,18 +154,8 @@ namespace OloEngine
         {
             const auto& entry = registry.GetEntry(parts.FirstEntry + partIndex);
 
-            const Material* material = overrideMaterial;
-            if (material == nullptr)
-            {
-                if (Ref<Material> imported = meshSource->GetImportedMaterialForSubmesh(entry.SubmeshIndex); imported)
-                {
-                    material = imported.get();
-                }
-            }
-            if (material == nullptr)
-            {
-                material = &defaultMaterial;
-            }
+            const Material& resolved = ResolveSubmeshMaterial(overrideMaterial, meshSource.get(), entry.SubmeshIndex, defaultMaterial);
+            const Material* material = &resolved;
 
             PODMaterialData const materialData = CreatePODMaterialDataForMaterial(*material, 0);
             submission.MaterialDataIndices.push_back(FrameDataBufferManager::Get().AllocateMaterialData(materialData));

@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 
+#include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
+#include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
@@ -101,6 +103,40 @@ namespace OloEngine
     bool VirtualMeshRegistry::IsRegistered(AssetHandle handle) const
     {
         return m_EntryLookup.contains(handle);
+    }
+
+    void VirtualMeshRegistry::Invalidate(AssetHandle handle)
+    {
+        auto it = m_EntryLookup.find(handle);
+        if (it == m_EntryLookup.end())
+        {
+            return;
+        }
+
+        // Drop the lookup and mark the mesh's parts dead. The MeshEntry slots themselves are
+        // left in place (never erased): entry indices are baked into MeshParts::FirstEntry for
+        // every OTHER registered mesh, and the pool packing walks m_Entries positionally — so
+        // erasing would silently rebase every mesh after this one. RebuildPools skips !Valid
+        // entries, so a dead run costs a few hundred bytes of CPU-side geometry until the next
+        // Shutdown; the GPU arenas are reclaimed on the next rebuild.
+        //
+        // Without this, RegisterMeshSource's cache-by-AssetHandle was permanent: hot-reloading
+        // a MeshSource left the OLD cluster DAG live for the rest of the process (the caller
+        // takes the IsRegistered() fast path and never rebuilds), so the virtual path kept
+        // drawing the pre-edit geometry — self-consistently, since the DAG bakes its own copy
+        // of the vertices, and therefore with nothing to trip a validation check.
+        for (u32 i = 0; i < it->second.Count; ++i)
+        {
+            MeshEntry& entry = m_Entries[it->second.FirstEntry + i];
+            entry.Valid = false;
+            entry.Packed = {};
+        }
+        m_EntryLookup.erase(it);
+        m_BlendRejectionWarned.erase(static_cast<u64>(handle));
+        m_PoolsDirty = true;
+
+        OLO_CORE_TRACE("VirtualMeshRegistry: invalidated cluster DAG for mesh asset {} (source reloaded)",
+                       static_cast<u64>(handle));
     }
 
     VirtualMeshRegistry::MeshParts VirtualMeshRegistry::FindParts(AssetHandle handle) const
@@ -717,6 +753,30 @@ namespace OloEngine
                 bool const partAlphaMasked = partIndex < submission.PartAlphaMasked.size() &&
                                              submission.PartAlphaMasked[partIndex] != 0u;
 
+                // ── AlphaMode::Blend is NOT representable in the virtual path (issue #629) ──
+                // The classic path (Renderer3DDrawHelpers::BuildRenderState) enables GL_BLEND
+                // and disables depth-write for MaterialFlag::Blend. Virtual geometry rasterizes
+                // into the DEFERRED G-Buffer, which stores one opaque surface per pixel and has
+                // nowhere to put a blended fragment — the pass forces glDepthMask(GL_TRUE) +
+                // glDisable(GL_BLEND) for every instance, so a Blend part was written into the
+                // G-Buffer FULLY OPAQUE. Drawing it wrong is worse than not drawing it, so skip
+                // it and say so, once per mesh (this runs every frame).
+                if (partIndex < submission.MaterialDataIndices.size() &&
+                    FrameDataBufferManager::Get()
+                            .GetMaterialData(static_cast<u16>(submission.MaterialDataIndices[partIndex]))
+                            .alphaMode == static_cast<i32>(AlphaMode::Blend))
+                {
+                    if (m_BlendRejectionWarned.insert(static_cast<u64>(submission.Mesh)).second)
+                    {
+                        OLO_CORE_WARN("VirtualMeshRegistry: mesh asset {} part {} uses AlphaMode::Blend, which the "
+                                      "virtualized-geometry (deferred G-Buffer) path cannot express — the part is "
+                                      "SKIPPED. Use AlphaMode::Mask, or draw it with a classic MeshComponent so it "
+                                      "goes through the forward/transparent pass.",
+                                      static_cast<u64>(submission.Mesh), partIndex);
+                    }
+                    continue;
+                }
+
                 // Alpha-masked parts do NOT cast shadows, matching the classic path
                 // (Scene.cpp's MeshComponent/ModelComponent loops): the shared shadow-depth
                 // shader never samples the albedo alpha, so a cutout leaf card would project
@@ -749,6 +809,13 @@ namespace OloEngine
                 if (partAlphaMasked)
                 {
                     gpu.Flags |= VirtualInstanceGpuRecord::kFlagAlphaMasked;
+                }
+                // Two-sidedness has to reach the GPU as well as the CPU draw loop: the cull's
+                // normal-cone rejection and the software rasterizer's backface cull both need
+                // to know (see VirtualInstanceGpuRecord::kFlagTwoSided).
+                if (instance.TwoSided)
+                {
+                    gpu.Flags |= VirtualInstanceGpuRecord::kFlagTwoSided;
                 }
 
                 m_TotalFrameClusterCount += gpu.ClusterCount;
@@ -841,6 +908,7 @@ namespace OloEngine
         m_DebugHeight = 0;
         m_Entries.clear();
         m_EntryLookup.clear();
+        m_BlendRejectionWarned.clear();
         m_Submissions.clear();
         m_FrameInstances.clear();
         m_Pages.clear();

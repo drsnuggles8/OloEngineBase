@@ -2,7 +2,7 @@ Scene: VirtualGeometrySponza.olo
 # ─────────────────────────────────────────────────────────────────────────────
 # Nanite-style virtualized geometry on a real production asset (issue #629).
 #
-# Sponza: 262,267 triangles across 103 submeshes and 25 materials, rendered as
+# Sponza: 262,267 triangles across 25 submeshes and 25 materials, rendered as
 # VIRTUAL geometry — one cluster LOD DAG per submesh, GPU-culled and rasterized
 # through the visibility buffer. This is the asset the builder used to reject
 # outright (multi-submesh sources were unsupported), so it is the scene that
@@ -11,7 +11,7 @@ Scene: VirtualGeometrySponza.olo
 #   * No authored LODs. The same 262k-triangle source mesh is used at every
 #     distance; the DAG cut picks the coarsest clusters whose projected error is
 #     under ErrorThresholdPixels, per cluster, per frame.
-#   * Per-submesh materials. Each of the 103 parts is its own GPU instance with
+#   * Per-submesh materials. Each of the 25 parts is its own GPU instance with
 #     its own material, so Sponza shades exactly as it does through the classic
 #     path — clusters never span a material boundary (a group is simplified as a
 #     unit, so a straddling cluster could not be shaded by either material).
@@ -30,7 +30,7 @@ Scene: VirtualGeometrySponza.olo
 # The Virtual Mesh inspector shows a warning + a one-click switch while the wrong
 # path is active.
 #
-# NOTE: the first load cooks the DAG for all 103 submeshes and is slow. The cook is
+# NOTE: the first load cooks the DAG for all 25 submeshes and is slow. The cook is
 # cached (.omesh) and shipped in the asset pack, so every later load is instant.
 # ─────────────────────────────────────────────────────────────────────────────
 PostProcessSettings:
@@ -111,7 +111,7 @@ Entities:
       CascadeSplitLambda: 0.92
 
   # ═══ Sponza as VIRTUAL geometry ═══
-  # No MaterialComponent on purpose: each of the 103 submeshes is shaded with the
+  # No MaterialComponent on purpose: each of the 25 submeshes is shaded with the
   # material it was imported with. Adding a MaterialComponent would override ALL
   # of them with one material — useful to prove the resolve, wrong for this scene.
   - Entity: 810000000000010

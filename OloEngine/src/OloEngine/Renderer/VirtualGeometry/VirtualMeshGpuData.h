@@ -110,6 +110,22 @@ namespace OloEngine
         // is the same restriction UE5's Nanite has: masked materials are excluded from the
         // fast raster path.
         static constexpr u32 kFlagAlphaMasked = 1u << 1;
+
+        // The instance's material is MaterialFlag::TwoSided — its BACK faces are visible.
+        //
+        // This has to reach the GPU, not just the CPU draw loop's glDisable(GL_CULL_FACE):
+        //  * VirtualClusterCull.comp's normal-cone backface rejection drops a cluster whose
+        //    triangles ALL face away from the camera. For a two-sided sheet (a foliage card,
+        //    a banner, cloth) those faces are visible, so the cone test must be skipped —
+        //    the classic path has no cone cull at all, so this was pure virtual-path-only
+        //    geometry loss when such a sheet was viewed from behind.
+        //  * VirtualClusterRaster.comp hard-culls negative-signed-area (back-facing)
+        //    triangles. With this flag it rasterizes them instead, flipping the barycentric
+        //    sign — otherwise an OPAQUE two-sided material silently lost its back faces on
+        //    every cluster small enough to be software-rasterized (under the 24px default
+        //    threshold, i.e. most of them). Foliage escaped that only by being alpha-masked
+        //    and therefore hardware-only.
+        static constexpr u32 kFlagTwoSided = 1u << 2;
     };
     static_assert(sizeof(VirtualInstanceGpuRecord) == 224, "std430 mirror in VirtualClusterCull.comp expects 224-byte instance records");
 

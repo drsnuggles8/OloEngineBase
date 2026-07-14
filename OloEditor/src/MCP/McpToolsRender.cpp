@@ -34,6 +34,7 @@
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Shadow/ShadowAtlas.h"
@@ -2373,8 +2374,10 @@ namespace OloEngine::MCP
         // ---- olo_material_get (main-marshaled) ---------------------------------
         // What the GPU was actually given, not what the asset says. The two differ
         // more often than is comfortable: a MaterialComponent silently overrides
-        // every submesh's imported material on the classic mesh path, and the
-        // engine default quietly stands in when neither exists.
+        // every submesh's imported material, and the engine default quietly stands
+        // in when neither exists. Resolution goes through the renderer's own
+        // OloEngine::ResolveSubmeshMaterial so this tool cannot drift from the
+        // truth it is supposed to report.
 
         const char* AlphaModeToken(AlphaMode mode)
         {
@@ -2473,11 +2476,9 @@ namespace OloEngine::MCP
 
                 Ref<MeshSource> meshSource;
                 std::string renderableKind;
-                bool virtualPath = false;
                 if (entity.HasComponent<VirtualMeshComponent>())
                 {
                     renderableKind = "VirtualMeshComponent";
-                    virtualPath = true;
                     const auto& vmc = entity.GetComponent<VirtualMeshComponent>();
                     if (vmc.m_MeshSource != 0)
                         meshSource = AssetManager::GetAsset<MeshSource>(vmc.m_MeshSource);
@@ -2511,29 +2512,24 @@ namespace OloEngine::MCP
                 Json submeshes = Json::array();
                 for (u32 index = first; index < last; ++index)
                 {
-                    // Precedence, per path:
-                    //   * VirtualMeshComponent (Renderer3D::SubmitVirtualMesh):
-                    //       MaterialComponent -> the submesh's imported material -> engine default.
-                    //   * MeshComponent (the classic Scene loop): MaterialComponent
-                    //       -> engine default. It NEVER consults the imported
-                    //       material, so a multi-material glTF renders every submesh
-                    //       with one material on that path — a real, load-bearing
-                    //       difference this tool must report honestly rather than
-                    //       "helpfully" pretending both paths behave the same.
-                    const Material* material = overrideMaterial;
-                    std::string_view source = "MaterialComponent (override)";
-                    if (material == nullptr && virtualPath)
+                    // One precedence rule on EVERY path — MaterialComponent override ->
+                    // the submesh's imported material -> engine default — resolved through
+                    // the same OloEngine::ResolveSubmeshMaterial the renderer itself calls.
+                    // This tool used to special-case the classic path because it genuinely
+                    // ignored imported materials; that divergence is fixed, and reporting a
+                    // rule the renderer no longer follows would make this tool lie to the
+                    // next person debugging a material.
+                    const Material& resolved =
+                        ResolveSubmeshMaterial(overrideMaterial, meshSource.get(), index, *s_EngineDefault);
+                    const Material* material = &resolved;
+                    std::string_view source = "engine default material";
+                    if (material == overrideMaterial)
                     {
-                        if (Ref<Material> imported = meshSource->GetImportedMaterialForSubmesh(index); imported)
-                        {
-                            material = imported.get();
-                            source = "MeshSource imported material (per-submesh)";
-                        }
+                        source = "MaterialComponent (override)";
                     }
-                    if (material == nullptr)
+                    else if (material != s_EngineDefault.get())
                     {
-                        material = s_EngineDefault.get();
-                        source = "engine default material";
+                        source = "MeshSource imported material (per-submesh)";
                     }
 
                     const PODMaterialData data = Renderer3D::CreatePODMaterialDataForMaterial(*material, 0);
@@ -2546,11 +2542,6 @@ namespace OloEngine::MCP
                 j["submeshCount"] = submeshCount;
                 j["hasMaterialComponentOverride"] = overrideMaterial != nullptr;
                 j["submeshes"] = std::move(submeshes);
-                if (!virtualPath && overrideMaterial == nullptr && meshSource->GetImportedMaterialForSubmesh(first))
-                    j["note"] = "This MeshComponent's submeshes carry IMPORTED materials, but the classic mesh path "
-                                "does not use them — it draws every submesh with the MaterialComponent override or "
-                                "the engine default. Only VirtualMeshComponent shades per-submesh with the imported "
-                                "material. Add a MaterialComponent to control the look here.";
                 return j; });
 
             if (result.is_object() && result.contains("__error"))
@@ -3419,9 +3410,9 @@ namespace OloEngine::MCP
                 "occlusion-strength and emissive factors, the useXMap booleans, and the bound GL "
                 "texture id per slot (0 = no texture bound — the usual cause of 'my normal map does "
                 "nothing'). Handles both MeshComponent and VirtualMeshComponent; omit 'submesh' to get "
-                "every submesh. NOTE the two paths genuinely differ: VirtualMeshComponent shades each "
-                "submesh with its imported material, while the classic MeshComponent path does not — "
-                "the tool says so rather than pretending otherwise.";
+                "every submesh. Both paths now resolve through the same rule — MaterialComponent "
+                "override -> the submesh's imported material -> the engine default — so this reports "
+                "what the GPU actually got, not what the component nominally asked for.";
             tool.InputSchema = Schema::Object()
                                    .Prop("entity", Schema::EntityId("Entity UUID (string; also accepts a number). Must have a MeshComponent or VirtualMeshComponent."))
                                    .Prop("submesh", Schema::Int().Min(0).Desc("Submesh index. Omit for an array covering every submesh."))

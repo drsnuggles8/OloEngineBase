@@ -633,3 +633,166 @@ TEST(MeshOptimization, AttributeAwareLODProducesValidOutput)
     // (it penalises collapsing edges that cross UV seams)
     EXPECT_LE(attrUVSpan, basicUVSpan + 1e-4);
 }
+
+// =============================================================================
+// Degenerate-triangle census (issue #629)
+//
+// A UV-DEGENERATE triangle has zero area in texture space but real area in 3D.
+// Its UV gradient is zero along at least one axis, so a tangent frame built from
+// screen-space UV derivatives collapses to the zero vector and `normalize` returns
+// NaN — which is exactly how Sponza's potted vines grew a white lacework through
+// the G-Buffer (see docs/bug-investigations/nanite-foliage-white-fringe-*.md).
+// Sponza ships 314 of them and the cluster-DAG simplifier creates more.
+//
+// The shader guards the collapse; these tests pin the IMPORT-side census that makes
+// such an asset visible instead of silently expensive. Nothing is dropped: the
+// triangles carry real 3D area (two whole Sponza submeshes are 100% UV-degenerate),
+// so removing them would punch holes in the mesh.
+// =============================================================================
+
+// Three corners sharing one texcoord — the case the investigation found in Sponza
+// (80 of the 314) and the one the shader probe reproduces.
+TEST(MeshOptimization, DetectsTriangleWhoseCornersShareOneTexcoord)
+{
+    TArray<Vertex> vertices;
+    vertices.Add(Vertex({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.5f, 0.5f }));
+    vertices.Add(Vertex({ 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.5f, 0.5f }));
+    vertices.Add(Vertex({ 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.5f, 0.5f }));
+
+    TArray<u32> indices;
+    indices.Add(0);
+    indices.Add(1);
+    indices.Add(2);
+
+    auto mesh = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+    const auto stats = MeshOptimization::AnalyzeDegenerateTriangles(*mesh);
+
+    EXPECT_EQ(stats.TriangleCount, 1u);
+    EXPECT_EQ(stats.ZeroUvAreaCount, 1u);
+    EXPECT_EQ(stats.ZeroAreaCount, 0u); // it has REAL 3D area — that is why it cannot be dropped
+    EXPECT_GT(stats.ZeroUvArea3DSum, 0.0);
+    EXPECT_TRUE(stats.HasDegenerates());
+}
+
+// The majority case in Sponza (234 of the 314): three DISTINCT texcoords that are
+// collinear in UV space (here, constant v). The UV area is still zero, so the
+// tangent still collapses — a "do the corners share a UV?" check would miss these.
+TEST(MeshOptimization, DetectsTriangleWhoseTexcoordsAreCollinearInUvSpace)
+{
+    TArray<Vertex> vertices;
+    vertices.Add(Vertex({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.10f, 0.78f }));
+    vertices.Add(Vertex({ 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.40f, 0.78f }));
+    vertices.Add(Vertex({ 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.70f, 0.78f }));
+
+    TArray<u32> indices;
+    indices.Add(0);
+    indices.Add(1);
+    indices.Add(2);
+
+    auto mesh = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+    const auto stats = MeshOptimization::AnalyzeDegenerateTriangles(*mesh);
+
+    EXPECT_EQ(stats.ZeroUvAreaCount, 1u);
+    EXPECT_EQ(stats.ZeroAreaCount, 0u);
+}
+
+// A zero-3D-area triangle is a different animal: it is dead geometry (Assimp's
+// aiProcess_FindDegenerates normally removes it) and must not be counted as a
+// UV-degenerate — nothing shades it, so it costs no fragments.
+TEST(MeshOptimization, ZeroAreaTriangleIsCountedSeparatelyFromUvDegenerates)
+{
+    TArray<Vertex> vertices;
+    vertices.Add(Vertex({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f }));
+    vertices.Add(Vertex({ 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }));
+    vertices.Add(Vertex({ 2.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f })); // collinear in 3D
+
+    TArray<u32> indices;
+    indices.Add(0);
+    indices.Add(1);
+    indices.Add(2);
+
+    auto mesh = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+    const auto stats = MeshOptimization::AnalyzeDegenerateTriangles(*mesh);
+
+    EXPECT_EQ(stats.TriangleCount, 1u);
+    EXPECT_EQ(stats.ZeroAreaCount, 1u);
+    EXPECT_EQ(stats.ZeroUvAreaCount, 0u);
+    EXPECT_DOUBLE_EQ(stats.ZeroUvArea3DSum, 0.0);
+}
+
+// A healthy textured mesh must not be reported — the census is a warning channel,
+// and a false positive on every quad would train everyone to ignore it.
+TEST(MeshOptimization, HealthyMeshReportsNoDegenerates)
+{
+    auto mesh = MakeQuadMesh(); // two triangles, full 0..1 UV square
+    const auto stats = MeshOptimization::AnalyzeDegenerateTriangles(*mesh);
+
+    EXPECT_EQ(stats.TriangleCount, 2u);
+    EXPECT_EQ(stats.ZeroUvAreaCount, 0u);
+    EXPECT_EQ(stats.ZeroAreaCount, 0u);
+    EXPECT_FALSE(stats.HasDegenerates());
+}
+
+// Mixed mesh: the census must count per triangle, not give up at the first one.
+TEST(MeshOptimization, CountsDegeneratesAlongsideHealthyTrianglesInTheSameMesh)
+{
+    TArray<Vertex> vertices;
+    // Healthy quad (2 tris)
+    vertices.Add(Vertex({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f }));
+    vertices.Add(Vertex({ 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }));
+    vertices.Add(Vertex({ 1.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f }));
+    vertices.Add(Vertex({ 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }));
+    // UV-degenerate triangle (real 3D area, one shared texcoord)
+    vertices.Add(Vertex({ 2.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.25f, 0.25f }));
+    vertices.Add(Vertex({ 3.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.25f, 0.25f }));
+    vertices.Add(Vertex({ 2.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.25f, 0.25f }));
+
+    TArray<u32> indices;
+    for (u32 i : { 0u, 1u, 2u, 0u, 2u, 3u, 4u, 5u, 6u })
+    {
+        indices.Add(i);
+    }
+
+    auto mesh = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+    const auto stats = MeshOptimization::AnalyzeDegenerateTriangles(*mesh);
+
+    EXPECT_EQ(stats.TriangleCount, 3u);
+    EXPECT_EQ(stats.ZeroUvAreaCount, 1u);
+    EXPECT_EQ(stats.ZeroAreaCount, 0u);
+    EXPECT_NEAR(stats.ZeroUvArea3DSum, 0.5, 1e-6); // the 1x1 right triangle
+}
+
+// The census is pure analysis: OptimizeMesh reports it but must not delete anything.
+// This is the "do not silently delete real geometry" contract.
+TEST(MeshOptimization, OptimizeMeshKeepsUvDegenerateTriangles)
+{
+    TArray<Vertex> vertices;
+    vertices.Add(Vertex({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.25f, 0.25f }));
+    vertices.Add(Vertex({ 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.25f, 0.25f }));
+    vertices.Add(Vertex({ 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.25f, 0.25f }));
+    vertices.Add(Vertex({ 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f }));
+    vertices.Add(Vertex({ 1.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f }));
+    vertices.Add(Vertex({ 0.0f, 1.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f }));
+
+    TArray<u32> indices;
+    for (u32 i = 0; i < 6; ++i)
+    {
+        indices.Add(i);
+    }
+
+    auto mesh = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+    Submesh sub;
+    sub.m_BaseVertex = 0;
+    sub.m_BaseIndex = 0;
+    sub.m_VertexCount = 6;
+    sub.m_IndexCount = 6;
+    mesh->AddSubmesh(sub);
+
+    const u32 before = MeshOptimization::AnalyzeDegenerateTriangles(*mesh).ZeroUvAreaCount;
+    ASSERT_EQ(before, 1u);
+
+    MeshOptimization::OptimizeMesh(*mesh);
+
+    EXPECT_EQ(mesh->GetIndices().Num(), 6); // no triangle removed
+    EXPECT_EQ(MeshOptimization::AnalyzeDegenerateTriangles(*mesh).ZeroUvAreaCount, 1u);
+}

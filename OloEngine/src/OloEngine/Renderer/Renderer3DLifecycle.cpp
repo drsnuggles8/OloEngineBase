@@ -561,6 +561,16 @@ namespace OloEngine
         OLO_CORE_INFO("Renderer3D::OnAssetReloaded: handle={}, type={}, generation={}, path={}",
                       static_cast<u64>(handle), static_cast<int>(type), generation, e.GetPath().string());
 
+        // The virtualized-geometry registry caches a BAKED cluster LOD DAG (its own copy of
+        // the vertex data) keyed by AssetHandle, and its callers only register a mesh they
+        // have not seen before — so a reloaded MeshSource would otherwise keep rendering the
+        // pre-edit geometry for the whole process, self-consistently and with nothing to trip
+        // a validation check. Drop it; the next submission re-cooks from the new source.
+        if (type == AssetType::MeshSource)
+        {
+            VirtualMeshRegistry::Get().Invalidate(handle);
+        }
+
         // Commands are rebuilt each frame from Material/Mesh objects, so no
         // per-command patching is needed here — command buckets are cleared and
         // rebuilt every frame (stale RendererIDs survive at most one frame) and the

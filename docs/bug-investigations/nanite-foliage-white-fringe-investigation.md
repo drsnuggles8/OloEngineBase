@@ -236,14 +236,27 @@ whose setup you did not verify took effect.**
   code so they should be, and the classic control's final colour is byte-identical
   before/after (hence regression-free), but the `isnan` diagnostic was not re-run
   against `PBR_GBuffer` post-fix.
-* **Consider rejecting UV-degenerate triangles at import**, not just surviving them
-  in the shader. 314 of them ship in Sponza; they carry no texture information and
-  contribute nothing but a fallback normal. Dropping them in `MeshOptimization`
-  (alongside the existing degenerate-triangle handling) would be strictly cheaper
-  than paying the guard per-fragment forever.
-* **The simplifier creates more of them** (1321 DAG-wide vs 314 in the source).
-  Worth checking whether `meshopt_simplifyWithAttributes` can be told to avoid
-  collapses that zero a triangle's UV area.
+* ~~**Consider rejecting UV-degenerate triangles at import.**~~ **Investigated and
+  deliberately NOT done — they are real geometry.** Sponza's 314 UV-degenerate
+  triangles carry **424,443 units² of 3D area** (median 97, max 3.4e4), sitting in
+  the upper walls and roof; two entire primitives are 100% UV-degenerate. Dropping
+  them would punch visible holes. They are now **detected, counted and logged** at
+  import (`MeshOptimization::AnalyzeDegenerateTriangles`) and **kept**; the shader
+  guard is the answer.
+  A trap for anyone revisiting this: only **80** of the 314 have three *identical*
+  texcoords. The other **234** have three *distinct* texcoords that are **collinear
+  in UV** (constant `v`). A "do the corners share a UV?" check finds a quarter of
+  them. The correct test is a zero UV-space **determinant**, which is what actually
+  collapses the derivative tangent.
+* **The simplifier creates more of them** (1321 DAG-wide vs 314 in the source) and
+  **cannot cheaply be stopped from doing so**: `meshopt_simplifyWithAttributes`
+  penalises UV *deviation* via the attribute quadric but has **no notion of
+  texture-space area**, and no flag (`SimplifyPrune` / `Regularize` / `Permissive` /
+  locks) or weight forbids a collapse that leaves three corners UV-collinear.
+  Preventing it would need a custom collapse predicate inside the simplifier. Not
+  prevented — **reported**: `VirtualMeshBuilder` now logs, per submesh, how many
+  UV-degenerates are *inherited* from LOD 0 vs *created by simplification*, so the
+  ratio is visible instead of folklore.
 
 ### A trap that did NOT apply here — but will, next time
 

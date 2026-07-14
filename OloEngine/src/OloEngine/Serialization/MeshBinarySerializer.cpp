@@ -2,6 +2,7 @@
 #include "MeshBinarySerializer.h"
 #include "MeshBinaryFormat.h"
 #include "OloEngine/Core/Hash.h"
+#include "OloEngine/Serialization/ImportedMaterialCodec.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/Vertex.h"
@@ -606,6 +607,34 @@ namespace OloEngine
                 OMeshFormat::VirtualMeshHeader vmHeader;
                 vmHeader.BlobSize = blob.size();
                 WriteBytes(payload, &vmHeader, sizeof(vmHeader));
+                WriteBytes(payload, blob.data(), blob.size());
+
+                entry.Size = StreamPos(payload) - entry.Offset;
+            }
+        }
+
+        // ── ImportedMaterials Section (v4+, optional) ──
+        // The materials the mesh was imported with (issue #629). Without them a warm
+        // cache load has to re-run a full Assimp import of the source file purely to
+        // rebuild materials — and the asset-pack cook, which reads a MeshSource, had
+        // no materials to ship at all, so a packed game rendered flat grey.
+        if (!meshSource.GetImportedMaterials().empty())
+        {
+            std::vector<u8> const blob = ImportedMaterialCodec::EncodeMaterials(meshSource.GetImportedMaterials());
+            if (blob.size() > ImportedMaterialCodec::MaxBlobSize)
+            {
+                OLO_CORE_WARN("MeshBinarySerializer::Write: imported-material blob ({} bytes) exceeds cap ({}) — "
+                              "skipping the section for '{}'",
+                              blob.size(), ImportedMaterialCodec::MaxBlobSize, path.string());
+            }
+            else if (!blob.empty())
+            {
+                auto& entry = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::ImportedMaterials))];
+                entry.Offset = StreamPos(payload);
+
+                OMeshFormat::ImportedMaterialsHeader imHeader;
+                imHeader.BlobSize = blob.size();
+                WriteBytes(payload, &imHeader, sizeof(imHeader));
                 WriteBytes(payload, blob.data(), blob.size());
 
                 entry.Size = StreamPos(payload) - entry.Offset;
@@ -1458,6 +1487,60 @@ namespace OloEngine
                 }
 
                 if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "VirtualMesh", path))
+                {
+                    return nullptr;
+                }
+            }
+        }
+
+        // ── ImportedMaterials Section (v4+, optional) ──
+        // A v1-v3 file has no such directory entry (its Size stays 0), so this is
+        // skipped without touching the stream — the version-gating discipline in
+        // docs/agent-rules/binary-format-versioning.md. A malformed table costs the
+        // materials, not the mesh: warn and continue with none, exactly as if the
+        // section were absent.
+        {
+            const auto& sec = directory.Sections[static_cast<u16>(std::to_underlying(OMeshFormat::SectionType::ImportedMaterials))];
+            if (sec.Size > 0)
+            {
+                payload.seekg(static_cast<std::streamoff>(seekBase + sec.Offset));
+
+                OMeshFormat::ImportedMaterialsHeader imHeader;
+                ReadBytes(payload, &imHeader, sizeof(imHeader));
+
+                if (imHeader.BlobSize > ImportedMaterialCodec::MaxBlobSize ||
+                    imHeader.BlobSize != sec.Size - sizeof(imHeader))
+                {
+                    OLO_CORE_ERROR("MeshBinarySerializer::Read: imported-material blob size {} inconsistent with "
+                                   "section size {} in '{}'",
+                                   imHeader.BlobSize, sec.Size, path.string());
+                    return nullptr;
+                }
+
+                std::vector<u8> blob(static_cast<sizet>(imHeader.BlobSize));
+                if (imHeader.BlobSize > 0)
+                {
+                    if (!ReadBytes(payload, blob.data(), imHeader.BlobSize))
+                    {
+                        OLO_CORE_ERROR("MeshBinarySerializer::Read: Failed to read the imported-material blob from '{}'",
+                                       path.string());
+                        return nullptr;
+                    }
+
+                    std::vector<Ref<Material>> materials;
+                    if (ImportedMaterialCodec::DecodeMaterials(blob, materials))
+                    {
+                        meshSource->SetImportedMaterials(std::move(materials));
+                    }
+                    else
+                    {
+                        OLO_CORE_WARN("MeshBinarySerializer::Read: imported-material table in '{}' is malformed; "
+                                      "the mesh loads without materials",
+                                      path.string());
+                    }
+                }
+
+                if (!VerifySectionBoundary(payload, seekBase, sec.Offset + sec.Size, "ImportedMaterials", path))
                 {
                     return nullptr;
                 }

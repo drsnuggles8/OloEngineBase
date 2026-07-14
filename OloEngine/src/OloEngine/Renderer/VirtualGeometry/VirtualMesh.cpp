@@ -1,6 +1,10 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMesh.h"
 
+// For VirtualMeshBuildConfig — the cook fingerprint in the blob header hashes its defaults, so
+// changing a default (SimplifyRatio, MaxClusterTriangles, …) invalidates every cached DAG.
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.h"
+
 #include <glm/geometric.hpp>
 
 #include <algorithm>
@@ -131,8 +135,11 @@ namespace OloEngine
         namespace
         {
             constexpr u32 kMagic = 0x4D47564F; // 'OVGM' little-endian
-            constexpr u32 kVersion = 1;
-            constexpr sizet kHeaderSize = 9 * sizeof(u32);
+            // v2 (issue #629): header carries the COOK IDENTITY — builder version + build-config
+            // fingerprint — after the wire version. A v1 blob has no way to prove which builder
+            // produced it, so it is rejected outright and re-cooked; see kVirtualMeshBuilderVersion.
+            constexpr u32 kVersion = 2;
+            constexpr sizet kHeaderSize = 11 * sizeof(u32);
             constexpr sizet kVertexWireSize = 8 * sizeof(f32); // px py pz nx ny nz u v
             constexpr sizet kClusterWireSize = 6 * sizeof(u32) + 11 * sizeof(f32);
             constexpr sizet kGroupWireSize = 3 * sizeof(u32) + 5 * sizeof(f32);
@@ -262,6 +269,18 @@ namespace OloEngine
                 u32 magic = 0;
                 u32 version = 0;
                 if (!reader.Read(magic) || magic != kMagic || !reader.Read(version) || version != kVersion)
+                {
+                    return false;
+                }
+
+                // Cook identity. A blob produced by a different builder — or with different
+                // build-config defaults — is structurally valid but geometrically stale, and
+                // nothing downstream would ever notice (the DAG carries its own vertex copy).
+                // Reject it here; the registry falls back to a runtime build.
+                u32 builderVersion = 0;
+                u32 configFingerprint = 0;
+                if (!reader.Read(builderVersion) || builderVersion != kVirtualMeshBuilderVersion ||
+                    !reader.Read(configFingerprint) || configFingerprint != CurrentCookFingerprint())
                 {
                     return false;
                 }
@@ -472,6 +491,39 @@ namespace OloEngine
             }
         } // namespace
 
+        u32 CurrentCookFingerprint()
+        {
+            // FNV-1a over the builder version and each config field individually (never the
+            // raw struct — padding bytes would make the fingerprint non-deterministic).
+            constexpr VirtualMeshBuildConfig kDefaults{};
+            u32 hash = 2166136261u;
+            auto mix = [&hash](u32 word)
+            {
+                for (u32 byte = 0; byte < 4; ++byte)
+                {
+                    hash ^= (word >> (byte * 8)) & 0xFFu;
+                    hash *= 16777619u;
+                }
+            };
+            auto mixF32 = [&mix](f32 value)
+            {
+                u32 bits = 0;
+                std::memcpy(&bits, &value, sizeof(bits));
+                mix(bits);
+            };
+
+            mix(kVirtualMeshBuilderVersion);
+            mix(kDefaults.MaxClusterVertices);
+            mix(kDefaults.MaxClusterTriangles);
+            mix(kDefaults.MinClusterTriangles);
+            mix(kDefaults.TargetGroupSize);
+            mixF32(kDefaults.SimplifyRatio);
+            mixF32(kDefaults.StuckThreshold);
+            mixF32(kDefaults.ClusterSplitFactor);
+            mix(kDefaults.MaxLevels);
+            return hash;
+        }
+
         std::vector<u8> SerializeToBlob(const VirtualMesh& mesh)
         {
             OLO_PROFILE_FUNCTION();
@@ -481,6 +533,8 @@ namespace OloEngine
 
             writer.Write(kMagic);
             writer.Write(kVersion);
+            writer.Write(kVirtualMeshBuilderVersion);
+            writer.Write(CurrentCookFingerprint());
             writer.Write(static_cast<u32>(mesh.Vertices.size()));
             writer.Write(static_cast<u32>(mesh.Clusters.size()));
             writer.Write(static_cast<u32>(mesh.Groups.size()));
@@ -565,7 +619,9 @@ namespace OloEngine
         namespace
         {
             constexpr u32 kSetMagic = 0x5347564F; // 'OVGS' little-endian
-            constexpr u32 kSetVersion = 1;
+            // v2: matches the OVGM v2 bump (cook identity). Every part's OVGM header carries the
+            // identity check, so this is really only a fast reject for a wholesale-stale set.
+            constexpr u32 kSetVersion = 2;
 
             // A source mesh with more parts than this is corrupt, not merely large: the
             // builder rejects a mesh whose submesh count exceeds it, and no real asset comes

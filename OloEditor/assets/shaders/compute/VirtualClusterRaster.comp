@@ -156,9 +156,24 @@ void RasterizeTriangle(uint swRecordIndex, uint triangleIndex)
 
     // Backface cull, matching the hardware path's CCW front + GL_BACK cull:
     // negative signed area in window space = back-facing.
-    float area = (s1.x - s0.x) * (s2.y - s0.y) - (s2.x - s0.x) * (s1.y - s0.y);
-    if (area <= 0.0)
-        return;
+    //
+    // A TWO-SIDED material (kFlagTwoSided, bit2) has visible back faces — the HW draw
+    // loop glDisable(GL_CULL_FACE)s for exactly those instances. Keep them here too,
+    // and fold the winding into `orient` so the edge functions and barycentrics work
+    // for either orientation with the vertex correspondence intact (b_i = w_i / area
+    // holds for a negative area as well: multiplying both by sign(area) leaves the
+    // barycentric unchanged while making the coverage test w >= 0 valid again).
+    // Without this an OPAQUE double-sided sheet lost every back face on every
+    // software-rasterized cluster, invisibly, since foliage — the only two-sided
+    // geometry we ship — is alpha-masked and never reaches this shader.
+    bool twoSided = (inst.Flags & 4u) != 0u;
+    float signedArea = (s1.x - s0.x) * (s2.y - s0.y) - (s2.x - s0.x) * (s1.y - s0.y);
+    if (signedArea < 0.0 && !twoSided)
+        return; // back-facing, single-sided material
+    float orient = (signedArea < 0.0) ? -1.0 : 1.0;
+    float area = signedArea * orient;
+    if (!(area > 0.0))
+        return; // zero-area / NaN degenerate (the guard is `!(x > 0)` so a NaN takes it too)
 
     // Window-space bounding box, clamped to the viewport
     vec2 bbMinF = min(s0, min(s1, s2));
@@ -185,10 +200,11 @@ void RasterizeTriangle(uint swRecordIndex, uint triangleIndex)
         {
             vec2 pixel = vec2(float(x) + 0.5, float(y) + 0.5);
 
-            // Edge functions (barycentric numerators)
-            float w0 = (s1.x - pixel.x) * (s2.y - pixel.y) - (s2.x - pixel.x) * (s1.y - pixel.y);
-            float w1 = (s2.x - pixel.x) * (s0.y - pixel.y) - (s0.x - pixel.x) * (s2.y - pixel.y);
-            float w2 = (s0.x - pixel.x) * (s1.y - pixel.y) - (s1.x - pixel.x) * (s0.y - pixel.y);
+            // Edge functions (barycentric numerators), re-oriented so a back-facing
+            // two-sided triangle's weights are positive inside the triangle too.
+            float w0 = orient * ((s1.x - pixel.x) * (s2.y - pixel.y) - (s2.x - pixel.x) * (s1.y - pixel.y));
+            float w1 = orient * ((s2.x - pixel.x) * (s0.y - pixel.y) - (s0.x - pixel.x) * (s2.y - pixel.y));
+            float w2 = orient * ((s0.x - pixel.x) * (s1.y - pixel.y) - (s1.x - pixel.x) * (s0.y - pixel.y));
             if (w0 < 0.0 || w1 < 0.0 || w2 < 0.0)
                 continue;
 

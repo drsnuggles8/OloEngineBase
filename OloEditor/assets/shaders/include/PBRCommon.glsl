@@ -261,29 +261,58 @@ vec3 cookTorranceBRDFEnhanced(vec3 N, vec3 V, vec3 L, vec3 albedo, float metalli
 // NORMAL MAPPING UTILITIES
 // =============================================================================
 
-// Get normal from normal map using derivative method
-vec3 getNormalFromMap(sampler2D normalMap, vec2 texCoords, vec3 worldPos, vec3 normal, float normalScale)
+// -----------------------------------------------------------------------------
+// SINGLE SOURCE OF TRUTH for normal mapping. Every path that consumes a normal
+// map goes through decodeTangentNormal + applyNormalMapTBN below:
+//
+//   * classic forward/deferred and the virtual-geometry HARDWARE raster
+//     (VirtualMeshGBuffer.glsl)      -> getNormalFromMap      (dFdx/dFdy derivatives)
+//   * the virtual-geometry SOFTWARE raster's visibility resolve
+//     (VirtualVisibilityResolve.glsl)-> getNormalFromMapGrad  (analytic derivatives)
+//
+// The resolve pass is a FULLSCREEN draw, so it cannot use dFdx: neighbouring
+// pixels can belong to a different triangle, a different cluster, even a
+// different instance. It therefore passes explicit per-pixel screen-space
+// derivatives of world position and texcoord — the same quantities dFdx/dFdy
+// would produce — instead of re-deriving a tangent frame of its own.
+//
+// It used to re-derive one, and it had DRIFTED from this file in two independent
+// ways: it sampled z from the blue channel (re-introducing the #440 BC5/RGTC
+// inversion for software-rasterized clusters) and it used B = +cross(N,T), i.e.
+// the opposite handedness. Both halves of a single virtual-geometry frame shaded
+// the same material differently. Keeping ONE decode and ONE TBN construction here
+// is what makes that class of bug impossible rather than merely fixed.
+// -----------------------------------------------------------------------------
+
+// Decode a tangent-space normal from a normal-map sample's xy.
+//
+// Reconstruct z from xy rather than sampling the blue channel. A tangent-space
+// unit normal always has z = sqrt(1 - x^2 - y^2), so this is correct for ordinary
+// 3-channel (RGB) normal maps AND required for 2-channel BC5/RGTC2 normal maps,
+// whose blue channel is 0 on the GPU (sampling it would give z = -1 and invert the
+// normal). Reconstruction is done after the xy intensity scale so the result stays
+// unit length. (#440)
+vec3 decodeTangentNormal(vec2 sampledXY, float normalScale)
 {
-    // Reconstruct z from xy rather than sampling the blue channel. A tangent-space
-    // unit normal always has z = sqrt(1 - x^2 - y^2), so this is correct for ordinary
-    // 3-channel (RGB) normal maps AND required for 2-channel BC5/RGTC2 normal maps,
-    // whose blue channel is 0 on the GPU (sampling it would give z = -1 and invert the
-    // normal). Reconstruction is done after the xy intensity scale so the result stays
-    // unit length. (#440)
-    vec2 nxy = texture(normalMap, texCoords).xy * 2.0 - 1.0;
+    vec2 nxy = sampledXY * 2.0 - 1.0;
     nxy *= normalScale;
     float nz = sqrt(max(0.0, 1.0 - min(1.0, dot(nxy, nxy))));
-    vec3 tangentNormal = vec3(nxy, nz);
+    return vec3(nxy, nz);
+}
 
-    vec3 Q1 = dFdx(worldPos);
-    vec3 Q2 = dFdy(worldPos);
-    vec2 st1 = dFdx(texCoords);
-    vec2 st2 = dFdy(texCoords);
-
+// Rotate a tangent-space normal into world space with a TBN built from the
+// surface's SCREEN-SPACE derivatives: dpdx/dpdy = d(worldPos)/d(x,y),
+// duvdx/duvdy = d(texCoord)/d(x,y). Any consistent pair works, but they must be
+// screen-space (not triangle-edge) derivatives: the sign of the UV Jacobian
+// determinant — which fixes the tangent's handedness — flips with the triangle's
+// screen-space winding, so a back face of a two-sided material has to see the
+// flipped basis exactly as the hardware rasterizer's dFdx does.
+vec3 applyNormalMapTBN(vec3 tangentNormal, vec3 dpdx, vec3 dpdy, vec2 duvdx, vec2 duvdy, vec3 normal)
+{
     vec3 N = normalize(normal);
 
     // A UV-DEGENERATE triangle — one whose corners share a texcoord, so the
-    // interpolated UV is constant and both st derivatives are zero — makes the
+    // interpolated UV is constant and both uv derivatives are zero — makes the
     // derivative tangent collapse to the zero vector. normalize(vec3(0)) is NaN,
     // and that NaN poisons the TBN, the returned normal, the G-Buffer it is
     // written to, and finally the deferred lighting, which resolves it as a
@@ -300,7 +329,7 @@ vec3 getNormalFromMap(sampler2D normalMap, vec2 texCoords, vec3 worldPos, vec3 n
     // Pinned by PbrNormalMapTest.DegenerateUvGradientFallsBackToGeometricNormal.
     const float kDegenerateEpsilon = 1e-20;
 
-    vec3 tRaw = Q1 * st2.t - Q2 * st1.t;
+    vec3 tRaw = dpdx * duvdy.t - dpdy * duvdx.t;
     float tLenSq = dot(tRaw, tRaw);
     if (!(tLenSq > kDegenerateEpsilon))
         return N;
@@ -315,6 +344,28 @@ vec3 getNormalFromMap(sampler2D normalMap, vec2 texCoords, vec3 worldPos, vec3 n
     mat3 TBN = mat3(T, B, N);
 
     return normalize(TBN * tangentNormal);
+}
+
+// Get normal from normal map using the derivative method (hardware-rasterized
+// fragments: dFdx/dFdy are available and address the real neighbouring pixels).
+vec3 getNormalFromMap(sampler2D normalMap, vec2 texCoords, vec3 worldPos, vec3 normal, float normalScale)
+{
+    vec3 tangentNormal = decodeTangentNormal(texture(normalMap, texCoords).xy, normalScale);
+    return applyNormalMapTBN(tangentNormal,
+                             dFdx(worldPos), dFdy(worldPos),
+                             dFdx(texCoords), dFdy(texCoords),
+                             normal);
+}
+
+// Same, for callers that must supply their derivatives explicitly (the software
+// rasterizer's fullscreen visibility resolve). The texture sample uses the same
+// uv gradients as the TBN, so mip selection matches the hardware path too.
+vec3 getNormalFromMapGrad(sampler2D normalMap, vec2 texCoords,
+                          vec3 dpdx, vec3 dpdy, vec2 duvdx, vec2 duvdy,
+                          vec3 normal, float normalScale)
+{
+    vec3 tangentNormal = decodeTangentNormal(textureGrad(normalMap, texCoords, duvdx, duvdy).xy, normalScale);
+    return applyNormalMapTBN(tangentNormal, dpdx, dpdy, duvdx, duvdy, normal);
 }
 
 // =============================================================================
