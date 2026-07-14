@@ -121,6 +121,14 @@ namespace OloEngine
         // Casters with NoBounds always pass (are included).
         [[nodiscard]] static bool ShouldCull(const BoundingBox& worldBounds, const Frustum& frustum);
 
+        // Does any virtualized-geometry instance submitted this frame cast a shadow?
+        //
+        // The cascade-skip check treats virtual geometry as an UNBOUNDED caster (like terrain /
+        // foliage / voxels): its per-instance bounds never enter the CPU caster lists, because
+        // the cluster cull culls on the GPU, per cluster. Without this, a cascade whose only
+        // casters were virtual meshes was skipped outright and Nanite geometry cast no shadow.
+        [[nodiscard]] static bool AnyVirtualShadowCaster();
+
         void RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight,
                                  const Frustum* cullFrustum = nullptr) const;
 

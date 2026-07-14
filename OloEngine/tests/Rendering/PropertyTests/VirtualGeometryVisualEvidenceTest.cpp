@@ -863,6 +863,115 @@ namespace OloEngine::Tests
                "pixels are not receiving CSM shadows in the deferred resolve";
     }
 
+    // A VIRTUAL MESH MUST CAST A SHADOW EVEN WHEN IT IS THE ONLY CASTER IN THE SCENE.
+    //
+    // This is the regression test for a bug that the shadow test above CANNOT catch, because
+    // its fixture contains a ground plane and a reference cube — two classic MeshComponents —
+    // and it was those, not the virtual sphere, that were keeping the shadow cascade alive.
+    //
+    // ShadowRenderPass skips a cascade outright when no caster is present, and its presence
+    // check enumerated terrain / foliage / voxel / mesh / skinned casters — every caster kind
+    // EXCEPT virtual geometry. So a scene whose only shadow casters were VirtualMeshComponents
+    // rendered no shadow map at all: `continue` fired, RenderCascadeOrFace never ran, and
+    // VirtualGeometryShadow::RenderCascade — which is called from inside it — never executed.
+    // Every existing virtual-geometry shadow test passed anyway, because every one of them
+    // happened to have a classic mesh in frame holding the cascade open on the virtual mesh's
+    // behalf.
+    //
+    // Found in the editor, not by the suite: deleting the ground plane from the Nanite stress
+    // scene made the shadow pass vanish (89 ms -> 0 ms), which is not what deleting a
+    // 12-triangle cube should do.
+    //
+    // So: destroy every classic mesh, leave ONLY the virtual sphere, and assert the shadow map
+    // actually contains caster depth. Asserting on the CSM texture rather than on darkened
+    // pixels is deliberate — a shadow needs a receiver, and once the classic geometry is gone
+    // there is nothing left to receive one. The question here is strictly "did the cascade
+    // render the caster at all", and the depth buffer answers exactly that.
+    TEST_F(VirtualGeometryVisualEvidence, VirtualMeshCastsWhenItIsTheOnlyCasterInTheScene)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+
+        ShadowSettings settings = Renderer3D::GetShadowMap().GetSettings();
+        settings.Enabled = true;
+        Renderer3D::GetShadowMap().SetSettings(settings);
+
+        // Strip the scene down to: sun + virtual sphere. Nothing classic left to hold the
+        // cascade open — which is the entire point.
+        Scene& scene = GetScene();
+        std::vector<entt::entity> classicMeshes;
+        for (auto e : scene.GetAllEntitiesWith<MeshComponent>())
+        {
+            classicMeshes.push_back(e);
+        }
+        ASSERT_FALSE(classicMeshes.empty()) << "fixture has no classic meshes — this test would be vacuous";
+        for (entt::entity e : classicMeshes)
+        {
+            scene.DestroyEntity(Entity{ e, &scene });
+        }
+        ASSERT_TRUE(m_SphereEntity.HasComponent<VirtualMeshComponent>());
+        ASSERT_TRUE(m_SphereEntity.GetComponent<VirtualMeshComponent>().m_CastShadows);
+
+        EditorCamera camera(45.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.1f, 500.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 1.0f, 5.0f }, 0.0f, 0.0f);
+
+        // Run one frame first so the shadow map exists, then WIPE IT BY HAND to the 1.0 clear
+        // value before the frames we actually measure.
+        //
+        // This scrub is what makes the test non-vacuous, and leaving it out made the first
+        // version pass against the very bug it exists to catch. ShadowRenderPass clears a
+        // cascade's depth AFTER the caster-presence check — so when the check wrongly skips the
+        // cascade, the clear is skipped with it and the texture keeps whatever some EARLIER TEST
+        // in this process rendered into it. Reading it then finds plenty of sub-1.0 texels and
+        // reports a shadow that this frame never drew. (Verified: with the fix reverted the test
+        // still passed until this scrub was added, and fails correctly with it.)
+        RunEditorFrames(camera, 1);
+
+        const Ref<Texture2DArray>& csm = Renderer3D::GetShadowMap().GetCSMTextureArray();
+        ASSERT_TRUE(csm) << "no CSM texture array";
+
+        const u32 w = csm->GetWidth();
+        const u32 h = csm->GetHeight();
+        ASSERT_GT(w, 0u);
+
+        {
+            const f32 one = 1.0f;
+            ::glClearTexImage(csm->GetRendererID(), 0, GL_DEPTH_COMPONENT, GL_FLOAT, &one);
+        }
+
+        RunEditorFrames(camera, 3);
+
+        // Scan every cascade: the sphere only needs to land in one of them.
+        sizet casterTexels = 0;
+        std::vector<f32> depth(static_cast<sizet>(w) * h);
+        for (u32 layer = 0; layer < ShadowMap::MAX_CSM_CASCADES; ++layer)
+        {
+            ::glGetTextureSubImage(csm->GetRendererID(), 0, 0, 0, static_cast<GLint>(layer),
+                                   static_cast<GLsizei>(w), static_cast<GLsizei>(h), 1,
+                                   GL_DEPTH_COMPONENT, GL_FLOAT,
+                                   static_cast<GLsizei>(depth.size() * sizeof(f32)), depth.data());
+            for (f32 d : depth)
+            {
+                if (d < 0.999f)
+                {
+                    ++casterTexels;
+                }
+            }
+        }
+
+        EXPECT_GT(casterTexels, static_cast<sizet>(100))
+            << "the shadow map is EMPTY (every texel still at the 1.0 clear value) even though a "
+               "shadow-casting VirtualMeshComponent is the only thing in the scene.\n\n"
+               "ShadowRenderPass skipped the cascade because its caster-presence check does not "
+               "count virtual geometry — so Nanite meshes cast shadows only by the accident of some "
+               "classic MeshComponent being in frame to hold the cascade open. Add virtual geometry "
+               "to the `hasUnbounded` set in ShadowRenderPass::Execute "
+               "(ShadowRenderPass::AnyVirtualShadowCaster).";
+    }
+
     // AC6 extension: virtual meshes also cast into the local-light shadow ATLAS
     // (spot / point perspective tiles), not just the CSM cascades. A spot light
     // straight above the sphere casts its shadow onto the ground; toggling the
