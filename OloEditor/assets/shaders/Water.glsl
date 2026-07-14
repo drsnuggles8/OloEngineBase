@@ -1,3 +1,8 @@
+// OLO_NORMAL_MAP_TBN_EXEMPT: the water surface is not a normal-mapped IMPORTED MESH. Its
+// tangent frame comes from the ANALYTIC Gerstner wave derivatives (an exact dP/du, dP/dv the
+// wave sum already produces), not from screen-space UV derivatives, and u_NormalMap0/1 are
+// scrolling detail-wave maps blended in that frame — there is nothing for PBRCommon's
+// derivative TBN to do here, and no per-submesh material to drift from. See RenderPathDrift.
 // =============================================================================
 // Water.glsl - Gerstner wave water surface rendering
 // Vertex-displaced water plane with Fresnel reflection, SSR, tessellation

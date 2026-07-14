@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -267,103 +268,160 @@ TEST(VirtualClusterCullParity, GpuSelectionMatchesCpuReferenceAtEveryThreshold)
     Frustum frustum;
     frustum.Update(camera.ViewProjection);
 
+    // TWO-SIDEDNESS (C5, issue #629) is part of the cull contract, not a rendering detail:
+    // kFlagTwoSided EXEMPTS a cluster from the normal-cone backface rejection, because a
+    // two-sided material (Sponza's foliage: single-quad leaf cards) is visible from behind.
+    // The cull test used to set only kFlagUniformScale, so the CPU/GPU mirror could not catch
+    // a regression on two-sided geometry at all — which is exactly what C5 was. Sweeping both
+    // flag sets over the same mesh also makes the fixture prove the cone test is ACTIVE: the
+    // two-sided run must select STRICTLY MORE clusters than the one-sided run (an icosphere
+    // seen from outside has back-facing clusters), and if it ever does not, the cone rejection
+    // has silently stopped doing anything and the one-sided half of this test is vacuous.
+    struct FlagCase
+    {
+        const char* Name;
+        u32 Flags;
+        bool ConeCullActive;
+    };
+    const FlagCase flagCases[] = {
+        { "one-sided", VirtualInstanceGpuRecord::kFlagUniformScale, true },
+        { "two-sided",
+          VirtualInstanceGpuRecord::kFlagUniformScale | VirtualInstanceGpuRecord::kFlagTwoSided, false },
+    };
+    // std::string key, not const char*: identical string literals are not guaranteed to be pooled
+    // into the same pointer, and a pointer-keyed map would then silently look up nothing.
+    std::map<std::pair<std::string, f32>, sizet> selectedCounts;
+
     const f32 thresholds[] = { 0.5f, 2.0f, 8.0f, 32.0f };
+    for (const FlagCase& flagCase : flagCases)
+        for (f32 const thresholdPixels : thresholds)
+        {
+            // Identity transform => world space == mesh space, uniform scale
+            VirtualInstanceGpuRecord instance;
+            instance.ClusterBase = 0;
+            instance.ClusterCount = clusterCount;
+            instance.GroupBase = 0;
+            instance.EntityID = 42;
+            instance.MaxScale = 1.0f;
+            instance.ErrorThresholdPixels = thresholdPixels;
+            instance.CommandBase = 0;
+            instance.Flags = flagCase.Flags;
+            instanceBuffer->SetData(&instance, sizeof(instance), 0);
+
+            VirtualDrawArgs const zeroArgs{};
+            argsBuffer->SetData(&zeroArgs, sizeof(zeroArgs), 0);
+
+            clusterBuffer->Bind();
+            groupBuffer->Bind();
+            instanceBuffer->Bind();
+            commandBuffer->Bind();
+            argsBuffer->Bind();
+            visibleBuffer->Bind();
+            groupStatesBuffer->Bind();
+            swListBuffer->Bind();
+            cameraUBO->Bind();
+
+            cullShader->Bind();
+            cullShader->SetUint("u_InstanceIndex", 0);
+            cullShader->SetFloat("u_ViewportHeight", kViewportHeight);
+            cullShader->SetFloat("u_SwRasterThresholdPixels", 0.0f);
+            RenderCommand::DispatchCompute((clusterCount + 63u) / 64u, 1, 1);
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
+
+            // CPU prediction: DAG cut (production reference) + frustum + cone
+            f32 const projectionScale = camera.Projection[1][1];
+            std::vector<u32> expected;
+            for (u32 c = 0; c < clusterCount; ++c)
+            {
+                // The CPU reference works in threshold units of [0..1] screen
+                // height; the GPU works in pixels — divide to match.
+                if (!vm.IsClusterSelectedProjected(c, cameraPosition, kZNear, projectionScale,
+                                                   thresholdPixels / kViewportHeight))
+                {
+                    continue;
+                }
+                const VirtualCluster& cluster = vm.Clusters[c];
+                if (!frustum.IsSphereVisible(cluster.BoundsCenter, cluster.BoundsRadius))
+                {
+                    continue;
+                }
+                // The cone test is SKIPPED for a two-sided instance: a two-sided material is
+                // visible from behind, so "every triangle faces away" is not a reason to drop it.
+                if (flagCase.ConeCullActive && ConeRejects(cluster, cameraPosition))
+                {
+                    continue;
+                }
+                expected.push_back(c);
+            }
+            selectedCounts[{ std::string(flagCase.Name), thresholdPixels }] = expected.size();
+
+            VirtualDrawArgs args{};
+            argsBuffer->GetData(&args, sizeof(args), 0);
+            ASSERT_EQ(args.TestedCount, clusterCount) << "threshold " << thresholdPixels;
+
+            std::vector<VirtualVisibleCluster> visible(args.DrawCount);
+            if (args.DrawCount > 0)
+            {
+                visibleBuffer->GetData(visible.data(), args.DrawCount * static_cast<u32>(sizeof(VirtualVisibleCluster)), 0);
+            }
+
+            std::vector<u32> actual;
+            actual.reserve(visible.size());
+            for (const VirtualVisibleCluster& record : visible)
+            {
+                EXPECT_EQ(record.InstanceIndex, 0u);
+                actual.push_back(record.ClusterIndex);
+            }
+            std::ranges::sort(actual);
+            std::ranges::sort(expected);
+            EXPECT_EQ(actual, expected) << "GPU cull selection diverged from the CPU reference for a " << flagCase.Name
+                                        << " instance at threshold " << thresholdPixels << "px (expected "
+                                        << expected.size() << " clusters, got " << actual.size()
+                                        << "). For a TWO-SIDED instance the normal-cone backface rejection must be "
+                                           "SKIPPED — kFlagTwoSided (bit 2) has to reach the cull shader and be honoured "
+                                           "there, or two-sided foliage loses every cluster whose triangles all face away.";
+
+            ASSERT_FALSE(expected.empty()) << "test setup must keep the mesh visible at threshold " << thresholdPixels;
+
+            // Command records must route each survivor's geometry window
+            std::vector<GpuDrawCommand> commands(args.DrawCount);
+            commandBuffer->GetData(commands.data(), args.DrawCount * static_cast<u32>(sizeof(GpuDrawCommand)), 0);
+            for (u32 slot = 0; slot < args.DrawCount; ++slot)
+            {
+                const VirtualClusterGpuRecord& record = packed.Clusters[visible[slot].ClusterIndex];
+                EXPECT_EQ(commands[slot].Count, record.IndexCount);
+                EXPECT_EQ(commands[slot].InstanceCount, 1u);
+                EXPECT_EQ(commands[slot].FirstIndex, record.IndexBase);
+                EXPECT_EQ(commands[slot].BaseVertex, record.VertexBase);
+                EXPECT_EQ(commands[slot].BaseInstance, slot);
+            }
+        }
+
+    // NON-VACUITY of the two-sided half: the cone cull must actually REJECT clusters somewhere
+    // in this sweep, or "two-sided selects the same set" would be trivially true and the flag
+    // could be ignored entirely without failing anything above.
+    //
+    // Not at EVERY threshold, though: a coarse cut selects the DAG's root clusters, whose
+    // normal cones span most of a hemisphere (ConeCutoff >= 1 disables the test), so the cone
+    // rejects nothing there — measured, 5 vs 5 clusters at 8px and 3 vs 3 at 32px. The
+    // contract is: exempting the cone can only ADD clusters (never remove), and it must add
+    // some at a fine cut, where the leaf clusters have tight cones and half of them face away.
+    u32 thresholdsWhereConeCullBites = 0;
     for (f32 const thresholdPixels : thresholds)
     {
-        // Identity transform => world space == mesh space, uniform scale
-        VirtualInstanceGpuRecord instance;
-        instance.ClusterBase = 0;
-        instance.ClusterCount = clusterCount;
-        instance.GroupBase = 0;
-        instance.EntityID = 42;
-        instance.MaxScale = 1.0f;
-        instance.ErrorThresholdPixels = thresholdPixels;
-        instance.CommandBase = 0;
-        instance.Flags = VirtualInstanceGpuRecord::kFlagUniformScale;
-        instanceBuffer->SetData(&instance, sizeof(instance), 0);
-
-        VirtualDrawArgs const zeroArgs{};
-        argsBuffer->SetData(&zeroArgs, sizeof(zeroArgs), 0);
-
-        clusterBuffer->Bind();
-        groupBuffer->Bind();
-        instanceBuffer->Bind();
-        commandBuffer->Bind();
-        argsBuffer->Bind();
-        visibleBuffer->Bind();
-        groupStatesBuffer->Bind();
-        swListBuffer->Bind();
-        cameraUBO->Bind();
-
-        cullShader->Bind();
-        cullShader->SetUint("u_InstanceIndex", 0);
-        cullShader->SetFloat("u_ViewportHeight", kViewportHeight);
-        cullShader->SetFloat("u_SwRasterThresholdPixels", 0.0f);
-        RenderCommand::DispatchCompute((clusterCount + 63u) / 64u, 1, 1);
-        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
-
-        // CPU prediction: DAG cut (production reference) + frustum + cone
-        f32 const projectionScale = camera.Projection[1][1];
-        std::vector<u32> expected;
-        for (u32 c = 0; c < clusterCount; ++c)
-        {
-            // The CPU reference works in threshold units of [0..1] screen
-            // height; the GPU works in pixels — divide to match.
-            if (!vm.IsClusterSelectedProjected(c, cameraPosition, kZNear, projectionScale,
-                                               thresholdPixels / kViewportHeight))
-            {
-                continue;
-            }
-            const VirtualCluster& cluster = vm.Clusters[c];
-            if (!frustum.IsSphereVisible(cluster.BoundsCenter, cluster.BoundsRadius))
-            {
-                continue;
-            }
-            if (ConeRejects(cluster, cameraPosition))
-            {
-                continue;
-            }
-            expected.push_back(c);
-        }
-
-        VirtualDrawArgs args{};
-        argsBuffer->GetData(&args, sizeof(args), 0);
-        ASSERT_EQ(args.TestedCount, clusterCount) << "threshold " << thresholdPixels;
-
-        std::vector<VirtualVisibleCluster> visible(args.DrawCount);
-        if (args.DrawCount > 0)
-        {
-            visibleBuffer->GetData(visible.data(), args.DrawCount * static_cast<u32>(sizeof(VirtualVisibleCluster)), 0);
-        }
-
-        std::vector<u32> actual;
-        actual.reserve(visible.size());
-        for (const VirtualVisibleCluster& record : visible)
-        {
-            EXPECT_EQ(record.InstanceIndex, 0u);
-            actual.push_back(record.ClusterIndex);
-        }
-        std::ranges::sort(actual);
-        std::ranges::sort(expected);
-        EXPECT_EQ(actual, expected) << "GPU cull selection diverged from the CPU reference at threshold "
-                                    << thresholdPixels << "px (expected " << expected.size() << " clusters, got "
-                                    << actual.size() << ")";
-
-        ASSERT_FALSE(expected.empty()) << "test setup must keep the mesh visible at threshold " << thresholdPixels;
-
-        // Command records must route each survivor's geometry window
-        std::vector<GpuDrawCommand> commands(args.DrawCount);
-        commandBuffer->GetData(commands.data(), args.DrawCount * static_cast<u32>(sizeof(GpuDrawCommand)), 0);
-        for (u32 slot = 0; slot < args.DrawCount; ++slot)
-        {
-            const VirtualClusterGpuRecord& record = packed.Clusters[visible[slot].ClusterIndex];
-            EXPECT_EQ(commands[slot].Count, record.IndexCount);
-            EXPECT_EQ(commands[slot].InstanceCount, 1u);
-            EXPECT_EQ(commands[slot].FirstIndex, record.IndexBase);
-            EXPECT_EQ(commands[slot].BaseVertex, record.VertexBase);
-            EXPECT_EQ(commands[slot].BaseInstance, slot);
-        }
+        sizet const oneSided = selectedCounts[{ std::string("one-sided"), thresholdPixels }];
+        sizet const twoSided = selectedCounts[{ std::string("two-sided"), thresholdPixels }];
+        EXPECT_GE(twoSided, oneSided) << "at threshold " << thresholdPixels
+                                      << "px the TWO-SIDED instance selected FEWER clusters (" << twoSided << ") than "
+                                      << "the one-sided one (" << oneSided
+                                      << ") — skipping the cone test can only ever ADD survivors";
+        thresholdsWhereConeCullBites += (twoSided > oneSided) ? 1u : 0u;
     }
+    EXPECT_GT(thresholdsWhereConeCullBites, 0u)
+        << "the normal-cone rejection culled NOTHING at any threshold on this fixture, so the kFlagTwoSided "
+           "exemption is untested — the cull shader could ignore the flag entirely and every assertion above would "
+           "still pass. An icosphere seen from outside MUST have back-facing leaf clusters; if it no longer does, "
+           "the cone bounds or the fixture have changed and this test needs re-pointing.";
 
     // GL hygiene (issue #485): leave no dangling bindings for later tests.
     for (u32 slot = ShaderBindingLayout::SSBO_VIRTUAL_CLUSTERS; slot <= ShaderBindingLayout::SSBO_VIRTUAL_VERTICES; ++slot)

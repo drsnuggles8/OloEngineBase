@@ -190,6 +190,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VirtualGeometryVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SubmeshMaterialPathParityTest.cpp
+		Rendering/PropertyTests/ModelWarmCacheGeometryIdentityTest.cpp
 		Rendering/PropertyTests/VirtualGeometryRasterParityTest.cpp
 		Rendering/PropertyTests/VirtualMeshAssetPackTest.cpp
 		Rendering/PropertyTests/ImportedMaterialPackTest.cpp
@@ -229,6 +230,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/AssetPreviewRendererTest.cpp
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/RendererShutdownTest.cpp
+		Rendering/RenderPathDriftTest.cpp
+		Rendering/VirtualMeshRegistryRejectionTest.cpp
 		Rendering/PropertyTests/RendererAttachedSmokeTest.cpp
 		Rendering/PropertyTests/SceneRenderEvidenceTest.cpp
 		Rendering/PropertyTests/ClothVisualEvidenceTest.cpp

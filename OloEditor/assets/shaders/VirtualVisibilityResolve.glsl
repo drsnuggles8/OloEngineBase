@@ -250,7 +250,11 @@ void main()
     vec3 wpDy = (wp0 * bScreenY.x + wp1 * bScreenY.y + wp2 * bScreenY.z) - worldPos;
 
     vec3 localNormal = v0.NormalV.xyz * bPersp.x + v1.NormalV.xyz * bPersp.y + v2.NormalV.xyz * bPersp.z;
-    vec3 N = normalize(mat3(inst.NormalMatrix) * localNormal);
+    // sanitizeSurfaceNormal, not normalize: see PBR_GBuffer.glsl. A zero-length or NaN
+    // interpolated normal must not reach the octahedral G-Buffer encode. The analytic
+    // world-position derivatives above are exactly what the hardware path's dFdx would
+    // give, so the geometric fallback is the same normal on both raster paths.
+    vec3 N = sanitizeSurfaceNormal(mat3(inst.NormalMatrix) * localNormal, wpDx, wpDy);
 
     // Material evaluation — same helpers/encodings as PBR_GBuffer.glsl. UV
     // derivatives are analytic (screen-space dFdx would mix neighbouring

@@ -1,3 +1,8 @@
+// OLO_MATERIAL_RESOLVE_EXEMPT: this file EXECUTES already-built command packets. The material
+// was resolved (through SubmeshMaterialResolve.h) by whoever built the packet; by the time a
+// DrawMeshInstancedCommand reaches the dispatcher there is no submesh, no MaterialComponent and
+// no imported-material table left to consult — only a PODMaterialData slot to bind. See
+// RenderPathDrift.EveryMeshSubmissionPathUsesTheSharedMaterialResolver.
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"

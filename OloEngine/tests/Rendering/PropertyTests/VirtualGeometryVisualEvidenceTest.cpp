@@ -439,88 +439,21 @@ namespace OloEngine::Tests
             << "coarse LOD cut rendered nothing — terminal-group selection broken on the GPU path";
     }
 
-    TEST_F(VirtualGeometryVisualEvidence, SoftwareRasterizerMatchesHardwareRaster)
-    {
-        OLO_ENSURE_GPU_OR_SKIP();
-
-        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
-        Renderer3D::ApplyRendererSettings();
-
-        auto& registry = VirtualMeshRegistry::Get();
-
-        // Same scene, same camera, same DAG cut — rendered once with every
-        // cluster forced through the hardware MDI path and once (or twice)
-        // through the compute software rasterizer + visibility-buffer resolve.
-        // The software rasterizer(s) must produce the same image up to sub-pixel
-        // edge rules.
-        auto captureMode = [this](VirtualSwRasterMode mode, const char* name, std::vector<u8>& outRgba)
-        {
-            VirtualMeshRegistry::Get().SetSwRasterMode(mode);
-            m_SphereEntity.GetComponent<VirtualMeshComponent>().m_ErrorThresholdPixels = 1.0f;
-
-            EditorCamera camera(45.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.1f, 500.0f);
-            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
-            camera.SetPose({ 3.5f, 1.8f, 3.5f }, glm::radians(-45.0f), glm::radians(20.0f));
-            RunEditorFrames(camera, 3);
-
-            u32 w = 0;
-            u32 h = 0;
-            ASSERT_TRUE(ReadbackComposite(outRgba, w, h));
-            WriteEvidencePng(std::string("VirtualGeometry_") + name + ".png", outRgba, w, h);
-        };
-
-        std::vector<u8> hardwareFrame;
-        captureMode(VirtualSwRasterMode::Disabled, "ParityHW", hardwareFrame);
-        u32 const hwRed = CountRedDominantPixels(hardwareFrame);
-        ASSERT_GE(hwRed, 800u) << "hardware baseline did not render the sphere";
-
-        // Coverage parity: a software frame may differ along triangle edges
-        // (fill rules, tie-breaking) but the sphere body must match hardware.
-        auto compareSoftwareToHardware = [&](const std::vector<u8>& softwareFrame, const char* label)
-        {
-            ASSERT_EQ(hardwareFrame.size(), softwareFrame.size()) << label;
-            u32 const swRed = CountRedDominantPixels(softwareFrame);
-            ASSERT_GE(swRed, 800u) << label << ": software rasterizer rendered nothing — visbuffer/resolve path broken";
-
-            u32 mismatched = 0;
-            for (sizet i = 0; i + 3 < hardwareFrame.size(); i += 4)
-            {
-                bool const hwIsRed = hardwareFrame[i] > 60 && hardwareFrame[i] > hardwareFrame[i + 1] + 25 &&
-                                     hardwareFrame[i] > hardwareFrame[i + 2] + 25;
-                bool const swIsRed = softwareFrame[i] > 60 && softwareFrame[i] > softwareFrame[i + 1] + 25 &&
-                                     softwareFrame[i] > softwareFrame[i + 2] + 25;
-                if (hwIsRed != swIsRed)
-                {
-                    ++mismatched;
-                }
-            }
-            f64 const mismatchRatio = static_cast<f64>(mismatched) / static_cast<f64>(std::max(hwRed, 1u));
-            EXPECT_LT(mismatchRatio, 0.10)
-                << label << ": software vs hardware raster coverage diverged: " << mismatched
-                << " mismatched pixels vs " << hwRed << " hardware sphere pixels";
-        };
-
-        // Default routing: the single-pass 64-bit atomic path where the driver
-        // supports it, the portable two-pass 2x32 path otherwise.
-        bool const int64Available = RenderCommand::SupportsInt64ShaderAtomics();
-        std::vector<u8> softwareFrame;
-        captureMode(VirtualSwRasterMode::ForceSoftware, "ParitySW", softwareFrame);
-        compareSoftwareToHardware(softwareFrame, int64Available ? "int64-atomic" : "portable-2x32");
-
-        // On 64-bit-atomic hardware, also force the portable two-pass fallback so
-        // BOTH rasterizers stay verified against hardware on the same machine.
-        if (int64Available)
-        {
-            registry.SetForcePortableSwRaster(true);
-            std::vector<u8> portableFrame;
-            captureMode(VirtualSwRasterMode::ForceSoftware, "ParitySWPortable", portableFrame);
-            registry.SetForcePortableSwRaster(false);
-            compareSoftwareToHardware(portableFrame, "portable-2x32 (forced)");
-        }
-
-        registry.SetSwRasterMode(VirtualSwRasterMode::Auto); // never leak the force mode
-        registry.SetForcePortableSwRaster(false);
-    }
+    // SoftwareRasterizerMatchesHardwareRaster USED TO LIVE HERE — deleted (issue #629).
+    //
+    // It advertised SW-vs-HW parity but rendered an UNTEXTURED red icosphere and compared
+    // RED-PIXEL COVERAGE at a 10% tolerance. That metric cannot see a shading difference at
+    // all: it would have sailed straight through the inverted normal map that actually
+    // shipped in VirtualVisibilityResolve.glsl (a blue-channel tangent z + a flipped
+    // bitangent), because an inverted normal moves the colour, not the silhouette. A test
+    // that cannot fail on the bug it claims to guard is worse than no test — it is a green
+    // light.
+    //
+    // Its ONE unique contribution was coverage of the portable two-pass 2x32 software
+    // rasterizer (SetForcePortableSwRaster). That is now folded into
+    // VirtualGeometryRasterParity.SoftwareRasterShadesNormalMappedSurfaceLikeHardware, which
+    // measures a PER-CHANNEL RGB diff on a normal-mapped, textured, two-sided subject — and
+    // runs BOTH rasterizers through it.
 
     // The cluster / LOD / overdraw debug capture targets (issue #629): setting a
     // debug mode makes both raster paths populate the "VirtualGeometryDebug"

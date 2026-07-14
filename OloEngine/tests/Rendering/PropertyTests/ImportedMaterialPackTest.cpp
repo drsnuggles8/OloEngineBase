@@ -436,6 +436,112 @@ TEST(ImportedMaterialWarmCacheTest, WarmCacheLoadKeepsTheMaterialsWithoutReimpor
 // hash-like — that is precisely what defeats the filename heuristic.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// THE OTHER ORDER: Model writes the cache, the MeshSource importer reads it.
+//
+// The bug was symmetrical — "one cache, two texture identities, decided by scene-open
+// order" — but only ONE of the two orders was pinned (MeshSource writes -> Model reads,
+// below). This is the other half: the classic Model importer cold-imports and writes the
+// .omesh, and the MESHSOURCE importer (the path a VirtualMeshComponent / the asset system
+// takes) then warm-loads it. Its materials must be identical to a fresh import too — a
+// warm load that resolved the albedo through the AssetManager's filename-based colour-space
+// guess would get a LINEAR albedo for a hash-named texture, and an alpha-masked material
+// whose albedo failed to load discards the whole submesh.
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_F(ImportedMaterialPackTest, MeshSourceImporterWarmLoadOfAModelWrittenCacheKeepsTheTextureIdentity)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    const fs::path assets = m_TempDir / "Assets";
+    const std::string textureName = "466164707995436622.png"; // hash-named: defeats the filename heuristic
+    {
+        const u32 pixels[4] = { 0xFF0000FFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFF0000FFu };
+        ASSERT_NE(::stbi_write_png((assets / textureName).string().c_str(), 2, 2, 4, pixels, 2 * 4), 0);
+    }
+    {
+        std::ofstream mtl(assets / "cube.mtl");
+        mtl << "newmtl Painted\nKd 1.0 1.0 1.0\nmap_Kd " << textureName << "\n";
+    }
+    {
+        std::ofstream obj(assets / "cube.obj");
+        obj << "mtllib cube.mtl\n"
+               "usemtl Painted\n"
+               "v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\n"
+               "vt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\n"
+               "vn 0 0 1\n"
+               "f 1/1/1 2/2/1 3/3/1\n"
+               "f 1/1/1 3/3/1 4/4/1\n";
+    }
+
+    const fs::path modelPath = assets / "cube.obj";
+    const AssetHandle textureHandle = m_AssetManager->ImportAsset(assets / textureName);
+    const AssetHandle meshHandle = m_AssetManager->ImportAsset(modelPath);
+    ASSERT_NE(static_cast<u64>(textureHandle), 0ULL);
+    ASSERT_NE(static_cast<u64>(meshHandle), 0ULL);
+
+    // ── Control: a fresh MeshSource import with no cache in play (ground truth) ──
+    const auto meshSourceImport = [&]() -> Ref<MeshSource>
+    {
+        AssetMetadata metadata;
+        metadata.Handle = meshHandle;
+        metadata.FilePath = m_AssetManager->GetRelativePath(modelPath);
+        metadata.Type = AssetType::MeshSource;
+
+        MeshSourceSerializer serializer;
+        Ref<Asset> asset;
+        EXPECT_TRUE(serializer.TryLoadData(metadata, asset));
+        return asset.As<MeshSource>();
+    };
+
+    MeshCache::InvalidateCache(modelPath);
+    MeshCache::InvalidateCache(modelPath, "static_uvflip_v1");
+    Ref<MeshSource> const cold = meshSourceImport();
+    ASSERT_TRUE(cold);
+    ASSERT_FALSE(cold->GetImportedMaterials().empty()) << "the fresh MeshSource import carries no materials";
+    Ref<Material> const expected = cold->GetImportedMaterials()[0];
+    ASSERT_TRUE(expected);
+    ASSERT_TRUE(expected->GetAlbedoMap()) << "fixture is wrong: the fresh import has no albedo map";
+    ASSERT_TRUE(expected->GetAlbedoMap()->GetSpecification().SRGB)
+        << "fixture is wrong: an OBJ map_Kd is a COLOUR texture, so the importer must load it as sRGB";
+
+    // ── Now let the MODEL importer write the cache (the reverse of the test below) ──
+    MeshCache::InvalidateCache(modelPath);
+    MeshCache::InvalidateCache(modelPath, "static_uvflip_v1");
+    {
+        Model writer{ modelPath.string() };
+        ASSERT_FALSE(writer.GetMaterials().empty());
+    }
+    ASSERT_TRUE(MeshCache::IsMeshCacheValid(modelPath, "static_uvflip_v1"))
+        << "the Model importer did not write the cache the MeshSource importer will read — the warm half of this "
+           "test would be vacuous";
+
+    // ── The MeshSource importer WARM-loads it. It must be identical to the control. ──
+    Ref<MeshSource> const warm = meshSourceImport();
+    ASSERT_TRUE(warm);
+    ASSERT_FALSE(warm->GetImportedMaterials().empty())
+        << "the warm MeshSource load lost the imported materials entirely — every submesh would render with the "
+           "flat engine-default material";
+    Ref<Material> const actual = warm->GetImportedMaterials()[0];
+    ASSERT_TRUE(actual);
+
+    Ref<Texture2D> const albedo = actual->GetAlbedoMap();
+    ASSERT_TRUE(albedo) << "the warm MeshSource load lost the albedo texture. On an alpha-masked material a null "
+                           "albedo fails the cutoff and the submesh VANISHES; on an opaque one it shades black.";
+    EXPECT_TRUE(albedo->GetSpecification().SRGB)
+        << "the warm load resolved the albedo through the AssetManager, whose colour-space guess is FILENAME-based "
+           "and cannot recognise a hash-named texture — so it came back LINEAR. It must be realized from the source "
+           "file with the sRGB intent the IMPORTER recorded for that material slot. This is the same bug as the "
+           "other importer order, and it was unpinned: which importer opens the mesh first is a function of scene "
+           "content, so half the fix being right is a 50/50 coin flip in a real project.";
+    EXPECT_EQ(albedo->GetWidth(), expected->GetAlbedoMap()->GetWidth());
+    EXPECT_EQ(actual->GetAlphaMode(), expected->GetAlphaMode());
+    for (int c = 0; c < 4; ++c)
+    {
+        EXPECT_FLOAT_EQ(actual->GetBaseColorFactor()[c], expected->GetBaseColorFactor()[c]);
+    }
+}
+
 TEST_F(ImportedMaterialPackTest, WarmLoadIsIdenticalNoMatterWhichImporterWroteTheCache)
 {
     OLO_ENSURE_GPU_OR_SKIP();

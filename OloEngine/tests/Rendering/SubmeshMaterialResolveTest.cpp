@@ -156,4 +156,71 @@ namespace OloEngine::Tests
         disabled.SetFlag(MaterialFlag::DisableShadowCasting, true);
         EXPECT_FALSE(MaterialCastsShadows(disabled));
     }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // COPYING a Material must not silently drop fields.
+    //
+    // Material has THREE hand-written "copy every field" implementations — a copy constructor,
+    // an operator=, and the static Material::Copy — and all three had DRIFTED from the field
+    // list. The copy constructor and operator= dropped m_AlphaMode and m_AlphaCutoff;
+    // Material::Copy dropped those plus every PBR factor and the IBL maps.
+    //
+    // That is not cosmetic. Renderer3D::MeshSubmitDesc holds its material BY VALUE, so
+    // Model::DrawParallel COPIES the resolved material into the descriptor — while the Scene
+    // MeshComponent / VirtualMeshComponent loops pass a `const Material&` straight to DrawMesh.
+    // The copy therefore came back OPAQUE: the same alpha-masked material, on the same mesh,
+    // cut the leaf out on two paths and rendered a solid card on the third. Found by the
+    // authored four-material fixture in SubmeshMaterialPathParityTest (the old deccer-cubes
+    // fixture had no alpha-masked submesh, so nothing could see it).
+    //
+    // Headless, and it fails on the pre-fix Material.cpp.
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    TEST(SubmeshMaterialResolve, CopyingAMaterialPreservesEveryFieldASubmissionPathReads)
+    {
+        Material original = MakeNamed("Foliage", glm::vec3(0.2f, 0.7f, 0.3f));
+        original.SetAlphaMode(AlphaMode::Mask);
+        original.SetAlphaCutoff(0.37f);
+        original.SetMetallicFactor(0.25f);
+        original.SetRoughnessFactor(0.65f);
+        original.SetNormalScale(1.5f);
+        original.SetOcclusionStrength(0.75f);
+        original.SetEmissiveFactor(glm::vec4(0.1f, 0.2f, 0.3f, 1.0f));
+        original.SetBaseColorFactor(glm::vec4(0.2f, 0.7f, 0.3f, 0.9f));
+        original.SetFlag(MaterialFlag::TwoSided, true);
+
+        const auto check = [&](const char* how, const Material& copy)
+        {
+            EXPECT_EQ(copy.GetAlphaMode(), AlphaMode::Mask)
+                << how << ": the ALPHA MODE was dropped by the copy. Renderer3D::MeshSubmitDesc holds its material "
+                          "BY VALUE, so a path that copies (Model::DrawParallel) loses the cutout while a path that "
+                          "passes a const Material& (the Scene MeshComponent loop) keeps it — the same material, the "
+                          "same mesh, two different pictures.";
+            EXPECT_FLOAT_EQ(copy.GetAlphaCutoff(), 0.37f) << how << ": the alpha CUTOFF was dropped by the copy";
+            EXPECT_FLOAT_EQ(copy.GetMetallicFactor(), 0.25f) << how << ": metallic factor dropped";
+            EXPECT_FLOAT_EQ(copy.GetRoughnessFactor(), 0.65f) << how << ": roughness factor dropped";
+            EXPECT_FLOAT_EQ(copy.GetNormalScale(), 1.5f) << how << ": normal scale dropped";
+            EXPECT_FLOAT_EQ(copy.GetOcclusionStrength(), 0.75f) << how << ": occlusion strength dropped";
+            EXPECT_FLOAT_EQ(copy.GetBaseColorFactor().g, 0.7f) << how << ": base colour factor dropped";
+            EXPECT_FLOAT_EQ(copy.GetEmissiveFactor().b, 0.3f) << how << ": emissive factor dropped";
+            EXPECT_TRUE(copy.GetFlag(MaterialFlag::TwoSided)) << how << ": the TwoSided flag was dropped";
+
+            // And the shadow gate must agree about the COPY, since that is what the submission
+            // path actually holds by the time it asks.
+            EXPECT_FALSE(MaterialCastsShadows(copy))
+                << how << ": the copy claims to cast shadows — its alpha mode came back Opaque, which is exactly how "
+                          "alpha-masked foliage ends up projecting a solid plank through the shadow-depth shader";
+        };
+
+        const Material byConstructor(original);
+        check("copy constructor", byConstructor);
+
+        Material byAssignment = MakeNamed("Other", glm::vec3(1.0f));
+        byAssignment = original;
+        check("operator=", byAssignment);
+
+        Ref<Material> const byStaticCopy = Material::Copy(Ref<Material>::Create(original), "FoliageCopy");
+        ASSERT_TRUE(byStaticCopy);
+        check("Material::Copy", *byStaticCopy);
+        EXPECT_EQ(byStaticCopy->GetName(), "FoliageCopy") << "Material::Copy must honour the requested name";
+    }
 } // namespace OloEngine::Tests

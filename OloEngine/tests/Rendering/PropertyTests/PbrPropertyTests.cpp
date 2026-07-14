@@ -43,7 +43,13 @@
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 
+#include <glm/geometric.hpp>
+#include <glm/vec3.hpp>
+
+#include <array>
 #include <cmath>
+#include <limits>
+#include <utility>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -710,6 +716,227 @@ namespace OloEngine::Tests
         EXPECT_EQ(nonFinite, 0u)
             << nonFinite << " pixels got a NaN/Inf normal from a UV-degenerate triangle "
             << "(normalize(vec3(0)) in getNormalFromMap's tangent construction)";
+    }
+
+    // =========================================================================
+    // DEGENERATE INPUT NORMALS + UV-COLLINEAR triangles.
+    //
+    // The UV-degenerate guard above fixed `normalize(vec3(0))` on the TANGENT.
+    // The line above it — `vec3 N = normalize(normal)` — was left unguarded, and
+    // it is the same bug with the same consequence: a zero-length or NaN vertex
+    // normal produces a NaN world normal, a NaN octahedral G-Buffer normal, and a
+    // blown-out white pixel out of deferred lighting. The input exists in real
+    // data: a zero-area triangle has no face normal to accumulate, smooth normals
+    // can cancel to zero, and an importer can hand over a NaN — and
+    // MeshOptimization::AnalyzeDegenerateTriangles deliberately KEEPS zero-area
+    // triangles because they carry real 3D area.
+    //
+    // Contract (sanitizeSurfaceNormal in PBRCommon.glsl): fall back to the
+    // GEOMETRIC normal rebuilt from the screen-space position derivatives. On the
+    // probe's flat surface that is exactly the +Z the healthy control carries, so
+    // the two degenerate quadrants must shade IDENTICALLY to the control quadrant
+    // — a much stronger statement than "not NaN", and one a `return vec3(0,0,1)`
+    // style fix would also satisfy only by accident of this probe's orientation.
+    //
+    // Quadrants: A = zero normal, B = NaN normal, C = UV-collinear, D = control.
+    // See OloEditor/assets/shaders/tests/PbrNormalGuardProbe.glsl.
+    // =========================================================================
+    TEST(PbrNormalMapTest, ZeroAndNaNVertexNormalsFallBackToTheGeometricNormal)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kSize = 64;
+
+        // Non-flat tangent-space normal, so a broken frame cannot coincidentally
+        // land on the expected value (a flat map returns N whatever the TBN is).
+        const std::vector<u8> texel = []
+        {
+            std::vector<u8> px(kSize * kSize * 4);
+            for (std::size_t i = 0; i < static_cast<std::size_t>(kSize) * kSize; ++i)
+            {
+                px[i * 4 + 0] = 192;
+                px[i * 4 + 1] = 64;
+                px[i * 4 + 2] = 255;
+                px[i * 4 + 3] = 255;
+            }
+            return px;
+        }();
+
+        struct TextureGuard
+        {
+            GLuint m_Id = 0;
+            ~TextureGuard()
+            {
+                if (m_Id != 0)
+                    ::glDeleteTextures(1, &m_Id);
+            }
+        } normalTexGuard;
+        ::glCreateTextures(GL_TEXTURE_2D, 1, &normalTexGuard.m_Id);
+        const GLuint normalTex = normalTexGuard.m_Id;
+        ::glTextureStorage2D(normalTex, 1, GL_RGBA8, kSize, kSize);
+        ::glTextureSubImage2D(normalTex, 0, 0, 0, kSize, kSize, GL_RGBA, GL_UNSIGNED_BYTE, texel.data());
+        ::glTextureParameteri(normalTex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        ::glTextureParameteri(normalTex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        // The four cases' INPUT vertex normals, one texel each, straight from the host:
+        // the shader must not construct the NaN itself (0.0/0.0 is undefined in GLSL) and
+        // a texel cannot be constant-folded. Graphics shaders here compile through SPIR-V,
+        // where a loose (non-block) uniform is illegal — hence a texture, not a uniform.
+        const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+        const std::array<f32, 16> caseNormals = {
+            0.0f,
+            0.0f,
+            0.0f,
+            1.0f, // A: zero-length
+            nan,
+            nan,
+            nan,
+            1.0f, // B: NaN
+            0.0f,
+            0.0f,
+            1.0f,
+            1.0f, // C: healthy normal, UV-collinear triangle
+            0.0f,
+            0.0f,
+            1.0f,
+            1.0f, // D: control
+        };
+        TextureGuard caseTexGuard;
+        ::glCreateTextures(GL_TEXTURE_2D, 1, &caseTexGuard.m_Id);
+        const GLuint caseTex = caseTexGuard.m_Id;
+        ::glTextureStorage2D(caseTex, 1, GL_RGBA32F, 4, 1);
+        ::glTextureSubImage2D(caseTex, 0, 0, 0, 4, 1, GL_RGBA, GL_FLOAT, caseNormals.data());
+        ::glTextureParameteri(caseTex, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        ::glTextureParameteri(caseTex, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        FramebufferSpecification spec{};
+        spec.Width = kSize;
+        spec.Height = kSize;
+        spec.Attachments = { FramebufferTextureFormat::RGBA16F };
+        Ref<Framebuffer> fb = Framebuffer::Create(spec);
+        Ref<Shader> shader = Shader::Create("assets/shaders/tests/PbrNormalGuardProbe.glsl");
+        ASSERT_TRUE(shader) << "PbrNormalGuardProbe.glsl failed to compile";
+        FullscreenPass pass;
+
+        std::vector<f32> pixels;
+        {
+            GLStateGuard stateGuard("PbrNormalMapTest::NormalGuard", GLStateGuard::Policy::Restore);
+            fb->Bind();
+            ::glViewport(0, 0, kSize, kSize);
+            ::glDisable(GL_BLEND);
+            ::glDisable(GL_DEPTH_TEST);
+            ::glDisable(GL_CULL_FACE);
+            shader->Bind();
+            ::glBindTextureUnit(1, caseTex); // u_CaseNormals
+            pass.Draw(normalTex);            // binds u_NormalMap on unit 0
+            ::glFinish();
+            fb->Unbind();
+            ::glBindTextureUnit(1, 0);
+
+            ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(0), kSize, kSize, pixels);
+        }
+
+        constexpr u32 kMargin = 4; // skip quadrant seams + frame edges (derivative quads)
+        constexpr u32 kHalf = kSize / 2;
+
+        // Mean encoded colour of one quadrant, and its worst non-finite / non-unit pixel.
+        struct QuadrantStats
+        {
+            glm::vec3 Mean{ 0.0f };
+            u32 NonFinite = 0;
+            u32 NonUnit = 0;   // decoded normal is not unit length
+            u32 WrongSide = 0; // decoded normal faces away from the geometric normal (+Z)
+            u32 Samples = 0;
+        };
+
+        const auto measure = [&](u32 x0, u32 y0) -> QuadrantStats
+        {
+            QuadrantStats stats;
+            glm::dvec3 sum{ 0.0 };
+            for (u32 y = y0 + kMargin; y + kMargin < y0 + kHalf; ++y)
+            {
+                for (u32 x = x0 + kMargin; x + kMargin < x0 + kHalf; ++x)
+                {
+                    const std::size_t idx = (static_cast<std::size_t>(y) * kSize + x) * 4;
+                    const glm::vec3 encoded{ pixels[idx + 0], pixels[idx + 1], pixels[idx + 2] };
+                    ++stats.Samples;
+                    if (!std::isfinite(encoded.x) || !std::isfinite(encoded.y) || !std::isfinite(encoded.z))
+                    {
+                        ++stats.NonFinite;
+                        continue;
+                    }
+                    sum += glm::dvec3(encoded);
+                    const glm::vec3 n = encoded * 2.0f - 1.0f;
+                    if (std::abs(glm::length(n) - 1.0f) > 0.02f)
+                    {
+                        ++stats.NonUnit;
+                    }
+                    if (n.z <= 0.0f) // geometric normal of the probe surface is +Z
+                    {
+                        ++stats.WrongSide;
+                    }
+                }
+            }
+            const auto finite = static_cast<f64>(stats.Samples - stats.NonFinite);
+            if (finite > 0.0)
+            {
+                stats.Mean = glm::vec3(sum / finite);
+            }
+            return stats;
+        };
+
+        const QuadrantStats zeroNormal = measure(0, 0);      // A
+        const QuadrantStats nanNormal = measure(kHalf, 0);   // B
+        const QuadrantStats collinearUv = measure(0, kHalf); // C
+        const QuadrantStats control = measure(kHalf, kHalf); // D
+
+        ASSERT_GT(control.Samples, 100u) << "probe rendered nothing";
+        ASSERT_EQ(control.NonFinite, 0u) << "the HEALTHY control quadrant is NaN — the probe itself is broken";
+
+        // 1. Nothing may be NaN/Inf. This is the half that turns into white pixels.
+        EXPECT_EQ(zeroNormal.NonFinite, 0u)
+            << zeroNormal.NonFinite << "/" << zeroNormal.Samples
+            << " pixels got a NaN normal from a ZERO-LENGTH vertex normal — normalize(vec3(0)) in "
+               "applyNormalMapTBN. Guard it (PBRCommon::sanitizeSurfaceNormal).";
+        EXPECT_EQ(nanNormal.NonFinite, 0u)
+            << nanNormal.NonFinite << "/" << nanNormal.Samples
+            << " pixels got a NaN normal from a NaN vertex normal — the guard must be written !(x > eps) so a "
+               "NaN input also takes the fallback.";
+        EXPECT_EQ(collinearUv.NonFinite, 0u)
+            << "a UV-COLLINEAR triangle produced a NaN normal — the derivative tangent is supposed to stay "
+               "finite here (this is the silent-wrong-shading case, not the white-pixel one).";
+
+        // 2. Every output must still be a unit normal on the right side of the surface.
+        for (const auto& [name, stats] : std::array<std::pair<const char*, QuadrantStats>, 4>{
+                 { { "zero-normal", zeroNormal },
+                   { "NaN-normal", nanNormal },
+                   { "collinear-UV", collinearUv },
+                   { "control", control } } })
+        {
+            EXPECT_EQ(stats.NonUnit, 0u) << name << ": " << stats.NonUnit << " pixels are not unit-length";
+            EXPECT_EQ(stats.WrongSide, 0u) << name << ": " << stats.WrongSide
+                                           << " pixels point away from the surface's geometric normal";
+        }
+
+        // 3. The strong contract: with the vertex normal unusable, the geometric normal
+        //    rebuilt from the position derivatives is the SAME +Z the control carries — so
+        //    the degenerate quadrants must shade exactly like the control. A "return
+        //    vec3(0,0,1)" fallback would pass (2) but fail here as soon as the normal map
+        //    is non-flat, because it would skip the TBN rotation entirely.
+        constexpr f32 kTol = 5e-3f;
+        for (const auto& [name, stats] : std::array<std::pair<const char*, QuadrantStats>, 2>{
+                 { { "zero-normal", zeroNormal }, { "NaN-normal", nanNormal } } })
+        {
+            EXPECT_NEAR(stats.Mean.x, control.Mean.x, kTol) << name << " R vs control";
+            EXPECT_NEAR(stats.Mean.y, control.Mean.y, kTol) << name << " G vs control";
+            EXPECT_NEAR(stats.Mean.z, control.Mean.z, kTol) << name << " B vs control";
+        }
+
+        // Non-vacuity: the normal map must actually be moving the normal away from +Z,
+        // otherwise every comparison above would hold trivially for any fallback at all.
+        EXPECT_GT(std::abs(control.Mean.x - 0.5f), 0.05f)
+            << "the control quadrant's shaded normal is ~+Z — the probe's normal map is not perturbing "
+               "anything, so the comparisons against it prove nothing";
     }
 
     // =========================================================================

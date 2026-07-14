@@ -26,7 +26,11 @@
 //   * a NORMAL-MAPPED, TEXTURED, TWO-SIDED subject — a dense grid sheet with a
 //     uniform tangent-space normal whose blue channel is ZERO (the BC5 case) and
 //     whose green channel is far from neutral (so a flipped bitangent shows up),
-//   * a PER-CHANNEL RGB diff, not a coverage count.
+//   * a PER-CHANNEL RGB diff, not a coverage count,
+//   * and BOTH software rasterizers: the single-pass 64-bit-atomic one and the
+//     portable two-pass 2x32 fallback (SetForcePortableSwRaster). The old coverage
+//     test was the only thing that ever ran the portable path; it has been deleted
+//     and its unique value folded in here, under the bit-exact metric.
 //
 // Both maps are UNIFORM, so texture filtering / mip selection cannot contribute a
 // difference: every remaining per-channel delta between the hardware frame and the
@@ -57,6 +61,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -445,6 +450,53 @@ namespace OloEngine::Tests
             << diff.OverToleranceCount << " of " << diff.ComparedPixels
             << " interior pixels differ by more than " << kChannelTolerance << " levels in some channel — that is a "
             << "shading divergence, not an edge-rule difference";
+
+        // ── The PORTABLE two-pass 2x32 software rasterizer ──
+        //
+        // There are TWO software rasterizers: a single-pass one that needs 64-bit shader
+        // atomics, and a portable two-pass 2x32 fallback for drivers without them. The
+        // routing picks the first when available, so on this machine everything above only
+        // tested that one. The deleted coverage test (VirtualGeometryVisualEvidence.
+        // SoftwareRasterizerMatchesHardwareRaster) was the ONLY thing that ever exercised the
+        // portable path — by red-pixel coverage at 10% tolerance, a metric that cannot see a
+        // shading difference at all. Fold it in here, under the bit-exact metric: on
+        // int64-capable hardware BOTH rasterizers get compared to hardware, per channel.
+        //
+        // The fixture's TearDown resets the flag (it used to reset a flag nothing ever set).
+        if (RenderCommand::SupportsInt64ShaderAtomics())
+        {
+            VirtualMeshRegistry::Get().SetForcePortableSwRaster(true);
+            std::vector<u8> const portable = CaptureMode(VirtualSwRasterMode::ForceSoftware, "NormalMap_SWPortable",
+                                                         eye, 0.0f);
+            VirtualMeshRegistry::Get().SetForcePortableSwRaster(false);
+
+            ASSERT_EQ(hardware.size(), portable.size());
+            u32 const portableSheet = CountSheetPixels(portable);
+            ASSERT_GT(portableSheet, 5000u)
+                << "the PORTABLE two-pass software rasterizer rendered nothing (the visbuffer's 2x32 depth/payload "
+                   "pack or its resolve is broken) — this path is what runs on every driver without 64-bit shader "
+                   "atomics";
+
+            ChannelDiff const portableDiff = DiffInterior(hardware, portable, m_CaptureWidth, m_CaptureHeight);
+            ASSERT_GT(portableDiff.ComparedPixels, 5000u) << "not enough interior pixels to compare";
+            for (u32 c = 0; c < 3; ++c)
+            {
+                EXPECT_LT(portableDiff.MeanAbs[c], 0.5)
+                    << "channel " << c << ": the PORTABLE (2x32) software rasterizer shades the normal-mapped sheet "
+                    << "differently from hardware (mean |delta| = " << portableDiff.MeanAbs[c] << "/255, max = "
+                    << portableDiff.MaxAbs[c] << " over " << portableDiff.ComparedPixels << " interior pixels)";
+            }
+            EXPECT_EQ(portableDiff.OverToleranceCount, 0u)
+                << portableDiff.OverToleranceCount << " of " << portableDiff.ComparedPixels
+                << " interior pixels differ by more than " << kChannelTolerance
+                << " levels between hardware and the PORTABLE software rasterizer";
+        }
+        else
+        {
+            // Nothing skipped: with no int64 atomics the portable path IS the path measured above.
+            OLO_CORE_INFO("VirtualGeometryRasterParity: no int64 shader atomics — the software frame above already "
+                          "IS the portable 2x32 rasterizer");
+        }
     }
 
     // C5: an OPAQUE, TWO-SIDED sheet seen FROM BEHIND. Two independent things used to
