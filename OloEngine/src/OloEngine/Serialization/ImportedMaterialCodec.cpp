@@ -120,9 +120,15 @@ namespace OloEngine::ImportedMaterialCodec
             return value;
         }
 
-        // The editor asset manager, or nullptr when we are not running against one
+        // The editor asset manager, or null when we are not running against one
         // (packed runtime, or a test with no project). Never asserts.
-        [[nodiscard]] EditorAssetManager* TryGetEditorAssetManager()
+        //
+        // Returns an OWNING Ref, not a raw pointer: the manager is owned by Project::s_AssetManager
+        // (a copy of which is returned here), so a raw pointer taken through this local Ref tripped
+        // SonarQube's "use of memory after it is freed" — it treats the local Ref as the sole owner.
+        // Handing back a shared Ref makes the ownership explicit and keeps the manager alive for the
+        // caller's use. As<>() is a dynamic_cast, so a non-editor (runtime) manager yields a null Ref.
+        [[nodiscard]] Ref<EditorAssetManager> TryGetEditorAssetManager()
         {
             if (!Project::GetActive())
             {
@@ -133,7 +139,7 @@ namespace OloEngine::ImportedMaterialCodec
             {
                 return nullptr;
             }
-            return dynamic_cast<EditorAssetManager*>(manager.Raw());
+            return manager.As<EditorAssetManager>();
         }
 
         // A texture imported straight off disk (Model's Texture2D::Create path) has no
@@ -157,7 +163,7 @@ namespace OloEngine::ImportedMaterialCodec
                 return AssetHandle(0);
             }
 
-            EditorAssetManager* editor = TryGetEditorAssetManager();
+            Ref<EditorAssetManager> editor = TryGetEditorAssetManager();
             if (!editor)
             {
                 return AssetHandle(0);

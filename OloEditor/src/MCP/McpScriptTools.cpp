@@ -419,9 +419,21 @@ namespace OloEngine::MCP
             // HandleToolsCall consent gate (Disabled/Prompt/Allow-all) before its
             // handler ran — the human consented to the MACRO by name and arguments;
             // its inner writes are the macro's body, not separate decisions.
-            olo["call_tool"] = [runtime](const std::string& name, sol::optional<sol::table> args)
+            // WEAK capture, not strong. This closure lives in the `olo` table INSIDE runtime->Lua
+            // for the runtime's whole life (handlers call olo.call_tool at dispatch time, so unlike
+            // RegisterMcpTool it can never be nil'd). A strong capture is therefore a PERMANENT
+            // reference cycle — runtime -> Lua -> olo.call_tool -> shared_ptr -> runtime — that keeps
+            // the sol::state alive forever; a superseded runtime becomes an unreachable self-sustaining
+            // island, which LSan reports as a definite leak on every rescan/swap. A weak_ptr breaks it:
+            // this closure only ever runs while its OWN Lua state (a member of *runtime) is alive, so
+            // lock() cannot fail in practice, and each live handler still holds a strong ref.
+            olo["call_tool"] = [weakRuntime = std::weak_ptr<ScriptToolsRuntime>(runtime)](
+                                   const std::string& name, sol::optional<sol::table> args)
                 -> std::tuple<sol::object, sol::object>
             {
+                const std::shared_ptr<ScriptToolsRuntime> runtime = weakRuntime.lock();
+                if (!runtime)
+                    return {}; // unreachable: call_tool only runs while runtime (and its Lua state) is alive
                 sol::state_view lua(runtime->Lua.lua_state());
                 const auto fail = [&lua](const std::string& message)
                 {

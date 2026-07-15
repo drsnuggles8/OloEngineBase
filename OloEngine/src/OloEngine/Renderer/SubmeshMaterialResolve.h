@@ -53,7 +53,12 @@ namespace OloEngine
         }
         if (meshSource != nullptr)
         {
-            if (Ref<Material> imported = meshSource->GetImportedMaterialForSubmesh(submeshIndex); imported)
+            // A raw observer into the MeshSource's persistent m_ImportedMaterials — NOT a local
+            // owning Ref. Returning *imported through a local Ref<Material> destroyed at return
+            // was a returned-reference-to-a-just-released-owner pattern (SonarQube "use of memory
+            // after it is freed"); the referent is owned by the MeshSource, which every caller
+            // keeps alive across its use of the result, so the observer is the honest shape.
+            if (const Material* imported = meshSource->GetImportedMaterialPtrForSubmesh(submeshIndex); imported != nullptr)
             {
                 return *imported;
             }

@@ -212,6 +212,25 @@ namespace OloEngine
             return m_ImportedMaterials[materialIndex];
         }
 
+        // Non-owning observer into m_ImportedMaterials for a submesh (or nullptr — same fall-through
+        // as GetImportedMaterialForSubmesh). The pointer is valid for as long as THIS MeshSource
+        // lives. Read-only callers (SubmeshMaterialResolve) use this instead of the Ref-returning
+        // overload so they never materialise a local owning Ref whose destruction would leave a
+        // returned reference dangling (SonarQube "use of memory after it is freed").
+        [[nodiscard]] const Material* GetImportedMaterialPtrForSubmesh(u32 submeshIndex) const
+        {
+            if (submeshIndex >= static_cast<u32>(m_Submeshes.Num()))
+            {
+                return nullptr;
+            }
+            u32 const materialIndex = m_Submeshes[static_cast<i32>(submeshIndex)].m_MaterialIndex;
+            if (materialIndex >= static_cast<u32>(m_ImportedMaterials.size()))
+            {
+                return nullptr;
+            }
+            return m_ImportedMaterials[materialIndex].get();
+        }
+
         // Material management
         const TMap<u32, AssetHandle>& GetMaterials() const
         {
