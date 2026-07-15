@@ -43,7 +43,12 @@ namespace OloEngine::MeshOptimization
             std::vector<u32> welded(indexCount);
             for (sizet i = 0; i < indexCount; ++i)
             {
-                welded[i] = remap[indices[i]];
+                // Guard the remap lookup: an out-of-range index (a degenerate/corrupt source
+                // that reaches this before any index-range validation) would read past `remap`.
+                // Pass a bad index through untouched — that is exactly what fed meshopt before
+                // welding existed, so its own validation still gets to reject it downstream.
+                u32 const index = indices[i];
+                welded[i] = (index < vertexCount) ? remap[index] : index;
             }
             return welded;
         }

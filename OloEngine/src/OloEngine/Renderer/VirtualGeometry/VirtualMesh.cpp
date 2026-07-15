@@ -732,7 +732,12 @@ namespace OloEngine
                 {
                     return false;
                 }
-                if (partSize == 0 || cursor + static_cast<sizet>(partSize) > blob.size())
+                // Bound-check WITHOUT adding to cursor: partSize is an untrusted u64, so
+                // `cursor + partSize` would wrap for a hostile size near SIZE_MAX and pass
+                // this check, then blow past the buffer in subspan(). cursor is always
+                // <= blob.size() (ReadLE advances only within bounds), so the subtraction
+                // is the safe form.
+                if (partSize == 0 || static_cast<sizet>(partSize) > blob.size() - cursor)
                 {
                     return false;
                 }

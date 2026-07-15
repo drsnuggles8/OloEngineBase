@@ -101,6 +101,16 @@ namespace OloEngine::ImportedMaterialCodec
             return std::isfinite(value) ? value : fallback;
         }
 
+        // Enum fields ride the wire as raw ints. A corrupt/hostile blob can carry a value
+        // no enumerator matches, which then flows into shader-selection / alpha-queue
+        // switches that assume a valid case — a silently mis-rendered material (a MASK/BLEND
+        // surface drawn opaque, or the wrong shader picked). Clamp to the known range per
+        // field, exactly as the floats above fall back to a default. `[lo, hi]` inclusive.
+        [[nodiscard]] i32 SanitizeEnum(i32 value, i32 lo, i32 hi, i32 fallback)
+        {
+            return (value >= lo && value <= hi) ? value : fallback;
+        }
+
         [[nodiscard]] glm::vec4 SanitizeVec4(const glm::vec4& value, const glm::vec4& fallback)
         {
             if (!std::isfinite(value.x) || !std::isfinite(value.y) || !std::isfinite(value.z) || !std::isfinite(value.w))
@@ -483,6 +493,14 @@ namespace OloEngine::ImportedMaterialCodec
                 return false;
             }
             desc.EnableIBL = enableIBL != 0;
+
+            // Enum fields land in a switch that assumes a valid case — validate them the
+            // same way the floats below are sanitized. Ranges track the enum definitions in
+            // Material.h (MaterialType: Legacy..PBR, AlphaMode: Opaque..Blend).
+            desc.Type = SanitizeEnum(desc.Type, static_cast<i32>(MaterialType::Legacy),
+                                     static_cast<i32>(MaterialType::PBR), static_cast<i32>(MaterialType::PBR));
+            desc.AlphaMode = SanitizeEnum(desc.AlphaMode, static_cast<i32>(AlphaMode::Opaque),
+                                          static_cast<i32>(AlphaMode::Blend), static_cast<i32>(AlphaMode::Opaque));
 
             // Every float lands in a shader UBO — a NaN/Inf from a corrupt blob would
             // poison the frame, so fall back to the engine default per field.
