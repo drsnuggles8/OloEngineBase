@@ -30,6 +30,7 @@
 #include "OloEngine/Task/ParallelFor.h"
 
 #include <assimp/GltfMaterial.h>
+#include <assimp/config.h> // AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE (issue #653)
 #include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
 
@@ -706,13 +707,22 @@ namespace OloEngine
                     // the 1:1 m_Meshes[i] ↔ DFS-mesh[i] mapping that the
                     // material-rebuild relies on.
                     constexpr u32 kCacheLoadFlags = aiProcess_Triangulate |
-                                                    aiProcess_GenNormals |
+                                                    aiProcess_GenSmoothNormals |
                                                     aiProcess_CalcTangentSpace |
                                                     aiProcess_JoinIdenticalVertices |
                                                     aiProcess_ValidateDataStructure |
                                                     aiProcess_FindDegenerates |
                                                     aiProcess_FindInvalidData |
                                                     aiProcess_PreTransformVertices;
+                    // GenSmoothNormals, not GenNormals: flat per-face normals split every shared
+                    // vertex, so JoinIdenticalVertices can't re-weld them and the mesh reaches
+                    // meshopt as a disconnected triangle soup — no usable LOD, faceted shading,
+                    // bloated vertex buffers (issue #653). Smooth normals are shared, so the mesh
+                    // welds. The angle keeps genuine hard creases (> ~66 deg) split, which is
+                    // correct for hard-surface geometry. Only affects meshes imported WITHOUT
+                    // normals (the flag is a no-op when normals are present). Must mirror the
+                    // fresh-import path below.
+                    importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, 66.0f);
                     const aiScene* scene = importer.ReadFile(path, kCacheLoadFlags);
                     if (scene && scene->mRootNode)
                     {
@@ -792,6 +802,16 @@ namespace OloEngine
         // Create an instance of the Importer class
         Assimp::Importer importer;
 
+        // GenSmoothNormals, not GenNormals, for meshes that arrive WITHOUT normals: flat per-face
+        // normals split every shared vertex, so JoinIdenticalVertices cannot re-weld them and the
+        // mesh reaches meshoptimizer as a disconnected triangle soup — no usable LOD (classic OR
+        // virtual), faceted shading, and a bloated vertex buffer (issue #653). Smooth normals are
+        // shared, so the mesh welds. The smoothing angle keeps genuine hard creases (> ~66 deg)
+        // split, which is the correct result for hard-surface geometry. A no-op when the source
+        // already carries normals. Must mirror the cache-load flags above (see the "must mirror"
+        // note there).
+        importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, 66.0f);
+
         // And have it read the given file with some postprocessing.
         //
         // Deliberately omitted:
@@ -807,7 +827,7 @@ namespace OloEngine
         //     to be set; scenes carry their own scale via TransformComponent.
         const aiScene* scene = importer.ReadFile(path,
                                                  aiProcess_Triangulate |               // Make sure we get triangles
-                                                     aiProcess_GenNormals |            // Create normals if not present
+                                                     aiProcess_GenSmoothNormals |      // Shared smooth normals when missing (#653)
                                                      aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
                                                      aiProcess_JoinIdenticalVertices | // Deduplicate identical vertices for smaller buffers
                                                      aiProcess_ValidateDataStructure | // Validate the imported data structure
