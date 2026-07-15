@@ -7385,10 +7385,19 @@ namespace OloEngine
                 //
                 // Only on Deferred: outside it the virtual loop does not run at all, so the
                 // MeshComponent is this entity's only chance to render and must not be skipped.
+                //
+                // The skip condition must be EXACTLY the condition under which the virtual loop
+                // below actually draws this entity — enabled, non-zero handle, AND the handle
+                // resolves to a live MeshSource (the loop bails at `if (!meshSource) continue;`
+                // otherwise, in BOTH toggle states). Skipping on the weaker "handle != 0" alone
+                // dropped the entity entirely when its virtual handle was non-zero but unresolvable
+                // (missing/unloaded asset, mid-hot-reload): suppressed here, bailed there, drawn
+                // nowhere. Two conditions that had to agree and didn't (issue #629).
                 if (virtualPathOwnsMeshEntities && m_Registry.all_of<VirtualMeshComponent>(entity))
                 {
                     if (const auto& vm = m_Registry.get<VirtualMeshComponent>(entity);
-                        vm.m_Enabled && static_cast<u64>(vm.m_MeshSource) != 0)
+                        vm.m_Enabled && static_cast<u64>(vm.m_MeshSource) != 0 &&
+                        AssetManager::GetAsset<MeshSource>(vm.m_MeshSource))
                     {
                         continue;
                     }

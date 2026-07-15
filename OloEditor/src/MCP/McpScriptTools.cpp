@@ -602,8 +602,20 @@ namespace OloEngine::MCP
         // window both pointers are null and the call is rejected safely, which also
         // enforces the ADR's load-at-start rule (the tool vector stays immutable
         // once the server runs) beyond just nil-ing the global alias.
-        runtime->Lua["RegisterMcpTool"] = [runtime](const sol::table& def)
+        // Capture a WEAK ref, not a strong one. This closure is stored INSIDE runtime->Lua,
+        // which is a member of *runtime, so capturing the shared_ptr would be a reference cycle
+        // (runtime -> Lua -> this closure -> shared_ptr -> runtime). Nil-ing the global at the end
+        // of the load window (below) only makes the closure GC-ELIGIBLE; a superseded runtime's
+        // Lua state never runs again, so it is never GC-finalised and the captured shared_ptr copy
+        // is never released — the whole sol::state leaks on every rescan/swap, which LSan reports
+        // on exactly the swap tests. A weak_ptr breaks the cycle: the runtime is held for the whole
+        // load window by LoadScriptTools' own stack shared_ptr (so lock() always succeeds here), and
+        // each registered handler still takes a STRONG ref via MakeScriptHandler below.
+        runtime->Lua["RegisterMcpTool"] = [weakRuntime = std::weak_ptr<ScriptToolsRuntime>(runtime)](const sol::table& def)
         {
+            const std::shared_ptr<ScriptToolsRuntime> runtime = weakRuntime.lock();
+            if (!runtime)
+                return; // runtime already gone — only reachable via a retained alias after supersession
             McpServer* serverPtr = runtime->LoadServer;
             McpScriptToolsReport* reportPtr = runtime->LoadReport;
             std::vector<ToolDef>* toolsPtr = runtime->LoadTools;
