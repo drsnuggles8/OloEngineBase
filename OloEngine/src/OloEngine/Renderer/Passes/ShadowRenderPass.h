@@ -36,6 +36,10 @@ namespace OloEngine
         glm::mat4 transform = glm::mat4(1.0f);
         RendererID shadowVaoID = 0;         // Position-merged shadow IB; 0 = use vaoID
         BoundingBox WorldBounds = NoBounds; // World-space AABB; NoBounds = always include
+        // Material is MaterialFlag::TwoSided — rendered into the shadow map with culling DISABLED
+        // instead of the default front-face cull, so single-sided planar geometry (a quad, a
+        // banner, a foliage sheet) still casts a shadow when lit from the front (issue #650).
+        bool twoSided = false;
     };
 
     struct ShadowSkinnedCaster
@@ -107,7 +111,8 @@ namespace OloEngine
         // frustum culling in Execute() so empty cascades skip all GPU work.
         // Leave as NoBounds when no tight bounds are available (foliage, terrain, etc.).
         void AddMeshCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
-                           RendererID shadowVaoID = 0, const BoundingBox& worldBounds = NoBounds);
+                           RendererID shadowVaoID = 0, const BoundingBox& worldBounds = NoBounds,
+                           bool twoSided = false);
         void AddSkinnedCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                               u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds = NoBounds);
         void AddTerrainCaster(RendererID vaoID, u32 indexCount, u32 patchVertexCount,

@@ -23,11 +23,11 @@ namespace OloEngine
     }
 
     void Renderer3D::AddMeshShadowCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
-                                         RendererID shadowVaoID, const BoundingBox& worldBounds)
+                                         RendererID shadowVaoID, const BoundingBox& worldBounds, bool twoSided)
     {
         if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
         {
-            shadowPass->AddMeshCaster(vaoID, indexCount, baseIndex, transform, shadowVaoID, worldBounds);
+            shadowPass->AddMeshCaster(vaoID, indexCount, baseIndex, transform, shadowVaoID, worldBounds, twoSided);
         }
     }
 

@@ -325,6 +325,7 @@ namespace OloEngine
                     RendererID drawVao;
                     u32 indexCount;
                     u32 baseIndex;
+                    bool twoSided; // rendered with culling disabled instead of front-cull (issue #650)
                     std::vector<InstanceData> instances;
                 };
                 thread_local std::vector<ShadowMeshBatch> batches;
@@ -343,13 +344,15 @@ namespace OloEngine
                     inst.PrevTransform = relTransform;
                     inst.EntityID = -1;
 
+                    // twoSided is part of the batch key: single- and two-sided casters need
+                    // different cull state at draw time, so they must not share an instanced draw.
                     auto it = std::ranges::find_if(batches,
                                                    [&](const ShadowMeshBatch& b)
                                                    { return b.drawVao == drawVao && b.indexCount == caster.indexCount &&
-                                                            b.baseIndex == caster.baseIndex; });
+                                                            b.baseIndex == caster.baseIndex && b.twoSided == caster.twoSided; });
                     if (it == batches.end())
                     {
-                        batches.push_back({ drawVao, caster.indexCount, caster.baseIndex, { inst } });
+                        batches.push_back({ drawVao, caster.indexCount, caster.baseIndex, caster.twoSided, { inst } });
                     }
                     else
                     {
@@ -373,8 +376,25 @@ namespace OloEngine
                         const char* kind = (type == ShadowPassType::CSM) ? "CSM cascade" : "Atlas entry";
                         std::snprintf(sourceLabel, sizeof(sourceLabel), "Shadow %s %u", kind, layerOrLight);
                     }
+                    bool cullingDisabled = false; // track so we only touch GL state on a change
                     for (const auto& batch : batches)
                     {
+                        // Two-sided casters render with culling DISABLED so a single-sided planar
+                        // mesh lit from the front still casts (issue #650); single-sided casters
+                        // keep the pass's front-face cull (peter-panning). The pass set FrontCull
+                        // once up front, so restore it whenever we leave a two-sided batch.
+                        if (batch.twoSided && !cullingDisabled)
+                        {
+                            RenderCommand::DisableCulling();
+                            cullingDisabled = true;
+                        }
+                        else if (!batch.twoSided && cullingDisabled)
+                        {
+                            RenderCommand::EnableCulling();
+                            RenderCommand::FrontCull();
+                            cullingDisabled = false;
+                        }
+
                         if (instanceBuffer)
                         {
                             instanceBuffer->Upload(std::span<const InstanceData>(batch.instances.data(),
@@ -400,6 +420,15 @@ namespace OloEngine
                                 /*fromAutoBatching=*/true,
                                 sourceLabel);
                         }
+                    }
+
+                    // Restore the pass's front-face cull if a two-sided batch left culling
+                    // disabled — the skinned / terrain / foliage / voxel casters below all rely on
+                    // the FrontCull state the pass set once at the top.
+                    if (cullingDisabled)
+                    {
+                        RenderCommand::EnableCulling();
+                        RenderCommand::FrontCull();
                     }
                 }
             }
@@ -547,9 +576,9 @@ namespace OloEngine
 
     // Shadow caster submission methods
     void ShadowRenderPass::AddMeshCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
-                                         RendererID shadowVaoID, const BoundingBox& worldBounds)
+                                         RendererID shadowVaoID, const BoundingBox& worldBounds, bool twoSided)
     {
-        m_MeshCasters.push_back({ vaoID, indexCount, baseIndex, transform, shadowVaoID, worldBounds });
+        m_MeshCasters.push_back({ vaoID, indexCount, baseIndex, transform, shadowVaoID, worldBounds, twoSided });
     }
 
     void ShadowRenderPass::AddSkinnedCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,

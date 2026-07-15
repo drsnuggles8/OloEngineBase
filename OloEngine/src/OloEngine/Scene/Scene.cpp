@@ -5663,7 +5663,8 @@ namespace OloEngine
                     Renderer3D::AddMeshShadowCaster(va->GetRendererID(), submesh->GetIndexCount(),
                                                     submesh->GetBaseIndex(), worldTransform,
                                                     GetShadowVaoID(submesh),
-                                                    submesh->GetTransformedBoundingBox(worldTransform));
+                                                    submesh->GetTransformedBoundingBox(worldTransform),
+                                                    material.GetFlag(MaterialFlag::TwoSided));
                 }
             }
         }
@@ -7686,7 +7687,8 @@ namespace OloEngine
                                     Renderer3D::AddMeshShadowCaster(
                                         va->GetRendererID(), submesh->GetIndexCount(),
                                         submesh->GetBaseIndex(), instData[k].Transform, shadowVao,
-                                        submesh->GetTransformedBoundingBox(instData[k].Transform));
+                                        submesh->GetTransformedBoundingBox(instData[k].Transform),
+                                        material.GetFlag(MaterialFlag::TwoSided));
                                 }
                             }
                         }
@@ -7748,7 +7750,8 @@ namespace OloEngine
                         Renderer3D::AddMeshShadowCaster(
                             va->GetRendererID(), submesh.m_Mesh->GetIndexCount(), submesh.m_Mesh->GetBaseIndex(),
                             worldTransform, GetShadowVaoID(submesh.m_Mesh),
-                            submesh.m_Mesh->GetTransformedBoundingBox(worldTransform));
+                            submesh.m_Mesh->GetTransformedBoundingBox(worldTransform),
+                            material.GetFlag(MaterialFlag::TwoSided));
                     }
                 }
             }
@@ -7795,7 +7798,8 @@ namespace OloEngine
                         // shadow. Skip until a separate alpha-aware shadow shader exists.
                         const u32 matIdx = submesh->GetSubmesh().m_MaterialIndex;
                         const Material* imported = (matIdx < materials.size() && materials[matIdx]) ? materials[matIdx].get() : nullptr;
-                        if (!MaterialCastsShadows(ResolveSubmeshMaterial(overrideMaterial, imported, GetDefaultMaterial())))
+                        const Material& shadowMaterial = ResolveSubmeshMaterial(overrideMaterial, imported, GetDefaultMaterial());
+                        if (!MaterialCastsShadows(shadowMaterial))
                             continue;
 
                         auto va = submesh->GetVertexArray();
@@ -7805,7 +7809,8 @@ namespace OloEngine
                         Renderer3D::AddMeshShadowCaster(
                             va->GetRendererID(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
                             modelTransform, GetShadowVaoID(submesh),
-                            submesh->GetTransformedBoundingBox(modelTransform));
+                            submesh->GetTransformedBoundingBox(modelTransform),
+                            shadowMaterial.GetFlag(MaterialFlag::TwoSided));
                     }
                 }
             }
@@ -7941,7 +7946,8 @@ namespace OloEngine
                                 Renderer3D::AddMeshShadowCaster(
                                     va->GetRendererID(), tileComp.TileMesh->GetIndexCount(), tileComp.TileMesh->GetBaseIndex(),
                                     tileTransform, GetShadowVaoID(tileComp.TileMesh),
-                                    tileComp.TileMesh->GetTransformedBoundingBox(tileTransform));
+                                    tileComp.TileMesh->GetTransformedBoundingBox(tileTransform),
+                                    material.GetFlag(MaterialFlag::TwoSided));
                             }
                         }
                     }
