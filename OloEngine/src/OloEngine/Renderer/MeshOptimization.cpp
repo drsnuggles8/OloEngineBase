@@ -17,6 +17,38 @@
 
 namespace OloEngine::MeshOptimization
 {
+    namespace
+    {
+        // Position-weld an index buffer for the simplifier (issue #653).
+        //
+        // meshoptimizer derives edge adjacency from shared vertex INDICES, not shared positions.
+        // A mesh whose co-located vertices carry distinct indices — what Assimp produces for any
+        // source imported WITHOUT normals (aiProcess_GenNormals synthesises flat per-face normals
+        // that split every vertex; JoinIdenticalVertices then cannot re-merge them) — is a
+        // disconnected triangle soup to the simplifier: every internal edge is a spurious
+        // one-sided border, and on a closed surface nothing can collapse. Remapping each index to
+        // its canonical per-position representative reconnects the topology.
+        //
+        // No-op on an already-welded mesh (identity remap), so it never changes existing behaviour.
+        // The returned indices reference the representative vertex per position — valid indices
+        // into the unchanged vertex array — so the caller keeps its full vertex buffer as-is and
+        // the simplified output just points at the representatives. This is the same fix the
+        // virtualized-geometry builder uses (VirtualMeshBuilder, issue #651).
+        [[nodiscard]] std::vector<u32> WeldIndicesByPosition(const Vertex* vertices, sizet vertexCount,
+                                                             const u32* indices, sizet indexCount)
+        {
+            std::vector<u32> remap(vertexCount);
+            meshopt_generatePositionRemap(remap.data(), &vertices[0].Position.x, vertexCount, sizeof(Vertex));
+
+            std::vector<u32> welded(indexCount);
+            for (sizet i = 0; i < indexCount; ++i)
+            {
+                welded[i] = remap[indices[i]];
+            }
+            return welded;
+        }
+    } // namespace
+
     // ── Core optimization ──────────────────────────────────────────
 
     void OptimizeMesh(MeshSource& meshSource)
@@ -219,11 +251,23 @@ namespace OloEngine::MeshOptimization
             targetIndexCount = 3;
         }
 
+        // Position-weld before simplifying (issue #653) — otherwise an unwelded mesh (any source
+        // imported without normals) is a disconnected triangle soup to meshopt and does not reduce
+        // at all. No-op on an already-welded mesh.
+        const std::vector<u32> weldedIndices =
+            WeldIndicesByPosition(srcVertices.GetData(), vertexCount, srcIndices.GetData(), indexCount);
+
+        // meshopt_SimplifySparse: the welded index buffer references only the canonical
+        // representative per position (a subset of the full, still-unwelded vertex array), so
+        // meshopt must be told to ignore the unreferenced coincident duplicates. Without it,
+        // non-sparse simplify still sees the duplicate positions and refuses to collapse — welding
+        // the indices alone is necessary but NOT sufficient (issue #653; matches VirtualMeshBuilder).
         std::vector<u32> simplifiedIndices(indexCount);
+        f32 resultError = 0.0f;
         auto resultIndexCount = meshopt_simplify(
-            simplifiedIndices.data(), srcIndices.GetData(), indexCount,
+            simplifiedIndices.data(), weldedIndices.data(), indexCount,
             &srcVertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex),
-            targetIndexCount, targetError);
+            targetIndexCount, targetError, meshopt_SimplifySparse, &resultError);
 
         if (resultIndexCount == 0)
         {
@@ -341,14 +385,20 @@ namespace OloEngine::MeshOptimization
         // Normals matter less than UVs for visual quality
         f32 attributeWeights[kAttributeCount] = { 0.5f, 0.5f, 0.5f, 1.0f, 1.0f };
 
+        // Position-weld before simplifying (issue #653) — see GenerateLODMesh. The attribute
+        // array stays indexed by original vertex; the welded indices reference the canonical
+        // representative per position, whose attributes meshopt reads from the same array.
+        const std::vector<u32> weldedIndices =
+            WeldIndicesByPosition(srcVertices.GetData(), vertexCount, srcIndices.GetData(), indexCount);
+
         std::vector<u32> simplifiedIndices(indexCount);
         auto resultIndexCount = meshopt_simplifyWithAttributes(
-            simplifiedIndices.data(), srcIndices.GetData(), indexCount,
+            simplifiedIndices.data(), weldedIndices.data(), indexCount,
             &srcVertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex),
             attributes.data(), sizeof(f32) * kAttributeCount,
             attributeWeights, kAttributeCount,
             nullptr, // no vertex locking
-            targetIndexCount, targetError, 0, nullptr);
+            targetIndexCount, targetError, meshopt_SimplifySparse, nullptr);
 
         if (resultIndexCount == 0)
         {
