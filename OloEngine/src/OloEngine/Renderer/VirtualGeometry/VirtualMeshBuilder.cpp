@@ -299,6 +299,47 @@ namespace OloEngine::VirtualMeshBuilder
         [[nodiscard]] std::vector<u32> Simplify(const BuildContext& ctx, const std::vector<u32>& merged,
                                                 const std::vector<u8>& locks, sizet targetIndexCount, f32& outAbsoluteError)
         {
+            // WELD THE INDEX BUFFER BY POSITION BEFORE SIMPLIFYING (issue #651).
+            //
+            // meshopt detects edge adjacency from SHARED VERTEX INDICES, not shared positions. A
+            // mesh whose co-located vertices carry distinct indices is, to the simplifier, a soup
+            // of disconnected triangles: every shared edge looks like two separate one-sided
+            // border edges, the whole patch is "all border", and NOTHING can collapse.
+            //
+            // This is not a rare corner case — it is what Assimp produces for any mesh that
+            // arrives WITHOUT normals. `aiProcess_GenNormals` synthesises FLAT per-face normals,
+            // which splits every shared vertex (each face gets its own copy with its own normal),
+            // and `aiProcess_JoinIdenticalVertices` then cannot re-merge them because the normals
+            // differ per face. The Stanford scans (xyzrgb_dragon: no normals in the PLY) come in
+            // this way — measured, one 799-triangle group had 2,395 distinct indices for only 450
+            // distinct positions, and meshopt collapsed exactly zero of them.
+            //
+            // The symptom was total, silent LOD failure: every group hit the "stuck" path below
+            // and became a terminal (FLT_MAX-error) group, so the DAG collapsed to a SINGLE level
+            // and the cut always selected full source density — 7.2M triangles per instance, in
+            // the main view and in every shadow cascade. No error threshold could coarsen a cut
+            // that has nothing to coarsen to.
+            //
+            // The cure is to remap the index buffer through the position remap the builder already
+            // computes (used for the group-boundary locks). meshopt then sees the true connected
+            // topology. This is a NO-OP for an already-welded mesh (identity remap), so it is
+            // universally safe. The remapped indices reference the canonical representative vertex
+            // per position; its attributes/locks are read from the same per-vertex arrays (a
+            // canonical index is itself a real vertex index), and LOD 0 keeps the original
+            // full-fidelity split vertices — only the simplified levels weld, which is exactly
+            // right (decimated geometry wants smoothed, not per-face-flat, normals).
+            std::vector<u32> weldedIndices;
+            const u32* simplifyIndices = merged.data();
+            if (ctx.PositionRemap.size() == ctx.VertexCount)
+            {
+                weldedIndices.resize(merged.size());
+                for (sizet k = 0; k < merged.size(); ++k)
+                {
+                    weldedIndices[k] = ctx.PositionRemap[merged[k]];
+                }
+                simplifyIndices = weldedIndices.data();
+            }
+
             std::vector<u32> simplified(merged.size());
             f32 error = 0.0f;
 
@@ -307,7 +348,7 @@ namespace OloEngine::VirtualMeshBuilder
             constexpr u32 kOptions = meshopt_SimplifySparse | meshopt_SimplifyErrorAbsolute;
 
             sizet const resultCount = meshopt_simplifyWithAttributes(
-                simplified.data(), merged.data(), merged.size(),
+                simplified.data(), simplifyIndices, merged.size(),
                 ctx.Positions(), ctx.VertexCount, sizeof(Vertex),
                 ctx.Attributes.data(), kAttributeCount * sizeof(f32), kAttributeWeights.data(), kAttributeCount,
                 locks.data(), targetIndexCount, std::numeric_limits<f32>::max(), kOptions, &error);
@@ -585,6 +626,28 @@ namespace OloEngine::VirtualMeshBuilder
         OLO_CORE_TRACE("VirtualMeshBuilder: submesh {} -> {} clusters in {} groups across {} levels from {} triangles",
                        submeshIndex, result.Clusters.size(), result.Groups.size(), result.LevelCount,
                        result.SourceTriangleCount);
+
+        // A NON-TRIVIAL mesh that produced only ONE level built no LOD hierarchy at all — the
+        // cut can never coarsen, so virtual geometry draws it at full source density forever,
+        // in the main view and in every shadow cascade. This is total, and it used to be SILENT:
+        // the DAG looked valid, and the only way it surfaced was a 173M-triangle scene running at
+        // 10 fps for no visible reason (issue #651). Make it loud.
+        //
+        // The threshold is deliberately generous — a genuinely tiny mesh legitimately has one
+        // level, so only warn once the source is big enough that a flat DAG is certainly a bug
+        // (a couple of cluster's worth of triangles).
+        if (result.LevelCount <= 1 && result.SourceTriangleCount > 4u * ctx.Config.MaxClusterTriangles)
+        {
+            OLO_CORE_WARN("VirtualMeshBuilder: submesh {} built a SINGLE-LEVEL DAG from {} triangles — the "
+                          "cluster simplifier could not reduce ANY group, so this mesh has NO usable LOD and "
+                          "will always render at full source density (issue #651). The usual cause is an "
+                          "index-unwelded mesh (co-located vertices with distinct indices, e.g. a source with "
+                          "no normals that Assimp gave flat per-face normals): meshopt sees a disconnected "
+                          "triangle soup and cannot collapse it. The builder position-welds before simplifying "
+                          "to avoid exactly this — if you still see this warning, the position remap is not "
+                          "reconnecting the mesh.",
+                          submeshIndex, result.SourceTriangleCount);
+        }
 
         ReportUvDegenerates(result, submeshIndex);
 
