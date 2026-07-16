@@ -46,6 +46,14 @@
 //      non-asset type, …) is classified non-trivial and stays hand-written.
 //      Collapses the last big *unguarded* ECS touch-point — a forgotten field was
 //      silent scene-data loss.
+//   9. The MCP `olo_entity_set_field` writable-field registry
+//      (McpFieldRegistry.Generated.inl, #include'd by
+//      OloEditor/src/MCP/McpGenericFieldWrite.h). One entry per public,
+//      JSON-coercible member of every component (reusing the item 8 field scan),
+//      PLUS a small allowlisted set of setter-based entries reusing the
+//      OLO_PROPERTY scan (item 1's data source) for a component whose fields live
+//      behind a private member reached only through a Get/Set expression pair —
+//      see EmitMcpSetterFields' comment (issue #607's AudioSourceComponent slice).
 //
 // Usage:
 //   OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir> <scene_out_dir> <savegame_out_dir>
@@ -3643,6 +3651,143 @@ static void EmitMcpFieldsRecursive(std::ostream& out, const std::string& compone
     }
 }
 
+// ─── MCP setter-based field registry (OLO_PROPERTY reuse) ───────────────────────
+//
+// AudioSourceComponent slice (issue #607). Some components keep their authored
+// data behind a PRIVATE member reached only through OLO_PROPERTY's custom Get/Set
+// expressions — AudioSourceComponent's 16 parameters all live behind `private
+// std::unique_ptr<AudioSourceColdData> m_Cold` (see Components.h). Those fields are
+// invisible to CollectComponentFields/ParseComponentFields (a non-public member
+// only marks the component non-trivial and is dropped) and unsound to write through
+// EmitMcpFieldsRecursive's MakeFieldAccess path, which copies the whole component,
+// mutates the copy, and swaps it in via ComponentChangeCommand<C>:
+// AudioSourceComponent::operator= resets ActiveEventID to 0 and never re-invokes
+// Source->SetVolume()/SetPitch()/etc, so that path would silently detach a playing
+// sound on every write. This emitter reuses the ALREADY-COLLECTED OLO_PROPERTY scan
+// (the same `components` ParseHeaders produces for EmitCppBindings/scripting) to
+// generate MakeSetterField<C, F> registrations instead, which apply the Get/Set
+// expression pair DIRECTLY on the live component (see McpGenericFieldWrite.h's
+// MakeSetterField doc comment).
+//
+// Deliberately an ALLOWLIST, not "every OLO_PROPERTY component": most components
+// with an OLO_PROPERTY custom accessor ALSO have the field reachable as a plain
+// public (nested-)struct member, already covered by EmitMcpFieldRegistry's
+// MakeFieldAccess path — routing those through MakeSetterField too would just
+// double-register the same (Component, Field) pair (Find() would still resolve
+// correctly, since it returns the first match, but the second entry is dead weight
+// and a future edit could make the two silently disagree). Extend this set only for
+// a component whose OLO_PROPERTY fields are hidden behind a private member the same
+// way AudioSourceComponent's are — MorphTargetComponent's map-keyed Weights is the
+// next known candidate (issue #607 follow-up) once map-key addressing exists; adding
+// it here today would just generate field names for keys that don't exist until a
+// MorphTargetSet is bound at runtime.
+static const std::set<std::string> kOloPropertySetterMcpComponents = {
+    "AudioSourceComponent",
+};
+
+// The C++ type MakeSetterField<C, F> should use for a PropType from the OLO_PROPERTY
+// scan. U64 maps to AssetHandle (== UUID), NOT a raw 64-bit integer:
+// McpGenericFieldWrite.h's CoerceJson/FieldToJson only support a 64-bit field via the
+// UUID specialisation (a decimal-digit JSON string, matching entity-UUID's own JSON
+// contract — a raw u64 would exceed JSON's safe-integer range). Every current
+// OLO_PROPERTY(Type = "ulong") property IS an asset handle (AudioSourceComponent's
+// SoundConfigHandle converts through AssetHandle(u64)/static_cast<u64> in its Get/Set
+// expressions already); this emitter is scoped to a small allowlist (see above), so
+// that assumption doesn't need re-deriving from the property's Get/Set text.
+// PropType::String is intentionally unmapped here: no allowlisted component has a
+// private OLO_PROPERTY string today, and MakeSetterField's std::string-by-const-ref
+// getFn/setFn signature would need its own (untested) codegen path — add it when a
+// real property needs it, not speculatively.
+static std::string McpSetterCppType(PropType t)
+{
+    switch (t)
+    {
+        case PropType::Float:
+            return "float";
+        case PropType::Bool:
+            return "bool";
+        case PropType::Int:
+            return "int";
+        case PropType::UInt:
+            return "unsigned int";
+        case PropType::U64:
+            return "AssetHandle";
+        case PropType::Vec2:
+            return "glm::vec2";
+        case PropType::Vec3:
+            return "glm::vec3";
+        case PropType::Vec4:
+            return "glm::vec4";
+        default:
+            return "";
+    }
+}
+
+// Emit the setter-based MCP registry entries (kOloPropertySetterMcpComponents
+// above), appended to the same McpFieldRegistry.Generated.inl body as
+// EmitMcpFieldRegistry's plain-field entries. `fieldScan` is CollectComponentFields'
+// output, consulted ONLY for dedup: a property whose script name is ALSO an
+// MCP-editable field there (the plain member/nested-member scan already reaches it)
+// is skipped here rather than double-registered. Returns the number of (component,
+// field) pairs emitted, added to EmitMcpFieldRegistry's own count by the caller.
+static std::size_t EmitMcpSetterFields(std::ostream& out, const std::vector<ComponentDef>& components,
+                                       const std::map<std::string, ComponentSerInfo>& fieldScan)
+{
+    std::size_t emitted = 0;
+    for (auto const& comp : components)
+    {
+        if (!kOloPropertySetterMcpComponents.contains(comp.name))
+            continue;
+        if (kComponentsNotMcpEditable.contains(comp.name))
+            continue;
+
+        const ComponentSerInfo* scanned = nullptr;
+        if (auto it = fieldScan.find(comp.name); it != fieldScan.end())
+            scanned = &it->second;
+
+        std::ostringstream body;
+        const std::size_t before = emitted;
+        for (auto const& prop : comp.properties)
+        {
+            // Dedup: already reachable via the plain field scan — don't register twice.
+            if (scanned != nullptr &&
+                std::any_of(scanned->fields.begin(), scanned->fields.end(), [&](const SerField& f)
+                            { return f.key == prop.scriptName && IsMcpEditableField(f); }))
+            {
+                continue;
+            }
+
+            const std::string cppType = McpSetterCppType(prop.type);
+            if (cppType.empty())
+            {
+                std::cerr << "WARNING: OloHeaderTool MCP setter emitter: " << comp.name << "::"
+                          << prop.scriptName << " has a type not yet supported by MakeSetterField — skipped\n";
+                continue;
+            }
+
+            // Same {v} substitution EmitCppBindings uses for the scripting glue, so the
+            // MCP write path and the Lua/C# path execute IDENTICAL setter logic.
+            const std::string getExpr = prop.customGet.empty() ? ("comp." + prop.cppField) : prop.customGet;
+            const std::string setExpr = ReplaceAll(
+                prop.customSet.empty() ? ("comp." + prop.cppField + " = {v}") : prop.customSet, "{v}", "v");
+
+            body << "registry.push_back(MakeSetterField<" << comp.name << ", " << cppType << ">(\n";
+            body << "    \"" << comp.name << "\", \"" << prop.scriptName << "\",\n";
+            body << "    [](const " << comp.name << "& comp) -> " << cppType << " { return (" << getExpr << "); },\n";
+            body << "    [](" << comp.name << "& comp, const " << cppType << "& v)\n";
+            body << "    {\n";
+            EmitStatements(body, "        ", setExpr);
+            body << "    }));\n";
+            ++emitted;
+        }
+        if (emitted == before)
+            continue;
+        out << "// " << comp.name << " (OLO_PROPERTY setter-based — private cold-data fields)\n"
+            << body.str() << "\n";
+    }
+    return emitted;
+}
+
 // ─── C++ Mono Bindings Emitter ──────────────────────────────────────────────────
 
 static void EmitCppBindings(std::ostream& out, const std::vector<ComponentDef>& components)
@@ -4119,10 +4264,17 @@ static bool WriteSceneSerializerBlocks(const fs::path& sceneOutDir, const std::m
 // non-empty guard as every other list: an empty registry would silently strip
 // EVERY writable field from `olo_entity_set_field` (the tool would still answer,
 // just refuse everything) — refuse and fail the build loudly instead.
-static bool WriteMcpFieldRegistry(const fs::path& mcpOutDir, const std::map<std::string, ComponentSerInfo>& componentFields)
+static bool WriteMcpFieldRegistry(const fs::path& mcpOutDir, const std::map<std::string, ComponentSerInfo>& componentFields,
+                                  const std::vector<ComponentDef>& properties)
 {
     std::ostringstream ss;
-    const std::size_t emitted = EmitMcpFieldRegistry(ss, componentFields);
+    std::size_t emitted = EmitMcpFieldRegistry(ss, componentFields);
+    // Setter-based entries (OLO_PROPERTY reuse, issue #607's AudioSourceComponent
+    // slice) — a small allowlisted addition on top of the plain field scan above;
+    // see EmitMcpSetterFields' own comment for why it isn't every OLO_PROPERTY
+    // component. Appended as its own section so the two codegen sources stay
+    // visually distinguishable in the generated .inl.
+    emitted += EmitMcpSetterFields(ss, properties, componentFields);
     if (emitted == 0)
     {
         std::cerr << "ERROR: MCP field-registry codegen found 0 writable component fields — "
@@ -4210,7 +4362,7 @@ int main(int argc, char* argv[])
         // a different consumer: every public, JSON-coercible member of every
         // component (including the ones the serializer keeps hand-written, whose
         // recognised fields the scan still collects).
-        if (!WriteMcpFieldRegistry(mcpOutDir, componentFields))
+        if (!WriteMcpFieldRegistry(mcpOutDir, componentFields, components))
             errors = true;
     }
 

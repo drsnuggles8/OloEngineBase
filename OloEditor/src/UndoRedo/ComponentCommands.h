@@ -165,6 +165,63 @@ namespace OloEngine
         std::string m_Description;
     };
 
+    // UUID-based undo/redo for a SINGLE property write applied through a setter
+    // function DIRECTLY on the live component — never a whole-object copy/assign
+    // (contrast ComponentChangeCommand<T> above). Needed for a component whose
+    // operator= cannot be trusted to preserve runtime-only state or to push a value
+    // into a live subsystem handle: AudioSourceComponent's operator= resets
+    // ActiveEventID to 0 and never re-invokes Source->SetVolume()/SetPitch()/etc, so
+    // swapping in a whole new AudioSourceComponent would silently detach a playing
+    // sound and leave its actual playback parameters unchanged even though the
+    // stored config looked right. `setFn` is generated from the SAME OLO_PROPERTY
+    // Get/Set expression pair OLO_PROPERTY already compiles for Lua/C# scripting
+    // (see OloHeaderTool's EmitMcpSetterFields and McpGenericFieldWrite.h's
+    // MakeSetterField, issue #607's AudioSourceComponent slice) — Execute applies
+    // the new value, Undo re-applies the captured old value, both through the exact
+    // same setter so any side effect (e.g. Source->SetVolume) fires identically
+    // either direction.
+    template<typename T, typename F, typename SetFn>
+    class PropertySetCommand : public EditorCommand
+    {
+      public:
+        PropertySetCommand(Ref<Scene> scene, UUID entityUUID, SetFn setFn, F oldValue, F newValue, std::string description = "Property Change")
+            : m_Scene(std::move(scene)), m_EntityUUID(entityUUID), m_SetFn(std::move(setFn)), m_OldValue(std::move(oldValue)), m_NewValue(std::move(newValue)), m_Description(std::move(description))
+        {
+        }
+
+        void Execute() override
+        {
+            Apply(m_NewValue);
+        }
+
+        void Undo() override
+        {
+            Apply(m_OldValue);
+        }
+
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return m_Description;
+        }
+
+      private:
+        void Apply(const F& value)
+        {
+            auto entityOpt = m_Scene->TryGetEntityWithUUID(m_EntityUUID);
+            if (entityOpt && entityOpt->HasComponent<T>())
+            {
+                m_SetFn(entityOpt->GetComponent<T>(), value);
+            }
+        }
+
+        Ref<Scene> m_Scene;
+        UUID m_EntityUUID;
+        SetFn m_SetFn;
+        F m_OldValue;
+        F m_NewValue;
+        std::string m_Description;
+    };
+
     // Undo/Redo for adding a component with a post-init callback (e.g. particle presets)
     template<typename T>
     class AddComponentWithInitCommand : public EditorCommand

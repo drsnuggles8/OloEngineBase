@@ -558,27 +558,113 @@ TEST(McpFieldRegistry, ListFieldsReportsNestedDottedFields)
 
 // ---- 6. what sub-object addressing deliberately does NOT reach ---------------
 //
-// Two components still expose no authored field, and neither is a gap a dotted
+// One component still exposes no authored field, and it is not a gap a dotted
 // member-access path can close. Pinned here so the limitation is a stated contract
 // rather than a silent surprise, and so the day someone closes it the test tells them
 // to update this comment.
 //
-//   * AudioSourceComponent keeps every authored parameter in a PRIVATE cold blob
-//     (`std::unique_ptr<AudioSourceColdData> m_Cold`) reached through GetConfig().
-//     A member-access chain cannot cross a private member, and the field scan
-//     correctly refuses to emit one that would not compile. Its 16 parameters ARE
-//     already declared — as OLO_PROPERTY Get/Set EXPRESSIONS — so the honest fix is
-//     to teach the MCP emitter to consume those, not to bolt a second accessor table
-//     onto the field scan. That is a distinct mechanism (side-effecting setters that
-//     must also push to the live Ref<AudioSource>), not this slice.
 //   * MorphTargetComponent's authored surface is a DYNAMIC keyset
 //     (`std::unordered_map<std::string, f32> Weights`), which needs map-key
 //     addressing ("Weights.<targetName>"), not sub-object addressing: the field names
 //     do not exist until a MorphTargetSet is bound at runtime, so no static registry
 //     entry can name them.
+//
+// AudioSourceComponent used to be pinned here too (its 16 parameters live behind a
+// PRIVATE cold blob a member-access chain cannot cross) — issue #607's
+// AudioSourceComponent slice closed that gap with a setter-expression-based
+// mechanism instead of sub-object addressing. See section 7 below.
 TEST(McpFieldRegistry, KnownGapsWithNoStaticFieldPathStayUnreachable)
 {
-    EXPECT_FALSE(RegistryHas("AudioSourceComponent", "Volume"));        // private cold blob
-    EXPECT_FALSE(RegistryHas("AudioSourceComponent", "Config.Volume")); // …not reachable by a path either
-    EXPECT_FALSE(RegistryHas("MorphTargetComponent", "Weights"));       // dynamic keyset, not a field
+    EXPECT_FALSE(RegistryHas("MorphTargetComponent", "Weights")); // dynamic keyset, not a field
+}
+
+// ---- 7. AudioSourceComponent: setter-expression-based fields (issue #607) ----
+//
+// AudioSourceComponent's 16 authored parameters live behind `private
+// std::unique_ptr<AudioSourceColdData> m_Cold`, reached only through GetConfig(). A
+// member-access chain cannot cross a private member, so the plain field scan
+// (MakeFieldAccess, sections 1-5 above) correctly never reaches them. Each parameter
+// already carries an OLO_PROPERTY(Get=..., Set=...) annotation — the SAME expressions
+// Lua/C# scripting compiles — so OloHeaderTool's EmitMcpSetterFields reuses that scan
+// to emit MakeSetterField<C, F> registrations instead: they call the Set expression
+// DIRECTLY on the live component (never a whole-object copy+swap), so a write reaches
+// the live Ref<AudioSource> Source exactly like a scripted SetVolume() call would.
+
+TEST(McpFieldRegistry, CoversAudioSourceComponent)
+{
+    for (const char* field : { "Volume", "Pitch", "PlayOnAwake", "Looping", "Spatialization",
+                               "AttenuationModel", "RollOff", "MinGain", "MaxGain", "MinDistance",
+                               "MaxDistance", "ConeInnerAngle", "ConeOuterAngle", "ConeOuterGain",
+                               "DopplerFactor", "SoundConfigHandle" })
+    {
+        EXPECT_TRUE(RegistryHas("AudioSourceComponent", field)) << field << " should be MCP-writable";
+    }
+}
+
+// A scalar float property round-trips undoably, exactly like a plain field.
+TEST(McpFieldRegistry, AudioSourcePropertyRoundTripsAndUndoes)
+{
+    Fixture f;
+    auto& audio = f.TheEntity.AddComponent<OloEngine::AudioSourceComponent>();
+    audio.GetConfig().VolumeMultiplier = 1.0f;
+
+    const auto result = GFW::Apply(f.Scene_, f.History, f.Uuid, "AudioSourceComponent", "Volume", Json(0.4));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_EQ(result.Data["type"], "float");
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+    EXPECT_TRUE(result.Data["undoable"].get<bool>());
+    EXPECT_FLOAT_EQ(result.Data["previousValue"].get<f32>(), 1.0f);
+    EXPECT_FLOAT_EQ(f.TheEntity.GetComponent<OloEngine::AudioSourceComponent>().GetConfig().VolumeMultiplier, 0.4f);
+
+    ASSERT_TRUE(f.History.CanUndo());
+    f.History.Undo();
+    EXPECT_FLOAT_EQ(f.TheEntity.GetComponent<OloEngine::AudioSourceComponent>().GetConfig().VolumeMultiplier, 1.0f);
+}
+
+// The AssetHandle-shaped property (SoundConfigHandle) round-trips as a decimal
+// string, same contract as every other AssetHandle field in the registry.
+TEST(McpFieldRegistry, AudioSourceHandleFieldRoundTrips)
+{
+    Fixture f;
+    f.TheEntity.AddComponent<OloEngine::AudioSourceComponent>();
+
+    const auto result = GFW::Apply(f.Scene_, f.History, f.Uuid, "AudioSourceComponent", "SoundConfigHandle",
+                                   Json("1234567890123456789"));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_EQ(result.Data["type"], "handle");
+    EXPECT_EQ(static_cast<u64>(f.TheEntity.GetComponent<OloEngine::AudioSourceComponent>().GetSoundConfigHandle()),
+              1234567890123456789ull);
+
+    f.History.Undo();
+    EXPECT_EQ(static_cast<u64>(f.TheEntity.GetComponent<OloEngine::AudioSourceComponent>().GetSoundConfigHandle()), 0ull);
+}
+
+// THE regression this slice exists to prevent: a whole-object copy+swap
+// (ComponentChangeCommand<AudioSourceComponent>) would go through operator=, which
+// UNCONDITIONALLY resets ActiveEventID to 0 on every write — independent of whether
+// a live Source is even attached — and never re-invokes Source->SetVolume()/etc, so a
+// write would silently detach a playing sound's event handle while leaving the
+// actually-playing sound's parameters unchanged. MakeSetterField writes through the
+// OLO_PROPERTY setter directly (PropertySetCommand, not ComponentChangeCommand<C>),
+// so ActiveEventID survives an unrelated-field write — the half of this bug that is
+// observable without a live audio backend. (AudioSource::Create requires a real file
+// on disk the headless unit-test environment does not provide — see
+// AudioEventsManagerTest.cpp's note on the same constraint — so the Source->SetVolume()
+// side of this fix is exercised manually against a real playing sound instead of here.)
+TEST(McpFieldRegistry, WriteDoesNotResetActiveEventID)
+{
+    Fixture f;
+    auto& audio = f.TheEntity.AddComponent<OloEngine::AudioSourceComponent>();
+    audio.ActiveEventID = 4242;
+    audio.GetConfig().VolumeMultiplier = 1.0f;
+
+    const auto result = GFW::Apply(f.Scene_, f.History, f.Uuid, "AudioSourceComponent", "Volume", Json(0.25));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+    EXPECT_EQ(f.TheEntity.GetComponent<OloEngine::AudioSourceComponent>().ActiveEventID, 4242u)
+        << "a field write must not reset the live event handle";
+
+    f.History.Undo();
+    EXPECT_EQ(f.TheEntity.GetComponent<OloEngine::AudioSourceComponent>().ActiveEventID, 4242u);
+    EXPECT_FLOAT_EQ(f.TheEntity.GetComponent<OloEngine::AudioSourceComponent>().GetConfig().VolumeMultiplier, 1.0f);
 }
