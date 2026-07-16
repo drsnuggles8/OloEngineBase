@@ -478,6 +478,30 @@ namespace OloEngine
 		internal static extern bool LightProbeVolumeComponent_GetActive(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void LightProbeVolumeComponent_SetActive(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int LightProbeVolumeComponent_GetMode(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_SetMode(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int LightProbeVolumeComponent_GetRaysPerProbe(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_SetRaysPerProbe(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float LightProbeVolumeComponent_GetHysteresis(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_SetHysteresis(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int LightProbeVolumeComponent_GetProbeCaptureBudget(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_SetProbeCaptureBudget(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int LightProbeVolumeComponent_GetRelightBudget(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_SetRelightBudget(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float LightProbeVolumeComponent_GetSelfShadowBias(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void LightProbeVolumeComponent_SetSelfShadowBias(ulong entityID, float value);
 		#endregion
 
 		#region LocomotionComponent

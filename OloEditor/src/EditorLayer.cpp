@@ -2322,6 +2322,7 @@ namespace OloEngine
             ShadowSettings shadowCopy = Renderer3D::GetShadowMap().GetSettings();
             ApplyTieringToSettings(cfg.QualityTiering, Renderer3D::GetPostProcessSettings(), shadowCopy);
             Renderer3D::GetShadowMap().SetSettings(shadowCopy);
+            ApplyTieringToRendererSettings(cfg.QualityTiering, Renderer3D::GetRendererSettings());
         }
 
         if (m_Is3DMode && !Renderer3D::HasInitialized())
@@ -3169,6 +3170,7 @@ namespace OloEngine
             ShadowSettings shadowCopy = Renderer3D::GetShadowMap().GetSettings();
             ApplyTieringToSettings(project->GetConfig().QualityTiering, Renderer3D::GetPostProcessSettings(), shadowCopy);
             Renderer3D::GetShadowMap().SetSettings(shadowCopy);
+            ApplyTieringToRendererSettings(project->GetConfig().QualityTiering, Renderer3D::GetRendererSettings());
         }
 
         // Push the (now scene-loaded + quality-tiered) settings into the render graph
@@ -3321,6 +3323,7 @@ namespace OloEngine
             ShadowSettings shadowCopy = Renderer3D::GetShadowMap().GetSettings();
             ApplyTieringToSettings(project->GetConfig().QualityTiering, Renderer3D::GetPostProcessSettings(), shadowCopy);
             Renderer3D::GetShadowMap().SetSettings(shadowCopy);
+            ApplyTieringToRendererSettings(project->GetConfig().QualityTiering, Renderer3D::GetRendererSettings());
         }
 
         // Same rationale as LoadEditorSceneFile (#534): apply after the scene's

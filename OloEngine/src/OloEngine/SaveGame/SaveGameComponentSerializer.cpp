@@ -1384,6 +1384,32 @@ namespace OloEngine
         ar << c.m_Spacing << c.m_Intensity;
         ar << c.m_Active << c.m_Dirty << c.m_ShowDebugProbes;
         ar << c.m_BakedDataAsset;
+
+        // ── Format v9: realtime DDGI fields (issue #632) ──
+        // Appended at the end when kSaveGameFormatVersion was bumped 8→9. A save
+        // written before v9 has none of these bytes, so loading one leaves every
+        // field at its constructor default (Mode::Baked — the pre-#632 behavior).
+        if (HasFieldsSince(ar, 9))
+        {
+            ar << c.m_Mode; // enum class : u8 — FArchive serializes the underlying type
+            ar << c.m_RaysPerProbe << c.m_Hysteresis;
+            ar << c.m_ProbeCaptureBudget << c.m_RelightBudget;
+            ar << c.m_SelfShadowBias;
+        }
+
+        // Sanitize untrusted on-disk values (mirrors the SceneSerializer clamps).
+        if (ar.IsLoading())
+        {
+            // Mode is unsigned (u8 underlying), so only the upper bound can be
+            // out of range; an unknown mode falls back to Baked.
+            if (c.m_Mode > LightProbeVolumeComponent::Mode::Hybrid)
+                c.m_Mode = LightProbeVolumeComponent::Mode::Baked;
+            c.m_RaysPerProbe = std::clamp(c.m_RaysPerProbe, 1, 4096);
+            c.m_Hysteresis = std::isfinite(c.m_Hysteresis) ? std::clamp(c.m_Hysteresis, 0.0f, 0.98f) : 0.9f;
+            c.m_ProbeCaptureBudget = std::clamp(c.m_ProbeCaptureBudget, 1, 64);
+            c.m_RelightBudget = std::clamp(c.m_RelightBudget, 0, 1048576);
+            c.m_SelfShadowBias = std::isfinite(c.m_SelfShadowBias) ? std::clamp(c.m_SelfShadowBias, 0.0f, 4.0f) : 0.3f;
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, ReflectionProbeComponent& c)

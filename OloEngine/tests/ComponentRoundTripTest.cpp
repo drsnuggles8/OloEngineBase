@@ -1094,6 +1094,13 @@ namespace OloEngine::Tests
         const f32 expectedSpacing = 2.5f;
         const f32 expectedIntensity = 1.5f;
         const bool expectedActive = false; // non-default
+        // Realtime DDGI fields (issue #632) — all non-default
+        const auto expectedMode = LightProbeVolumeComponent::Mode::Realtime;
+        const i32 expectedRaysPerProbe = 1024;
+        const f32 expectedHysteresis = 0.75f;
+        const i32 expectedCaptureBudget = 8;
+        const i32 expectedRelightBudget = 64;
+        const f32 expectedSelfShadowBias = 0.5f;
 
         std::string yaml;
         {
@@ -1105,6 +1112,12 @@ namespace OloEngine::Tests
             lp.m_Spacing = expectedSpacing;
             lp.m_Intensity = expectedIntensity;
             lp.m_Active = expectedActive;
+            lp.m_Mode = expectedMode;
+            lp.m_RaysPerProbe = expectedRaysPerProbe;
+            lp.m_Hysteresis = expectedHysteresis;
+            lp.m_ProbeCaptureBudget = expectedCaptureBudget;
+            lp.m_RelightBudget = expectedRelightBudget;
+            lp.m_SelfShadowBias = expectedSelfShadowBias;
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -1125,6 +1138,12 @@ namespace OloEngine::Tests
         EXPECT_NEAR(lp.m_Spacing, expectedSpacing, kFloatEpsilon);
         EXPECT_NEAR(lp.m_Intensity, expectedIntensity, kFloatEpsilon);
         EXPECT_EQ(lp.m_Active, expectedActive);
+        EXPECT_EQ(lp.m_Mode, expectedMode);
+        EXPECT_EQ(lp.m_RaysPerProbe, expectedRaysPerProbe);
+        EXPECT_NEAR(lp.m_Hysteresis, expectedHysteresis, kFloatEpsilon);
+        EXPECT_EQ(lp.m_ProbeCaptureBudget, expectedCaptureBudget);
+        EXPECT_EQ(lp.m_RelightBudget, expectedRelightBudget);
+        EXPECT_NEAR(lp.m_SelfShadowBias, expectedSelfShadowBias, kFloatEpsilon);
     }
 
     // -------------------------------------------------------------------------
@@ -2456,6 +2475,12 @@ namespace OloEngine::Tests
                 v.m_Spacing = 2.0f;
                 v.m_Intensity = 1.5f;
                 v.m_Active = true;
+                v.m_Mode = LightProbeVolumeComponent::Mode::Hybrid;
+                v.m_RaysPerProbe = 1024;
+                v.m_Hysteresis = 0.75f;
+                v.m_ProbeCaptureBudget = 8;
+                v.m_RelightBudget = 64;
+                v.m_SelfShadowBias = 0.5f;
             }
 
             // Skybox / env map

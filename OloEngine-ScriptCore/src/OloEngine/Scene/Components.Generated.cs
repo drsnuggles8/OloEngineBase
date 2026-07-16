@@ -724,6 +724,42 @@ namespace OloEngine
 			get => InternalCalls.LightProbeVolumeComponent_GetActive(Entity.ID);
 			set => InternalCalls.LightProbeVolumeComponent_SetActive(Entity.ID, value);
 		}
+
+		public int Mode
+		{
+			get => InternalCalls.LightProbeVolumeComponent_GetMode(Entity.ID);
+			set => InternalCalls.LightProbeVolumeComponent_SetMode(Entity.ID, value);
+		}
+
+		public int RaysPerProbe
+		{
+			get => InternalCalls.LightProbeVolumeComponent_GetRaysPerProbe(Entity.ID);
+			set => InternalCalls.LightProbeVolumeComponent_SetRaysPerProbe(Entity.ID, value);
+		}
+
+		public float Hysteresis
+		{
+			get => InternalCalls.LightProbeVolumeComponent_GetHysteresis(Entity.ID);
+			set => InternalCalls.LightProbeVolumeComponent_SetHysteresis(Entity.ID, value);
+		}
+
+		public int ProbeCaptureBudget
+		{
+			get => InternalCalls.LightProbeVolumeComponent_GetProbeCaptureBudget(Entity.ID);
+			set => InternalCalls.LightProbeVolumeComponent_SetProbeCaptureBudget(Entity.ID, value);
+		}
+
+		public int RelightBudget
+		{
+			get => InternalCalls.LightProbeVolumeComponent_GetRelightBudget(Entity.ID);
+			set => InternalCalls.LightProbeVolumeComponent_SetRelightBudget(Entity.ID, value);
+		}
+
+		public float SelfShadowBias
+		{
+			get => InternalCalls.LightProbeVolumeComponent_GetSelfShadowBias(Entity.ID);
+			set => InternalCalls.LightProbeVolumeComponent_SetSelfShadowBias(Entity.ID, value);
+		}
 	}
 
 	public partial class LocomotionComponent : Component

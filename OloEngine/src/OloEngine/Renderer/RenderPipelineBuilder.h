@@ -20,6 +20,7 @@ namespace OloEngine
     {
         RenderGraphNode* Scene = nullptr;
         RenderGraphNode* Shadow = nullptr;
+        RenderGraphNode* DDGIProbeUpdate = nullptr; // #632 realtime DDGI capture/relight/blend
         RenderGraphNode* DeferredLighting = nullptr;
         RenderGraphNode* DeferredOpaqueDecal = nullptr;
         RenderGraphNode* DeferredGPUOcclusion = nullptr;

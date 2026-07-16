@@ -713,6 +713,10 @@
 		"OloEngine/Renderer/Debug/RendererValidate.h"
 		"OloEngine/Renderer/Debug/RendererValidate.cpp"
 
+		"OloEngine/Renderer/DDGI/DDGICommon.h"
+		"OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
+		"OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.cpp"
+
 		"OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 		"OloEngine/Renderer/Occlusion/OcclusionQueryPool.cpp"
 		"OloEngine/Renderer/Occlusion/OcclusionState.h"

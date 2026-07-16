@@ -764,6 +764,24 @@ TEST_F(LuaBindingTest, LightProbeVolumeComponent_PropertyRoundTrip)
     EXPECT_FALSE(lpv.m_Active);
     EXPECT_TRUE(lpv.m_Dirty);
 
+    // Realtime DDGI fields (issue #632)
+    lua.script("lpv.mode = 1; lpv.raysPerProbe = 1024; lpv.hysteresis = 0.75");
+    EXPECT_EQ(lpv.m_Mode, LightProbeVolumeComponent::Mode::Realtime);
+    EXPECT_EQ(lpv.m_RaysPerProbe, 1024);
+    EXPECT_FLOAT_EQ(lpv.m_Hysteresis, 0.75f);
+
+    lua.script("lpv.probeCaptureBudget = 8; lpv.relightBudget = 64; lpv.selfShadowBias = 0.5");
+    EXPECT_EQ(lpv.m_ProbeCaptureBudget, 8);
+    EXPECT_EQ(lpv.m_RelightBudget, 64);
+    EXPECT_FLOAT_EQ(lpv.m_SelfShadowBias, 0.5f);
+
+    // Out-of-range writes are rejected, keeping the last valid value
+    // (the local setter convention: validate, never clamp).
+    lua.script("lpv.mode = 7; lpv.hysteresis = 2.0; lpv.probeCaptureBudget = 0");
+    EXPECT_EQ(lpv.m_Mode, LightProbeVolumeComponent::Mode::Realtime);
+    EXPECT_FLOAT_EQ(lpv.m_Hysteresis, 0.75f);
+    EXPECT_EQ(lpv.m_ProbeCaptureBudget, 8);
+
     auto result = lua.script("return lpv:getTotalProbeCount()");
     EXPECT_GE(result.get<i32>(), 0);
 }

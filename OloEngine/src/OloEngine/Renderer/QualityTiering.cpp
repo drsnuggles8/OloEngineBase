@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "QualityTiering.h"
 
+#include "OloEngine/Renderer/RenderingPath.h"
+
 namespace OloEngine
 {
     QualityTieringSettings QualityTieringSettings::HighDefaults()
@@ -36,6 +38,8 @@ namespace OloEngine
                 s.MotionBlurEnabled = false;
                 s.VignetteEnabled = false;
                 s.ChromaticAberrationEnabled = false;
+                s.DDGIEnabled = false; // realtime GI is the first cost to shed on Low
+                s.DDGIBudgetScale = 0.5f;
                 break;
 
             case QualityPreset::Medium:
@@ -56,6 +60,8 @@ namespace OloEngine
                 s.MotionBlurEnabled = false;
                 s.VignetteEnabled = false;
                 s.ChromaticAberrationEnabled = false;
+                s.DDGIEnabled = true;
+                s.DDGIBudgetScale = 0.5f; // halved capture/relight budgets
                 break;
 
             case QualityPreset::High:
@@ -98,6 +104,8 @@ namespace OloEngine
                 s.MotionBlurEnabled = true;
                 s.VignetteEnabled = false;
                 s.ChromaticAberrationEnabled = true;
+                s.DDGIEnabled = true;
+                s.DDGIBudgetScale = 2.0f; // faster capture convergence on Ultra
                 break;
 
             case QualityPreset::Custom:
@@ -146,6 +154,14 @@ namespace OloEngine
         shadow.SoftShadows = tiering.SoftShadows;
 
         CopyTierPPFields(tiering, pp);
+    }
+
+    void ApplyTieringToRendererSettings(const QualityTieringSettings& tiering, RendererSettings& renderer)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        renderer.EnableDDGI = tiering.DDGIEnabled;
+        renderer.DDGIBudgetScale = tiering.DDGIBudgetScale;
     }
 
     std::string_view QualityPresetToString(QualityPreset preset)

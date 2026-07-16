@@ -2342,6 +2342,136 @@ static void LightProbeVolumeComponent_SetActive(UUID entityID, bool value)
     comp.m_Dirty = true;
 }
 
+static int LightProbeVolumeComponent_GetMode(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
+    return static_cast<int>(comp.m_Mode);
+}
+
+static void LightProbeVolumeComponent_SetMode(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
+    comp.m_Mode = static_cast<LightProbeVolumeComponent::Mode>(value);
+    comp.m_Dirty = true;
+}
+
+static int LightProbeVolumeComponent_GetRaysPerProbe(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
+    return comp.m_RaysPerProbe;
+}
+
+static void LightProbeVolumeComponent_SetRaysPerProbe(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
+    comp.m_RaysPerProbe = value;
+    comp.m_Dirty = true;
+}
+
+static float LightProbeVolumeComponent_GetHysteresis(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
+    return comp.m_Hysteresis;
+}
+
+static void LightProbeVolumeComponent_SetHysteresis(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
+    comp.m_Hysteresis = value;
+    comp.m_Dirty = true;
+}
+
+static int LightProbeVolumeComponent_GetProbeCaptureBudget(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
+    return comp.m_ProbeCaptureBudget;
+}
+
+static void LightProbeVolumeComponent_SetProbeCaptureBudget(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
+    comp.m_ProbeCaptureBudget = value;
+    comp.m_Dirty = true;
+}
+
+static int LightProbeVolumeComponent_GetRelightBudget(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
+    return comp.m_RelightBudget;
+}
+
+static void LightProbeVolumeComponent_SetRelightBudget(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
+    comp.m_RelightBudget = value;
+    comp.m_Dirty = true;
+}
+
+static float LightProbeVolumeComponent_GetSelfShadowBias(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
+    return comp.m_SelfShadowBias;
+}
+
+static void LightProbeVolumeComponent_SetSelfShadowBias(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<LightProbeVolumeComponent>();
+    comp.m_SelfShadowBias = value;
+    comp.m_Dirty = true;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 // LocomotionComponent                                                            //
 ///////////////////////////////////////////////////////////////////////////////////////////

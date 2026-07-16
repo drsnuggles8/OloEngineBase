@@ -334,8 +334,10 @@ void main()
     vec3 ambient = vec3(0.0);
     if (u_EnableLightProbes == 1 && u_EnableIBL == 1)
     {
-        // Combined: probe diffuse + IBL specular
-        vec3 probeIrradiance = sampleLightProbeGrid(v_WorldPos, N);
+        // Combined: probe diffuse + IBL specular. Issue #632: unified probe
+        // sampling — realtime DDGI atlases when a Realtime/Hybrid volume is
+        // bound, baked SH otherwise.
+        vec3 probeIrradiance = sampleProbeVolumeIrradiance(v_WorldPos, N, V);
         if (dot(probeIrradiance, probeIrradiance) > 0.0)
         {
             ambient = calculateCombinedAmbient(probeIrradiance, N, V, albedo,
@@ -353,7 +355,7 @@ void main()
     else if (u_EnableLightProbes == 1)
     {
         // Probes only, no IBL specular
-        vec3 probeIrradiance = sampleLightProbeGrid(v_WorldPos, N);
+        vec3 probeIrradiance = sampleProbeVolumeIrradiance(v_WorldPos, N, V);
         if (dot(probeIrradiance, probeIrradiance) > 0.0)
         {
             ambient = calculateLightProbeAmbient(probeIrradiance, albedo, metallic, roughness, N, V);

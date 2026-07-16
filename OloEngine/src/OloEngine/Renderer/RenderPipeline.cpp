@@ -2725,6 +2725,7 @@ namespace OloEngine
 
         inputs.Passes.Scene = FrameCorePasses.Scene.Raw();
         inputs.Passes.Shadow = FrameCorePasses.Shadow.Raw();
+        inputs.Passes.DDGIProbeUpdate = FrameCorePasses.DDGIProbeUpdate.Raw();
         inputs.Passes.DeferredLighting = SceneCompositePasses.DeferredLighting.Raw();
         inputs.Passes.DeferredOpaqueDecal = SceneCompositePasses.DeferredOpaqueDecal.Raw();
         inputs.Passes.DeferredGPUOcclusion = SceneCompositePasses.DeferredGPUOcclusion.Raw();
@@ -2785,6 +2786,14 @@ namespace OloEngine
         FrameCorePasses.Scene = Ref<SceneRenderPass>::Create();
         FrameCorePasses.Scene->SetName("ScenePass");
         FrameCorePasses.Scene->Init(scenePassSpec);
+
+        // Realtime DDGI probe update (#632) — path-agnostic, self-disables
+        // when no Realtime/Hybrid volume is submitted for the frame. All its
+        // GPU targets are probe-grid-sized (screen-decoupled), so the shadow
+        // spec is only lifetime bookkeeping.
+        FrameCorePasses.DDGIProbeUpdate = Ref<DDGIProbeUpdatePass>::Create();
+        FrameCorePasses.DDGIProbeUpdate->SetName("DDGIProbeUpdatePass");
+        FrameCorePasses.DDGIProbeUpdate->Init(shadowPassSpec);
 
         // Deferred lighting composition — no-op when Settings.Path is
         // Forward / Forward+ (no G-Buffer supplied). Writes into

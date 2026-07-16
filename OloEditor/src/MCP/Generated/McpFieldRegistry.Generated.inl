@@ -312,6 +312,12 @@ registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "Active", m_Active))
 registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "Dirty", m_Dirty));
 registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "ShowDebugProbes", m_ShowDebugProbes));
 registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "BakedDataAsset", m_BakedDataAsset));
+registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "Mode", m_Mode));
+registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "RaysPerProbe", m_RaysPerProbe));
+registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "Hysteresis", m_Hysteresis));
+registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "ProbeCaptureBudget", m_ProbeCaptureBudget));
+registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "RelightBudget", m_RelightBudget));
+registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "SelfShadowBias", m_SelfShadowBias));
 
 // LocalizedTextComponent
 registry.push_back(OLO_GFW_FIELD(LocalizedTextComponent, "LocalizationKey", LocalizationKey));

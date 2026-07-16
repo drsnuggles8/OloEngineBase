@@ -2165,6 +2165,20 @@ namespace OloEngine
     // Light probe volume for grid-based global illumination
     struct LightProbeVolumeComponent
     {
+        // GI update mode (issue #632). Baked = offline SH bake, static upload
+        // (the pre-#632 behavior, default so existing scenes are unchanged).
+        // Realtime = DDGI hit-point-cache relighting (see
+        // docs/adr/0006-ddgi-hit-point-cache-gather.md). Hybrid = baked SH
+        // while DDGI capture coverage converges, then DDGI (scalar blend by
+        // captured-probe fraction); baked SH stays the fallback when DDGI is
+        // disabled by renderer settings.
+        enum class Mode : u8
+        {
+            Baked = 0,
+            Realtime = 1,
+            Hybrid = 2
+        };
+
         OLO_PROPERTY(Set = "comp.m_BoundsMin = {v}; comp.m_Dirty = true")
         glm::vec3 m_BoundsMin = glm::vec3(-10.0f);
         OLO_PROPERTY(Set = "comp.m_BoundsMax = {v}; comp.m_Dirty = true")
@@ -2179,6 +2193,37 @@ namespace OloEngine
         bool m_Dirty = true;
         bool m_ShowDebugProbes = false;
         AssetHandle m_BakedDataAsset = 0;
+
+        // --- Realtime DDGI fields (issue #632) ---
+        OLO_PROPERTY(Name = "Mode", Type = "int", Get = "static_cast<int>(comp.m_Mode)", Set = "comp.m_Mode = static_cast<LightProbeVolumeComponent::Mode>({v}); comp.m_Dirty = true")
+        Mode m_Mode = Mode::Baked;
+        // Angular resolution of the per-probe hit-point cache — the cached-
+        // gather equivalent of DDGI's rays-per-probe. Snapped to 64 (8x8),
+        // 256 (16x16), or 1024 (32x32) octahedral texels.
+        OLO_PROPERTY(Set = "comp.m_RaysPerProbe = {v}; comp.m_Dirty = true")
+        i32 m_RaysPerProbe = 256;
+        // Temporal EMA history weight for irradiance/visibility blending.
+        // 0 = no history (instant, may pop), 0.98 = max smoothing. The input
+        // is noise-free (fixed cached directions), so this only smooths
+        // lighting changes and bounce propagation — 0.9 converges in ~10
+        // frames (vs RTXGI's 0.97 needed to filter stochastic ray noise).
+        OLO_PROPERTY(Set = "comp.m_Hysteresis = {v}; comp.m_Dirty = true")
+        f32 m_Hysteresis = 0.9f;
+        // Probes (re)captured per frame (mini-G-buffer rasterization budget).
+        // Never-captured probes are prioritized; a fraction of the budget
+        // continuously re-captures the oldest probes so moved static geometry
+        // heals (Lumen's refresh-fraction idea).
+        OLO_PROPERTY(Set = "comp.m_ProbeCaptureBudget = {v}; comp.m_Dirty = true")
+        i32 m_ProbeCaptureBudget = 4;
+        // Probes relit per frame. 0 = relight every active probe each frame
+        // (the default — lighting responds within one frame); > 0 bounds the
+        // per-frame relight cost on very large grids via round-robin.
+        OLO_PROPERTY(Set = "comp.m_RelightBudget = {v}; comp.m_Dirty = true")
+        i32 m_RelightBudget = 0;
+        // Sampler self-shadow bias scale (JCGT 2021 form: the shading point
+        // is offset by (0.2*N + 0.8*V) * 0.75 * minAxialSpacing * this).
+        OLO_PROPERTY(Set = "comp.m_SelfShadowBias = {v}; comp.m_Dirty = true")
+        f32 m_SelfShadowBias = 0.3f;
 
         [[nodiscard]] i32 GetTotalProbeCount() const noexcept
         {
@@ -2210,7 +2255,7 @@ namespace OloEngine
         // via u64 to dodge UUID's C2666 ambiguity.
         auto operator==(const LightProbeVolumeComponent& other) const -> bool
         {
-            return Math::BitwiseEqual(m_BoundsMin, other.m_BoundsMin) && Math::BitwiseEqual(m_BoundsMax, other.m_BoundsMax) && m_Resolution == other.m_Resolution && Math::BitwiseEqual(m_Spacing, other.m_Spacing) && Math::BitwiseEqual(m_Intensity, other.m_Intensity) && m_Active == other.m_Active && m_ShowDebugProbes == other.m_ShowDebugProbes && static_cast<u64>(m_BakedDataAsset) == static_cast<u64>(other.m_BakedDataAsset);
+            return Math::BitwiseEqual(m_BoundsMin, other.m_BoundsMin) && Math::BitwiseEqual(m_BoundsMax, other.m_BoundsMax) && m_Resolution == other.m_Resolution && Math::BitwiseEqual(m_Spacing, other.m_Spacing) && Math::BitwiseEqual(m_Intensity, other.m_Intensity) && m_Active == other.m_Active && m_ShowDebugProbes == other.m_ShowDebugProbes && static_cast<u64>(m_BakedDataAsset) == static_cast<u64>(other.m_BakedDataAsset) && m_Mode == other.m_Mode && m_RaysPerProbe == other.m_RaysPerProbe && Math::BitwiseEqual(m_Hysteresis, other.m_Hysteresis) && m_ProbeCaptureBudget == other.m_ProbeCaptureBudget && m_RelightBudget == other.m_RelightBudget && Math::BitwiseEqual(m_SelfShadowBias, other.m_SelfShadowBias);
         }
     };
 
