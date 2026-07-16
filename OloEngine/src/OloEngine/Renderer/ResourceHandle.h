@@ -369,11 +369,15 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view MotionBlurColorTexture = "MotionBlurColorTexture";             // Color attachment view of MotionBlurColor
     inline constexpr std::string_view TAAColor = "TAAColor";                                         // After temporal AA resolve (only valid when TAA is enabled)
     inline constexpr std::string_view TAAColorTexture = "TAAColorTexture";                           // Color attachment view of TAAColor
+    inline constexpr std::string_view CloudsColor = "CloudsColor";                                   // After volumetric cloudscape composite (only valid when the cloudscape is enabled, issue #633)
+    inline constexpr std::string_view CloudsColorTexture = "CloudsColorTexture";                     // Color attachment view of CloudsColor
     inline constexpr std::string_view PrecipitationColor = "PrecipitationColor";                     // After screen-space precipitation overlay (only valid when precipitation screen FX enabled)
     inline constexpr std::string_view PrecipitationColorTexture = "PrecipitationColorTexture";       // Color attachment view of PrecipitationColor
     inline constexpr std::string_view FogColor = "FogColor";                                         // After volumetric fog composite (only valid when fog is enabled)
     inline constexpr std::string_view FogColorTexture = "FogColorTexture";                           // Color attachment view of FogColor
     inline constexpr std::string_view FogHalfRes = "FogHalfRes";                                     // Half-resolution volumetric fog integration scratch
+    inline constexpr std::string_view CloudsRaw = "CloudsRaw";                                       // Half-resolution cloud raymarch scratch (Cloudscape pass A output, issue #633)
+    inline constexpr std::string_view CloudsResolved = "CloudsResolved";                             // Half-resolution temporally-resolved clouds (Cloudscape pass B output; the CloudsHistory source)
     inline constexpr std::string_view ChromAbColor = "ChromAbColor";                                 // After chromatic aberration
     inline constexpr std::string_view ChromAbColorTexture = "ChromAbColorTexture";                   // Color attachment view of ChromAbColor
     inline constexpr std::string_view ColorGradingColor = "ColorGradingColor";                       // After colour grading
@@ -396,7 +400,8 @@ namespace OloEngine::ResourceNames
     // output, consumed by TAA. (The fog's 2D history died with the
     // screen-space raymarch; the froxel fog's temporal accumulation lives in
     // VolumetricFogPass's own 3D scatter volume — issue #435.)
-    inline constexpr std::string_view TAAHistory = "TAAHistory"; // Previous TAA accumulation buffer
+    inline constexpr std::string_view TAAHistory = "TAAHistory";       // Previous TAA accumulation buffer
+    inline constexpr std::string_view CloudsHistory = "CloudsHistory"; // Previous cloudscape resolve buffer (half-res, issue #633)
 
     // Weighted-blended OIT accumulation targets (particles and forward
     // transparent decals write these; OITResolvePass reads them and

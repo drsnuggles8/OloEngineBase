@@ -96,6 +96,49 @@ if (auto node = entity["ClothComponent"]; node)
     comp.m_AttachmentBone = node["AttachmentBone"].as<std::string>(comp.m_AttachmentBone);
 }
 
+if (auto node = entity["CloudscapeComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<CloudscapeComponent>();
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LayerBottom"], v))
+        comp.m_LayerBottom = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(20000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LayerTop"], v))
+        comp.m_LayerTop = std::clamp(v, static_cast<f32>(100.0f), static_cast<f32>(30000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Coverage"], v))
+        comp.m_Coverage = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Density"], v))
+        comp.m_Density = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(4.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TypeBlend"], v))
+        comp.m_TypeBlend = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ErosionStrength"], v))
+        comp.m_ErosionStrength = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WindAnimationScale"], v))
+        comp.m_WindAnimationScale = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(8.0f));
+    comp.m_WeatherMapHandle = node["WeatherMapHandle"].as<u64>(static_cast<u64>(comp.m_WeatherMapHandle));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WeatherMapScaleKm"], v))
+        comp.m_WeatherMapScaleKm = std::clamp(v, static_cast<f32>(1.0f), static_cast<f32>(200.0f));
+    comp.m_MaxSteps = std::clamp(node["MaxSteps"].as<i32>(comp.m_MaxSteps), static_cast<i32>(16), static_cast<i32>(128));
+    comp.m_LightSteps = std::clamp(node["LightSteps"].as<i32>(comp.m_LightSteps), static_cast<i32>(2), static_cast<i32>(12));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SunLightScale"], v))
+        comp.m_SunLightScale = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["AmbientScale"], v))
+        comp.m_AmbientScale = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MultiScatterStrength"], v))
+        comp.m_MultiScatterStrength = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PhaseG"], v))
+        comp.m_PhaseG = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(0.95f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PowderStrength"], v))
+        comp.m_PowderStrength = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(2.0f));
+    comp.m_CastCloudShadows = node["CastCloudShadows"].as<bool>(comp.m_CastCloudShadows);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowStrength"], v))
+        comp.m_ShadowStrength = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowMapWorldSize"], v))
+        comp.m_ShadowMapWorldSize = std::clamp(v, static_cast<f32>(500.0f), static_cast<f32>(50000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TemporalBlend"], v))
+        comp.m_TemporalBlend = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(0.98f));
+    comp.m_AffectIBL = node["AffectIBL"].as<bool>(comp.m_AffectIBL);
+}
+
 if (auto node = entity["DirectionalLightComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<DirectionalLightComponent>();
@@ -534,6 +577,41 @@ if (auto node = entity["SpringBoneComponent"]; node)
         comp.Weight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
 }
 
+if (auto node = entity["TimeOfDayComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<TimeOfDayComponent>();
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TimeOfDayHours"], v))
+        comp.m_TimeOfDayHours = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(24.0f));
+    comp.m_DayOfYear = std::clamp(node["DayOfYear"].as<i32>(comp.m_DayOfYear), static_cast<i32>(1), static_cast<i32>(365));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LatitudeDegrees"], v))
+        comp.m_LatitudeDegrees = std::clamp(v, static_cast<f32>(-90.0f), static_cast<f32>(90.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["DayLengthMinutes"], v))
+        comp.m_DayLengthMinutes = std::clamp(v, static_cast<f32>(0.1f), static_cast<f32>(10080.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TimeScale"], v))
+        comp.m_TimeScale = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    comp.m_Paused = node["Paused"].as<bool>(comp.m_Paused);
+    comp.m_AdvanceInEditMode = node["AdvanceInEditMode"].as<bool>(comp.m_AdvanceInEditMode);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["NorthOffsetDegrees"], v))
+        comp.m_NorthOffsetDegrees = std::clamp(v, static_cast<f32>(-360.0f), static_cast<f32>(360.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SunIntensityMax"], v))
+        comp.m_SunIntensityMax = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MoonIntensityMax"], v))
+        comp.m_MoonIntensityMax = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MoonPhase"], v))
+        comp.m_MoonPhase = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SkyExposureDay"], v))
+        comp.m_SkyExposureDay = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SkyExposureNight"], v))
+        comp.m_SkyExposureNight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["StarIntensity"], v))
+        comp.m_StarIntensity = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(8.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MoonDiskSize"], v))
+        comp.m_MoonDiskSize = std::clamp(v, static_cast<f32>(0.1f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RebakeQuantumGameMinutes"], v))
+        comp.m_RebakeQuantumGameMinutes = std::clamp(v, static_cast<f32>(0.25f), static_cast<f32>(240.0f));
+}
+
 if (auto node = entity["UIButtonComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<UIButtonComponent>();
@@ -656,4 +734,234 @@ if (auto node = entity["VirtualMeshComponent"]; node)
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ErrorThresholdPixels"], v))
         comp.m_ErrorThresholdPixels = std::clamp(v, static_cast<f32>(0.05f), static_cast<f32>(64.0f));
     comp.m_CastShadows = node["CastShadows"].as<bool>(comp.m_CastShadows);
+}
+
+if (auto node = entity["WeatherStateComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<WeatherStateComponent>();
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    comp.m_CurrentState = static_cast<decltype(comp.m_CurrentState)>(std::clamp(node["CurrentState"].as<int>(static_cast<int>(comp.m_CurrentState)), static_cast<int>(0), static_cast<int>(5)));
+    comp.m_TargetState = static_cast<decltype(comp.m_TargetState)>(std::clamp(node["TargetState"].as<int>(static_cast<int>(comp.m_TargetState)), static_cast<int>(0), static_cast<int>(5)));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TransitionDuration"], v))
+        comp.m_TransitionDuration = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(600.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WetnessRiseRate"], v))
+        comp.m_WetnessRiseRate = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WetnessDryRate"], v))
+        comp.m_WetnessDryRate = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (auto sub0 = node["PresetClear"]; sub0)
+    {
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudCoverage"], v))
+            comp.m_PresetClear.CloudCoverage = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudDensity"], v))
+            comp.m_PresetClear.CloudDensity = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudTypeBlend"], v))
+            comp.m_PresetClear.CloudTypeBlend = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudWetness"], v))
+            comp.m_PresetClear.CloudWetness = v;
+        comp.m_PresetClear.FogEnabled = sub0["FogEnabled"].as<bool>(comp.m_PresetClear.FogEnabled);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogDensity"], v))
+            comp.m_PresetClear.FogDensity = v;
+        comp.m_PresetClear.FogColor = sub0["FogColor"].as<glm::vec3>(comp.m_PresetClear.FogColor);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogHeightFalloff"], v))
+            comp.m_PresetClear.FogHeightFalloff = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogMaxOpacity"], v))
+            comp.m_PresetClear.FogMaxOpacity = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindSpeed"], v))
+            comp.m_PresetClear.WindSpeed = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindGustStrength"], v))
+            comp.m_PresetClear.WindGustStrength = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindTurbulence"], v))
+            comp.m_PresetClear.WindTurbulence = v;
+        comp.m_PresetClear.PrecipitationEnabled = sub0["PrecipitationEnabled"].as<bool>(comp.m_PresetClear.PrecipitationEnabled);
+        comp.m_PresetClear.PrecipitationKind = static_cast<decltype(comp.m_PresetClear.PrecipitationKind)>(sub0["PrecipitationKind"].as<int>(static_cast<int>(comp.m_PresetClear.PrecipitationKind)));
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["PrecipitationIntensity"], v))
+            comp.m_PresetClear.PrecipitationIntensity = v;
+        comp.m_PresetClear.SnowAccumulationEnabled = sub0["SnowAccumulationEnabled"].as<bool>(comp.m_PresetClear.SnowAccumulationEnabled);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["SnowAccumulationRate"], v))
+            comp.m_PresetClear.SnowAccumulationRate = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["SunDimming"], v))
+            comp.m_PresetClear.SunDimming = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WetnessTarget"], v))
+            comp.m_PresetClear.WetnessTarget = v;
+    }
+    if (auto sub0 = node["PresetOvercast"]; sub0)
+    {
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudCoverage"], v))
+            comp.m_PresetOvercast.CloudCoverage = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudDensity"], v))
+            comp.m_PresetOvercast.CloudDensity = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudTypeBlend"], v))
+            comp.m_PresetOvercast.CloudTypeBlend = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudWetness"], v))
+            comp.m_PresetOvercast.CloudWetness = v;
+        comp.m_PresetOvercast.FogEnabled = sub0["FogEnabled"].as<bool>(comp.m_PresetOvercast.FogEnabled);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogDensity"], v))
+            comp.m_PresetOvercast.FogDensity = v;
+        comp.m_PresetOvercast.FogColor = sub0["FogColor"].as<glm::vec3>(comp.m_PresetOvercast.FogColor);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogHeightFalloff"], v))
+            comp.m_PresetOvercast.FogHeightFalloff = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogMaxOpacity"], v))
+            comp.m_PresetOvercast.FogMaxOpacity = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindSpeed"], v))
+            comp.m_PresetOvercast.WindSpeed = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindGustStrength"], v))
+            comp.m_PresetOvercast.WindGustStrength = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindTurbulence"], v))
+            comp.m_PresetOvercast.WindTurbulence = v;
+        comp.m_PresetOvercast.PrecipitationEnabled = sub0["PrecipitationEnabled"].as<bool>(comp.m_PresetOvercast.PrecipitationEnabled);
+        comp.m_PresetOvercast.PrecipitationKind = static_cast<decltype(comp.m_PresetOvercast.PrecipitationKind)>(sub0["PrecipitationKind"].as<int>(static_cast<int>(comp.m_PresetOvercast.PrecipitationKind)));
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["PrecipitationIntensity"], v))
+            comp.m_PresetOvercast.PrecipitationIntensity = v;
+        comp.m_PresetOvercast.SnowAccumulationEnabled = sub0["SnowAccumulationEnabled"].as<bool>(comp.m_PresetOvercast.SnowAccumulationEnabled);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["SnowAccumulationRate"], v))
+            comp.m_PresetOvercast.SnowAccumulationRate = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["SunDimming"], v))
+            comp.m_PresetOvercast.SunDimming = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WetnessTarget"], v))
+            comp.m_PresetOvercast.WetnessTarget = v;
+    }
+    if (auto sub0 = node["PresetRain"]; sub0)
+    {
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudCoverage"], v))
+            comp.m_PresetRain.CloudCoverage = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudDensity"], v))
+            comp.m_PresetRain.CloudDensity = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudTypeBlend"], v))
+            comp.m_PresetRain.CloudTypeBlend = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudWetness"], v))
+            comp.m_PresetRain.CloudWetness = v;
+        comp.m_PresetRain.FogEnabled = sub0["FogEnabled"].as<bool>(comp.m_PresetRain.FogEnabled);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogDensity"], v))
+            comp.m_PresetRain.FogDensity = v;
+        comp.m_PresetRain.FogColor = sub0["FogColor"].as<glm::vec3>(comp.m_PresetRain.FogColor);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogHeightFalloff"], v))
+            comp.m_PresetRain.FogHeightFalloff = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogMaxOpacity"], v))
+            comp.m_PresetRain.FogMaxOpacity = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindSpeed"], v))
+            comp.m_PresetRain.WindSpeed = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindGustStrength"], v))
+            comp.m_PresetRain.WindGustStrength = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindTurbulence"], v))
+            comp.m_PresetRain.WindTurbulence = v;
+        comp.m_PresetRain.PrecipitationEnabled = sub0["PrecipitationEnabled"].as<bool>(comp.m_PresetRain.PrecipitationEnabled);
+        comp.m_PresetRain.PrecipitationKind = static_cast<decltype(comp.m_PresetRain.PrecipitationKind)>(sub0["PrecipitationKind"].as<int>(static_cast<int>(comp.m_PresetRain.PrecipitationKind)));
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["PrecipitationIntensity"], v))
+            comp.m_PresetRain.PrecipitationIntensity = v;
+        comp.m_PresetRain.SnowAccumulationEnabled = sub0["SnowAccumulationEnabled"].as<bool>(comp.m_PresetRain.SnowAccumulationEnabled);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["SnowAccumulationRate"], v))
+            comp.m_PresetRain.SnowAccumulationRate = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["SunDimming"], v))
+            comp.m_PresetRain.SunDimming = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WetnessTarget"], v))
+            comp.m_PresetRain.WetnessTarget = v;
+    }
+    if (auto sub0 = node["PresetStorm"]; sub0)
+    {
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudCoverage"], v))
+            comp.m_PresetStorm.CloudCoverage = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudDensity"], v))
+            comp.m_PresetStorm.CloudDensity = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudTypeBlend"], v))
+            comp.m_PresetStorm.CloudTypeBlend = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudWetness"], v))
+            comp.m_PresetStorm.CloudWetness = v;
+        comp.m_PresetStorm.FogEnabled = sub0["FogEnabled"].as<bool>(comp.m_PresetStorm.FogEnabled);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogDensity"], v))
+            comp.m_PresetStorm.FogDensity = v;
+        comp.m_PresetStorm.FogColor = sub0["FogColor"].as<glm::vec3>(comp.m_PresetStorm.FogColor);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogHeightFalloff"], v))
+            comp.m_PresetStorm.FogHeightFalloff = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogMaxOpacity"], v))
+            comp.m_PresetStorm.FogMaxOpacity = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindSpeed"], v))
+            comp.m_PresetStorm.WindSpeed = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindGustStrength"], v))
+            comp.m_PresetStorm.WindGustStrength = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindTurbulence"], v))
+            comp.m_PresetStorm.WindTurbulence = v;
+        comp.m_PresetStorm.PrecipitationEnabled = sub0["PrecipitationEnabled"].as<bool>(comp.m_PresetStorm.PrecipitationEnabled);
+        comp.m_PresetStorm.PrecipitationKind = static_cast<decltype(comp.m_PresetStorm.PrecipitationKind)>(sub0["PrecipitationKind"].as<int>(static_cast<int>(comp.m_PresetStorm.PrecipitationKind)));
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["PrecipitationIntensity"], v))
+            comp.m_PresetStorm.PrecipitationIntensity = v;
+        comp.m_PresetStorm.SnowAccumulationEnabled = sub0["SnowAccumulationEnabled"].as<bool>(comp.m_PresetStorm.SnowAccumulationEnabled);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["SnowAccumulationRate"], v))
+            comp.m_PresetStorm.SnowAccumulationRate = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["SunDimming"], v))
+            comp.m_PresetStorm.SunDimming = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WetnessTarget"], v))
+            comp.m_PresetStorm.WetnessTarget = v;
+    }
+    if (auto sub0 = node["PresetSnow"]; sub0)
+    {
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudCoverage"], v))
+            comp.m_PresetSnow.CloudCoverage = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudDensity"], v))
+            comp.m_PresetSnow.CloudDensity = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudTypeBlend"], v))
+            comp.m_PresetSnow.CloudTypeBlend = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudWetness"], v))
+            comp.m_PresetSnow.CloudWetness = v;
+        comp.m_PresetSnow.FogEnabled = sub0["FogEnabled"].as<bool>(comp.m_PresetSnow.FogEnabled);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogDensity"], v))
+            comp.m_PresetSnow.FogDensity = v;
+        comp.m_PresetSnow.FogColor = sub0["FogColor"].as<glm::vec3>(comp.m_PresetSnow.FogColor);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogHeightFalloff"], v))
+            comp.m_PresetSnow.FogHeightFalloff = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogMaxOpacity"], v))
+            comp.m_PresetSnow.FogMaxOpacity = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindSpeed"], v))
+            comp.m_PresetSnow.WindSpeed = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindGustStrength"], v))
+            comp.m_PresetSnow.WindGustStrength = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindTurbulence"], v))
+            comp.m_PresetSnow.WindTurbulence = v;
+        comp.m_PresetSnow.PrecipitationEnabled = sub0["PrecipitationEnabled"].as<bool>(comp.m_PresetSnow.PrecipitationEnabled);
+        comp.m_PresetSnow.PrecipitationKind = static_cast<decltype(comp.m_PresetSnow.PrecipitationKind)>(sub0["PrecipitationKind"].as<int>(static_cast<int>(comp.m_PresetSnow.PrecipitationKind)));
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["PrecipitationIntensity"], v))
+            comp.m_PresetSnow.PrecipitationIntensity = v;
+        comp.m_PresetSnow.SnowAccumulationEnabled = sub0["SnowAccumulationEnabled"].as<bool>(comp.m_PresetSnow.SnowAccumulationEnabled);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["SnowAccumulationRate"], v))
+            comp.m_PresetSnow.SnowAccumulationRate = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["SunDimming"], v))
+            comp.m_PresetSnow.SunDimming = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WetnessTarget"], v))
+            comp.m_PresetSnow.WetnessTarget = v;
+    }
+    if (auto sub0 = node["PresetFogBank"]; sub0)
+    {
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudCoverage"], v))
+            comp.m_PresetFogBank.CloudCoverage = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudDensity"], v))
+            comp.m_PresetFogBank.CloudDensity = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudTypeBlend"], v))
+            comp.m_PresetFogBank.CloudTypeBlend = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["CloudWetness"], v))
+            comp.m_PresetFogBank.CloudWetness = v;
+        comp.m_PresetFogBank.FogEnabled = sub0["FogEnabled"].as<bool>(comp.m_PresetFogBank.FogEnabled);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogDensity"], v))
+            comp.m_PresetFogBank.FogDensity = v;
+        comp.m_PresetFogBank.FogColor = sub0["FogColor"].as<glm::vec3>(comp.m_PresetFogBank.FogColor);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogHeightFalloff"], v))
+            comp.m_PresetFogBank.FogHeightFalloff = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["FogMaxOpacity"], v))
+            comp.m_PresetFogBank.FogMaxOpacity = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindSpeed"], v))
+            comp.m_PresetFogBank.WindSpeed = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindGustStrength"], v))
+            comp.m_PresetFogBank.WindGustStrength = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WindTurbulence"], v))
+            comp.m_PresetFogBank.WindTurbulence = v;
+        comp.m_PresetFogBank.PrecipitationEnabled = sub0["PrecipitationEnabled"].as<bool>(comp.m_PresetFogBank.PrecipitationEnabled);
+        comp.m_PresetFogBank.PrecipitationKind = static_cast<decltype(comp.m_PresetFogBank.PrecipitationKind)>(sub0["PrecipitationKind"].as<int>(static_cast<int>(comp.m_PresetFogBank.PrecipitationKind)));
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["PrecipitationIntensity"], v))
+            comp.m_PresetFogBank.PrecipitationIntensity = v;
+        comp.m_PresetFogBank.SnowAccumulationEnabled = sub0["SnowAccumulationEnabled"].as<bool>(comp.m_PresetFogBank.SnowAccumulationEnabled);
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["SnowAccumulationRate"], v))
+            comp.m_PresetFogBank.SnowAccumulationRate = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["SunDimming"], v))
+            comp.m_PresetFogBank.SunDimming = v;
+        if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(sub0["WetnessTarget"], v))
+            comp.m_PresetFogBank.WetnessTarget = v;
+    }
 }

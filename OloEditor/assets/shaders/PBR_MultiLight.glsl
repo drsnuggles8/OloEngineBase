@@ -67,6 +67,7 @@ void main()
 #include "include/PBRCommon.glsl"
 #include "include/SnowCommon.glsl"
 #include "include/LightProbeSampling.glsl"
+#include "include/AtmosphereShading.glsl"
 
 // Camera UBO (binding 0) - for view position
 // Fragment-side CameraMatrices must declare the same block layout as the
@@ -242,6 +243,15 @@ void main()
     }
     vec3 V = normalize(u_CameraPosition - v_WorldPos);
 
+    // Weather response (issue #633): rain-wet surfaces darken and gloss up
+    // before any lighting reads albedo/roughness.
+    atmosphereApplyWetness(albedo, roughness, N);
+
+    // Cloud shadow (issue #633): the cloudscape occludes the directional body
+    // regardless of the CSM gate below — evaluated once, applied per
+    // directional light inside the loop.
+    float cloudShadow = atmosphereCloudShadow(v_WorldPos);
+
     // Calculate direct lighting from all lights
     vec3 Lo = vec3(0.0);
 
@@ -262,6 +272,10 @@ void main()
         int lightType = int(u_Lights[i].position.w);
 
         vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
+        if (lightType == DIRECTIONAL_LIGHT)
+        {
+            lightContrib *= cloudShadow;
+        }
         if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
         {
             // Compute view-space depth for cascade selection

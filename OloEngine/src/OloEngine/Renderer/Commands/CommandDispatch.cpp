@@ -96,6 +96,9 @@ namespace OloEngine
         // Snow accumulation depth texture (set per-frame)
         u32 SnowDepthTextureID = 0;
 
+        // Cloud shadow transmittance map (set per-frame, issue #633)
+        u32 CloudShadowTextureID = 0;
+
         // Depth prepass override: when true, ApplyPODRenderState forces depth-only state
         bool DepthPrepassActive = false;
         // Renderer-ID snapshot for the prepass depth-only shader swap, refreshed
@@ -561,6 +564,11 @@ namespace OloEngine
         BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, s_Data.AtlasRawShadowTextureID);
 
         BindTrackedTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTextureID);
+
+        // Cloud shadow transmittance map (issue #633). A 0 id binds nothing —
+        // the AtmosphereShadingUBO enabled flag gates the shader-side sample,
+        // so an unbound-but-declared sampler is never actually read.
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_CLOUD_SHADOW, s_Data.CloudShadowTextureID);
     }
 
     // Helper: resolve the program to bind for a mesh draw during the depth
@@ -834,6 +842,7 @@ namespace OloEngine
         s_Data.CSMRawShadowTextureID = 0;
         s_Data.AtlasRawShadowTextureID = 0;
         s_Data.SnowDepthTextureID = 0;
+        s_Data.CloudShadowTextureID = 0;
         s_Data.DepthPrepassActive = false;
         s_Data.DepthPrepassColorPassActive = false;
         s_Data.OverdrawActive = false;
@@ -998,6 +1007,11 @@ namespace OloEngine
     void CommandDispatch::SetSnowDepthTextureID(u32 textureID)
     {
         s_Data.SnowDepthTextureID = textureID;
+    }
+
+    void CommandDispatch::SetCloudShadowTextureID(u32 textureID)
+    {
+        s_Data.CloudShadowTextureID = textureID;
     }
 
     CommandDispatch::Statistics& CommandDispatch::GetStatistics()

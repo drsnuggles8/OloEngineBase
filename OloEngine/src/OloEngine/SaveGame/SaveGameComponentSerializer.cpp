@@ -1280,7 +1280,15 @@ namespace OloEngine
     {
         ar << c.m_SunDirection << c.m_Turbidity << c.m_Exposure;
         ar << c.m_SunIntensity << c.m_SunDiskSize << c.m_ShowSunDisk;
-        ar << c.m_LinkSunToDirectionalLight;
+        // v10 retired m_LinkSunToDirectionalLight (issue #633 — the
+        // TimeOfDayComponent is now the sun driver; v9 was taken by #632's
+        // DDGI fields in the same release window). Saves v9 and older carry
+        // the bool at this stream position; read and discard it.
+        if (ar.IsLoading() && ar.GetArchiveVersion() < 10)
+        {
+            bool legacyLinkSun = false;
+            ar << legacyLinkSun;
+        }
         ar << c.m_EnableSkybox << c.m_EnableIBL << c.m_IBLIntensity;
         ar << c.m_CubemapResolution;
 
@@ -1346,6 +1354,150 @@ namespace OloEngine
                 c.m_CubemapResolution = 256u;
         }
         // Ref<EnvironmentMap> and bake hash are runtime — not serialised
+    }
+
+    namespace
+    {
+        // Streams one WeatherPreset (nested struct of WeatherStateComponent).
+        // Field order is the save-format contract — append-only.
+        void SerializeWeatherPreset(FArchive& ar, WeatherPreset& p)
+        {
+            ar << p.CloudCoverage << p.CloudDensity << p.CloudTypeBlend << p.CloudWetness;
+            ar << p.FogEnabled << p.FogDensity << p.FogColor << p.FogHeightFalloff << p.FogMaxOpacity;
+            ar << p.WindSpeed << p.WindGustStrength << p.WindTurbulence;
+            ar << p.PrecipitationEnabled << p.PrecipitationKind << p.PrecipitationIntensity;
+            ar << p.SnowAccumulationEnabled << p.SnowAccumulationRate;
+            ar << p.SunDimming << p.WetnessTarget;
+
+            if (ar.IsLoading())
+            {
+                // Saves are a trust boundary: clamp into authoring ranges,
+                // NaN/inf fall back to struct defaults (see the sky
+                // serializers above for the policy rationale).
+                const WeatherPreset defaults;
+                auto sanitize01 = [](f32& v, f32 fallback)
+                { v = std::isfinite(v) ? std::clamp(v, 0.0f, 1.0f) : fallback; };
+                sanitize01(p.CloudCoverage, defaults.CloudCoverage);
+                sanitize01(p.CloudDensity, defaults.CloudDensity);
+                sanitize01(p.CloudTypeBlend, defaults.CloudTypeBlend);
+                sanitize01(p.CloudWetness, defaults.CloudWetness);
+                p.FogDensity = std::isfinite(p.FogDensity) ? std::clamp(p.FogDensity, 0.0f, 10.0f) : defaults.FogDensity;
+                for (int i = 0; i < 3; ++i)
+                {
+                    if (!std::isfinite(p.FogColor[i]))
+                        p.FogColor = defaults.FogColor;
+                }
+                p.FogHeightFalloff = std::isfinite(p.FogHeightFalloff) ? std::clamp(p.FogHeightFalloff, 0.0f, 10.0f) : defaults.FogHeightFalloff;
+                sanitize01(p.FogMaxOpacity, defaults.FogMaxOpacity);
+                p.WindSpeed = std::isfinite(p.WindSpeed) ? std::clamp(p.WindSpeed, 0.0f, 200.0f) : defaults.WindSpeed;
+                sanitize01(p.WindGustStrength, defaults.WindGustStrength);
+                p.WindTurbulence = std::isfinite(p.WindTurbulence) ? std::clamp(p.WindTurbulence, 0.0f, 10.0f) : defaults.WindTurbulence;
+                if (static_cast<i32>(p.PrecipitationKind) < 0 || static_cast<i32>(p.PrecipitationKind) > 3)
+                    p.PrecipitationKind = defaults.PrecipitationKind;
+                sanitize01(p.PrecipitationIntensity, defaults.PrecipitationIntensity);
+                p.SnowAccumulationRate = std::isfinite(p.SnowAccumulationRate) ? std::clamp(p.SnowAccumulationRate, 0.0f, 10.0f) : defaults.SnowAccumulationRate;
+                sanitize01(p.SunDimming, defaults.SunDimming);
+                sanitize01(p.WetnessTarget, defaults.WetnessTarget);
+            }
+        }
+    } // namespace
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, TimeOfDayComponent& c)
+    {
+        ar << c.m_Enabled << c.m_TimeOfDayHours << c.m_DayOfYear << c.m_LatitudeDegrees;
+        ar << c.m_DayLengthMinutes << c.m_TimeScale << c.m_Paused << c.m_AdvanceInEditMode;
+        ar << c.m_NorthOffsetDegrees;
+        ar << c.m_SunIntensityMax << c.m_MoonIntensityMax << c.m_MoonPhase;
+        ar << c.m_SkyExposureDay << c.m_SkyExposureNight << c.m_StarIntensity << c.m_MoonDiskSize;
+        ar << c.m_RebakeQuantumGameMinutes;
+
+        if (ar.IsLoading())
+        {
+            // Sanitise untrusted on-disk data into the authoring ranges the
+            // ephemeris/lighting drive expects; NaN/inf fall back to defaults.
+            c.m_TimeOfDayHours = std::isfinite(c.m_TimeOfDayHours) ? std::clamp(c.m_TimeOfDayHours, 0.0f, 24.0f) : 10.0f;
+            c.m_DayOfYear = std::clamp(c.m_DayOfYear, 1, 365);
+            c.m_LatitudeDegrees = std::isfinite(c.m_LatitudeDegrees) ? std::clamp(c.m_LatitudeDegrees, -90.0f, 90.0f) : 48.0f;
+            c.m_DayLengthMinutes = std::isfinite(c.m_DayLengthMinutes) ? std::clamp(c.m_DayLengthMinutes, 0.1f, 10080.0f) : 24.0f;
+            c.m_TimeScale = std::isfinite(c.m_TimeScale) ? std::clamp(c.m_TimeScale, 0.0f, 1000.0f) : 1.0f;
+            c.m_NorthOffsetDegrees = std::isfinite(c.m_NorthOffsetDegrees) ? std::clamp(c.m_NorthOffsetDegrees, -360.0f, 360.0f) : 0.0f;
+            c.m_SunIntensityMax = std::isfinite(c.m_SunIntensityMax) ? std::clamp(c.m_SunIntensityMax, 0.0f, 100.0f) : 3.0f;
+            c.m_MoonIntensityMax = std::isfinite(c.m_MoonIntensityMax) ? std::clamp(c.m_MoonIntensityMax, 0.0f, 10.0f) : 0.12f;
+            c.m_MoonPhase = std::isfinite(c.m_MoonPhase) ? std::clamp(c.m_MoonPhase, 0.0f, 1.0f) : 0.5f;
+            c.m_SkyExposureDay = std::isfinite(c.m_SkyExposureDay) ? std::clamp(c.m_SkyExposureDay, 0.0f, 10.0f) : 0.1f;
+            c.m_SkyExposureNight = std::isfinite(c.m_SkyExposureNight) ? std::clamp(c.m_SkyExposureNight, 0.0f, 10.0f) : 0.35f;
+            c.m_StarIntensity = std::isfinite(c.m_StarIntensity) ? std::clamp(c.m_StarIntensity, 0.0f, 8.0f) : 1.0f;
+            c.m_MoonDiskSize = std::isfinite(c.m_MoonDiskSize) ? std::clamp(c.m_MoonDiskSize, 0.1f, 10.0f) : 1.0f;
+            c.m_RebakeQuantumGameMinutes = std::isfinite(c.m_RebakeQuantumGameMinutes) ? std::clamp(c.m_RebakeQuantumGameMinutes, 0.25f, 240.0f) : 5.0f;
+        }
+        // Derived outputs (m_SunDirection/m_MoonDirection/m_SunElevationDegrees/
+        // m_IsNight) are per-tick runtime — recomputed by TimeOfDaySystem::Apply.
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, WeatherStateComponent& c)
+    {
+        ar << c.m_Enabled << c.m_CurrentState << c.m_TargetState << c.m_TransitionDuration;
+        ar << c.m_WetnessRiseRate << c.m_WetnessDryRate;
+        SerializeWeatherPreset(ar, c.m_PresetClear);
+        SerializeWeatherPreset(ar, c.m_PresetOvercast);
+        SerializeWeatherPreset(ar, c.m_PresetRain);
+        SerializeWeatherPreset(ar, c.m_PresetStorm);
+        SerializeWeatherPreset(ar, c.m_PresetSnow);
+        SerializeWeatherPreset(ar, c.m_PresetFogBank);
+        // Persist the live transition + wetness so a mid-storm save resumes
+        // mid-storm (unlike scene YAML, where these Skip fields reset).
+        ar << c.m_TransitionProgress << c.m_Wetness;
+
+        if (ar.IsLoading())
+        {
+            auto sanitizeState = [](WeatherStateId& s)
+            {
+                if (static_cast<i32>(s) < 0 || static_cast<i32>(s) > 5)
+                    s = WeatherStateId::Clear;
+            };
+            sanitizeState(c.m_CurrentState);
+            sanitizeState(c.m_TargetState);
+            c.m_TransitionDuration = std::isfinite(c.m_TransitionDuration) ? std::clamp(c.m_TransitionDuration, 0.0f, 600.0f) : 10.0f;
+            c.m_WetnessRiseRate = std::isfinite(c.m_WetnessRiseRate) ? std::clamp(c.m_WetnessRiseRate, 0.0f, 10.0f) : 0.15f;
+            c.m_WetnessDryRate = std::isfinite(c.m_WetnessDryRate) ? std::clamp(c.m_WetnessDryRate, 0.0f, 10.0f) : 0.02f;
+            c.m_TransitionProgress = std::isfinite(c.m_TransitionProgress) ? std::clamp(c.m_TransitionProgress, 0.0f, 1.0f) : 1.0f;
+            c.m_Wetness = std::isfinite(c.m_Wetness) ? std::clamp(c.m_Wetness, 0.0f, 1.0f) : 0.0f;
+        }
+        // m_Blended is per-tick runtime — recomputed by WeatherSystem.
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, CloudscapeComponent& c)
+    {
+        ar << c.m_Enabled << c.m_LayerBottom << c.m_LayerTop;
+        ar << c.m_Coverage << c.m_Density << c.m_TypeBlend << c.m_ErosionStrength;
+        ar << c.m_WindAnimationScale << c.m_WeatherMapHandle << c.m_WeatherMapScaleKm;
+        ar << c.m_MaxSteps << c.m_LightSteps;
+        ar << c.m_SunLightScale << c.m_AmbientScale << c.m_MultiScatterStrength;
+        ar << c.m_PhaseG << c.m_PowderStrength;
+        ar << c.m_CastCloudShadows << c.m_ShadowStrength << c.m_ShadowMapWorldSize;
+        ar << c.m_TemporalBlend << c.m_AffectIBL;
+
+        if (ar.IsLoading())
+        {
+            c.m_LayerBottom = std::isfinite(c.m_LayerBottom) ? std::clamp(c.m_LayerBottom, 0.0f, 20000.0f) : 1500.0f;
+            c.m_LayerTop = std::isfinite(c.m_LayerTop) ? std::clamp(c.m_LayerTop, 100.0f, 30000.0f) : 4000.0f;
+            c.m_Coverage = std::isfinite(c.m_Coverage) ? std::clamp(c.m_Coverage, 0.0f, 1.0f) : 0.35f;
+            c.m_Density = std::isfinite(c.m_Density) ? std::clamp(c.m_Density, 0.0f, 4.0f) : 1.0f;
+            c.m_TypeBlend = std::isfinite(c.m_TypeBlend) ? std::clamp(c.m_TypeBlend, 0.0f, 1.0f) : 0.5f;
+            c.m_ErosionStrength = std::isfinite(c.m_ErosionStrength) ? std::clamp(c.m_ErosionStrength, 0.0f, 1.0f) : 0.5f;
+            c.m_WindAnimationScale = std::isfinite(c.m_WindAnimationScale) ? std::clamp(c.m_WindAnimationScale, 0.0f, 8.0f) : 1.0f;
+            c.m_WeatherMapScaleKm = std::isfinite(c.m_WeatherMapScaleKm) ? std::clamp(c.m_WeatherMapScaleKm, 1.0f, 200.0f) : 30.0f;
+            c.m_MaxSteps = std::clamp(c.m_MaxSteps, 16, 128);
+            c.m_LightSteps = std::clamp(c.m_LightSteps, 2, 12);
+            c.m_SunLightScale = std::isfinite(c.m_SunLightScale) ? std::clamp(c.m_SunLightScale, 0.0f, 10.0f) : 1.0f;
+            c.m_AmbientScale = std::isfinite(c.m_AmbientScale) ? std::clamp(c.m_AmbientScale, 0.0f, 10.0f) : 1.0f;
+            c.m_MultiScatterStrength = std::isfinite(c.m_MultiScatterStrength) ? std::clamp(c.m_MultiScatterStrength, 0.0f, 1.0f) : 0.5f;
+            c.m_PhaseG = std::isfinite(c.m_PhaseG) ? std::clamp(c.m_PhaseG, 0.0f, 0.95f) : 0.6f;
+            c.m_PowderStrength = std::isfinite(c.m_PowderStrength) ? std::clamp(c.m_PowderStrength, 0.0f, 2.0f) : 1.0f;
+            c.m_ShadowStrength = std::isfinite(c.m_ShadowStrength) ? std::clamp(c.m_ShadowStrength, 0.0f, 1.0f) : 0.8f;
+            c.m_ShadowMapWorldSize = std::isfinite(c.m_ShadowMapWorldSize) ? std::clamp(c.m_ShadowMapWorldSize, 500.0f, 50000.0f) : 8000.0f;
+            c.m_TemporalBlend = std::isfinite(c.m_TemporalBlend) ? std::clamp(c.m_TemporalBlend, 0.0f, 0.98f) : 0.9f;
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, EnvironmentMapComponent& c)
@@ -3739,6 +3891,9 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(EnvironmentMapComponent);
         REGISTER_SAVE_COMPONENT(ProceduralSkyComponent);
         REGISTER_SAVE_COMPONENT(StarNestSkyComponent);
+        REGISTER_SAVE_COMPONENT(TimeOfDayComponent);
+        REGISTER_SAVE_COMPONENT(WeatherStateComponent);
+        REGISTER_SAVE_COMPONENT(CloudscapeComponent);
         REGISTER_SAVE_COMPONENT(LightProbeComponent);
         REGISTER_SAVE_COMPONENT(LightProbeVolumeComponent);
         REGISTER_SAVE_COMPONENT(ReflectionProbeComponent);

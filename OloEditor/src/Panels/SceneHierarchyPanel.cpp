@@ -1178,6 +1178,23 @@ namespace OloEngine
     {
     };
 
+    // TimeOfDayComponent's Skip-tagged derived outputs (sun/moon directions,
+    // elevation, is-night) are rewritten by TimeOfDaySystem::Apply every rendered
+    // frame — in edit mode too — so the memcmp path would see churn between the
+    // undo snapshot and the compare. Its operator== compares authored fields only.
+    template<>
+    struct PreferValueComparison<TimeOfDayComponent> : std::true_type
+    {
+    };
+
+    // WeatherStateComponent's Skip-tagged runtime fields (m_Blended, wetness,
+    // transition bookkeeping) are mutated by WeatherSystem every tick. Its
+    // operator== compares the authored state machine + presets only.
+    template<>
+    struct PreferValueComparison<WeatherStateComponent> : std::true_type
+    {
+    };
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
@@ -1808,6 +1825,9 @@ namespace OloEngine
             DisplayAddComponentEntry<EnvironmentMapComponent>("Environment Map (Skybox/IBL)");
             DisplayAddComponentEntry<ProceduralSkyComponent>("Procedural Sky (Preetham)");
             DisplayAddComponentEntry<StarNestSkyComponent>("Star Nest Sky (Nebula)");
+            DisplayAddComponentEntry<TimeOfDayComponent>("Time Of Day");
+            DisplayAddComponentEntry<WeatherStateComponent>("Weather Director");
+            DisplayAddComponentEntry<CloudscapeComponent>("Volumetric Cloudscape");
 
             ImGui::Separator();
 
@@ -3235,12 +3255,9 @@ namespace OloEngine
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Toward-sun unit vector (world space). Re-normalised inside ComputeCoefficients; below-horizon directions are clamped to a small positive elevation.");
 
-            ImGui::Checkbox("Link to Directional Light##ProcSky", &component.m_LinkSunToDirectionalLight);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("If on, the runtime overwrites the sun direction with -DirectionalLight.m_Direction each tick.");
-
             // Quick presets — useful for previewing time-of-day without manual
-            // direction tweaking.
+            // direction tweaking. (Scenes with a TimeOfDayComponent get their sun
+            // direction driven by TimeOfDaySystem instead.)
             if (ImGui::Button("Noon"))
             {
                 component.m_SunDirection = glm::vec3(0.0f, 1.0f, 0.0f);
@@ -3390,6 +3407,243 @@ namespace OloEngine
             {
                 ImGui::TextColored(ImVec4(0.85f, 0.6f, 0.6f, 1.0f), "Not yet baked");
             } });
+
+        DrawComponent<TimeOfDayComponent>("Time Of Day", entity, [](auto& component)
+                                          {
+            ImGui::Checkbox("Enabled##TimeOfDay", &component.m_Enabled);
+
+            // The time scrubber: TimeOfDaySystem applies the ephemeris on editor
+            // ticks too, so scrubbing this in edit mode moves the sun live.
+            ImGui::SliderFloat("Time Of Day##TimeOfDay", &component.m_TimeOfDayHours, 0.0f, 24.0f, "%.2f h");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Wall-clock game time. Scrub to move the sun live in edit mode.");
+
+            ImGui::SliderInt("Day Of Year##TimeOfDay", &component.m_DayOfYear, 1, 365);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("1 = Jan 1; 172 = ~June solstice.");
+            ImGui::DragFloat("Latitude##TimeOfDay", &component.m_LatitudeDegrees, 0.5f, -90.0f, 90.0f, "%.1f deg");
+            ImGui::DragFloat("Day Length##TimeOfDay", &component.m_DayLengthMinutes, 1.0f, 0.1f, 10080.0f, "%.1f min");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Real minutes one full 24h game day takes.");
+            ImGui::DragFloat("Time Scale##TimeOfDay", &component.m_TimeScale, 0.5f, 0.0f, 1000.0f, "%.1f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Extra multiplier on clock advance.");
+            ImGui::Checkbox("Paused##TimeOfDay", &component.m_Paused);
+            ImGui::Checkbox("Advance In Edit Mode##TimeOfDay", &component.m_AdvanceInEditMode);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Advance the clock during editor (non-play) ticks too. Off by default so scenes\ndon't drift while being authored; scrubbing the slider always works.");
+            ImGui::DragFloat("North Offset##TimeOfDay", &component.m_NorthOffsetDegrees, 1.0f, -360.0f, 360.0f, "%.1f deg");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Rotates the ephemeris frame around +Y. 0 = north along +Z (sun rises toward +X).");
+
+            ImGui::SeparatorText("Lighting");
+            ImGui::DragFloat("Sun Intensity Max##TimeOfDay", &component.m_SunIntensityMax, 0.05f, 0.0f, 100.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Directional-light intensity at high noon.");
+            ImGui::DragFloat("Moon Intensity Max##TimeOfDay", &component.m_MoonIntensityMax, 0.005f, 0.0f, 10.0f, "%.3f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Directional-light intensity under a full moon.");
+            ImGui::SliderFloat("Moon Phase##TimeOfDay", &component.m_MoonPhase, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Synodic fraction: 0 = new, 0.5 = full, 1 = new again.");
+
+            ImGui::SeparatorText("Sky");
+            ImGui::DragFloat("Sky Exposure Day##TimeOfDay", &component.m_SkyExposureDay, 0.005f, 0.0f, 10.0f, "%.3f");
+            ImGui::DragFloat("Sky Exposure Night##TimeOfDay", &component.m_SkyExposureNight, 0.005f, 0.0f, 10.0f, "%.3f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Night sky is tone-mapped brighter so stars read.");
+            ImGui::DragFloat("Star Intensity##TimeOfDay", &component.m_StarIntensity, 0.01f, 0.0f, 8.0f, "%.2f");
+            ImGui::DragFloat("Moon Disk Size##TimeOfDay", &component.m_MoonDiskSize, 0.05f, 0.1f, 10.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Multiplier on the nominal lunar angular radius.");
+            ImGui::DragFloat("Rebake Quantum##TimeOfDay", &component.m_RebakeQuantumGameMinutes, 0.25f, 0.25f, 240.0f, "%.2f game min");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The sky cubemap re-bakes on these game-minute steps instead of every frame.");
+
+            ImGui::Separator();
+            ImGui::Text("Sun elevation: %.1f deg  (%s)", component.m_SunElevationDegrees, component.m_IsNight ? "night" : "day"); });
+
+        DrawComponent<WeatherStateComponent>("Weather Director", entity, [](auto& component)
+                                             {
+            ImGui::Checkbox("Enabled##Weather", &component.m_Enabled);
+
+            const char* stateNames[] = { "Clear", "Overcast", "Rain", "Storm", "Snow", "Fog Bank" };
+            if (int target = static_cast<int>(component.m_TargetState); ImGui::Combo("Target State##Weather", &target, stateNames, IM_ARRAYSIZE(stateNames)))
+                component.m_TargetState = static_cast<WeatherStateId>(target);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Changing the target starts a transition automatically — WeatherSystem detects target edits.");
+
+            ImGui::DragFloat("Transition Duration##Weather", &component.m_TransitionDuration, 0.5f, 0.0f, 600.0f, "%.1f s");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Seconds for a full cross-blend between states.");
+            ImGui::DragFloat("Wetness Rise Rate##Weather", &component.m_WetnessRiseRate, 0.01f, 0.0f, 10.0f, "%.3f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("1/s toward the state's wetness target while precipitation falls.");
+            ImGui::DragFloat("Wetness Dry Rate##Weather", &component.m_WetnessDryRate, 0.01f, 0.0f, 10.0f, "%.3f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("1/s toward dry once precipitation stops.");
+
+            const int currentIdx = std::clamp(static_cast<int>(component.m_CurrentState), 0, IM_ARRAYSIZE(stateNames) - 1);
+            ImGui::Text("Current: %s  transition: %.0f%%  wetness: %.2f", stateNames[currentIdx], component.m_TransitionProgress * 100.0f, component.m_Wetness);
+
+            ImGui::SeparatorText("Presets");
+            auto drawPreset = [](const char* label, WeatherPreset& p, WeatherStateId id)
+            {
+                if (!ImGui::TreeNodeEx(label, ImGuiTreeNodeFlags_None))
+                    return;
+
+                ImGui::SliderFloat("Cloud Coverage", &p.CloudCoverage, 0.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Cloud Density", &p.CloudDensity, 0.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Cloud Type Blend", &p.CloudTypeBlend, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("0 = flat stratus, 1 = towering cumulus.");
+                ImGui::SliderFloat("Cloud Wetness", &p.CloudWetness, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Darkens cloud bases (rain-laden look).");
+
+                ImGui::Checkbox("Fog Enabled", &p.FogEnabled);
+                ImGui::DragFloat("Fog Density", &p.FogDensity, 0.0005f, 0.0f, 10.0f, "%.4f");
+                ImGui::ColorEdit3("Fog Color", glm::value_ptr(p.FogColor));
+                ImGui::DragFloat("Fog Height Falloff", &p.FogHeightFalloff, 0.005f, 0.0f, 10.0f, "%.3f");
+                ImGui::DragFloat("Fog Max Opacity", &p.FogMaxOpacity, 0.01f, 0.0f, 1.0f, "%.2f");
+
+                ImGui::DragFloat("Wind Speed", &p.WindSpeed, 0.1f, 0.0f, 200.0f, "%.1f m/s");
+                ImGui::SliderFloat("Wind Gust Strength", &p.WindGustStrength, 0.0f, 1.0f, "%.2f");
+                ImGui::DragFloat("Wind Turbulence", &p.WindTurbulence, 0.01f, 0.0f, 10.0f, "%.2f");
+
+                ImGui::Checkbox("Precipitation Enabled", &p.PrecipitationEnabled);
+                const char* precipKinds[] = { "Snow", "Rain", "Hail", "Sleet" };
+                if (int kind = static_cast<int>(p.PrecipitationKind); ImGui::Combo("Precipitation Kind", &kind, precipKinds, IM_ARRAYSIZE(precipKinds)))
+                    p.PrecipitationKind = static_cast<WeatherPrecipitationType>(kind);
+                ImGui::SliderFloat("Precipitation Intensity", &p.PrecipitationIntensity, 0.0f, 1.0f, "%.2f");
+
+                ImGui::Checkbox("Snow Accumulation", &p.SnowAccumulationEnabled);
+                ImGui::DragFloat("Accumulation Rate", &p.SnowAccumulationRate, 0.0005f, 0.0f, 10.0f, "%.4f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("m/s of settled snow while snowing.");
+
+                ImGui::SliderFloat("Sun Dimming", &p.SunDimming, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Extra global sun-intensity dim beyond the per-pixel cloud shadow.");
+                ImGui::SliderFloat("Wetness Target", &p.WetnessTarget, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Surface wetness this state drives toward.");
+
+                if (ImGui::SmallButton("Reset To Defaults"))
+                    p = MakeDefaultWeatherPreset(id);
+
+                ImGui::TreePop();
+            };
+
+            drawPreset("Clear##WeatherPreset", component.m_PresetClear, WeatherStateId::Clear);
+            drawPreset("Overcast##WeatherPreset", component.m_PresetOvercast, WeatherStateId::Overcast);
+            drawPreset("Rain##WeatherPreset", component.m_PresetRain, WeatherStateId::Rain);
+            drawPreset("Storm##WeatherPreset", component.m_PresetStorm, WeatherStateId::Storm);
+            drawPreset("Snow##WeatherPreset", component.m_PresetSnow, WeatherStateId::Snow);
+            drawPreset("Fog Bank##WeatherPreset", component.m_PresetFogBank, WeatherStateId::FogBank); });
+
+        DrawComponent<CloudscapeComponent>("Volumetric Cloudscape", entity, [](auto& component)
+                                           {
+            ImGui::Checkbox("Enabled##Cloudscape", &component.m_Enabled);
+
+            ImGui::SeparatorText("Layer");
+            ImGui::DragFloat("Layer Bottom##Cloudscape", &component.m_LayerBottom, 10.0f, 0.0f, 20000.0f, "%.0f m");
+            ImGui::DragFloat("Layer Top##Cloudscape", &component.m_LayerTop, 10.0f, 100.0f, 30000.0f, "%.0f m");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The system enforces Layer Top > Layer Bottom at use.");
+
+            ImGui::SeparatorText("Field Shaping");
+            ImGui::TextDisabled("Coverage/type/wetness are driven by the Weather Director when one is enabled in the scene.");
+            ImGui::SliderFloat("Coverage##Cloudscape", &component.m_Coverage, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Density##Cloudscape", &component.m_Density, 0.0f, 4.0f, "%.2f");
+            ImGui::SliderFloat("Type Blend##Cloudscape", &component.m_TypeBlend, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("0 = stratus, 1 = cumulus.");
+            ImGui::SliderFloat("Erosion Strength##Cloudscape", &component.m_ErosionStrength, 0.0f, 1.0f, "%.2f");
+            ImGui::DragFloat("Wind Animation Scale##Cloudscape", &component.m_WindAnimationScale, 0.05f, 0.0f, 8.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Multiplies the WindSystem field's advection.");
+
+            ImGui::SeparatorText("Weather Map");
+            // Weather-map texture slot (same generic CONTENT_BROWSER_ITEM +
+            // type-filter idiom as AudioSoundGraph / VirtualMesh).
+            std::string weatherMapLabel = component.m_WeatherMapHandle != 0
+                ? "Weather Map: " + std::to_string(static_cast<u64>(component.m_WeatherMapHandle))
+                : "Weather Map: Procedural";
+            ImGui::Button(weatherMapLabel.c_str(), ImVec2(-1.0f, 0.0f));
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("RGBA8 2D texture: R = coverage, G = type, B = wetness. Drag a texture asset here;\nProcedural = generate from the noise stack.");
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                    if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                    {
+                        AssetHandle handle = assetManager->ImportAsset(assetPath);
+                        if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::Texture2D)
+                        {
+                            component.m_WeatherMapHandle = handle;
+                        }
+                        else if (handle != 0)
+                        {
+                            OLO_WARN("Drag-dropped asset is not a Texture2D (type: {0})",
+                                     AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                        }
+                        else
+                        {
+                            // No additional handling required.
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if (component.m_WeatherMapHandle != 0)
+            {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear##CloudWeatherMap"))
+                    component.m_WeatherMapHandle = 0;
+            }
+            ImGui::DragFloat("Weather Map Scale##Cloudscape", &component.m_WeatherMapScaleKm, 0.5f, 1.0f, 200.0f, "%.1f km");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("World extent one texture repeat covers.");
+
+            ImGui::SeparatorText("Raymarch Quality");
+            ImGui::SliderInt("Max Steps##Cloudscape", &component.m_MaxSteps, 16, 128);
+            ImGui::SliderInt("Light Steps##Cloudscape", &component.m_LightSteps, 2, 12);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Cone samples toward the sun per march step.");
+
+            ImGui::SeparatorText("Lighting");
+            ImGui::DragFloat("Sun Light Scale##Cloudscape", &component.m_SunLightScale, 0.01f, 0.0f, 10.0f, "%.2f");
+            ImGui::DragFloat("Ambient Scale##Cloudscape", &component.m_AmbientScale, 0.01f, 0.0f, 10.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Scales the sky-IBL ambient term.");
+            ImGui::SliderFloat("Multi-Scatter##Cloudscape", &component.m_MultiScatterStrength, 0.0f, 1.0f, "%.2f");
+            ImGui::SliderFloat("Phase G##Cloudscape", &component.m_PhaseG, 0.0f, 0.95f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Henyey-Greenstein anisotropy (forward lobe).");
+            ImGui::DragFloat("Powder Strength##Cloudscape", &component.m_PowderStrength, 0.01f, 0.0f, 2.0f, "%.2f");
+
+            ImGui::SeparatorText("Ground Shadows");
+            ImGui::Checkbox("Cast Cloud Shadows##Cloudscape", &component.m_CastCloudShadows);
+            if (component.m_CastCloudShadows)
+            {
+                ImGui::Indent();
+                ImGui::SliderFloat("Shadow Strength##Cloudscape", &component.m_ShadowStrength, 0.0f, 1.0f, "%.2f");
+                ImGui::DragFloat("Shadow World Size##Cloudscape", &component.m_ShadowMapWorldSize, 50.0f, 500.0f, 50000.0f, "%.0f m");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("World extent the transmittance map covers, centered on the camera.");
+                ImGui::Unindent();
+            }
+
+            ImGui::SeparatorText("Temporal & IBL");
+            ImGui::SliderFloat("Temporal Blend##Cloudscape", &component.m_TemporalBlend, 0.0f, 0.98f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Reprojection history feedback; 0 = fresh every frame.");
+            ImGui::Checkbox("Affect IBL##Cloudscape", &component.m_AffectIBL);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Bakes a cheap cloud tint into the sky cubemap so IBL/reflections see clouds."); });
 
         DrawComponent<EnvironmentMapComponent>("Environment Map", entity, [](auto& component)
                                                {

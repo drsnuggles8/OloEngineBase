@@ -10,6 +10,8 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 
+#include "OloEngine/Renderer/CloudNoise.h"
+#include "OloEngine/Renderer/CloudShadowMap.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Buffer.h"
@@ -198,7 +200,7 @@ namespace OloEngine
 
         u32 shaderIdx = 0;
         // NOTE: Keep totalShaders3D in sync with the number of Load() calls below.
-        constexpr u32 totalShaders3D = 45;
+        constexpr u32 totalShaders3D = 46;
 
         // Boot + fallback are idempotent — no-ops when already initialized by
         // Renderer::Init().  Needed here for the lazy-init path (EditorLayer
@@ -222,6 +224,7 @@ namespace OloEngine
             "assets/shaders/EquirectangularToCubemap.glsl",
             "assets/shaders/ProceduralSky.glsl",
             "assets/shaders/StarNestSky.glsl",
+            "assets/shaders/AtmosphereSky.glsl",
             "assets/shaders/IrradianceConvolution.glsl",
             "assets/shaders/IrradianceConvolutionAdvanced.glsl",
             "assets/shaders/IrradianceFromSH.glsl",
@@ -508,6 +511,10 @@ namespace OloEngine
         // Shutdown wind system
         WindSystem::Shutdown();
 
+        // Shutdown volumetric cloudscape systems (issue #633)
+        CloudShadowMap::Shutdown();
+        CloudNoise::Shutdown();
+
         // Shutdown precipitation system
         ScreenSpacePrecipitation::Shutdown();
         PrecipitationSystem::Shutdown();
@@ -532,6 +539,13 @@ namespace OloEngine
         s_Data.FogFrameIndex = 0;
         s_Data.FogLastTime = {};
         s_Data.FogTime = 0.0f;
+
+        // Reset cloudscape state + wind-advection accumulators (issue #633)
+        s_Data.Cloudscape = {};
+        s_Data.CloudWindOffset = glm::vec2(0.0f);
+        s_Data.CloudTime = 0.0f;
+        s_Data.CloudFrameIndex = 0;
+        s_Data.CloudPrevTimeSeconds = 0.0f;
 
         if (s_Data.RGraph)
         {

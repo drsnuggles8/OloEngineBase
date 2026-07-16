@@ -58,6 +58,7 @@
 #include <chrono>
 #include <cmath>
 #include <ctime>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -81,6 +82,47 @@ namespace OloEngine
     [[nodiscard]] static bool IsFiniteVec4(const glm::vec4& v)
     {
         return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z) && std::isfinite(v.w);
+    }
+
+    // ── WeatherStateId <-> name mapping for the Lua "targetState" /
+    // "currentState" string properties (case-sensitive; the names mirror the
+    // WeatherStateId enumerators exactly) ──
+    [[nodiscard]] static std::string_view WeatherStateIdToName(WeatherStateId state)
+    {
+        switch (state)
+        {
+            case WeatherStateId::Clear:
+                return "Clear";
+            case WeatherStateId::Overcast:
+                return "Overcast";
+            case WeatherStateId::Rain:
+                return "Rain";
+            case WeatherStateId::Storm:
+                return "Storm";
+            case WeatherStateId::Snow:
+                return "Snow";
+            case WeatherStateId::FogBank:
+                return "FogBank";
+            default:
+                return "Clear";
+        }
+    }
+
+    [[nodiscard]] static std::optional<WeatherStateId> WeatherStateIdFromName(std::string_view name)
+    {
+        if (name == "Clear")
+            return WeatherStateId::Clear;
+        if (name == "Overcast")
+            return WeatherStateId::Overcast;
+        if (name == "Rain")
+            return WeatherStateId::Rain;
+        if (name == "Storm")
+            return WeatherStateId::Storm;
+        if (name == "Snow")
+            return WeatherStateId::Snow;
+        if (name == "FogBank")
+            return WeatherStateId::FogBank;
+        return std::nullopt;
     }
 
     // Recover (active scene, owning entity) for a script-bound gameplay
@@ -247,6 +289,10 @@ namespace OloEngine
             REGISTER_COMPONENT(StarNestSkyComponent),
             REGISTER_COMPONENT(LightProbeComponent),
             REGISTER_COMPONENT(LightProbeVolumeComponent),
+            // Atmosphere & weather (issue #633)
+            REGISTER_COMPONENT(TimeOfDayComponent),
+            REGISTER_COMPONENT(WeatherStateComponent),
+            REGISTER_COMPONENT(CloudscapeComponent),
             // Streaming
             REGISTER_COMPONENT(StreamingVolumeComponent),
             // Terrain
@@ -2926,7 +2972,6 @@ namespace OloEngine
                                                                               { return s.m_SunDiskSize; }, [](ProceduralSkyComponent& s, f32 v)
                                                                               { if (std::isfinite(v) && v > 0.0f) s.m_SunDiskSize = v; }),
                                                  "showSunDisk", &ProceduralSkyComponent::m_ShowSunDisk,
-                                                 "linkSunToDirectionalLight", &ProceduralSkyComponent::m_LinkSunToDirectionalLight,
                                                  "enableSkybox", &ProceduralSkyComponent::m_EnableSkybox,
                                                  "enableIBL", &ProceduralSkyComponent::m_EnableIBL,
                                                  "iblIntensity", sol::property([](const ProceduralSkyComponent& s)
@@ -2983,6 +3028,112 @@ namespace OloEngine
                                                "iblIntensity", sol::property([](const StarNestSkyComponent& s)
                                                                              { return s.m_IBLIntensity; }, [](StarNestSkyComponent& s, f32 v)
                                                                              { if (std::isfinite(v) && v >= 0.0f) s.m_IBLIntensity = v; }));
+
+        // --- TimeOfDayComponent ---
+        // Authored clock/ephemeris inputs plus the read-only derived outputs
+        // (sun/moon directions, elevation, is-night) rewritten by
+        // TimeOfDaySystem::Apply every frame. Setter clamps mirror the
+        // OLO_SERIALIZE(Clamp) ranges in Components.h; timeOfDayHours WRAPS
+        // (a clock, not a slider) so "hours + 25" from a script keeps ticking
+        // across midnight instead of pinning at 24.
+        lua.new_usertype<TimeOfDayComponent>("TimeOfDayComponent",
+                                             "enabled", &TimeOfDayComponent::m_Enabled,
+                                             "timeOfDayHours", sol::property([](const TimeOfDayComponent& t)
+                                                                             { return t.m_TimeOfDayHours; }, [](TimeOfDayComponent& t, f32 v)
+                                                                             {
+                                                    if (!std::isfinite(v))
+                                                        return;
+                                                    f32 wrapped = std::fmod(v, 24.0f);
+                                                    if (wrapped < 0.0f)
+                                                        wrapped += 24.0f;
+                                                    if (wrapped >= 24.0f) // float rounding on a tiny negative can land exactly on 24
+                                                        wrapped = 0.0f;
+                                                    t.m_TimeOfDayHours = wrapped; }),
+                                             "dayOfYear", sol::property([](const TimeOfDayComponent& t)
+                                                                        { return t.m_DayOfYear; }, [](TimeOfDayComponent& t, i32 v)
+                                                                        { t.m_DayOfYear = std::clamp(v, 1, 365); }),
+                                             "latitudeDegrees", sol::property([](const TimeOfDayComponent& t)
+                                                                              { return t.m_LatitudeDegrees; }, [](TimeOfDayComponent& t, f32 v)
+                                                                              { if (std::isfinite(v)) t.m_LatitudeDegrees = std::clamp(v, -90.0f, 90.0f); }),
+                                             "dayLengthMinutes", sol::property([](const TimeOfDayComponent& t)
+                                                                               { return t.m_DayLengthMinutes; }, [](TimeOfDayComponent& t, f32 v)
+                                                                               { if (std::isfinite(v)) t.m_DayLengthMinutes = std::clamp(v, 0.1f, 10080.0f); }),
+                                             "timeScale", sol::property([](const TimeOfDayComponent& t)
+                                                                        { return t.m_TimeScale; }, [](TimeOfDayComponent& t, f32 v)
+                                                                        { if (std::isfinite(v)) t.m_TimeScale = std::clamp(v, 0.0f, 1000.0f); }),
+                                             "paused", &TimeOfDayComponent::m_Paused,
+                                             "moonPhase", sol::property([](const TimeOfDayComponent& t)
+                                                                        { return t.m_MoonPhase; }, [](TimeOfDayComponent& t, f32 v)
+                                                                        { if (std::isfinite(v)) t.m_MoonPhase = std::clamp(v, 0.0f, 1.0f); }),
+                                             "northOffsetDegrees", sol::property([](const TimeOfDayComponent& t)
+                                                                                 { return t.m_NorthOffsetDegrees; }, [](TimeOfDayComponent& t, f32 v)
+                                                                                 { if (std::isfinite(v)) t.m_NorthOffsetDegrees = std::clamp(v, -360.0f, 360.0f); }),
+                                             "sunDirection", sol::readonly_property([](const TimeOfDayComponent& t)
+                                                                                    { return t.m_SunDirection; }),
+                                             "moonDirection", sol::readonly_property([](const TimeOfDayComponent& t)
+                                                                                     { return t.m_MoonDirection; }),
+                                             "sunElevationDegrees", sol::readonly_property([](const TimeOfDayComponent& t)
+                                                                                           { return t.m_SunElevationDegrees; }),
+                                             "isNight", sol::readonly_property([](const TimeOfDayComponent& t)
+                                                                               { return t.m_IsNight; }));
+
+        // --- WeatherStateComponent ---
+        // Scripts drive the weather director through the state machine only:
+        // targetState is a case-sensitive string ("Clear" / "Overcast" /
+        // "Rain" / "Storm" / "Snow" / "FogBank"); the per-state presets and
+        // the blended output stay internal (WeatherSystem owns the blend).
+        lua.new_usertype<WeatherStateComponent>("WeatherStateComponent",
+                                                "enabled", &WeatherStateComponent::m_Enabled,
+                                                "targetState", sol::property([](const WeatherStateComponent& w)
+                                                                             { return WeatherStateIdToName(w.m_TargetState); }, [](WeatherStateComponent& w, std::string_view name)
+                                                                             {
+                                                    if (const auto id = WeatherStateIdFromName(name))
+                                                        w.m_TargetState = *id;
+                                                    else
+                                                        OLO_CORE_WARN("[Lua] WeatherStateComponent.targetState: unknown weather state '{}' — ignored (expected Clear/Overcast/Rain/Storm/Snow/FogBank)", name); }),
+                                                "currentState", sol::readonly_property([](const WeatherStateComponent& w)
+                                                                                       { return WeatherStateIdToName(w.m_CurrentState); }),
+                                                "transitionDuration", sol::property([](const WeatherStateComponent& w)
+                                                                                    { return w.m_TransitionDuration; }, [](WeatherStateComponent& w, f32 v)
+                                                                                    { if (std::isfinite(v)) w.m_TransitionDuration = std::clamp(v, 0.0f, 600.0f); }),
+                                                "transitionProgress", sol::readonly_property([](const WeatherStateComponent& w)
+                                                                                             { return w.m_TransitionProgress; }),
+                                                "wetness", sol::readonly_property([](const WeatherStateComponent& w)
+                                                                                  { return w.m_Wetness; }));
+
+        // --- CloudscapeComponent ---
+        // Field-shaping and shadow knobs only: the raymarch-quality and IBL
+        // settings are authoring-time, not script-facing. Setter clamps mirror
+        // the OLO_SERIALIZE(Clamp) ranges in Components.h. Note the weather
+        // director overrides coverage/typeBlend/wetness while an enabled
+        // WeatherStateComponent is present in the scene.
+        lua.new_usertype<CloudscapeComponent>("CloudscapeComponent",
+                                              "enabled", &CloudscapeComponent::m_Enabled,
+                                              "coverage", sol::property([](const CloudscapeComponent& c)
+                                                                        { return c.m_Coverage; }, [](CloudscapeComponent& c, f32 v)
+                                                                        { if (std::isfinite(v)) c.m_Coverage = std::clamp(v, 0.0f, 1.0f); }),
+                                              "density", sol::property([](const CloudscapeComponent& c)
+                                                                       { return c.m_Density; }, [](CloudscapeComponent& c, f32 v)
+                                                                       { if (std::isfinite(v)) c.m_Density = std::clamp(v, 0.0f, 4.0f); }),
+                                              "typeBlend", sol::property([](const CloudscapeComponent& c)
+                                                                         { return c.m_TypeBlend; }, [](CloudscapeComponent& c, f32 v)
+                                                                         { if (std::isfinite(v)) c.m_TypeBlend = std::clamp(v, 0.0f, 1.0f); }),
+                                              "erosionStrength", sol::property([](const CloudscapeComponent& c)
+                                                                               { return c.m_ErosionStrength; }, [](CloudscapeComponent& c, f32 v)
+                                                                               { if (std::isfinite(v)) c.m_ErosionStrength = std::clamp(v, 0.0f, 1.0f); }),
+                                              "windAnimationScale", sol::property([](const CloudscapeComponent& c)
+                                                                                  { return c.m_WindAnimationScale; }, [](CloudscapeComponent& c, f32 v)
+                                                                                  { if (std::isfinite(v)) c.m_WindAnimationScale = std::clamp(v, 0.0f, 8.0f); }),
+                                              "castCloudShadows", &CloudscapeComponent::m_CastCloudShadows,
+                                              "shadowStrength", sol::property([](const CloudscapeComponent& c)
+                                                                              { return c.m_ShadowStrength; }, [](CloudscapeComponent& c, f32 v)
+                                                                              { if (std::isfinite(v)) c.m_ShadowStrength = std::clamp(v, 0.0f, 1.0f); }),
+                                              "layerBottom", sol::property([](const CloudscapeComponent& c)
+                                                                           { return c.m_LayerBottom; }, [](CloudscapeComponent& c, f32 v)
+                                                                           { if (std::isfinite(v)) c.m_LayerBottom = std::clamp(v, 0.0f, 20000.0f); }),
+                                              "layerTop", sol::property([](const CloudscapeComponent& c)
+                                                                        { return c.m_LayerTop; }, [](CloudscapeComponent& c, f32 v)
+                                                                        { if (std::isfinite(v)) c.m_LayerTop = std::clamp(v, 100.0f, 30000.0f); }));
 
         // --- NavAgentComponent ---
         lua.new_usertype<NavAgentComponent>("NavAgentComponent",

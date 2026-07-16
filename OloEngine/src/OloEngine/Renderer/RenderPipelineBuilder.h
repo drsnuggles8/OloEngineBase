@@ -49,6 +49,7 @@ namespace OloEngine
         RenderGraphNode* DOF = nullptr;
         RenderGraphNode* MotionBlur = nullptr;
         RenderGraphNode* TAA = nullptr;
+        RenderGraphNode* Cloudscape = nullptr; // #633 volumetric cloudscape (between TAA and Precipitation)
         RenderGraphNode* Precipitation = nullptr;
         RenderGraphNode* VolumetricFog = nullptr;
         RenderGraphNode* Fog = nullptr;

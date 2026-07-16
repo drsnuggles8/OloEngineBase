@@ -103,18 +103,6 @@ namespace OloEngine
         s_Data.PrimaryDirectionalLightDir = direction;
     }
 
-    void Renderer3D::SetSunDirectionOverride(const glm::vec3& towardSunDirection)
-    {
-        s_Data.SunDirectionOverride = towardSunDirection;
-        s_Data.SunDirectionOverrideActive = true;
-    }
-
-    void Renderer3D::ClearSunDirectionOverride()
-    {
-        s_Data.SunDirectionOverrideActive = false;
-        s_Data.SunDirectionOverride = glm::vec3(0.0f, 1.0f, 0.0f);
-    }
-
     void Renderer3D::SetCameraClipPlanes(f32 nearClip, f32 farClip)
     {
         s_Data.CameraNearClip = nearClip;

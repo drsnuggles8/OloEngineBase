@@ -1,0 +1,57 @@
+#version 460 core
+
+// =============================================================================
+// CloudNoise_Generate.comp — Bakes the tiling 3D cloud-noise volumes.
+//
+// One invocation per texel of an RGBA8 3D texture. Two modes (u_Mode):
+//   0 = base shape (128³):  R = Perlin-Worley at freq 4 (billowy base),
+//                           G/B/A = Worley FBM at freq 8/16/32 — the
+//                           erosion-remap octaves (Nubis-style).
+//   1 = detail     (32³):   R/G/B = Worley FBM at freq 8/16/32 for
+//                           cloud-edge erosion, A = 1.
+//
+// Every channel tiles with period 1 (see NoiseCommon.glsl), so the cloud
+// raymarch can repeat-sample the volumes at any world scale without seams.
+// Dispatched once by CloudNoise::EnsureGenerated() — not per frame.
+// =============================================================================
+
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+#include "../include/NoiseCommon.glsl"
+
+layout(rgba8, binding = 0) uniform writeonly image3D u_Output;
+
+// ---- Uniforms set by CloudNoise::EnsureGenerated() ----
+uniform int   u_Mode;    // 0 = base, 1 = detail
+uniform int   u_Size;    // texels per axis (128 base, 32 detail)
+uniform float u_InvSize; // 1.0 / u_Size
+
+void main()
+{
+    ivec3 gid = ivec3(gl_GlobalInvocationID);
+
+    // Early-out for invocations beyond the volume
+    if (any(greaterThanEqual(gid, ivec3(u_Size))))
+        return;
+
+    // Texel centre in [0, 1)³ — the tiling domain of NoiseCommon.glsl
+    vec3 p = (vec3(gid) + 0.5) * u_InvSize;
+
+    vec4 result;
+    if (u_Mode == 0)
+    {
+        result = vec4(perlinWorley(p, 4.0),
+                      worleyFbm3(p, 8.0),
+                      worleyFbm3(p, 16.0),
+                      worleyFbm3(p, 32.0));
+    }
+    else
+    {
+        result = vec4(worleyFbm3(p, 8.0),
+                      worleyFbm3(p, 16.0),
+                      worleyFbm3(p, 32.0),
+                      1.0);
+    }
+
+    imageStore(u_Output, gid, result);
+}

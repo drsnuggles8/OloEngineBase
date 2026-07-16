@@ -31,13 +31,13 @@ namespace OloEngine
     //  - AO       (`AOSlot`)               — the shared AO producer/consumer surface
     //  - Scratch  (`ScratchSlot`)          — graph-internal transients (SSAO, JFA, Bloom mips,
     //                                        GTAO denoise/edge, HZB, water refraction,
-    //                                        fluid refraction, fog half-res)
+    //                                        fluid refraction, fog half-res, clouds half-res)
     //  - Shadows  (`ShadowSlot`)           — CSM + the unified shadow atlas (spot & point
     //                                        entries share one texture, issue #435)
     //  - Post     (`PostProcessSlot`)      — post-process chain framebuffers + attachment views
     //  - OIT      (`OITSlot`)              — weighted-blended OIT MRT buffers
-    //  - Temporal (`TemporalHistorySlot`)  — imported prior-frame histories (TAA; the fog
-    //                                        history lives in VolumetricFogPass's own volume)
+    //  - Temporal (`TemporalHistorySlot`)  — imported prior-frame histories (TAA, clouds; the
+    //                                        fog history lives in VolumetricFogPass's own volume)
     //  - IBL      (`IBLSlot`)              — global imported IBL textures
     //
     // Unset handles (IsValid() == false) mean the resource is not available in
@@ -167,6 +167,15 @@ namespace OloEngine
             // froxel-volume fetch), sampled by Fog pass B (bilateral
             // upsample) within the same Execute.
             RGFramebufferHandle FogHalfRes;
+
+            // Cloudscape half-resolution scratch framebuffers (issue #633).
+            // RGBA16F at ceil(viewport/2). CloudsRaw is written by the
+            // raymarch (pass A) and sampled by the temporal resolve (pass B);
+            // CloudsResolved is written by pass B, sampled by the full-res
+            // composite (pass C) and extracted into the CloudsHistory sink.
+            // All within the same Execute; internal to CloudscapeRenderPass.
+            RGFramebufferHandle CloudsRaw;
+            RGFramebufferHandle CloudsResolved;
         };
 
         // -----------------------------------------------------------------------
@@ -221,6 +230,8 @@ namespace OloEngine
             RGTextureHandle MotionBlurColorTexture;       // Color attachment view of MotionBlurColor
             RGFramebufferHandle TAAColor;                 // After temporal AA resolve (only valid when TAA is enabled)
             RGTextureHandle TAAColorTexture;              // Color attachment view of TAAColor
+            RGFramebufferHandle CloudsColor;              // After volumetric cloudscape composite (only valid when the cloudscape is enabled, issue #633)
+            RGTextureHandle CloudsColorTexture;           // Color attachment view of CloudsColor
             RGFramebufferHandle PrecipitationColor;       // After screen-space precipitation overlay (only valid when precipitation screen FX enabled)
             RGTextureHandle PrecipitationColorTexture;    // Color attachment view of PrecipitationColor
             RGFramebufferHandle FogColor;                 // After volumetric fog composite (only valid when fog is enabled)
@@ -260,7 +271,8 @@ namespace OloEngine
         // -----------------------------------------------------------------------
         struct TemporalHistorySlot
         {
-            RGTextureHandle TAAHistory; // Previous TAA accumulation buffer
+            RGTextureHandle TAAHistory;    // Previous TAA accumulation buffer
+            RGTextureHandle CloudsHistory; // Previous cloudscape resolve buffer (half-res, issue #633)
             // (Fog's temporal history moved into VolumetricFogPass's own 3D
             // scatter volume with the froxel fog rework — issue #435.)
         };

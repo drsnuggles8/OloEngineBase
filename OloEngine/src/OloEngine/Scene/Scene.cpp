@@ -23,6 +23,10 @@
 #include "OloEngine/Renderer/UnderwaterCaustics.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
+#include "OloEngine/Atmosphere/Ephemeris.h"
+#include "OloEngine/Atmosphere/TimeOfDaySystem.h"
+#include "OloEngine/Atmosphere/WeatherSystem.h"
+#include "OloEngine/Renderer/AtmosphereSky.h"
 #include "OloEngine/Renderer/ProceduralSky.h"
 #include "OloEngine/Renderer/StarNestSky.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
@@ -1272,11 +1276,10 @@ namespace OloEngine
             m_UINavigation->Clear();
         }
 
-        // Drop any ephemeral MCP sun-direction override (#316 Part 4) so leaving
-        // Play mode restores the authored procedural-sky sun. The override is a
-        // diagnostics-server lighting-iteration aid; it must never outlive a
-        // play/stop cycle. A no-op when none is active.
-        Renderer3D::ClearSunDirectionOverride();
+        // (The ephemeral MCP sun-direction override clear that used to live
+        // here was retired by issue #633 — the MCP time-of-day tools now write
+        // the serialized TimeOfDayComponent, which play/stop restores through
+        // the normal scene-copy path like any other component.)
     }
 
     void Scene::OnSimulationStart()
@@ -2387,6 +2390,26 @@ namespace OloEngine
             sched.AddSystem("Cinematics", [](Scene& s, Timestep ts)
                             { s.UpdateCinematics(ts); })
                 .Writes(kLocalTransforms);
+
+            // Time-of-day clock (issue #633): advances TimeOfDayComponent's
+            // game clock only. The ephemeris → directional-light/sky drive
+            // runs on the RENDER path (TimeOfDaySystem::Apply, both editor and
+            // runtime), so this system touches no channel any other system
+            // reads — tie-break placement after Cinematics keeps scripts'
+            // same-tick clock edits (Scripts runs earlier) visible to it.
+            sched.AddSystem("TimeOfDay", [](Scene& s, Timestep ts)
+                            { TimeOfDaySystem::AdvanceClock(s, ts); });
+
+            // Weather director (issue #633): advances the state cross-blend +
+            // wetness and writes the blended weather-facing subset into the
+            // scene-level Wind/Fog/Precipitation/SnowAccumulation settings
+            // (plus their Renderer3D global twins). Must complete BEFORE the
+            // physics kick: ClothWindSystem samples Scene::GetWindSettings()
+            // inside the kick's game-thread phase, and this tick's cloth
+            // should feel this tick's wind.
+            sched.AddSystem("Weather", [](Scene& s, Timestep ts)
+                            { WeatherSystem::Tick(s, ts); })
+                .Before("PhysicsKick");
 
             // Locomotion controller (issue #631 part 4): measures character
             // velocity (last tick's controller velocity / transform deltas —
@@ -3594,6 +3617,13 @@ namespace OloEngine
         // Refresh LocalizedTextComponent → TextComponent.TextString so the
         // editor reflects locale changes in real time.
         LocalizationSystem::UpdateLocalizedText(*this);
+
+        // Advance the time-of-day clock while authoring, but only for
+        // components that opted in (m_AdvanceInEditMode) — scenes must not
+        // drift just from being open. The ephemeris → light/sky application
+        // happens on the render path (RenderScene3D) either way, so scrubbing
+        // the inspector's time slider always works.
+        TimeOfDaySystem::AdvanceClockInEditMode(*this, ts);
 
         // Compose parent-chain world matrices early — editor-preview mode has
         // no physics step, and gizmo/inspector edits to local transforms need
@@ -5429,63 +5459,130 @@ namespace OloEngine
         // the procedural sky so the loops can't both fire.
         if (auto procView = m_Registry.view<ProceduralSkyComponent>(); procView.begin() != procView.end())
         {
+            // The scene's TimeOfDayComponent (when enabled) switches the
+            // procedural sky to the combined day/night AtmosphereSky bake and
+            // becomes the single authoritative sun source (issue #633). The
+            // old m_LinkSunToDirectionalLight pull and the ephemeral MCP sun
+            // override (#316 Part 4) are retired: TimeOfDaySystem::Apply
+            // drives the directional light BEFORE this runs, and the MCP
+            // tools now write the TimeOfDayComponent's real clock instead.
+            TimeOfDayComponent* timeOfDay = nullptr;
+            for (auto todEntity : m_Registry.view<TimeOfDayComponent>())
+            {
+                if (auto& tod = m_Registry.get<TimeOfDayComponent>(todEntity); tod.m_Enabled)
+                {
+                    timeOfDay = &tod;
+                    break;
+                }
+            }
+
             for (auto entity : procView)
             {
                 auto& sky = procView.get<ProceduralSkyComponent>(entity);
 
-                // Time-of-day path: pull sun direction from the first
-                // directional light in the scene each tick. Negation
-                // converts "outgoing light direction" -> "toward sun".
-                if (sky.m_LinkSunToDirectionalLight)
+                u64 hash = 0;
+                Ref<EnvironmentMap> baked;
+                bool bakeAttempted = false;
+
+                if (timeOfDay)
                 {
-                    auto dirView = m_Registry.view<DirectionalLightComponent>();
-                    if (auto it = dirView.begin(); it != dirView.end())
+                    // Quantize the clock to the rebake quantum so the hash —
+                    // and therefore the expensive 6-face + IBL bake — only
+                    // moves on those steps, never per frame (the sun's
+                    // continuous motion is carried by the directional light;
+                    // the baked sky follows in quantized steps).
+                    const f32 quantizedHours = Ephemeris::QuantizeTimeHours(
+                        timeOfDay->m_TimeOfDayHours, timeOfDay->m_RebakeQuantumGameMinutes);
+                    EphemerisInputs ephemerisIn;
+                    ephemerisIn.TimeOfDayHours = quantizedHours;
+                    ephemerisIn.DayOfYear = timeOfDay->m_DayOfYear;
+                    ephemerisIn.LatitudeDegrees = timeOfDay->m_LatitudeDegrees;
+                    ephemerisIn.NorthOffsetDegrees = timeOfDay->m_NorthOffsetDegrees;
+                    ephemerisIn.MoonPhase = timeOfDay->m_MoonPhase;
+                    const SunMoonState quantized = Ephemeris::ComputeSunMoon(ephemerisIn);
+
+                    AtmosphereSkyParameters ap;
+                    ap.Day.SunDirection = quantized.SunDirection;
+                    ap.Day.Turbidity = sky.m_Turbidity;
+                    ap.Day.Exposure = timeOfDay->m_SkyExposureDay;
+                    ap.Day.SunIntensity = sky.m_SunIntensity;
+                    ap.Day.SunDiskSize = sky.m_SunDiskSize;
+                    ap.Day.ShowSunDisk = sky.m_ShowSunDisk;
+                    ap.MoonDirection = quantized.MoonDirection;
+                    ap.MoonDiskSize = timeOfDay->m_MoonDiskSize;
+                    ap.MoonIlluminatedFraction = quantized.MoonIlluminatedFraction;
+                    ap.MoonIntensity = 1.0f;
+                    ap.StarIntensity = timeOfDay->m_StarIntensity;
+                    ap.NightBlendFactor = Ephemeris::NightBlend(quantized.SunElevationRadians);
+                    ap.NightBrightness = timeOfDay->m_SkyExposureNight;
+                    // Sidereal-ish: the star dome rotates once per game day.
+                    ap.StarRotationRadians = quantizedHours / 24.0f * 2.0f * glm::pi<f32>();
+
+                    // Cloud tint for IBL/reflections (bucketed so it hash-gates
+                    // cleanly): coverage from the weather director's blend when
+                    // one is enabled, else the cloudscape's authored value.
+                    for (auto cloudEntity : m_Registry.view<CloudscapeComponent>())
                     {
-                        const auto& dirLight = dirView.get<DirectionalLightComponent>(*it);
-                        const glm::vec3 newDir = -dirLight.m_Direction;
-                        if (std::isfinite(newDir.x) && std::isfinite(newDir.y) && std::isfinite(newDir.z) &&
-                            glm::length(newDir) > 1e-4f)
+                        const auto& clouds = m_Registry.get<CloudscapeComponent>(cloudEntity);
+                        if (!clouds.m_Enabled || !clouds.m_AffectIBL)
+                            break;
+                        f32 coverage = clouds.m_Coverage;
+                        f32 wetness = 0.0f;
+                        for (auto weatherEntity : m_Registry.view<WeatherStateComponent>())
                         {
-                            sky.m_SunDirection = newDir;
+                            const auto& weather = m_Registry.get<WeatherStateComponent>(weatherEntity);
+                            if (weather.m_Enabled && weather.m_BlendedValid)
+                            {
+                                coverage = weather.m_Blended.CloudCoverage;
+                                wetness = weather.m_Blended.CloudWetness;
+                            }
+                            break;
                         }
+                        ap.CloudCoverage = std::round(std::clamp(coverage, 0.0f, 1.0f) * 20.0f) / 20.0f;
+                        ap.CloudWetness = std::round(std::clamp(wetness, 0.0f, 1.0f) * 10.0f) / 10.0f;
+                        break;
+                    }
+
+                    hash = AtmosphereSky::HashParameters(ap, sky.m_CubemapResolution);
+                    if (!sky.m_EnvironmentMap || hash != sky.m_LastBakeHash)
+                    {
+                        baked = AtmosphereSky::Generate(ap, sky.m_CubemapResolution);
+                        bakeAttempted = true;
+                    }
+                }
+                else
+                {
+                    // No time-of-day driver: the classic authored Preetham bake.
+                    PreethamParameters params;
+                    params.SunDirection = sky.m_SunDirection;
+                    params.Turbidity = sky.m_Turbidity;
+                    params.Exposure = sky.m_Exposure;
+                    params.SunIntensity = sky.m_SunIntensity;
+                    params.SunDiskSize = sky.m_SunDiskSize;
+                    params.ShowSunDisk = sky.m_ShowSunDisk;
+
+                    hash = ProceduralSky::HashParameters(params, sky.m_CubemapResolution);
+                    if (!sky.m_EnvironmentMap || hash != sky.m_LastBakeHash)
+                    {
+                        baked = ProceduralSky::Generate(params, sky.m_CubemapResolution);
+                        bakeAttempted = true;
                     }
                 }
 
-                // Ephemeral MCP sun-direction override (#316 Part 4): when an
-                // agent has set a time-of-day / sun-angle via the diagnostics
-                // server (olo_scene_set_time_of_day / olo_scene_set_sun_angle),
-                // bake with that toward-sun direction instead of the component's
-                // serialized value — WITHOUT writing m_SunDirection, so the
-                // override stays ephemeral and a scene reload / play-stop /
-                // server-stop / explicit clear restores the authored sun. Applied
-                // after the directional-light link above so it also wins over it.
-                glm::vec3 effectiveSunDirection = sky.m_SunDirection;
-                if (Renderer3D::HasSunDirectionOverride())
-                    effectiveSunDirection = Renderer3D::GetSunDirectionOverride();
-
-                // Detect dirtiness via parameter hash; rebake on change. The
-                // bake is expensive (six cubemap face renders + IBL convolve)
-                // so we deliberately gate on the hash rather than rebake every
-                // frame. Because the override feeds the same hashed params, a
-                // changed (or cleared) override moves the hash and triggers
-                // exactly one rebake — no per-frame rebake while it is steady.
-                PreethamParameters params;
-                params.SunDirection = effectiveSunDirection;
-                params.Turbidity = sky.m_Turbidity;
-                params.Exposure = sky.m_Exposure;
-                params.SunIntensity = sky.m_SunIntensity;
-                params.SunDiskSize = sky.m_SunDiskSize;
-                params.ShowSunDisk = sky.m_ShowSunDisk;
-
-                const u64 hash = ProceduralSky::HashParameters(params, sky.m_CubemapResolution);
-                if (!sky.m_EnvironmentMap || hash != sky.m_LastBakeHash)
+                if (bakeAttempted)
                 {
-                    auto baked = ProceduralSky::Generate(params, sky.m_CubemapResolution);
                     if (baked)
-                    {
                         sky.m_EnvironmentMap = baked;
-                        sky.m_LastBakeHash = hash;
-                    }
+                    else
+                        sky.m_EnvironmentMap.Reset(); // drop the stale bake so the cache matches the (failed) current params
+
+                    // Record the attempt regardless of outcome (StarNest
+                    // policy): a persistent bake failure must not re-run the
+                    // expensive Generate — and re-log its error — every frame.
+                    // A real parameter/time-quantum change moves the hash and
+                    // retries; the editor "Force Rebake" resets m_LastBakeHash
+                    // to 0 to force a retry on demand.
+                    sky.m_LastBakeHash = hash;
                 }
 
                 if (!sky.m_EnvironmentMap)
@@ -6111,6 +6208,104 @@ namespace OloEngine
             // fog / atmospheric sun-direction derivation (previously carried by
             // the now-retired single-light SceneLight).
             Renderer3D::SetPrimaryDirectionalLightDirection(directionalLightDir);
+
+            // ── Cloudscape / atmosphere render state (issue #633) ──────────
+            // Snapshot the first enabled CloudscapeComponent (weather-director
+            // blend overriding coverage/type/wetness) plus the global surface
+            // wetness for the PBR weather response; published every frame so a
+            // removed/disabled component cleanly resets the renderer state.
+            {
+                CloudscapeRenderState cloudState; // defaults = everything off
+
+                // Weather signals apply with or without a cloud layer.
+                const WeatherStateComponent* weather = nullptr;
+                for (auto weatherEntity : m_Registry.view<WeatherStateComponent>())
+                {
+                    if (const auto& w = m_Registry.get<WeatherStateComponent>(weatherEntity);
+                        w.m_Enabled && w.m_BlendedValid)
+                    {
+                        weather = &w;
+                    }
+                    break;
+                }
+                if (weather)
+                    cloudState.SurfaceWetness = std::clamp(weather->m_Wetness, 0.0f, 1.0f);
+
+                for (auto cloudEntity : m_Registry.view<CloudscapeComponent>())
+                {
+                    const auto& clouds = m_Registry.get<CloudscapeComponent>(cloudEntity);
+                    if (!clouds.m_Enabled)
+                        break;
+
+                    cloudState.Enabled = true;
+                    cloudState.LayerBottom = clouds.m_LayerBottom;
+                    cloudState.LayerTop = std::max(clouds.m_LayerTop, clouds.m_LayerBottom + 100.0f);
+                    cloudState.Coverage = clouds.m_Coverage;
+                    cloudState.Density = clouds.m_Density;
+                    cloudState.TypeBlend = clouds.m_TypeBlend;
+                    cloudState.Erosion = clouds.m_ErosionStrength;
+                    cloudState.WindAnimationScale = clouds.m_WindAnimationScale;
+                    cloudState.WeatherMapExtentMeters = clouds.m_WeatherMapScaleKm * 1000.0f;
+                    cloudState.MaxSteps = clouds.m_MaxSteps;
+                    cloudState.LightSteps = clouds.m_LightSteps;
+                    cloudState.SunLightScale = clouds.m_SunLightScale;
+                    cloudState.AmbientScale = clouds.m_AmbientScale;
+                    cloudState.MultiScatterStrength = clouds.m_MultiScatterStrength;
+                    cloudState.PhaseG = clouds.m_PhaseG;
+                    cloudState.PowderStrength = clouds.m_PowderStrength;
+                    cloudState.TemporalBlend = clouds.m_TemporalBlend;
+                    cloudState.CastShadows = clouds.m_CastCloudShadows;
+                    cloudState.ShadowStrength = clouds.m_ShadowStrength;
+                    cloudState.ShadowWorldSize = clouds.m_ShadowMapWorldSize;
+
+                    // The weather director owns coverage/type/wetness while active.
+                    if (weather)
+                    {
+                        cloudState.Coverage = std::clamp(weather->m_Blended.CloudCoverage, 0.0f, 1.0f);
+                        cloudState.Density = clouds.m_Density *
+                                             std::clamp(weather->m_Blended.CloudDensity * 2.0f, 0.0f, 4.0f);
+                        cloudState.TypeBlend = std::clamp(weather->m_Blended.CloudTypeBlend, 0.0f, 1.0f);
+                        cloudState.CloudWetness = std::clamp(weather->m_Blended.CloudWetness, 0.0f, 1.0f);
+                    }
+
+                    // Authored weather map (0 keeps the procedural default).
+                    if (clouds.m_WeatherMapHandle != 0)
+                    {
+                        if (auto weatherMap = AssetManager::GetAsset<Texture2D>(clouds.m_WeatherMapHandle))
+                            cloudState.WeatherMapTextureID = weatherMap->GetRendererID();
+                    }
+
+                    // Lighting inputs mirror the first directional light (the
+                    // TimeOfDay-driven sun/moon when a clock is active) so the
+                    // clouds are lit by the same body as every surface.
+                    if (directionalLightCount > 0)
+                    {
+                        cloudState.SunDirection = -directionalLightDir;
+                        const auto& primary = multiLightData.Lights[0];
+                        cloudState.SunColor = glm::vec3(primary.Color) * primary.Color.w;
+                    }
+
+                    // Ambient estimate + night blend from the time-of-day clock
+                    // when present; a plain day sky estimate otherwise.
+                    for (auto todEntity : m_Registry.view<TimeOfDayComponent>())
+                    {
+                        const auto& tod = m_Registry.get<TimeOfDayComponent>(todEntity);
+                        if (!tod.m_Enabled)
+                            break;
+                        const f32 night = Ephemeris::NightBlend(glm::radians(tod.m_SunElevationDegrees));
+                        cloudState.NightBlend = night;
+                        const glm::vec3 dayAmbient = glm::vec3(0.42f, 0.52f, 0.72f) *
+                                                     (0.25f + 0.75f * Ephemeris::SunIntensityFactor(
+                                                                          glm::radians(tod.m_SunElevationDegrees)));
+                        const glm::vec3 nightAmbient = glm::vec3(0.02f, 0.025f, 0.04f);
+                        cloudState.AmbientColor = glm::mix(dayAmbient, nightAmbient, night);
+                        break;
+                    }
+                    break; // one cloudscape drives the scene
+                }
+
+                Renderer3D::SetCloudscapeState(cloudState);
+            }
 
             // Hand the point/spot/sphere lights gathered above to Forward+ for
             // tile-based culling (no second scene iteration).
@@ -8099,6 +8294,13 @@ namespace OloEngine
 
         Renderer3D::BeginScene(camera);
 
+        // Time-of-day drive (issue #633): compute the ephemeris and write the
+        // directional light BEFORE the sky bake below and the light gather in
+        // ProcessScene3DSharedLogic, so light, sky, fog sun and shadows all
+        // agree within the frame. Runs in edit mode too — scrubbing the
+        // inspector's time slider moves the sun live.
+        TimeOfDaySystem::Apply(*this);
+
         // Render skybox from EnvironmentMapComponent (first one found)
         LoadAndRenderSkybox();
         ApplyReflectionProbeOverride(camera.GetPosition());
@@ -8581,6 +8783,10 @@ namespace OloEngine
             }
             Renderer3D::SetCameraClipPlanes(cameraNearClip, cameraFarClip);
         }
+
+        // Time-of-day drive (issue #633): ephemeris → directional light before
+        // the sky bake + light gather (see the editor-path overload above).
+        TimeOfDaySystem::Apply(*this);
 
         // Render skybox from EnvironmentMapComponent (first one found)
         LoadAndRenderSkybox();

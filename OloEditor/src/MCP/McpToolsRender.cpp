@@ -12,6 +12,8 @@
 #include "MCP/McpRendererSettings.h"
 #include "MCP/McpShadowCapture.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Atmosphere/Ephemeris.h"
+#include "OloEngine/Atmosphere/WeatherSystem.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Debug/CapturedFrameData.h"
@@ -60,6 +62,7 @@
 #include <span>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -67,9 +70,10 @@
 
 // Rendering MCP tools: frame breakdown, render-target listing/capture, the
 // render-graph topology export, the ephemeral override A/B tools (toggle pass,
-// debug view, renderer settings, sun/time-of-day), golden-image comparison, and
-// the olo_render_why_not_visible explainer. Split out of the McpTools.cpp
-// monolith (issue #357).
+// debug view, renderer settings), the atmosphere tools (time-of-day / sun-angle
+// / weather component writes + the read-only atmosphere report, issue #633),
+// golden-image comparison, and the olo_render_why_not_visible explainer. Split
+// out of the McpTools.cpp monolith (issue #357).
 
 namespace OloEngine::MCP
 {
@@ -1004,161 +1008,437 @@ namespace OloEngine::MCP
             return ToolResult::Text(result.dump(2));
         }
 
-        // ---- olo_scene_set_time_of_day / olo_scene_set_sun_angle (#316 Part 4) -
-        // Ephemeral sun-direction override for lighting iteration. Like the
-        // toggle/debug-view tools above, these edit ONLY a session-global renderer
-        // override (Renderer3D::SetSunDirectionOverride), never the
-        // ProceduralSkyComponent's serialized m_SunDirection — so the moved sun is
-        // visible next frame, never saved, and resets on scene reload / play-stop /
-        // server-stop / explicit clear. The sun-direction math + result shaping is
-        // the pure RenderOverrides module; the handler does the renderer/scene-bound
-        // work on the main thread inside MarshalRead.
+        // ---- olo_scene_set_time_of_day / olo_scene_set_sun_angle (#633) --------
+        // Both write the active scene's FIRST TimeOfDayComponent — the serialized,
+        // single authoritative sun source (the ephemeral Renderer3D sun-direction
+        // override these tools drove before issue #633 is retired).
+        // TimeOfDaySystem::Apply recomputes the derived outputs and drives the
+        // directional light + sky from the component on the next rendered frame in
+        // BOTH edit and play modes, so a write here is visible immediately without
+        // any extra apply step. The angle->time solver is the pure RenderOverrides
+        // module; the handlers do the scene-bound lookup/write on the main thread
+        // inside MarshalRead, like every other scene-touching tool.
 
-        // (main thread) Finish a sun-override result: annotate it from the active
-        // scene (the override only affects a procedural-sky bake) and the resulting
-        // sun elevation (below the horizon bakes a dark night sky), then shape JSON.
-        Json FinalizeSunOverride(McpServer& server, RenderOverrides::SunOverrideResult& r)
+        // Shared no-component guidance. Deliberately not auto-creating an entity:
+        // the write tools edit what the scene AUTHORS, they never add to it (and
+        // no MCP tool adds components — olo_entity_set_field edits existing ones).
+        constexpr const char* kNoTimeOfDayComponent =
+            "No TimeOfDayComponent in the active scene. Add a 'Time Of Day' component to an entity in the "
+            "editor (Add Component > Time Of Day) and retry — no MCP tool adds components.";
+
+        // (main thread) The scene's first TimeOfDayComponent, or nullptr. First
+        // registry entity by convention — the same "one clock drives the scene"
+        // rule TimeOfDaySystem applies. Takes a non-const Ref: Ref<T>
+        // propagates const through operator->, and the write tools mutate the
+        // component through this pointer.
+        TimeOfDayComponent* FirstTimeOfDayComponent(Ref<Scene>& scene)
         {
-            bool skyPresent = false;
-            const Ref<Scene> scene = server.Context().GetActiveScene
-                                         ? server.Context().GetActiveScene()
-                                         : nullptr;
-            if (scene)
-            {
-                auto view = scene->GetAllEntitiesWith<ProceduralSkyComponent>();
-                skyPresent = view.begin() != view.end();
-            }
-
-            if (r.Active && !skyPresent)
-                r.Note = "No ProceduralSkyComponent in the active scene, so this sun override has no visible "
-                         "effect yet. Add a Procedural Sky to the scene to iterate time-of-day lighting.";
-            else if (r.Active && RenderOverrides::SunElevationDegrees(r.Direction) < 0.0)
-                r.Note = "The sun is below the horizon at this setting, so the sky bakes dark (night). Move "
-                         "toward noon (hours ~12) or a positive pitch for daylight.";
-            else
-            {
-                // Override inactive, or active with the sun visibly above the
-                // horizon — nothing to warn about.
-            }
-
-            return RenderOverrides::ToJson(r);
+            if (!scene)
+                return nullptr;
+            auto view = scene->GetAllEntitiesWith<TimeOfDayComponent>();
+            if (view.begin() == view.end())
+                return nullptr;
+            return &view.get<TimeOfDayComponent>(*view.begin());
         }
 
-        // (main thread) Clear the ephemeral sun override and record the outcome —
-        // the clear branch shared verbatim by both sun-override handlers.
-        void ApplySunClear(RenderOverrides::SunOverrideResult& r)
+        // (main thread) Shape the component's resulting state — the authored clock
+        // fields plus the derived sun facts, computed through the SAME ephemeris
+        // TimeOfDaySystem::Apply uses so the reported numbers cannot drift from
+        // what the next frame renders.
+        Json TimeOfDayStateJson(const TimeOfDayComponent& tod)
         {
-            r.Cleared = Renderer3D::HasSunDirectionOverride();
-            Renderer3D::ClearSunDirectionOverride();
-            r.Active = false;
-            r.Source = "cleared";
+            EphemerisInputs inputs;
+            inputs.TimeOfDayHours = tod.m_TimeOfDayHours;
+            inputs.DayOfYear = tod.m_DayOfYear;
+            inputs.LatitudeDegrees = tod.m_LatitudeDegrees;
+            inputs.NorthOffsetDegrees = tod.m_NorthOffsetDegrees;
+            inputs.MoonPhase = tod.m_MoonPhase;
+            const SunMoonState state = Ephemeris::ComputeSunMoon(inputs);
+
+            Json j;
+            j["enabled"] = tod.m_Enabled;
+            j["hours"] = tod.m_TimeOfDayHours;
+            j["dayOfYear"] = tod.m_DayOfYear;
+            j["latitudeDegrees"] = tod.m_LatitudeDegrees;
+            j["timeScale"] = tod.m_TimeScale;
+            j["paused"] = tod.m_Paused;
+            j["sunElevationDegrees"] = glm::degrees(state.SunElevationRadians);
+            j["isNight"] = Ephemeris::NightBlend(state.SunElevationRadians) > 0.5f;
+            j["sunDirection"] = Json::array({ state.SunDirection.x, state.SunDirection.y, state.SunDirection.z });
+            j["moonDirection"] = Json::array({ state.MoonDirection.x, state.MoonDirection.y, state.MoonDirection.z });
+            return j;
         }
 
-        // (main thread) Read the current override state into the result — the
-        // no-argument introspection branch shared by both sun-override handlers.
-        void ApplySunIntrospect(RenderOverrides::SunOverrideResult& r)
+        // (worker thread) Legacy 'clear':true from the retired override interface:
+        // there is no override left to clear — the component is authoritative — so
+        // answer with the current state + a note instead of erroring, shared by
+        // both sun tools.
+        ToolResult LegacySunClearResult(McpServer& server)
         {
-            r.Active = Renderer3D::HasSunDirectionOverride();
-            if (r.Active)
-            {
-                const glm::vec3& d = Renderer3D::GetSunDirectionOverride();
-                r.Direction = RenderOverrides::SunVec3{ d.x, d.y, d.z };
-            }
-            r.Source = "current";
+            const Json result = server.MarshalRead([&server]() -> Json
+                                                   {
+                Json j;
+                Ref<Scene> scene = server.Context().GetActiveScene
+                                       ? server.Context().GetActiveScene()
+                                       : nullptr;
+                if (const TimeOfDayComponent* tod = FirstTimeOfDayComponent(scene))
+                    j = TimeOfDayStateJson(*tod);
+                j["note"] = "Nothing to clear: the ephemeral sun override is retired (issue #633) and the "
+                            "scene's TimeOfDayComponent is authoritative. Set 'hours' (or the other fields) "
+                            "to move the sun instead.";
+                return j; });
+            return ToolResult::Text(result.dump(2));
         }
 
         ToolResult Handle_SceneSetTimeOfDay(McpServer& server, const Json& args)
         {
-            using namespace RenderOverrides;
+            if (args.contains("clear") && args["clear"].is_boolean() && args["clear"].get<bool>())
+                return LegacySunClearResult(server);
 
-            const bool wantClear = args.contains("clear") && args["clear"].is_boolean() && args["clear"].get<bool>();
-            const bool hasHours = !wantClear && args.contains("hours") && args["hours"].is_number();
-            double hours = 0.0;
+            const bool hasHours = args.contains("hours");
+            const bool hasDay = args.contains("dayOfYear");
+            const bool hasLatitude = args.contains("latitudeDegrees");
+            const bool hasTimeScale = args.contains("timeScale");
+            const bool hasPaused = args.contains("paused");
+            const bool hasEnabled = args.contains("enabled");
+            if (!hasHours && !hasDay && !hasLatitude && !hasTimeScale && !hasPaused && !hasEnabled)
+                return ToolResult::Error("Nothing to set: give 'hours' (24-hour clock time) and/or "
+                                         "'dayOfYear', 'latitudeDegrees', 'timeScale', 'paused', 'enabled'. "
+                                         "To READ the current state use olo_scene_get_atmosphere.");
+
+            f64 hours = 0.0;
             if (hasHours)
             {
-                hours = args["hours"].get<double>();
+                if (!args["hours"].is_number())
+                    return ToolResult::Error("Invalid 'hours': expected a number.");
+                hours = args["hours"].get<f64>();
                 if (!std::isfinite(hours) || hours < 0.0 || hours > 24.0)
-                    return ToolResult::Error("Invalid 'hours': expected a finite number in [0, 24] "
-                                             "(0 = midnight, 6 = sunrise, 12 = noon, 18 = sunset).");
+                    return ToolResult::Error("Invalid 'hours': expected a finite number in [0, 24) "
+                                             "(0 = midnight, 6 = morning, 12 = noon, 18 = evening; 24 wraps "
+                                             "to 0).");
+                if (hours >= 24.0)
+                    hours = 0.0; // the component's clock lives in [0, 24)
             }
 
-            const Json result = server.MarshalRead([&server, wantClear, hasHours, hours]() -> Json
-                                                   {
-                SunOverrideResult r;
-                if (wantClear)
+            i32 dayOfYear = 0;
+            if (hasDay)
+            {
+                if (!args["dayOfYear"].is_number_integer())
+                    return ToolResult::Error("Invalid 'dayOfYear': expected an integer in [1, 365].");
+                const auto day = args["dayOfYear"].get<long long>();
+                if (day < 1 || day > 365)
+                    return ToolResult::Error("Invalid 'dayOfYear': expected an integer in [1, 365].");
+                dayOfYear = static_cast<i32>(day);
+            }
+
+            f64 latitude = 0.0;
+            if (hasLatitude)
+            {
+                if (!args["latitudeDegrees"].is_number())
+                    return ToolResult::Error("Invalid 'latitudeDegrees': expected a number.");
+                latitude = args["latitudeDegrees"].get<f64>();
+                if (!std::isfinite(latitude) || latitude < -90.0 || latitude > 90.0)
+                    return ToolResult::Error("Invalid 'latitudeDegrees': expected a finite number in "
+                                             "[-90, 90] (positive = northern hemisphere).");
+            }
+
+            f64 timeScale = 0.0;
+            if (hasTimeScale)
+            {
+                if (!args["timeScale"].is_number())
+                    return ToolResult::Error("Invalid 'timeScale': expected a number.");
+                timeScale = args["timeScale"].get<f64>();
+                if (!std::isfinite(timeScale) || timeScale < 0.0 || timeScale > 1000.0)
+                    return ToolResult::Error("Invalid 'timeScale': expected a finite number in [0, 1000].");
+            }
+
+            if (hasPaused && !args["paused"].is_boolean())
+                return ToolResult::Error("Invalid 'paused': expected a boolean.");
+            if (hasEnabled && !args["enabled"].is_boolean())
+                return ToolResult::Error("Invalid 'enabled': expected a boolean.");
+            const bool paused = hasPaused && args["paused"].get<bool>();
+            const bool enabled = hasEnabled && args["enabled"].get<bool>();
+
+            const Json result = server.MarshalRead(
+                [&server, hasHours, hours, hasDay, dayOfYear, hasLatitude, latitude, hasTimeScale, timeScale,
+                 hasPaused, paused, hasEnabled, enabled]() -> Json
                 {
-                    ApplySunClear(r);
-                }
-                else if (hasHours)
-                {
-                    const SunVec3 dir = SunDirectionFromTimeOfDay(hours);
-                    Renderer3D::SetSunDirectionOverride(glm::vec3(
-                        static_cast<f32>(dir.X), static_cast<f32>(dir.Y), static_cast<f32>(dir.Z)));
-                    r.Active = true;
-                    r.Direction = dir;
-                    r.HasHours = true;
-                    r.Hours = hours;
-                    r.Source = "timeOfDay";
-                }
-                else
-                {
-                    ApplySunIntrospect(r);
-                }
-                return FinalizeSunOverride(server, r); });
+                    Ref<Scene> scene = server.Context().GetActiveScene
+                                           ? server.Context().GetActiveScene()
+                                           : nullptr;
+                    if (!scene)
+                        return Json{ { "__error", "No active scene." } };
+                    TimeOfDayComponent* tod = FirstTimeOfDayComponent(scene);
+                    if (!tod)
+                        return Json{ { "__error", kNoTimeOfDayComponent } };
+
+                    if (hasHours)
+                        tod->m_TimeOfDayHours = static_cast<f32>(hours);
+                    if (hasDay)
+                        tod->m_DayOfYear = dayOfYear;
+                    if (hasLatitude)
+                        tod->m_LatitudeDegrees = static_cast<f32>(latitude);
+                    if (hasTimeScale)
+                        tod->m_TimeScale = static_cast<f32>(timeScale);
+                    if (hasPaused)
+                        tod->m_Paused = paused;
+                    if (hasEnabled)
+                        tod->m_Enabled = enabled;
+
+                    Json j = TimeOfDayStateJson(*tod);
+                    if (!tod->m_Enabled)
+                        j["note"] = "The TimeOfDayComponent is disabled, so TimeOfDaySystem will not drive "
+                                    "the sun/sky from it until it is re-enabled ('enabled': true).";
+                    return j;
+                });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
             return ToolResult::Text(result.dump(2));
         }
 
         ToolResult Handle_SceneSetSunAngle(McpServer& server, const Json& args)
         {
-            using namespace RenderOverrides;
-
-            const bool wantClear = args.contains("clear") && args["clear"].is_boolean() && args["clear"].get<bool>();
-            const bool hasYaw = !wantClear && args.contains("yaw") && args["yaw"].is_number();
-            const bool hasPitch = !wantClear && args.contains("pitch") && args["pitch"].is_number();
+            if (args.contains("clear") && args["clear"].is_boolean() && args["clear"].get<bool>())
+                return LegacySunClearResult(server);
 
             // A set needs BOTH angles — a half-specified direction is ambiguous, so
             // reject it with guidance rather than silently using a default.
-            if (!wantClear && (hasYaw != hasPitch))
+            if (!args.contains("yaw") || !args["yaw"].is_number() ||
+                !args.contains("pitch") || !args["pitch"].is_number())
                 return ToolResult::Error("olo_scene_set_sun_angle needs both 'yaw' (azimuth, degrees) and "
-                                         "'pitch' (elevation, degrees). Provide both, pass 'clear':true to "
-                                         "remove the override, or call with no arguments to read the current "
-                                         "state.");
+                                         "'pitch' (elevation, degrees). To READ the current sun state use "
+                                         "olo_scene_get_atmosphere.");
 
-            const bool doSet = !wantClear && hasYaw && hasPitch;
-            double yaw = 0.0;
-            double pitch = 0.0;
-            if (doSet)
-            {
-                yaw = args["yaw"].get<double>();
-                pitch = args["pitch"].get<double>();
-                if (!std::isfinite(yaw) || !std::isfinite(pitch))
-                    return ToolResult::Error("Invalid 'yaw'/'pitch': expected finite numbers in degrees.");
-                if (pitch < -90.0 || pitch > 90.0)
-                    return ToolResult::Error("Invalid 'pitch': expected an elevation in [-90, 90] degrees "
-                                             "(90 = straight up, 0 = horizon, negative = below the horizon).");
-            }
+            const f64 yaw = args["yaw"].get<f64>();
+            const f64 pitch = args["pitch"].get<f64>();
+            if (!std::isfinite(yaw) || !std::isfinite(pitch))
+                return ToolResult::Error("Invalid 'yaw'/'pitch': expected finite numbers in degrees.");
+            if (pitch < -90.0 || pitch > 90.0)
+                return ToolResult::Error("Invalid 'pitch': expected an elevation in [-90, 90] degrees "
+                                         "(90 = straight up, 0 = horizon, negative = below the horizon).");
 
-            const Json result = server.MarshalRead([&server, wantClear, doSet, yaw, pitch]() -> Json
+            const Json result = server.MarshalRead([&server, yaw, pitch]() -> Json
                                                    {
-                SunOverrideResult r;
-                if (wantClear)
+                Ref<Scene> scene = server.Context().GetActiveScene
+                                       ? server.Context().GetActiveScene()
+                                       : nullptr;
+                if (!scene)
+                    return Json{ { "__error", "No active scene." } };
+                TimeOfDayComponent* tod = FirstTimeOfDayComponent(scene);
+                if (!tod)
+                    return Json{ { "__error", kNoTimeOfDayComponent } };
+
+                // The solver works in the ephemeris frame (north = +Z at zero
+                // offset); the requested azimuth is world-space, so undo the
+                // component's authored north-offset yaw before solving.
+                const RenderOverrides::SunAngleSolve solve = RenderOverrides::SolveTimeForSunAngle(
+                    static_cast<f32>(pitch), static_cast<f32>(yaw) - tod->m_NorthOffsetDegrees,
+                    tod->m_DayOfYear, tod->m_LatitudeDegrees);
+                tod->m_TimeOfDayHours = solve.Hours;
+
+                Json j = TimeOfDayStateJson(*tod);
+                j["achievedElevationDeg"] = solve.AchievedElevationDeg;
+                j["clamped"] = solve.Clamped;
+                if (solve.Clamped)
+                    j["note"] = "The requested elevation (" + std::to_string(pitch) + " deg) is outside what "
+                                "day " + std::to_string(tod->m_DayOfYear) + " at latitude " +
+                                std::to_string(tod->m_LatitudeDegrees) + " deg can reach; the time of day "
+                                "was clamped to the closest achievable elevation (" +
+                                std::to_string(solve.AchievedElevationDeg) + " deg). Change 'dayOfYear' / "
+                                "'latitudeDegrees' via olo_scene_set_time_of_day for a higher (or lower) "
+                                "sun.";
+                else if (!tod->m_Enabled)
+                    j["note"] = "The TimeOfDayComponent is disabled, so TimeOfDaySystem will not drive "
+                                "the sun/sky from it until it is re-enabled (olo_scene_set_time_of_day "
+                                "{ 'enabled': true }).";
+                return j; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Text(result.dump(2));
+        }
+
+        // ---- olo_scene_set_weather / olo_scene_get_atmosphere (#633) -----------
+
+        // WeatherStateId <-> name mapping (case-sensitive; the names mirror the
+        // enumerators exactly — the same contract as the Lua weather bindings'
+        // "targetState" / "currentState" string properties).
+        constexpr std::array<std::pair<std::string_view, WeatherStateId>, 6> kWeatherStates = { {
+            { "Clear", WeatherStateId::Clear },
+            { "Overcast", WeatherStateId::Overcast },
+            { "Rain", WeatherStateId::Rain },
+            { "Storm", WeatherStateId::Storm },
+            { "Snow", WeatherStateId::Snow },
+            { "FogBank", WeatherStateId::FogBank },
+        } };
+
+        const char* WeatherStateName(WeatherStateId id)
+        {
+            for (const auto& [name, value] : kWeatherStates)
+            {
+                if (value == id)
+                    return name.data();
+            }
+            return "Clear";
+        }
+
+        bool ParseWeatherState(std::string_view name, WeatherStateId& out)
+        {
+            for (const auto& [token, value] : kWeatherStates)
+            {
+                if (token == name)
                 {
-                    ApplySunClear(r);
+                    out = value;
+                    return true;
                 }
-                else if (doSet)
+            }
+            return false;
+        }
+
+        ToolResult Handle_SceneSetWeather(McpServer& server, const Json& args)
+        {
+            if (!args.contains("state") || !args["state"].is_string())
+                return ToolResult::Error("Missing required argument 'state': one of Clear, Overcast, Rain, "
+                                         "Storm, Snow, FogBank (case-sensitive).");
+            const std::string stateName = args["state"].get<std::string>();
+            WeatherStateId state{};
+            if (!ParseWeatherState(stateName, state))
+                return ToolResult::Error("Unknown weather state '" + stateName + "'. Valid states "
+                                                                                 "(case-sensitive): Clear, Overcast, Rain, Storm, Snow, FogBank.");
+
+            const bool hasTransition = args.contains("transitionSeconds");
+            f64 transitionSeconds = 0.0;
+            if (hasTransition)
+            {
+                if (!args["transitionSeconds"].is_number())
+                    return ToolResult::Error("Invalid 'transitionSeconds': expected a number.");
+                transitionSeconds = args["transitionSeconds"].get<f64>();
+                if (!std::isfinite(transitionSeconds) || transitionSeconds < 0.0 || transitionSeconds > 600.0)
+                    return ToolResult::Error("Invalid 'transitionSeconds': expected a finite number in "
+                                             "[0, 600].");
+            }
+            const bool immediate = args.contains("immediate") && args["immediate"].is_boolean() &&
+                                   args["immediate"].get<bool>();
+
+            const Json result = server.MarshalRead(
+                [&server, state, hasTransition, transitionSeconds, immediate]() -> Json
                 {
-                    const SunVec3 dir = SunDirectionFromAngles(yaw, pitch);
-                    Renderer3D::SetSunDirectionOverride(glm::vec3(
-                        static_cast<f32>(dir.X), static_cast<f32>(dir.Y), static_cast<f32>(dir.Z)));
-                    r.Active = true;
-                    r.Direction = dir;
-                    r.Source = "sunAngle";
+                    Ref<Scene> scene = server.Context().GetActiveScene
+                                           ? server.Context().GetActiveScene()
+                                           : nullptr;
+                    if (!scene)
+                        return Json{ { "__error", "No active scene." } };
+                    auto view = scene->GetAllEntitiesWith<WeatherStateComponent>();
+                    if (view.begin() == view.end())
+                        return Json{ { "__error",
+                                       "No WeatherStateComponent in the active scene. Add a 'Weather Director' "
+                                       "component to an entity in the editor (Add Component > Weather Director) "
+                                       "and retry — no MCP tool adds components." } };
+                    auto& weather = view.get<WeatherStateComponent>(*view.begin());
+
+                    if (hasTransition)
+                        weather.m_TransitionDuration = static_cast<f32>(transitionSeconds);
+                    // Setting the target alone is enough: WeatherSystem's transition
+                    // bookkeeping detects the edit (m_PrevTargetSeen) and starts the
+                    // cross-blend from whatever is currently applied.
+                    weather.m_TargetState = state;
+                    if (immediate)
+                    {
+                        // Snap: settled on the target as if the transition already
+                        // finished; m_BlendedValid = false makes UpdateTransition
+                        // re-seed its bookkeeping from the new current state.
+                        weather.m_CurrentState = state;
+                        weather.m_TransitionProgress = 1.0f;
+                        weather.m_PrevTargetSeen = state;
+                        weather.m_BlendedValid = false;
+                    }
+
+                    // Apply the (re)started blend to the scene + renderer settings
+                    // now, so edit mode reflects the change without a scheduler tick
+                    // (the same call the editor inspector uses for previews).
+                    WeatherSystem::ApplyImmediate(*scene);
+
+                    Json j;
+                    j["currentState"] = WeatherStateName(weather.m_CurrentState);
+                    j["targetState"] = WeatherStateName(weather.m_TargetState);
+                    j["transitionDuration"] = weather.m_TransitionDuration;
+                    j["transitionProgress"] = weather.m_TransitionProgress;
+                    j["wetness"] = weather.m_Wetness;
+                    if (!weather.m_Enabled)
+                        j["note"] = "The WeatherStateComponent is disabled, so the weather director ignores "
+                                    "it until it is re-enabled (the editor inspector's Enabled checkbox, or "
+                                    "olo_entity_set_field).";
+                    return j;
+                });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Text(result.dump(2));
+        }
+
+        // Read-only one-call report over the three atmosphere components (#633):
+        // whatever exists is reported, absent blocks are omitted, and the note
+        // says what was found — so an agent learns the scene's atmosphere setup
+        // before reaching for the write tools.
+        ToolResult Handle_SceneGetAtmosphere(McpServer& server, const Json&)
+        {
+            const Json result = server.MarshalRead([&server]() -> Json
+                                                   {
+                Ref<Scene> scene = server.Context().GetActiveScene
+                                       ? server.Context().GetActiveScene()
+                                       : nullptr;
+                if (!scene)
+                    return Json{ { "__error", "No active scene." } };
+
+                Json j;
+                std::vector<std::string> found;
+
+                if (const TimeOfDayComponent* tod = FirstTimeOfDayComponent(scene))
+                {
+                    found.emplace_back("TimeOfDayComponent");
+                    j["timeOfDay"] = TimeOfDayStateJson(*tod);
                 }
+
+                if (auto view = scene->GetAllEntitiesWith<WeatherStateComponent>();
+                    view.begin() != view.end())
+                {
+                    found.emplace_back("WeatherStateComponent");
+                    const auto& weather = view.get<WeatherStateComponent>(*view.begin());
+                    Json w;
+                    w["enabled"] = weather.m_Enabled;
+                    w["currentState"] = WeatherStateName(weather.m_CurrentState);
+                    w["targetState"] = WeatherStateName(weather.m_TargetState);
+                    w["transitionDuration"] = weather.m_TransitionDuration;
+                    w["transitionProgress"] = weather.m_TransitionProgress;
+                    w["wetness"] = weather.m_Wetness;
+                    w["blendedCloudCoverage"] = weather.m_Blended.CloudCoverage;
+                    j["weather"] = w;
+                }
+
+                if (auto view = scene->GetAllEntitiesWith<CloudscapeComponent>();
+                    view.begin() != view.end())
+                {
+                    found.emplace_back("CloudscapeComponent");
+                    const auto& clouds = view.get<CloudscapeComponent>(*view.begin());
+                    Json c;
+                    c["enabled"] = clouds.m_Enabled;
+                    c["coverage"] = clouds.m_Coverage;
+                    c["layerBottom"] = clouds.m_LayerBottom;
+                    c["layerTop"] = clouds.m_LayerTop;
+                    c["castCloudShadows"] = clouds.m_CastCloudShadows;
+                    j["cloudscape"] = c;
+                }
+
+                if (found.empty())
+                    j["note"] = "No atmosphere components (TimeOfDayComponent / WeatherStateComponent / "
+                                "CloudscapeComponent) in the active scene.";
                 else
-                {
-                    ApplySunIntrospect(r);
-                }
-                return FinalizeSunOverride(server, r); });
+                    j["note"] = "Components found: " + RenderOverrides::JoinTokens(found) + ".";
+                return j; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
             return ToolResult::Text(result.dump(2));
         }
 
@@ -3170,24 +3450,36 @@ namespace OloEngine::MCP
             ToolDef tool;
             tool.Name = "olo_scene_set_time_of_day";
             tool.Toolset = "render";
-            tool.Title = "Set time of day (sun)";
-            // Edits an ephemeral session render override; setting the same hours
-            // twice yields the same sun (idempotent), destroys nothing.
+            tool.Title = "Set time of day (TimeOfDayComponent)";
+            // Writes the scene's SERIALIZED TimeOfDayComponent — a project write
+            // (issue #633; the ephemeral sun override this tool used to drive is
+            // retired), gated behind the session write consent like
+            // olo_entity_set_field. Same values -> same state (idempotent); a
+            // plain field set, not an undo-stack entry.
+            tool.ProjectWrite = true;
             tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
             tool.Description =
-                "Move the procedural sky's sun to a time of day for lighting iteration — the lighting inner "
-                "loop: set the hour, olo_screenshot, set another, compare. 'hours' is a 24-hour clock time "
-                "in [0,24] (0 = midnight, 6 = sunrise, 12 = noon/overhead, 18 = sunset); the sun rises in "
-                "the east, peaks overhead at noon, and sets in the west, dropping below the horizon at night. "
-                "Returns the resulting toward-sun direction with its elevation/azimuth (a 'note' warns when "
-                "the scene has no Procedural Sky to affect, or when the sun is below the horizon). The change "
-                "is EPHEMERAL: it edits a session-global renderer override, NOT the ProceduralSkyComponent, "
-                "so it is never saved and resets on scene reload, play-stop, server-stop, or 'clear':true. "
-                "Pass 'clear':true to restore the authored sun; call with no arguments to read the current "
-                "override state.";
+                "Set the scene's time-of-day clock for lighting iteration — writes the scene's "
+                "TimeOfDayComponent (the serialized time-of-day clock and single authoritative sun source; "
+                "the old ephemeral renderer override is retired), so TimeOfDaySystem recomputes the sun/moon "
+                "ephemeris and drives the directional light + sky on the next frame, in edit and play mode "
+                "alike. 'hours' is a 24-hour clock time in [0,24) (0 = midnight, 12 = noon; 24 wraps to 0); "
+                "the other fields tune the ephemeris ('dayOfYear', 'latitudeDegrees') and the clock "
+                "('timeScale', 'paused', 'enabled'). At least one field is required. Returns the resulting "
+                "component state plus the derived sunElevationDegrees / isNight / sun+moon directions. The "
+                "write edits the loaded scene IN MEMORY (persisted only when the scene is saved) and is not "
+                "an undo-stack entry. Requires a TimeOfDayComponent in the scene — the error says how to add "
+                "one when missing. To read without writing, use olo_scene_get_atmosphere. This is a WRITE "
+                "tool: refused unless agent writes are enabled in the editor's MCP Server panel (off by "
+                "default).";
             tool.InputSchema = Schema::Object()
-                                   .Prop("hours", Schema::Number().Min(0).Max(24).Desc("Time of day on a 24-hour clock (0=midnight, 6=sunrise, 12=noon, 18=sunset). Omit to read current state."))
-                                   .Prop("clear", Schema::Bool().Desc("Set true to remove the override and restore the scene's authored sun direction."))
+                                   .Prop("hours", Schema::Number().Min(0).Max(24).Desc("Time of day on a 24-hour clock, [0, 24) (0=midnight, 6=morning, 12=noon, 18=evening; 24 wraps to 0)."))
+                                   .Prop("dayOfYear", Schema::Int().Min(1).Max(365).Desc("Day of the year driving the solar declination (172 ~ June solstice, 355 ~ December solstice)."))
+                                   .Prop("latitudeDegrees", Schema::Number().Min(-90).Max(90).Desc("Observer latitude in degrees (positive = northern hemisphere)."))
+                                   .Prop("timeScale", Schema::Number().Min(0).Max(1000).Desc("Extra multiplier on the clock's advance while playing (0 = frozen)."))
+                                   .Prop("paused", Schema::Bool().Desc("Pause/resume the clock's advance."))
+                                   .Prop("enabled", Schema::Bool().Desc("Enable/disable the component (disabled = TimeOfDaySystem stops driving the sun)."))
+                                   .Prop("clear", Schema::Bool().Desc("Legacy no-op from the retired override interface: returns the current state + a note (the component is authoritative; there is nothing to clear)."))
                                    .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneSetTimeOfDay;
@@ -3198,28 +3490,91 @@ namespace OloEngine::MCP
             ToolDef tool;
             tool.Name = "olo_scene_set_sun_angle";
             tool.Toolset = "render";
-            tool.Title = "Set sun angle (yaw/pitch)";
-            // Edits an ephemeral session render override; same angles -> same sun
-            // (idempotent), destroys nothing.
+            tool.Title = "Set sun angle (solve time of day)";
+            // Writes the scene's SERIALIZED TimeOfDayComponent (the solved hours)
+            // — a project write like olo_scene_set_time_of_day above; same angles
+            // -> same solved time (idempotent).
+            tool.ProjectWrite = true;
             tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
             tool.Description =
-                "Aim the procedural sky's sun directly from a yaw/pitch pair — the precise sibling of "
-                "olo_scene_set_time_of_day for lighting iteration. 'yaw' is the azimuth in degrees (measured "
-                "from +Z toward +X: 0=+Z, 90=+X/east, 270=-X/west) and 'pitch' is the elevation in degrees "
-                "in [-90,90] (90=straight up, 0=horizon, negative=below horizon); both are required to set. "
-                "Returns the resulting toward-sun direction with its elevation/azimuth (a 'note' warns when "
-                "the scene has no Procedural Sky to affect, or when the sun is below the horizon). The change "
-                "is EPHEMERAL: it edits a session-global renderer override, NOT the ProceduralSkyComponent, "
-                "so it is never saved and resets on scene reload, play-stop, server-stop, or 'clear':true. "
-                "Pass 'clear':true to restore the authored sun; call with no arguments to read the current "
-                "override state.";
+                "Aim the sun from a yaw/pitch pair — the angle-first sibling of olo_scene_set_time_of_day. "
+                "The TimeOfDayComponent's ephemeris is the single sun source (the old direct-direction "
+                "override is retired), so this SOLVES for the time of day whose sun best matches the request "
+                "and writes the solved hours into the component. 'yaw' is the azimuth in degrees (measured "
+                "from +Z toward +X: 0=+Z/north, 90=+X/east, 180=south, 270=west) and 'pitch' is the "
+                "elevation in degrees in [-90,90]; both are required. The pitch is matched exactly when the "
+                "component's day/latitude can reach it; the yaw is honoured only for its east/west side "
+                "(east = morning, west = afternoon) since one clock knob cannot match both angles. Returns "
+                "the resulting component state plus 'achievedElevationDeg' and 'clamped' — true (with a "
+                "'note') when the requested elevation is outside the day's range and the closest achievable "
+                "sun was used. The write edits the loaded scene IN MEMORY (persisted only when the scene is "
+                "saved). Requires a TimeOfDayComponent in the scene. 'clear':true is a legacy no-op that "
+                "returns a note. This is a WRITE tool: refused unless agent writes are enabled in the "
+                "editor's MCP Server panel (off by default).";
             tool.InputSchema = Schema::Object()
-                                   .Prop("yaw", Schema::Number().Desc("Azimuth in degrees (0=+Z, 90=+X/east, 180=-Z, 270=-X/west). Required together with 'pitch' to set."))
-                                   .Prop("pitch", Schema::Number().Min(-90).Max(90).Desc("Elevation in degrees above the horizon (90=up, 0=horizon, negative=below). Required together with 'yaw' to set."))
-                                   .Prop("clear", Schema::Bool().Desc("Set true to remove the override and restore the scene's authored sun direction."))
+                                   .Prop("yaw", Schema::Number().Desc("Azimuth in degrees (0=+Z/north, 90=+X/east, 180=south, 270=west). Only the east/west side is honoured — see the description."))
+                                   .Prop("pitch", Schema::Number().Min(-90).Max(90).Desc("Elevation in degrees above the horizon (90=up, 0=horizon, negative=below). Matched exactly when achievable, else clamped."))
+                                   .Prop("clear", Schema::Bool().Desc("Legacy no-op from the retired override interface: returns the current state + a note (the component is authoritative; there is nothing to clear)."))
                                    .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneSetSunAngle;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_scene_set_weather";
+            tool.Toolset = "render";
+            tool.Title = "Set weather state";
+            // Writes the scene's SERIALIZED WeatherStateComponent — a project
+            // write like the two sun tools above; same state -> same result
+            // (idempotent).
+            tool.ProjectWrite = true;
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Drive the scene's weather director — writes the WeatherStateComponent's target state so "
+                "WeatherSystem cross-blends clouds / fog / wind / precipitation / snow accumulation / "
+                "wetness toward the named state. 'state' is one of Clear, Overcast, Rain, Storm, Snow, "
+                "FogBank (case-sensitive). 'transitionSeconds' overrides the component's authored cross-"
+                "blend duration (0 = instant); omit it to keep the authored value. 'immediate':true snaps "
+                "current = target with the transition already settled. The blended result is applied to the "
+                "scene + renderer settings right away (WeatherSystem::ApplyImmediate — the editor "
+                "inspector's preview path), so edit mode reflects it without a play tick. Returns "
+                "currentState / targetState / transitionDuration / transitionProgress / wetness. The write "
+                "edits the loaded scene IN MEMORY (persisted only when the scene is saved). Requires a "
+                "WeatherStateComponent in the scene — the error says how to add one when missing. This is a "
+                "WRITE tool: refused unless agent writes are enabled in the editor's MCP Server panel (off "
+                "by default).";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("state", Schema::String().Enum({ "Clear", "Overcast", "Rain", "Storm", "Snow", "FogBank" }).Desc("Target weather state (case-sensitive)."))
+                                   .Prop("transitionSeconds", Schema::Number().Min(0).Max(600).Desc("Cross-blend duration in seconds (0 = instant). Omit to keep the component's authored duration."))
+                                   .Prop("immediate", Schema::Bool().Desc("true = snap to 'state' with no transition (current = target, progress settled)."))
+                                   .Required({ "state" })
+                                   .NoAdditional();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_SceneSetWeather;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_scene_get_atmosphere";
+            tool.Toolset = "render";
+            tool.Title = "Get atmosphere state";
+            // Pure component read; changes nothing.
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Read the scene's atmosphere state in one call — the read half of olo_scene_set_time_of_day "
+                "/ olo_scene_set_sun_angle / olo_scene_set_weather. Reports a 'timeOfDay' block (hours, "
+                "dayOfYear, latitudeDegrees, timeScale, paused, plus the derived sunElevationDegrees / "
+                "isNight / sun+moon directions), a 'weather' block (current/target state names, "
+                "transitionDuration, transitionProgress, wetness, blended cloud coverage), and a "
+                "'cloudscape' block (enabled, coverage, layerBottom/layerTop, castCloudShadows). A block is "
+                "omitted when its component is absent from the scene; the 'note' lists which components "
+                "were found. Read-only.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_SceneGetAtmosphere;
             server.RegisterTool(std::move(tool));
         }
 

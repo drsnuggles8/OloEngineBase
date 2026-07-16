@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
 #include "OloEngine/Renderer/Passes/BloomRenderPass.h"
 #include "OloEngine/Renderer/Passes/ChromaticAberrationRenderPass.h"
+#include "OloEngine/Renderer/Passes/CloudscapeRenderPass.h"
 #include "OloEngine/Renderer/Passes/ColorGradingRenderPass.h"
 #include "OloEngine/Renderer/Passes/ContactShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/DOFRenderPass.h"
@@ -46,6 +47,7 @@
 #include "OloEngine/Renderer/Passes/VolumetricFogPass.h"
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 
 namespace OloEngine
 {
@@ -66,6 +68,7 @@ namespace OloEngine
         Ref<TAARenderPass> TAA;
         Ref<PrecipitationRenderPass> Precipitation;
         Ref<VolumetricFogPass> VolumetricFog;
+        Ref<CloudscapeRenderPass> Cloudscape; // #633 raymarch + temporal resolve + composite (between TAA and Precipitation)
         Ref<FogRenderPass> Fog;
         Ref<ChromaticAberrationRenderPass> ChromAberration;
         Ref<ColorGradingRenderPass> ColorGrading;
@@ -93,6 +96,7 @@ namespace OloEngine
             TAA.Reset();
             Precipitation.Reset();
             VolumetricFog.Reset();
+            Cloudscape.Reset();
             Fog.Reset();
             ChromAberration.Reset();
             ColorGrading.Reset();
@@ -183,6 +187,15 @@ namespace OloEngine
         PostProcessPassChain PostProcessPasses;
         Ref<Texture2D> TAAHistoryTexture;
         bool TAAHistoryValid = false;
+        // Half-resolution cloudscape resolve history (issue #633) — same
+        // sink/import mechanics as the TAA history above.
+        Ref<Texture2D> CloudsHistoryTexture;
+        bool CloudsHistoryValid = false;
+        // Surface weather response UBO (binding 53, issue #633): wetness +
+        // cloud-shadow map transform for the PBR surface shaders. Uploaded
+        // every frame by UploadExecutionState (zeroed when nothing is
+        // enabled — wetness applies with or without clouds).
+        Ref<UniformBuffer> AtmosphereShadingUBO;
 
         [[nodiscard]] auto GetRenderStreamNode(const RenderStreamType stream) -> CommandBufferRenderPass*
         {
@@ -235,6 +248,9 @@ namespace OloEngine
             PostProcessPasses.Reset();
             TAAHistoryTexture.Reset();
             TAAHistoryValid = false;
+            CloudsHistoryTexture.Reset();
+            CloudsHistoryValid = false;
+            AtmosphereShadingUBO.Reset();
             InvalidateBlackboardCache();
         }
 

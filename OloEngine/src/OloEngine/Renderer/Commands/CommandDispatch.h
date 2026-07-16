@@ -100,6 +100,13 @@ namespace OloEngine
         // Snow accumulation depth texture — set per-frame
         static void SetSnowDepthTextureID(u32 textureID);
 
+        // Cloud shadow transmittance map (R8, issue #633) — set per-frame
+        // from CloudShadowMap by RenderPipeline::UploadExecutionState; bound
+        // at TEX_CLOUD_SHADOW (59) during PBR mesh dispatch (0 = none; bound
+        // only when non-zero, gated shader-side by the AtmosphereShadingUBO
+        // enabled flag).
+        static void SetCloudShadowTextureID(u32 textureID);
+
         // Getters for current frame state (used for sort key generation and per-bucket view state)
         static const glm::mat4& GetViewMatrix();
         static const glm::mat4& GetProjectionMatrix();

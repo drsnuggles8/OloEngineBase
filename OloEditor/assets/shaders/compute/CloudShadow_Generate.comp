@@ -1,0 +1,78 @@
+// =============================================================================
+// CloudShadow_Generate.comp — top-down cloud shadow map (issue #633)
+//
+// One thread per texel of an R8 map covering u_ShadowWorldSize meters of
+// world XZ centered on the (texel-snapped) camera. Each texel marches from
+// its ground reference point (y = 0) toward the sun through the cloud layer
+// with the SAME density field the raymarch pass evaluates (CloudscapeCommon
+// — cheap taps, no detail erosion) and stores the Beer-Lambert
+// transmittance: 1 = unshadowed, 0 = fully occluded.
+//
+// Consumed by the PBR surface shaders' directional-light branch via
+// include/AtmosphereShading.glsl (sampler TEX_CLOUD_SHADOW = 59), and
+// mirrored into the froxel fog scatter's sun term. Height parallax between
+// a surface's actual Y and the y = 0 reference plane is ignored (v1 —
+// documented in CloudShadowMap.h).
+// =============================================================================
+#version 460 core
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(r8, binding = 0) uniform writeonly image2D u_ShadowMap;
+
+#include "../include/NoiseCommon.glsl"
+#include "../include/CloudscapeCommon.glsl"
+
+uniform vec2 u_ShadowCenter;    // world xz of the map center (texel-snapped)
+uniform float u_ShadowWorldSize; // world meters covered by the full map
+uniform int u_ShadowResolution;  // texels per axis
+
+void main()
+{
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    if (gid.x >= u_ShadowResolution || gid.y >= u_ShadowResolution)
+        return;
+
+    if (u_CloudMisc.w < 0.5 || u_CloudMisc.z <= 0.0)
+    {
+        imageStore(u_ShadowMap, gid, vec4(1.0));
+        return;
+    }
+
+    vec2 uv = (vec2(gid) + 0.5) / float(u_ShadowResolution);
+    vec3 groundPos = vec3(u_ShadowCenter.x + (uv.x - 0.5) * u_ShadowWorldSize, 0.0,
+                          u_ShadowCenter.y + (uv.y - 0.5) * u_ShadowWorldSize);
+
+    // Toward the active directional body; a low sun still needs a bounded
+    // march, so clamp the vertical component before intersecting the slab.
+    vec3 towardLight = normalize(u_CloudSunDir.xyz);
+    if (towardLight.y < 0.05)
+    {
+        // Body at/below the horizon: direct light is negligible anyway
+        // (intensity ramps to zero) — leave the ground unshadowed.
+        imageStore(u_ShadowMap, gid, vec4(1.0));
+        return;
+    }
+
+    vec2 slab = cloudLayerIntersect(groundPos, towardLight);
+    if (slab.y <= slab.x)
+    {
+        imageStore(u_ShadowMap, gid, vec4(1.0));
+        return;
+    }
+
+    const int kSteps = 12;
+    float stepLen = (slab.y - slab.x) / float(kSteps);
+    float opticalDepth = 0.0;
+    for (int i = 0; i < kSteps; ++i)
+    {
+        vec3 p = groundPos + towardLight * (slab.x + (float(i) + 0.5) * stepLen);
+        opticalDepth += cloudDensity(p, true) * stepLen;
+    }
+
+    // Same extinction scale as the raymarch (kCloudExtinction in
+    // CloudscapeCommon.glsl) so ground shadow density matches the clouds
+    // that cast it.
+    float transmittance = exp(-opticalDepth * kCloudExtinction);
+    imageStore(u_ShadowMap, gid, vec4(transmittance));
+}

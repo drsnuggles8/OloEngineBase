@@ -2002,13 +2002,9 @@ namespace OloEngine
         OLO_PROPERTY()
         bool m_ShowSunDisk = true;
 
-        // If true, the runtime overwrites m_SunDirection from the first
-        // DirectionalLightComponent in the scene each frame (negating the
-        // light's direction since a "toward sun" vec is the opposite of a
-        // light's outgoing direction).  Useful when authoring a time-of-day
-        // controller that drives a single source of truth.
-        OLO_PROPERTY()
-        bool m_LinkSunToDirectionalLight = false;
+        // (m_LinkSunToDirectionalLight was retired by issue #633: the
+        // TimeOfDayComponent + TimeOfDaySystem drive the directional light AND
+        // this sky's sun from one ephemeris, replacing the old per-tick pull.)
 
         OLO_PROPERTY()
         bool m_EnableSkybox = true;
@@ -2043,7 +2039,6 @@ namespace OloEngine
                 return false;
             return m_CubemapResolution == other.m_CubemapResolution &&
                    m_ShowSunDisk == other.m_ShowSunDisk &&
-                   m_LinkSunToDirectionalLight == other.m_LinkSunToDirectionalLight &&
                    m_EnableSkybox == other.m_EnableSkybox &&
                    m_EnableIBL == other.m_EnableIBL &&
                    Math::BitwiseEqual(m_SunDirection, other.m_SunDirection) &&
@@ -2140,6 +2135,471 @@ namespace OloEngine
                    Math::BitwiseEqual(m_Saturation, other.m_Saturation) &&
                    Math::BitwiseEqual(m_Intensity, other.m_Intensity) &&
                    Math::BitwiseEqual(m_IBLIntensity, other.m_IBLIntensity);
+        }
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Atmosphere & weather (issue #633): weather director, astronomical
+    // time-of-day, volumetric cloudscape. Scene-singleton-by-convention like the
+    // sky components above — consumers use the first registry entity.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Named weather states the director can transition between.
+    enum class WeatherStateId : i32
+    {
+        Clear = 0,
+        Overcast = 1,
+        Rain = 2,
+        Storm = 3,
+        Snow = 4,
+        FogBank = 5
+    };
+
+    // Precipitation kind selected by a weather preset. Numeric values are
+    // pinned to PrecipitationType in Renderer/PostProcessSettings.h (which
+    // Components.h deliberately does not include); WeatherSystem.cpp
+    // static_asserts the correspondence.
+    enum class WeatherPrecipitationType : i32
+    {
+        Snow = 0,
+        Rain = 1,
+        Hail = 2,
+        Sleet = 3
+    };
+
+    // The curated weather-facing parameter set one weather state authors —
+    // spanning all five coupled subsystems (clouds, fog, wind, precipitation,
+    // snow accumulation) plus the lighting/surface response. All-trivial and
+    // all-public on purpose: OloHeaderTool serializes it as a nested YAML
+    // sub-map inside WeatherStateComponent (issue #451 nested-struct slice).
+    // NOT an ECS component — do not rename to *Component (the codegen scan
+    // sweeps any such name into the generated component lists).
+    struct WeatherPreset
+    {
+        // Clouds (consumed by CloudscapeComponent's renderer when present)
+        f32 CloudCoverage = 0.3f;  // [0,1] sky fraction covered
+        f32 CloudDensity = 0.5f;   // [0,1] optical density scale
+        f32 CloudTypeBlend = 0.5f; // 0 = flat stratus, 1 = towering cumulus
+        f32 CloudWetness = 0.0f;   // [0,1] darkens cloud bases (rain-laden look)
+
+        // Fog (drives the weather-facing subset of FogSettings)
+        bool FogEnabled = false;
+        f32 FogDensity = 0.005f;
+        glm::vec3 FogColor = glm::vec3(0.55f, 0.6f, 0.7f);
+        f32 FogHeightFalloff = 0.08f;
+        f32 FogMaxOpacity = 1.0f;
+
+        // Wind (drives the weather-facing subset of WindSettings)
+        f32 WindSpeed = 3.0f;        // m/s
+        f32 WindGustStrength = 0.2f; // [0,1]
+        f32 WindTurbulence = 0.3f;
+
+        // Precipitation (drives the weather-facing subset of PrecipitationSettings)
+        bool PrecipitationEnabled = false;
+        WeatherPrecipitationType PrecipitationKind = WeatherPrecipitationType::Rain;
+        f32 PrecipitationIntensity = 0.0f; // [0,1]
+
+        // Snow accumulation (drives the weather-facing subset of SnowAccumulationSettings)
+        bool SnowAccumulationEnabled = false;
+        f32 SnowAccumulationRate = 0.02f; // m/s of settled snow while snowing
+
+        // Lighting / surface response
+        f32 SunDimming = 0.0f;    // [0,1] extra global sun-intensity dim beyond per-pixel cloud shadow
+        f32 WetnessTarget = 0.0f; // [0,1] surface wetness this state drives toward
+
+        auto operator==(const WeatherPreset& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+
+    // Authored defaults for each named weather state. A free function (not a
+    // member) so the WeatherPreset/WeatherStateComponent struct bodies stay
+    // plain field lists for the OloHeaderTool field parser.
+    [[nodiscard]] inline WeatherPreset MakeDefaultWeatherPreset(WeatherStateId state)
+    {
+        WeatherPreset p; // Clear-sky baseline (struct defaults)
+        switch (state)
+        {
+            case WeatherStateId::Clear:
+                p.CloudCoverage = 0.15f;
+                p.CloudDensity = 0.4f;
+                p.CloudTypeBlend = 0.7f;
+                p.WindSpeed = 2.0f;
+                p.WindGustStrength = 0.1f;
+                p.WindTurbulence = 0.2f;
+                break;
+            case WeatherStateId::Overcast:
+                p.CloudCoverage = 0.75f;
+                p.CloudDensity = 0.7f;
+                p.CloudTypeBlend = 0.25f;
+                p.CloudWetness = 0.2f;
+                p.FogEnabled = true;
+                p.FogDensity = 0.003f;
+                p.FogColor = glm::vec3(0.6f, 0.63f, 0.68f);
+                p.WindSpeed = 4.0f;
+                p.WindGustStrength = 0.25f;
+                p.WindTurbulence = 0.35f;
+                p.SunDimming = 0.35f;
+                break;
+            case WeatherStateId::Rain:
+                p.CloudCoverage = 0.85f;
+                p.CloudDensity = 0.85f;
+                p.CloudTypeBlend = 0.2f;
+                p.CloudWetness = 0.7f;
+                p.FogEnabled = true;
+                p.FogDensity = 0.006f;
+                p.FogColor = glm::vec3(0.5f, 0.55f, 0.62f);
+                p.WindSpeed = 6.0f;
+                p.WindGustStrength = 0.35f;
+                p.WindTurbulence = 0.45f;
+                p.PrecipitationEnabled = true;
+                p.PrecipitationKind = WeatherPrecipitationType::Rain;
+                p.PrecipitationIntensity = 0.6f;
+                p.SunDimming = 0.55f;
+                p.WetnessTarget = 0.85f;
+                break;
+            case WeatherStateId::Storm:
+                p.CloudCoverage = 0.97f;
+                p.CloudDensity = 1.0f;
+                p.CloudTypeBlend = 0.85f; // towering cumulonimbus
+                p.CloudWetness = 0.9f;
+                p.FogEnabled = true;
+                p.FogDensity = 0.009f;
+                p.FogColor = glm::vec3(0.42f, 0.45f, 0.52f);
+                p.FogHeightFalloff = 0.05f;
+                p.WindSpeed = 14.0f;
+                p.WindGustStrength = 0.8f;
+                p.WindTurbulence = 0.9f;
+                p.PrecipitationEnabled = true;
+                p.PrecipitationKind = WeatherPrecipitationType::Rain;
+                p.PrecipitationIntensity = 1.0f;
+                p.SunDimming = 0.8f;
+                p.WetnessTarget = 1.0f;
+                break;
+            case WeatherStateId::Snow:
+                p.CloudCoverage = 0.85f;
+                p.CloudDensity = 0.75f;
+                p.CloudTypeBlend = 0.15f;
+                p.CloudWetness = 0.25f;
+                p.FogEnabled = true;
+                p.FogDensity = 0.005f;
+                p.FogColor = glm::vec3(0.72f, 0.74f, 0.78f);
+                p.WindSpeed = 5.0f;
+                p.WindGustStrength = 0.3f;
+                p.WindTurbulence = 0.5f;
+                p.PrecipitationEnabled = true;
+                p.PrecipitationKind = WeatherPrecipitationType::Snow;
+                p.PrecipitationIntensity = 0.7f;
+                p.SnowAccumulationEnabled = true;
+                p.SnowAccumulationRate = 0.02f;
+                p.SunDimming = 0.5f;
+                p.WetnessTarget = 0.15f; // snow reads dry-cold, not rain-slick
+                break;
+            case WeatherStateId::FogBank:
+                p.CloudCoverage = 0.55f;
+                p.CloudDensity = 0.5f;
+                p.CloudTypeBlend = 0.1f;
+                p.FogEnabled = true;
+                p.FogDensity = 0.035f;
+                p.FogColor = glm::vec3(0.68f, 0.7f, 0.73f);
+                p.FogHeightFalloff = 0.25f; // hugs the ground
+                p.FogMaxOpacity = 1.0f;
+                p.WindSpeed = 1.0f;
+                p.WindGustStrength = 0.05f;
+                p.WindTurbulence = 0.1f;
+                p.SunDimming = 0.45f;
+                p.WetnessTarget = 0.4f; // dew
+                break;
+            default:
+                break;
+        }
+        return p;
+    }
+
+    // Weather director state (issue #633, Pillar A). SERIALIZED on purpose —
+    // unlike the per-tick runtime *StateComponent family (DialogueState…,
+    // SpringBoneState…), this component holds the authored weather presets and
+    // the persistent current/target state; the issue names it
+    // WeatherStateComponent, and only the derived per-tick fields below are
+    // OLO_SERIALIZE(Skip)-tagged. WeatherSystem (Atmosphere/WeatherSystem.h)
+    // blends CurrentState→TargetState over the transition duration and writes
+    // the blended values into the scene-level Wind/Fog/Precipitation/Snow
+    // settings plus the cloudscape/lighting inputs each tick.
+    struct WeatherStateComponent
+    {
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        // Persistent state machine. CurrentState is where the blend started
+        // (or the settled state); TargetState is where it is heading.
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 5)
+        WeatherStateId m_CurrentState = WeatherStateId::Clear;
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 5)
+        WeatherStateId m_TargetState = WeatherStateId::Clear;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 600.0f)
+        f32 m_TransitionDuration = 10.0f; // seconds for a full cross-blend
+
+        // Wetness dynamics: rises while rain falls, dries out slowly after.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
+        f32 m_WetnessRiseRate = 0.15f; // 1/s toward target while precipitating
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
+        f32 m_WetnessDryRate = 0.02f; // 1/s toward dry when precipitation stops
+
+        // Per-state authored presets (nested trivial structs → codegen'd YAML
+        // sub-maps; fixed named members instead of a vector so the count can
+        // never drift on load).
+        WeatherPreset m_PresetClear = MakeDefaultWeatherPreset(WeatherStateId::Clear);
+        WeatherPreset m_PresetOvercast = MakeDefaultWeatherPreset(WeatherStateId::Overcast);
+        WeatherPreset m_PresetRain = MakeDefaultWeatherPreset(WeatherStateId::Rain);
+        WeatherPreset m_PresetStorm = MakeDefaultWeatherPreset(WeatherStateId::Storm);
+        WeatherPreset m_PresetSnow = MakeDefaultWeatherPreset(WeatherStateId::Snow);
+        WeatherPreset m_PresetFogBank = MakeDefaultWeatherPreset(WeatherStateId::FogBank);
+
+        // ── Derived per-tick outputs (runtime-only; reload at defaults) ──
+        OLO_SERIALIZE(Skip)
+        OLO_PROPERTY()
+        f32 m_TransitionProgress = 1.0f; // [0,1]; 1 = settled on TargetState
+        OLO_SERIALIZE(Skip)
+        OLO_PROPERTY()
+        f32 m_Wetness = 0.0f; // [0,1] current global surface wetness
+        OLO_SERIALIZE(Skip)
+        WeatherPreset m_Blended; // the currently-applied blended values
+        // Transition bookkeeping (WeatherSystem-owned): the blend origin is a
+        // SNAPSHOT of whatever was applied when the target last changed, so a
+        // mid-transition retarget eases from the current look instead of
+        // popping; m_PrevTargetSeen detects target edits (from scripts, the
+        // inspector, or MCP) without needing a setter API.
+        OLO_SERIALIZE(Skip)
+        WeatherPreset m_TransitionFrom;
+        OLO_SERIALIZE(Skip)
+        WeatherStateId m_PrevTargetSeen = WeatherStateId::Clear;
+        OLO_SERIALIZE(Skip)
+        bool m_BlendedValid = false;
+
+        WeatherStateComponent() = default;
+        WeatherStateComponent(const WeatherStateComponent&) = default;
+
+        // Authored fields only: the Skip-tagged runtime fields (m_Blended,
+        // wetness, transition bookkeeping) are mutated by WeatherSystem every
+        // tick — including them would make the editor's undo change-detection
+        // see churn on every frame (the TransformComponent mutable-cache
+        // lesson; the editor also opts this type into value comparison via
+        // PreferValueComparison).
+        auto operator==(const WeatherStateComponent& other) const -> bool
+        {
+            return m_Enabled == other.m_Enabled &&
+                   m_CurrentState == other.m_CurrentState &&
+                   m_TargetState == other.m_TargetState &&
+                   Math::BitwiseEqual(m_TransitionDuration, other.m_TransitionDuration) &&
+                   Math::BitwiseEqual(m_WetnessRiseRate, other.m_WetnessRiseRate) &&
+                   Math::BitwiseEqual(m_WetnessDryRate, other.m_WetnessDryRate) &&
+                   m_PresetClear == other.m_PresetClear &&
+                   m_PresetOvercast == other.m_PresetOvercast &&
+                   m_PresetRain == other.m_PresetRain &&
+                   m_PresetStorm == other.m_PresetStorm &&
+                   m_PresetSnow == other.m_PresetSnow &&
+                   m_PresetFogBank == other.m_PresetFogBank;
+        }
+    };
+
+    // Astronomical time-of-day driver (issue #633, Pillar B). The single
+    // authoritative sun source: TimeOfDaySystem (Atmosphere/TimeOfDaySystem.h)
+    // computes sun AND moon directions from the simplified ephemeris
+    // (Atmosphere/Ephemeris.h, pure math, unit-tested) and drives the scene's
+    // first DirectionalLightComponent (direction, colour, intensity — swapped
+    // sun↔moon across the horizon) plus the AtmosphereSky bake inputs
+    // (day↔night cross-fade, exposure). Replaces the retired
+    // ProceduralSkyComponent::m_LinkSunToDirectionalLight and the ephemeral MCP
+    // sun override.
+    struct TimeOfDayComponent
+    {
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        // Clock
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 24.0f)
+        f32 m_TimeOfDayHours = 10.0f; // [0,24) wall-clock game time
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 1, Max = 365)
+        i32 m_DayOfYear = 172; // ~June solstice
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -90.0f, Max = 90.0f)
+        f32 m_LatitudeDegrees = 48.0f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.1f, Max = 10080.0f)
+        f32 m_DayLengthMinutes = 24.0f; // real minutes per 24h game day
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
+        f32 m_TimeScale = 1.0f; // extra multiplier on clock advance
+        OLO_PROPERTY()
+        bool m_Paused = false;
+        // Advance the clock during editor (non-play) ticks too. Off by default
+        // so scenes don't drift while being authored; scrubbing the inspector
+        // slider always works regardless.
+        bool m_AdvanceInEditMode = false;
+        // Rotates the ephemeris frame around +Y: 0 = north along +Z (sun rises
+        // toward +X). Lets authors orient the sun path to their level.
+        OLO_SERIALIZE(Clamp, Min = -360.0f, Max = 360.0f)
+        f32 m_NorthOffsetDegrees = 0.0f;
+
+        // Lighting drive
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        f32 m_SunIntensityMax = 3.0f; // directional-light intensity at high noon
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
+        f32 m_MoonIntensityMax = 0.12f; // directional-light intensity under a full moon
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_MoonPhase = 0.5f; // synodic fraction: 0 = new, 0.5 = full, 1 = new
+
+        // Sky drive (feeds the AtmosphereSky bake; Preetham params still come
+        // from the scene's ProceduralSkyComponent)
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
+        f32 m_SkyExposureDay = 0.1f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
+        f32 m_SkyExposureNight = 0.35f; // night sky is tone-mapped brighter so stars read
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 8.0f)
+        f32 m_StarIntensity = 1.0f;
+        OLO_SERIALIZE(Clamp, Min = 0.1f, Max = 10.0f)
+        f32 m_MoonDiskSize = 1.0f; // multiplier on the nominal lunar angular radius
+        // Cubemap/IBL rebake cadence: the sky bake hash sees time quantized to
+        // this many GAME minutes, so a moving sun rebakes on these steps
+        // instead of every frame (acceptance criterion: no per-frame rebake).
+        OLO_SERIALIZE(Clamp, Min = 0.25f, Max = 240.0f)
+        f32 m_RebakeQuantumGameMinutes = 5.0f;
+
+        // ── Derived per-tick outputs (runtime-only; script-readable) ──
+        OLO_SERIALIZE(Skip)
+        OLO_PROPERTY()
+        glm::vec3 m_SunDirection = glm::vec3(0.0f, 1.0f, 0.0f); // toward sun
+        OLO_SERIALIZE(Skip)
+        OLO_PROPERTY()
+        glm::vec3 m_MoonDirection = glm::vec3(0.0f, -1.0f, 0.0f); // toward moon
+        OLO_SERIALIZE(Skip)
+        OLO_PROPERTY()
+        f32 m_SunElevationDegrees = 0.0f;
+        OLO_SERIALIZE(Skip)
+        OLO_PROPERTY()
+        bool m_IsNight = false;
+
+        TimeOfDayComponent() = default;
+        TimeOfDayComponent(const TimeOfDayComponent&) = default;
+
+        // Authored fields only: the Skip-tagged derived outputs (sun/moon
+        // directions, elevation, is-night) are rewritten by
+        // TimeOfDaySystem::Apply every rendered frame — in BOTH edit and play
+        // modes — so a whole-struct compare would report the component
+        // changed every frame and spam editor undo (TransformComponent
+        // mutable-cache lesson; PreferValueComparison opts into this
+        // comparison in the editor).
+        auto operator==(const TimeOfDayComponent& other) const -> bool
+        {
+            return m_Enabled == other.m_Enabled &&
+                   m_Paused == other.m_Paused &&
+                   m_AdvanceInEditMode == other.m_AdvanceInEditMode &&
+                   m_DayOfYear == other.m_DayOfYear &&
+                   Math::BitwiseEqual(m_TimeOfDayHours, other.m_TimeOfDayHours) &&
+                   Math::BitwiseEqual(m_LatitudeDegrees, other.m_LatitudeDegrees) &&
+                   Math::BitwiseEqual(m_DayLengthMinutes, other.m_DayLengthMinutes) &&
+                   Math::BitwiseEqual(m_TimeScale, other.m_TimeScale) &&
+                   Math::BitwiseEqual(m_NorthOffsetDegrees, other.m_NorthOffsetDegrees) &&
+                   Math::BitwiseEqual(m_SunIntensityMax, other.m_SunIntensityMax) &&
+                   Math::BitwiseEqual(m_MoonIntensityMax, other.m_MoonIntensityMax) &&
+                   Math::BitwiseEqual(m_MoonPhase, other.m_MoonPhase) &&
+                   Math::BitwiseEqual(m_SkyExposureDay, other.m_SkyExposureDay) &&
+                   Math::BitwiseEqual(m_SkyExposureNight, other.m_SkyExposureNight) &&
+                   Math::BitwiseEqual(m_StarIntensity, other.m_StarIntensity) &&
+                   Math::BitwiseEqual(m_MoonDiskSize, other.m_MoonDiskSize) &&
+                   Math::BitwiseEqual(m_RebakeQuantumGameMinutes, other.m_RebakeQuantumGameMinutes);
+        }
+    };
+
+    // Raymarched volumetric cloudscape (issue #633, Pillar C). The density
+    // field is two-layer stratus↔cumulus driven by a weather-map texture
+    // (authored via m_WeatherMapHandle or procedural when 0) and Perlin-Worley
+    // noise; the render pass raymarches it at half resolution with temporal
+    // reprojection and composites before the fog pass. Coverage/type/wetness
+    // are overridden by the weather director's blended preset when a
+    // WeatherStateComponent is enabled in the scene.
+    struct CloudscapeComponent
+    {
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        // Vertical placement (meters above world origin)
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 20000.0f)
+        f32 m_LayerBottom = 1500.0f;
+        OLO_SERIALIZE(Clamp, Min = 100.0f, Max = 30000.0f)
+        f32 m_LayerTop = 4000.0f; // system enforces > m_LayerBottom at use
+
+        // Field shaping (base values; weather director overrides when enabled)
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_Coverage = 0.35f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 4.0f)
+        f32 m_Density = 1.0f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_TypeBlend = 0.5f; // 0 = stratus, 1 = cumulus
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_ErosionStrength = 0.5f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 8.0f)
+        f32 m_WindAnimationScale = 1.0f; // multiplies the WindSystem field's advection
+
+        // Weather map: RGBA8 2D texture, R = coverage, G = type, B = wetness.
+        // 0 = generate procedurally from the noise stack.
+        AssetHandle m_WeatherMapHandle = 0;
+        // World extent one texture repeat covers. 12 km puts individual
+        // weather features at ~3 km — tuned live (issue #633): at the
+        // original 30 km a narrow camera sits entirely inside one coverage
+        // blob and the sky reads as a uniform veil instead of a cloud FIELD.
+        OLO_SERIALIZE(Clamp, Min = 1.0f, Max = 200.0f)
+        f32 m_WeatherMapScaleKm = 12.0f;
+
+        // Raymarch quality
+        OLO_SERIALIZE(Clamp, Min = 16, Max = 128)
+        i32 m_MaxSteps = 64;
+        OLO_SERIALIZE(Clamp, Min = 2, Max = 12)
+        i32 m_LightSteps = 6; // cone samples toward the sun per march step
+
+        // Lighting
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
+        f32 m_SunLightScale = 1.0f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
+        f32 m_AmbientScale = 1.0f; // scales the sky-IBL ambient term
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_MultiScatterStrength = 0.5f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 0.95f)
+        f32 m_PhaseG = 0.6f; // Henyey-Greenstein anisotropy (forward lobe)
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 2.0f)
+        f32 m_PowderStrength = 1.0f;
+
+        // Ground shadows (top-down transmittance map multiplied into the
+        // directional light — see PBRCommon cloud-shadow helper)
+        OLO_PROPERTY()
+        bool m_CastCloudShadows = true;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_ShadowStrength = 0.8f;
+        OLO_SERIALIZE(Clamp, Min = 500.0f, Max = 50000.0f)
+        f32 m_ShadowMapWorldSize = 8000.0f; // world extent covered, centered on camera
+
+        // Temporal reprojection history feedback (0 = fresh every frame)
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 0.98f)
+        f32 m_TemporalBlend = 0.9f;
+
+        // Tint the sky cubemap bake (and therefore IBL/SSR/water reflections)
+        // with the cloud layer so reflective surfaces see the cloudscape.
+        bool m_AffectIBL = true;
+
+        CloudscapeComponent() = default;
+        CloudscapeComponent(const CloudscapeComponent&) = default;
+
+        auto operator==(const CloudscapeComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
         }
     };
 

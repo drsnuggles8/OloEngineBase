@@ -46,6 +46,7 @@ void main()
 #version 460 core
 
 #include "include/PBRCommon.glsl"
+#include "include/AtmosphereShading.glsl"
 
 // Camera UBO (binding 0)
 layout(std140, binding = 0) uniform CameraMatrices {
@@ -201,6 +202,12 @@ void main()
 
     vec3 V = normalize(u_CameraPosition - v_WorldPos);
 
+    // Weather response + cloud shadow (issue #633) — same order as
+    // PBR_MultiLight.glsl (voxel terrain is exposed cave/overhang rock, so
+    // both effects still apply where it faces the sky).
+    atmosphereApplyWetness(albedo, roughness, N);
+    float cloudShadow = atmosphereCloudShadow(v_WorldPos);
+
     // Direct lighting with shadows
     vec3 Lo = vec3(0.0);
     for (int i = 0; i < min(u_LightCount, MAX_LIGHTS); ++i)
@@ -208,6 +215,10 @@ void main()
         vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos);
 
         int lightType = int(u_Lights[i].position.w);
+        if (lightType == DIRECTIONAL_LIGHT)
+        {
+            lightContrib *= cloudShadow;
+        }
         if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
         {
             vec4 viewSpacePos = u_View * vec4(v_WorldPos, 1.0);

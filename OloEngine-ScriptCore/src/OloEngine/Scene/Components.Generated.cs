@@ -477,6 +477,39 @@ namespace OloEngine
 		}
 	}
 
+	public partial class CloudscapeComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.CloudscapeComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.CloudscapeComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public float Coverage
+		{
+			get => InternalCalls.CloudscapeComponent_GetCoverage(Entity.ID);
+			set => InternalCalls.CloudscapeComponent_SetCoverage(Entity.ID, value);
+		}
+
+		public float Density
+		{
+			get => InternalCalls.CloudscapeComponent_GetDensity(Entity.ID);
+			set => InternalCalls.CloudscapeComponent_SetDensity(Entity.ID, value);
+		}
+
+		public float TypeBlend
+		{
+			get => InternalCalls.CloudscapeComponent_GetTypeBlend(Entity.ID);
+			set => InternalCalls.CloudscapeComponent_SetTypeBlend(Entity.ID, value);
+		}
+
+		public bool CastCloudShadows
+		{
+			get => InternalCalls.CloudscapeComponent_GetCastCloudShadows(Entity.ID);
+			set => InternalCalls.CloudscapeComponent_SetCastCloudShadows(Entity.ID, value);
+		}
+	}
+
 	public partial class DirectionalLightComponent : Component
 	{
 		public Vector3 Color
@@ -1521,12 +1554,6 @@ namespace OloEngine
 			set => InternalCalls.ProceduralSkyComponent_SetShowSunDisk(Entity.ID, value);
 		}
 
-		public bool LinkSunToDirectionalLight
-		{
-			get => InternalCalls.ProceduralSkyComponent_GetLinkSunToDirectionalLight(Entity.ID);
-			set => InternalCalls.ProceduralSkyComponent_SetLinkSunToDirectionalLight(Entity.ID, value);
-		}
-
 		public bool EnableSkybox
 		{
 			get => InternalCalls.ProceduralSkyComponent_GetEnableSkybox(Entity.ID);
@@ -2163,6 +2190,89 @@ namespace OloEngine
 		}
 	}
 
+	public partial class TimeOfDayComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.TimeOfDayComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.TimeOfDayComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public float TimeOfDayHours
+		{
+			get => InternalCalls.TimeOfDayComponent_GetTimeOfDayHours(Entity.ID);
+			set => InternalCalls.TimeOfDayComponent_SetTimeOfDayHours(Entity.ID, value);
+		}
+
+		public int DayOfYear
+		{
+			get => InternalCalls.TimeOfDayComponent_GetDayOfYear(Entity.ID);
+			set => InternalCalls.TimeOfDayComponent_SetDayOfYear(Entity.ID, value);
+		}
+
+		public float LatitudeDegrees
+		{
+			get => InternalCalls.TimeOfDayComponent_GetLatitudeDegrees(Entity.ID);
+			set => InternalCalls.TimeOfDayComponent_SetLatitudeDegrees(Entity.ID, value);
+		}
+
+		public float DayLengthMinutes
+		{
+			get => InternalCalls.TimeOfDayComponent_GetDayLengthMinutes(Entity.ID);
+			set => InternalCalls.TimeOfDayComponent_SetDayLengthMinutes(Entity.ID, value);
+		}
+
+		public float TimeScale
+		{
+			get => InternalCalls.TimeOfDayComponent_GetTimeScale(Entity.ID);
+			set => InternalCalls.TimeOfDayComponent_SetTimeScale(Entity.ID, value);
+		}
+
+		public bool Paused
+		{
+			get => InternalCalls.TimeOfDayComponent_GetPaused(Entity.ID);
+			set => InternalCalls.TimeOfDayComponent_SetPaused(Entity.ID, value);
+		}
+
+		public float MoonPhase
+		{
+			get => InternalCalls.TimeOfDayComponent_GetMoonPhase(Entity.ID);
+			set => InternalCalls.TimeOfDayComponent_SetMoonPhase(Entity.ID, value);
+		}
+
+		public Vector3 SunDirection
+		{
+			get
+			{
+				InternalCalls.TimeOfDayComponent_GetSunDirection(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.TimeOfDayComponent_SetSunDirection(Entity.ID, ref value);
+		}
+
+		public Vector3 MoonDirection
+		{
+			get
+			{
+				InternalCalls.TimeOfDayComponent_GetMoonDirection(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.TimeOfDayComponent_SetMoonDirection(Entity.ID, ref value);
+		}
+
+		public float SunElevationDegrees
+		{
+			get => InternalCalls.TimeOfDayComponent_GetSunElevationDegrees(Entity.ID);
+			set => InternalCalls.TimeOfDayComponent_SetSunElevationDegrees(Entity.ID, value);
+		}
+
+		public bool IsNight
+		{
+			get => InternalCalls.TimeOfDayComponent_GetIsNight(Entity.ID);
+			set => InternalCalls.TimeOfDayComponent_SetIsNight(Entity.ID, value);
+		}
+	}
+
 	public partial class TransformComponent : Component
 	{
 		public Vector3 Translation
@@ -2749,6 +2859,33 @@ namespace OloEngine
 		{
 			get => InternalCalls.VideoSurfaceComponent_GetVideoPath(Entity.ID);
 			set => InternalCalls.VideoSurfaceComponent_SetVideoPath(Entity.ID, value);
+		}
+	}
+
+	public partial class WeatherStateComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.WeatherStateComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.WeatherStateComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public float TransitionDuration
+		{
+			get => InternalCalls.WeatherStateComponent_GetTransitionDuration(Entity.ID);
+			set => InternalCalls.WeatherStateComponent_SetTransitionDuration(Entity.ID, value);
+		}
+
+		public float TransitionProgress
+		{
+			get => InternalCalls.WeatherStateComponent_GetTransitionProgress(Entity.ID);
+			set => InternalCalls.WeatherStateComponent_SetTransitionProgress(Entity.ID, value);
+		}
+
+		public float Wetness
+		{
+			get => InternalCalls.WeatherStateComponent_GetWetness(Entity.ID);
+			set => InternalCalls.WeatherStateComponent_SetWetness(Entity.ID, value);
 		}
 	}
 
