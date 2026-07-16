@@ -1,0 +1,72 @@
+SkillTree:
+  TreeID: warrior_skills
+  DisplayName: Warrior Training
+  Nodes:
+    - NodeID: toughness
+      DisplayName: Toughness
+      Description: Hardened by battle. +25 max health.
+      LevelRequirement: 1
+      SkillPointCost: 1
+      Prerequisites: []
+      EditorPosition: [0, 0]
+      Payload: PassiveEffect
+      PassiveEffect:
+        - Name: Skill.toughness
+          DurationType: Infinite
+          DurationSeconds: 0
+          IsPeriodic: false
+          PeriodSeconds: 1
+          Modifiers:
+            - Attribute: MaxHealth
+              Operation: Add
+              Magnitude: 25
+          MaxStacks: 1
+          RefreshDurationOnStack: true
+          GrantedTags: []
+          RequiredTags: []
+          BlockedTags: []
+    - NodeID: power_strike
+      DisplayName: Power Strike
+      Description: A heavy blow that costs stamina to unleash.
+      LevelRequirement: 2
+      SkillPointCost: 1
+      Prerequisites: [toughness]
+      EditorPosition: [0, 160]
+      Payload: Ability
+      Ability:
+        Name: Power Strike
+        AbilityTag: Ability.PowerStrike
+        CooldownDuration: 6
+        ResourceCost: 20
+        CostAttribute: Mana
+        IsChanneled: false
+        IsToggled: false
+        ChannelDuration: 0
+        RequiredTags: [State.Alive]
+        BlockedTags: [State.Dead]
+        ActivationGrantedTags: []
+        ActivationEffects: []
+        TargetActivationEffects: []
+    - NodeID: battle_focus
+      DisplayName: Battle Focus
+      Description: Sharpened instincts. +10 attack power.
+      LevelRequirement: 3
+      SkillPointCost: 2
+      Prerequisites: [toughness]
+      EditorPosition: [220, 160]
+      Payload: PassiveEffect
+      PassiveEffect:
+        - Name: Skill.battle_focus
+          DurationType: Infinite
+          DurationSeconds: 0
+          IsPeriodic: false
+          PeriodSeconds: 1
+          Modifiers:
+            - Attribute: AttackPower
+              Operation: Add
+              Magnitude: 10
+          MaxStacks: 1
+          RefreshDurationOnStack: true
+          GrantedTags: []
+          RequiredTags: []
+          BlockedTags: []

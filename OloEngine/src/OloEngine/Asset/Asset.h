@@ -146,6 +146,9 @@ namespace OloEngine
         friend class InstancePlacementSerializer;
         friend class CinematicSequenceAssetSerializer;
         friend class FluidSettingsAssetSerializer;
+        friend class ExperienceCurveSerializer;
+        friend class SkillTreeDatabaseSerializer;
+        friend class CharacterClassDatabaseSerializer;
 
         bool IsValid() const
         {

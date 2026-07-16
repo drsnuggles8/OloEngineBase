@@ -99,6 +99,13 @@ namespace OloEngine
             return s_AssetManager;
         }
 
+        // @brief Whether an asset manager has been set (GetAssetManager asserts;
+        // headless callers that must degrade gracefully check this first)
+        static bool HasAssetManager()
+        {
+            return static_cast<bool>(s_AssetManager);
+        }
+
         // @brief Set the active asset manager for the project
         // @param assetManager Asset manager to set as active
         static void SetAssetManager(const Ref<AssetManagerBase>& assetManager)

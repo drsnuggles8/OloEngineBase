@@ -830,6 +830,7 @@ namespace OloEngine
         void UpdateAI(Timestep ts);              // behavior trees / FSM / GOAP
         void UpdateInventory(Timestep ts);       // pickups / despawn
         void UpdateQuest(Timestep ts);           // quest timers / conditions
+        void UpdateProgression(Timestep ts);     // XP/level resolution + point grants (issue #635)
         void UpdateAbilities(Timestep ts);       // gameplay ability system
         void UpdateAudio(Timestep ts);           // listener/source pose sync + events
         // Particle update is split by GPU usage (issue #576): the CPU partition

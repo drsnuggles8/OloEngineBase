@@ -28,6 +28,7 @@ ids.insert(entt::type_hash<NetworkLODComponent>::value());
 ids.insert(entt::type_hash<NoiseAnimationComponent>::value());
 ids.insert(entt::type_hash<PerceptibleComponent>::value());
 ids.insert(entt::type_hash<PointLightComponent>::value());
+ids.insert(entt::type_hash<ProgressionComponent>::value());
 ids.insert(entt::type_hash<QuestGiverComponent>::value());
 ids.insert(entt::type_hash<RelationshipComponent>::value());
 ids.insert(entt::type_hash<RetargetingComponent>::value());

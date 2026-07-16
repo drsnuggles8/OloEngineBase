@@ -1510,6 +1510,21 @@ namespace OloEngine
 		}
 	}
 
+	public partial class ProgressionComponent : Component
+	{
+		public int XPBounty
+		{
+			get => InternalCalls.ProgressionComponent_GetXPBounty(Entity.ID);
+			set => InternalCalls.ProgressionComponent_SetXPBounty(Entity.ID, value);
+		}
+
+		public bool HealOnLevelUp
+		{
+			get => InternalCalls.ProgressionComponent_GetHealOnLevelUp(Entity.ID);
+			set => InternalCalls.ProgressionComponent_SetHealOnLevelUp(Entity.ID, value);
+		}
+	}
+
 	public partial class RagdollComponent : Component
 	{
 		public bool Enabled

@@ -379,6 +379,43 @@ if (entity.HasComponent<PointLightComponent>())
     out << YAML::EndMap; // PointLightComponent
 }
 
+if (entity.HasComponent<ProgressionComponent>())
+{
+    out << YAML::Key << "ProgressionComponent";
+    out << YAML::BeginMap; // ProgressionComponent
+    auto const& comp = entity.GetComponent<ProgressionComponent>();
+    out << YAML::Key << "Level" << YAML::Value << comp.Level;
+    out << YAML::Key << "CurrentXP" << YAML::Value << comp.CurrentXP;
+    out << YAML::Key << "AttributePoints" << YAML::Value << comp.AttributePoints;
+    out << YAML::Key << "SkillPoints" << YAML::Value << comp.SkillPoints;
+    out << YAML::Key << "XPBounty" << YAML::Value << comp.XPBounty;
+    out << YAML::Key << "HealOnLevelUp" << YAML::Value << comp.HealOnLevelUp;
+    {
+        std::vector<decltype(comp.UnlockedNodes)::value_type> sorted0(comp.UnlockedNodes.begin(), comp.UnlockedNodes.end());
+        std::ranges::sort(sorted0);
+        out << YAML::Key << "UnlockedNodes" << YAML::Value << YAML::BeginSeq;
+        for (auto const& e : sorted0)
+            out << e;
+        out << YAML::EndSeq;
+    }
+    {
+        std::vector<std::string> keys0;
+        keys0.reserve(comp.AllocatedPoints.size());
+        for (auto const& entry0 : comp.AllocatedPoints)
+            keys0.push_back(entry0.first);
+        std::ranges::sort(keys0);
+        out << YAML::Key << "AllocatedPoints" << YAML::Value << YAML::BeginMap;
+        for (auto const& k0 : keys0)
+            out << YAML::Key << k0 << YAML::Value << comp.AllocatedPoints.at(k0);
+        out << YAML::EndMap;
+    }
+    out << YAML::Key << "ExperienceCurveHandle" << YAML::Value << static_cast<u64>(comp.ExperienceCurveHandle);
+    out << YAML::Key << "ClassDatabaseHandle" << YAML::Value << static_cast<u64>(comp.ClassDatabaseHandle);
+    out << YAML::Key << "SkillTreeHandle" << YAML::Value << static_cast<u64>(comp.SkillTreeHandle);
+    out << YAML::Key << "ClassID" << YAML::Value << comp.ClassID;
+    out << YAML::EndMap; // ProgressionComponent
+}
+
 if (entity.HasComponent<QuestGiverComponent>())
 {
     out << YAML::Key << "QuestGiverComponent";

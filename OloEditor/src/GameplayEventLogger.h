@@ -5,7 +5,8 @@ namespace OloEngine
     class Scene;
 
     // Editor diagnostic: subscribes a set of OLO_CORE_INFO loggers to the
-    // scene's GameplayEventBus so every quest/inventory event streams into the
+    // scene's GameplayEventBus so every quest/inventory/progression/combat
+    // event streams into the
     // editor Console panel (and OloEngine.log) when you press Play. The
     // subscriptions are dropped automatically by Scene::OnRuntimeStop (which
     // Clear()s the bus), so this is safe to call once per Play session.

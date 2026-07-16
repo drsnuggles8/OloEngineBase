@@ -74,6 +74,7 @@ TRY_LOAD_COMPONENT(PhysicsJoint3DComponent);
 TRY_LOAD_COMPONENT(PointLightComponent);
 TRY_LOAD_COMPONENT(PrefabComponent);
 TRY_LOAD_COMPONENT(ProceduralSkyComponent);
+TRY_LOAD_COMPONENT(ProgressionComponent);
 TRY_LOAD_COMPONENT(QuestGiverComponent);
 TRY_LOAD_COMPONENT(QuestJournalComponent);
 TRY_LOAD_COMPONENT(RagdollComponent);

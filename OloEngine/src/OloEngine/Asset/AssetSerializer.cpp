@@ -62,6 +62,11 @@
 
 namespace OloEngine
 {
+    Ref<Scene> AssetSerializer::DeserializeSceneFromAssetPack([[maybe_unused]] FileStreamReader& stream, [[maybe_unused]] const AssetPackFile::SceneInfo& sceneInfo) const
+    {
+        return nullptr;
+    }
+
     namespace
     {
         // True for the offline block-compressed container (.olotex, #440), matched

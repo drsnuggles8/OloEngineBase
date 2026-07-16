@@ -177,7 +177,7 @@ namespace OloEngine
 
         m_ActiveQuests.erase(it);
         OLO_CORE_INFO("[QuestJournal] Completed quest '{}'", id);
-        Record(sink, { .Kind = QuestJournalChange::Type::QuestCompleted, .QuestID = id, .BranchChoice = branchChoice });
+        Record(sink, { .Kind = QuestJournalChange::Type::QuestCompleted, .QuestID = id, .BranchChoice = branchChoice, .ExperiencePoints = rewards.ExperiencePoints });
         return rewards;
     }
 

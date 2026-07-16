@@ -38,6 +38,9 @@ namespace OloEngine
     class BehaviorTreeAsset;
     class StateMachineAsset;
     class CinematicSequence;
+    class ExperienceCurve;
+    class SkillTreeDatabase;
+    class CharacterClassDatabase;
 
     struct AssetSerializationInfo
     {
@@ -131,11 +134,12 @@ namespace OloEngine
         [[nodiscard]] virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const = 0;
         virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const = 0;
 
-        // Virtual method for scene-specific deserialization, returns nullptr by default
-        virtual Ref<Scene> DeserializeSceneFromAssetPack([[maybe_unused]] FileStreamReader& stream, [[maybe_unused]] const AssetPackFile::SceneInfo& sceneInfo) const
-        {
-            return nullptr;
-        }
+        // Virtual method for scene-specific deserialization, returns nullptr by
+        // default. Defined out-of-line (AssetSerializer.cpp) on purpose: an
+        // inline body returning Ref<Scene> would force every TU that includes
+        // this header to see the complete Scene type just to instantiate
+        // Ref<Scene>::~Ref.
+        virtual Ref<Scene> DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo) const;
     };
 
     class TextureSerializer : public AssetSerializer
@@ -542,6 +546,94 @@ namespace OloEngine
       private:
         std::string SerializeToYAML(const Ref<ShaderGraphAsset>& graphAsset) const;
         [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<ShaderGraphAsset>& graphAsset) const;
+    };
+
+    // Progression data assets (issue #635). All three are CPU-only YAML value
+    // databases; implementations live in
+    // OloEngine/Gameplay/Progression/ProgressionAssetSerializers.cpp.
+
+    class ExperienceCurveSerializer : public AssetSerializer
+    {
+      public:
+        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+
+        [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+        [[nodiscard]] bool CanDeserializeFromAssetPackOffThread() const override
+        {
+            return true; // CPU-only: YAML -> ExperienceCurve, no GPU resources
+        }
+
+        // Public for testing
+        std::string TestSerializeToYAML(const Ref<ExperienceCurve>& curve) const
+        {
+            return SerializeToYAML(curve);
+        }
+        [[nodiscard]] bool TestDeserializeFromYAML(const std::string& yamlString, Ref<ExperienceCurve>& curve) const
+        {
+            return DeserializeFromYAML(yamlString, curve);
+        }
+
+      private:
+        std::string SerializeToYAML(const Ref<ExperienceCurve>& curve) const;
+        [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<ExperienceCurve>& curve) const;
+    };
+
+    class SkillTreeDatabaseSerializer : public AssetSerializer
+    {
+      public:
+        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+
+        [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+        [[nodiscard]] bool CanDeserializeFromAssetPackOffThread() const override
+        {
+            return true; // CPU-only: YAML -> SkillTreeDatabase, no GPU resources
+        }
+
+        // Public for testing
+        std::string TestSerializeToYAML(const Ref<SkillTreeDatabase>& tree) const
+        {
+            return SerializeToYAML(tree);
+        }
+        [[nodiscard]] bool TestDeserializeFromYAML(const std::string& yamlString, Ref<SkillTreeDatabase>& tree) const
+        {
+            return DeserializeFromYAML(yamlString, tree);
+        }
+
+      private:
+        std::string SerializeToYAML(const Ref<SkillTreeDatabase>& tree) const;
+        [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<SkillTreeDatabase>& tree) const;
+    };
+
+    class CharacterClassDatabaseSerializer : public AssetSerializer
+    {
+      public:
+        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+
+        [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+        [[nodiscard]] bool CanDeserializeFromAssetPackOffThread() const override
+        {
+            return true; // CPU-only: YAML -> CharacterClassDatabase, no GPU resources
+        }
+
+        // Public for testing
+        std::string TestSerializeToYAML(const Ref<CharacterClassDatabase>& classDb) const
+        {
+            return SerializeToYAML(classDb);
+        }
+        [[nodiscard]] bool TestDeserializeFromYAML(const std::string& yamlString, Ref<CharacterClassDatabase>& classDb) const
+        {
+            return DeserializeFromYAML(yamlString, classDb);
+        }
+
+      private:
+        std::string SerializeToYAML(const Ref<CharacterClassDatabase>& classDb) const;
+        [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<CharacterClassDatabase>& classDb) const;
     };
 
 } // namespace OloEngine

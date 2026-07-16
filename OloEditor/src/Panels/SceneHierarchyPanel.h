@@ -32,6 +32,14 @@ namespace OloEngine
             m_OpenCinematicTimeline = std::move(cb);
         }
 
+        // Set by EditorLayer: open a SkillTreeDatabase asset in the skill tree
+        // editor (the "Edit Skill Tree" button on the ProgressionComponent
+        // inspector).
+        void SetOpenSkillTreeEditorCallback(std::function<void(AssetHandle)> cb)
+        {
+            m_OpenSkillTreeEditor = std::move(cb);
+        }
+
         void OnImGuiRender();
 
         // Single selection (primary — used for Properties panel and gizmos)
@@ -75,6 +83,7 @@ namespace OloEngine
         std::vector<Entity> m_SelectedEntities;
         CommandHistory* m_CommandHistory = nullptr;
         std::function<void(AssetHandle)> m_OpenCinematicTimeline;
+        std::function<void(AssetHandle)> m_OpenSkillTreeEditor;
 
         // Rename tracking for undo
         std::string m_RenameOldName;

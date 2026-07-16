@@ -28,7 +28,10 @@ namespace OloEngine
         SoundGraph,
         SaveGame,
         Cinematic,
-        FluidSettings
+        FluidSettings,
+        SkillTree,
+        CharacterClass,
+        ExperienceCurve
     };
 
     // Bitflag actions returned by ContentBrowserItem::Render()

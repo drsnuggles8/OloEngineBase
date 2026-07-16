@@ -32,6 +32,7 @@
 #include "OloEngine/Animation/AnimationGraphComponent.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
+#include "OloEngine/Gameplay/Progression/ProgressionComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Renderer/SphericalHarmonics.h"
 #include "OloEngine/Scene/Components.h"
@@ -3613,6 +3614,50 @@ namespace OloEngine
         SerializeCooldownManager(ar, c.Cooldowns);
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, ProgressionComponent& c)
+    {
+        ar << c.Level;
+        ar << c.CurrentXP;
+        ar << c.AttributePoints;
+        ar << c.SkillPoints;
+        ar << c.XPBounty;
+        ar << c.HealOnLevelUp;
+
+        SerializeStringSet(ar, c.UnlockedNodes);
+        ar << c.AllocatedPoints;
+
+        u64 curveHandle = static_cast<u64>(c.ExperienceCurveHandle);
+        u64 classDbHandle = static_cast<u64>(c.ClassDatabaseHandle);
+        u64 skillTreeHandle = static_cast<u64>(c.SkillTreeHandle);
+        ar << curveHandle;
+        ar << classDbHandle;
+        ar << skillTreeHandle;
+        ar << c.ClassID;
+        ar << c.PendingXP;
+
+        if (ar.IsLoading())
+        {
+            c.ExperienceCurveHandle = AssetHandle(curveHandle);
+            c.ClassDatabaseHandle = AssetHandle(classDbHandle);
+            c.SkillTreeHandle = AssetHandle(skillTreeHandle);
+
+            // Defensive clamps: a corrupt save-file must not deliver negative
+            // pools or a level below 1.
+            c.Level = std::max(c.Level, 1);
+            c.CurrentXP = std::max(c.CurrentXP, 0);
+            c.AttributePoints = std::max(c.AttributePoints, 0);
+            c.SkillPoints = std::max(c.SkillPoints, 0);
+            c.XPBounty = std::max(c.XPBounty, 0);
+            c.PendingXP = std::max(c.PendingXP, 0);
+            std::erase_if(c.AllocatedPoints, [](const auto& entry)
+                          { return entry.second <= 0; });
+
+            // Runtime reconciliation (modifier sources, skill payloads) is
+            // re-derived by ProgressionSystem on the next tick.
+            c.RuntimeInitialized = false;
+        }
+    }
+
     // ========================================================================
     // Registry
     // ========================================================================
@@ -3737,6 +3782,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(QuestJournalComponent);
         REGISTER_SAVE_COMPONENT(QuestGiverComponent);
         REGISTER_SAVE_COMPONENT(AbilityComponent);
+        REGISTER_SAVE_COMPONENT(ProgressionComponent);
 
         OLO_CORE_TRACE("[SaveGameComponentSerializer] Registered {} component serializers", s_Registry.size());
     }

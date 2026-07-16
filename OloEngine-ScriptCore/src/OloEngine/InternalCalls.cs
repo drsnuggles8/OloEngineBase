@@ -636,6 +636,43 @@ namespace OloEngine
 		internal static extern bool AbilityComponent_TryActivateAbilityOnTarget(ulong casterEntityID, string abilityTag, ulong targetEntityID);
 		#endregion
 
+		#region Progression
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ProgressionComponent_GrantExperience(ulong entityID, int amount);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int ProgressionComponent_GetLevel(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int ProgressionComponent_GetXP(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int ProgressionComponent_GetXPToNextLevel(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int ProgressionComponent_GetMaxLevel(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int ProgressionComponent_GetAttributePoints(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int ProgressionComponent_GetSkillPoints(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ProgressionComponent_SpendAttributePoint(ulong entityID, string attribute, int count);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ProgressionComponent_RefundAttributePoint(ulong entityID, string attribute, int count);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int ProgressionComponent_Respec(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ProgressionComponent_UnlockSkillNode(ulong entityID, string nodeId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ProgressionComponent_RefundSkillNode(ulong entityID, string nodeId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int ProgressionComponent_RespecSkills(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ProgressionComponent_CanUnlockSkillNode(ulong entityID, string nodeId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ProgressionComponent_IsNodeUnlocked(ulong entityID, string nodeId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ProgressionComponent_InitializeFromClass(ulong entityID, string classId);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern string ProgressionComponent_GetClassID(ulong entityID);
+		#endregion
+
 		#region Physics
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool Physics_Raycast(ref Vector3 origin, ref Vector3 direction, float maxDistance, out Vector3 hitPosition, out Vector3 hitNormal, out float hitDistance, out ulong hitEntityID);

@@ -55,9 +55,9 @@ namespace OloEngine::Tests
         };
 
         // Walk every declared enum value via static_cast loop. The
-        // current top is `CinematicSequence = 34`; if more get added,
+        // current top is `CharacterClassDatabase = 38`; if more get added,
         // bumping this is the only maintenance.
-        constexpr u16 kMaxKnownValue = 35;
+        constexpr u16 kMaxKnownValue = 38;
 
         std::vector<AssetType> uncovered;
         for (u16 raw = 1; raw <= kMaxKnownValue; ++raw)

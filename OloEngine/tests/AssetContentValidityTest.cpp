@@ -35,6 +35,10 @@
 
 #include "OloEngine/Asset/AssetRegistry.h"
 #include "OloEngine/Asset/AssetExtensions.h"
+#include "OloEngine/Asset/AssetSerializer.h"
+#include "OloEngine/Gameplay/Progression/CharacterClassDatabase.h"
+#include "OloEngine/Gameplay/Progression/ExperienceCurve.h"
+#include "OloEngine/Gameplay/Progression/SkillTreeDatabase.h"
 
 #include <algorithm>
 #include <array>
@@ -127,6 +131,16 @@ namespace OloEngine::Tests
         fs::path SandboxAssetsRoot()
         {
             return fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject" / "Assets";
+        }
+
+        // Slurp a whole asset file for the serializers' string-based
+        // TestDeserializeFromYAML entry points (no asset manager required).
+        std::string ReadFileToString(const fs::path& path)
+        {
+            std::ifstream file(path, std::ios::binary);
+            std::ostringstream ss;
+            ss << file.rdbuf();
+            return ss.str();
         }
     } // namespace
 
@@ -2131,11 +2145,14 @@ namespace OloEngine::Tests
             const char* Subdir;
             const char* Extension;
         };
-        const std::array<AssetTypeRoot, 4> roots = { {
+        const std::array<AssetTypeRoot, 7> roots = { {
             { "Items", ".oloitem" },
             { "Quests", ".oloquest" },
             { "Dialogues", ".olodialogue" },
             { "ShaderGraphs", ".olosg" },
+            { "Progression", ".oloxpcurve" },
+            { "Progression", ".oloskilltree" },
+            { "Progression", ".olocharclass" },
         } };
 
         std::vector<Failure> failures;
@@ -2183,5 +2200,88 @@ namespace OloEngine::Tests
         // `ActionMap` (engine has historically used both — match either).
         EXPECT_TRUE((*node)["InputActions"] || (*node)["ActionMap"])
             << "InputActions.yaml missing top-level 'InputActions' (or 'ActionMap') key.";
+    }
+
+    // -------------------------------------------------------------------------
+    // Progression data assets (issue #635): every shipped
+    // .oloxpcurve / .oloskilltree / .olocharclass under Assets/Progression/
+    // must load through the REAL serializer string path (the same parse the
+    // AssetManager runs, minus file I/O) and pass structural validation. A
+    // broken sample here surfaces as "class/skill tree silently missing" the
+    // moment a user wires the asset in the editor.
+    // -------------------------------------------------------------------------
+    TEST(AssetContentValidity, SandboxExperienceCurvesAreStructurallyValid)
+    {
+        const auto files = EnumerateFilesByExtension(SandboxAssetsRoot() / "Progression", ".oloxpcurve");
+        ASSERT_GE(files.size(), 1u)
+            << "no .oloxpcurve files found under Assets/Progression — sandbox content moved?";
+
+        const ExperienceCurveSerializer serializer;
+        for (const auto& path : files)
+        {
+            auto curve = Ref<ExperienceCurve>::Create();
+            EXPECT_TRUE(serializer.TestDeserializeFromYAML(ReadFileToString(path), curve))
+                << path.generic_string() << ": failed to deserialize as an ExperienceCurve";
+            EXPECT_GE(curve->GetXPForLevelUp(1), 1)
+                << path.generic_string() << ": the loaded curve must satisfy the >= 1 XP floor";
+            EXPECT_GE(curve->GetMaxLevel(), 1) << path.generic_string();
+            EXPECT_LE(curve->GetMaxLevel(), 1000)
+                << path.generic_string() << ": MaxLevel outside the sanitized [1, 1000] range";
+        }
+    }
+
+    TEST(AssetContentValidity, SandboxSkillTreesAreStructurallyValid)
+    {
+        const auto files = EnumerateFilesByExtension(SandboxAssetsRoot() / "Progression", ".oloskilltree");
+        ASSERT_GE(files.size(), 1u)
+            << "no .oloskilltree files found under Assets/Progression — sandbox content moved?";
+
+        const SkillTreeDatabaseSerializer serializer;
+        for (const auto& path : files)
+        {
+            auto tree = Ref<SkillTreeDatabase>::Create();
+            ASSERT_TRUE(serializer.TestDeserializeFromYAML(ReadFileToString(path), tree))
+                << path.generic_string()
+                << ": failed to deserialize (duplicate/empty node id, dangling prerequisite, or cycle)";
+
+            std::string error;
+            EXPECT_TRUE(tree->Validate(&error))
+                << path.generic_string() << ": loaded tree fails validation: " << error;
+            EXPECT_FALSE(tree->m_Nodes.empty())
+                << path.generic_string() << ": a shipped skill tree with zero nodes is dead content";
+            for (const auto& node : tree->m_Nodes)
+            {
+                EXPECT_NE(tree->FindNode(node.NodeID), nullptr)
+                    << path.generic_string() << ": node '" << node.NodeID
+                    << "' not findable — the serializer did not RebuildIndex() on load";
+            }
+        }
+    }
+
+    TEST(AssetContentValidity, SandboxCharacterClassesAreStructurallyValid)
+    {
+        const auto files = EnumerateFilesByExtension(SandboxAssetsRoot() / "Progression", ".olocharclass");
+        ASSERT_GE(files.size(), 1u)
+            << "no .olocharclass files found under Assets/Progression — sandbox content moved?";
+
+        const CharacterClassDatabaseSerializer serializer;
+        for (const auto& path : files)
+        {
+            auto db = Ref<CharacterClassDatabase>::Create();
+            ASSERT_TRUE(serializer.TestDeserializeFromYAML(ReadFileToString(path), db))
+                << path.generic_string() << ": failed to deserialize (duplicate/empty class id?)";
+
+            std::string error;
+            EXPECT_TRUE(db->Validate(&error))
+                << path.generic_string() << ": loaded database fails validation: " << error;
+            EXPECT_FALSE(db->m_Classes.empty())
+                << path.generic_string() << ": a shipped class database with zero classes is dead content";
+            for (const auto& classDef : db->m_Classes)
+            {
+                EXPECT_NE(db->FindClass(classDef.ClassID), nullptr)
+                    << path.generic_string() << ": class '" << classDef.ClassID
+                    << "' not findable — the serializer did not RebuildIndex() on load";
+            }
+        }
     }
 } // namespace OloEngine::Tests

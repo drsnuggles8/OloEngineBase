@@ -1,0 +1,66 @@
+Scene: ProgressionDemo.olo
+Entities:
+  - Entity: 63501
+    TagComponent:
+      Tag: Hero
+    TransformComponent:
+      Translation: [-1.5, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [0.2, 0.55, 1, 1]
+    QuestJournalComponent: {}
+    AbilityComponent: {}
+    ProgressionComponent:
+      Level: 1
+      CurrentXP: 0
+      AttributePoints: 0
+      SkillPoints: 0
+      XPBounty: 0
+      HealOnLevelUp: true
+      UnlockedNodes: []
+      AllocatedPoints: {}
+      ExperienceCurveHandle: 4544736348022301306
+      ClassDatabaseHandle: 4544736348022301305
+      SkillTreeHandle: 4544736348022301307
+      ClassID: warrior
+  - Entity: 63502
+    TagComponent:
+      Tag: Goblin
+    TransformComponent:
+      Translation: [1.5, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [0.35, 0.8, 0.25, 1]
+    AbilityComponent:
+      Attributes:
+        - Name: MaxHealth
+          BaseValue: 30
+        - Name: Health
+          BaseValue: 30
+        - Name: Defense
+          BaseValue: 0
+      OwnedTags: [State.Alive]
+    ProgressionComponent:
+      Level: 2
+      XPBounty: 60
+      HealOnLevelUp: false
+  - Entity: 63503
+    TagComponent:
+      Tag: Demo Camera
+    TransformComponent:
+      Translation: [0, 0, 8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 1
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.00999999978
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

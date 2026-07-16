@@ -583,6 +583,18 @@ registry.push_back(OLO_GFW_FIELD(ProceduralSkyComponent, "EnableIBL", m_EnableIB
 registry.push_back(OLO_GFW_FIELD(ProceduralSkyComponent, "IBLIntensity", m_IBLIntensity));
 registry.push_back(OLO_GFW_FIELD(ProceduralSkyComponent, "CubemapResolution", m_CubemapResolution));
 
+// ProgressionComponent
+registry.push_back(OLO_GFW_FIELD_RANGE(ProgressionComponent, "Level", Level, OLO_GFW_BOUND(1), OLO_GFW_NO_BOUND));
+registry.push_back(OLO_GFW_FIELD_RANGE(ProgressionComponent, "CurrentXP", CurrentXP, OLO_GFW_BOUND(0), OLO_GFW_NO_BOUND));
+registry.push_back(OLO_GFW_FIELD_RANGE(ProgressionComponent, "AttributePoints", AttributePoints, OLO_GFW_BOUND(0), OLO_GFW_NO_BOUND));
+registry.push_back(OLO_GFW_FIELD_RANGE(ProgressionComponent, "SkillPoints", SkillPoints, OLO_GFW_BOUND(0), OLO_GFW_NO_BOUND));
+registry.push_back(OLO_GFW_FIELD_RANGE(ProgressionComponent, "XPBounty", XPBounty, OLO_GFW_BOUND(0), OLO_GFW_NO_BOUND));
+registry.push_back(OLO_GFW_FIELD(ProgressionComponent, "HealOnLevelUp", HealOnLevelUp));
+registry.push_back(OLO_GFW_FIELD(ProgressionComponent, "ExperienceCurveHandle", ExperienceCurveHandle));
+registry.push_back(OLO_GFW_FIELD(ProgressionComponent, "ClassDatabaseHandle", ClassDatabaseHandle));
+registry.push_back(OLO_GFW_FIELD(ProgressionComponent, "SkillTreeHandle", SkillTreeHandle));
+registry.push_back(OLO_GFW_FIELD(ProgressionComponent, "ClassID", ClassID));
+
 // QuestGiverComponent
 registry.push_back(OLO_GFW_FIELD(QuestGiverComponent, "QuestMarkerIcon", QuestMarkerIcon));
 
