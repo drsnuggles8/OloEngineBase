@@ -484,6 +484,12 @@ OLO_ADD_INTERNAL_CALL(ProceduralSkyComponent_SetEnableIBL);
 OLO_ADD_INTERNAL_CALL(ProceduralSkyComponent_GetIBLIntensity);
 OLO_ADD_INTERNAL_CALL(ProceduralSkyComponent_SetIBLIntensity);
 
+// ProgressionComponent
+OLO_ADD_INTERNAL_CALL(ProgressionComponent_GetXPBounty);
+OLO_ADD_INTERNAL_CALL(ProgressionComponent_SetXPBounty);
+OLO_ADD_INTERNAL_CALL(ProgressionComponent_GetHealOnLevelUp);
+OLO_ADD_INTERNAL_CALL(ProgressionComponent_SetHealOnLevelUp);
+
 // RagdollComponent
 OLO_ADD_INTERNAL_CALL(RagdollComponent_GetEnabled);
 OLO_ADD_INTERNAL_CALL(RagdollComponent_SetEnabled);

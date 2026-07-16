@@ -73,6 +73,7 @@ using AllComponents = ComponentGroup<
     PointLightComponent,
     PrefabComponent,
     ProceduralSkyComponent,
+    ProgressionComponent,
     QuestGiverComponent,
     QuestJournalComponent,
     RagdollComponent,

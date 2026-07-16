@@ -2,6 +2,9 @@
 #include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Abilities/Damage/DamageCalculation.h"
+#include "OloEngine/Gameplay/Abilities/Damage/CombatEvents.h"
+#include "OloEngine/Gameplay/GameplayEventBus.h"
+#include "OloEngine/Gameplay/Progression/ProgressionComponents.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 
@@ -187,12 +190,12 @@ namespace OloEngine
         }
     }
 
-    void GameplayAbilitySystem::ApplyDamage([[maybe_unused]] Scene* scene, const DamageEvent& event)
+    f32 GameplayAbilitySystem::ApplyDamage(Scene* scene, const DamageEvent& event)
     {
         Entity target = event.Target;
         if (!target || !target.HasComponent<AbilityComponent>())
         {
-            return;
+            return 0.0f;
         }
 
         auto& targetAC = target.GetComponent<AbilityComponent>();
@@ -205,13 +208,52 @@ namespace OloEngine
 
         f32 finalDamage = DamageCalculation::Calculate(event, sourceAttribs, targetAC.Attributes);
 
-        // Apply damage to Health
+        // Apply damage to Health. Base-value read + write on purpose: the
+        // current value is base + modifiers, so reading the *current* value
+        // and writing it back into the base would double-count every active
+        // Health modifier (the bug the old C#/Lua glue duplicates had).
+        bool killed = false;
         if (targetAC.Attributes.HasAttribute("Health"))
         {
-            f32 currentHealth = targetAC.Attributes.GetBaseValue("Health");
-            f32 newHealth = std::max(currentHealth - finalDamage, 0.0f);
+            f32 currentBefore = targetAC.Attributes.GetCurrentValue("Health");
+            f32 baseHealth = targetAC.Attributes.GetBaseValue("Health");
+            f32 newHealth = std::max(baseHealth - finalDamage, 0.0f);
             targetAC.Attributes.SetBaseValue("Health", newHealth);
+            killed = currentBefore > 0.0f && targetAC.Attributes.GetCurrentValue("Health") <= 0.0f;
         }
+
+        if (killed)
+        {
+            // Immediate death-tag flip (same opt-in State.Alive convention as
+            // the OnUpdate sweep, which stays as the catch-all for non-damage
+            // health writes).
+            if (targetAC.OwnedTags.HasTagExact(GameplayTag("State.Alive")))
+            {
+                targetAC.OwnedTags.RemoveTag(GameplayTag("State.Alive"));
+                targetAC.OwnedTags.AddTag(GameplayTag("State.Dead"));
+            }
+
+            // Kill-XP bounty: the one place attacker and victim are both known.
+            Entity source = event.Source;
+            i32 xpGranted = 0;
+            if (source && source.HasComponent<ProgressionComponent>() && target.HasComponent<ProgressionComponent>())
+            {
+                i32 bounty = target.GetComponent<ProgressionComponent>().XPBounty;
+                if (bounty > 0)
+                {
+                    source.GetComponent<ProgressionComponent>().AddPendingXP(bounty);
+                    xpGranted = bounty;
+                }
+            }
+
+            if (scene)
+            {
+                // Publish after all state mutation (JointBroke precedent).
+                scene->GetGameplayEvents().Publish(EntityKilledEvent{ target.GetUUID(), source ? source.GetUUID() : UUID(0), xpGranted });
+            }
+        }
+
+        return finalDamage;
     }
 
 } // namespace OloEngine

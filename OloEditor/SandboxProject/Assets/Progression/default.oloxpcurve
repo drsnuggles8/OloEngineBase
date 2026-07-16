@@ -1,0 +1,5 @@
+ExperienceCurve:
+  Mode: Formula
+  MaxLevel: 50
+  BaseXP: 100
+  Exponent: 1.5

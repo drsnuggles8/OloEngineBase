@@ -4745,6 +4745,50 @@ static void ProceduralSkyComponent_SetIBLIntensity(UUID entityID, float value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// ProgressionComponent                                                           //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static int ProgressionComponent_GetXPBounty(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProgressionComponent>();
+    return comp.XPBounty;
+}
+
+static void ProgressionComponent_SetXPBounty(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProgressionComponent>();
+    comp.XPBounty = value;
+}
+
+static bool ProgressionComponent_GetHealOnLevelUp(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProgressionComponent>();
+    return comp.HealOnLevelUp;
+}
+
+static void ProgressionComponent_SetHealOnLevelUp(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<ProgressionComponent>();
+    comp.HealOnLevelUp = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // RagdollComponent                                                               //
 ///////////////////////////////////////////////////////////////////////////////////////////
 

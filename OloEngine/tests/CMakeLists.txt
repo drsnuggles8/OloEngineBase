@@ -403,6 +403,15 @@ add_executable(OloEngine-Tests
 		Debug/RendererProfilerTest.cpp
 		# Gameplay Ability Tests
 		Gameplay/GameplayAbilityTest.cpp
+		# RPG progression tests (issue #635): experience curve / skill tree /
+		# character class assets + serializers, the ProgressionSystem tick
+		# semantics, and the ActiveEffectsContainer cleanup overloads that make
+		# infinite skill passives revocable.
+		Gameplay/ExperienceCurveTest.cpp
+		Gameplay/SkillTreeDatabaseTest.cpp
+		Gameplay/CharacterClassDatabaseTest.cpp
+		Gameplay/ActiveEffectsCleanupTest.cpp
+		Gameplay/ProgressionSystemTest.cpp
 		# Content Browser Tests
 		ContentBrowser/DirectoryTreeTest.cpp
 		ContentBrowser/ContentBrowserItemTest.cpp
@@ -705,6 +714,14 @@ add_executable(OloEngine-Tests
 		Functional/SaveGame/HierarchyPreservedAcrossSaveLoadTest.cpp
 		Functional/Scene/EntityNameMapStaysConsistentTest.cpp
 		Functional/Diagnostics/EmptyTickReproTest.cpp
+		# RPG progression Functional tests (issue #635): the full class/XP/
+		# skill-tree acceptance loop over memory-only assets, the kill-XP hook
+		# in ApplyDamage, quest-completion reward XP, and the Lua GrantExperience
+		# binding driven through real scene ticks.
+		Functional/Gameplay/ProgressionFullLoopTest.cpp
+		Functional/Gameplay/KillGrantsExperienceViaDamageTest.cpp
+		Functional/Gameplay/QuestRewardGrantsExperienceTest.cpp
+		Functional/Scripting/LuaGrantsExperienceViaSceneTickTest.cpp
 		# FramePacer: frame-rate cap sleep/spin math + EMA delta smoothing (#456)
 		FramePacerTest.cpp
 )

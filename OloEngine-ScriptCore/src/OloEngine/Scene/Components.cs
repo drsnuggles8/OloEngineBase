@@ -952,4 +952,88 @@ namespace OloEngine
 		}
 	}
 
+	/// <summary>
+	/// RPG character progression: XP, level, attribute/skill point pools and
+	/// skill-tree unlocks. XP is queued via GrantExperience and resolved by the
+	/// engine's Progression system tick (level-ups, point grants, stat growth).
+	/// XPBounty / HealOnLevelUp properties live in the generated partial class.
+	/// </summary>
+	public partial class ProgressionComponent : Component
+	{
+		public void GrantExperience(int amount)
+		{
+			if (amount <= 0) return;
+			InternalCalls.ProgressionComponent_GrantExperience(Entity.ID, amount);
+		}
+
+		public int Level => InternalCalls.ProgressionComponent_GetLevel(Entity.ID);
+
+		public int XP => InternalCalls.ProgressionComponent_GetXP(Entity.ID);
+
+		public int XPToNextLevel => InternalCalls.ProgressionComponent_GetXPToNextLevel(Entity.ID);
+
+		public int MaxLevel => InternalCalls.ProgressionComponent_GetMaxLevel(Entity.ID);
+
+		public int AttributePoints => InternalCalls.ProgressionComponent_GetAttributePoints(Entity.ID);
+
+		public int SkillPoints => InternalCalls.ProgressionComponent_GetSkillPoints(Entity.ID);
+
+		public bool SpendAttributePoint(string attribute, int count = 1)
+		{
+			if (string.IsNullOrWhiteSpace(attribute) || count <= 0) return false;
+			return InternalCalls.ProgressionComponent_SpendAttributePoint(Entity.ID, attribute, count);
+		}
+
+		public bool RefundAttributePoint(string attribute, int count = 1)
+		{
+			if (string.IsNullOrWhiteSpace(attribute) || count <= 0) return false;
+			return InternalCalls.ProgressionComponent_RefundAttributePoint(Entity.ID, attribute, count);
+		}
+
+		public int Respec()
+		{
+			return InternalCalls.ProgressionComponent_Respec(Entity.ID);
+		}
+
+		public bool UnlockSkillNode(string nodeId)
+		{
+			if (string.IsNullOrWhiteSpace(nodeId)) return false;
+			return InternalCalls.ProgressionComponent_UnlockSkillNode(Entity.ID, nodeId);
+		}
+
+		public bool RefundSkillNode(string nodeId)
+		{
+			if (string.IsNullOrWhiteSpace(nodeId)) return false;
+			return InternalCalls.ProgressionComponent_RefundSkillNode(Entity.ID, nodeId);
+		}
+
+		public int RespecSkills()
+		{
+			return InternalCalls.ProgressionComponent_RespecSkills(Entity.ID);
+		}
+
+		public bool CanUnlockSkillNode(string nodeId)
+		{
+			if (string.IsNullOrWhiteSpace(nodeId)) return false;
+			return InternalCalls.ProgressionComponent_CanUnlockSkillNode(Entity.ID, nodeId);
+		}
+
+		public bool IsNodeUnlocked(string nodeId)
+		{
+			if (string.IsNullOrWhiteSpace(nodeId)) return false;
+			return InternalCalls.ProgressionComponent_IsNodeUnlocked(Entity.ID, nodeId);
+		}
+
+		/// <summary>
+		/// (Re)initialize this entity from a class definition. An empty classId
+		/// re-initializes from the component's stored ClassID.
+		/// </summary>
+		public bool InitializeFromClass(string classId = "")
+		{
+			return InternalCalls.ProgressionComponent_InitializeFromClass(Entity.ID, classId ?? "");
+		}
+
+		public string ClassID => InternalCalls.ProgressionComponent_GetClassID(Entity.ID);
+	}
+
 }

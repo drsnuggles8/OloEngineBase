@@ -385,6 +385,38 @@ if (auto node = entity["PointLightComponent"]; node)
         comp.m_ShadowNormalBias = v;
 }
 
+if (auto node = entity["ProgressionComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<ProgressionComponent>();
+    comp.Level = std::max(node["Level"].as<i32>(comp.Level), static_cast<i32>(1));
+    comp.CurrentXP = std::max(node["CurrentXP"].as<i32>(comp.CurrentXP), static_cast<i32>(0));
+    comp.AttributePoints = std::max(node["AttributePoints"].as<i32>(comp.AttributePoints), static_cast<i32>(0));
+    comp.SkillPoints = std::max(node["SkillPoints"].as<i32>(comp.SkillPoints), static_cast<i32>(0));
+    comp.XPBounty = std::max(node["XPBounty"].as<i32>(comp.XPBounty), static_cast<i32>(0));
+    comp.HealOnLevelUp = node["HealOnLevelUp"].as<bool>(comp.HealOnLevelUp);
+    if (auto seqNode = node["UnlockedNodes"]; seqNode && seqNode.IsSequence())
+    {
+        comp.UnlockedNodes.clear();
+        for (auto const& e : seqNode)
+            if (decltype(comp.UnlockedNodes)::value_type v{}; ::YAML::convert<decltype(comp.UnlockedNodes)::value_type>::decode(e, v))
+                comp.UnlockedNodes.insert(v);
+    }
+    if (auto mapNode0 = node["AllocatedPoints"]; mapNode0 && mapNode0.IsMap())
+    {
+        comp.AllocatedPoints.clear();
+        for (auto const& entry0 : mapNode0)
+        {
+            const std::string k0 = entry0.first.as<std::string>();
+            if (decltype(comp.AllocatedPoints)::mapped_type v{}; ::YAML::convert<decltype(comp.AllocatedPoints)::mapped_type>::decode(entry0.second, v))
+                comp.AllocatedPoints[k0] = v;
+        }
+    }
+    comp.ExperienceCurveHandle = node["ExperienceCurveHandle"].as<u64>(static_cast<u64>(comp.ExperienceCurveHandle));
+    comp.ClassDatabaseHandle = node["ClassDatabaseHandle"].as<u64>(static_cast<u64>(comp.ClassDatabaseHandle));
+    comp.SkillTreeHandle = node["SkillTreeHandle"].as<u64>(static_cast<u64>(comp.SkillTreeHandle));
+    comp.ClassID = node["ClassID"].as<std::string>(comp.ClassID);
+}
+
 if (auto node = entity["QuestGiverComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<QuestGiverComponent>();

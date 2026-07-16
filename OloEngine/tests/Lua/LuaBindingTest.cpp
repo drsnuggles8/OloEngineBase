@@ -20,6 +20,8 @@
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
+#include "OloEngine/Gameplay/Progression/ExperienceCurve.h"
+#include "OloEngine/Gameplay/Progression/ProgressionComponents.h"
 #include "OloEngine/Scripting/Lua/LuaScriptGlue.h"
 
 #include "OloEngine/Scene/Scene.h"
@@ -1960,6 +1962,126 @@ TEST_F(LuaBindingTest, QuestJournalComponent_ReputationRoundTrip)
 
     auto result = lua.script("return qj:GetReputation('Stormwind')");
     EXPECT_EQ(result.get<i32>(), 500);
+}
+
+// =============================================================================
+// ProgressionComponent (issue #635)
+// =============================================================================
+// Sceneless round-trips against the production usertype: with no scene
+// context, mutations fall back to the raw component (GrantExperience ->
+// AddPendingXP) or a safe default (SpendAttributePoint -> false, Respec ->
+// 0, GetMaxLevel -> kDefaultMaxLevel), so every binding stays exercisable
+// without engine services.
+
+TEST_F(LuaBindingTest, ProgressionComponent_GrantExperienceFeedsPendingXP)
+{
+    ProgressionComponent pc;
+    lua["pc"] = &pc;
+
+    lua.script("pc:GrantExperience(250)");
+    EXPECT_EQ(pc.PendingXP, 250) << "sceneless GrantExperience must fall back to AddPendingXP";
+
+    auto result = lua.script("return pc:GetPendingXP()");
+    EXPECT_EQ(result.get<i32>(), 250);
+
+    // AddPendingXP ignores non-positive amounts.
+    lua.script("pc:GrantExperience(0)");
+    lua.script("pc:GrantExperience(-50)");
+    EXPECT_EQ(pc.PendingXP, 250) << "zero/negative grants must be no-ops";
+}
+
+TEST_F(LuaBindingTest, ProgressionComponent_LevelAndXPReads)
+{
+    ProgressionComponent pc;
+    pc.Level = 3;
+    pc.CurrentXP = 42;
+    pc.AttributePoints = 7;
+    pc.SkillPoints = 2;
+    lua["pc"] = &pc;
+
+    EXPECT_EQ(lua.script("return pc:GetLevel()").get<i32>(), 3);
+    EXPECT_EQ(lua.script("return pc:GetXP()").get<i32>(), 42);
+    EXPECT_EQ(lua.script("return pc:GetAttributePoints()").get<i32>(), 7);
+    EXPECT_EQ(lua.script("return pc:GetSkillPoints()").get<i32>(), 2);
+}
+
+TEST_F(LuaBindingTest, ProgressionComponent_XPToNextLevelUsesDefaultCurveSceneless)
+{
+    ProgressionComponent pc;
+    pc.CurrentXP = 30;
+    lua["pc"] = &pc;
+
+    // Sceneless fallback: DefaultXPForLevelUp(1) - CurrentXP = 100 - 30 = 70.
+    EXPECT_EQ(lua.script("return pc:GetXPToNextLevel()").get<i32>(), 70)
+        << "sceneless GetXPToNextLevel must use the engine-default 100*L curve";
+    EXPECT_EQ(lua.script("return pc:GetMaxLevel()").get<i32>(), ExperienceCurve::kDefaultMaxLevel)
+        << "sceneless GetMaxLevel must report the engine-default cap (99)";
+}
+
+TEST_F(LuaBindingTest, ProgressionComponent_MutatorsFailSafeWithoutScene)
+{
+    ProgressionComponent pc;
+    pc.AttributePoints = 10;
+    pc.SkillPoints = 5;
+    lua["pc"] = &pc;
+
+    EXPECT_FALSE(lua.script("return pc:SpendAttributePoint('Strength', 2)").get<bool>())
+        << "sceneless SpendAttributePoint must return false";
+    EXPECT_FALSE(lua.script("return pc:RefundAttributePoint('Strength', 1)").get<bool>())
+        << "sceneless RefundAttributePoint must return false";
+    EXPECT_EQ(lua.script("return pc:Respec()").get<i32>(), 0) << "sceneless Respec must return 0";
+    EXPECT_FALSE(lua.script("return pc:UnlockSkillNode('toughness')").get<bool>())
+        << "sceneless UnlockSkillNode must return false";
+    EXPECT_FALSE(lua.script("return pc:RefundSkillNode('toughness')").get<bool>())
+        << "sceneless RefundSkillNode must return false";
+    EXPECT_EQ(lua.script("return pc:RespecSkills()").get<i32>(), 0)
+        << "sceneless RespecSkills must return 0";
+    EXPECT_FALSE(lua.script("return pc:CanUnlockSkillNode('toughness')").get<bool>())
+        << "sceneless CanUnlockSkillNode must return false";
+    EXPECT_FALSE(lua.script("return pc:InitializeFromClass('warrior')").get<bool>())
+        << "sceneless InitializeFromClass must return false";
+
+    // Failed mutators must leave the component untouched.
+    EXPECT_EQ(pc.AttributePoints, 10);
+    EXPECT_EQ(pc.SkillPoints, 5);
+    EXPECT_TRUE(pc.UnlockedNodes.empty());
+    EXPECT_TRUE(pc.AllocatedPoints.empty());
+}
+
+TEST_F(LuaBindingTest, ProgressionComponent_IsNodeUnlockedReadsTheSet)
+{
+    ProgressionComponent pc;
+    lua["pc"] = &pc;
+
+    EXPECT_FALSE(lua.script("return pc:IsNodeUnlocked('toughness')").get<bool>());
+    pc.UnlockedNodes.insert("toughness");
+    EXPECT_TRUE(lua.script("return pc:IsNodeUnlocked('toughness')").get<bool>())
+        << "IsNodeUnlocked must read the component's UnlockedNodes set";
+}
+
+TEST_F(LuaBindingTest, ProgressionComponent_FieldRoundTrips)
+{
+    ProgressionComponent pc;
+    lua["pc"] = &pc;
+
+    lua.script("pc.xpBounty = 250");
+    EXPECT_EQ(pc.XPBounty, 250) << "xpBounty field write must land on the component";
+    EXPECT_EQ(lua.script("return pc.xpBounty").get<i32>(), 250);
+
+    lua.script("pc.healOnLevelUp = false");
+    EXPECT_FALSE(pc.HealOnLevelUp) << "healOnLevelUp field write must land on the component";
+    EXPECT_FALSE(lua.script("return pc.healOnLevelUp").get<bool>());
+}
+
+TEST_F(LuaBindingTest, ProgressionComponent_GetClassIDReadsTheField)
+{
+    ProgressionComponent pc;
+    lua["pc"] = &pc;
+
+    EXPECT_EQ(lua.script("return pc:GetClassID()").get<std::string>(), "")
+        << "GetClassID must be empty on a class-less component";
+    pc.ClassID = "mage";
+    EXPECT_EQ(lua.script("return pc:GetClassID()").get<std::string>(), "mage");
 }
 
 // =============================================================================

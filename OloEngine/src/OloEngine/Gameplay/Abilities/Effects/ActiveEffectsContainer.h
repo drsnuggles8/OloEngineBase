@@ -34,6 +34,16 @@ namespace OloEngine
         bool ApplyEffect(const GameplayEffect& effect, const GameplayTagContainer& targetTags, const GameplayTag& sourceTag);
         void RemoveEffectsBySource(const GameplayTag& sourceTag);
         void RemoveEffectByName(const std::string& effectName);
+
+        // Cleanup overloads: additionally revert what an already-ticked effect
+        // applied — persistent AttributeSet modifiers (removed by source tag)
+        // and ref-counted granted tags — mirroring the HasDuration-expiry path
+        // in Tick(). Required to correctly revoke an Infinite effect (e.g. a
+        // skill-tree passive on refund); the two-argument-less versions above
+        // only erase the entry and would leak both.
+        void RemoveEffectsBySource(const GameplayTag& sourceTag, AttributeSet& attributes, GameplayTagContainer& ownerTags);
+        void RemoveEffectByName(const std::string& effectName, AttributeSet& attributes, GameplayTagContainer& ownerTags);
+
         void Clear();
 
         void Tick(f32 dt, AttributeSet& attributes, GameplayTagContainer& ownerTags);
@@ -68,6 +78,7 @@ namespace OloEngine
         void ApplyPeriodicTick(const ActiveEffect& ae, AttributeSet& attributes) const;
         void AddGrantedTags(const GameplayEffect& effect, GameplayTagContainer& ownerTags);
         void RemoveGrantedTags(const GameplayEffect& effect, GameplayTagContainer& ownerTags);
+        void RevertAppliedEffect(const ActiveEffect& ae, AttributeSet& attributes, GameplayTagContainer& ownerTags);
 
         std::vector<ActiveEffect> m_ActiveEffects;
         std::unordered_map<GameplayTag, i32> m_TagGrantCounts; // Ref-counted tag grants

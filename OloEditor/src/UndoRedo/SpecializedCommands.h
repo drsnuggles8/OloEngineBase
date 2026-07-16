@@ -13,6 +13,7 @@
 #include "OloEngine/Terrain/Editor/TerrainBrush.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Dialogue/DialogueTypes.h"
+#include "OloEngine/Gameplay/Progression/SkillTreeDatabase.h"
 #include "OloEngine/Core/InputAction.h"
 #include "OloEngine/Core/InputActionManager.h"
 
@@ -415,6 +416,58 @@ namespace OloEngine
       private:
         DialogueEditorSnapshot m_OldState;
         DialogueEditorSnapshot m_NewState;
+        ApplyFn m_ApplyFn;
+        std::string m_Description;
+    };
+
+    // =========================================================================
+    // Skill tree editor undo — snapshot-based, stores full node list + tree ids
+    // =========================================================================
+    struct SkillTreeEditorSnapshot
+    {
+        std::string TreeID;
+        std::string DisplayName;
+        std::vector<SkillTreeNode> Nodes;
+
+        auto operator==(const SkillTreeEditorSnapshot&) const -> bool = default;
+    };
+
+    class SkillTreeEditorChangeCommand : public EditorCommand
+    {
+      public:
+        using ApplyFn = std::function<void(const SkillTreeEditorSnapshot&)>;
+
+        SkillTreeEditorChangeCommand(SkillTreeEditorSnapshot oldState, SkillTreeEditorSnapshot newState,
+                                     ApplyFn applyFn, std::string description = "Skill Tree Change")
+            : m_OldState(std::move(oldState)), m_NewState(std::move(newState)),
+              m_ApplyFn(std::move(applyFn)), m_Description(std::move(description))
+        {
+        }
+
+        void Execute() override
+        {
+            if (m_ApplyFn)
+            {
+                m_ApplyFn(m_NewState);
+            }
+        }
+
+        void Undo() override
+        {
+            if (m_ApplyFn)
+            {
+                m_ApplyFn(m_OldState);
+            }
+        }
+
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return m_Description;
+        }
+
+      private:
+        SkillTreeEditorSnapshot m_OldState;
+        SkillTreeEditorSnapshot m_NewState;
         ApplyFn m_ApplyFn;
         std::string m_Description;
     };

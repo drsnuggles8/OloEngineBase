@@ -70,6 +70,52 @@ namespace OloEngine
                       { return ae.Definition.Name == effectName; });
     }
 
+    void ActiveEffectsContainer::RemoveEffectsBySource(const GameplayTag& sourceTag, AttributeSet& attributes, GameplayTagContainer& ownerTags)
+    {
+        for (auto it = m_ActiveEffects.begin(); it != m_ActiveEffects.end();)
+        {
+            if (!it->SourceTag.MatchesExact(sourceTag))
+            {
+                ++it;
+                continue;
+            }
+            RevertAppliedEffect(*it, attributes, ownerTags);
+            it = m_ActiveEffects.erase(it);
+        }
+    }
+
+    void ActiveEffectsContainer::RemoveEffectByName(const std::string& effectName, AttributeSet& attributes, GameplayTagContainer& ownerTags)
+    {
+        for (auto it = m_ActiveEffects.begin(); it != m_ActiveEffects.end();)
+        {
+            if (it->Definition.Name != effectName)
+            {
+                ++it;
+                continue;
+            }
+            RevertAppliedEffect(*it, attributes, ownerTags);
+            it = m_ActiveEffects.erase(it);
+        }
+    }
+
+    void ActiveEffectsContainer::RevertAppliedEffect(const ActiveEffect& ae, AttributeSet& attributes, GameplayTagContainer& ownerTags)
+    {
+        // Mirror of the HasDuration-expiry cleanup in Tick(): only revert what
+        // was actually applied (a just-added effect that never ticked has
+        // neither modifiers nor tags to undo).
+        if (ae.ModifiersApplied)
+        {
+            for (auto const& mod : ae.Definition.Modifiers)
+            {
+                attributes.RemoveModifiersBySource(mod.AttributeName, ae.SourceTag);
+            }
+        }
+        if (ae.TagsApplied)
+        {
+            RemoveGrantedTags(ae.Definition, ownerTags);
+        }
+    }
+
     void ActiveEffectsContainer::Clear()
     {
         m_ActiveEffects.clear();

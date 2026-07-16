@@ -74,6 +74,7 @@ SAVE_COMPONENT(PhysicsJoint3DComponent, entity, writer);
 SAVE_COMPONENT(PointLightComponent, entity, writer);
 SAVE_COMPONENT(PrefabComponent, entity, writer);
 SAVE_COMPONENT(ProceduralSkyComponent, entity, writer);
+SAVE_COMPONENT(ProgressionComponent, entity, writer);
 SAVE_COMPONENT(QuestGiverComponent, entity, writer);
 SAVE_COMPONENT(QuestJournalComponent, entity, writer);
 SAVE_COMPONENT(RagdollComponent, entity, writer);

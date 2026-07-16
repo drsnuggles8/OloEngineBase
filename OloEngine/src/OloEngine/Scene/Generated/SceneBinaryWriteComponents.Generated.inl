@@ -315,6 +315,42 @@ if (entity.HasComponent<PointLightComponent>())
     SceneBinIO::Write(out, comp.m_ShadowNormalBias);
 }
 
+if (entity.HasComponent<ProgressionComponent>())
+{
+    SceneBinIO::WriteU32(out, 4235738839u); // ProgressionComponent
+    auto const& comp = entity.GetComponent<ProgressionComponent>();
+    SceneBinIO::Write(out, comp.Level);
+    SceneBinIO::Write(out, comp.CurrentXP);
+    SceneBinIO::Write(out, comp.AttributePoints);
+    SceneBinIO::Write(out, comp.SkillPoints);
+    SceneBinIO::Write(out, comp.XPBounty);
+    SceneBinIO::Write(out, comp.HealOnLevelUp);
+    {
+        std::vector<decltype(comp.UnlockedNodes)::value_type> bset0(comp.UnlockedNodes.begin(), comp.UnlockedNodes.end());
+        std::ranges::sort(bset0);
+        SceneBinIO::WriteU32(out, static_cast<u32>(bset0.size()));
+        for (auto const& be0 : bset0)
+            SceneBinIO::Write(out, be0);
+    }
+    {
+        std::vector<std::string> bkeys0;
+        bkeys0.reserve(comp.AllocatedPoints.size());
+        for (auto const& bentry0 : comp.AllocatedPoints)
+            bkeys0.push_back(bentry0.first);
+        std::ranges::sort(bkeys0);
+        SceneBinIO::WriteU32(out, static_cast<u32>(bkeys0.size()));
+        for (auto const& bk0 : bkeys0)
+        {
+            SceneBinIO::Write(out, bk0);
+            SceneBinIO::Write(out, comp.AllocatedPoints.at(bk0));
+        }
+    }
+    SceneBinIO::Write(out, comp.ExperienceCurveHandle);
+    SceneBinIO::Write(out, comp.ClassDatabaseHandle);
+    SceneBinIO::Write(out, comp.SkillTreeHandle);
+    SceneBinIO::Write(out, comp.ClassID);
+}
+
 if (entity.HasComponent<QuestGiverComponent>())
 {
     SceneBinIO::WriteU32(out, 594860865u); // QuestGiverComponent

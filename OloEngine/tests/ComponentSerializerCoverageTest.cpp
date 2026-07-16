@@ -96,6 +96,7 @@ namespace OloEngine::Tests
                 root / "Gameplay" / "Inventory" / "InventoryComponents.h",
                 root / "Gameplay" / "Quest" / "QuestComponents.h",
                 root / "Gameplay" / "Abilities" / "AbilityComponents.h",
+                root / "Gameplay" / "Progression" / "ProgressionComponents.h",
                 root / "Scene" / "Streaming" / "StreamingVolumeComponent.h",
                 root / "AI" / "AIComponents.h",
                 root / "Networking" / "NetworkIdentityComponent.h",

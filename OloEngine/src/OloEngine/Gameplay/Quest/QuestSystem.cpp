@@ -4,6 +4,7 @@
 #include "OloEngine/Gameplay/Quest/QuestDatabase.h"
 #include "OloEngine/Gameplay/Quest/QuestEvents.h"
 #include "OloEngine/Gameplay/GameplayEventBus.h"
+#include "OloEngine/Gameplay/Progression/ProgressionSystem.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
@@ -16,7 +17,12 @@ namespace OloEngine
     namespace
     {
         // Translate the journal's change records into the public, entity-stamped
-        // QuestEvents payloads and publish them on the scene's bus.
+        // QuestEvents payloads and publish them on the scene's bus. Quest
+        // completion also grants the reward XP here (issue #635): every
+        // completion path — direct CompleteQuest and the objective-increment
+        // auto-complete cascade — flows through a QuestCompleted change record,
+        // making this the one choke point that sees both the entity and the
+        // reward payload.
         void PublishQuestChanges(Scene* scene, UUID entityId, const QuestEventSink& changes)
         {
             if (changes.empty())
@@ -40,7 +46,14 @@ namespace OloEngine
                         bus.Publish(QuestFailedEvent{ entityId, c.QuestID });
                         break;
                     case QuestCompleted:
-                        bus.Publish(QuestCompletedEvent{ entityId, c.QuestID, c.BranchChoice });
+                        if (c.ExperiencePoints > 0)
+                        {
+                            if (auto entityOpt = scene->TryGetEntityWithUUID(entityId))
+                            {
+                                ProgressionSystem::GrantExperience(scene, *entityOpt, c.ExperiencePoints);
+                            }
+                        }
+                        bus.Publish(QuestCompletedEvent{ entityId, c.QuestID, c.BranchChoice, c.ExperiencePoints });
                         break;
                     case ObjectiveProgress:
                         bus.Publish(ObjectiveProgressEvent{ entityId, c.QuestID, c.ObjectiveID, c.CurrentCount, c.RequiredCount });

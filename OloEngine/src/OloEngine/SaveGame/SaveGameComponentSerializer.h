@@ -122,6 +122,7 @@ namespace OloEngine
     struct QuestJournalComponent;
     struct QuestGiverComponent;
     struct AbilityComponent;
+    struct ProgressionComponent;
 
     // Type-erased save-game serialization function (raw pointer: no heap allocation)
     using SaveGameSerializeFn = void (*)(FArchive&, void*);
@@ -241,6 +242,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, QuestJournalComponent& c);
         static void Serialize(FArchive& ar, QuestGiverComponent& c);
         static void Serialize(FArchive& ar, AbilityComponent& c);
+        static void Serialize(FArchive& ar, ProgressionComponent& c);
 
         // Registry lookup by type hash
         static void Register(u32 typeHash, SaveGameSerializeFn serializer);
