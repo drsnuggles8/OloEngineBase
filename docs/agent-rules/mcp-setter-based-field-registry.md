@@ -10,7 +10,7 @@ non-obvious pitfalls, in the order they bite.
 
 The existing `MakeFieldAccess`/`MakeField` path (`McpGenericFieldWrite.h`) copies the
 component, mutates the copy, and pushes a `ComponentChangeCommand<C>` whose
-Execute/Undo do `entity.GetComponent<T>() = newData/oldData`. That is exactly wrong
+Execute/Undo do `entity.GetComponent<C>() = newData/oldData`. That is exactly wrong
 for `AudioSourceComponent`: its `operator=` unconditionally resets `ActiveEventID` to
 `0` and never re-invokes `Source->SetVolume()`/`SetPitch()`/etc — so a write would
 silently detach a *playing* sound's event handle on every field change, and the live

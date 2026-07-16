@@ -452,6 +452,15 @@ namespace OloEngine::MCP::GenericFieldWrite
 
             // Copy the previous value out BEFORE the command runs: the command
             // replaces the component, so a reference into it would be stale after.
+            // Predicting `willChange` from previous-vs-coerced (rather than applying
+            // first and checking previous-vs-applied, as MakeSetterField below does)
+            // is deliberate here, not an inconsistency: `access(newData) = coerced` is
+            // a bare assignment, so applied is ALWAYS exactly coerced — the prediction
+            // can't diverge from the outcome. Applying unconditionally first would
+            // instead mean invoking the component's operator= (inside
+            // ComponentChangeCommand<C>::Execute) even for a genuine no-op, which is
+            // exactly the kind of unwanted side effect this whole write path exists to
+            // avoid for a component like AudioSourceComponent (see MakeSetterField).
             const F previous = access(entity.GetComponent<C>());
             const bool willChange = FieldChanged<F>(previous, coerced);
             if (willChange)
@@ -557,16 +566,27 @@ namespace OloEngine::MCP::GenericFieldWrite
             // Read the previous value via getFn BEFORE writing — there is no
             // whole-object copy here to read it out of afterward.
             const F previous = getFn(entity.GetComponent<C>());
-            const bool willChange = FieldChanged<F>(previous, coerced);
-            if (willChange)
+            F applied = previous;
+            if (FieldChanged<F>(previous, coerced))
             {
-                history.Execute(std::make_unique<PropertySetCommand<C, F, SetFn>>(
-                    scene, UUID(uuid), setFn, previous, coerced, "Set " + component + "." + field));
+                // Unlike MakeFieldAccess's plain `access(newData) = coerced` (a bare
+                // assignment, always exact), `setFn` is an arbitrary OLO_PROPERTY Set
+                // expression that could in principle transform/clamp beyond RangeField
+                // above. So apply it FIRST, then read the value BACK OUT of the live
+                // component — the honest answer to "did the write take effect, and to
+                // what?" — instead of assuming `applied == coerced`. The command is
+                // pushed via PushAlreadyExecuted (setFn already ran) and stores the
+                // OBSERVED `applied` value, not the merely-requested one, so a later
+                // Redo reproduces exactly what was seen the first time.
+                setFn(entity.GetComponent<C>(), coerced);
+                applied = getFn(entity.GetComponent<C>());
+                if (FieldChanged<F>(previous, applied))
+                {
+                    history.PushAlreadyExecuted(std::make_unique<PropertySetCommand<C, F, SetFn>>(
+                        scene, UUID(uuid), setFn, previous, applied, "Set " + component + "." + field));
+                }
             }
 
-            // Read the value BACK OUT of the live component — the honest answer to
-            // "did the write take effect?".
-            const F applied = getFn(entity.GetComponent<C>());
             return Detail::BuildFieldApplyResult<F>(component, field, uuid, requested, previous, applied, clamped);
         };
 
