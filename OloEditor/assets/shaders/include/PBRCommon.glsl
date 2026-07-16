@@ -261,31 +261,171 @@ vec3 cookTorranceBRDFEnhanced(vec3 N, vec3 V, vec3 L, vec3 albedo, float metalli
 // NORMAL MAPPING UTILITIES
 // =============================================================================
 
-// Get normal from normal map using derivative method
-vec3 getNormalFromMap(sampler2D normalMap, vec2 texCoords, vec3 worldPos, vec3 normal, float normalScale)
+// -----------------------------------------------------------------------------
+// SINGLE SOURCE OF TRUTH for normal mapping. Every path that consumes a normal
+// map goes through decodeTangentNormal + applyNormalMapTBN below:
+//
+//   * classic forward/deferred and the virtual-geometry HARDWARE raster
+//     (VirtualMeshGBuffer.glsl)      -> getNormalFromMap      (dFdx/dFdy derivatives)
+//   * the virtual-geometry SOFTWARE raster's visibility resolve
+//     (VirtualVisibilityResolve.glsl)-> getNormalFromMapGrad  (analytic derivatives)
+//
+// The resolve pass is a FULLSCREEN draw, so it cannot use dFdx: neighbouring
+// pixels can belong to a different triangle, a different cluster, even a
+// different instance. It therefore passes explicit per-pixel screen-space
+// derivatives of world position and texcoord — the same quantities dFdx/dFdy
+// would produce — instead of re-deriving a tangent frame of its own.
+//
+// It used to re-derive one, and it had DRIFTED from this file in two independent
+// ways: it sampled z from the blue channel (re-introducing the #440 BC5/RGTC
+// inversion for software-rasterized clusters) and it used B = +cross(N,T), i.e.
+// the opposite handedness. Both halves of a single virtual-geometry frame shaded
+// the same material differently. Keeping ONE decode and ONE TBN construction here
+// is what makes that class of bug impossible rather than merely fixed.
+// -----------------------------------------------------------------------------
+
+// Decode a tangent-space normal from a normal-map sample's xy.
+//
+// Reconstruct z from xy rather than sampling the blue channel. A tangent-space
+// unit normal always has z = sqrt(1 - x^2 - y^2), so this is correct for ordinary
+// 3-channel (RGB) normal maps AND required for 2-channel BC5/RGTC2 normal maps,
+// whose blue channel is 0 on the GPU (sampling it would give z = -1 and invert the
+// normal). Reconstruction is done after the xy intensity scale so the result stays
+// unit length. (#440)
+vec3 decodeTangentNormal(vec2 sampledXY, float normalScale)
 {
-    // Reconstruct z from xy rather than sampling the blue channel. A tangent-space
-    // unit normal always has z = sqrt(1 - x^2 - y^2), so this is correct for ordinary
-    // 3-channel (RGB) normal maps AND required for 2-channel BC5/RGTC2 normal maps,
-    // whose blue channel is 0 on the GPU (sampling it would give z = -1 and invert the
-    // normal). Reconstruction is done after the xy intensity scale so the result stays
-    // unit length. (#440)
-    vec2 nxy = texture(normalMap, texCoords).xy * 2.0 - 1.0;
+    vec2 nxy = sampledXY * 2.0 - 1.0;
     nxy *= normalScale;
     float nz = sqrt(max(0.0, 1.0 - min(1.0, dot(nxy, nxy))));
-    vec3 tangentNormal = vec3(nxy, nz);
+    return vec3(nxy, nz);
+}
 
-    vec3 Q1 = dFdx(worldPos);
-    vec3 Q2 = dFdy(worldPos);
-    vec2 st1 = dFdx(texCoords);
-    vec2 st2 = dFdy(texCoords);
+// The epsilon every degeneracy guard below tests a SQUARED length against.
+// 1e-20 => a vector shorter than 1e-10, which is where fp32 normalisation stops
+// being meaningful (the squared length underflows to a denormal at ~1e-19).
+const float kDegenerateEpsilon = 1e-20;
 
-    vec3 N = normalize(normal);
-    vec3 T = normalize(Q1 * st2.t - Q2 * st1.t);
-    vec3 B = -normalize(cross(N, T));
+// The interpolated vertex normal, made SAFE to normalize.
+//
+// `normalize(normal)` is NaN for a zero-length input, and NaN in => NaN out for a
+// non-finite one. Both inputs occur in real imported data: a zero-area triangle has
+// no face normal for the generator to accumulate, a vertex whose smooth normals
+// cancel sums to zero, and an importer can hand us a NaN outright. MeshOptimization
+// DETECTS zero-area triangles and deliberately KEEPS them (they carry real 3D area),
+// so the renderer is the thing that has to cope. A NaN normal is written into the
+// octahedral G-Buffer and resolves in deferred lighting as a blown-out white pixel —
+// the same failure the UV-degenerate guard below fixes, one line higher up.
+//
+// Fallback: the GEOMETRIC normal of the surface, rebuilt from the screen-space
+// position derivatives. cross(dP/dx, dP/dy) is the plane's normal and, with GL's
+// lower-left window origin, points TOWARD the viewer — so a fragment we are looking
+// at gets a normal facing us, which is the only defensible answer for a surface whose
+// authored normal carries no direction at all. It is exact for a flat triangle and
+// correct to first order otherwise; unlike a constant it stays orientation-aware, and
+// unlike the raw input it is always finite and unit-length. If the position gradient
+// is degenerate too (a fully collapsed fragment) there is nothing left to derive, so
+// return a fixed axis: still wrong, but finite — a NaN would poison every downstream
+// channel, a unit vector only mis-shades one pixel.
+//
+// Guards are written `!(x > eps)` rather than `x < eps` so a NaN also takes the
+// fallback (every comparison against NaN is false).
+// Pinned by PbrNormalMapTest.ZeroAndNaNVertexNormalsFallBackToTheGeometricNormal.
+vec3 sanitizeSurfaceNormal(vec3 normal, vec3 dpdx, vec3 dpdy)
+{
+    float nLenSq = dot(normal, normal);
+    if (nLenSq > kDegenerateEpsilon)
+        return normal * inversesqrt(nLenSq);
+
+    vec3 gRaw = cross(dpdx, dpdy);
+    float gLenSq = dot(gRaw, gRaw);
+    if (!(gLenSq > kDegenerateEpsilon))
+        return vec3(0.0, 0.0, 1.0);
+
+    return gRaw * inversesqrt(gLenSq);
+}
+
+// Rotate a tangent-space normal into world space with a TBN built from the
+// surface's SCREEN-SPACE derivatives: dpdx/dpdy = d(worldPos)/d(x,y),
+// duvdx/duvdy = d(texCoord)/d(x,y). Any consistent pair works, but they must be
+// screen-space (not triangle-edge) derivatives: the sign of the UV Jacobian
+// determinant — which fixes the tangent's handedness — flips with the triangle's
+// screen-space winding, so a back face of a two-sided material has to see the
+// flipped basis exactly as the hardware rasterizer's dFdx does.
+vec3 applyNormalMapTBN(vec3 tangentNormal, vec3 dpdx, vec3 dpdy, vec2 duvdx, vec2 duvdy, vec3 normal)
+{
+    // NOT normalize(normal): that is NaN for a zero/NaN input normal, and the NaN
+    // would flow straight through the cross products below into the G-Buffer.
+    vec3 N = sanitizeSurfaceNormal(normal, dpdx, dpdy);
+
+    // A UV-DEGENERATE triangle — one whose corners share a texcoord, so the
+    // interpolated UV is constant and both uv derivatives are zero — makes the
+    // derivative tangent collapse to the zero vector. normalize(vec3(0)) is NaN,
+    // and that NaN poisons the TBN, the returned normal, the G-Buffer it is
+    // written to, and finally the deferred lighting, which resolves it as a
+    // blown-out white pixel. Real assets have these: Sponza's mesh ships 314 of
+    // them (zero UV area, non-zero 3D area), and mesh simplification — the
+    // Nanite-style cluster LOD DAG (issue #629) — produces more, which is what
+    // drew a white lacework along every leaf silhouette of the potted vines.
+    //
+    // With no UV gradient there is no tangent frame to rotate the tangent-space
+    // normal by, so the only meaningful answer is the geometric normal. Same for
+    // a tangent that comes out parallel to N (the cross product then collapses).
+    // Guard with `!(x > eps)` rather than `x < eps` so a NaN derivative — the
+    // other way this math can go bad — also takes the fallback.
+    // Pinned by PbrNormalMapTest.DegenerateUvGradientFallsBackToGeometricNormal.
+    //
+    // NOT guarded, deliberately: the UV-COLLINEAR triangle (three DISTINCT texcoords
+    // that are collinear in UV space, so the UV Jacobian determinant is zero but
+    // neither derivative is). It is the MAJORITY case in real data — 234 of Sponza's
+    // 314 UV-degenerate triangles — and it produces NO NaN: tRaw is non-zero, so the
+    // code below builds a perfectly finite, unit-length, in-plane tangent. It is just
+    // an ARBITRARY one (the true dP/du does not exist when u is constant along the
+    // triangle), and being derivative-based it is camera-dependent, so the perturbation
+    // swims as the view rotates. Falling back to N there would need a threshold on the
+    // determinant, and the only scale-invariant form of that test — |det| small
+    // relative to |duvdx||duvdy| — is ALSO small for a legitimately mapped surface seen
+    // at a grazing angle, where the two UV gradients are near-parallel. That would kill
+    // normal mapping at glancing incidence: a visible, global regression traded for a
+    // bounded, local one. Detecting it needs per-vertex tangents (mesh-space, not
+    // screen-space), which is a different fix. Covered as a finite/unit-length contract by
+    // quadrant C of PbrNormalMapTest.ZeroAndNaNVertexNormalsFallBackToTheGeometricNormal.
+    vec3 tRaw = dpdx * duvdy.t - dpdy * duvdx.t;
+    float tLenSq = dot(tRaw, tRaw);
+    if (!(tLenSq > kDegenerateEpsilon))
+        return N;
+
+    vec3 T = tRaw * inversesqrt(tLenSq);
+    vec3 bRaw = cross(N, T);
+    float bLenSq = dot(bRaw, bRaw);
+    if (!(bLenSq > kDegenerateEpsilon))
+        return N;
+
+    vec3 B = -bRaw * inversesqrt(bLenSq);
     mat3 TBN = mat3(T, B, N);
 
     return normalize(TBN * tangentNormal);
+}
+
+// Get normal from normal map using the derivative method (hardware-rasterized
+// fragments: dFdx/dFdy are available and address the real neighbouring pixels).
+vec3 getNormalFromMap(sampler2D normalMap, vec2 texCoords, vec3 worldPos, vec3 normal, float normalScale)
+{
+    vec3 tangentNormal = decodeTangentNormal(texture(normalMap, texCoords).xy, normalScale);
+    return applyNormalMapTBN(tangentNormal,
+                             dFdx(worldPos), dFdy(worldPos),
+                             dFdx(texCoords), dFdy(texCoords),
+                             normal);
+}
+
+// Same, for callers that must supply their derivatives explicitly (the software
+// rasterizer's fullscreen visibility resolve). The texture sample uses the same
+// uv gradients as the TBN, so mip selection matches the hardware path too.
+vec3 getNormalFromMapGrad(sampler2D normalMap, vec2 texCoords,
+                          vec3 dpdx, vec3 dpdy, vec2 duvdx, vec2 duvdy,
+                          vec3 normal, float normalScale)
+{
+    vec3 tangentNormal = decodeTangentNormal(textureGrad(normalMap, texCoords, duvdx, duvdy).xy, normalScale);
+    return applyNormalMapTBN(tangentNormal, dpdx, dpdy, duvdx, duvdy, normal);
 }
 
 // =============================================================================

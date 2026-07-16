@@ -21,11 +21,22 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
+#include "OloEngine/Renderer/SubmeshMaterialResolve.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMesh.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.h"
 #include "OloEngine/Asset/MeshCache.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Task/ParallelFor.h"
 
 #include <assimp/GltfMaterial.h>
+#include <assimp/config.h> // AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE (issue #653)
 #include <stb_image/stb_image.h>
+#include <stb_image/stb_image_write.h>
+
+#include <iomanip>
+#include <optional>
+#include <sstream>
 
 namespace OloEngine
 {
@@ -297,44 +308,50 @@ namespace OloEngine
                       "Embedded-texture pixel cap must keep the RGBA byte count within u32 — "
                       "Texture2D::SetData takes the size as u32.");
 
-        // Build a Texture2D from an Assimp embedded texture. glTF / FBX may
-        // embed the bitmap either as compressed bytes (PNG/JPG in pcData,
-        // mHeight==0, mWidth=byte-length) or as raw BGRA aiTexel pixels
-        // (mWidth/mHeight = dimensions). The on-disk loader flips rows for
-        // OpenGL's bottom-left origin, so we flip embedded data the same way
-        // to keep UVs consistent between embedded and external assets.
-        // srgb mirrors Texture2D::Create(path, srgb) — pass true for albedo /
-        // base-color / emissive so the GPU converts samples to linear.
-        Ref<Texture2D> CreateTextureFromEmbedded(const aiTexture* embedded, bool srgb = false)
+        // An embedded bitmap decoded to RGBA8, in TOP-DOWN (image-file) row order —
+        // i.e. exactly the orientation a .png on disk stores. Both consumers below
+        // start from this: the cook writes it straight out as a PNG, and the
+        // in-memory upload flips it into OpenGL's bottom-left origin (which is what
+        // the on-disk loader does too, via stbi's flip-on-load).
+        struct DecodedEmbeddedTexture
+        {
+            std::vector<u8> RGBA;
+            u32 Width = 0;
+            u32 Height = 0;
+        };
+
+        // Decode an Assimp embedded texture. glTF / FBX may embed the bitmap either
+        // as compressed bytes (PNG/JPG in pcData, mHeight==0, mWidth=byte-length —
+        // this covers both a GLB binary chunk and a base64 data URI, which Assimp has
+        // already decoded) or as raw BGRA aiTexel pixels (mWidth/mHeight = dimensions).
+        std::optional<DecodedEmbeddedTexture> DecodeEmbeddedTopDown(const aiTexture* embedded)
         {
             if (!embedded || !embedded->pcData)
-                return nullptr;
+                return std::nullopt;
 
-            std::vector<u8> rgba;
-            u32 width = 0;
-            u32 height = 0;
+            DecodedEmbeddedTexture out;
 
             if (embedded->mHeight == 0)
             {
                 // Compressed: pcData is a raw byte buffer of size mWidth.
                 if (embedded->mWidth == 0)
-                    return nullptr;
+                    return std::nullopt;
 
                 i32 w = 0;
                 i32 h = 0;
                 i32 channels = 0;
-                ::stbi_set_flip_vertically_on_load_thread(1);
+                // No flip: this helper's contract is TOP-DOWN. The GPU path flips below.
+                ::stbi_set_flip_vertically_on_load_thread(0);
                 stbi_uc* decoded = ::stbi_load_from_memory(
                     reinterpret_cast<const stbi_uc*>(embedded->pcData),
                     static_cast<i32>(embedded->mWidth),
                     &w, &h, &channels, STBI_rgb_alpha);
-                ::stbi_set_flip_vertically_on_load_thread(0);
 
                 if (!decoded || w <= 0 || h <= 0)
                 {
                     if (decoded)
                         ::stbi_image_free(decoded);
-                    return nullptr;
+                    return std::nullopt;
                 }
 
                 if (static_cast<u64>(w) * static_cast<u64>(h) > kMaxEmbeddedTexturePixels)
@@ -342,49 +359,81 @@ namespace OloEngine
                     OLO_CORE_WARN("Model: Refusing oversized embedded texture {}x{} (cap {} pixels)",
                                   w, h, kMaxEmbeddedTexturePixels);
                     ::stbi_image_free(decoded);
-                    return nullptr;
+                    return std::nullopt;
                 }
 
-                width = static_cast<u32>(w);
-                height = static_cast<u32>(h);
-                rgba.assign(decoded, decoded + (static_cast<sizet>(width) * height * 4u));
+                out.Width = static_cast<u32>(w);
+                out.Height = static_cast<u32>(h);
+                out.RGBA.assign(decoded, decoded + (static_cast<sizet>(out.Width) * out.Height * 4u));
                 ::stbi_image_free(decoded);
             }
             else
             {
                 // Raw aiTexel data is BGRA8 in row-major top-to-bottom order.
-                // Convert to RGBA8 while flipping rows for OpenGL convention.
-                width = embedded->mWidth;
-                height = embedded->mHeight;
-                if (width == 0 || height == 0)
-                    return nullptr;
+                out.Width = embedded->mWidth;
+                out.Height = embedded->mHeight;
+                if (out.Width == 0 || out.Height == 0)
+                    return std::nullopt;
 
-                if (static_cast<u64>(width) * static_cast<u64>(height) > kMaxEmbeddedTexturePixels)
+                if (static_cast<u64>(out.Width) * static_cast<u64>(out.Height) > kMaxEmbeddedTexturePixels)
                 {
                     OLO_CORE_WARN("Model: Refusing oversized embedded texture {}x{} (cap {} pixels)",
-                                  width, height, kMaxEmbeddedTexturePixels);
-                    return nullptr;
+                                  out.Width, out.Height, kMaxEmbeddedTexturePixels);
+                    return std::nullopt;
                 }
 
-                rgba.resize(static_cast<sizet>(width) * height * 4u);
-                for (u32 y = 0; y < height; ++y)
+                out.RGBA.resize(static_cast<sizet>(out.Width) * out.Height * 4u);
+                for (sizet i = 0; i < static_cast<sizet>(out.Width) * out.Height; ++i)
                 {
-                    const u32 srcRow = height - 1u - y;
-                    for (u32 x = 0; x < width; ++x)
-                    {
-                        const aiTexel& src = embedded->pcData[static_cast<sizet>(srcRow) * width + x];
-                        const sizet dst = (static_cast<sizet>(y) * width + x) * 4u;
-                        rgba[dst + 0] = src.r;
-                        rgba[dst + 1] = src.g;
-                        rgba[dst + 2] = src.b;
-                        rgba[dst + 3] = src.a;
-                    }
+                    const aiTexel& src = embedded->pcData[i];
+                    out.RGBA[i * 4u + 0] = src.r;
+                    out.RGBA[i * 4u + 1] = src.g;
+                    out.RGBA[i * 4u + 2] = src.b;
+                    out.RGBA[i * 4u + 3] = src.a;
                 }
             }
 
+            return out;
+        }
+
+        // Reverse the row order of a tightly-packed RGBA8 image in place.
+        void FlipRowsInPlace(std::vector<u8>& rgba, u32 width, u32 height)
+        {
+            const sizet stride = static_cast<sizet>(width) * 4u;
+            for (u32 y = 0; y < height / 2u; ++y)
+            {
+                const sizet top = static_cast<sizet>(y) * stride;
+                const sizet bottom = static_cast<sizet>(height - 1u - y) * stride;
+                std::swap_ranges(rgba.begin() + static_cast<std::ptrdiff_t>(top),
+                                 rgba.begin() + static_cast<std::ptrdiff_t>(top + stride),
+                                 rgba.begin() + static_cast<std::ptrdiff_t>(bottom));
+            }
+        }
+
+        // Build a GPU-only Texture2D from an embedded bitmap. The on-disk loader flips
+        // rows for OpenGL's bottom-left origin, so we flip embedded data the same way
+        // to keep UVs consistent between embedded and external assets.
+        // srgb mirrors Texture2D::Create(path, srgb) — pass true for albedo /
+        // base-color / emissive so the GPU converts samples to linear.
+        //
+        // This is the FALLBACK now: CookEmbeddedTexture (below) turns an embedded
+        // bitmap into a real Texture asset on disk whenever a project is mounted, so
+        // that it gains an AssetHandle and a path and therefore survives the .omesh
+        // cache and the asset pack. This path still runs when there is no project (a
+        // packed runtime never imports from source; a headless test may not mount one)
+        // or when the cook fails — the mesh then renders correctly for this session,
+        // it just cannot persist the texture.
+        Ref<Texture2D> CreateTextureFromEmbedded(const aiTexture* embedded, bool srgb = false)
+        {
+            auto decoded = DecodeEmbeddedTopDown(embedded);
+            if (!decoded)
+                return nullptr;
+
+            FlipRowsInPlace(decoded->RGBA, decoded->Width, decoded->Height);
+
             TextureSpecification spec;
-            spec.Width = width;
-            spec.Height = height;
+            spec.Width = decoded->Width;
+            spec.Height = decoded->Height;
             spec.Format = ImageFormat::RGBA8;
             spec.GenerateMips = true;
             spec.MipLevels = 0;
@@ -394,8 +443,126 @@ namespace OloEngine
             if (!texture || !texture->IsLoaded())
                 return nullptr;
 
-            texture->SetData(rgba.data(), static_cast<u32>(rgba.size()));
+            texture->SetData(decoded->RGBA.data(), static_cast<u32>(decoded->RGBA.size()));
             return texture;
+        }
+
+        // FNV-1a 64, as used by MeshCache to content-address a .omesh by source path.
+        u64 HashString(std::string_view s)
+        {
+            u64 hash = 14695981039346656037ULL;
+            for (const char c : s)
+            {
+                hash ^= static_cast<u64>(static_cast<unsigned char>(c));
+                hash *= 1099511628211ULL;
+            }
+            return hash;
+        }
+
+        // ────────────────────────────────────────────────────────────────────────
+        // Cooking an EMBEDDED texture into a real Texture asset (issue #629 follow-up)
+        //
+        // A texture embedded in a glTF/GLB/FBX (base64 data URI or binary chunk) has no
+        // file on disk and no AssetHandle — Model used to decode it straight to a GPU
+        // texture and nothing else. ImportedMaterialCodec references textures by handle
+        // (with a source-path fallback), so an embedded texture survived NEITHER the
+        // .omesh dev cache NOR the asset pack: reopen the editor and the material came
+        // back with its factors but no maps, and a shipped build lost the textures of
+        // every model that embeds them — which is most GLB files.
+        //
+        // The fix is upstream of the codec, not inside it: give the texture a real
+        // identity at import time. We decode it once, write it into the project's asset
+        // cache as a plain .png, and ImportAsset it, after which it is an ordinary
+        // Texture2D asset — a path, a registry handle, an asset-pack entry — and BOTH
+        // containers already work with zero codec changes.
+        //
+        // STABILITY (the property that matters): the cooked filename is derived from
+        // FNV-1a-64(canonical model path + '|' + the Assimp texture reference) plus the
+        // colour-space intent — no counters, no timestamps, no randomness. Re-importing
+        // the same model yields the same filename, and ImportAsset returns the EXISTING
+        // registry handle for a path it has already seen. So the handle is stable across
+        // re-imports, the pack does not churn between builds, and a scene reference to
+        // the texture does not rot. An existing cooked file is left alone (not rewritten)
+        // so its timestamp — and therefore the asset registry's LastWriteTime — is stable
+        // too.
+        //
+        // COLOUR SPACE IN THE NAME: both the packed-runtime loader
+        // (TextureSerializer::TryLoadData) and the asset-pack cook decide sRGB from the
+        // FILENAME (TextureCompression::IsLikelyColorTexture), so the intent is baked
+        // into the cooked name: "_basecolor" for sRGB (a colour keyword) and "_linear"
+        // for linear data (no keyword => the heuristic's conservative linear default).
+        // Get this wrong and an albedo map ships without its gamma conversion.
+        //
+        // NOTE the path-traversal guard in LoadMaterialTextures is untouched by this:
+        // the cooked path is constructed by the engine from a hash, never from a string
+        // in the model file, so no attacker-controlled component reaches the filesystem.
+        // ────────────────────────────────────────────────────────────────────────
+        std::optional<std::filesystem::path> CookEmbeddedTexture(const aiTexture* embedded,
+                                                                 const std::string& modelSourcePath,
+                                                                 const std::string& assimpTextureRef,
+                                                                 bool srgb)
+        {
+            // No project => no asset directory and no registry to hand out a handle.
+            // (A packed runtime never imports from source, so this is the editor path.)
+            Ref<Project> project = Project::GetActive();
+            if (!project)
+                return std::nullopt;
+
+            Ref<AssetManagerBase> managerBase = Project::GetAssetManager();
+            auto* editor = dynamic_cast<EditorAssetManager*>(managerBase.Raw());
+            if (!editor)
+                return std::nullopt;
+
+            std::error_code ec;
+            const std::filesystem::path cacheDir = Project::GetAssetDirectory() / "cache" / "embedded";
+            std::filesystem::create_directories(cacheDir, ec);
+            if (ec)
+            {
+                OLO_CORE_WARN("Model: Could not create embedded-texture cache dir '{}': {}",
+                              cacheDir.string(), ec.message());
+                return std::nullopt;
+            }
+
+            // Stable, deterministic identity — see STABILITY above.
+            const std::filesystem::path canonicalModel = std::filesystem::weakly_canonical(modelSourcePath, ec);
+            const std::string modelKey = ec ? modelSourcePath : canonicalModel.generic_string();
+            const u64 hash = HashString(modelKey + "|" + assimpTextureRef);
+
+            std::ostringstream name;
+            name << "emb_" << std::hex << std::setw(16) << std::setfill('0') << hash
+                 << (srgb ? "_basecolor" : "_linear") << ".png";
+            const std::filesystem::path cookedPath = cacheDir / name.str();
+
+            if (!std::filesystem::exists(cookedPath, ec))
+            {
+                auto decoded = DecodeEmbeddedTopDown(embedded);
+                if (!decoded)
+                    return std::nullopt;
+
+                // Written TOP-DOWN, like any image file: Texture2D::Create(path) flips it
+                // on load, so an embedded texture and the same bitmap shipped loose end up
+                // with identical orientation on the GPU.
+                const int written = ::stbi_write_png(
+                    cookedPath.string().c_str(),
+                    static_cast<int>(decoded->Width), static_cast<int>(decoded->Height), 4,
+                    decoded->RGBA.data(), static_cast<int>(decoded->Width * 4u));
+                if (written == 0)
+                {
+                    OLO_CORE_WARN("Model: Failed to write cooked embedded texture '{}'", cookedPath.string());
+                    return std::nullopt;
+                }
+                OLO_CORE_TRACE("Model: Cooked embedded texture '{}' -> {}", assimpTextureRef, cookedPath.string());
+            }
+
+            // Registers the file (or returns the handle it already has), which is what
+            // puts it in the asset registry and therefore in the asset pack.
+            if (static_cast<u64>(editor->ImportAsset(cookedPath)) == 0)
+            {
+                OLO_CORE_WARN("Model: Could not register cooked embedded texture '{}'", cookedPath.string());
+                return std::nullopt;
+            }
+
+            return cookedPath;
         }
     } // namespace
 
@@ -416,6 +583,9 @@ namespace OloEngine
         // the opposite V origin, so flip OBJ UVs by default to keep atlas regions
         // aligned with the flipped texture data.
         std::filesystem::path sourcePath(path);
+        // Recorded before anything can fail: an embedded texture's cooked asset name is
+        // derived from this path, so it must be set on every load route.
+        m_SourcePath = path;
         const bool isObjModel = IsObjModelPath(sourcePath);
         const bool effectiveFlipUV = flipUV || isObjModel;
         const std::string cachePrefix = GetStaticMeshCachePrefix(effectiveFlipUV);
@@ -441,6 +611,14 @@ namespace OloEngine
             {
                 m_Directory = sourcePath.parent_path().string();
 
+                // Carry the cached virtual-geometry DAG blob (#629) back onto the Model.
+                // CookVirtualMesh early-outs when m_CookedVirtualMeshBlob is non-empty, and
+                // CreateCombinedMeshSource attaches whatever is in it — so without this the
+                // blob is silently EMPTY on every warm-cache load, and any Model-based
+                // consumer would hand the registry a source with no precooked DAG.
+                m_CookedVirtualMeshBlob = cachedMesh->GetVirtualMeshBlob();
+                m_CachedCombinedSource = cachedMesh;
+
                 // Create individual Mesh objects from submeshes
                 cachedMesh->Build();
                 for (i32 i = 0; i < cachedMesh->GetSubmeshes().Num(); ++i)
@@ -448,18 +626,76 @@ namespace OloEngine
                     m_Meshes.push_back(Ref<Mesh>::Create(cachedMesh, static_cast<u32>(i)));
                 }
 
+                // Materials: take them from the cache when it has them.
+                //
+                // The .omesh cache carries the imported materials since format v4
+                // (issue #629) — factors, alpha mode/cutoff, flags and per-slot texture
+                // references — so a warm load no longer has to re-import the source file
+                // just to rebuild them. That re-import (the block below) is a FULL Assimp
+                // parse of e.g. Sponza on every warm load; it now only runs for a pre-v4
+                // cache (which ReadTimestamp already treats as stale, so in practice never)
+                // or when a TextureOverride is in play — an override is per-load state that
+                // must NOT come from a cache file keyed only by source path + UV flip
+                // (see the matching guard at the cache-write site below).
+                //
+                // The table is only trusted when it can actually ADDRESS every submesh:
+                // every m_MaterialIndex the cached submeshes carry must land on a non-null
+                // entry. A short, holed or table-less cache is NOT rendered with — we fall
+                // back to the Assimp re-import below, which is slow but correct. Rendering a
+                // submesh with the wrong material is worse than re-importing: an opaque
+                // submesh that lands on an alpha-masked entry whose albedo failed to load
+                // gets discarded by the cutoff and VANISHES from the frame (issue #629).
+                bool materialsFromCache = false;
+                if (!m_TextureOverride && !cachedMesh->GetImportedMaterials().empty())
+                {
+                    const auto& cachedMaterials = cachedMesh->GetImportedMaterials();
+                    const auto& cachedSubmeshes = cachedMesh->GetSubmeshes();
+
+                    bool tableAddressesEverySubmesh = true;
+                    for (i32 i = 0; i < cachedSubmeshes.Num(); ++i)
+                    {
+                        const u32 matIdx = cachedSubmeshes[i].m_MaterialIndex;
+                        // UINT32_MAX is the importer's "this submesh had no material" sentinel;
+                        // it legitimately falls through to the caller's default.
+                        if (matIdx == UINT32_MAX)
+                        {
+                            continue;
+                        }
+                        if (matIdx >= static_cast<u32>(cachedMaterials.size()) || !cachedMaterials[matIdx])
+                        {
+                            OLO_CORE_WARN("Model::LoadModel: cached material table does not address submesh {} "
+                                          "(materialIndex={}, table size={}) — re-importing materials from '{}'",
+                                          i, matIdx, cachedMaterials.size(), path);
+                            tableAddressesEverySubmesh = false;
+                            break;
+                        }
+                    }
+
+                    if (tableAddressesEverySubmesh)
+                    {
+                        m_Materials = cachedMaterials;
+                        materialsFromCache = true;
+                    }
+                }
+
                 // Load materials from the source file.
                 //
                 // Fresh load runs ProcessNode under aiProcess_PreTransformVertices,
                 // so m_Meshes ends up in the DFS order that ProcessNode visits.
-                // CreateCombinedMeshSource writes submeshes in that same order
-                // and sets m_MaterialIndex = the m_Meshes index. To rebuild the
-                // material array correctly we must:
+                // CreateCombinedMeshSource writes submeshes in that same order and
+                // copies each one's DEDUPLICATED material index (ProcessMesh resolved
+                // it through m_MaterialIndexMap). To rebuild an array those indices
+                // address, we must reproduce that same deduplication here — one entry
+                // per UNIQUE aiMaterial, in first-visit DFS order (#629). Rebuilding
+                // one entry per mesh instead (what this did before) produced an array
+                // the cached indices no longer address, so warm and cold loads resolved
+                // different materials. To do it we must:
                 //   (a) re-import with the same flags so the tree we walk matches
                 //       what fresh load saw (PreTransformVertices flattens the
                 //       hierarchy and can reorder/merge meshes), and
                 //   (b) walk that tree in DFS order — never use scene->mMeshes
                 //       flat order, which can differ from DFS visit order.
+                if (!materialsFromCache)
                 {
                     Assimp::Importer importer;
                     // Must mirror the fresh-import flags below — otherwise the
@@ -471,13 +707,22 @@ namespace OloEngine
                     // the 1:1 m_Meshes[i] ↔ DFS-mesh[i] mapping that the
                     // material-rebuild relies on.
                     constexpr u32 kCacheLoadFlags = aiProcess_Triangulate |
-                                                    aiProcess_GenNormals |
+                                                    aiProcess_GenSmoothNormals |
                                                     aiProcess_CalcTangentSpace |
                                                     aiProcess_JoinIdenticalVertices |
                                                     aiProcess_ValidateDataStructure |
                                                     aiProcess_FindDegenerates |
                                                     aiProcess_FindInvalidData |
                                                     aiProcess_PreTransformVertices;
+                    // GenSmoothNormals, not GenNormals: flat per-face normals split every shared
+                    // vertex, so JoinIdenticalVertices can't re-weld them and the mesh reaches
+                    // meshopt as a disconnected triangle soup — no usable LOD, faceted shading,
+                    // bloated vertex buffers (issue #653). Smooth normals are shared, so the mesh
+                    // welds. The angle keeps genuine hard creases (> ~66 deg) split, which is
+                    // correct for hard-surface geometry. Only affects meshes imported WITHOUT
+                    // normals (the flag is a no-op when normals are present). Must mirror the
+                    // fresh-import path below.
+                    importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, 66.0f);
                     const aiScene* scene = importer.ReadFile(path, kCacheLoadFlags);
                     if (scene && scene->mRootNode)
                     {
@@ -493,7 +738,11 @@ namespace OloEngine
                         };
                         collectDFS(scene->mRootNode, sceneMeshIndices, collectDFS);
 
-                        m_Materials.resize(m_Meshes.size());
+                        // Deduplicate exactly as ProcessMesh does on the cold path: one
+                        // entry per UNIQUE aiMaterial, in order of first DFS appearance.
+                        // The cached submeshes' m_MaterialIndex values index THIS array.
+                        m_Materials.clear();
+                        m_MaterialIndexMap.clear();
                         const auto numToProcess = std::min(sceneMeshIndices.size(), m_Meshes.size());
                         for (sizet i = 0; i < numToProcess; ++i)
                         {
@@ -501,28 +750,25 @@ namespace OloEngine
                             if (sceneMeshIdx >= scene->mNumMeshes)
                                 continue;
                             const u32 matIdx = scene->mMeshes[sceneMeshIdx]->mMaterialIndex;
-                            if (matIdx < scene->mNumMaterials)
-                            {
-                                m_Materials[i] = ProcessMaterial(scene->mMaterials[matIdx], scene);
-                            }
+                            if (matIdx >= scene->mNumMaterials)
+                                continue;
+                            if (m_MaterialIndexMap.contains(matIdx))
+                                continue;
+                            m_MaterialIndexMap[matIdx] = static_cast<u32>(m_Materials.size());
+                            m_Materials.push_back(ProcessMaterial(scene->mMaterials[matIdx], scene));
                         }
 
                         if (sceneMeshIndices.size() != m_Meshes.size())
                         {
                             OLO_CORE_WARN("Model::LoadModel: cache has {} submeshes but DFS walk produced {} — "
-                                          "materials beyond the overlap will use a default. Stale cache?",
+                                          "some submeshes will resolve to a default material. Stale cache?",
                                           m_Meshes.size(), sceneMeshIndices.size());
-                            for (sizet i = numToProcess; i < m_Meshes.size(); ++i)
-                            {
-                                if (!m_Materials[i])
-                                    m_Materials[i] = Ref<Material>::Create();
-                            }
                         }
                     }
                     else
                     {
                         OLO_CORE_WARN("Model::LoadModel: Failed to load materials from '{}' for cached geometry", path);
-                        m_Materials.resize(m_Meshes.size());
+                        m_Materials.clear(); // every submesh resolves to the caller's default
                     }
                 }
 
@@ -556,6 +802,16 @@ namespace OloEngine
         // Create an instance of the Importer class
         Assimp::Importer importer;
 
+        // GenSmoothNormals, not GenNormals, for meshes that arrive WITHOUT normals: flat per-face
+        // normals split every shared vertex, so JoinIdenticalVertices cannot re-weld them and the
+        // mesh reaches meshoptimizer as a disconnected triangle soup — no usable LOD (classic OR
+        // virtual), faceted shading, and a bloated vertex buffer (issue #653). Smooth normals are
+        // shared, so the mesh welds. The smoothing angle keeps genuine hard creases (> ~66 deg)
+        // split, which is the correct result for hard-surface geometry. A no-op when the source
+        // already carries normals. Must mirror the cache-load flags above (see the "must mirror"
+        // note there).
+        importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, 66.0f);
+
         // And have it read the given file with some postprocessing.
         //
         // Deliberately omitted:
@@ -571,7 +827,7 @@ namespace OloEngine
         //     to be set; scenes carry their own scale via TransformComponent.
         const aiScene* scene = importer.ReadFile(path,
                                                  aiProcess_Triangulate |               // Make sure we get triangles
-                                                     aiProcess_GenNormals |            // Create normals if not present
+                                                     aiProcess_GenSmoothNormals |      // Shared smooth normals when missing (#653)
                                                      aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
                                                      aiProcess_JoinIdenticalVertices | // Deduplicate identical vertices for smaller buffers
                                                      aiProcess_ValidateDataStructure | // Validate the imported data structure
@@ -605,11 +861,31 @@ namespace OloEngine
         // Calculate bounding volumes for the entire model
         CalculateBounds();
 
-        // Save geometry to binary cache for next load
+        // Save geometry to binary cache for next load. Cook the virtualized-
+        // geometry cluster DAG first (issue #629) so the cache's VirtualMesh
+        // section — and any MeshSource this Model hands out afterwards —
+        // carries it and VirtualMeshRegistry never rebuilds from raw geometry.
         {
             auto combinedMeshSource = CreateCombinedMeshSource();
             if (combinedMeshSource)
             {
+                CookVirtualMesh(*combinedMeshSource);
+                if (!m_CookedVirtualMeshBlob.empty())
+                {
+                    combinedMeshSource->SetVirtualMeshBlob(m_CookedVirtualMeshBlob);
+                }
+
+                // The .omesh now also carries the imported materials (v4, issue #629) — but a
+                // TextureOverride is per-LOAD state, and the cache file is keyed only by source
+                // path + UV flip. Writing override-baked materials into it would hand them to
+                // the next, non-overridden load of the same model. So ship the geometry and
+                // omit the materials; that load then re-imports them from the source file (the
+                // pre-v4 behaviour) instead of inheriting someone else's textures.
+                // The MeshSource here is a cache-only copy on this path, so clearing is local.
+                if (m_TextureOverride)
+                {
+                    combinedMeshSource->SetImportedMaterials({});
+                }
                 MeshCache::SaveMeshToCache(sourcePath, *combinedMeshSource, cachePrefix);
             }
         }
@@ -866,11 +1142,33 @@ namespace OloEngine
                     if (auto it = m_LoadedTextures.find(cacheKey); it != m_LoadedTextures.end())
                     {
                         textures.push_back(it->second);
+                        continue;
                     }
-                    else if (auto decoded = CreateTextureFromEmbedded(embedded, srgb); decoded && decoded->IsLoaded())
+
+                    // COOK FIRST: an embedded texture written into the project's asset
+                    // cache gains a path AND an AssetHandle, so ImportedMaterialCodec can
+                    // persist it through both the .omesh cache and the asset pack. Without
+                    // this the material comes back from either container with no maps.
+                    // Loading it back off the cooked file (rather than keeping the
+                    // in-memory decode) is deliberate: the texture we hand out is then
+                    // byte-for-byte the one the codec will resolve later, so the editor
+                    // session and a reload cannot disagree.
+                    Ref<Texture2D> texture;
+                    if (auto cooked = CookEmbeddedTexture(embedded, m_SourcePath, str.C_Str(), srgb))
                     {
-                        m_LoadedTextures[cacheKey] = decoded;
-                        textures.push_back(decoded);
+                        texture = Texture2D::Create(cooked->string(), srgb);
+                        if (texture && !texture->IsLoaded())
+                            texture = nullptr;
+                    }
+                    // No project mounted (or the cook failed): fall back to the GPU-only
+                    // decode. Renders correctly this session; simply cannot persist.
+                    if (!texture)
+                        texture = CreateTextureFromEmbedded(embedded, srgb);
+
+                    if (texture && texture->IsLoaded())
+                    {
+                        m_LoadedTextures[cacheKey] = texture;
+                        textures.push_back(texture);
                     }
                     else
                     {
@@ -1523,6 +1821,12 @@ namespace OloEngine
 
     void Model::DrawParallel(const glm::mat4& transform, const Material& fallbackMaterial, i32 entityID) const
     {
+        DrawParallel(transform, nullptr, fallbackMaterial, entityID);
+    }
+
+    void Model::DrawParallel(const glm::mat4& transform, const Material* overrideMaterial,
+                             const Material& fallbackMaterial, i32 entityID) const
+    {
         OLO_PROFILE_FUNCTION();
 
         if (m_Meshes.empty())
@@ -1536,12 +1840,11 @@ namespace OloEngine
         {
             const Submesh& submesh = m_Meshes[i]->GetSubmesh();
 
-            // Determine material: use submesh material if valid, otherwise fallback
-            Material meshMaterial = fallbackMaterial;
-            if (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
-            {
-                meshMaterial = *m_Materials[submesh.m_MaterialIndex];
-            }
+            // override -> imported -> fallback, through the shared resolve (#629).
+            const Material* imported = (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
+                                           ? m_Materials[submesh.m_MaterialIndex].get()
+                                           : nullptr;
+            Material meshMaterial = ResolveSubmeshMaterial(overrideMaterial, imported, fallbackMaterial);
 
             meshDescriptors.push_back({
                 m_Meshes[i],
@@ -1560,11 +1863,6 @@ namespace OloEngine
 
     void Model::DrawParallel(const glm::mat4& transform, i32 entityID) const
     {
-        OLO_PROFILE_FUNCTION();
-
-        if (m_Meshes.empty())
-            return;
-
         // Static default material
         static Material s_DefaultMaterial = []() -> Material
         {
@@ -1575,34 +1873,7 @@ namespace OloEngine
             return Material{};
         }();
 
-        // Collect mesh descriptors for parallel submission
-        std::vector<Renderer3D::MeshSubmitDesc> meshDescriptors;
-        meshDescriptors.reserve(m_Meshes.size());
-
-        for (sizet i = 0; i < m_Meshes.size(); ++i)
-        {
-            const Submesh& submesh = m_Meshes[i]->GetSubmesh();
-
-            // Determine material
-            Material meshMaterial = s_DefaultMaterial;
-            if (submesh.m_MaterialIndex < m_Materials.size() && m_Materials[submesh.m_MaterialIndex])
-            {
-                meshMaterial = *m_Materials[submesh.m_MaterialIndex];
-            }
-
-            meshDescriptors.push_back({
-                m_Meshes[i],
-                transform,
-                meshMaterial,
-                true,     // IsStatic
-                entityID, // EntityID for picking
-                false,    // IsAnimated
-                nullptr   // BoneMatrices
-            });
-        }
-
-        // Submit all meshes in parallel
-        Renderer3D::SubmitMeshesParallel(meshDescriptors);
+        DrawParallel(transform, nullptr, s_DefaultMaterial, entityID);
     }
 
     Ref<MeshSource> Model::CreateCombinedMeshSource() const
@@ -1613,6 +1884,24 @@ namespace OloEngine
         {
             OLO_CORE_WARN("Model::CreateCombinedMeshSource: No meshes to combine");
             return nullptr;
+        }
+
+        // Warm .omesh path: the cache already holds the COMBINED source, and every
+        // m_Meshes[i] is a submesh *view* into it (Ref<Mesh>::Create(cachedMesh, i)) —
+        // GetMeshSource() returns that same shared source for all of them. The
+        // concatenation loop below copies each mesh's ENTIRE source, so running it here
+        // would duplicate the whole model once per submesh (Sponza: 25 x 262k triangles =
+        // 6.5M, which blew up the virtual-geometry cook and the GPU arenas). Only the cold
+        // path, where every Mesh owns a distinct single-submesh source, may concatenate.
+        if (m_CachedCombinedSource)
+        {
+            Ref<MeshSource> combined = m_CachedCombinedSource;
+            combined->SetImportedMaterials(m_Materials);
+            if (!m_CookedVirtualMeshBlob.empty() && combined->GetVirtualMeshBlob().empty())
+            {
+                combined->SetVirtualMeshBlob(m_CookedVirtualMeshBlob);
+            }
+            return combined;
         }
 
         // Calculate total vertex and index counts
@@ -1675,7 +1964,25 @@ namespace OloEngine
             submesh.m_BaseIndex = baseIndex;
             submesh.m_VertexCount = static_cast<u32>(srcVertices.Num());
             submesh.m_IndexCount = static_cast<u32>(srcIndices.Num());
-            submesh.m_MaterialIndex = static_cast<u32>(meshIdx); // Use mesh index as material index
+            // Carry the SOURCE submesh's material index across verbatim. ProcessMesh already
+            // resolved it through m_MaterialIndexMap, so it indexes the DEDUPLICATED
+            // m_Materials array (or is UINT32_MAX when the mesh had no material).
+            //
+            // This used to be `meshIdx` ("one material slot per submesh"), i.e. an index into a
+            // DIFFERENT array than the deduplicated m_Materials that ships alongside it. Today
+            // the two happen to coincide, because LoadModel imports with
+            // aiProcess_PreTransformVertices, which MERGES primitives sharing a material — every
+            // model comes out of Assimp with exactly one mesh per unique material (measured:
+            // Sponza's 103 glTF primitives / 25 materials import as 25 meshes / 25 materials).
+            // So `meshIdx` was coincidentally right, and the bug is LATENT: the first load path
+            // that yields two meshes sharing one material (importer flags change, PTV dropped
+            // for instancing, a merge refused) makes every submesh past the material count index
+            // off the end of m_Materials into engine-default grey. Take the submesh's own,
+            // already-deduplicated index instead and the coincidence stops mattering. Issue #629.
+            const auto srcSubmeshIndex = static_cast<i32>(mesh->GetSubmeshIndex());
+            submesh.m_MaterialIndex = (srcSubmeshIndex >= 0 && srcSubmeshIndex < srcMeshSource->GetSubmeshes().Num())
+                                          ? srcMeshSource->GetSubmeshes()[srcSubmeshIndex].m_MaterialIndex
+                                          : UINT32_MAX;
             submesh.m_IsRigged = false;
             submesh.m_NodeName = "Mesh_" + std::to_string(meshIdx);
 
@@ -1705,10 +2012,66 @@ namespace OloEngine
         // UVs/indices across submeshes (AnimatedModel does the same thing for the same reason).
         combinedMeshSource->SetPreOptimized(true);
 
+        // Attach the virtualized-geometry cook if LoadModel produced one, so
+        // the MeshSource returned to asset loaders matches the cached one.
+        if (!m_CookedVirtualMeshBlob.empty())
+        {
+            combinedMeshSource->SetVirtualMeshBlob(m_CookedVirtualMeshBlob);
+        }
+
+        // Carry the imported materials across. Submesh::m_MaterialIndex already indexes
+        // m_Materials (see the DFS-order contract above), so the MeshSource asset becomes
+        // self-sufficient: a consumer holding only a MeshSource handle can resolve the
+        // per-submesh material without re-importing the source file. Without this, every
+        // MeshSource-handle consumer (MeshComponent, VirtualMeshComponent) fell back to
+        // the flat engine-default material and rendered untextured grey.
+        combinedMeshSource->SetImportedMaterials(m_Materials);
+
         OLO_CORE_INFO("Model::CreateCombinedMeshSource: Combined {} meshes into {} vertices, {} indices, {} submeshes",
                       m_Meshes.size(), combinedMeshSource->GetVertices().Num(),
                       combinedMeshSource->GetIndices().Num(), combinedMeshSource->GetSubmeshes().Num());
 
         return combinedMeshSource;
+    }
+
+    void Model::CookVirtualMesh(const MeshSource& combined)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_CookedVirtualMeshBlob.empty())
+        {
+            return; // already cooked for this Model
+        }
+
+        // Skinned meshes deform at runtime, so a static cluster DAG would be wrong for them.
+        // Multi-submesh sources ARE supported: BuildSet produces one DAG per submesh so a
+        // cluster never spans a material boundary.
+        if (combined.HasSkeleton() || !combined.GetBoneInfo().IsEmpty())
+        {
+            return;
+        }
+
+        // Below this the runtime build is effectively free, so a cook section
+        // would only bloat the cache.
+        constexpr u32 kMinCookTriangles = 128;
+        u32 const triangleCount = static_cast<u32>(combined.GetIndices().Num()) / 3u;
+        if (triangleCount < kMinCookTriangles)
+        {
+            return;
+        }
+
+        VirtualMeshSet const built = VirtualMeshBuilder::BuildSet(combined);
+        if (!built.IsValid())
+        {
+            OLO_CORE_WARN("Model::CookVirtualMesh: cluster-DAG build failed ({} triangles) — "
+                          "the mesh will fall back to a runtime build if used virtually",
+                          triangleCount);
+            return;
+        }
+
+        m_CookedVirtualMeshBlob = VirtualMeshSerializer::SerializeSetToBlob(built);
+        OLO_CORE_INFO("Model::CookVirtualMesh: cooked {} triangles into {} part(s) / {} clusters ({} KB)",
+                      triangleCount, built.Parts.size(), built.TotalClusters(),
+                      m_CookedVirtualMeshBlob.size() / 1024);
     }
 } // namespace OloEngine

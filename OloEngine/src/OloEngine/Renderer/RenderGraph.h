@@ -470,6 +470,17 @@ namespace OloEngine
                                                                   RGTextureHandle textureHandle,
                                                                   u32 layerIndex);
 
+        // The array layer / cube face a *subresource view* resource addresses
+        // within its parent texture, or 0 for any other resource (issue #607).
+        //
+        // ResolveTexture() deliberately returns the PARENT texture object for a
+        // layer/face view — that is what a sampler binding wants. A CPU readback
+        // (glGetTextureSubImage) does NOT: given only the parent id it reads
+        // layer 0, so capturing "ShadowMapCSMCascade3" would silently hand back
+        // cascade 0's pixels — a confidently wrong answer, not an error. Callers
+        // that read a view back must apply this offset themselves.
+        [[nodiscard]] u32 GetTextureViewLayerIndex(std::string_view name) const;
+
         // Create a logical single-face cube texture view over an existing
         // TextureCube resource. The handle participates in declarations as a
         // face-scoped resource while resolving to the parent cubemap object in

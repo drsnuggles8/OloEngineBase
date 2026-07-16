@@ -31,6 +31,7 @@
 
 #include <gtest/gtest.h>
 #include <yaml-cpp/yaml.h>
+#include <nlohmann/json.hpp>
 
 #include "OloEngine/Asset/AssetRegistry.h"
 #include "OloEngine/Asset/AssetExtensions.h"
@@ -41,6 +42,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -792,23 +794,68 @@ namespace OloEngine::Tests
             << "Deserialised registry is empty — the editor would resolve every "
                "asset GUID to 'not found'.";
 
+        // Fetch-on-demand assets (scripts/assets/asset-manifest.json) are deliberately NOT
+        // committed — too large for git history, or licence-restricted — and are absent until the
+        // user runs Fetch-Assets.ps1. The manifest's own contract is explicit: "Every consumer
+        // (scene, test) must degrade gracefully when an asset is absent ... never fail." CI never
+        // fetches them, so a registered-but-unfetched asset (e.g. the 137 MB Stanford dragon the
+        // Nanite stress scene uses, issue #629) must be TOLERATED here, not reported missing.
+        // Collect their resolved paths from the manifest so those are skipped below; every other
+        // registered path is still required to exist.
+        std::set<std::string> fetchOnDemand;
+        {
+            const fs::path repoRoot = fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
+            const fs::path manifestPath = repoRoot / "scripts" / "assets" / "asset-manifest.json";
+            if (std::ifstream in(manifestPath); in)
+            {
+                try
+                {
+                    nlohmann::json manifest;
+                    in >> manifest;
+                    for (const auto& asset : manifest.value("assets", nlohmann::json::array()))
+                    {
+                        if (const std::string dest = asset.value("dest", std::string{}); !dest.empty())
+                            fetchOnDemand.insert((repoRoot / dest).lexically_normal().generic_string());
+                    }
+                }
+                catch (const std::exception&)
+                {
+                    // A malformed manifest must not silently disable the check — leave the set
+                    // empty so every registered path is validated as before.
+                }
+            }
+        }
+
         // Each registry entry's FilePath should point at a real file
         // under the project root. (Engine convention: AssetMetadata
         // stores the project-relative path resolved against the
         // project's Assets directory.)
         const auto allAssets = registry.GetAllAssets();
         std::vector<Failure> missing;
+        u32 fetchOnDemandAbsent = 0;
         for (const auto& metadata : allAssets)
         {
             const fs::path resolved = projectRoot / metadata.FilePath;
             std::error_code ec;
             if (!fs::exists(resolved, ec))
             {
+                if (fetchOnDemand.contains(resolved.lexically_normal().generic_string()))
+                {
+                    ++fetchOnDemandAbsent; // optional asset the user has not fetched — not a failure
+                    continue;
+                }
                 missing.push_back({
                     metadata.FilePath.generic_string(),
                     "registered in AssetRegistry.oar but no file at " + resolved.generic_string(),
                 });
             }
+        }
+
+        if (fetchOnDemandAbsent > 0)
+        {
+            std::cout << "[ INFO     ] " << fetchOnDemandAbsent
+                      << " fetch-on-demand asset(s) registered but not present (run scripts/Fetch-Assets.ps1"
+                         " to materialise them); tolerated per asset-manifest.json.\n";
         }
 
         if (!missing.empty())

@@ -116,4 +116,5 @@ using AllComponents = ComponentGroup<
     VehicleComponent,
     VideoOverlayComponent,
     VideoSurfaceComponent,
+    VirtualMeshComponent,
     WaterComponent>;

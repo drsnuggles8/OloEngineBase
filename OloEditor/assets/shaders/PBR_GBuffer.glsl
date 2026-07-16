@@ -157,7 +157,10 @@ void main()
     float ao = sampleAO(u_AOMap, v_TexCoord, u_OcclusionStrength, bool(u_UseAOMap));
     vec3 emissive = sampleEmissive(u_EmissiveMap, v_TexCoord, u_EmissiveFactor.rgb, bool(u_UseEmissiveMap));
 
-    vec3 N = normalize(v_Normal);
+    // sanitizeSurfaceNormal, not normalize: a zero-length or NaN interpolated normal
+    // (zero-area triangle, cancelling smooth normals, bad import) would otherwise write a
+    // NaN octahedral normal into the G-Buffer and light up as a white pixel.
+    vec3 N = sanitizeSurfaceNormal(v_Normal, dFdx(v_WorldPos), dFdy(v_WorldPos));
     if (u_UseNormalMap == 1)
     {
         N = getNormalFromMap(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);

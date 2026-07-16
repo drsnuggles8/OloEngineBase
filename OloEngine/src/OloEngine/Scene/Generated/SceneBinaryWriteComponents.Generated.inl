@@ -532,3 +532,13 @@ if (entity.HasComponent<UIWorldAnchorComponent>())
     SceneBinIO::Write(out, comp.m_TargetEntity);
     SceneBinIO::Write(out, comp.m_WorldOffset);
 }
+
+if (entity.HasComponent<VirtualMeshComponent>())
+{
+    SceneBinIO::WriteU32(out, 2502968764u); // VirtualMeshComponent
+    auto const& comp = entity.GetComponent<VirtualMeshComponent>();
+    SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_MeshSource);
+    SceneBinIO::Write(out, comp.m_ErrorThresholdPixels);
+    SceneBinIO::Write(out, comp.m_CastShadows);
+}

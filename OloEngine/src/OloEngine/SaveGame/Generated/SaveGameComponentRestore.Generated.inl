@@ -118,4 +118,5 @@ TRY_LOAD_COMPONENT(UIWorldAnchorComponent);
 TRY_LOAD_COMPONENT(VehicleComponent);
 TRY_LOAD_COMPONENT(VideoOverlayComponent);
 TRY_LOAD_COMPONENT(VideoSurfaceComponent);
+TRY_LOAD_COMPONENT(VirtualMeshComponent);
 TRY_LOAD_COMPONENT(WaterComponent);

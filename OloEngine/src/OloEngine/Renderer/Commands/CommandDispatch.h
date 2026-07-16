@@ -45,6 +45,10 @@ namespace OloEngine
         // Must be called when a Texture2D is destroyed so that a future call to
         // BindTrackedTexture with a recycled GL ID is not incorrectly skipped.
         static void InvalidateTextureBinding(u32 textureID);
+
+        // Tell the redundant-bind cache that `slot` was clobbered by a raw glBindTextureUnit
+        // outside this dispatcher, so the next tracked bind for that slot actually happens.
+        static void InvalidateTextureSlot(u32 slot);
         static void SetDepthPrepassActive(bool active);
         static void SetDepthPrepassColorPassActive(bool active);
         // Overdraw debug view (#519): when active, ApplyPODRenderState forces
@@ -115,6 +119,11 @@ namespace OloEngine
         // binding point, and ensure the Forward+ UBO baseline remains valid
         // even when tiled Forward+ lighting is inactive this frame.
         static void BindSceneResources();
+
+        // Uploads the PBR material UBO + binds its textures for a non-bucket
+        // draw path (virtualized geometry, issue #629). Uses the same
+        // redundant-upload diffing state as the bucket dispatcher.
+        static void UploadMaterialForDirectDraw(const PODMaterialData& mat, u16 materialDataIndex);
 
         // State management dispatch functions
         static void SetViewport(const void* data, RendererAPI& api);

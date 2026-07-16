@@ -615,3 +615,13 @@ if (auto node = entity["UIWorldAnchorComponent"]; node)
     comp.m_TargetEntity = node["TargetEntity"].as<u64>(static_cast<u64>(comp.m_TargetEntity));
     comp.m_WorldOffset = node["WorldOffset"].as<glm::vec3>(comp.m_WorldOffset);
 }
+
+if (auto node = entity["VirtualMeshComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<VirtualMeshComponent>();
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    comp.m_MeshSource = node["MeshSource"].as<u64>(static_cast<u64>(comp.m_MeshSource));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ErrorThresholdPixels"], v))
+        comp.m_ErrorThresholdPixels = std::clamp(v, static_cast<f32>(0.05f), static_cast<f32>(64.0f));
+    comp.m_CastShadows = node["CastShadows"].as<bool>(comp.m_CastShadows);
+}

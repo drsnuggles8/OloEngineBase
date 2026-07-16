@@ -1,3 +1,8 @@
+// OLO_MATERIAL_RESOLVE_EXEMPT: this file EXECUTES already-built command packets. The material
+// was resolved (through SubmeshMaterialResolve.h) by whoever built the packet; by the time a
+// DrawMeshInstancedCommand reaches the dispatcher there is no submesh, no MaterialComponent and
+// no imported-material table left to consult — only a PODMaterialData slot to bind. See
+// RenderPathDrift.EveryMeshSubmissionPathUsesTheSharedMaterialResolver.
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
@@ -121,6 +126,22 @@ namespace OloEngine
         if (bindingPoint < CommandDispatchData::MAX_TRACKED_UBO_BINDINGS)
         {
             s_Data.BoundUBOIDs[bindingPoint] = 0;
+        }
+    }
+
+    void CommandDispatch::InvalidateTextureSlot(u32 slot)
+    {
+        // For a pass that binds a texture unit with RAW GL (glBindTextureUnit) behind this
+        // cache's back. The cache would otherwise still claim the slot holds whatever it last
+        // put there, and BindTrackedTextureUnit would SKIP the real bind if the next texture
+        // happens to have that same GL ID — leaving the raw-bound texture live in the slot.
+        //
+        // That is exactly what VirtualGeometryPass hit: it binds the Hi-Z pyramid to unit 0
+        // for the cull compute, and unit 0 is also u_AlbedoMap. Any material whose albedo ID
+        // matched the stale cache entry silently sampled the HZB depth texture as its albedo.
+        if (slot < s_Data.BoundTextureIDs.size())
+        {
+            s_Data.BoundTextureIDs[slot] = 0;
         }
     }
 
@@ -787,6 +808,11 @@ namespace OloEngine
         {
             s_Data.ForwardPlus->UploadDisabledUBO();
         }
+    }
+
+    void CommandDispatch::UploadMaterialForDirectDraw(const PODMaterialData& mat, u16 materialDataIndex)
+    {
+        UploadMaterialState(mat, materialDataIndex);
     }
 
     void CommandDispatch::ResetState()

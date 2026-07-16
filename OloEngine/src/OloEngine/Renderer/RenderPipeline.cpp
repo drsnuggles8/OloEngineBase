@@ -22,6 +22,7 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 
 #include <algorithm>
 #include <array>
@@ -160,6 +161,9 @@ namespace OloEngine
         // Begin new frame for double-buffered resources. May block on the
         // frame fence when the GPU is behind — that wait IS the gpuWait metric.
         FrameResourceManager::Get().BeginFrame();
+
+        // Virtualized geometry (#629): reset this frame's instance submissions.
+        VirtualMeshRegistry::Get().BeginFrame();
         profiler.AddGPUWaitTime(FrameResourceManager::Get().GetLastBeginFrameWaitMs());
 
         // Advance the always-on GPU frame/pass timers: resolve a completed
@@ -888,6 +892,14 @@ namespace OloEngine
             SceneCompositePasses.DeferredGPUOcclusion->SetPerSampleLighting(deferred && data.Settings.Deferred.PerSampleLighting);
         }
 
+        // Virtualized geometry (#629): same per-sample rule — in per-sample MSAA
+        // it rasterizes into the multisample G-Buffer and resolves afterwards.
+        if (RenderStreamPasses.VirtualGeometry)
+        {
+            const bool deferred = (data.Settings.Path == RenderingPath::Deferred);
+            RenderStreamPasses.VirtualGeometry->SetPerSampleLighting(deferred && data.Settings.Deferred.PerSampleLighting);
+        }
+
         // Phase 6: propagate OIT toggle to transparent passes that still
         // participate in the WB-OIT path, plus the prepare/resolve passes,
         // every frame so UI changes take effect immediately.
@@ -1258,6 +1270,28 @@ namespace OloEngine
         HashU32(h, data.Shadow.GetAtlasResolution());
         HashU32(h, data.Shadow.GetCSMRendererID());
         HashU32(h, data.Shadow.GetAtlasRendererID());
+        // The comparison-OFF raw-depth views (issue #607) are declared as graph
+        // resources only when their ids are non-zero — a declaration-PRESENCE
+        // gate, which by the #530 rule must be hashed or PopulateBlackboard
+        // never re-runs and the resource never appears.
+        HashU32(h, data.Shadow.GetCSMRawRendererID());
+        HashU32(h, data.Shadow.GetAtlasRawRendererID());
+
+        // IBL renderer IDs — same rule as the shadow IDs above, and for the same
+        // reason: PopulateBlackboard imports them by raw GL ID.
+        //
+        // These were missing, and it was a live bug: switching scenes destroys the old
+        // EnvironmentMap (deleting its irradiance/prefilter/BRDF GL textures) and builds
+        // new ones, but nothing else in the fingerprint changes — so PopulateBlackboard
+        // short-circuited, the graph kept the DELETED IDs, and DeferredLightingPass bound
+        // them every frame: "GL_INVALID_OPERATION ... <texture> is not a valid texture
+        // name", thousands of times. It masqueraded as intermittent because GL often
+        // recycles the freed texture names, in which case the stale ID happens to be
+        // valid again and nothing looks wrong.
+        HashU32(h, data.GlobalIrradianceMapID);
+        HashU32(h, data.GlobalPrefilterMapID);
+        HashU32(h, data.GlobalBRDFLutMapID);
+        HashU32(h, data.GlobalEnvironmentMapID);
 
         // Post-process technique selection + per-effect toggles
         HashU32(h, static_cast<u32>(std::to_underlying(data.PostProcess.ActiveAOTechnique)));
@@ -1299,6 +1333,23 @@ namespace OloEngine
         HashBool(h, data.Fog.EnableVolumetric);
         HashBool(h, data.Snow.Enabled);
         HashBool(h, data.Snow.SSSBlurEnabled);
+
+        // Virtual-geometry debug capture (issue #629 / #607). VirtualGeometryPass::Setup
+        // ImportTexture()s the "VirtualGeometryDebug" target only while a debug mode is
+        // on, so the mode gates a graph DECLARATION and must invalidate this cache —
+        // exactly the #530 class of bug (docs/agent-rules/render-pipeline-caches.md).
+        // Without it, flipping the mode over MCP changed nothing in the graph, the target
+        // was never imported, and olo_render_capture_target answered "Unknown
+        // render-graph resource 'VirtualGeometryDebug'" forever.
+        //
+        // The raw GL texture id is hashed for the same reason as the shadow/IBL ids
+        // above: the import is BY id, so a viewport resize (which recreates the debug
+        // targets) must re-import rather than keep a dangling id.
+        {
+            const auto& virtualRegistry = VirtualMeshRegistry::Get();
+            HashU32(h, static_cast<u32>(std::to_underlying(virtualRegistry.GetDebugMode())));
+            HashU32(h, virtualRegistry.GetDebugColorTextureID());
+        }
 
         // Selection outline gate inputs — PopulateBlackboard declares
         // SelectionOutlineColor / JFAPing / JFAPong only when the editor
@@ -1817,6 +1868,45 @@ namespace OloEngine
                 atlasDesc.DepthOrLayers = 1;
                 board.Shadows.ShadowMapAtlas = graph.DeclareTransientTexture(
                     ResourceNames::ShadowMapAtlas, atlasDesc, atlasID);
+            }
+
+            // Publish the comparison-OFF raw-depth views as graph resources too
+            // (issue #607). They alias the SAME immutable storage as the two
+            // declarations above, so this adds no memory and no barrier — it
+            // exists purely so the PCSS blocker search's actual input is
+            // reachable by name from olo_render_list_targets /
+            // olo_render_capture_target. Without it a raw view is an invisible
+            // pass-owned GL id and "is the blocker search reading the depth I
+            // think it is?" can only be answered by adding a one-off test.
+            //
+            // Declaration-presence gate (#530 / docs/agent-rules/render-pipeline-caches.md):
+            // whether these resources exist depends on the raw ids being
+            // non-zero, so ComputeBlackboardFingerprint hashes BOTH raw ids —
+            // not just the CSM/atlas ids. They are created and destroyed with
+            // the parent textures in ShadowMap::Init/Shutdown, so in practice
+            // they move in lockstep, but hashing the actual gate condition is
+            // the rule: a glTextureView failure (or a future lazy creation)
+            // would otherwise freeze the cached topology with the resource
+            // permanently absent.
+            const u32 csmRawID = data.Shadow.GetCSMRawRendererID();
+            const u32 atlasRawID = data.Shadow.GetAtlasRawRendererID();
+            if (csmRawID != 0)
+            {
+                [[maybe_unused]] const RGTextureHandle csmRaw = graph.DeclareTransientTexture(
+                    ShadowMap::kCSMRawTargetName,
+                    buildShadowTextureDesc(ResourceHandle::Kind::Texture2DArray,
+                                           ShadowMap::kCSMRawTargetName,
+                                           FrameBlackboard::MaxShadowMapCascades),
+                    csmRawID);
+            }
+            if (atlasRawID != 0)
+            {
+                auto atlasRawDesc = buildShadowTextureDesc(ResourceHandle::Kind::Texture2DArray,
+                                                           ShadowMap::kAtlasRawTargetName, 1u);
+                atlasRawDesc.Width = std::max(data.Shadow.GetAtlasResolution(), 1u);
+                atlasRawDesc.Height = atlasRawDesc.Width;
+                [[maybe_unused]] const RGTextureHandle atlasRaw = graph.DeclareTransientTexture(
+                    ShadowMap::kAtlasRawTargetName, atlasRawDesc, atlasRawID);
             }
         }
 
@@ -2645,6 +2735,7 @@ namespace OloEngine
         inputs.Passes.Water = RenderStreamPasses.Water.Raw();
         inputs.Passes.FluidIntermediates = RenderStreamPasses.FluidIntermediates.Raw();
         inputs.Passes.FluidComposite = RenderStreamPasses.FluidComposite.Raw();
+        inputs.Passes.VirtualGeometry = RenderStreamPasses.VirtualGeometry.Raw();
         inputs.Passes.Decal = RenderStreamPasses.Decal.Raw();
         inputs.Passes.SSAO = SceneCompositePasses.SSAO.Raw();
         inputs.Passes.GTAO = SceneCompositePasses.GTAO.Raw();
@@ -2755,6 +2846,12 @@ namespace OloEngine
         RenderStreamPasses.Water = Ref<WaterRenderPass>::Create();
         RenderStreamPasses.Water->SetName("WaterPass");
         RenderStreamPasses.Water->Init(finalPassSpec);
+
+        // Virtualized geometry (issue #629): DAG-cut cull compute + hardware
+        // MDI raster into the borrowed ScenePass G-Buffer. Deferred-path only.
+        RenderStreamPasses.VirtualGeometry = Ref<VirtualGeometryPass>::Create();
+        RenderStreamPasses.VirtualGeometry->Init(scenePassSpec);
+        RenderStreamPasses.VirtualGeometry->SetScenePass(FrameCorePasses.Scene);
 
         // Screen-space fluid (issue #630): intermediates (depth splat + smooth
         // + thickness into pass-owned targets) feeding the SceneColor-RMW

@@ -10,6 +10,8 @@
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryShadow.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 
@@ -82,9 +84,22 @@ namespace OloEngine
 
         (void)context;
 
+        // Virtual geometry counts as a caster HERE too, not only in the per-cascade skip below.
+        //
+        // This is the outer door: with all five classic caster lists empty, Execute() RETURNS and
+        // the shadow pass does not run at all. Virtual-geometry casters never enter those lists —
+        // they live in VirtualMeshRegistry and are culled on the GPU — so a scene whose only
+        // shadow casters are VirtualMeshComponents produced NO SHADOW MAP WHATSOEVER, and did so
+        // silently (the "no shadow casters submitted" warning below is suppressed precisely
+        // because, as far as this list is concerned, nothing was submitted).
+        //
+        // Nanite shadows have therefore only ever worked by accident: every scene and every test
+        // that exercised them happened to contain a classic MeshComponent — a ground plane —
+        // holding this gate open. Delete the ground from the Nanite stress scene and 24 dragons
+        // stop casting, which is exactly how this surfaced.
         const bool hasCasters = !m_MeshCasters.empty() || !m_SkinnedCasters.empty() ||
                                 !m_TerrainCasters.empty() || !m_VoxelCasters.empty() ||
-                                !m_FoliageCasters.empty();
+                                !m_FoliageCasters.empty() || AnyVirtualShadowCaster();
 
         // Root-cause early-out for issue #522: when no light requested shadows this
         // frame the CSM/spot/point matrices are stale (identity), so rendering any
@@ -149,11 +164,30 @@ namespace OloEngine
                 const glm::mat4& lightVP = m_ShadowMap->GetCSMMatrix(cascade);
                 const Frustum cascadeFrustum(lightVP);
 
-                // Skip cascade if no bounded casters pass the frustum test and
-                // no unbounded casters (terrain, foliage, voxel) exist.
+                // Skip cascade if no bounded casters pass the frustum test and no unbounded
+                // casters (terrain, foliage, voxel, VIRTUAL GEOMETRY) exist.
+                //
+                // Virtual geometry belongs in the UNBOUNDED set, and leaving it out was a silent
+                // correctness bug: this early-`continue` skips the cascade entirely, so a scene
+                // whose only shadow casters were VirtualMeshComponents cast NO SHADOWS AT ALL —
+                // RenderCascadeOrFace (which is what calls VirtualGeometryShadow::RenderCascade)
+                // never ran. It only looked like it worked because every test scene happened to
+                // contain at least one classic MeshComponent — a ground plane — holding the
+                // cascade open for it. Delete the ground and the Nanite shadows vanish with it,
+                // which is exactly how this was found.
+                //
+                // "Unbounded" rather than frustum-tested because the registry's per-instance
+                // bounds are not in the CPU-side caster lists at all; the cluster cull does the
+                // culling on the GPU, per cluster, against this same cascade frustum. Asking
+                // whether ANY virtual instance casts is the cheap, conservative CPU-side answer —
+                // and it is precisely the question VirtualGeometryShadow::RenderCascade itself
+                // asks before doing any work, so a cascade opened here for virtual geometry that
+                // then turns out to be empty costs a framebuffer attach and a depth clear, not a
+                // dispatch.
                 const bool hasUnbounded = !m_TerrainCasters.empty() ||
                                           !m_FoliageCasters.empty() ||
-                                          !m_VoxelCasters.empty();
+                                          !m_VoxelCasters.empty() ||
+                                          AnyVirtualShadowCaster();
                 if (!hasUnbounded)
                 {
                     const bool anyMesh = std::ranges::any_of(m_MeshCasters,
@@ -291,6 +325,7 @@ namespace OloEngine
                     RendererID drawVao;
                     u32 indexCount;
                     u32 baseIndex;
+                    bool twoSided; // rendered with culling disabled instead of front-cull (issue #650)
                     std::vector<InstanceData> instances;
                 };
                 thread_local std::vector<ShadowMeshBatch> batches;
@@ -309,13 +344,15 @@ namespace OloEngine
                     inst.PrevTransform = relTransform;
                     inst.EntityID = -1;
 
+                    // twoSided is part of the batch key: single- and two-sided casters need
+                    // different cull state at draw time, so they must not share an instanced draw.
                     auto it = std::ranges::find_if(batches,
                                                    [&](const ShadowMeshBatch& b)
                                                    { return b.drawVao == drawVao && b.indexCount == caster.indexCount &&
-                                                            b.baseIndex == caster.baseIndex; });
+                                                            b.baseIndex == caster.baseIndex && b.twoSided == caster.twoSided; });
                     if (it == batches.end())
                     {
-                        batches.push_back({ drawVao, caster.indexCount, caster.baseIndex, { inst } });
+                        batches.push_back({ drawVao, caster.indexCount, caster.baseIndex, caster.twoSided, { inst } });
                     }
                     else
                     {
@@ -339,8 +376,25 @@ namespace OloEngine
                         const char* kind = (type == ShadowPassType::CSM) ? "CSM cascade" : "Atlas entry";
                         std::snprintf(sourceLabel, sizeof(sourceLabel), "Shadow %s %u", kind, layerOrLight);
                     }
+                    bool cullingDisabled = false; // track so we only touch GL state on a change
                     for (const auto& batch : batches)
                     {
+                        // Two-sided casters render with culling DISABLED so a single-sided planar
+                        // mesh lit from the front still casts (issue #650); single-sided casters
+                        // keep the pass's front-face cull (peter-panning). The pass set FrontCull
+                        // once up front, so restore it whenever we leave a two-sided batch.
+                        if (batch.twoSided && !cullingDisabled)
+                        {
+                            RenderCommand::DisableCulling();
+                            cullingDisabled = true;
+                        }
+                        else if (!batch.twoSided && cullingDisabled)
+                        {
+                            RenderCommand::EnableCulling();
+                            RenderCommand::FrontCull();
+                            cullingDisabled = false;
+                        }
+
                         if (instanceBuffer)
                         {
                             instanceBuffer->Upload(std::span<const InstanceData>(batch.instances.data(),
@@ -366,6 +420,15 @@ namespace OloEngine
                                 /*fromAutoBatching=*/true,
                                 sourceLabel);
                         }
+                    }
+
+                    // Restore the pass's front-face cull if a two-sided batch left culling
+                    // disabled — the skinned / terrain / foliage / voxel casters below all rely on
+                    // the FrontCull state the pass set once at the top.
+                    if (cullingDisabled)
+                    {
+                        RenderCommand::EnableCulling();
+                        RenderCommand::FrontCull();
                     }
                 }
             }
@@ -461,11 +524,49 @@ namespace OloEngine
                 caster.renderer->RenderShadows(caster.depthShader);
             }
         }
+
+        // ── Virtualized geometry (#629): GPU-driven cluster casters ──
+        // CSM cascades AND local-light atlas entries (spot tiles / point-light
+        // cube faces). Runs its own cluster cull against this view's light VP,
+        // then replays the compacted segments with the depth-only virtual-mesh
+        // shader into the current target + viewport (the caller already set the
+        // atlas tile viewport). Reads the shadow camera UBO uploaded above. The
+        // ortho-style error scale is only approximate for the atlas' perspective
+        // VPs, but the DAG cut is watertight at any threshold, so shadows stay
+        // crack-free; a distance-accurate perspective error scale is a refinement.
+        u32 const shadowViewResolution = (type == ShadowPassType::CSM)
+                                             ? shadowMap.GetResolution()
+                                             : shadowMap.GetAtlasEntryRect(layerOrLight).Size;
+        VirtualGeometryShadow::RenderCascade(lightVPRel, shadowViewResolution);
     }
 
     // Returns true when the caster has valid world bounds AND those bounds lie
     // entirely outside the frustum, meaning it can safely be skipped.
     // Casters with NoBounds (Min.x == FLT_MAX) are never culled.
+    bool ShadowRenderPass::AnyVirtualShadowCaster()
+    {
+        // Read SUBMISSIONS, not frame instances.
+        //
+        // GetFrameInstances() is the wrong list and reading it here is a chicken-and-egg: it is
+        // populated by VirtualMeshRegistry::PrepareFrame(), which runs INSIDE
+        // VirtualGeometryShadow::RenderCascade — i.e. after this gate has already decided
+        // whether to run at all. Gating on it means the gate is always closed, the cascade never
+        // renders, PrepareFrame never runs, and the list stays empty forever. (The first version
+        // of this fix did exactly that and changed nothing.)
+        //
+        // GetSubmissions() is filled by Scene::OnUpdateRender via Renderer3D::SubmitVirtualMesh,
+        // which happens BEFORE the render graph executes — so it is the only list that is
+        // actually populated at gate time, and it already carries the per-entity CastShadows flag.
+        //
+        // Deliberately does NOT call PrepareFrame() itself: this is only the cheap "is it worth
+        // opening the shadow pass at all" question, and RenderCascade does the real preparation
+        // when a cascade actually renders.
+        const auto& submissions = VirtualMeshRegistry::Get().GetSubmissions();
+        return std::ranges::any_of(submissions,
+                                   [](const VirtualMeshSubmission& s)
+                                   { return s.CastShadows; });
+    }
+
     bool ShadowRenderPass::ShouldCull(const BoundingBox& worldBounds, const Frustum& frustum)
     {
         if (worldBounds.Min.x >= std::numeric_limits<f32>::max())
@@ -475,9 +576,9 @@ namespace OloEngine
 
     // Shadow caster submission methods
     void ShadowRenderPass::AddMeshCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
-                                         RendererID shadowVaoID, const BoundingBox& worldBounds)
+                                         RendererID shadowVaoID, const BoundingBox& worldBounds, bool twoSided)
     {
-        m_MeshCasters.push_back({ vaoID, indexCount, baseIndex, transform, shadowVaoID, worldBounds });
+        m_MeshCasters.push_back({ vaoID, indexCount, baseIndex, transform, shadowVaoID, worldBounds, twoSided });
     }
 
     void ShadowRenderPass::AddSkinnedCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,

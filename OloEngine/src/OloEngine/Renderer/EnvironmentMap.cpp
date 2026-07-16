@@ -62,6 +62,14 @@ namespace OloEngine
                             "Environment Map");
     }
 
+    EnvironmentMap::~EnvironmentMap()
+    {
+        // Pairs the constructor's OLO_TRACK_GPU_ALLOC(this, ...). See the header for why this
+        // destructor cannot be `= default`. The owned textures untrack themselves through
+        // their own Ref<> destructors; this only retires the aggregate estimate booked above.
+        OLO_TRACK_DEALLOC(this);
+    }
+
     Ref<EnvironmentMap> EnvironmentMap::Create(const EnvironmentMapSpecification& spec)
     {
         return Ref<EnvironmentMap>::Create(spec);

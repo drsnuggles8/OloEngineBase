@@ -145,6 +145,7 @@ TEST(ShaderBindingLayout, UBOBindingSlotUniqueness)
     checkSlot(ShaderBindingLayout::UBO_PRECIPITATION_SCREEN, "UBO_PRECIPITATION_SCREEN");
     checkSlot(ShaderBindingLayout::UBO_FOG_VOLUMES, "UBO_FOG_VOLUMES");
     checkSlot(ShaderBindingLayout::UBO_DECAL, "UBO_DECAL");
+    checkSlot(ShaderBindingLayout::UBO_VIRTUAL_DRAW, "UBO_VIRTUAL_DRAW");
 }
 
 // =============================================================================
@@ -209,6 +210,17 @@ TEST(ShaderBindingLayout, SSBOSlotUniqueness)
     checkSlot(ShaderBindingLayout::SSBO_FLUID_BODY_PROXIES, "SSBO_FLUID_BODY_PROXIES");
     checkSlot(ShaderBindingLayout::SSBO_FLUID_BODY_IMPULSES, "SSBO_FLUID_BODY_IMPULSES");
     checkSlot(ShaderBindingLayout::SSBO_FLUID_VELOCITIES_ALT, "SSBO_FLUID_VELOCITIES_ALT");
+    checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_CLUSTERS, "SSBO_VIRTUAL_CLUSTERS");
+    checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_GROUPS, "SSBO_VIRTUAL_GROUPS");
+    checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_INSTANCES, "SSBO_VIRTUAL_INSTANCES");
+    checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_DRAW_COMMANDS, "SSBO_VIRTUAL_DRAW_COMMANDS");
+    checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_DRAW_ARGS, "SSBO_VIRTUAL_DRAW_ARGS");
+    checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_VISIBLE, "SSBO_VIRTUAL_VISIBLE");
+    checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_VERTICES, "SSBO_VIRTUAL_VERTICES");
+    checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_SW_LIST, "SSBO_VIRTUAL_SW_LIST");
+    checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_VISBUFFER, "SSBO_VIRTUAL_VISBUFFER");
+    checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_INDICES, "SSBO_VIRTUAL_INDICES");
+    checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_GROUP_STATES, "SSBO_VIRTUAL_GROUP_STATES");
 }
 
 // =============================================================================

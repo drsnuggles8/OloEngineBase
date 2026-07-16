@@ -1,12 +1,16 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpSchemaBuilder.h"
+#include "MCP/McpClusterGridStats.h"
 #include "MCP/McpFrameBreakdown.h"
+#include "MCP/McpFroxelFogProbe.h"
 #include "MCP/McpGoldenCompare.h"
 #include "MCP/McpRenderExplain.h"
 #include "MCP/McpRenderGraphTopology.h"
 #include "MCP/McpRenderOverrides.h"
+#include "MCP/McpRenderProbePixel.h"
 #include "MCP/McpRendererSettings.h"
+#include "MCP/McpShadowCapture.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
@@ -16,30 +20,44 @@
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
+#include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Frustum.h"
+#include "OloEngine/Renderer/LightCulling/ClusteredLighting.h"
+#include "OloEngine/Renderer/LightCulling/LightGrid.h"
+#include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
+#include "OloEngine/Renderer/Passes/VolumetricFogPass.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/Shadow/ShadowAtlas.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
 
+#include <glad/gl.h>
 #include <stb_image/stb_image.h>
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <deque>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -61,6 +79,17 @@ namespace OloEngine::MCP
         // forward-declared so the frame-breakdown handler can reuse the same
         // enum -> string mapping the topology export uses.
         const char* PassWorkTypeName(RenderGraphPassWorkType type);
+
+        // Defined further down in the virtual-geometry section. Forward-declared so
+        // olo_render_set_debug_view's vg* modes read and write the SAME
+        // VirtualMeshRegistry state olo_virtual_geometry_set does — one write path,
+        // so the two tools cannot disagree about what is currently on (issue #607).
+        const char* VirtualDebugModeToken(VirtualDebugMode mode);
+        void ApplyVirtualDebugMode(VirtualDebugMode mode);
+        // Frames to settle after a virtual-geometry debug-mode change: the mode gates
+        // a render-graph DECLARATION (the "VirtualGeometryDebug" import), so the
+        // topology must rebuild before a following capture can resolve the target.
+        constexpr int kVirtualDebugSettleFrames = 3;
 
         // ---- olo_render_frame_breakdown (main-marshaled) -----------------------
         // The per-command / per-pipeline-stage structural view olo_perf_capture_frame
@@ -225,6 +254,31 @@ namespace OloEngine::MCP
             return "Graphics";
         }
 
+        // Layers addressable through one render-graph resource name, and the layer
+        // it addresses inside its parent texture object (issue #607). Shared by
+        // olo_render_list_targets (which reports the count so an agent can
+        // discover how many cascades exist) and olo_render_capture_target (which
+        // validates the requested layer against it).
+        //
+        // A cube map's desc leaves DepthOrLayers at its 1 default, so the six
+        // faces are supplied here — otherwise a legitimate face request on a
+        // cubemap target would be rejected as "not an array".
+        CaptureLayer::TargetLayers ResolveTargetLayers(const RenderGraph& graph, const std::string& name)
+        {
+            CaptureLayer::TargetLayers layers;
+            if (const auto* resource = graph.FindRegisteredResource(name))
+            {
+                layers.LayerCount = std::max(resource->Desc.DepthOrLayers, 1u);
+                if (resource->Desc.Kind == ResourceHandle::Kind::TextureCube)
+                    layers.LayerCount = std::max(layers.LayerCount, 6u);
+            }
+            // A layer/face VIEW resolves to its PARENT texture object, so a
+            // readback must apply the view's own layer itself or it silently
+            // reads layer 0 (see RenderGraph::GetTextureViewLayerIndex).
+            layers.ViewLayer = graph.GetTextureViewLayerIndex(name);
+            return layers;
+        }
+
         // ---- olo_render_list_targets (main-marshaled) --------------------------
         ToolResult Handle_RenderListTargets(McpServer& server, const Json& /*args*/)
         {
@@ -251,6 +305,14 @@ namespace OloEngine::MCP
                         e["width"] = resource.Desc.Width;
                         e["height"] = resource.Desc.Height;
                     }
+                    // Layer count of an array / cube / 3D target, so an agent can
+                    // DISCOVER how many cascades (or faces, or froxel slices) there
+                    // are instead of guessing at olo_render_capture_target's 'layer'.
+                    const CaptureLayer::TargetLayers layers = ResolveTargetLayers(*graph, resource.Name);
+                    if (CaptureLayer::IsArrayTarget(layers))
+                        e["layers"] = layers.LayerCount;
+                    if (layers.ViewLayer != 0)
+                        e["viewOfParentLayer"] = layers.ViewLayer;
                     if (!resource.Producers.empty())
                         e["producers"] = resource.Producers;
                     targets.push_back(std::move(e));
@@ -342,6 +404,67 @@ namespace OloEngine::MCP
             return ToolResult::Text(transport.dump(2));
         }
 
+        // (main thread) Resolve a render-graph resource name to a physical GL
+        // texture id, or 0 when the name is unknown / has no GPU backing this
+        // frame. First as a graph texture (covers attachment views like
+        // SceneDepth / GBufferAlbedo and imported textures like ShadowMapCSM),
+        // then as a framebuffer (colour attachment 0, or the depth attachment for
+        // depth-only targets). Shared by olo_render_capture_target and
+        // olo_render_probe_pixel so both resolve names identically.
+        u32 ResolveTargetTexture(const std::string& name)
+        {
+            if (const u32 textureId = Renderer3D::ResolveFrameGraphTexture(name); textureId != 0)
+                return textureId;
+
+            const Ref<Framebuffer> framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(name);
+            if (!framebuffer)
+                return 0;
+
+            bool hasColor = false;
+            for (const auto& attachment : framebuffer->GetSpecification().Attachments.Attachments)
+            {
+                if (attachment.TextureFormat != FramebufferTextureFormat::DEPTH24STENCIL8 &&
+                    attachment.TextureFormat != FramebufferTextureFormat::DEPTH_COMPONENT32F &&
+                    attachment.TextureFormat != FramebufferTextureFormat::None)
+                {
+                    hasColor = true;
+                    break;
+                }
+            }
+            return hasColor ? framebuffer->GetColorAttachmentRendererID(0)
+                            : framebuffer->GetDepthAttachmentRendererID();
+        }
+
+        // Wall-clock + frame stamp attached to every capture/probe response so a
+        // STALE answer is detectable (issue #607). The motivating bug: after an
+        // olo_scene_open, a capture came back byte-identical (same md5) to the
+        // previous scene's — a silent wrong answer, because the render-graph
+        // texture had not been redrawn yet and nothing in the response said so.
+        // With the frame index in the meta, an agent can see two captures came
+        // from the SAME frame; with `forceFrame` it can demand a fresh one.
+        Json CaptureStampJson(u64 frameIndex)
+        {
+            const auto now = std::chrono::system_clock::now().time_since_epoch();
+            Json j;
+            j["frameIndex"] = frameIndex;
+            j["timestampMs"] = static_cast<u64>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
+            return j;
+        }
+
+        // Render + settle `settleFrames` fresh frames before reading GPU state
+        // back, so the answer describes the CURRENT scene/settings rather than
+        // whatever was last drawn. Returns false on timeout (or MCP cancellation).
+        bool ForceFreshFrame(McpServer& server, int settleFrames)
+        {
+            if (!server.Context().GetFrameIndex)
+                return true; // older context: best effort
+            const u64 baseFrame = server.MarshalRead([&server]() -> Json
+                                                     { return Json{ { "frame", server.Context().GetFrameIndex() } }; })
+                                      .value("frame", static_cast<u64>(0));
+            return AwaitRenderedFrames(server, baseFrame, settleFrames);
+        }
+
         // ---- olo_render_capture_target (main-marshaled; GL readback) -----------
         ToolResult Handle_RenderCaptureTarget(McpServer& server, const Json& args)
         {
@@ -352,9 +475,24 @@ namespace OloEngine::MCP
             u32 mipLevel = 0;
             if (args.contains("mip") && args["mip"].is_number_integer())
                 mipLevel = static_cast<u32>(std::clamp<long long>(args["mip"].get<long long>(), 0, 16));
-            u32 faceOrLayer = 0;
-            if (args.contains("face") && args["face"].is_number_integer())
-                faceOrLayer = static_cast<u32>(std::clamp<long long>(args["face"].get<long long>(), 0, 64));
+
+            // 'layer' is the array-layer / cube-face selector; 'face' is the
+            // original spelling and stays a pure alias. Both name the SAME
+            // glGetTextureSubImage z offset, so giving two different values is a
+            // contradiction, not a merge — reject it rather than pick one.
+            const bool hasLayerArg = args.contains("layer") && args["layer"].is_number_integer();
+            const bool hasFaceArg = args.contains("face") && args["face"].is_number_integer();
+            long long requestedLayer = 0;
+            if (hasLayerArg && hasFaceArg &&
+                args["layer"].get<long long>() != args["face"].get<long long>())
+                return ToolResult::Error("'layer' and 'face' are two names for the same array-layer / cube-face "
+                                         "selector; give only one.");
+            if (hasLayerArg)
+                requestedLayer = args["layer"].get<long long>();
+            else if (hasFaceArg)
+                requestedLayer = args["face"].get<long long>();
+            const bool hasLayerSelector = hasLayerArg || hasFaceArg;
+
             int maxWidth = 1024;
             if (args.contains("maxWidth") && args["maxWidth"].is_number_integer())
                 maxWidth = static_cast<int>(std::clamp<long long>(args["maxWidth"].get<long long>(), 16, 4096));
@@ -364,47 +502,51 @@ namespace OloEngine::MCP
                 normalizeMode = args["normalize"].get<bool>() ? GPUResourceInspector::CaptureNormalizeMode::On
                                                               : GPUResourceInspector::CaptureNormalizeMode::Off;
 
-            Json result = server.MarshalRead([name, mipLevel, faceOrLayer, normalizeMode, maxWidth]() -> Json
+            // Staleness (issue #607). A render-graph texture holds whatever was
+            // last drawn into it: right after an olo_scene_open the new scene has
+            // not been rendered yet, so a capture silently returns the PREVIOUS
+            // scene's pixels — byte-identical, no error, no clue. 'forceFrame'
+            // renders + settles fresh frames first; the meta always reports the
+            // frame index the capture came from so the hazard is at least visible.
+            const bool forceFrame = args.value("forceFrame", false);
+            bool freshFrameTimedOut = false;
+            if (forceFrame)
+                freshFrameTimedOut = !ForceFreshFrame(server, /*settleFrames*/ 2);
+
+            Json result = server.MarshalRead([&server, name, mipLevel, hasLayerSelector, requestedLayer,
+                                              normalizeMode, maxWidth]() -> Json
                                              {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
                     return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
 
-                // Resolve the name to a physical GL texture: first as a graph
-                // texture (covers attachment views like SceneDepth / GBufferAlbedo
-                // and imported textures like ShadowMapCSM), then as a framebuffer
-                // (capture colour attachment 0, or the depth attachment for
-                // depth-only targets).
-                u32 textureId = Renderer3D::ResolveFrameGraphTexture(name);
-                if (textureId == 0)
-                {
-                    if (const Ref<Framebuffer> framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(name); framebuffer)
-                    {
-                        bool hasColor = false;
-                        for (const auto& attachment : framebuffer->GetSpecification().Attachments.Attachments)
-                        {
-                            if (attachment.TextureFormat != FramebufferTextureFormat::DEPTH24STENCIL8 &&
-                                attachment.TextureFormat != FramebufferTextureFormat::DEPTH_COMPONENT32F &&
-                                attachment.TextureFormat != FramebufferTextureFormat::None)
-                            {
-                                hasColor = true;
-                                break;
-                            }
-                        }
-                        textureId = hasColor ? framebuffer->GetColorAttachmentRendererID(0)
-                                             : framebuffer->GetDepthAttachmentRendererID();
-                    }
-                }
+                const u32 textureId = ResolveTargetTexture(name);
                 if (textureId == 0)
                     return Json{ { "__error", "Unknown render-graph resource '" + name +
                                                   "' (or it has no GPU backing this frame). Call olo_render_list_targets for the live list." } };
 
-                auto capture = GPUResourceInspector::CaptureTexturePng(textureId, mipLevel, faceOrLayer, normalizeMode, maxWidth);
+                // Which GL layer to read. The default is NOT unconditionally 0: a
+                // per-cascade layer view resolves to the whole parent array, so
+                // capturing "ShadowMapCSMCascade3" without applying the view's own
+                // layer would silently return cascade 0's pixels.
+                const CaptureLayer::TargetLayers layers = ResolveTargetLayers(*graph, name);
+                const CaptureLayer::Selection selection =
+                    CaptureLayer::SelectLayer(layers, name, hasLayerSelector, requestedLayer);
+                if (!selection.Error.empty())
+                    return Json{ { "__error", selection.Error } };
+
+                auto capture = GPUResourceInspector::CaptureTexturePng(textureId, mipLevel, selection.Layer,
+                                                                       normalizeMode, maxWidth);
                 if (!capture.Error.empty())
                     return Json{ { "__error", "Capture of '" + name + "' failed: " + capture.Error } };
 
-                Json meta;
+                Json meta = CaptureStampJson(server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0);
                 meta["name"] = name;
+                meta["layer"] = selection.Layer;
+                if (CaptureLayer::IsArrayTarget(layers))
+                    meta["layers"] = layers.LayerCount;
+                if (!selection.Note.empty())
+                    meta["layerNote"] = selection.Note;
                 meta["width"] = capture.Width;
                 meta["height"] = capture.Height;
                 meta["sourceWidth"] = capture.SourceWidth;
@@ -423,8 +565,18 @@ namespace OloEngine::MCP
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
 
+            Json meta = result["meta"];
+            meta["forcedFreshFrame"] = forceFrame;
+            if (freshFrameTimedOut)
+                meta["warning"] = "Timed out waiting for a fresh frame; this capture may be stale (compare 'frameIndex' "
+                                  "against a previous call — an identical value means the same frame was read twice).";
+            else if (!forceFrame)
+                meta["note"] = "This is whatever was last rendered into the target. If the scene/settings changed "
+                               "moments ago (e.g. after olo_scene_open), pass forceFrame:true to render and settle a "
+                               "fresh frame first, or compare 'frameIndex' between calls.";
+
             ToolResult toolResult;
-            toolResult.Content = Json::array({ Json{ { "type", "text" }, { "text", result["meta"].dump(2) } },
+            toolResult.Content = Json::array({ Json{ { "type", "text" }, { "text", meta.dump(2) } },
                                                Json{ { "type", "image" },
                                                      { "data", result["b64"] },
                                                      { "mimeType", "image/png" } } });
@@ -642,8 +794,34 @@ namespace OloEngine::MCP
             return ToolResult::Text(result.dump(2));
         }
 
-        // Which debug view (if any) is currently on. Our tool keeps these mutually
-        // exclusive, but the editor panel can set several; report the first.
+        // The virtual-geometry debug mode a vg* debug-view token selects. Returns
+        // false for every non-vg view (whose state lives on PostProcessSettings).
+        bool VirtualModeForDebugView(RenderOverrides::DebugView view, VirtualDebugMode& out)
+        {
+            using RenderOverrides::DebugView;
+            switch (view)
+            {
+                case DebugView::VGClusterId:
+                    out = VirtualDebugMode::ClusterId;
+                    return true;
+                case DebugView::VGLod:
+                    out = VirtualDebugMode::Lod;
+                    return true;
+                case DebugView::VGOverdraw:
+                    out = VirtualDebugMode::Overdraw;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // (main thread) Which debug view (if any) is currently on. Our tool keeps
+        // these mutually exclusive, but the editor panel can set several; report the
+        // first. The vg* modes live on the VirtualMeshRegistry, NOT on
+        // PostProcessSettings, so they are read from there — that is what makes
+        // `current` reflect a mode set through olo_virtual_geometry_set (and via the
+        // Statistics panel) instead of reporting "none" while the visualisation is
+        // plainly on screen.
         RenderOverrides::DebugView ActiveDebugView(const PostProcessSettings& pp)
         {
             using RenderOverrides::DebugView;
@@ -657,6 +835,17 @@ namespace OloEngine::MCP
                 return DebugView::SSGI;
             if (pp.OverdrawDebugView)
                 return DebugView::Overdraw;
+            switch (VirtualMeshRegistry::Get().GetDebugMode())
+            {
+                case VirtualDebugMode::ClusterId:
+                    return DebugView::VGClusterId;
+                case VirtualDebugMode::Lod:
+                    return DebugView::VGLod;
+                case VirtualDebugMode::Overdraw:
+                    return DebugView::VGOverdraw;
+                case VirtualDebugMode::Off:
+                    break;
+            }
             return DebugView::None;
         }
 
@@ -673,7 +862,31 @@ namespace OloEngine::MCP
             r.SSRDebugView = pp.SSRDebugView;
             r.SSGIDebugView = pp.SSGIDebugView;
             r.OverdrawDebugView = pp.OverdrawDebugView;
+            const auto& virtualRegistry = VirtualMeshRegistry::Get();
+            r.VirtualGeometryDebugMode = VirtualDebugModeToken(virtualRegistry.GetDebugMode());
             const bool deferred = Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred;
+
+            // The vg* modes render into their own target rather than the viewport,
+            // so "the view is on" is only half the answer — an agent still has to
+            // capture it, and the target only exists on the Deferred path with a
+            // virtual mesh in view. Say both, instead of leaving a black capture to
+            // be misread as a broken visualisation.
+            if (RenderOverrides::IsVirtualGeometryView(view))
+            {
+                r.CaptureTarget = "VirtualGeometryDebug";
+                r.PassEnabled = deferred && virtualRegistry.GetDebugColorTextureID() != 0;
+                if (!deferred)
+                    r.Note = "Virtual geometry renders on the DEFERRED path only (current path: " +
+                             std::string(RenderingPathName(Renderer3D::GetRendererSettings().Path)) +
+                             "). Switch with olo_renderer_settings_set { setting: 'renderpath', value: 'deferred' }.";
+                else if (!r.PassEnabled)
+                    r.Note = "The debug target is not backed yet — no VirtualMeshComponent was submitted this "
+                             "frame. Check olo_virtual_geometry_stats.";
+                else
+                    r.Note = "Capture it with olo_render_capture_target { name: 'VirtualGeometryDebug' }.";
+                return r;
+            }
+
             switch (view)
             {
                 case DebugView::None:
@@ -704,6 +917,12 @@ namespace OloEngine::MCP
                     // accumulation target — no backing effect pass to enable, and
                     // it works on every rendering path.
                     r.PassEnabled = true;
+                    break;
+                case DebugView::VGClusterId:
+                case DebugView::VGLod:
+                case DebugView::VGOverdraw:
+                    // Already fully answered above (early return); listed so a new
+                    // enumerator can never be silently dropped by this switch.
                     break;
             }
             return r;
@@ -743,16 +962,45 @@ namespace OloEngine::MCP
                                              JoinTokens(DebugViewModes()) + ".");
             }
 
-            const Json result = server.MarshalRead([view]() -> Json
-                                                   {
+            Json result = server.MarshalRead([view]() -> Json
+                                             {
                 PostProcessSettings& pp = Renderer3D::GetPostProcessSettings();
-                // Exactly one debug view active at a time (or none).
+                // Exactly one debug view active at a time (or none) — including the
+                // virtual-geometry ones, which is why selecting a non-vg mode also
+                // turns the registry's mode OFF: two visualisations fighting over
+                // the frame is never what was asked for, and it would leave the two
+                // tools reporting different "current" states.
                 pp.SSAODebugView = (view == DebugView::SSAO);
                 pp.GTAODebugView = (view == DebugView::GTAO);
                 pp.SSRDebugView = (view == DebugView::SSR);
                 pp.SSGIDebugView = (view == DebugView::SSGI);
                 pp.OverdrawDebugView = (view == DebugView::Overdraw);
-                return ToJson(BuildDebugViewResult(pp, view)); });
+
+                VirtualDebugMode virtualMode = VirtualDebugMode::Off;
+                (void)VirtualModeForDebugView(view, virtualMode);
+                const bool virtualChanged = VirtualMeshRegistry::Get().GetDebugMode() != virtualMode;
+                // The SAME write path olo_virtual_geometry_set uses — never a
+                // second copy of the logic.
+                ApplyVirtualDebugMode(virtualMode);
+
+                Json j = ToJson(BuildDebugViewResult(pp, view));
+                j["__virtualChanged"] = virtualChanged;
+                return j; });
+
+            const bool virtualChanged = result.value("__virtualChanged", false);
+            result.erase("__virtualChanged");
+
+            // A virtual-geometry mode change gates a render-graph declaration, so the
+            // topology must rebuild before the "VirtualGeometryDebug" target can be
+            // captured. Settle here (exactly as olo_virtual_geometry_set does) and
+            // re-read the state afterwards, so `passEnabled` describes the frame the
+            // caller will actually capture rather than the one mid-rebuild.
+            if (virtualChanged && server.Context().GetFrameIndex)
+            {
+                (void)ForceFreshFrame(server, kVirtualDebugSettleFrames);
+                result = server.MarshalRead([view]() -> Json
+                                            { return ToJson(BuildDebugViewResult(Renderer3D::GetPostProcessSettings(), view)); });
+            }
             return ToolResult::Text(result.dump(2));
         }
 
@@ -1615,6 +1863,1083 @@ namespace OloEngine::MCP
             return ToolResult::Text(result.dump(2));
         }
 
+        // =====================================================================
+        // Issue #607 — render-diagnostics gaps found while doing real work.
+        // =====================================================================
+
+        // ---- olo_render_probe_pixel (main-marshaled; GL readback) --------------
+        //
+        // The NUMERIC counterpart of olo_render_capture_target: instead of an
+        // image of a whole target, the exact decoded values under ONE pixel,
+        // across every G-Buffer channel at once. A capture shows a normal map
+        // "looks bluish"; this says the normal is (0.0, 0.0, 1.0) when it should
+        // be (0, 1, 0) — which is the difference between an hour of shader
+        // patching and a one-call diagnosis.
+
+        // GL internal format -> readback (format, type) + a stable token. Mirrors
+        // GPUResourceInspector::CaptureTexturePng's table with two deliberate
+        // differences: INTEGER formats stay integer (the R32I entity-id
+        // attachment must never be reported as a float — an agent compares it
+        // against a real entity id), and nothing is normalised (a probe wants the
+        // raw number, not a display-friendly remap).
+        struct ProbeFormat
+        {
+            GLenum ReadFormat = GL_NONE;
+            GLenum ReadType = GL_NONE;
+            i32 Channels = 0;
+            const char* Token = "Unknown";
+            bool IsInteger = false;
+        };
+
+        bool DescribeProbeFormat(GLint internalFormat, ProbeFormat& out)
+        {
+            switch (internalFormat)
+            {
+                case GL_RGBA8:
+                    out = { GL_RGBA, GL_FLOAT, 4, "RGBA8", false };
+                    return true;
+                case GL_SRGB8_ALPHA8:
+                    out = { GL_RGBA, GL_FLOAT, 4, "SRGB8_ALPHA8", false };
+                    return true;
+                case GL_RGB8:
+                    out = { GL_RGB, GL_FLOAT, 3, "RGB8", false };
+                    return true;
+                case GL_SRGB8:
+                    out = { GL_RGB, GL_FLOAT, 3, "SRGB8", false };
+                    return true;
+                case GL_RG8:
+                    out = { GL_RG, GL_FLOAT, 2, "RG8", false };
+                    return true;
+                case GL_R8:
+                    out = { GL_RED, GL_FLOAT, 1, "R8", false };
+                    return true;
+                case GL_RGBA16F:
+                    out = { GL_RGBA, GL_FLOAT, 4, "RGBA16F", false };
+                    return true;
+                case GL_RGBA32F:
+                    out = { GL_RGBA, GL_FLOAT, 4, "RGBA32F", false };
+                    return true;
+                case GL_RGB16F:
+                    out = { GL_RGB, GL_FLOAT, 3, "RGB16F", false };
+                    return true;
+                case GL_RGB32F:
+                    out = { GL_RGB, GL_FLOAT, 3, "RGB32F", false };
+                    return true;
+                case GL_R11F_G11F_B10F:
+                    out = { GL_RGB, GL_FLOAT, 3, "R11F_G11F_B10F", false };
+                    return true;
+                case GL_RG16F:
+                    out = { GL_RG, GL_FLOAT, 2, "RG16F", false };
+                    return true;
+                case GL_RG32F:
+                    out = { GL_RG, GL_FLOAT, 2, "RG32F", false };
+                    return true;
+                case GL_R16F:
+                    out = { GL_RED, GL_FLOAT, 1, "R16F", false };
+                    return true;
+                case GL_R32F:
+                    out = { GL_RED, GL_FLOAT, 1, "R32F", false };
+                    return true;
+                case GL_R32I:
+                    out = { GL_RED_INTEGER, GL_INT, 1, "R32I", true };
+                    return true;
+                case GL_R32UI:
+                    out = { GL_RED_INTEGER, GL_INT, 1, "R32UI", true };
+                    return true;
+                case GL_RG32I:
+                    out = { GL_RG_INTEGER, GL_INT, 2, "RG32I", true };
+                    return true;
+                case GL_RGBA32I:
+                    out = { GL_RGBA_INTEGER, GL_INT, 4, "RGBA32I", true };
+                    return true;
+                case GL_DEPTH_COMPONENT16:
+                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "DEPTH16", false };
+                    return true;
+                case GL_DEPTH_COMPONENT24:
+                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "DEPTH24", false };
+                    return true;
+                case GL_DEPTH_COMPONENT32:
+                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "DEPTH32", false };
+                    return true;
+                case GL_DEPTH_COMPONENT32F:
+                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "DEPTH32F", false };
+                    return true;
+                case GL_DEPTH24_STENCIL8:
+                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "DEPTH24_STENCIL8", false };
+                    return true;
+                case GL_DEPTH32F_STENCIL8:
+                    out = { GL_DEPTH_COMPONENT, GL_FLOAT, 1, "DEPTH32F_STENCIL8", false };
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // (main thread) Read back a SINGLE texel of one named render-graph target.
+        // Uses glGetTextureSubImage (DSA, GL 4.5+) with a 1x1 region — never a
+        // whole-texture readback, so probing a 4K G-Buffer costs a handful of
+        // bytes, not 64 MB.
+        //
+        // `yTopLeft` is in screenshot coordinates (top-left origin); GL texture
+        // rows run bottom-up, so it is flipped here — exactly the flip
+        // CaptureTexturePng applies when it writes a PNG, so a pixel picked off an
+        // olo_screenshot image probes the pixel the agent actually pointed at.
+        ProbePixel::TexelSample ProbeTexel(const std::string& name, u32 x, u32 yTopLeft)
+        {
+            ProbePixel::TexelSample sample;
+            sample.Target = name;
+
+            const u32 textureId = ResolveTargetTexture(name);
+            if (textureId == 0 || glIsTexture(textureId) == GL_FALSE)
+            {
+                sample.Unavailable = "Render-graph resource '" + name +
+                                     "' has no GPU backing this frame (wrong rendering path, effect disabled, or not yet rendered).";
+                return sample;
+            }
+
+            GLint width = 0;
+            GLint height = 0;
+            GLint internalFormat = 0;
+            glGetTextureLevelParameteriv(textureId, 0, GL_TEXTURE_WIDTH, &width);
+            glGetTextureLevelParameteriv(textureId, 0, GL_TEXTURE_HEIGHT, &height);
+            glGetTextureLevelParameteriv(textureId, 0, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
+            if (width <= 0 || height <= 0)
+            {
+                sample.Unavailable = "'" + name + "' has no storage at mip 0.";
+                return sample;
+            }
+            sample.SourceWidth = static_cast<u32>(width);
+            sample.SourceHeight = static_cast<u32>(height);
+
+            ProbeFormat format;
+            if (!DescribeProbeFormat(internalFormat, format))
+            {
+                sample.Unavailable = "'" + name + "' has an internal format this probe cannot decode (0x" +
+                                     std::format("{:X}", static_cast<u32>(internalFormat)) + ").";
+                return sample;
+            }
+            sample.Format = format.Token;
+
+            if (x >= sample.SourceWidth || yTopLeft >= sample.SourceHeight)
+            {
+                sample.Unavailable = "Pixel (" + std::to_string(x) + ", " + std::to_string(yTopLeft) +
+                                     ") is outside '" + name + "' (" + std::to_string(sample.SourceWidth) + "x" +
+                                     std::to_string(sample.SourceHeight) + ").";
+                return sample;
+            }
+
+            const GLint glY = static_cast<GLint>(sample.SourceHeight - 1u - yTopLeft);
+
+            // Tight packing + PBO unbind guard, same rationale as
+            // GPUResourceInspector::CaptureTexturePng: a bound pixel-pack buffer
+            // would silently redirect the read into GPU memory.
+            GLint prevPackAlignment = 4;
+            glGetIntegerv(GL_PACK_ALIGNMENT, &prevPackAlignment);
+            glPixelStorei(GL_PACK_ALIGNMENT, 1);
+            GLint prevPackPBO = 0;
+            glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &prevPackPBO);
+            if (prevPackPBO != 0)
+                glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
+            // Asking GL for GL_FLOAT on an RGBA8/RGBA16F source lets the driver do
+            // the (half|unorm)->float conversion, so no manual half decode is needed.
+            std::array<f32, 4> floats{ 0.0f, 0.0f, 0.0f, 0.0f };
+            std::array<i32, 4> ints{ 0, 0, 0, 0 };
+            void* destination = format.IsInteger ? static_cast<void*>(ints.data())
+                                                 : static_cast<void*>(floats.data());
+            const auto bytes = static_cast<GLsizei>(4 * sizeof(f32));
+
+            glGetTextureSubImage(textureId, 0,
+                                 static_cast<GLint>(x), glY, 0,
+                                 1, 1, 1,
+                                 format.ReadFormat, format.ReadType,
+                                 bytes, destination);
+
+            if (prevPackPBO != 0)
+                glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(prevPackPBO));
+            glPixelStorei(GL_PACK_ALIGNMENT, prevPackAlignment);
+
+            if (const GLenum error = glGetError(); error != GL_NO_ERROR)
+            {
+                sample.Unavailable = "glGetTextureSubImage on '" + name + "' failed (GL 0x" +
+                                     std::format("{:X}", static_cast<u32>(error)) + ").";
+                return sample;
+            }
+
+            sample.Available = true;
+            sample.Channels = format.Channels;
+            sample.Kind = format.IsInteger ? ProbePixel::SampleKind::Int : ProbePixel::SampleKind::Float;
+            sample.F = floats;
+            sample.I = ints;
+            return sample;
+        }
+
+        ToolResult Handle_RenderProbePixel(McpServer& server, const Json& args)
+        {
+            if (!args.contains("x") || !args["x"].is_number_integer() ||
+                !args.contains("y") || !args["y"].is_number_integer())
+                return ToolResult::Error("Missing required arguments 'x' and 'y' (viewport pixel, top-left origin).");
+            const auto x = static_cast<u32>(std::max<long long>(0, args["x"].get<long long>()));
+            const auto y = static_cast<u32>(std::max<long long>(0, args["y"].get<long long>()));
+
+            std::string target;
+            if (args.contains("target") && args["target"].is_string())
+                target = args["target"].get<std::string>();
+
+            if (args.value("forceFrame", false))
+                (void)ForceFreshFrame(server, /*settleFrames*/ 2);
+
+            const Json result = server.MarshalRead([&server, x, y, target]() -> Json
+                                                   {
+                const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
+                if (!graph)
+                    return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
+
+                const u64 frameIndex = server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0;
+
+                // Single-target mode: raw channels of whatever was asked for, so
+                // the tool works for ANY capturable target (AOBuffer, BloomColor,
+                // VirtualGeometryDebug, ...), not just the G-Buffer.
+                if (!target.empty())
+                {
+                    const ProbePixel::TexelSample sample = ProbeTexel(target, x, y);
+                    if (!sample.Available && sample.SourceWidth == 0)
+                        return Json{ { "__error", sample.Unavailable +
+                                                      " Call olo_render_list_targets for the live list." } };
+                    Json j = ProbePixel::BuildRawProbe(sample, x, y);
+                    j["meta"] = CaptureStampJson(frameIndex);
+                    return j;
+                }
+
+                ProbePixel::GBufferProbeInput in;
+                in.X = x;
+                in.Y = y;
+                in.RenderingPath = RenderingPathName(Renderer3D::GetRendererSettings().Path);
+
+                if (server.Context().GetCameraPose)
+                {
+                    const McpCameraPose pose = server.Context().GetCameraPose();
+                    in.CameraKnown = pose.FarClip > pose.NearClip && pose.NearClip > 0.0f;
+                    in.NearClip = pose.NearClip;
+                    in.FarClip = pose.FarClip;
+                }
+
+                in.Albedo = ProbeTexel(std::string(ResourceNames::GBufferAlbedo), x, y);
+                in.Normal = ProbeTexel(std::string(ResourceNames::GBufferNormal), x, y);
+                in.Emissive = ProbeTexel(std::string(ResourceNames::GBufferEmissive), x, y);
+                in.Velocity = ProbeTexel(std::string(ResourceNames::Velocity), x, y);
+                in.EntityId = ProbeTexel(std::string(ResourceNames::SceneEntityID), x, y);
+                in.Depth = ProbeTexel(std::string(ResourceNames::SceneDepth), x, y);
+
+                // The presented colour is whatever the LAST enabled post stage
+                // wrote, and which stage that is depends on the live toggles — so
+                // walk the chain backwards and take the first one that resolved.
+                static constexpr std::array<std::string_view, 6> kFinalColorChain{
+                    ResourceNames::SelectionOutlineColorTexture,
+                    ResourceNames::FXAAColorTexture,
+                    ResourceNames::VignetteColorTexture,
+                    ResourceNames::UpscalerColorTexture,
+                    ResourceNames::ToneMapColorTexture,
+                    ResourceNames::SceneColorTexture,
+                };
+                for (const std::string_view candidate : kFinalColorChain)
+                {
+                    ProbePixel::TexelSample sample = ProbeTexel(std::string(candidate), x, y);
+                    if (sample.Available)
+                    {
+                        in.FinalColor = std::move(sample);
+                        break;
+                    }
+                    if (in.FinalColor.Target.empty())
+                        in.FinalColor = std::move(sample); // keep the first failure's reason
+                }
+
+                Json j = ProbePixel::BuildGBufferProbe(in);
+                j["meta"] = CaptureStampJson(frameIndex);
+                return j; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
+        // ---- olo_virtual_geometry_set / _stats (main-marshaled) ----------------
+        // The Nanite-style virtualized-geometry debug surface (issue #629) was
+        // reachable ONLY from the Statistics panel's ImGui combo — an agent could
+        // neither flip the cluster/LOD/overdraw visualisation nor read the cull
+        // counters, so verifying the GPU cull meant adding a one-off test.
+
+        const char* VirtualDebugModeToken(VirtualDebugMode mode)
+        {
+            switch (mode)
+            {
+                case VirtualDebugMode::Off:
+                    return "off";
+                case VirtualDebugMode::ClusterId:
+                    return "clusterid";
+                case VirtualDebugMode::Lod:
+                    return "lod";
+                case VirtualDebugMode::Overdraw:
+                    return "overdraw";
+            }
+            return "off";
+        }
+
+        bool ParseVirtualDebugMode(const std::string& token, VirtualDebugMode& out)
+        {
+            if (token == "off")
+                out = VirtualDebugMode::Off;
+            else if (token == "clusterid")
+                out = VirtualDebugMode::ClusterId;
+            else if (token == "lod")
+                out = VirtualDebugMode::Lod;
+            else if (token == "overdraw")
+                out = VirtualDebugMode::Overdraw;
+            else
+                return false;
+            return true;
+        }
+
+        // (main thread) THE single write path for the virtualized-geometry debug
+        // mode. Both olo_virtual_geometry_set { debugMode } and
+        // olo_render_set_debug_view { mode: 'vgclusterid' | 'vglod' | 'vgoverdraw' }
+        // go through here, so the two tools can never disagree about the current
+        // state or drift in what a mode change actually does.
+        void ApplyVirtualDebugMode(VirtualDebugMode mode)
+        {
+            VirtualMeshRegistry::Get().SetDebugMode(mode);
+        }
+
+        const char* VirtualSwRasterModeToken(VirtualSwRasterMode mode)
+        {
+            switch (mode)
+            {
+                case VirtualSwRasterMode::Auto:
+                    return "auto";
+                case VirtualSwRasterMode::ForceSoftware:
+                    return "forcesoftware";
+                case VirtualSwRasterMode::Disabled:
+                    return "disabled";
+            }
+            return "auto";
+        }
+
+        bool ParseVirtualSwRasterMode(const std::string& token, VirtualSwRasterMode& out)
+        {
+            if (token == "auto")
+                out = VirtualSwRasterMode::Auto;
+            else if (token == "forcesoftware")
+                out = VirtualSwRasterMode::ForceSoftware;
+            else if (token == "disabled")
+                out = VirtualSwRasterMode::Disabled;
+            else
+                return false;
+            return true;
+        }
+
+        // (main thread) The live knob state, echoed by both virtual-geometry tools.
+        Json VirtualGeometrySettingsJson()
+        {
+            const auto& registry = VirtualMeshRegistry::Get();
+            Json j;
+            const auto& settings = Renderer3D::GetRendererSettings();
+            j["enabled"] = settings.VirtualGeometryEnabled;
+            j["debugToViewport"] = settings.VirtualDebugToViewport;
+            j["debugMode"] = VirtualDebugModeToken(registry.GetDebugMode());
+            j["swRasterMode"] = VirtualSwRasterModeToken(registry.GetSwRasterMode());
+            j["swRasterThresholdPixels"] = registry.GetSwRasterThresholdPixels();
+            j["forcePortableSwRaster"] = registry.GetForcePortableSwRaster();
+            j["debugTargetAvailable"] = registry.GetDebugColorTextureID() != 0;
+            return j;
+        }
+
+        ToolResult Handle_VirtualGeometrySet(McpServer& server, const Json& args)
+        {
+            const bool hasDebugMode = args.contains("debugMode") && args["debugMode"].is_string();
+            const bool hasSwRasterMode = args.contains("swRasterMode") && args["swRasterMode"].is_string();
+            const bool hasThreshold = args.contains("swRasterThresholdPixels") && args["swRasterThresholdPixels"].is_number();
+            const bool hasForcePortable = args.contains("forcePortableSwRaster") && args["forcePortableSwRaster"].is_boolean();
+            const bool hasEnabled = args.contains("enabled") && args["enabled"].is_boolean();
+            const bool hasDebugToViewport = args.contains("debugToViewport") && args["debugToViewport"].is_boolean();
+
+            VirtualDebugMode debugMode{};
+            if (hasDebugMode && !ParseVirtualDebugMode(args["debugMode"].get<std::string>(), debugMode))
+                return ToolResult::Error("Unknown 'debugMode'. Valid: off, clusterid, lod, overdraw.");
+
+            VirtualSwRasterMode swRasterMode{};
+            if (hasSwRasterMode && !ParseVirtualSwRasterMode(args["swRasterMode"].get<std::string>(), swRasterMode))
+                return ToolResult::Error("Unknown 'swRasterMode'. Valid: auto, forcesoftware, disabled.");
+
+            f32 threshold = 0.0f;
+            if (hasThreshold)
+            {
+                threshold = args["swRasterThresholdPixels"].get<f32>();
+                if (!std::isfinite(threshold) || threshold < 0.0f || threshold > 4096.0f)
+                    return ToolResult::Error("Invalid 'swRasterThresholdPixels': expected a finite number in [0, 4096].");
+            }
+
+            const bool anyChange =
+                hasDebugMode || hasSwRasterMode || hasThreshold || hasForcePortable || hasEnabled || hasDebugToViewport;
+            const bool forcePortable = hasForcePortable && args["forcePortableSwRaster"].get<bool>();
+            const bool enabled = hasEnabled && args["enabled"].get<bool>();
+            const bool debugToViewport = hasDebugToViewport && args["debugToViewport"].get<bool>();
+
+            const Json applied = server.MarshalRead(
+                [hasDebugMode, debugMode, hasSwRasterMode, swRasterMode, hasThreshold, threshold,
+                 hasForcePortable, forcePortable, hasEnabled, enabled, hasDebugToViewport, debugToViewport]() -> Json
+                {
+                    auto& registry = VirtualMeshRegistry::Get();
+                    Json previous = VirtualGeometrySettingsJson();
+                    if (hasDebugMode)
+                        ApplyVirtualDebugMode(debugMode); // shared with olo_render_set_debug_view's vg* modes
+                    if (hasSwRasterMode)
+                        registry.SetSwRasterMode(swRasterMode);
+                    if (hasThreshold)
+                        registry.SetSwRasterThresholdPixels(threshold);
+                    if (hasForcePortable)
+                        registry.SetForcePortableSwRaster(forcePortable);
+
+                    // The master switch and the viewport-overlay toggle live on RendererSettings,
+                    // not the registry — `enabled` changes which SUBMISSION path Scene.cpp takes
+                    // (virtual vs classic), which is a scene-level decision, not a registry one.
+                    if (hasEnabled || hasDebugToViewport)
+                    {
+                        auto& rs = Renderer3D::GetRendererSettings();
+                        if (hasEnabled)
+                            rs.VirtualGeometryEnabled = enabled;
+                        if (hasDebugToViewport)
+                            rs.VirtualDebugToViewport = debugToViewport;
+                        Renderer3D::ApplyRendererSettings();
+                    }
+                    return Json{ { "previous", std::move(previous) } };
+                });
+
+            // A debug-mode change gates a render-graph DECLARATION
+            // (VirtualGeometryPass::Setup ImportTexture()s "VirtualGeometryDebug"
+            // only while a mode is on). The blackboard fingerprint hashes the mode
+            // + the debug texture id, so the next EndScene rebuilds the topology —
+            // but the caller must not race it: settle a couple of frames here so
+            // the target really IS capturable by the time this call returns and an
+            // immediately-following olo_render_capture_target succeeds instead of
+            // answering "Unknown render-graph resource".
+            if (anyChange && server.Context().GetFrameIndex)
+                (void)ForceFreshFrame(server, kVirtualDebugSettleFrames);
+
+            const Json current = server.MarshalRead([]() -> Json
+                                                    { return VirtualGeometrySettingsJson(); });
+
+            Json j;
+            j["changed"] = anyChange;
+            j["previous"] = applied.value("previous", Json::object());
+            j["current"] = current;
+            if (hasDebugMode && debugMode != VirtualDebugMode::Off)
+            {
+                j["captureTarget"] = "VirtualGeometryDebug";
+                j["message"] = current.value("debugTargetAvailable", false)
+                                   ? "Debug visualization on — capture it with olo_render_capture_target "
+                                     "{ name: 'VirtualGeometryDebug' }."
+                                   : "Debug visualization requested, but the target is not backed yet. It only "
+                                     "exists on the Deferred rendering path with at least one VirtualMeshComponent "
+                                     "in view — check olo_renderer_settings_set { setting: 'renderpath' } and "
+                                     "olo_virtual_geometry_stats.";
+            }
+            return ToolResult::Structured(j);
+        }
+
+        ToolResult Handle_VirtualGeometryStats(McpServer& server, const Json& /*args*/)
+        {
+            const Json result = server.MarshalRead([]() -> Json
+                                                   {
+                auto& registry = VirtualMeshRegistry::Get();
+
+                // A small blocking GPU readback of the cull args buffer (staged
+                // through a GL_DYNAMIC_READ copy inside ReadFrameCullStats — never
+                // read the DYNAMIC_COPY args buffer directly, see the comment there).
+                const VirtualCullStats cull = registry.ReadFrameCullStats();
+                const VirtualResidencyStats& residency = registry.GetResidencyStats();
+
+                Json cullJson;
+                cullJson["instances"] = cull.InstanceCount;
+                cullJson["testedClusters"] = cull.TestedClusters;
+                cullJson["cutSelected"] = cull.CutSelected;
+                cullJson["hardwareDraws"] = cull.HardwareDraws;
+                cullJson["softwareRasterized"] = cull.SoftwareRasterized;
+                cullJson["drawnClusters"] = cull.DrawnClusters();
+
+                Json residencyJson;
+                residencyJson["totalPages"] = residency.TotalPages;
+                residencyJson["residentPages"] = residency.ResidentPages;
+                residencyJson["pinnedPages"] = residency.PinnedPages;
+                residencyJson["budgetSlots"] = residency.BudgetSlots;
+                residencyJson["budget"] = residency.BudgetSlots == 0 ? "unbounded (eager)" : "budgeted";
+                residencyJson["pageUploads"] = residency.PageUploads;
+                residencyJson["pageEvictions"] = residency.PageEvictions;
+
+                Json j;
+                j["renderingPath"] = RenderingPathName(Renderer3D::GetRendererSettings().Path);
+                j["frameInstances"] = static_cast<u32>(registry.GetFrameInstances().size());
+                j["frameClusters"] = registry.GetTotalFrameClusterCount();
+                j["cull"] = std::move(cullJson);
+                j["residency"] = std::move(residencyJson);
+                j["settings"] = VirtualGeometrySettingsJson();
+                if (Renderer3D::GetRendererSettings().Path != RenderingPath::Deferred)
+                    j["note"] = "Virtual geometry only renders on the Deferred path; the scene does not submit "
+                                "VirtualMeshComponents on Forward/Forward+, so every counter reads zero.";
+                else if (registry.GetFrameInstances().empty())
+                    j["note"] = "No virtual-mesh instances were submitted this frame (no VirtualMeshComponent in "
+                                "the scene, or all of them are disabled).";
+                return j; });
+            return ToolResult::Structured(result);
+        }
+
+        // ---- olo_material_get (main-marshaled) ---------------------------------
+        // What the GPU was actually given, not what the asset says. The two differ
+        // more often than is comfortable: a MaterialComponent silently overrides
+        // every submesh's imported material, and the engine default quietly stands
+        // in when neither exists. Resolution goes through the renderer's own
+        // OloEngine::ResolveSubmeshMaterial so this tool cannot drift from the
+        // truth it is supposed to report.
+
+        const char* AlphaModeToken(AlphaMode mode)
+        {
+            switch (mode)
+            {
+                case AlphaMode::Opaque:
+                    return "Opaque";
+                case AlphaMode::Mask:
+                    return "Mask";
+                case AlphaMode::Blend:
+                    return "Blend";
+            }
+            return "Opaque";
+        }
+
+        // Shape one resolved PODMaterialData — the EXACT struct
+        // Renderer3D::CreatePODMaterialDataForMaterial builds and uploads into the
+        // frame material table, so every value here is what the shader will read.
+        Json ResolvedMaterialJson(const Material& material, const PODMaterialData& data,
+                                  u32 submeshIndex, std::string_view source)
+        {
+            Json textures;
+            textures["albedo"] = data.albedoMapID;
+            textures["metallicRoughness"] = data.metallicRoughnessMapID;
+            textures["normal"] = data.normalMapID;
+            textures["ao"] = data.aoMapID;
+            textures["emissive"] = data.emissiveMapID;
+
+            Json useMaps;
+            useMaps["useAlbedoMap"] = data.albedoMapID != 0;
+            useMaps["useMetallicRoughnessMap"] = data.metallicRoughnessMapID != 0;
+            useMaps["useNormalMap"] = data.normalMapID != 0;
+            useMaps["useAOMap"] = data.aoMapID != 0;
+            useMaps["useEmissiveMap"] = data.emissiveMapID != 0;
+
+            Json j;
+            j["submesh"] = submeshIndex;
+            j["source"] = std::string(source);
+            j["name"] = material.GetName();
+            j["pbr"] = data.enablePBR;
+            j["alphaMode"] = AlphaModeToken(material.GetAlphaMode());
+            j["alphaCutoff"] = data.alphaCutoff;
+            j["twoSided"] = material.GetFlag(MaterialFlag::TwoSided);
+            j["baseColorFactor"] = Json::array({ data.baseColorFactor.r, data.baseColorFactor.g,
+                                                 data.baseColorFactor.b, data.baseColorFactor.a });
+            j["metallicFactor"] = data.metallicFactor;
+            j["roughnessFactor"] = data.roughnessFactor;
+            j["normalScale"] = data.normalScale;
+            j["occlusionStrength"] = data.occlusionStrength;
+            j["emissiveFactor"] = Json::array({ data.emissiveFactor.r, data.emissiveFactor.g,
+                                                data.emissiveFactor.b });
+            j["enableIBL"] = data.enableIBL;
+            j["iblIntensity"] = data.iblIntensity;
+            j["useMaps"] = std::move(useMaps);
+            j["textureIds"] = std::move(textures);
+            return j;
+        }
+
+        ToolResult Handle_MaterialGet(McpServer& server, const Json& args)
+        {
+            if (!args.contains("entity"))
+                return ToolResult::Error("Missing required argument 'entity' (entity UUID).");
+            u64 id = 0;
+            if (!ParseUuid(args["entity"], id))
+                return ToolResult::Error("Invalid 'entity': expected a UUID as a string or number.");
+
+            i32 requestedSubmesh = -1;
+            if (args.contains("submesh") && args["submesh"].is_number_integer())
+            {
+                const long long value = args["submesh"].get<long long>();
+                if (value < 0)
+                    return ToolResult::Error("Invalid 'submesh': expected a non-negative index.");
+                requestedSubmesh = static_cast<i32>(std::min<long long>(value, 65535));
+            }
+
+            const Json result = server.MarshalRead([&server, id, requestedSubmesh]() -> Json
+                                                   {
+                const Ref<Scene> scene = server.Context().GetActiveScene ? server.Context().GetActiveScene() : nullptr;
+                if (!scene)
+                    return Json{ { "__error", "No active scene." } };
+
+                const auto entityOpt = scene->TryGetEntityWithUUID(UUID(id));
+                if (!entityOpt.has_value())
+                    return Json{ { "__error", "No entity with UUID " + UuidToString(UUID(id)) + " in the active scene." } };
+                Entity entity = *entityOpt;
+
+                // The engine's stand-in when neither an override nor an imported
+                // material exists. Constructed exactly like Scene's cached default
+                // (Scene.cpp::GetDefaultMaterial), which is file-static there.
+                static const Ref<Material> s_EngineDefault =
+                    Material::CreatePBR("Default", glm::vec3(0.8f, 0.8f, 0.8f), 0.0f, 0.5f);
+
+                const Material* overrideMaterial = entity.HasComponent<MaterialComponent>()
+                                                       ? &entity.GetComponent<MaterialComponent>().m_Material
+                                                       : nullptr;
+
+                Ref<MeshSource> meshSource;
+                std::string renderableKind;
+                if (entity.HasComponent<VirtualMeshComponent>())
+                {
+                    renderableKind = "VirtualMeshComponent";
+                    const auto& vmc = entity.GetComponent<VirtualMeshComponent>();
+                    if (vmc.m_MeshSource != 0)
+                        meshSource = AssetManager::GetAsset<MeshSource>(vmc.m_MeshSource);
+                }
+                else if (entity.HasComponent<MeshComponent>())
+                {
+                    renderableKind = "MeshComponent";
+                    meshSource = entity.GetComponent<MeshComponent>().m_MeshSource;
+                }
+                else
+                {
+                    return Json{ { "__error", "Entity " + UuidToString(UUID(id)) +
+                                                  " has no MeshComponent or VirtualMeshComponent (olo_material_get "
+                                                  "reports the material resolved for a mesh draw)." } };
+                }
+
+                if (!meshSource)
+                    return Json{ { "__error", "Entity " + UuidToString(UUID(id)) + "'s " + renderableKind +
+                                                  " has no MeshSource loaded, so no material is resolved for it." } };
+
+                const auto submeshCount = static_cast<u32>(std::max(0, meshSource->GetSubmeshes().Num()));
+                if (submeshCount == 0)
+                    return Json{ { "__error", "The MeshSource has no submeshes." } };
+                if (requestedSubmesh >= 0 && static_cast<u32>(requestedSubmesh) >= submeshCount)
+                    return Json{ { "__error", "Invalid 'submesh' " + std::to_string(requestedSubmesh) + ": the mesh has " +
+                                                  std::to_string(submeshCount) + " submesh(es)." } };
+
+                const u32 first = requestedSubmesh >= 0 ? static_cast<u32>(requestedSubmesh) : 0u;
+                const u32 last = requestedSubmesh >= 0 ? first + 1u : submeshCount;
+
+                Json submeshes = Json::array();
+                for (u32 index = first; index < last; ++index)
+                {
+                    // One precedence rule on EVERY path — MaterialComponent override ->
+                    // the submesh's imported material -> engine default — resolved through
+                    // the same OloEngine::ResolveSubmeshMaterial the renderer itself calls.
+                    // This tool used to special-case the classic path because it genuinely
+                    // ignored imported materials; that divergence is fixed, and reporting a
+                    // rule the renderer no longer follows would make this tool lie to the
+                    // next person debugging a material.
+                    const Material& resolved =
+                        ResolveSubmeshMaterial(overrideMaterial, meshSource.get(), index, *s_EngineDefault);
+                    const Material* material = &resolved;
+                    std::string_view source = "engine default material";
+                    if (material == overrideMaterial)
+                    {
+                        source = "MaterialComponent (override)";
+                    }
+                    else if (material != s_EngineDefault.get())
+                    {
+                        source = "MeshSource imported material (per-submesh)";
+                    }
+
+                    const PODMaterialData data = Renderer3D::CreatePODMaterialDataForMaterial(*material, 0);
+                    submeshes.push_back(ResolvedMaterialJson(*material, data, index, source));
+                }
+
+                Json j;
+                j["entity"] = UuidToString(UUID(id));
+                j["renderableKind"] = renderableKind;
+                j["submeshCount"] = submeshCount;
+                j["hasMaterialComponentOverride"] = overrideMaterial != nullptr;
+                j["submeshes"] = std::move(submeshes);
+                return j; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
+        // ---- olo_cluster_grid_stats (main-marshaled; SSBO readback) ------------
+
+        // Read `bytes` bytes out of a GPU storage buffer through a temporary
+        // GL_DYNAMIC_READ staging copy.
+        //
+        // Do NOT glGetNamedBufferSubData a GL_DYNAMIC_COPY buffer directly: the
+        // light grid / index list are written by the culling compute and read by
+        // every lit fragment, so they must stay in video memory. A CPU read
+        // straight off one makes NVIDIA log "Analysis of buffer object N usage
+        // indicates that CPU is consuming buffer object data. The usage hint ...
+        // GL_DYNAMIC_COPY, is inconsistent with this usage pattern" (131188) and
+        // then migrate the buffer VIDEO -> HOST (perf warning 131186) —
+        // permanently slowing every frame that samples it. Same bug, same fix, as
+        // VirtualMeshRegistry::ReadFrameCullStats.
+        bool ReadStorageBufferStaged(const Ref<StorageBuffer>& buffer, u32 bytes, void* destination)
+        {
+            if (!buffer || bytes == 0 || buffer->GetSize() < bytes)
+                return false;
+
+            u32 stagingId = 0;
+            glCreateBuffers(1, &stagingId);
+            glNamedBufferData(stagingId, static_cast<GLsizeiptr>(bytes), nullptr, GL_DYNAMIC_READ);
+            glCopyNamedBufferSubData(buffer->GetRendererID(), stagingId, 0, 0, static_cast<GLsizeiptr>(bytes));
+            glGetNamedBufferSubData(stagingId, 0, static_cast<GLsizeiptr>(bytes), destination);
+            glDeleteBuffers(1, &stagingId);
+            return glGetError() == GL_NO_ERROR;
+        }
+
+        ToolResult Handle_ClusterGridStats(McpServer& server, const Json& /*args*/)
+        {
+            const Json result = server.MarshalRead([]() -> Json
+                                                   {
+                const LightGrid& lightGrid = Renderer3D::GetForwardPlus().GetLightGrid();
+                if (!lightGrid.IsInitialized())
+                    return Json{ { "__error", "The clustered light grid is not initialized (no frame rendered yet)." } };
+
+                ClusterGrid::GridDims dims;
+                dims.CountX = lightGrid.GetClusterCountX();
+                dims.CountY = lightGrid.GetClusterCountY();
+                dims.CountZ = lightGrid.GetClusterCountZ();
+                dims.MaxLightsPerCluster = lightGrid.GetMaxLightsPerCluster();
+
+                // Two u32 per cluster: (offset, count), in LightCulling.comp's
+                // clusterIndex = (z * countY + y) * countX + x order.
+                const u32 totalClusters = dims.TotalClusters();
+                std::vector<u32> gridPairs(static_cast<std::size_t>(totalClusters) * 2u, 0u);
+                const auto gridBytes = static_cast<u32>(gridPairs.size() * sizeof(u32));
+                if (!ReadStorageBufferStaged(lightGrid.GetLightGridSSBO(), gridBytes, gridPairs.data()))
+                    return Json{ { "__error", "Failed to read back the light-grid SSBO." } };
+
+                u32 globalIndexCount = 0;
+                (void)ReadStorageBufferStaged(lightGrid.GetGlobalIndexSSBO(), static_cast<u32>(sizeof(u32)),
+                                              &globalIndexCount);
+
+                const u32 lightIndexCapacity = lightGrid.GetLightIndexSSBO()
+                                                   ? lightGrid.GetLightIndexSSBO()->GetSize() / static_cast<u32>(sizeof(u32))
+                                                   : 0u;
+
+                const ClusterGrid::Stats stats = ClusterGrid::Compute(std::span<const u32>(gridPairs), dims);
+                Json j = ClusterGrid::ToJson(stats, dims, globalIndexCount, lightIndexCapacity);
+                j["renderingPath"] = RenderingPathName(Renderer3D::GetRendererSettings().Path);
+                j["screen"] = Json{ { "width", lightGrid.GetScreenWidth() },
+                                    { "height", lightGrid.GetScreenHeight() } };
+                if (Renderer3D::GetRendererSettings().Path == RenderingPath::Forward)
+                    j["note"] = "The plain Forward path does not run the clustered cull, so the grid holds whatever "
+                                "the last Forward+/Deferred frame left in it (or zeroes).";
+                return j; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
+        // ---- olo_shadow_atlas_layout (main-marshaled) --------------------------
+        // The frame's shadow-atlas allocation: who won a tile, at what size, and
+        // — the part a screenshot can never show — who was STARVED. A missing
+        // local-light shadow looks exactly like a shadow bug until you can see
+        // that the light simply lost the priority contest.
+        ToolResult Handle_ShadowAtlasLayout(McpServer& server, const Json& /*args*/)
+        {
+            const Json result = server.MarshalRead([]() -> Json
+                                                   {
+                const ShadowMap& shadowMap = Renderer3D::GetShadowMap();
+                const auto& layout = shadowMap.GetAtlasLayout();
+                const u32 atlasResolution = shadowMap.GetAtlasResolution();
+                const u32 entryCount = shadowMap.GetAtlasEntryCount();
+
+                Json casters = Json::array();
+                Json entries = Json::array();
+                u32 allocatedCasters = 0;
+                u32 starvedCasters = 0;
+                u64 usedTilePixels = 0;
+
+                for (const auto& record : layout)
+                {
+                    Json caster;
+                    caster["lightEntity"] = UuidToString(UUID(record.LightEntity));
+                    caster["casterType"] = record.Type == ShadowAtlas::CasterType::Spot ? "Spot" : "Point";
+                    caster["sourceKind"] = record.SourceKind;
+                    caster["score"] = record.Score;
+                    caster["allocated"] = record.Allocated;
+                    if (record.Allocated)
+                    {
+                        ++allocatedCasters;
+                        caster["rank"] = record.Rank;
+                        caster["baseEntry"] = record.BaseEntry;
+                        caster["entryCount"] = record.EntryCount;
+
+                        Json tiles = Json::array();
+                        for (u32 face = 0; face < record.EntryCount; ++face)
+                        {
+                            const u32 entryIndex = record.BaseEntry + face;
+                            const ShadowAtlas::TileRect& rect = shadowMap.GetAtlasEntryRect(entryIndex);
+                            usedTilePixels += static_cast<u64>(rect.Size) * rect.Size;
+
+                            Json tile;
+                            tile["entry"] = entryIndex;
+                            tile["face"] = face; // 0..5 = +X,-X,+Y,-Y,+Z,-Z for a point caster
+                            tile["x"] = rect.X;
+                            tile["y"] = rect.Y;
+                            tile["width"] = rect.Size;
+                            tile["height"] = rect.Size;
+                            tile["resolution"] = rect.Size;
+                            tiles.push_back(tile);
+
+                            Json flat = tile;
+                            flat["lightEntity"] = UuidToString(UUID(record.LightEntity));
+                            flat["casterType"] = caster["casterType"];
+                            flat["sourceKind"] = record.SourceKind;
+                            flat["rank"] = record.Rank;
+                            flat["score"] = record.Score;
+                            entries.push_back(std::move(flat));
+                        }
+                        caster["tiles"] = std::move(tiles);
+                    }
+                    else
+                    {
+                        ++starvedCasters;
+                        caster["starvedReason"] =
+                            record.Score <= 0.0f
+                                ? "Score 0: the light's range sphere is outside the camera frustum (or its range/"
+                                  "intensity is <= 0), so it never competes for a tile."
+                                : "Out of atlas budget: higher-scoring casters consumed the entry / light / space "
+                                  "budget before this one (a point caster needs 6 tiles and is skipped whole if they "
+                                  "don't all fit).";
+                    }
+                    casters.push_back(std::move(caster));
+                }
+
+                const u64 atlasPixels = static_cast<u64>(atlasResolution) * atlasResolution;
+
+                Json j;
+                j["enabled"] = shadowMap.IsEnabled();
+                j["atlasResolution"] = atlasResolution;
+                j["maxEntries"] = ShadowMap::MAX_SHADOW_ATLAS_ENTRIES;
+                j["maxShadowedLights"] = ShadowAtlas::kMaxShadowedLights;
+                j["entriesUsed"] = entryCount;
+                j["candidateCount"] = static_cast<u32>(layout.size());
+                j["allocatedCasters"] = allocatedCasters;
+                j["starvedCasters"] = starvedCasters;
+                j["atlasAreaUsed"] = atlasPixels > 0 ? static_cast<f64>(usedTilePixels) / static_cast<f64>(atlasPixels)
+                                                     : 0.0;
+                j["casters"] = std::move(casters);
+                j["entries"] = std::move(entries);
+                j["directionalShadow"] = Json{ { "csmCascades", ShadowMap::MAX_CSM_CASCADES },
+                                               { "resolution", shadowMap.GetResolution() } };
+                if (!shadowMap.IsEnabled())
+                    j["note"] = "Shadows are globally disabled, so no atlas allocation runs.";
+                else if (layout.empty())
+                    j["note"] = "No local light requested a shadow this frame (no spot / point / sphere-area light "
+                                "with m_CastShadows), so the atlas is empty. The directional CSM is separate and is "
+                                "not packed into this atlas.";
+                else if (starvedCasters > 0)
+                    j["note"] = std::to_string(starvedCasters) +
+                                " shadow caster(s) were STARVED this frame — they requested a shadow but got no "
+                                "atlas tile, so they cast none. Check their 'starvedReason'.";
+                return j; });
+
+            return ToolResult::Structured(result);
+        }
+
+        // ---- olo_froxel_fog_probe (main-marshaled; 1x1x1 GL readback) ----------
+        // Sample the froxel volumetric-fog volume at a froxel or a world position
+        // (issue #607; relates to #435). Every fog contract we have compares FINAL
+        // FRAME pixels, which cannot tell "the scatter pass injected nothing" from
+        // "the composite tapped the wrong froxel" — this can: it reports the RAW
+        // (per-froxel scatter + extinction) and INTEGRATED (accumulated in-scatter
+        // + transmittance) values at one cell, with the cell's world bounds.
+        //
+        // The froxel <-> world mapping is the pure, unit-tested McpFroxelFogProbe.h
+        // core, fed from VolumetricFogPass::GetFroxelVolumeState() — the CPU mirror
+        // of the FroxelFogData UBO the two compute shaders read. Re-deriving the
+        // mapping from the camera here would be the classic confident liar: the z
+        // slices are EXPONENTIAL, so a linear guess is wrong everywhere but the two
+        // end slices.
+
+        // (main thread) Read one texel out of a 3D volume with glGetTextureSubImage
+        // over a 1x1x1 region — NEVER the whole 160x90x64 RGBA16F volume (that is
+        // 7 MB per read, per volume).
+        FroxelFog::VolumeSample ProbeVolumeTexel(u32 textureId, const char* label, i32 x, i32 y, i32 z)
+        {
+            FroxelFog::VolumeSample sample;
+            if (textureId == 0 || glIsTexture(textureId) == GL_FALSE)
+            {
+                sample.Unavailable = std::string(label) + " volume does not exist this frame.";
+                return sample;
+            }
+
+            GLint prevPackAlignment = 4;
+            glGetIntegerv(GL_PACK_ALIGNMENT, &prevPackAlignment);
+            glPixelStorei(GL_PACK_ALIGNMENT, 1);
+            GLint prevPackPBO = 0;
+            glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &prevPackPBO);
+            if (prevPackPBO != 0)
+                glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
+            std::array<f32, 4> texel{ 0.0f, 0.0f, 0.0f, 0.0f };
+            glGetTextureSubImage(textureId, 0, x, y, z, 1, 1, 1, GL_RGBA, GL_FLOAT,
+                                 static_cast<GLsizei>(texel.size() * sizeof(f32)), texel.data());
+
+            if (prevPackPBO != 0)
+                glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(prevPackPBO));
+            glPixelStorei(GL_PACK_ALIGNMENT, prevPackAlignment);
+
+            if (const GLenum error = glGetError(); error != GL_NO_ERROR)
+            {
+                sample.Unavailable = std::string("glGetTextureSubImage on the ") + label + " volume failed (GL 0x" +
+                                     std::format("{:X}", static_cast<u32>(error)) + ").";
+                return sample;
+            }
+
+            sample.Available = true;
+            sample.Value = texel;
+            return sample;
+        }
+
+        ToolResult Handle_FroxelFogProbe(McpServer& server, const Json& args)
+        {
+            const bool hasFroxel = args.contains("froxel");
+            const bool hasWorldPos = args.contains("worldPos");
+            if (hasFroxel == hasWorldPos)
+                return ToolResult::Error("Give exactly one of 'froxel' ([x, y, z] froxel coords) or 'worldPos' "
+                                         "([x, y, z] world position).");
+
+            const auto parseVec3 = [&args](const char* key, std::array<f64, 3>& out) -> std::string
+            {
+                const Json& value = args[key];
+                if (!value.is_array() || value.size() != 3)
+                    return std::string("Invalid '") + key + "': expected an array of 3 numbers.";
+                for (std::size_t i = 0; i < 3; ++i)
+                {
+                    if (!value[i].is_number())
+                        return std::string("Invalid '") + key + "': expected an array of 3 numbers.";
+                    out[i] = value[i].get<f64>();
+                    if (!std::isfinite(out[i]))
+                        return std::string("Invalid '") + key + "': values must be finite.";
+                }
+                return {};
+            };
+
+            std::array<f64, 3> requested{ 0.0, 0.0, 0.0 };
+            if (const std::string error = parseVec3(hasFroxel ? "froxel" : "worldPos", requested); !error.empty())
+                return ToolResult::Error(error);
+
+            if (args.value("forceFrame", false))
+                (void)ForceFreshFrame(server, /*settleFrames*/ 2);
+
+            const Json result = server.MarshalRead([&server, hasFroxel, requested]() -> Json
+                                                   {
+                const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
+                if (!graph)
+                    return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
+
+                const Ref<VolumetricFogPass> pass = graph->GetNode<VolumetricFogPass>("VolumetricFogPass");
+                if (!pass)
+                    return Json{ { "__error", "The volumetric fog pass is not registered in the render graph." } };
+
+                const FogSettings& fog = Renderer3D::GetFogSettings();
+                const FroxelVolumeState& state = pass->GetFroxelVolumeState();
+                if (!state.Valid)
+                {
+                    // Degrade with the ACTIONABLE reason, not a bare failure: the
+                    // froxel chain only runs with fog + volumetric fog both on.
+                    std::string reason = "The froxel fog volume has not been produced this session";
+                    if (!fog.Enabled)
+                        reason += " — fog is disabled. Enable it with olo_render_toggle_pass { name: 'fog' }";
+                    else if (!fog.EnableVolumetric)
+                        reason += " — volumetric fog is disabled. Enable it with olo_render_toggle_pass "
+                                  "{ name: 'fogvolumetric' }";
+                    else
+                        reason += " (the compute chain has not run yet — render a frame first)";
+                    return Json{ { "__error", reason + "." } };
+                }
+
+                FroxelFog::ProbeResult probe;
+                probe.Vol.DimX = static_cast<i32>(state.DimX);
+                probe.Vol.DimY = static_cast<i32>(state.DimY);
+                probe.Vol.DimZ = static_cast<i32>(state.DimZ);
+                probe.Vol.Near = state.Near;
+                probe.Vol.Far = state.Far;
+                probe.Vol.LogFarOverNear = state.LogFarOverNear;
+                probe.Vol.View = state.View;
+                probe.Vol.InverseView = state.InverseView;
+                probe.Vol.Projection = state.Projection;
+                probe.Vol.InverseProjection = state.InverseProjection;
+                probe.Vol.RenderOrigin = state.RenderOrigin;
+                if (!FroxelFog::IsUsable(probe.Vol))
+                    return Json{ { "__error", "The froxel fog volume's frame state is degenerate (near/far/dims)." } };
+
+                if (hasFroxel)
+                {
+                    probe.Coord.X = static_cast<f32>(requested[0]);
+                    probe.Coord.Y = static_cast<f32>(requested[1]);
+                    probe.Coord.Z = static_cast<f32>(requested[2]);
+                    const auto clampIndex = [&probe](f64 value, i32 count)
+                    {
+                        const auto raw = static_cast<i32>(std::floor(value));
+                        const i32 clamped = std::clamp(raw, 0, count - 1);
+                        if (clamped != raw)
+                            probe.Coord.Clamped = true;
+                        return clamped;
+                    };
+                    probe.Coord.IX = clampIndex(requested[0], probe.Vol.DimX);
+                    probe.Coord.IY = clampIndex(requested[1], probe.Vol.DimY);
+                    probe.Coord.IZ = clampIndex(requested[2], probe.Vol.DimZ);
+                    probe.Coord.ViewDepth = FroxelFog::SliceViewDepth(
+                        probe.Vol, (static_cast<f32>(probe.Coord.IZ) + 0.5f) / static_cast<f32>(probe.Vol.DimZ));
+                    probe.Coord.InFrustum = !probe.Coord.Clamped;
+                    probe.Coord.InDepthRange = !probe.Coord.Clamped;
+                    if (probe.Coord.Clamped)
+                        probe.Note = "The requested froxel is outside the volume; the nearest cell was sampled.";
+                }
+                else
+                {
+                    probe.FromWorldPos = true;
+                    probe.RequestedWorldPos = glm::vec3(static_cast<f32>(requested[0]),
+                                                        static_cast<f32>(requested[1]),
+                                                        static_cast<f32>(requested[2]));
+                    probe.Coord = FroxelFog::WorldToFroxel(probe.Vol, probe.RequestedWorldPos);
+                    if (!probe.Coord.InFrustum)
+                        probe.Note = "The requested world position is outside the camera frustum, so no froxel "
+                                     "covers it; the nearest cell was sampled and its values do not describe that "
+                                     "point.";
+                    else if (!probe.Coord.InDepthRange)
+                        probe.Note = "The requested world position is outside the fog volume's depth range [" +
+                                     std::to_string(probe.Vol.Near) + ", " + std::to_string(probe.Vol.Far) +
+                                     "] (the volume ends at FogSettings::End, clamped to [20, 500]); the nearest "
+                                     "slice was sampled.";
+                }
+
+                probe.Raw = ProbeVolumeTexel(state.ScatterTextureID, "scatter", probe.Coord.IX, probe.Coord.IY,
+                                             probe.Coord.IZ);
+                probe.Integrated = ProbeVolumeTexel(state.IntegratedTextureID, "integrated", probe.Coord.IX,
+                                                    probe.Coord.IY, probe.Coord.IZ);
+
+                Json j = FroxelFog::ToJson(probe);
+                j["fog"] = Json{ { "enabled", fog.Enabled },
+                                 { "volumetric", fog.EnableVolumetric },
+                                 { "ranThisFrame", pass->RanThisFrame() } };
+                j["meta"] = CaptureStampJson(server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0);
+                if (!pass->RanThisFrame())
+                    j["staleness"] = "The froxel chain did NOT run on the last frame (fog or volumetric fog was "
+                                     "turned off); these are the values from the last frame it did run.";
+                return j; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
     } // namespace
 
     void RegisterRenderTools(McpServer& server)
@@ -1755,13 +3080,23 @@ namespace OloEngine::MCP
                 "render-graph resource name from olo_render_list_targets (e.g. SceneColor, SceneDepth, "
                 "GBufferNormal, ShadowMapCSM, AOBuffer, BloomColor). Float/HDR sources are clamped to "
                 "[0,1]; depth is min-max normalised by default ('normalize' overrides). Returns metadata "
-                "(format, size, value range) plus the image.";
+                "(format, size, value range, and the 'frameIndex' the pixels came from) plus the image. "
+                "STALENESS: the target holds whatever was LAST rendered into it — right after an "
+                "olo_scene_open the previous scene's pixels come back byte-identical with no error. Pass "
+                "'forceFrame':true to render and settle a fresh frame first, or compare 'frameIndex' "
+                "between calls (an identical value means you read the same frame twice). For the NUMBERS "
+                "under one pixel rather than a picture, use olo_render_probe_pixel. ARRAY TARGETS (the CSM "
+                "cascade array 'ShadowMapCSM', the raw-depth views 'ShadowCSMRaw' / 'ShadowAtlasRaw'): pass "
+                "'layer' to pick one cascade — olo_render_list_targets reports each array target's 'layers' "
+                "count, and an out-of-range layer is an error, never a silent layer-0 capture.";
             tool.InputSchema = Schema::Object()
                                    .Prop("name", Schema::String().Desc("Render-graph resource name (see olo_render_list_targets)."))
                                    .Prop("mip", Schema::Int().Min(0).Max(16).Desc("Mip level to capture (default 0)."))
-                                   .Prop("face", Schema::Int().Min(0).Max(64).Desc("Cubemap face (0..5 = +X,-X,+Y,-Y,+Z,-Z) or texture-array layer (default 0)."))
+                                   .Prop("layer", Schema::Int().Min(0).Max(64).Desc("Texture-array layer (e.g. CSM cascade 0..3) or cubemap face (0..5 = +X,-X,+Y,-Y,+Z,-Z). Default 0, or the resource's own layer when it is a per-layer view. Out of range is an error."))
+                                   .Prop("face", Schema::Int().Min(0).Max(64).Desc("Alias of 'layer' (the original spelling); give only one."))
                                    .Prop("normalize", Schema::Bool().Desc("Min-max normalise float values to [0,1] before encoding (default: true for depth, false otherwise)."))
                                    .Prop("maxWidth", Schema::Int().Min(16).Max(4096).Desc("Max output width in pixels (default 1024); aspect ratio preserved."))
+                                   .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame before capturing (default false). Use after any change (scene open, setting flip) so you cannot read a stale target."))
                                    .Required({ "name" })
                                    .NoAdditional();
             tool.MainMarshaled = true;
@@ -1805,19 +3140,25 @@ namespace OloEngine::MCP
             // Edits ephemeral session render settings; destroys nothing.
             tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
             tool.Description =
-                "Switch the viewport to a raw intermediate buffer for AO/reflection/GI/overdraw debugging. "
-                "'mode' is one of none (the normal composite), ssao, gtao, ssr, ssgi, overdraw — exactly one "
-                "is shown at a time; mode 'none' (or 'enabled':false) clears them all. 'overdraw' heat-maps "
-                "per-pixel fragment count (how many layers deep the frame is: black=none, blue/green/yellow/"
-                "red=increasing overlap) by re-drawing opaque geometry with depth test off + additive blend; "
-                "it needs no backing pass and works on every rendering path. Returns the active mode, the "
-                "*DebugView flag states, and 'passEnabled' — whether the pass that produces the chosen "
-                "buffer is actually running this frame (with an actionable 'note' if not, e.g. enable SSAO "
-                "first with olo_render_toggle_pass). The change is EPHEMERAL: it edits the renderer's "
-                "session-global settings, not the scene, so it is never saved and a scene reload restores "
-                "it. Call with no arguments to list the modes + current state.";
+                "Switch the viewport to a raw intermediate buffer for AO/reflection/GI/overdraw/virtual-geometry "
+                "debugging. 'mode' is one of none (the normal composite), ssao, gtao, ssr, ssgi, overdraw, "
+                "vgclusterid, vglod, vgoverdraw — exactly one is shown at a time; mode 'none' (or "
+                "'enabled':false) clears them all. 'overdraw' heat-maps per-pixel fragment count (how many "
+                "layers deep the frame is: black=none, blue/green/yellow/red=increasing overlap) by re-drawing "
+                "opaque geometry with depth test off + additive blend; it needs no backing pass and works on "
+                "every rendering path. The three vg* modes are the virtualized-geometry (Nanite-style) "
+                "visualisations — cluster id / DAG LOD level / cluster overdraw — which render into the "
+                "'VirtualGeometryDebug' target (Deferred path only): set the mode, then capture it with "
+                "olo_render_capture_target; the response's 'captureTarget' says so. They are the SAME knob as "
+                "olo_virtual_geometry_set { debugMode }, so the two tools always agree on the current state. "
+                "Returns the active mode, the *DebugView flag states, the virtual-geometry debug mode, and "
+                "'passEnabled' — whether the pass that produces the chosen buffer is actually running this "
+                "frame (with an actionable 'note' if not, e.g. enable SSAO first with olo_render_toggle_pass). "
+                "The change is EPHEMERAL: it edits the renderer's session-global settings, not the scene, so "
+                "it is never saved and a scene reload restores it. Call with no arguments to list the modes + "
+                "current state.";
             tool.InputSchema = Schema::Object()
-                                   .Prop("mode", Schema::String().Enum({ "none", "ssao", "gtao", "ssr", "ssgi", "overdraw" }).Desc("Debug view to show. 'none' clears all. Omit to list modes + state."))
+                                   .Prop("mode", Schema::String().Enum({ "none", "ssao", "gtao", "ssr", "ssgi", "overdraw", "vgclusterid", "vglod", "vgoverdraw" }).Desc("Debug view to show. 'none' clears all. The vg* modes write to the 'VirtualGeometryDebug' capture target. Omit to list modes + state."))
                                    .Prop("enabled", Schema::Bool().Desc("Set false as an alias for mode:'none' (clear all debug views)."))
                                    .NoAdditional();
             tool.MainMarshaled = true;
@@ -1974,6 +3315,222 @@ namespace OloEngine::MCP
                                    .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderWhyNotVisible;
+            server.RegisterTool(std::move(tool));
+        }
+
+        // ---- issue #607: the render-diagnostics gaps -------------------------
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_render_probe_pixel";
+            tool.Toolset = "render";
+            tool.Title = "Probe one pixel (G-Buffer readout)";
+            // A 1x1 GL readback; changes no camera / setting / scene state.
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Read back the exact NUMBERS under one viewport pixel — the numeric counterpart of "
+                "olo_render_capture_target, and the fastest way to diagnose a shading bug. Given "
+                "viewport pixel coordinates (top-left origin, same as olo_screenshot), it decodes every "
+                "G-Buffer channel for that pixel: albedo.rgb, metallic, the world-space NORMAL (the "
+                "octahedral RT1.xy pair decoded exactly as the shaders do), roughness, ao, emissive.rgb, "
+                "the screen-space velocity vector, the integer entityID, the raw device depth PLUS its "
+                "linearized view-space distance, and the final post-tonemap colour actually presented. "
+                "Reach for it whenever the frame 'looks wrong' but you cannot tell WHICH channel is "
+                "wrong — a picture shows a normal map is bluish, this says the normal is (0,0,1) when "
+                "it should be (0,1,0). Channels that do not exist on the current rendering path (the "
+                "G-Buffer is Deferred-only) are reported as unavailable with a reason, never as a "
+                "failed call. Pass 'target' to probe ONE named render-graph resource instead and get "
+                "its raw channel values (works for any capturable target: AOBuffer, BloomColor, "
+                "VirtualGeometryDebug, ...). Only a 1x1 region is read back, so it is cheap.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("x", Schema::Int().Min(0).Desc("Pixel column, 0 = left edge."))
+                                   .Prop("y", Schema::Int().Min(0).Desc("Pixel row, 0 = TOP edge (screenshot convention; the GL bottom-up flip is handled for you)."))
+                                   .Prop("target", Schema::String().Desc("Optional: probe only this render-graph resource (see olo_render_list_targets) and return its raw channels instead of the decoded G-Buffer."))
+                                   .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame before probing (default false). Use after a scene open / setting change so you cannot read a stale target."))
+                                   .Required({ "x", "y" })
+                                   .NoAdditional();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RenderProbePixel;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_virtual_geometry_set";
+            tool.Toolset = "render";
+            tool.Title = "Set virtual-geometry (Nanite) debug knobs";
+            // A renderer-debug toggle like olo_render_set_debug_view: it edits
+            // session-global renderer state, never the project, so it is NOT a
+            // ProjectWrite. Idempotent — the same arguments leave the same state.
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Drive the virtualized-geometry (Nanite-style cluster LOD DAG) debug knobs, which were "
+                "otherwise reachable only from the editor's Statistics panel. 'debugMode' turns on a "
+                "per-pixel visualization written into the 'VirtualGeometryDebug' capture target — "
+                "'clusterid' (each cluster a distinct hashed colour: see the cluster decomposition and "
+                "spot a cut that is too coarse/fine), 'lod' (per-pixel DAG level as a ramp: verify the "
+                "screen-space error target is selecting the LOD you expect), 'overdraw' (per-pixel "
+                "cluster fragment count as a heat ramp) — then capture it with olo_render_capture_target "
+                "{ name: 'VirtualGeometryDebug' }. 'swRasterMode' forces the HW/SW raster split "
+                "('auto' = small clusters go to the compute software rasterizer, 'forcesoftware' = every "
+                "safe cluster does, 'disabled' = hardware MDI only) and 'swRasterThresholdPixels' moves "
+                "the auto-mode projected-radius cutoff — together they are the SW-vs-HW parity A/B. "
+                "'forcePortableSwRaster' forces the portable two-pass 2x32 visibility path even on a "
+                "driver with 64-bit atomics. 'enabled' is the MASTER SWITCH: turning it off draws every "
+                "VirtualMeshComponent through the CLASSIC mesh path instead (same geometry, same "
+                "materials, no cluster LOD), which is the virtual-vs-classic A/B — the scene is "
+                "unchanged and only the renderer differs. 'debugToViewport' composites the active "
+                "debugMode over the lit viewport image instead of only into the capture target. "
+                "Call with no arguments to read the current state. Virtual "
+                "geometry renders on the DEFERRED path only. The change is EPHEMERAL renderer state: "
+                "never saved, restored by a scene reload.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("enabled", Schema::Bool().Desc("Master switch. false = draw every VirtualMeshComponent through the classic mesh path instead (the virtual-vs-classic A/B); the geometry does not disappear."))
+                                   .Prop("debugToViewport", Schema::Bool().Desc("Composite the active debugMode over the lit viewport image, not just into the 'VirtualGeometryDebug' capture target."))
+                                   .Prop("debugMode", Schema::String().Enum({ "off", "clusterid", "lod", "overdraw" }).Desc("Per-pixel debug visualization written to the 'VirtualGeometryDebug' capture target. 'off' disables it (no cost)."))
+                                   .Prop("swRasterMode", Schema::String().Enum({ "auto", "forcesoftware", "disabled" }).Desc("Software-rasterizer routing: 'auto' (coverage-based, default), 'forcesoftware' (every near-plane-safe cluster), 'disabled' (hardware MDI only)."))
+                                   .Prop("swRasterThresholdPixels", Schema::Number().Min(0).Max(4096).Desc("Auto-mode cutoff: a cluster whose projected screen radius is below this many pixels is software-rasterized (default 24)."))
+                                   .Prop("forcePortableSwRaster", Schema::Bool().Desc("Force the portable two-pass 2x32 SW visibility path even where 64-bit atomics exist (exercises both rasterizers on capable hardware)."))
+                                   .NoAdditional();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_VirtualGeometrySet;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_virtual_geometry_stats";
+            tool.Toolset = "render";
+            tool.Title = "Virtual-geometry (Nanite) cull + streaming stats";
+            // A small blocking GPU readback of the cull args buffer; observable
+            // state is unchanged.
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Read this frame's virtualized-geometry (Nanite-style) counters: the GPU cluster cull "
+                "(instances submitted, clusters tested, clusters selected by the view-dependent DAG-cut "
+                "rule, how many were routed to the hardware MDI path vs the compute software rasterizer, "
+                "and the drawn total) plus the streaming residency (total / resident / pinned pages, the "
+                "page budget, and cumulative page uploads + evictions). Use it to verify the cull is "
+                "actually culling (tested >> drawn), to check the HW/SW split after "
+                "olo_virtual_geometry_set { swRasterMode }, and to catch streaming thrash (uploads and "
+                "evictions climbing every frame under a tight budget). Zero everywhere means no "
+                "VirtualMeshComponent was submitted — virtual geometry renders on the DEFERRED path only.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_VirtualGeometryStats;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_material_get";
+            tool.Toolset = "render";
+            tool.Title = "Get resolved material for a draw";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Return the material data the renderer ACTUALLY uploads to the GPU for an entity's "
+                "draw — not what the asset file says. These differ more often than is comfortable, and "
+                "the difference is invisible in the inspector: a MaterialComponent silently overrides "
+                "every submesh, and the engine's grey default quietly stands in when nothing else "
+                "exists. For each submesh the tool reports WHICH material won (MaterialComponent "
+                "override / the submesh's imported material / the engine default), the alpha mode "
+                "(Opaque/Mask/Blend) and cutoff, the base-colour, metallic, roughness, normal-scale, "
+                "occlusion-strength and emissive factors, the useXMap booleans, and the bound GL "
+                "texture id per slot (0 = no texture bound — the usual cause of 'my normal map does "
+                "nothing'). Handles both MeshComponent and VirtualMeshComponent; omit 'submesh' to get "
+                "every submesh. Both paths now resolve through the same rule — MaterialComponent "
+                "override -> the submesh's imported material -> the engine default — so this reports "
+                "what the GPU actually got, not what the component nominally asked for.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("entity", Schema::EntityId("Entity UUID (string; also accepts a number). Must have a MeshComponent or VirtualMeshComponent."))
+                                   .Prop("submesh", Schema::Int().Min(0).Desc("Submesh index. Omit for an array covering every submesh."))
+                                   .Required({ "entity" })
+                                   .NoAdditional();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_MaterialGet;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_cluster_grid_stats";
+            tool.Toolset = "render";
+            tool.Title = "Clustered light-grid stats";
+            // Stages the light-grid SSBOs through a temporary read buffer; no
+            // observable state changes.
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Summarise the clustered (Forward+ / froxel) light grid for the current frame — the "
+                "only way to see the light cull without writing a one-off readback test. Reports the "
+                "grid dimensions and per-cluster light cap, the total assigned light indices, a "
+                "per-z-slice breakdown (assigned / empty / max / mean lights per depth band), a "
+                "count-bucket histogram over every cluster, the mean and MAX lights in any cluster with "
+                "the busiest cluster's coordinates, and — the important number — how many clusters are "
+                "EMPTY and how many are OVERFLOWING (at the cap, where the cull silently DROPS the "
+                "extra lights, so a light in that froxel just stops lighting). Also reports the light "
+                "index list's used slots vs capacity. Use it to verify the cull is assigning lights at "
+                "all, to find the depth slices that are hot, and to catch a scene that has quietly "
+                "exceeded the per-cluster budget. The plain Forward path does not run the cull.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_ClusterGridStats;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_froxel_fog_probe";
+            tool.Toolset = "render";
+            tool.Title = "Probe the froxel fog volume";
+            // A 1x1x1 readback out of two 3D volumes; observable state unchanged.
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Sample the volumetric-fog froxel volume at one cell — the way to tell a BROKEN SCATTER "
+                "PASS from a BROKEN COMPOSITE TAP without an intermediate-buffer PNG round trip. Every fog "
+                "check we have compares final-frame pixels, which cannot distinguish 'no fog was injected "
+                "here' from 'fog was injected but the composite sampled the wrong froxel'. This returns "
+                "BOTH volumes at the sampled cell: 'scatter' (FroxelFogScatter.comp's output — per-froxel "
+                "in-scattered radiance + extinction, i.e. what the media/lighting injection produced) and "
+                "'integrated' (FroxelFogIntegrate.comp's — in-scatter accumulated from the camera to that "
+                "slice + the transmittance, i.e. exactly what the fog composite trilinearly taps). Address "
+                "the cell either directly with 'froxel':[x,y,z], or with 'worldPos':[x,y,z] — a world "
+                "position projected through the SAME mapping the shaders use, including the exponential "
+                "z-slice distribution (viewDepth = near * exp2(log2(far/near) * (z+0.5)/dimZ)). Also "
+                "reports the froxel coords used, that cell's world-space bounds and view-depth range, and "
+                "the volume's dims/near/far. A world position outside the frustum or the fog volume's "
+                "depth range is reported as such, never silently answered from the nearest cell as if it "
+                "were the point. Degrades with the reason when fog / volumetric fog is off (the froxel "
+                "compute chain then never runs).";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("froxel", Schema::Vec3("Froxel coordinates [x, y, z] into the fog volume (default dims 160x90x64; see the response's volume.dims)."))
+                                   .Prop("worldPos", Schema::Vec3("World-space position [x, y, z], projected into froxel space with the shader's exact mapping."))
+                                   .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame before probing (default false). Use after a scene open / fog toggle so you cannot read a stale volume."))
+                                   .NoAdditional();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_FroxelFogProbe;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_shadow_atlas_layout";
+            tool.Toolset = "render";
+            tool.Title = "Shadow atlas layout";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Report this frame's local-light shadow-atlas allocation — every shadow-casting spot / "
+                "point / sphere-area light that COMPETED for a tile, whether it won one, and at what "
+                "resolution. Per caster: the light entity UUID, the caster type, its priority score, "
+                "its rank, and (when allocated) its atlas entries with each tile's x/y/width/height. "
+                "The part a screenshot can never show is the losers: a caster that requested a shadow "
+                "and was STARVED (out of entry / light / atlas-space budget, or scored 0 because its "
+                "range sphere is outside the frustum) casts NO shadow, which is indistinguishable from "
+                "a shadow bug until you can see it lost the contest. Also reports atlas area used, so a "
+                "light packed into a tiny 256px tile (blocky shadow) is obvious. Read-only; the "
+                "directional CSM is separate and is not packed into this atlas.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_ShadowAtlasLayout;
             server.RegisterTool(std::move(tool));
         }
     }

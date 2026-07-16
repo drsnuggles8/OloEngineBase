@@ -23,6 +23,13 @@ namespace OloEngine
         ColorGradingRenderPass();
         ~ColorGradingRenderPass() override;
 
+        // Name the pass's raw GL identity-LUT texture is published under in the
+        // render graph (issue #607). Setup ImportTexture()s it on every frame the
+        // pass runs, making it resolvable by olo_render_list_targets /
+        // olo_render_capture_target — a wrong LUT strip tints the whole frame and
+        // is otherwise impossible to distinguish from a bad grading shader.
+        static constexpr const char* kIdentityLUTTargetName = "ColorGradingIdentityLUT";
+
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;

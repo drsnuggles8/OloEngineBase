@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Scene/ComponentReflection.h"
 
 #include <array>
 
@@ -16,6 +17,17 @@ namespace OloEngine
         };
 
         std::array<Key, 8> Keys{};
+
+        // KeyCount is a LENGTH into the fixed 8-slot Keys array — Evaluate() indexes
+        // Keys[KeyCount - 1] directly, so a value above Keys.size() is an out-of-bounds
+        // read, not merely a wrong curve. Every load path already bounds it (both
+        // branches of ParticleCurveSerializer::Deserialize take a
+        // std::min(…, Keys.size())), and the Clamp annotation restates that same bound
+        // where the field is declared so the MCP writable-field registry inherits it:
+        // `olo_entity_set_field ParticleSystemComponent System.SizeModule.SizeCurve.KeyCount`
+        // became reachable with the sub-object addressing slice, and without this it
+        // could put the curve into a state no scene load could produce.
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 8)
         u32 KeyCount = 0;
 
         ParticleCurve() = default;

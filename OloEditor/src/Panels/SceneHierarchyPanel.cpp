@@ -32,6 +32,10 @@
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
+#include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Scene/Streaming/StreamingRegionSerializer.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Debug/Instrumentor.h"
@@ -1871,6 +1875,7 @@ namespace OloEngine
             DisplayAddComponentEntry<TerrainComponent>("Terrain");
             DisplayAddComponentEntry<FoliageComponent>("Foliage");
             DisplayAddComponentEntry<SnowDeformerComponent>("Snow Deformer");
+            DisplayAddComponentEntry<VirtualMeshComponent>("Virtual Mesh");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
             DisplayAddComponentEntry<DecalComponent>("Decal");
             DisplayAddComponentEntry<WaterComponent>("Water");
@@ -5961,6 +5966,131 @@ namespace OloEngine
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("0 = full removal, 1 = compact only");
                 ImGui::Checkbox("Emit Ejecta", &component.m_EmitEjecta); });
+
+        DrawComponent<VirtualMeshComponent>("Virtual Mesh", entity, [entity](auto& component)
+                                            {
+            // Every "this will silently render nothing / render wrong" condition the
+            // virtual-geometry path can hit is surfaced here. The engine only
+            // OLO_CORE_WARNs about them, which means a VirtualMeshComponent can sit in
+            // the scene drawing nothing with no on-screen explanation at all (issue #629).
+            auto warnBanner = [](const char* text)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("%s", text);
+                ImGui::PopStyleColor();
+            };
+
+            // Virtual geometry is deferred-by-design: the compute software
+            // rasterizer writes a visibility buffer whose material-resolve pass
+            // reconstructs the G-Buffer, and Forward/Forward+ have no G-Buffer to
+            // resolve into — so VirtualGeometryPass self-disables outside Deferred
+            // (RenderPipelineBuilderScene). Without this notice the component just
+            // renders nothing, with nothing on screen to explain why.
+            if (auto& rendererSettings = Renderer3D::GetRendererSettings();
+                rendererSettings.Path != RenderingPath::Deferred)
+            {
+                warnBanner("Not rendering: virtual geometry requires the Deferred rendering path.");
+                if (ImGui::Button("Switch to Deferred"))
+                {
+                    rendererSettings.Path = RenderingPath::Deferred;
+                    Renderer3D::ApplyRendererSettings();
+                }
+                ImGui::Separator();
+            }
+
+            // An entity carrying BOTH a MeshComponent and a VirtualMeshComponent is drawn by
+            // BOTH scene loops — the same geometry submitted twice, z-fighting against itself
+            // and paying for both paths. Nothing rejects it; it just looks subtly wrong.
+            if (entity && entity.HasComponent<MeshComponent>())
+            {
+                warnBanner("This entity also has a Mesh component: the geometry is submitted by BOTH the classic and "
+                           "the virtual path, so it draws twice (z-fighting / double cost). Remove one of them.");
+                ImGui::Separator();
+            }
+
+            // Source-level rejections. The builder refuses a skinned / morph-target source
+            // (a static cluster DAG cannot follow runtime deformation) and only OLO_CORE_WARNs
+            // about it, so the component renders nothing at all with nothing on screen to say why.
+            if (component.m_MeshSource != 0 &&
+                AssetManager::GetAssetType(component.m_MeshSource) == AssetType::MeshSource)
+            {
+                if (Ref<MeshSource> const source = AssetManager::GetAsset<MeshSource>(component.m_MeshSource))
+                {
+                    if (source->HasSkeleton() || source->HasMorphTargets())
+                    {
+                        warnBanner("Not rendering: this mesh is skinned or has morph targets. Virtualized geometry "
+                                   "bakes a STATIC cluster LOD DAG, so it cannot follow runtime deformation — the "
+                                   "builder rejects the source. Use a classic Mesh component for animated meshes.");
+                        ImGui::Separator();
+                    }
+
+                    // AlphaMode::Blend cannot be expressed in a deferred G-Buffer (one opaque
+                    // surface per pixel, no blend state), so the virtual pass SKIPS blended
+                    // parts rather than writing them out fully opaque. Mirror that here.
+                    bool blendedPart = false;
+                    if (entity && entity.HasComponent<MaterialComponent>())
+                    {
+                        blendedPart = entity.GetComponent<MaterialComponent>().m_Material.GetAlphaMode() == AlphaMode::Blend;
+                    }
+                    else
+                    {
+                        for (const Ref<Material>& imported : source->GetImportedMaterials())
+                        {
+                            if (imported && imported->GetAlphaMode() == AlphaMode::Blend)
+                            {
+                                blendedPart = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (blendedPart)
+                    {
+                        warnBanner("Blended material: parts with AlphaMode::Blend are SKIPPED by the virtual pass — a "
+                                   "deferred G-Buffer cannot represent blending. Use AlphaMode::Mask, or draw this "
+                                   "mesh with a classic Mesh component so it reaches the transparent pass.");
+                        ImGui::Separator();
+                    }
+                }
+            }
+
+            ImGui::Checkbox("Enabled", &component.m_Enabled);
+
+            // MeshSource asset display + drag-drop target (same generic
+            // CONTENT_BROWSER_ITEM + type-filter idiom as AudioSoundGraph).
+            std::string handleLabel = component.m_MeshSource != 0
+                ? "Mesh: " + std::to_string(static_cast<u64>(component.m_MeshSource))
+                : "Mesh: <none — drag a mesh asset here>";
+            ImGui::Button(handleLabel.c_str(), ImVec2(-1.0f, 0.0f));
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                    if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                    {
+                        AssetHandle handle = assetManager->ImportAsset(assetPath);
+                        if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::MeshSource)
+                        {
+                            component.m_MeshSource = handle;
+                        }
+                        else if (handle != 0)
+                        {
+                            OLO_WARN("Drag-dropped asset is not a MeshSource (type: {0})",
+                                     AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                        }
+                        else
+                        {
+                            // No additional handling required.
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            ImGui::DragFloat("Error Threshold (px)", &component.m_ErrorThresholdPixels, 0.05f, 0.05f, 64.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Screen-space error target for the cluster LOD cut; lower = more detail");
+            ImGui::Checkbox("Cast Shadows", &component.m_CastShadows); });
 
         DrawComponent<FluidComponent>("Fluid", entity, [](auto& component)
                                       {

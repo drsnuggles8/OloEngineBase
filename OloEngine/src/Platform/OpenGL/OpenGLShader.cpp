@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/ShaderRegistry.h"
 #include "OloEngine/Task/ParallelFor.h"
 
 #include <cstring>
@@ -225,6 +226,12 @@ namespace OloEngine
         const auto count = lastDot == std::string::npos ? (filepath.size() - lastSlash) : (lastDot - lastSlash);
         m_Name = filepath.substr(lastSlash, count);
 
+        // Make this shader reloadable BY NAME regardless of who owns it — a
+        // ShaderLibrary or a render pass member (issue #607). Registered before
+        // the compile so a shader whose GLSL is broken at boot can still be
+        // fixed on disk and reloaded over MCP instead of needing a restart.
+        ShaderRegistry::Get().RegisterShader(m_Name, this);
+
         OLO_SHADER_COMPILATION_START(m_Name, filepath);
         const Timer timer;
 
@@ -383,6 +390,10 @@ namespace OloEngine
         m_VulkanSPIRV = std::move(vulkanSPIRV);
         m_OpenGLSPIRV = std::move(openGLSPIRV);
 
+        // Pack-loaded shaders keep their on-disk source path, so they are
+        // reloadable by name too (issue #607).
+        ShaderRegistry::Get().RegisterShader(m_Name, this);
+
         // Run reflection on Vulkan SPIR-V (extracts UBO/texture bindings)
         for (auto&& [stage, data] : m_VulkanSPIRV)
         {
@@ -404,6 +415,13 @@ namespace OloEngine
     OpenGLShader::~OpenGLShader()
     {
         OLO_PROFILE_FUNCTION();
+
+        // Drop the name->shader entry BEFORE this address can be recycled by
+        // another allocation — the liveness side-table WeakRef::Lock() consults
+        // is keyed by address, so a stale entry could otherwise be locked into a
+        // Ref<Shader> pointing at something that is not a shader (issue #607;
+        // docs/agent-rules/intrusive-refcount-weakref-races.md).
+        ShaderRegistry::Get().UnregisterShader(this);
 
         // Clean up pending shader objects if never finalized
         // These are intermediate compile artifacts, safe to delete immediately

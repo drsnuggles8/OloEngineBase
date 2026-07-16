@@ -7,6 +7,8 @@
 
 #include <glad/gl.h>
 
+#include <string_view>
+
 namespace OloEngine
 {
     void OpenGLRendererAPI::Init()
@@ -57,6 +59,49 @@ namespace OloEngine
         // Cache GL_MAX_DRAW_BUFFERS once — SetBlend*ForAttachment are hot paths
         // and glGetIntegerv on every call costs a driver round-trip.
         glGetIntegerv(GL_MAX_DRAW_BUFFERS, &m_MaxDrawBuffers);
+
+        // Detect 64-bit shader integer + atomic support once (issue #629). The
+        // virtualized-geometry software rasterizer uses a single atomicMin on a
+        // packed uint64_t visibility word when BOTH extensions are present, and
+        // falls back to the portable two-pass 2x32 scheme otherwise. Core-profile
+        // extension enumeration must use glGetStringi (glGetString(GL_EXTENSIONS)
+        // returns null in a core context).
+        {
+            bool hasInt64 = false;
+            bool hasAtomicInt64NV = false;
+            bool hasAtomicInt64EXT = false;
+            GLint extensionCount = 0;
+            glGetIntegerv(GL_NUM_EXTENSIONS, &extensionCount);
+            for (GLint i = 0; i < extensionCount; ++i)
+            {
+                const char* extension = reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, static_cast<GLuint>(i)));
+                if (extension == nullptr)
+                    continue;
+                std::string_view const name(extension);
+                if (name == "GL_ARB_gpu_shader_int64")
+                    hasInt64 = true;
+                else if (name == "GL_NV_shader_atomic_int64")
+                    hasAtomicInt64NV = true;
+                else if (name == "GL_EXT_shader_atomic_int64")
+                    hasAtomicInt64EXT = true;
+            }
+
+            // Two spellings of the same capability. NV is the long-standing NVIDIA one;
+            // EXT is the cross-vendor form AMD ships. Probing only NV silently demoted
+            // every AMD/Intel GPU that DOES support 64-bit atomics to the slow portable
+            // two-pass path. GL_ARB_gpu_shader_int64 is required regardless — it is what
+            // provides the uint64_t type the packed visibility buffer is built on.
+            m_SupportsInt64Atomics = hasInt64 && (hasAtomicInt64NV || hasAtomicInt64EXT);
+
+            const char* atomicExtension = hasAtomicInt64NV    ? "GL_NV_shader_atomic_int64"
+                                          : hasAtomicInt64EXT ? "GL_EXT_shader_atomic_int64"
+                                                              : "none";
+            OLO_CORE_INFO("GPU 64-bit shader atomics (GL_ARB_gpu_shader_int64: {}, atomic ext: {}): {} "
+                          "(virtual-geometry SW rasterizer uses {} visibility path)",
+                          hasInt64 ? "yes" : "no", atomicExtension,
+                          m_SupportsInt64Atomics ? "supported" : "unsupported",
+                          m_SupportsInt64Atomics ? "single-pass 64-bit atomic" : "portable two-pass 2x32");
+        }
     }
     void OpenGLRendererAPI::SetViewport(const u32 x, const u32 y, const u32 width, const u32 height)
     {
@@ -633,6 +678,30 @@ namespace OloEngine
         // that would stall the pipeline. The "Instanced Draws" tab still
         // reports per-call mesh handle / instance count via the
         // RendererProfiler hook in CommandDispatch::DrawMeshInstanced.
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
+    }
+
+    void OpenGLRendererAPI::MultiDrawElementsIndirectCountRaw(u32 vaoID, u32 indirectBufferID, u32 indirectOffsetBytes,
+                                                              u32 parameterBufferID, u32 parameterOffsetBytes,
+                                                              u32 maxDrawCount, u32 strideBytes)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (vaoID == 0 || indirectBufferID == 0 || parameterBufferID == 0 || maxDrawCount == 0)
+            return;
+
+        glBindVertexArray(vaoID);
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBufferID);
+        glBindBuffer(GL_PARAMETER_BUFFER, parameterBufferID);
+        glMultiDrawElementsIndirectCount(GL_TRIANGLES, GL_UNSIGNED_INT,
+                                         reinterpret_cast<const void*>(static_cast<uintptr_t>(indirectOffsetBytes)),
+                                         static_cast<GLintptr>(parameterOffsetBytes),
+                                         static_cast<GLsizei>(maxDrawCount), static_cast<GLsizei>(strideBytes));
+        glBindBuffer(GL_PARAMETER_BUFFER, 0);
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+
+        // Like DrawElementsIndirectRaw: the true draw count lives on the GPU
+        // (the cull compute wrote it); one call recorded, no readback stall.
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
     }
 

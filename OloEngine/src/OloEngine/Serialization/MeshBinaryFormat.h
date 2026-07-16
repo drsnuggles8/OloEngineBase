@@ -9,7 +9,7 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .omesh Binary Mesh Format — Version 1
+    // .omesh Binary Mesh Format — Version 2
     //
     // Layout:
     //   [FileHeader]
@@ -21,15 +21,37 @@ namespace OloEngine
     //   [BoneInfluence Section]      — optional: per-vertex bone weights
     //   [MorphTarget Section]        — optional: blend shape deltas
     //   [BoneInfo Section]           — optional: inverse bind poses
+    //   [VirtualMesh Section]        — optional (v2+): cooked OVGM cluster-DAG blob
+    //   [ImportedMaterials Section]  — optional (v4+): the materials the mesh was
+    //                                  imported with (ImportedMaterialCodec blob)
     //
     // All multi-byte values are little-endian.
     // String table entries: u32 length + UTF-8 bytes (no null terminator).
+    //
+    // Versioning (docs/agent-rules/binary-format-versioning.md): the version
+    // check accepts the [MinSupportedVersion, CurrentVersion] range and the
+    // SectionDirectory is sized per the FILE's version — a v1 file carries 7
+    // directory entries, v2+ carries kSectionCount. New sections must only
+    // ever be APPENDED to SectionType so old readers index correctly.
     // ============================================================================
 
     namespace OMeshFormat
     {
         constexpr u32 MagicNumber = 0x4853454D; // "MESH" in little-endian
-        constexpr u32 CurrentVersion = 1;
+        // v3 adds no sections. It exists to INVALIDATE every v2 cache: v2 files were
+        // written with Submesh::m_MaterialIndex == the submesh's own index (one material
+        // slot per submesh) instead of an index into the DEDUPLICATED imported-material
+        // array, so a v2 cache resolves the wrong material per submesh under the fixed
+        // Model::CreateCombinedMeshSource (#629). ReadTimestamp gates cache validity on
+        // Version == CurrentVersion (strict), so bumping forces one cold re-import.
+        //
+        // v4 appends the ImportedMaterials section: the materials the mesh was imported
+        // with, so a warm cache load no longer has to re-run a full Assimp import of the
+        // source file just to rebuild them (and so the asset-pack cook, which reads the
+        // MeshSource, has materials to ship at all — issue #629).
+        constexpr u32 CurrentVersion = 4; // v4: imported-material table
+
+        constexpr u32 MinSupportedVersion = 1;
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed
         constexpr u32 FlagPreOptimized = 2; // Mesh was already optimized before caching
 
@@ -40,9 +62,12 @@ namespace OloEngine
         constexpr u32 MaxMaterialCount = 10'000;
         constexpr u32 MaxBoneCount = 1'024;
         constexpr u32 MaxMorphTargetCount = 1'000;
-        constexpr u64 MaxEncodedSize = 2'000'000'000; // 2 GB
+        constexpr u64 MaxEncodedSize = 2'000'000'000;       // 2 GB
+        constexpr u64 MaxVirtualMeshBlobSize = 512'000'000; // 512 MB — OVGM cook blob cap
 
-        // Section identifiers
+        // Section identifiers. APPEND ONLY — the on-disk directory is indexed
+        // by these values, and SectionCountForVersion() below assumes every
+        // version's sections are a prefix of the next version's.
         enum class SectionType : u16
         {
             Geometry = 0,
@@ -52,10 +77,22 @@ namespace OloEngine
             BoneInfluences = 4,
             MorphTargets = 5,
             BoneInfo = 6,
-            Count = 7 // sentinel
+            VirtualMesh = 7,       // v2+: cooked OVGM cluster-DAG blob (issue #629)
+            ImportedMaterials = 8, // v4+: imported-material table (issue #629)
+            Count = 9              // sentinel
         };
 
         constexpr auto kSectionCount = std::to_underlying(SectionType::Count);
+
+        // Number of SectionDirectory entries present in a file of the given
+        // version — a reader must size its directory read by the FILE's
+        // version, not its own.
+        [[nodiscard]] constexpr u16 SectionCountForVersion(u32 version)
+        {
+            if (version >= 4)
+                return kSectionCount;
+            return version >= 2 ? 8 : 7;
+        }
 
         struct FileHeader
         {
@@ -189,6 +226,26 @@ namespace OloEngine
             //   If dense:  VertexCount × MorphTargetVertex
         };
 
+        // VirtualMesh section header (v2+). The payload is a self-validating
+        // OVGM blob (see Renderer/VirtualGeometry/VirtualMesh.h — own magic,
+        // caps and cross-reference checks), stored verbatim.
+        struct VirtualMeshHeader
+        {
+            u64 BlobSize = 0;
+            // Followed by BlobSize bytes of OVGM data
+        };
+
+        // ImportedMaterials section header (v4+). The payload is a self-describing
+        // ImportedMaterialCodec blob (own magic + version + caps), stored verbatim:
+        // the materials the mesh was imported with, indexed by
+        // Submesh::m_MaterialIndex. Textures inside it are referenced by asset
+        // handle (+ a source-path fallback for the editor cache), never by pixels.
+        struct ImportedMaterialsHeader
+        {
+            u64 BlobSize = 0;
+            // Followed by BlobSize bytes of ImportedMaterialCodec data
+        };
+
     } // namespace OMeshFormat
 
     // ============================================================================
@@ -307,7 +364,11 @@ namespace OloEngine
 
     static_assert(std::is_trivially_copyable_v<OMeshFormat::SectionDirectory>);
     static_assert(std::is_standard_layout_v<OMeshFormat::SectionDirectory>);
-    static_assert(sizeof(OMeshFormat::SectionDirectory) == 112);
+    static_assert(sizeof(OMeshFormat::SectionDirectory) == 144);
+    static_assert(OMeshFormat::SectionCountForVersion(1) == 7);
+    static_assert(OMeshFormat::SectionCountForVersion(2) == 8);
+    static_assert(OMeshFormat::SectionCountForVersion(3) == 8);
+    static_assert(OMeshFormat::SectionCountForVersion(OMeshFormat::CurrentVersion) == OMeshFormat::kSectionCount);
 
     static_assert(std::is_trivially_copyable_v<OMeshFormat::GeometryHeader>);
     static_assert(std::is_standard_layout_v<OMeshFormat::GeometryHeader>);
@@ -352,6 +413,14 @@ namespace OloEngine
     static_assert(std::is_trivially_copyable_v<OMeshFormat::MorphTargetEntry>);
     static_assert(std::is_standard_layout_v<OMeshFormat::MorphTargetEntry>);
     static_assert(sizeof(OMeshFormat::MorphTargetEntry) == 4);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::VirtualMeshHeader>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::VirtualMeshHeader>);
+    static_assert(sizeof(OMeshFormat::VirtualMeshHeader) == 8);
+
+    static_assert(std::is_trivially_copyable_v<OMeshFormat::ImportedMaterialsHeader>);
+    static_assert(std::is_standard_layout_v<OMeshFormat::ImportedMaterialsHeader>);
+    static_assert(sizeof(OMeshFormat::ImportedMaterialsHeader) == 8);
 
     // OAnimFormat
     static_assert(std::is_trivially_copyable_v<OAnimFormat::FileHeader>);

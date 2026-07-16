@@ -49,6 +49,15 @@ namespace OloEngine
         FluidIntermediatesPass(FluidIntermediatesPass&&) = delete;
         FluidIntermediatesPass& operator=(FluidIntermediatesPass&&) = delete;
 
+        // Names the pass's raw GL targets are published under in the render graph
+        // (issue #607). Setup ImportTexture()s them on every frame the pass
+        // actually runs, which is what makes them resolvable by
+        // olo_render_list_targets / olo_render_capture_target — so a broken
+        // screen-space fluid frame can be bisected splat -> smooth -> composite
+        // from an agent session without a debugger.
+        static constexpr const char* kSmoothedDepthTargetName = "FluidSmoothedDepth";
+        static constexpr const char* kThicknessTargetName = "FluidThickness";
+
         void Init(const FramebufferSpecification& spec) override;
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Execute(RGCommandContext& context) override;

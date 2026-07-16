@@ -1,0 +1,323 @@
+Scene: VirtualGeometryTest.olo
+# ─────────────────────────────────────────────────────────────────────────────
+# Nanite-style virtualized geometry (issue #629).
+#
+# REQUIRES THE DEFERRED RENDERING PATH. VirtualGeometryPass self-disables on
+# Forward / Forward+ (the compute software rasterizer writes a visibility buffer
+# that the material-resolve pass reconstructs the G-Buffer from, and the forward
+# paths have no G-Buffer to resolve into). The renderer starts on Forward and the
+# path is not scene-serialized, so on load: Renderer Settings -> Rendering Path ->
+# Deferred. The Virtual Mesh inspector shows a warning + a one-click switch button
+# while the wrong path is active.
+#
+# What the scene shows:
+#   * Front row (z = 3.5) — three helmets at the SAME distance with different
+#     ErrorThresholdPixels (0.5 / 2 / 12). The DAG cut coarsens left to right, so
+#     the right-hand helmet is visibly faceted. This is the LOD knob in isolation.
+#   * Two receding rows (x = ±4) — identical helmets and thresholds at growing
+#     distance, so the cut coarsens purely with projected screen-space error. The
+#     rows also self-occlude, which exercises the two-phase Hi-Z cluster cull.
+#
+# Each DamagedHelmet is 15,452 source triangles; 15 virtual instances ≈ 232k
+# triangles, all sharing ONE cluster DAG (the registry memoizes by AssetHandle).
+#
+# Inspect the cluster/LOD/overdraw debug views in the Statistics panel's
+# "Virtual Geometry (Nanite)" section, or capture the "VirtualGeometryDebug"
+# render target over MCP.
+# ─────────────────────────────────────────────────────────────────────────────
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1.2
+  BloomIntensity: 0.3
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: true
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+Entities:
+  # ── Camera: looks down the two receding rows ──
+  - Entity: 800000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 2.2, 9]
+      Rotation: [-0.1, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.1
+        PerspectiveFar: 500
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox + IBL: the helmet is a metal/roughness PBR reference, so it needs
+  #    an environment to read correctly ──
+  - Entity: 800000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+  # ── Sun: shadow-casting, so the virtual meshes are seen to cast into the CSM ──
+  - Entity: 800000000000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 12, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.35, -0.8, -0.45]
+      Color: [1, 0.96, 0.88]
+      Intensity: 5
+      CastShadows: true
+      ShadowBias: 0.0015
+      ShadowNormalBias: 0.15
+      MaxShadowDistance: 300
+      CascadeSplitLambda: 0.92
+  # ── Ground plane (classic mesh): receives the virtual meshes' shadows, and
+  #    keeps the subjects off a black background ──
+  - Entity: 800000000000004
+    TagComponent:
+      Tag: Ground Plane
+    TransformComponent:
+      Translation: [0, -1, -25]
+      Rotation: [0, 0, 0]
+      Scale: [70, 0.2, 110]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.32, 0.33, 0.35]
+      Metallic: 0
+      Roughness: 0.9
+
+  # ═══ Front row — same distance, three error thresholds (the LOD knob) ═══
+  - Entity: 800000000000010
+    TagComponent:
+      Tag: Helmet thr=0.5 (fine)
+    TransformComponent:
+      Translation: [-2.4, 0.2, 3.5]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    # Explicit MaterialComponent: proves the visibility-buffer material resolve
+    # writes a real G-Buffer (metallic/roughness reach the deferred PBR pass).
+    # A VirtualMeshComponent WITHOUT one falls back to the flat engine-default
+    # material — MeshSource assets do not carry their imported glTF materials on
+    # the editor path, and MaterialComponent cannot reference texture maps, so a
+    # virtual mesh cannot currently be TEXTURED from a scene file at all.
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000000011
+    TagComponent:
+      Tag: Helmet thr=2 (medium)
+    TransformComponent:
+      Translation: [0, 0.2, 3.5]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.58, 0.62]
+      Metallic: 1
+      Roughness: 0.35
+  - Entity: 800000000000012
+    TagComponent:
+      Tag: Helmet thr=12 (coarse)
+    TransformComponent:
+      Translation: [2.4, 0.2, 3.5]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.2, 0.42, 0.65]
+      Metallic: 0.8
+      Roughness: 0.5
+
+  # ═══ Left receding row — LOD coarsens with distance ═══
+  - Entity: 800000000000020
+    TagComponent:
+      Tag: Recede L 0
+    TransformComponent:
+      Translation: [-4, 0.2, -2]
+      Rotation: [0, 0.3, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 1
+      CastShadows: true
+  - Entity: 800000000000021
+    TagComponent:
+      Tag: Recede L 1
+    TransformComponent:
+      Translation: [-4, 0.2, -9]
+      Rotation: [0, 0.3, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 1
+      CastShadows: true
+  - Entity: 800000000000022
+    TagComponent:
+      Tag: Recede L 2
+    TransformComponent:
+      Translation: [-4, 0.2, -18]
+      Rotation: [0, 0.3, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 1
+      CastShadows: true
+  - Entity: 800000000000023
+    TagComponent:
+      Tag: Recede L 3
+    TransformComponent:
+      Translation: [-4, 0.2, -29]
+      Rotation: [0, 0.3, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 1
+      CastShadows: true
+  - Entity: 800000000000024
+    TagComponent:
+      Tag: Recede L 4
+    TransformComponent:
+      Translation: [-4, 0.2, -42]
+      Rotation: [0, 0.3, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 1
+      CastShadows: true
+  - Entity: 800000000000025
+    TagComponent:
+      Tag: Recede L 5
+    TransformComponent:
+      Translation: [-4, 0.2, -57]
+      Rotation: [0, 0.3, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 1
+      CastShadows: true
+
+  # ═══ Right receding row ═══
+  - Entity: 800000000000030
+    TagComponent:
+      Tag: Recede R 0
+    TransformComponent:
+      Translation: [4, 0.2, -2]
+      Rotation: [0, -0.3, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 1
+      CastShadows: true
+  - Entity: 800000000000031
+    TagComponent:
+      Tag: Recede R 1
+    TransformComponent:
+      Translation: [4, 0.2, -9]
+      Rotation: [0, -0.3, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 1
+      CastShadows: true
+  - Entity: 800000000000032
+    TagComponent:
+      Tag: Recede R 2
+    TransformComponent:
+      Translation: [4, 0.2, -18]
+      Rotation: [0, -0.3, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 1
+      CastShadows: true
+  - Entity: 800000000000033
+    TagComponent:
+      Tag: Recede R 3
+    TransformComponent:
+      Translation: [4, 0.2, -29]
+      Rotation: [0, -0.3, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 1
+      CastShadows: true
+  - Entity: 800000000000034
+    TagComponent:
+      Tag: Recede R 4
+    TransformComponent:
+      Translation: [4, 0.2, -42]
+      Rotation: [0, -0.3, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 1
+      CastShadows: true
+  - Entity: 800000000000035
+    TagComponent:
+      Tag: Recede R 5
+    TransformComponent:
+      Translation: [4, 0.2, -57]
+      Rotation: [0, -0.3, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 1
+      CastShadows: true

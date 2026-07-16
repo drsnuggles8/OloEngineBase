@@ -140,6 +140,7 @@ namespace OloEngine::MCP
         RegisterScriptingTools(server);
         RegisterCameraTools(server);
         RegisterPhysicsTools(server);
+        RegisterInputTools(server);
 
         RegisterBuiltinResources(server);
         RegisterBuiltinPrompts(server);

@@ -1,3 +1,7 @@
+// OLO_NORMAL_MAP_TBN_EXEMPT: terrain is not an imported-mesh material. Its normals come from a
+// splat/triplanar blend of a sampler2DArray over a heightfield whose tangent frame is ANALYTIC
+// (derived from the height gradient / the triplanar axis), not from screen-space UV derivatives.
+// PBRCommon's derivative TBN neither applies nor is shared with it. See RenderPathDrift.
 // =============================================================================
 // Terrain_GBuffer.glsl - Deferred G-Buffer variant of Terrain_PBR.glsl.
 //

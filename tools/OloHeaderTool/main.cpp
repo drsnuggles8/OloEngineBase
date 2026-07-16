@@ -1170,6 +1170,14 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "DialogueStateComponent",
     "IDComponent",
     "IKTargetComponent",
+    // InstancedMeshComponent was NON-trivial (its runtime MergedCache sub-object was an
+    // unrecognised type) until that field was tagged OLO_SERIALIZE(Skip) for the MCP
+    // sub-object slice, which removed the last blocker and flipped it trivial. Its
+    // hand-written block stays: it must keep the exact on-disk shape existing scenes
+    // (InstancingDemo.olo) were saved with. Without this entry the component is emitted
+    // AND hand-written — a double AddComponent on load, which is an entt "Slot not
+    // available" abort, caught by ComponentSerializerCoverage.NoComponentIsBothHandWrittenAndGenerated.
+    "InstancedMeshComponent",
     "LODGroupComponent",
     "LightProbeVolumeComponent",
     "MeshComponent",
@@ -1308,6 +1316,21 @@ struct SerField
     // fields of the nested struct (scalar member) or the vector's element struct
     // (isVector). Empty for every scalar / primitive / enum type.
     std::vector<SerField> subFields;
+    // Set only on a scalar PropType::Struct member whose nested struct/class was
+    // recognised but is NOT serializer-trivial (some member of it is a container,
+    // a Ref<T>, a private field, an unrecognised type, …) — the MCP sub-object
+    // slice. `subFields` then holds the PARTIAL classification: the subset of the
+    // nested type's public members the shared scan DID recognise.
+    //
+    // A partial struct always marks its OWNER non-trivial (ParseComponentFields
+    // sets `ambiguous`), so it can never reach the scene-serializer emitters —
+    // those only ever run on a fully-trivial component, and a fully-trivial
+    // component cannot transitively contain a partial struct. The MCP field
+    // emitter, whose acceptance rule is already "take whatever the scan
+    // recognised" (it emits fields of non-trivial components at the top level),
+    // simply applies that same rule one level down and descends into subFields.
+    // ONE classifier, two acceptance rules — no second type scan to drift.
+    bool structPartial{ false };
 
     // OLO_SERIALIZE(Clamp, Min=…, Max=…) — issue #451's Clamp slice. When set, the
     // generated deserialize ranges the read value into [clampMin, clampMax] (both
@@ -1692,44 +1715,83 @@ static std::set<std::string> CollectAssetTypes(const fs::path& scanDir)
     return assetTypes;
 }
 
+// One entry of the record-body registry (CollectStructBodies): the text between a
+// record's outermost braces, plus whether that record's members start out PRIVATE.
+// A `class` defaults to private and a `struct` to public — getting this wrong on a
+// class would let the parser collect a private member and emit `comp.member`, which
+// would not compile. `class` bodies joined the registry with the MCP sub-object
+// slice (ParticleSystemComponent's authored parameters all live inside the
+// `class ParticleSystem` member).
+struct StructDef
+{
+    std::string body;
+    bool defaultPrivate{ false }; // true for `class`, false for `struct`
+};
+
 // Forward declaration: ParseComponentFields and ClassifyStruct are mutually
 // recursive (a component member of struct type is classified by re-parsing that
 // struct's body, which may itself contain nested-struct members).
 static ComponentSerInfo ParseComponentFields(std::string body,
                                              const std::set<std::string>& enumTypes,
                                              const std::set<std::string>& assetTypes,
-                                             const std::map<std::string, std::string>& structDefs,
-                                             std::set<std::string> visited);
+                                             const std::map<std::string, StructDef>& structDefs,
+                                             std::set<std::string> visited,
+                                             bool publicByDefault = true);
 
-// Classify a nested struct member type by its leaf name (issue #451 nested-struct
-// slice). Returns the recursively-classified field list iff `leaf` names a struct
-// (in the CollectStructBodies registry) whose EVERY member is itself a
-// serializer-trivial type — a primitive / small-int / glm / string / AssetHandle /
-// enum / std::vector<one-of-those> / a further nested-trivial-struct — and all
-// members are public. Returns std::nullopt otherwise (unknown type, any non-trivial
-// or non-public member, an empty struct, or a re-entrant type via `visited`).
+// Classify a nested record member type by its leaf name — the SHARED classifier
+// behind both consumers. Returns std::nullopt only when `leaf` is not a known
+// record at all (a Ref<T>, a std::array, a type defined outside OloEngine/src) or
+// when the recursion re-enters it (`visited`). Otherwise it returns the recursive
+// classification, whose `trivial` flag says whether EVERY member was itself a
+// serializer-trivial, public type.
 //
-// `visited` carries the chain of struct leaf names currently being classified. A
+// Two acceptance rules ride on this one classification:
+//   * the SCENE SERIALIZER (issue #451's nested-struct slice) takes it only when
+//     `trivial` — see ClassifyStruct below, which is the strict wrapper;
+//   * the MCP FIELD REGISTRY takes the PARTIAL result too (SerField::structPartial),
+//     descending into whatever public, JSON-coercible members the scan recognised.
+//     That is the same acceptance rule it already applies at the TOP level, where a
+//     non-trivial component still contributes its recognised fields.
+//
+// `visited` carries the chain of record leaf names currently being classified. A
 // value member can't form a real cycle in C++ (A-by-value-in-A won't compile), but
 // the guard makes the recursion provably terminating and tolerates a
 // pointer/reference back-edge (already non-trivial, so it fails safe anyway).
-static std::optional<std::vector<SerField>> ClassifyStruct(
+static std::optional<ComponentSerInfo> ClassifyStructInfo(
     const std::string& leaf,
     const std::set<std::string>& enumTypes,
     const std::set<std::string>& assetTypes,
-    const std::map<std::string, std::string>& structDefs,
+    const std::map<std::string, StructDef>& structDefs,
     std::set<std::string> visited)
 {
     if (visited.contains(leaf))
         return std::nullopt; // defensive cycle break
     auto it = structDefs.find(leaf);
     if (it == structDefs.end())
-        return std::nullopt; // not a known struct (e.g. Ref<T>, std::array, a class)
+        return std::nullopt; // not a known record (e.g. Ref<T>, std::array, a vendor type)
     visited.insert(leaf);
-    ComponentSerInfo sub = ParseComponentFields(it->second, enumTypes, assetTypes, structDefs, std::move(visited));
-    if (!sub.trivial)
-        return std::nullopt; // a member of the nested struct is itself non-trivial
-    return sub.fields;
+    return ParseComponentFields(it->second.body, enumTypes, assetTypes, structDefs, std::move(visited),
+                                !it->second.defaultPrivate);
+}
+
+// The STRICT wrapper the scene serializer uses: the recursively-classified field
+// list iff `leaf` names a record whose EVERY member is itself a serializer-trivial
+// type — a primitive / small-int / glm / string / AssetHandle / enum /
+// std::vector<one-of-those> / a further nested-trivial-record — and all members are
+// public. std::nullopt otherwise (unknown type, any non-trivial or non-public
+// member, an empty record, or a re-entrant type).
+static std::optional<std::vector<SerField>> ClassifyStruct(
+    const std::string& leaf,
+    const std::set<std::string>& enumTypes,
+    const std::set<std::string>& assetTypes,
+    const std::map<std::string, StructDef>& structDefs,
+    std::set<std::string> visited)
+{
+    std::optional<ComponentSerInfo> sub =
+        ClassifyStructInfo(leaf, enumTypes, assetTypes, structDefs, std::move(visited));
+    if (!sub || !sub->trivial)
+        return std::nullopt; // a member of the nested record is itself non-trivial
+    return sub->fields;
 }
 
 // std::unordered_set<E> element eligibility (issue #451's unordered_map/set
@@ -1768,18 +1830,19 @@ static bool IsSetEligiblePropType(PropType t)
 static ComponentSerInfo ParseComponentFields(std::string body,
                                              const std::set<std::string>& enumTypes,
                                              const std::set<std::string>& assetTypes,
-                                             const std::map<std::string, std::string>& structDefs,
-                                             std::set<std::string> visited)
+                                             const std::map<std::string, StructDef>& structDefs,
+                                             std::set<std::string> visited,
+                                             bool publicByDefault)
 {
     ComponentSerInfo info;
     bool ambiguous = false;
-    // Current access level. A struct defaults to public; a `private:` / `protected:`
-    // label flips it off. A non-public data member cannot be referenced as
-    // `comp.member` by the generated serializer, so it marks the component
-    // non-trivial (fail-safe: keep it hand-written rather than emit code that won't
-    // compile — or, if the field is glued to the label in the same ;-statement,
-    // silently drop it).
-    bool publicSection = true;
+    // Current access level. A struct defaults to public and a class to PRIVATE
+    // (`publicByDefault`); a `private:` / `protected:` / `public:` label flips it.
+    // A non-public data member cannot be referenced as `comp.member` by the
+    // generated serializer, so it marks the component non-trivial (fail-safe: keep
+    // it hand-written rather than emit code that won't compile — or, if the field is
+    // glued to the label in the same ;-statement, silently drop it).
+    bool publicSection = publicByDefault;
 
     // OLO_PROPERTY(...) annotations expand to nothing — drop them (paren-balanced)
     // before statement splitting so they never merge into the next field's line.
@@ -2124,10 +2187,19 @@ static ComponentSerInfo ParseComponentFields(std::string body,
         // and enum checks; `type` here has already passed the complex-declarator
         // rejection above (no '*'/'&'/'<'/'['), so a Ref<T> / std::array never reaches
         // this point.
-        std::optional<std::vector<SerField>> nested;
+        //
+        // A nested record that is RECOGNISED but not trivial (some member of it is a
+        // container / Ref<T> / private / unrecognised) is kept as a PARTIAL struct
+        // (SerField::structPartial) instead of being dropped: it still marks the owner
+        // non-trivial — so the scene serializer keeps the component hand-written,
+        // exactly as before — but the MCP field emitter can descend into the public,
+        // JSON-coercible members the scan did recognise. This is what makes
+        // `ParticleSystemComponent.System.Emitter.RateOverTime` writable without a
+        // second type classifier.
+        std::optional<ComponentSerInfo> nested;
         if (pt == PropType::Unknown)
         {
-            nested = ClassifyStruct(LeafTypeName(type), enumTypes, assetTypes, structDefs, visited);
+            nested = ClassifyStructInfo(LeafTypeName(type), enumTypes, assetTypes, structDefs, visited);
             if (nested)
                 pt = PropType::Struct;
         }
@@ -2166,7 +2238,19 @@ static ComponentSerInfo ParseComponentFields(std::string body,
         f.key = StripPrefix(name, "m_");
         f.type = pt;
         if (pt == PropType::Struct)
-            f.subFields = std::move(*nested);
+        {
+            f.structPartial = !nested->trivial;
+            f.subFields = std::move(nested->fields);
+            if (f.structPartial)
+            {
+                // The owner stays non-trivial (hand-written serializer) — a partial
+                // struct has members the serializer codegen cannot round-trip.
+                ambiguous = true;
+                // An empty partial struct carries nothing for anyone: drop it.
+                if (f.subFields.empty())
+                    continue;
+            }
+        }
         if (fieldHasClamp)
         {
             f.hasClamp = true;
@@ -2180,17 +2264,30 @@ static ComponentSerInfo ParseComponentFields(std::string body,
     return info;
 }
 
-// Scan every header for `struct <Name> { ... }` *definitions* and return a
-// leaf-name → body-text registry (the text between the outermost braces). This is
-// the input to the nested-struct classifier (ClassifyStruct re-parses a member's
-// struct body). It covers ALL structs, not just `*Component`, since a component's
-// nested member type (LODGroup, OffMeshLink, …) is an ordinary struct. First
-// definition of a given name wins; forward declarations and unbalanced bodies are
-// skipped — mirrors CollectComponentFields' old discrimination so the two agree.
-static std::map<std::string, std::string> CollectStructBodies(const fs::path& scanDir)
+// Scan every header for `struct <Name> { ... }` / `class <Name> { ... }`
+// *definitions* and return a leaf-name → record registry (the body text between the
+// outermost braces, plus the record's default access). This is the input to the
+// nested-record classifier (ClassifyStructInfo re-parses a member's body). It covers
+// ALL records, not just `*Component`, since a component's nested member type
+// (LODGroup, OffMeshLink, ParticleSystem, …) is an ordinary struct or class.
+//
+// `class` bodies joined this registry with the MCP sub-object slice — every authored
+// parameter of ParticleSystemComponent lives inside a `class ParticleSystem` member,
+// so a struct-only registry left the component with ZERO writable fields. A class's
+// members start PRIVATE, which ParseComponentFields is told via
+// StructDef::defaultPrivate; getting that wrong would let the parser collect a
+// private member and emit code that does not compile.
+//
+// `enum class E { … }` is explicitly NOT a record — its body is an enumerator list,
+// and enum members are already classified by the CollectEnumTypes set. Forward
+// declarations (`friend class X;`) and unbalanced bodies are skipped. First
+// definition of a name wins, EXCEPT that a `struct` always outranks a `class` of the
+// same leaf name, so adding classes cannot change any pre-existing struct's entry —
+// the scene-serializer codegen is bit-for-bit unaffected by that widening.
+static std::map<std::string, StructDef> CollectStructBodies(const fs::path& scanDir)
 {
-    std::map<std::string, std::string> result;
-    static const std::regex structRe(R"(\bstruct\s+([A-Za-z_]\w*)\b)");
+    std::map<std::string, StructDef> result;
+    static const std::regex recordRe(R"(\b(struct|class)\s+([A-Za-z_]\w*)\b)");
 
     for (auto const& entry : fs::recursive_directory_iterator(scanDir))
     {
@@ -2203,15 +2300,28 @@ static std::map<std::string, std::string> CollectStructBodies(const fs::path& sc
         if (!file.is_open())
             continue;
         std::string raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-        if (raw.find("struct") == std::string::npos)
+        if (raw.find("struct") == std::string::npos && raw.find("class") == std::string::npos)
             continue;
 
         std::string content = StripComments(raw);
-        for (auto it = std::sregex_iterator(content.begin(), content.end(), structRe);
+        for (auto it = std::sregex_iterator(content.begin(), content.end(), recordRe);
              it != std::sregex_iterator(); ++it)
         {
-            std::string name = (*it)[1].str();
-            size_t p = static_cast<size_t>(it->position()) + static_cast<size_t>(it->length());
+            const bool isClass = (*it)[1].str() == "class";
+            std::string name = (*it)[2].str();
+            const auto matchPos = static_cast<size_t>(it->position());
+
+            // `enum class E : u8 { A, B }` — an enumerator list, not a record body.
+            if (isClass)
+            {
+                size_t b = matchPos;
+                while (b > 0 && std::isspace(static_cast<unsigned char>(content[b - 1])))
+                    --b;
+                if (b >= 4 && content.compare(b - 4, 4, "enum") == 0)
+                    continue;
+            }
+
+            size_t p = matchPos + static_cast<size_t>(it->length());
             // Skip to the body-opening '{' or a ';' (forward declaration).
             while (p < content.size() && content[p] != '{' && content[p] != ';')
                 ++p;
@@ -2236,9 +2346,16 @@ static std::map<std::string, std::string> CollectStructBodies(const fs::path& sc
             if (q >= content.size())
                 continue; // unbalanced — skip
 
-            if (result.contains(name))
-                continue; // first definition wins (matches CollectComponentStructs)
-            result.emplace(name, content.substr(start + 1, q - start - 1));
+            if (auto existing = result.find(name); existing != result.end())
+            {
+                // A struct definition supersedes a class one of the same leaf name;
+                // otherwise the first definition wins (matches CollectComponentStructs).
+                if (isClass || !existing->second.defaultPrivate)
+                    continue;
+                existing->second = StructDef{ content.substr(start + 1, q - start - 1), false };
+                continue;
+            }
+            result.emplace(name, StructDef{ content.substr(start + 1, q - start - 1), isClass });
         }
     }
 
@@ -2253,14 +2370,22 @@ static std::map<std::string, std::string> CollectStructBodies(const fs::path& sc
 static std::map<std::string, ComponentSerInfo> CollectComponentFields(const fs::path& scanDir,
                                                                       const std::set<std::string>& enumTypes)
 {
-    const std::map<std::string, std::string> structDefs = CollectStructBodies(scanDir);
+    const std::map<std::string, StructDef> structDefs = CollectStructBodies(scanDir);
     const std::set<std::string> assetTypes = CollectAssetTypes(scanDir);
     std::map<std::string, ComponentSerInfo> result;
-    for (auto const& [name, body] : structDefs)
+    for (auto const& [name, def] : structDefs)
     {
         if (!name.ends_with("Component"))
             continue;
-        result.emplace(name, ParseComponentFields(body, enumTypes, assetTypes, structDefs, {}));
+        // ECS components are `struct *Component` by convention — and every other
+        // generated touch-point (the AllComponents tuple, the SaveGame lists) is
+        // driven by the struct-only CollectComponentStructs scan. A `class *Component`
+        // in the registry (it holds classes since the MCP sub-object slice) is NOT an
+        // ECS component; skipping it keeps this scan's component set identical to
+        // theirs.
+        if (def.defaultPrivate)
+            continue;
+        result.emplace(name, ParseComponentFields(def.body, enumTypes, assetTypes, structDefs, {}));
     }
     return result;
 }
@@ -3270,6 +3395,254 @@ static void EmitSceneBinaryCoveredIds(std::ostream& out, const std::map<std::str
     }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// MCP generic-field-write registry codegen (issue #607)
+//
+// The editor's MCP diagnostics server exposes `olo_entity_set_field`, an
+// undoable, UUID-keyed write over a (component, field) -> typed-setter registry
+// (OloEditor/src/MCP/McpGenericFieldWrite.h). That registry used to be a
+// hand-written list of 9 components — exactly the sort of hand-maintained
+// touch-point that silently rots as components are added. It is now generated
+// from the SAME full data-member scan (CollectComponentFields) that drives the
+// scene serializer, so every component whose fields are practically editable is
+// reachable from MCP the moment it compiles.
+//
+// The parser already does the hard, fail-safe part for us:
+//   * a NON-PUBLIC member is never collected (it only marks the component
+//     non-trivial), so the generated `&Comp::Member` always compiles;
+//   * an OLO_SERIALIZE(Skip) member (runtime-only state) is dropped entirely;
+//   * an unrecognised / non-trivial member type is skipped.
+// Crucially, `ComponentSerInfo::fields` is populated even for a NON-trivial
+// component — `trivial` only says "every member was recognised". So a component
+// the scene serializer keeps hand-written (Rigidbody3DComponent, MeshComponent,
+// …) still contributes its recognised public fields here, which is exactly what
+// a debugging agent reaches for.
+// ════════════════════════════════════════════════════════════════════════════
+
+// Components deliberately NOT exposed to `olo_entity_set_field`: per-tick
+// runtime-derived state that is recomputed every frame (writing it from MCP is
+// meaningless at best, corrupting at worst) and entity identity (the UUID is the
+// addressing key — rewriting it would break the very handle used to address the
+// entity). This mirrors kComponentsNotInTuple minus TagComponent, which IS a
+// legitimate editable label. Guarded by McpFieldRegistryTest.
+static const std::set<std::string> kComponentsNotMcpEditable = {
+    "IDComponent",
+    "WorldTransformComponent",
+    // AnimationStateComponent is in the scene-copy tuple and IS serialized, but every
+    // field is playback state the animation system rewrites each tick (current time,
+    // blend factor, clip index): an MCP write is overwritten on the next frame at best
+    // and desyncs the blend at worst. Drive animation through the graph/state machine,
+    // not by poking this.
+    "AnimationStateComponent",
+    "UIResolvedRectComponent",
+    "DialogueStateComponent",
+    "SpringBoneStateComponent",
+    "NoiseAnimationStateComponent",
+    "RetargetingStateComponent",
+    "FootIKStateComponent",
+    "LocomotionStateComponent",
+};
+
+// Ranges the SceneSerializer's HAND-WRITTEN deserialize enforces but which are
+// not expressible as an OLO_SERIALIZE(Clamp) annotation yet (the component is in
+// kComponentsCustomSerialize, so its annotations would be ignored by the
+// serializer codegen — the range lives in the hand-written block instead). An MCP
+// write that bypassed these would put the component into a state a scene load
+// could never produce, so they are re-declared here, keyed "Component.Field".
+//
+// ONLY inclusive numeric bounds that are literally present in the hand-written
+// deserialize are listed — each entry is traceable to a line in
+// SceneSerializer.cpp::DeserializeEntityComponents. Strict `> 0` guards (e.g.
+// LightProbeVolumeComponent::Spacing, ReflectionProbeComponent::InfluenceRadius)
+// are deliberately NOT approximated with an invented epsilon; they stay
+// unclamped here and are called out in docs/guides/mcp-diagnostics-server.md.
+// The real fix — and the follow-up this leaves behind — is to migrate those
+// hand-written clamps onto OLO_SERIALIZE(Clamp, Min=…, Max=…), after which MCP
+// inherits them for free with no entry in this table.
+struct McpRange
+{
+    std::optional<std::string> min;
+    std::optional<std::string> max;
+};
+static const std::map<std::string, McpRange> kMcpFieldClamps = {
+    // SphereAreaLightComponent — deserialize REJECTS a negative value (keeps the
+    // default); MCP clamps to the same floor rather than silently accepting it.
+    { "SphereAreaLightComponent.Intensity", { std::string("0.0f"), std::nullopt } },
+    { "SphereAreaLightComponent.Radius", { std::string("0.0f"), std::nullopt } },
+    { "SphereAreaLightComponent.Range", { std::string("0.0f"), std::nullopt } },
+    // ReflectionProbeComponent — `std::clamp(m_Resolution, 16u, 2048u)` + `< 0.0f`
+    // rejects on Intensity / BlendDistance.
+    { "ReflectionProbeComponent.Resolution", { std::string("16u"), std::string("2048u") } },
+    { "ReflectionProbeComponent.Intensity", { std::string("0.0f"), std::nullopt } },
+    { "ReflectionProbeComponent.BlendDistance", { std::string("0.0f"), std::nullopt } },
+    // LightProbeVolumeComponent — `< 0.0f` reject on Intensity.
+    { "LightProbeVolumeComponent.Intensity", { std::string("0.0f"), std::nullopt } },
+    // StreamingVolumeComponent — `std::max(LoadRadius, 1.0f)`.
+    { "StreamingVolumeComponent.LoadRadius", { std::string("1.0f"), std::nullopt } },
+};
+
+// The field types the MCP write tool can coerce from JSON and echo back
+// (McpGenericFieldWrite.h's CoerceJson / FieldToJson / FieldChanged). Everything
+// else — a plain u64, an integer-vector / quaternion / matrix, a nested struct, a
+// Ref<T>, and every container (vector / set / map) — has no scalar JSON shape in
+// the tool's contract and is skipped. Skipping is safe and silent: the field is
+// simply not writable, and `olo_entity_list_fields` shows exactly what is.
+static bool IsMcpEditableField(const SerField& f)
+{
+    if (f.isVector || f.isSet || f.isMap)
+        return false;
+    switch (f.type)
+    {
+        case PropType::Bool:
+        case PropType::Int:
+        case PropType::UInt:
+        case PropType::SmallInt:
+        case PropType::SmallUInt:
+        case PropType::Float:
+        case PropType::Vec2:
+        case PropType::Vec3:
+        case PropType::Vec4:
+        case PropType::String:
+        case PropType::AssetHandle:
+        case PropType::Enum:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// Whether a range (clamp) can be applied to this field type by the MCP tool —
+// the numeric types plus the float vectors (clamped component-wise), mirroring
+// the serializer's own kClampEligible set (scalars + glm::vec3) but widened to
+// vec2/vec4 since the same component-wise clamp is well-defined there.
+static bool IsMcpRangeableField(const SerField& f)
+{
+    switch (f.type)
+    {
+        case PropType::Int:
+        case PropType::UInt:
+        case PropType::SmallInt:
+        case PropType::SmallUInt:
+        case PropType::Float:
+        case PropType::Enum:
+        case PropType::Vec2:
+        case PropType::Vec3:
+        case PropType::Vec4:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static std::string McpBound(const std::optional<std::string>& expr)
+{
+    return expr ? ("OLO_GFW_BOUND(" + *expr + ")") : std::string("OLO_GFW_NO_BOUND");
+}
+
+// How deep the MCP emitter follows a nested-record chain. `System.Emitter.Shape.X`
+// is depth 3; nothing real needs more, and the cap keeps a pathological type graph
+// (or a leaf-name collision in the record registry) from exploding the registry.
+constexpr int kMcpMaxNestingDepth = 4;
+
+// Recursively emit the registry entries for one component's field list. A
+// PropType::Struct member — trivial (LODGroupComponent's LODGroup) or PARTIAL
+// (ParticleSystemComponent's ParticleSystem) — is DESCENDED into rather than
+// skipped: its public, JSON-coercible leaves become dotted fields addressed by a
+// member-access chain (`System.Emitter.RateOverTime`), which the OLO_GFW_FIELD macro
+// turns into an accessor lambda. Containers (vector / set / map) are not descended:
+// a dotted path cannot address an element, and there is no static field name for one.
+static void EmitMcpFieldsRecursive(std::ostream& out, const std::string& component,
+                                   const std::vector<SerField>& fields,
+                                   const std::string& keyPrefix, const std::string& memberPrefix,
+                                   int depth, std::size_t& emitted);
+
+// Emit the registry body #include'd inside GenericFieldWrite::BuildRegistry().
+// Returns the number of (component, field) pairs emitted.
+static std::size_t EmitMcpFieldRegistry(std::ostream& out, const std::map<std::string, ComponentSerInfo>& comps)
+{
+    out << "// Auto-generated by OloHeaderTool — DO NOT EDIT MANUALLY\n";
+    out << "// Re-generate with: cmake --build build --target GenerateBindings\n";
+    out << "//\n";
+    out << "// The MCP `olo_entity_set_field` / `olo_entity_list_fields` field registry\n";
+    out << "// (issue #607). One entry per public, JSON-coercible data member of every\n";
+    out << "// `struct *Component` under OloEngine/src, minus the runtime-only components\n";
+    out << "// in the generator's kComponentsNotMcpEditable set and minus every field the\n";
+    out << "// shared field scan drops (non-public, OLO_SERIALIZE(Skip), or a type with no\n";
+    out << "// scalar JSON shape: u64 / ivec / quat / mat / struct / Ref<T> / container).\n";
+    out << "//\n";
+    out << "// A ranged entry (OLO_GFW_FIELD_RANGE) carries the SAME bounds the scene\n";
+    out << "// serializer enforces on load — from the field's OLO_SERIALIZE(Clamp, …)\n";
+    out << "// annotation, or (for a component the serializer keeps hand-written) from the\n";
+    out << "// generator's kMcpFieldClamps table. A write outside the range is CLAMPED and\n";
+    out << "// reported as `clamped: true` with the original `requestedValue`.\n";
+    out << "//\n";
+    out << "// #include'd inside GenericFieldWrite::BuildRegistry(), where `registry`\n";
+    out << "// (std::vector<FieldEntry>&) and the OLO_GFW_* macros are in scope.\n\n";
+
+    std::size_t emitted = 0;
+    for (auto const& [name, info] : comps)
+    {
+        if (kComponentsNotMcpEditable.contains(name))
+            continue;
+
+        std::ostringstream body;
+        std::size_t before = emitted;
+        EmitMcpFieldsRecursive(body, name, info.fields, "", "", 0, emitted);
+        if (emitted == before)
+            continue; // no writable leaf anywhere in this component
+
+        out << "// " << name << "\n"
+            << body.str() << "\n";
+    }
+    return emitted;
+}
+
+static void EmitMcpFieldsRecursive(std::ostream& out, const std::string& component,
+                                   const std::vector<SerField>& fields,
+                                   const std::string& keyPrefix, const std::string& memberPrefix,
+                                   int depth, std::size_t& emitted)
+{
+    for (const SerField& f : fields)
+    {
+        if (f.isVector || f.isSet || f.isMap)
+            continue; // no static field name for a container element
+
+        if (f.type == PropType::Struct)
+        {
+            if (depth + 1 >= kMcpMaxNestingDepth)
+                continue;
+            EmitMcpFieldsRecursive(out, component, f.subFields, keyPrefix + f.key + ".",
+                                   memberPrefix + f.member + ".", depth + 1, emitted);
+            continue;
+        }
+        if (!IsMcpEditableField(f))
+            continue;
+
+        const std::string key = keyPrefix + f.key;
+
+        McpRange range;
+        if (f.hasClamp && IsMcpRangeableField(f))
+            range = McpRange{ f.clampMin, f.clampMax };
+        // kMcpFieldClamps is keyed by the FULL dotted field name, so a hand-written
+        // serializer's clamp on a nested field would be spelled "Comp.Sub.Field".
+        if (auto it = kMcpFieldClamps.find(component + "." + key);
+            it != kMcpFieldClamps.end() && IsMcpRangeableField(f))
+            range = it->second;
+
+        if (range.min || range.max)
+        {
+            out << "registry.push_back(OLO_GFW_FIELD_RANGE(" << component << ", \"" << key << "\", "
+                << memberPrefix << f.member << ", " << McpBound(range.min) << ", " << McpBound(range.max) << "));\n";
+        }
+        else
+        {
+            out << "registry.push_back(OLO_GFW_FIELD(" << component << ", \"" << key << "\", "
+                << memberPrefix << f.member << "));\n";
+        }
+        ++emitted;
+    }
+}
+
 // ─── C++ Mono Bindings Emitter ──────────────────────────────────────────────────
 
 static void EmitCppBindings(std::ostream& out, const std::vector<ComponentDef>& components)
@@ -3740,11 +4113,34 @@ static bool WriteSceneSerializerBlocks(const fs::path& sceneOutDir, const std::m
     return serOk && deserOk && binWriteOk && binReadOk && binCoveredOk;
 }
 
+// Emit the MCP generic-field-write registry to
+// <mcp_out_dir>/McpFieldRegistry.Generated.inl, #include'd by
+// OloEditor/src/MCP/McpGenericFieldWrite.h inside BuildRegistry(). Same
+// non-empty guard as every other list: an empty registry would silently strip
+// EVERY writable field from `olo_entity_set_field` (the tool would still answer,
+// just refuse everything) — refuse and fail the build loudly instead.
+static bool WriteMcpFieldRegistry(const fs::path& mcpOutDir, const std::map<std::string, ComponentSerInfo>& componentFields)
+{
+    std::ostringstream ss;
+    const std::size_t emitted = EmitMcpFieldRegistry(ss, componentFields);
+    if (emitted == 0)
+    {
+        std::cerr << "ERROR: MCP field-registry codegen found 0 writable component fields — "
+                     "the field parser almost certainly broke. Refusing to overwrite "
+                     "McpFieldRegistry.Generated.inl with an empty registry.\n";
+        return false;
+    }
+    std::cout << "OloHeaderTool: MCP field registry — " << emitted << " writable fields ("
+              << kComponentsNotMcpEditable.size() << " runtime-only components excluded)\n";
+    return ReportWrite(mcpOutDir / "McpFieldRegistry.Generated.inl", ss.str());
+}
+
 int main(int argc, char* argv[])
 {
-    if (argc < 6)
+    if (argc < 7)
     {
-        std::cerr << "Usage: OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir> <scene_out_dir> <savegame_out_dir>\n";
+        std::cerr << "Usage: OloHeaderTool <scan_dir> <cpp_out_dir> <cs_out_dir> <scene_out_dir> "
+                     "<savegame_out_dir> <mcp_out_dir>\n";
         return 1;
     }
 
@@ -3753,6 +4149,7 @@ int main(int argc, char* argv[])
     fs::path csOutDir = argv[3];
     fs::path sceneOutDir = argv[4];
     fs::path saveGameOutDir = argv[5];
+    fs::path mcpOutDir = argv[6];
 
     if (!fs::exists(scanDir))
     {
@@ -3806,7 +4203,14 @@ int main(int argc, char* argv[])
         // enum-type set lets the field parser recognise enum-typed members (which
         // round-trip as an int) instead of treating them as unknown non-trivial.
         auto enumTypes = CollectEnumTypes(scanDir);
-        if (!WriteSceneSerializerBlocks(sceneOutDir, CollectComponentFields(scanDir, enumTypes)))
+        const std::map<std::string, ComponentSerInfo> componentFields = CollectComponentFields(scanDir, enumTypes);
+        if (!WriteSceneSerializerBlocks(sceneOutDir, componentFields))
+            errors = true;
+        // The MCP `olo_entity_set_field` registry (issue #607) — same field scan,
+        // a different consumer: every public, JSON-coercible member of every
+        // component (including the ones the serializer keeps hand-written, whose
+        // recognised fields the scan still collects).
+        if (!WriteMcpFieldRegistry(mcpOutDir, componentFields))
             errors = true;
     }
 

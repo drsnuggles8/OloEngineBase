@@ -173,6 +173,8 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_scene_play` / `olo_scene_stop` | **(consented write)** enter / leave Play mode — the same as the editor's Play/Stop buttons, so an agent can verify anything that only runs in Play (physics, cloth, scripts). Transient + fully reversible (stop restores the authored scene); idempotent (`changed:false` when already in that state); `olo_scene_summary` reports `isPlaying` to confirm. Gated behind **Agent writes** |
 | `olo_scene_list_entities` | paginated entity list (id, name, parent, child count) + name filter |
 | `olo_scene_get_entity` | one entity's full component data (YAML) by UUID |
+| `olo_entity_list_fields` | the writable (component, field) pairs of one entity with each field's type, current value, and — for a range-validated field — its `min`/`max`. The read-only discovery half of `olo_entity_set_field`; optional `component` filter. See [Component field writes](#component-field-writes-olo_entity_set_field) |
+| `olo_entity_set_field` | **(consented write)** set one component field by (`component`, `field`, `value`) — undoable (a single Ctrl-Z), UUID-keyed. The registry is **generated from every component definition** (issue #607), so it spans the whole ECS surface (meshes/materials/VirtualMesh, lights, fog/probes, physics bodies + colliders, text/UI, nav, water, terrain, …), not a curated handful. Out-of-range values are **clamped** to the serializer's own range (`clamped:true` + `requestedValue`); the result echoes `value` **read back from the component** plus `changed:true/false`. Gated behind **Agent writes**. See [Component field writes](#component-field-writes-olo_entity_set_field) |
 | `olo_perf_snapshot` | fps, frame/CPU/GPU time (real whole-frame GPU timer), `gpuWaitMs` (CPU blocked on the GPU fence — the direct GPU-bound signal), draw calls, instancing, triangles, plus `renderWidth`/`renderHeight` — the ACTUAL SceneColor render resolution; cross-check it against any `olo_viewport_set_size` override before trusting timings |
 | `olo_perf_bottlenecks` | CPU/GPU/Memory/IO bottleneck + confidence + recommendations (uses real cpu/gpu/gpuWait numbers) |
 | `olo_perf_frame_history` | downsampled recent-frame time series |
@@ -198,10 +200,11 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_camera_frame_entity` | point the camera at an entity (by UUID) and fit it in view |
 | `olo_viewport_set_size` | override the viewport's logical render size for deterministic captures (`reset` to clear). The override wins over window/panel resizes (the editor reasserts it after any OS window-resize event); verify with `olo_perf_snapshot`'s `renderWidth`/`renderHeight` before perf measurements |
 | `olo_render_list_targets` | the render graph's live texture/framebuffer resources (name, kind, format, size, producers) |
-| `olo_render_capture_target` | read back one intermediate render target (depth, normals, G-buffer, shadow map, AO, post-process stages, …) as a PNG image block; depth is min-max normalised by default |
+| `olo_render_capture_target` | read back one intermediate render target (depth, normals, G-buffer, shadow map, AO, post-process stages, …) as a PNG image block; depth is min-max normalised by default. `layer` picks one slice of an **array** target (CSM cascade 0–3, `ShadowCSMRaw` / `ShadowAtlasRaw`); out-of-range is an error, never a silent layer-0 capture |
+| `olo_froxel_fog_probe` | sample the volumetric-fog **froxel volume** at one cell (`froxel`:[x,y,z] or `worldPos`:[x,y,z]) — returns the RAW scatter (in-scatter + extinction) **and** the INTEGRATED values (accumulated in-scatter + transmittance) plus the cell's world bounds, so "scatter pass wrong" and "composite tap wrong" separate without a PNG round trip |
 | `olo_render_compare_golden` | capture the viewport (optional `camera`/`orbit` pose) and diff it against a golden PNG (`goldenPath`): returns a numeric `similarity`/`rmse`/`ssim` + `pass` verdict; missing golden or `rebase`:true writes the capture as the new baseline (the `OLOENGINE_GOLDEN_REBASE` workflow) |
 | `olo_render_toggle_pass` | flip a post-process / fog feature on/off (`name` + optional `enabled`) — the ephemeral A/B loop: toggle off → `olo_screenshot` → toggle on → `olo_screenshot`. No `name` lists every pass + its live state |
-| `olo_render_set_debug_view` | switch the viewport to a raw AO/SSR/SSGI buffer or the overdraw heatmap (`mode`: none/ssao/gtao/ssr/ssgi/overdraw); reports whether the backing pass is actually running. No `mode` lists the modes + current state |
+| `olo_render_set_debug_view` | switch the viewport to a raw AO/SSR/SSGI buffer, the overdraw heatmap, or a virtualized-geometry visualization (`mode`: none/ssao/gtao/ssr/ssgi/overdraw/**vgclusterid/vglod/vgoverdraw**); reports whether the backing pass is actually running, and (for the vg\* modes) the `captureTarget` to read back. No `mode` lists the modes + current state |
 | `olo_renderer_settings_set` | **(consented write)** set a multi-valued, session-global renderer / post-process setting — `upscale` (FSR1 spatial-upscale mode), `tonemap` (operator), `renderpath` (forward/forward+/deferred), `depthprepass` (off/on/auto — the #316 perf lever), `softshadows` (pcf/pcss — THE ScenePass shadow-cost lever) — to verify a rendering feature live at each value. The enum-valued sibling of `olo_render_toggle_pass`; reports `previousValue` for restore-prior-value (no undo stack). No args lists every setting + current value + allowed values. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
 | `olo_scene_set_time_of_day` | move the procedural sky's sun to a 24-hour clock time (`hours` 0–24) for lighting iteration — ephemeral session override of the sun direction, never written to the scene. `clear`:true restores the authored sun; no args reports the current override |
 | `olo_scene_set_sun_angle` | aim the procedural sky's sun directly from a `yaw` (azimuth) / `pitch` (elevation) pair — the precise sibling of `olo_scene_set_time_of_day`, same ephemeral session override. `clear`:true restores; no args reports state |
@@ -212,12 +215,14 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_physics_raycast` | cast a ray (`origin` + `direction`\|`to`) through the live physics world: closest hit, or up to `maxHits` ordered hits (entity, position, normal, distance) |
 | `olo_physics_overlap` | bodies overlapping a sphere (`radius`) or box (`halfExtents`) at `origin`; requires Play mode |
 | `olo_physics_why_no_collision` | explain why two entities (`a`, `b`) are NOT colliding — the "player falls through the floor" debugger: root-cause `reasonCode`, summary, ordered checks, and per-entity facts |
+| `olo_input_inject` | **(consented write)** inject synthetic mouse/keyboard input — `click` / `move` / `drag` / `key` / `text` — into the editor's own input stream, so you can verify that an interactive handler actually FIRES (a viewport click selects the right entity; a panel button does what it claims), not merely that the editor renders. Synchronous: returns once the injected frames have been rendered, with the resulting selected/hovered entity in `after`. Gated behind **Agent writes**. See [Interactive UI verification](#interactive-ui-verification-olo_input_inject) |
 
 ### Write consent — Disabled / Prompt / Allow all (issue #306 item C)
 
 Every project-mutating tool (`olo_set_collision_layer`, `olo_entity_set_field`,
 `olo_reload_script`, `olo_renderer_settings_set`, `olo_scene_open`,
-`olo_scene_play`, `olo_scene_stop` — anything marked **(consented write)** above)
+`olo_scene_play`, `olo_scene_stop`, `olo_input_inject` — anything marked
+**(consented write)** above)
 is gated in the MCP panel by a three-way **Agent writes** control.
 It is **off by default and never persisted**, so every editor launch starts read-only
 and the human at the editor opts in for the session:
@@ -252,6 +257,71 @@ while the main (UI) thread renders the modal and records your decision — the s
 main-thread-marshal discipline the read tools use, so the editor's render loop never
 blocks on an agent.
 
+### Component field writes (`olo_entity_set_field`)
+
+`olo_entity_set_field` mutates one component field on one entity, through the
+editor's undo stack (`ComponentChangeCommand<T>`, UUID-keyed — a single Ctrl-Z).
+`olo_entity_list_fields` is its read-only discovery half.
+
+**The registry is generated, not curated (issue #607).** It used to be a
+hand-written list of nine components, so most of the engine — `VirtualMeshComponent`,
+`MeshComponent`, the physics bodies, `TextComponent`, the fog/probe volumes — was
+simply unwritable, and a live debugging session had to fall back to hand-editing
+scene YAML and reloading. OloHeaderTool now emits the registry
+(`OloEditor/src/MCP/Generated/McpFieldRegistry.Generated.inl`) from the **same
+component data-member scan that drives the scene serializer**, so a new component is
+MCP-writable the moment it compiles — no touch-point to forget.
+
+What is writable:
+
+- **Every public data member** of every `struct *Component` whose type has a scalar
+  JSON shape: `bool`, `int`/`uint`/small ints, `float`, `glm::vec2|3|4`, an `enum`
+  (as its integer value), `std::string`, and `AssetHandle` (a decimal-digit **string**
+  — a u64 exceeds JSON's safe-integer range).
+- **Not** writable, by design: per-tick runtime state (the `*StateComponent` family,
+  `AnimationStateComponent`, `UIResolvedRectComponent`, `WorldTransformComponent`),
+  entity identity (`IDComponent` — its UUID is the addressing key), any field marked
+  `OLO_SERIALIZE(Skip)` (e.g. `NavAgentComponent`'s pathfinder state), any non-public
+  member (`TransformComponent::Rotation` — a derived euler/quat pair behind setters),
+  and any field with no scalar JSON shape (a `Ref<T>`, a nested struct, a container,
+  a `glm::quat`/`mat4`/`ivec*`). A component whose members are *all* of that kind
+  (e.g. `ParticleSystemComponent`, `AudioSourceComponent`, whose authored parameters
+  live inside a nested non-POD object) therefore exposes **no** writable fields yet —
+  addressing sub-objects is a follow-up.
+
+**Ranges are enforced, and a clamp is reported.** A field whose scene-load path
+clamps or rejects out-of-range values carries the same bounds here — from its
+`OLO_SERIALIZE(Clamp, Min=…, Max=…)` annotation, or (for a component whose serializer
+is hand-written) from the generator's `kMcpFieldClamps` table. So MCP can never put a
+component into a state a scene load could not produce. Bounds are visible up front in
+`olo_entity_list_fields` (`min`/`max` per field). *Known gap:* a hand-written
+serializer's strict `> 0` guards (e.g. `LightProbeVolumeComponent::Spacing`,
+`ReflectionProbeComponent::InfluenceRadius`) are **not** approximated with an invented
+epsilon and stay unclamped here; the fix is to migrate those hand-written clamps onto
+`OLO_SERIALIZE(Clamp, …)`, after which MCP inherits them for free.
+
+**The response is verifiable — do not trust "the call returned".** `value` is read
+back **out of the live component after the write**, not echoed from the input, and
+`changed` says whether anything actually moved:
+
+```jsonc
+// olo_entity_set_field { "entity": "12345…", "component": "VirtualMeshComponent",
+//                        "field": "ErrorThresholdPixels", "value": 1000 }
+{ "entity": "12345…", "component": "VirtualMeshComponent", "field": "ErrorThresholdPixels",
+  "type": "float", "previousValue": 1.0,
+  "value": 64.0,             // ← READ BACK from the component; the clamped result
+  "requestedValue": 1000.0,  // ← what you asked for
+  "clamped": true,           // ← it was out of range
+  "changed": true, "undoable": true }
+
+// A no-op write says so instead of looking like a success:
+{ …, "value": 2.0, "changed": false, "undoable": false, "clamped": false }
+```
+
+An unknown component or field is a **tool error** that lists the valid alternatives
+(`Editable components: …` / `Editable fields: …`), so a typo self-corrects in one
+round-trip rather than looking like a write that quietly did nothing.
+
 ### Toolsets & on-demand tool discovery (`tools/search`)
 
 The tool surface is large enough (52 built-in tools; the full `tools/list` measures
@@ -266,12 +336,13 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_crash_list`, `olo_crash_get` |
 | `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_stop` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
-| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_render_compare_golden`, `olo_render_why_not_visible` |
+| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
 | `assets` | `olo_assets_list`, `olo_assets_problems` |
 | `scripting` | `olo_script_get_api`, `olo_script_get_last_errors`, `olo_reload_script` |
 | `camera` | `olo_screenshot`, `olo_camera_get`, `olo_camera_set_pose`, `olo_camera_orbit`, `olo_camera_frame_entity`, `olo_viewport_set_size` |
 | `physics` | `olo_physics_layer_matrix`, `olo_physics_list_colliders`, `olo_physics_contacts`, `olo_physics_raycast`, `olo_physics_overlap`, `olo_physics_why_no_collision`, `olo_set_collision_layer` |
+| `input` | `olo_input_inject` |
 
 `tools/search` params (both optional):
 
@@ -509,6 +580,118 @@ human's editor. The `run-oloengine` skill's `attach` action sets it (typically
 `olo_scene_open` itself never raises the modal — it loads the requested file
 directly, since an agent explicitly asked for that scene.
 
+(`olo_input_inject`, below, *can* now click that modal's buttons — it reaches ImGui
+where Win32 injection cannot. But the env var stays the right answer for the
+recovery modal specifically: it removes the wedge at launch, before any tool call is
+possible, and needs no write consent.)
+
+### Interactive UI verification (`olo_input_inject`)
+
+**(consented write — gated behind Agent writes.)** The read-only tools can prove the
+editor *renders*; they cannot prove a **click handler fires**. Verifying interactive UI
+wiring — "does clicking that bone in the Animation panel actually select it in the
+hierarchy?" — used to need a human at the keyboard (issue #607). `olo_input_inject`
+closes that: it drives the editor's own input stream so an agent can click, drag, and
+type, then observe the state change.
+
+It is **not** an OS-level injector. `SendInput` / `SetCursorPos` would be worse than
+useless here: the editor is normally *not* the foreground window when an agent drives it
+(a background process cannot steal foreground on Windows), so OS input would land in
+whatever window *is* focused — i.e. it would type into the user's real foreground app.
+Instead the events are fed to the **ImGui GLFW backend callbacks** — the exact functions
+GLFW calls for real input. Each one feeds `ImGuiIO` *and* chains to the engine's own
+GLFW callback, which raises the corresponding engine `Event` through the layer stack. So
+a single injected click reaches **both** ImGui widgets **and** the viewport entity-picking
+path, exactly as a real click does. (The engine's poll-based `Input::IsKeyPressed` /
+`IsMouseButtonPressed` / `GetMousePosition` read *hardware* state, which no synthetic
+event can move; `OloEngine::SyntheticInput` is the overlay that makes them agree, so an
+injected Ctrl+click really is a Ctrl+click.)
+
+**Actions**
+
+| `action` | arguments |
+|---|---|
+| `click` | `x`, `y`, `button?` (left/right/middle), `space?`, `modifiers?`, `doubleClick?` |
+| `move` | `x`, `y`, `space?` |
+| `drag` | `fromX`, `fromY`, `toX`, `toY`, `button?`, `space?`, `steps?` (1–64) |
+| `key` | `key`, `modifiers?`, `keyAction?` (`tap` default / `press` / `release`) |
+| `text` | `text` (printable ASCII, ≤ 256 chars — typed into the focused ImGui widget) |
+
+`key` accepts a single printable character (`"s"`, `"5"`) or a named key: `escape`,
+`enter`, `tab`, `backspace`, `delete`, `insert`, `up`/`down`/`left`/`right`, `home`,
+`end`, `pageup`, `pagedown`, `space`, `f1`–`f12`, `ctrl`, `shift`, `alt`. Chords go
+through `modifiers` (`{ "action":"key", "key":"s", "modifiers":["ctrl"] }` = Ctrl+S),
+never through the key name. `keyAction: "press"` deliberately leaves the key **held**
+until a matching `"release"` call.
+
+**Coordinate spaces — read this before you click**
+
+An off-by-one coordinate space makes this tool a liar, so `space` is explicit:
+
+| `space` | meaning |
+|---|---|
+| `viewport` (default) | pixels of the `olo_screenshot` image **at native resolution**, origin top-left, +Y down. Note `olo_screenshot` downscales to `maxWidth` (default 1024) — if it did, its pixels are **not** these. |
+| `viewportNorm` | fractional `[0, 1]` across the viewport, origin top-left. **Downscale-proof — prefer this after a screenshot** (`x = px / imageWidth`, `y = py / imageHeight`). |
+| `window` | OS window client pixels, origin top-left. The space the ImGui panels live in — use it to click menus, buttons, and hierarchy rows **outside** the 3D viewport. |
+
+A point outside the viewport (in a viewport space) or outside the window is a hard
+error, never a silently clamped click. The response echoes the resolved point in both
+window and native-viewport pixels plus the viewport's `pixelWidth`/`pixelHeight`, so a
+mis-aimed click is visible rather than mysterious.
+
+**Timing — why the call is synchronous**
+
+A click is not an instant. ImGui only registers one if the button is **down across at
+least one full frame** (a same-frame press+release never fires `IsItemClicked`), and the
+editor's viewport entity picking is **two frames behind the cursor** (async PBO readback:
+it issues the read at the ImGui mouse position one frame and reads it back the next). So
+the tool expands each action into a frame-quantized plan — move → settle → press → hold →
+release → settle — and the editor applies exactly **one frame of it per tick**, on the
+game thread (`ImGuiIO` and the event queue are not thread-safe; nothing is injected from
+the HTTP worker). The call then **blocks until those frames have been rendered**, so you
+can immediately follow it with `olo_screenshot` / `olo_scene_summary` and see the result
+rather than a frame from before the click.
+
+The response's `after` block already reports the consequence — no second round-trip:
+
+```jsonc
+{
+  "ok": true,
+  "framesInjected": 13,
+  "resolved": { "windowX": 940, "windowY": 460, "viewportPixelX": 640, "viewportPixelY": 360, "insideViewport": true },
+  "viewport": { "pixelWidth": 1280, "pixelHeight": 720, "dpiScale": 1.0 },
+  "after": {
+    "pending": false,
+    "viewportHovered": true,
+    "selectedEntity": { "id": "12652600558176869447", "name": "Cube" },
+    "hoveredEntity":  { "id": "12652600558176869447", "name": "Cube" }
+  }
+}
+```
+
+**The verification loop**
+
+```jsonc
+// 1) olo_screenshot {}                    -> look at the frame, pick a pixel on the thing
+// 2) olo_input_inject { "action": "click", "space": "viewportNorm", "x": 0.5, "y": 0.55 }
+//    -> "after".selectedEntity is the entity you aimed at? the click handler fired.
+// 3) olo_screenshot {}                    -> the selection outline is now drawn around it
+```
+
+For an ImGui widget (a menu, a panel button, a hierarchy row), use `space: "window"` and
+read the pixel off a full-window screenshot from the `run-oloengine` driver
+(`driver.ps1 -Action shot`, which captures the whole window, not just the viewport).
+
+**Caveats**
+
+- One plan at a time: a second call while a sequence is still draining is refused
+  (interleaving a press into someone else's drag means nothing). Retry once it drains —
+  the calls are synchronous, so this only bites concurrent agents.
+- `keyAction: "press"` leaves the key held on purpose. Send the matching `"release"`, or
+  the next thing you do runs with that key down.
+- The synthetic cursor override is dropped when a plan finishes, handing the mouse back
+  to the human. Synthetic key/button state never masks a real physical press.
+
 ### Render override A/B (`olo_render_toggle_pass` / `olo_render_set_debug_view`)
 
 These are the **ephemeral render-override** tools — the rendering counterpart of the
@@ -582,6 +765,93 @@ scene fill-bound?* and *is the depth prepass earning its keep?* at a glance. Geo
 no depth-only shader variant (skybox / terrain / voxel / custom-shader meshes) is skipped,
 so the heatmap is an honest count of the batchable opaque mesh geometry rather than a
 guess for everything.
+
+**The `vg*` modes** (`vgclusterid` / `vglod` / `vgoverdraw`, issue #607) are the
+virtualized-geometry (Nanite-style cluster LOD DAG) visualizations. They are the odd ones
+out in a different way: they do **not** replace the viewport, they render into the
+`VirtualGeometryDebug` render-graph target — so the flow is two calls, and the response
+says so via `captureTarget`:
+
+```jsonc
+// olo_render_set_debug_view { "mode": "vglod" }
+{ "mode": "vglod", "virtualGeometryDebugMode": "lod", "passEnabled": true,
+  "captureTarget": "VirtualGeometryDebug",
+  "note": "Capture it with olo_render_capture_target { name: 'VirtualGeometryDebug' }." }
+// then: olo_render_capture_target { "name": "VirtualGeometryDebug" }
+```
+
+They are the **same knob** as `olo_virtual_geometry_set { debugMode }` — one write path,
+so the two tools always report the same current state (setting a mode through either is
+visible in the other's `current`, and selecting any non-`vg*` mode — including `none` —
+turns the virtual-geometry visualization off, because exactly one debug view is active at
+a time). Virtual geometry renders on the **Deferred** path only; the `note` says so when
+it isn't. The mode change gates a render-graph *declaration*, so the tool settles a few
+frames before returning — an immediately-following capture resolves the target instead of
+answering "Unknown render-graph resource".
+
+### Array render targets — capturing one CSM cascade (`layer`)
+
+Shadow maps are **2D array** textures: the CSM is a 4-layer cascade array, and
+`ShadowCSMRaw` / `ShadowAtlasRaw` are the comparison-OFF raw-depth views the PCSS blocker
+search actually reads (issue #607 — until now they were pass-owned raw GL ids, invisible
+to both `olo_render_list_targets` and `olo_render_capture_target`). To inspect one
+cascade:
+
+```jsonc
+// olo_render_list_targets  ->  the array targets report their layer count
+{ "name": "ShadowMapCSM", "kind": "Texture2DArray", "format": "Depth32Float",
+  "width": 2048, "height": 2048, "layers": 4 }
+
+// olo_render_capture_target { "name": "ShadowCSMRaw", "layer": 2 }
+```
+
+`layer` (alias: the original `face`) selects the array layer or cube face. It is
+**validated**, not clamped: asking for cascade 7 of a 4-cascade array is an error, because
+silently returning cascade 0 is the confidently-wrong answer this whole tool family exists
+to remove. Two related rules the capture path now honours:
+
+- A **per-cascade layer view** (`ShadowMapCSMCascade3`) resolves to its *parent* array
+  texture — that is what a sampler binding wants — so a readback that ignored the view's
+  own layer would hand back cascade 0's pixels with no error at all. Such a resource now
+  defaults to **its own** layer, and reports it in the capture meta.
+- Depth targets are min-max **normalised** by default (`normalize` overrides), so a
+  cascade is legible rather than a flat white field.
+
+### Probing the froxel fog volume (`olo_froxel_fog_probe`)
+
+Every volumetric-fog check we have compares **final-frame pixels**, which cannot tell
+*"the scatter pass injected nothing here"* from *"fog was injected, but the composite
+tapped the wrong froxel"*. `olo_froxel_fog_probe` samples the froxel volume itself
+(issue #607; relates to #435) and returns **both** stages at one cell:
+
+- `scatter` — `FroxelFogScatter.comp`'s output: per-froxel in-scattered radiance +
+  extinction (what media injection and lighting produced).
+- `integrated` — `FroxelFogIntegrate.comp`'s output: in-scatter accumulated from the
+  camera to that slice + the transmittance — exactly what the fog composite trilinearly
+  taps.
+
+Raw right + integrated wrong isolates the integration; both right + the frame still wrong
+isolates the composite tap.
+
+```jsonc
+// olo_froxel_fog_probe { "worldPos": [4, 2, -12] }
+{ "volume": { "dims": [160, 90, 64], "near": 0.1, "far": 120.0,
+              "depthDistribution": "exponential: viewDepth = near * exp2(log2(far/near) * (z + 0.5) / dimZ)" },
+  "froxel": { "coords": [96, 51, 47], "viewDepth": 12.9, "inFrustum": true, "inDepthRange": true,
+              "centerWorld": [4.01, 2.02, -11.98],
+              "cellBounds": { "min": [...], "max": [...], "nearViewDepth": 12.5, "farViewDepth": 13.3 } },
+  "scatter":    { "available": true, "inScatter": [0.41, 0.44, 0.52], "extinction": 0.031 },
+  "integrated": { "available": true, "inScatter": [0.12, 0.13, 0.16], "transmittance": 0.78 } }
+```
+
+Address the cell either directly (`froxel: [x, y, z]`) or by world position
+(`worldPos: [x, y, z]`), which is projected through the **same** mapping the shaders use —
+including the **exponential** z-slice distribution and the view-ray secant scaling. A
+world position outside the frustum, or beyond the fog volume's depth range (the volume
+ends at `FogSettings::End`, clamped to [20, 500] — *not* at the camera far plane), is
+reported as such rather than silently answered from the nearest cell. With fog or
+volumetric fog disabled the froxel compute chain never runs, and the tool says so with the
+toggle to flip instead of failing opaquely.
 
 ### Multi-valued renderer settings (`olo_renderer_settings_set`)
 
@@ -926,10 +1196,11 @@ utilities:
 ### Script-defined tools (Lua)
 
 You can add **project-specific diagnostics tools** to the server without
-recompiling the engine (issue #357; design in
+recompiling the engine (issues #357 / #607; design in
 [`docs/adr/0005-mcp-script-tools-lua-sandbox.md`](../adr/0005-mcp-script-tools-lua-sandbox.md)).
-Drop `*.lua` files into **`<project assets>/McpTools/`**; each is executed once
-when the MCP server starts and registers tools via the injected global:
+Drop `*.lua` files into **`<project assets>/McpTools/`**; each is executed when
+the scripts are scanned (at editor start, and on every live reload) and registers
+tools via the injected global:
 
 ```lua
 -- Assets/McpTools/health_digest.lua
@@ -958,22 +1229,83 @@ The rules (enforced, not advisory):
   state with `base`/`math`/`string`/`table` only; there is no `io`, `os`,
   `debug`, `package`, `require`, `dofile`, `loadfile`, or `load`, and `print`
   goes to the engine log. The only engine access is
-  `olo.call_tool(name, args)` — which invokes any registered **read-only**
-  tool (consented-write tools are refused) — and `olo.log(message)`. Script
-  tools are therefore read-only by construction and are listed with
-  `readOnlyHint:true`.
+  `olo.call_tool(name, args)` and `olo.log(message)`.
+- **Read-only by default; write tier by declaration.** Without `writes = true`
+  a script tool is `readOnlyHint:true` and `olo.call_tool` refuses **every**
+  project-mutating tool — including another script tool that declares
+  `writes = true` (it is itself a write tool), so there is no path from a
+  read-only tool to a mutation. See "Write-tier script tools" below.
 - **Schema-enforced like native tools.** The optional `schema` table becomes
   the tool's `inputSchema`; malformed arguments are rejected before your
   handler runs, exactly as for built-in tools.
 - **Failure is contained.** A Lua error becomes a clean `isError:true` result
   with the message; a runaway handler is stopped by a per-call watchdog
-  (default 10 s) and honours MCP cancellation; a result that can't map to JSON
-  (functions, userdata, mixed keys) is reported as an error.
-- **Loading happens at server start.** Edit or add scripts, then restart the
-  server from the MCP panel to pick them up (the tool list is immutable per
-  run, which is why the server can keep advertising `listChanged:false`).
-  Registration failures (bad name, duplicate, no handler) are logged to the
-  engine log and skipped — they never take the server down.
+  (default 10 s) and honours MCP cancellation; a handler that allocates without
+  bound is stopped by a per-state **memory quota** (default 64 MiB of headroom
+  — an allocation bomb fails its own call with a memory error instead of taking
+  the editor down); a result that can't map to JSON (functions, userdata, mixed
+  keys) is reported as an error.
+- **Icons are optional** (MCP SEP-973): pass
+  `icons = { { src = "data:image/svg+xml;base64,…", mimeType = "image/svg+xml",
+  sizes = { "any" } } }` and the client may show it next to your tool. `src` is
+  required; an `https://` URL works too. Omit the key entirely if you have none.
+- **Registration failures never take the server down** (bad name, duplicate, no
+  handler, malformed schema/icons, a non-boolean `writes`): they are logged, the
+  tool is skipped, and the panel surfaces the count.
+
+#### Reloading edited scripts — no restart (issue #607)
+
+Edit a `.lua` file and pick it up **live**, with the server still running:
+
+- call **`olo_script_tools_reload`** (an agent can iterate on its own tools), or
+- click **"Reload script tools"** in the MCP panel.
+
+Either rescans `<project assets>/McpTools/*.lua` and republishes the whole set —
+additions, edits and **deletions** all take effect. Calls already in flight keep
+running against the tools they started with. The server then emits a
+`notifications/tools/list_changed` on every live `GET /mcp` stream (and
+advertises `capabilities.tools.listChanged: true`), so **call `tools/list` again
+after a reload**.
+
+#### Write-tier script tools (`writes = true`)
+
+A script tool that declares `writes = true` becomes a project-write tool:
+
+```lua
+RegisterMcpTool{
+    name    = "script_perf_lite_mode",
+    title   = "Renderer: lite mode",
+    writes  = true,                     -- <- the whole opt-in
+    schema  = { type = "object", properties = {}, additionalProperties = false },
+    handler = function(args)
+        -- Only reachable because this tool declared writes = true.
+        local r = olo.call_tool("olo_renderer_settings_set",
+                                { setting = "upscale", value = "performance" })
+        return { applied = r }
+    end,
+}
+```
+
+(The full example ships at
+`OloEditor/SandboxProject/Assets/McpTools/perf_lite_mode.lua`.)
+
+What that changes — and nothing else:
+
+- it lists with **`readOnlyHint:false`**;
+- it goes through the **same write-consent gate as a native write tool**:
+  refused outright while "Agent writes" is **Disabled** (the default), a modal
+  in **Prompt**, straight through in **Allow all** (see
+  [Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c));
+- **only then** may its handler call project-mutating tools through
+  `olo.call_tool` — and each such inner call re-checks the *current* consent
+  mode, so flipping writes back to Disabled stops the rest of the macro.
+
+The rule to keep in mind: **write authority is the executing tool's own declared
+tier — never inherited from a caller, never borrowed by a callee.** A write-tier
+tool that calls a read-only script tool does not lend it the capability; a
+read-only tool that calls a write-tier one is refused. You consent to the
+**macro** (by name and arguments, in the modal), not to each write inside it —
+so keep a write-tier tool's description honest about what it changes.
 
 ### Resources
 

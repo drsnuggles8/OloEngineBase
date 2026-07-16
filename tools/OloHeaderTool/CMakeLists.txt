@@ -22,12 +22,17 @@ set(OHT_SCENE_OUT "${CMAKE_SOURCE_DIR}/OloEngine/src/OloEngine/Scene/Generated" 
 # Save-game generated output (the SAVE_COMPONENT / TRY_LOAD_COMPONENT enumeration
 # lists) — kept next to SaveGameSerializer.cpp so it can #include them by path.
 set(OHT_SAVEGAME_OUT "${CMAKE_SOURCE_DIR}/OloEngine/src/OloEngine/SaveGame/Generated" CACHE PATH "Save-game generated output directory (component capture/restore lists)")
+# Editor MCP generated output (the olo_entity_set_field writable-field registry,
+# issue #607) — lives next to McpGenericFieldWrite.h, which #includes it inside
+# BuildRegistry(). This is the one generated artefact that lands in OloEditor/
+# rather than OloEngine/; the editor and the test binary both compile the header.
+set(OHT_MCP_OUT "${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/Generated" CACHE PATH "Editor MCP generated output directory (writable-field registry)")
 
 # Custom target to run the tool
 add_custom_target(GenerateBindings
-    COMMAND OloHeaderTool "${OHT_SCAN_DIR}" "${OHT_CPP_OUT}" "${OHT_CS_OUT}" "${OHT_SCENE_OUT}" "${OHT_SAVEGAME_OUT}"
+    COMMAND OloHeaderTool "${OHT_SCAN_DIR}" "${OHT_CPP_OUT}" "${OHT_CS_OUT}" "${OHT_SCENE_OUT}" "${OHT_SAVEGAME_OUT}" "${OHT_MCP_OUT}"
     DEPENDS OloHeaderTool
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    COMMENT "Running OloHeaderTool to generate scripting bindings, the AllComponents tuple, and the save-game component lists..."
+    COMMENT "Running OloHeaderTool to generate scripting bindings, the AllComponents tuple, the save-game component lists, and the MCP field registry..."
     VERBATIM
 )

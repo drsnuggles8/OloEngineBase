@@ -2,6 +2,7 @@
 #include "OloEngine/Core/Input.h"
 
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Core/SyntheticInput.h"
 #include <GLFW/glfw3.h>
 
 namespace OloEngine
@@ -67,18 +68,35 @@ namespace OloEngine
         {
             std::memcpy(s_PreviousKeys, s_CurrentKeys, sizeof(s_CurrentKeys));
             std::memset(s_CurrentKeys, 0, sizeof(s_CurrentKeys));
+            // Even with no window a synthetic key can be held (a headless host
+            // driving the injection overlay), so it must still show up in the
+            // just-pressed / just-released edges below.
+            if (SyntheticInput::AnyKeyDown())
+            {
+                for (i32 key = 0; key < s_MaxKeys; ++key)
+                {
+                    s_CurrentKeys[key] = SyntheticInput::IsKeyDown(static_cast<KeyCode>(key));
+                }
+            }
             return;
         }
 
         std::memcpy(s_PreviousKeys, s_CurrentKeys, sizeof(s_CurrentKeys));
+        // Synthetic-down is OR'd over the hardware state (issue #607): an injected
+        // key is logically held even though GLFW sees no physical press. Never the
+        // reverse — a synthetic "up" must not mask a real key a human is holding.
+        const bool anySynthetic = SyntheticInput::AnyKeyDown();
         for (i32 key = GLFW_KEY_SPACE; key < s_MaxKeys; ++key)
         {
-            s_CurrentKeys[key] = (GLFWAPI::glfwGetKey(window, key) == GLFW_PRESS);
+            s_CurrentKeys[key] = (GLFWAPI::glfwGetKey(window, key) == GLFW_PRESS) ||
+                                 (anySynthetic && SyntheticInput::IsKeyDown(static_cast<KeyCode>(key)));
         }
     }
 
     bool Input::IsKeyPressed(const KeyCode key)
     {
+        if (SyntheticInput::IsKeyDown(key))
+            return true;
         auto* const window = TryGetGlfwWindow();
         if (!window)
             return IsKeyCached(key);
@@ -108,6 +126,8 @@ namespace OloEngine
 
     bool Input::IsMouseButtonPressed(const MouseCode button)
     {
+        if (SyntheticInput::IsMouseButtonDown(button))
+            return true;
         auto* const window = TryGetGlfwWindow();
         if (!window)
             return false;
@@ -117,6 +137,13 @@ namespace OloEngine
 
     glm::vec2 Input::GetMousePosition()
     {
+        // A synthetic cursor override wins outright (it is only ever set while an
+        // injected input plan is in flight): the physical cursor is somewhere else
+        // entirely, and every consumer here wants the position the editor is being
+        // driven from.
+        if (glm::vec2 synthetic{ 0.0f }; SyntheticInput::TryGetMousePosition(synthetic))
+            return synthetic;
+
         auto* const window = TryGetGlfwWindow();
         if (!window)
             return { 0.0f, 0.0f };

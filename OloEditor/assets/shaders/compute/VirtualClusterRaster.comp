@@ -1,0 +1,252 @@
+#version 460 core
+
+// VirtualClusterRaster.comp — compute software rasterizer for the
+// virtualized-geometry pipeline (issue #629, slice 3).
+//
+// Rasterizes the micro-triangle clusters that VirtualClusterCull.comp routed
+// to the software path (small projected coverage) into a per-pixel visibility
+// buffer: 64 bits per pixel storing (depthBits << 32) | (visibleSlot << 9 | tri).
+// VirtualVisibilityResolve.glsl later reconstructs attributes from the winning
+// triangle and writes the G-Buffer.
+//
+// Two operating modes:
+//  * Portable two-pass (default, core GLSL 4.60): the visibility buffer is a
+//    uvec2 per pixel; phase 0 does 32-bit atomicMin on the depth word (.y),
+//    phase 1 re-rasterizes and plain-writes the payload word (.x) where the
+//    depth bits match the winner. Ties at bit-identical depth race benignly —
+//    either triangle is a legitimate visible winner.
+//  * Single-pass 64-bit (VIRTUAL_RASTER_INT64, injected at runtime when
+//    GL_NV_shader_atomic_int64 + GL_ARB_gpu_shader_int64 are available):
+//    one atomicMin on the packed 64-bit word per covered pixel.
+//
+// Depth convention matches the hardware path exactly: gl_FragCoord-style
+// window depth in [0,1] (standard GL, GL_LESS), so SW and HW clusters compose
+// through the resolve pass's depth test without bias. IEEE floats in [0,1]
+// order identically to their bit patterns, so integer atomicMin on
+// floatBitsToUint(depth) selects the nearest surface.
+
+#ifdef VIRTUAL_RASTER_INT64
+// uint64_t itself is ARB and required. The 64-bit ATOMIC comes in two spellings —
+// GL_NV_shader_atomic_int64 (NVIDIA) and GL_EXT_shader_atomic_int64 (cross-vendor,
+// what AMD ships) — so both are `: enable`, not `: require`: `enable` degrades to a
+// warning on a driver that lacks one, whereas `require` would hard-fail every driver
+// that only has the other spelling. This variant is only ever compiled when
+// OpenGLRendererAPI's probe already saw ARB + at least one of the two, and a compile
+// failure still demotes cleanly to the portable 2x32 path in VirtualGeometryPass.
+#extension GL_ARB_gpu_shader_int64 : require
+#extension GL_NV_shader_atomic_int64 : enable
+#extension GL_EXT_shader_atomic_int64 : enable
+#endif
+
+layout(local_size_x = 64) in;
+
+// Mirrors OloEngine::VirtualClusterGpuRecord (64 B std430)
+struct VirtualCluster {
+    vec4 CullSphere;
+    vec4 Cone;
+    uint VertexBase;
+    uint IndexBase;
+    uint IndexCount;
+    uint GroupIndex;
+    uint RefinedGroup;
+    uint _p0; uint _p1; uint _p2;
+};
+
+// Mirrors OloEngine::VirtualInstanceGpuRecord (224 B std430)
+struct VirtualInstance {
+    mat4 Transform;
+    mat4 PrevTransform;
+    mat4 NormalMatrix;
+    uint ClusterBase;
+    uint ClusterCount;
+    uint GroupBase;
+    int  EntityID;
+    float MaxScale;
+    float ErrorThresholdPixels;
+    uint CommandBase;
+    uint Flags;
+};
+
+// Mirrors OloEngine::VirtualGpuVertex (32 B std430)
+struct VirtualGpuVertex {
+    vec4 PositionU;
+    vec4 NormalV;
+};
+
+// Mirrors OloEngine::VirtualVisibleCluster (16 B std430)
+struct VisibleCluster {
+    uint InstanceIndex;
+    uint ClusterIndex;
+    uint _p0; uint _p1;
+};
+
+layout(std430, binding = 33) readonly buffer VirtualClusters { VirtualCluster clusters[]; };
+layout(std430, binding = 35) readonly buffer VirtualInstances { VirtualInstance instances[]; };
+layout(std430, binding = 39) readonly buffer VirtualVertices { VirtualGpuVertex vertices[]; };
+layout(std430, binding = 42) readonly buffer VirtualIndices { uint localIndices[]; };
+
+// Software-raster work list: header (Count) + VisibleCluster records. The SW
+// records live in the same global visible[] numbering as the HW path so the
+// resolve pass shares the payload encoding — Records[i].{InstanceIndex,
+// ClusterIndex} with the record's own slot stored by the cull.
+layout(std430, binding = 40) buffer VirtualSwList {
+    uint Count;
+    uint _h0; uint _h1; uint _h2;
+    VisibleCluster Records[];
+} swList;
+
+#ifdef VIRTUAL_RASTER_INT64
+layout(std430, binding = 41) buffer VirtualVisbuffer { uint64_t pixels[]; };
+#else
+layout(std430, binding = 41) buffer VirtualVisbuffer { uvec2 pixels[]; }; // .x payload, .y depth bits
+#endif
+
+layout(std140, binding = 0) uniform CameraMatrices
+{
+    mat4 u_ViewProjection;
+    mat4 u_View;
+    mat4 u_Projection;
+    vec3 u_CameraPosition;
+    float _padding0;
+};
+
+uniform uint u_Phase;          // portable mode: 0 = depth atomicMin, 1 = payload write (ignored in INT64 mode)
+uniform uint u_ViewportWidth;  // visibility-buffer dimensions in pixels
+uniform uint u_ViewportHeight;
+
+// Bounded micro-triangle raster: SW-routed clusters have small projected
+// coverage, so a hard per-triangle bounding-box cap both bounds worst-case
+// work and rejects clipping artifacts (huge post-projection triangles from
+// near-plane grazing are HW-routed by the cull, this is belt and braces).
+const int kMaxTriangleBBox = 128;
+
+void RasterizeTriangle(uint swRecordIndex, uint triangleIndex)
+{
+    VisibleCluster record = swList.Records[swRecordIndex];
+    VirtualInstance inst = instances[record.InstanceIndex];
+    VirtualCluster cluster = clusters[record.ClusterIndex];
+
+    // Fetch the triangle's three vertices (cluster-local indices -> pooled slots)
+    uint i0 = localIndices[cluster.IndexBase + triangleIndex * 3u + 0u];
+    uint i1 = localIndices[cluster.IndexBase + triangleIndex * 3u + 1u];
+    uint i2 = localIndices[cluster.IndexBase + triangleIndex * 3u + 2u];
+    vec3 p0 = vertices[cluster.VertexBase + i0].PositionU.xyz;
+    vec3 p1 = vertices[cluster.VertexBase + i1].PositionU.xyz;
+    vec3 p2 = vertices[cluster.VertexBase + i2].PositionU.xyz;
+
+    mat4 mvp = u_ViewProjection * inst.Transform;
+    vec4 c0 = mvp * vec4(p0, 1.0);
+    vec4 c1 = mvp * vec4(p1, 1.0);
+    vec4 c2 = mvp * vec4(p2, 1.0);
+
+    // The cull routes near-plane-crossing clusters to the hardware path; any
+    // remaining behind-plane vertex is a degenerate we simply skip.
+    const float kMinW = 1e-6;
+    if (c0.w <= kMinW || c1.w <= kMinW || c2.w <= kMinW)
+        return;
+
+    vec3 ndc0 = c0.xyz / c0.w;
+    vec3 ndc1 = c1.xyz / c1.w;
+    vec3 ndc2 = c2.xyz / c2.w;
+
+    vec2 viewport = vec2(float(u_ViewportWidth), float(u_ViewportHeight));
+    vec2 s0 = (ndc0.xy * 0.5 + 0.5) * viewport;
+    vec2 s1 = (ndc1.xy * 0.5 + 0.5) * viewport;
+    vec2 s2 = (ndc2.xy * 0.5 + 0.5) * viewport;
+
+    // Backface cull, matching the hardware path's CCW front + GL_BACK cull:
+    // negative signed area in window space = back-facing.
+    //
+    // A TWO-SIDED material (kFlagTwoSided, bit2) has visible back faces — the HW draw
+    // loop glDisable(GL_CULL_FACE)s for exactly those instances. Keep them here too,
+    // and fold the winding into `orient` so the edge functions and barycentrics work
+    // for either orientation with the vertex correspondence intact (b_i = w_i / area
+    // holds for a negative area as well: multiplying both by sign(area) leaves the
+    // barycentric unchanged while making the coverage test w >= 0 valid again).
+    // Without this an OPAQUE double-sided sheet lost every back face on every
+    // software-rasterized cluster, invisibly, since foliage — the only two-sided
+    // geometry we ship — is alpha-masked and never reaches this shader.
+    bool twoSided = (inst.Flags & 4u) != 0u;
+    float signedArea = (s1.x - s0.x) * (s2.y - s0.y) - (s2.x - s0.x) * (s1.y - s0.y);
+    if (signedArea < 0.0 && !twoSided)
+        return; // back-facing, single-sided material
+    float orient = (signedArea < 0.0) ? -1.0 : 1.0;
+    float area = signedArea * orient;
+    if (!(area > 0.0))
+        return; // zero-area / NaN degenerate (the guard is `!(x > 0)` so a NaN takes it too)
+
+    // Window-space bounding box, clamped to the viewport
+    vec2 bbMinF = min(s0, min(s1, s2));
+    vec2 bbMaxF = max(s0, max(s1, s2));
+    ivec2 bbMin = ivec2(max(floor(bbMinF), vec2(0.0)));
+    ivec2 bbMax = ivec2(min(ceil(bbMaxF), viewport - 1.0));
+    if (bbMax.x < bbMin.x || bbMax.y < bbMin.y)
+        return;
+    if (bbMax.x - bbMin.x > kMaxTriangleBBox || bbMax.y - bbMin.y > kMaxTriangleBBox)
+        return;
+
+    float invArea = 1.0 / area;
+    // Window depth in [0,1], interpolated with screen-space barycentrics —
+    // the same interpolation the hardware rasterizer applies to gl_FragCoord.z.
+    float z0 = ndc0.z * 0.5 + 0.5;
+    float z1 = ndc1.z * 0.5 + 0.5;
+    float z2 = ndc2.z * 0.5 + 0.5;
+
+    uint payload = (swRecordIndex << 9u) | (triangleIndex & 0x1FFu);
+
+    for (int y = bbMin.y; y <= bbMax.y; ++y)
+    {
+        for (int x = bbMin.x; x <= bbMax.x; ++x)
+        {
+            vec2 pixel = vec2(float(x) + 0.5, float(y) + 0.5);
+
+            // Edge functions (barycentric numerators), re-oriented so a back-facing
+            // two-sided triangle's weights are positive inside the triangle too.
+            float w0 = orient * ((s1.x - pixel.x) * (s2.y - pixel.y) - (s2.x - pixel.x) * (s1.y - pixel.y));
+            float w1 = orient * ((s2.x - pixel.x) * (s0.y - pixel.y) - (s0.x - pixel.x) * (s2.y - pixel.y));
+            float w2 = orient * ((s0.x - pixel.x) * (s1.y - pixel.y) - (s1.x - pixel.x) * (s0.y - pixel.y));
+            if (w0 < 0.0 || w1 < 0.0 || w2 < 0.0)
+                continue;
+
+            float b0 = w0 * invArea;
+            float b1 = w1 * invArea;
+            float b2 = w2 * invArea;
+            float depth = clamp(z0 * b0 + z1 * b1 + z2 * b2, 0.0, 1.0);
+            uint depthBits = floatBitsToUint(depth);
+            uint pixelIndex = uint(y) * u_ViewportWidth + uint(x);
+
+#ifdef VIRTUAL_RASTER_INT64
+            uint64_t packedValue = (uint64_t(depthBits) << 32) | uint64_t(payload);
+            atomicMin(pixels[pixelIndex], packedValue);
+#else
+            if (u_Phase == 0u)
+            {
+                atomicMin(pixels[pixelIndex].y, depthBits);
+            }
+            else if (pixels[pixelIndex].y == depthBits)
+            {
+                // Bit-identical depth ties race benignly: either triangle is a
+                // legitimate nearest-surface winner.
+                pixels[pixelIndex].x = payload;
+            }
+#endif
+        }
+    }
+}
+
+void main()
+{
+    // 2D dispatch flattening keeps large work lists under the 65535 per-axis cap
+    uint swRecordIndex = gl_WorkGroupID.x + gl_WorkGroupID.y * gl_NumWorkGroups.x;
+    if (swRecordIndex >= swList.Count)
+        return; // dispatched at a conservative upper bound (issue #551 idiom)
+
+    VisibleCluster record = swList.Records[swRecordIndex];
+    VirtualCluster cluster = clusters[record.ClusterIndex];
+    uint triangleCount = cluster.IndexCount / 3u;
+
+    for (uint t = gl_LocalInvocationID.x; t < triangleCount; t += 64u)
+    {
+        RasterizeTriangle(swRecordIndex, t);
+    }
+}

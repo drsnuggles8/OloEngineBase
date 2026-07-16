@@ -31,7 +31,18 @@ namespace OloEngine
           m_NormalScale(other.m_NormalScale), m_OcclusionStrength(other.m_OcclusionStrength), m_EnableIBL(other.m_EnableIBL),
           m_AlbedoMap(other.m_AlbedoMap), m_MetallicRoughnessMap(other.m_MetallicRoughnessMap), m_NormalMap(other.m_NormalMap),
           m_AOMap(other.m_AOMap), m_EmissiveMap(other.m_EmissiveMap), m_EnvironmentMap(other.m_EnvironmentMap),
-          m_IrradianceMap(other.m_IrradianceMap), m_PrefilterMap(other.m_PrefilterMap), m_BRDFLutMap(other.m_BRDFLutMap)
+          m_IrradianceMap(other.m_IrradianceMap), m_PrefilterMap(other.m_PrefilterMap), m_BRDFLutMap(other.m_BRDFLutMap),
+          // The alpha mode + cutoff were MISSING from this hand-written copy (issue #629). A copy
+          // of an alpha-masked material therefore came back OPAQUE, and the paths that copy a
+          // Material (Model::DrawParallel -> MeshSubmitDesc::MaterialData, a by-VALUE field) lost
+          // the cutout while the paths that pass a const Material& straight to DrawMesh (the Scene
+          // MeshComponent / VirtualMeshComponent loops) kept it. The same imported material, the
+          // same mesh, one path cut the leaf out and the other rendered a solid card.
+          //
+          // This is why a hand-written copy constructor is a liability: the class gained two
+          // fields and the copy silently kept compiling. Adding a member here means adding it to
+          // operator= below as well.
+          m_AlphaMode(other.m_AlphaMode), m_AlphaCutoff(other.m_AlphaCutoff)
     {
     }
 
@@ -82,6 +93,9 @@ namespace OloEngine
             m_IrradianceMap = other.m_IrradianceMap;
             m_PrefilterMap = other.m_PrefilterMap;
             m_BRDFLutMap = other.m_BRDFLutMap;
+            // Missing here too — see the copy constructor above (issue #629).
+            m_AlphaMode = other.m_AlphaMode;
+            m_AlphaCutoff = other.m_AlphaCutoff;
         }
         return *this;
     }
@@ -93,29 +107,17 @@ namespace OloEngine
 
     Ref<Material> Material::Copy(const Ref<Material>& other, const std::string& name)
     {
-        auto material = Ref<Material>(new Material(other->m_Shader, name.empty() ? other->m_Name : name));
-
-        // Copy all properties
-        material->m_MaterialFlags = other->m_MaterialFlags;
-        material->m_FloatUniforms = other->m_FloatUniforms;
-        material->m_IntUniforms = other->m_IntUniforms;
-        material->m_UIntUniforms = other->m_UIntUniforms;
-        material->m_BoolUniforms = other->m_BoolUniforms;
-        material->m_Vec2Uniforms = other->m_Vec2Uniforms;
-        material->m_Vec3Uniforms = other->m_Vec3Uniforms;
-        material->m_Vec4Uniforms = other->m_Vec4Uniforms;
-        material->m_Mat3Uniforms = other->m_Mat3Uniforms;
-        material->m_Mat4Uniforms = other->m_Mat4Uniforms;
-        material->m_Texture2DUniforms = other->m_Texture2DUniforms;
-        material->m_TextureCubeUniforms = other->m_TextureCubeUniforms;
-
-        // Copy private material properties
-        material->m_AlbedoMap = other->m_AlbedoMap;
-        material->m_MetallicRoughnessMap = other->m_MetallicRoughnessMap;
-        material->m_NormalMap = other->m_NormalMap;
-        material->m_AOMap = other->m_AOMap;
-        material->m_EmissiveMap = other->m_EmissiveMap;
-
+        // A THIRD hand-maintained copy of "copy every field", and it had drifted further than the
+        // other two: it dropped the alpha mode + cutoff, every PBR factor (base colour, metallic,
+        // roughness, emissive, normal scale, occlusion strength), the IBL flag and the IBL maps.
+        // MaterialAsset::SetMaterial routes through here, so an alpha-masked material saved as a
+        // MaterialAsset came back OPAQUE and WHITE. Delegate to the copy constructor, which is
+        // the one place that has to know the field list (issue #629).
+        auto material = Ref<Material>(new Material(*other));
+        if (!name.empty())
+        {
+            material->m_Name = name;
+        }
         return material;
     }
 

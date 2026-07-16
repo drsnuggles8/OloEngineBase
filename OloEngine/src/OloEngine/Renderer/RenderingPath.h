@@ -97,6 +97,38 @@ namespace OloEngine
         // --- Deferred tuning (when Path == Deferred) ---
         DeferredSettings Deferred;
 
+        // --- Virtualized geometry (Nanite-style cluster LOD DAG, issue #629) ---
+        // Master switch for the whole virtual-geometry path. Deferred-only regardless (the
+        // pass is not even added to the graph outside Deferred), so this is an ADDITIONAL
+        // gate, not the only one.
+        //
+        // When FALSE, a VirtualMeshComponent does not vanish — its MeshSource is submitted
+        // through the CLASSIC mesh path instead (Scene.cpp, SubmitMeshSourceClassic). That
+        // makes this a true A/B of the two renderers over an unchanged scene, which is what
+        // it is for: when virtual geometry is the suspect in a visual bug, flip this and
+        // compare, instead of hand-authoring a duplicate scene with the components swapped
+        // (which is what debugging the Sponza foliage fringe actually required, and which is
+        // its own source of error — a "control" scene that differs in some second, forgotten
+        // way proves nothing).
+        //
+        // Note the classic path has no cluster LOD: the fallback draws the mesh at full
+        // source density, so this is a correctness/diagnostic switch, not a performance one.
+        bool VirtualGeometryEnabled = true;
+
+        // Composite the active virtual-geometry debug view (cluster id / LOD / overdraw,
+        // selected by VirtualMeshRegistry::SetDebugMode) over the lit viewport image.
+        //
+        // The debug image has always existed; until now it was written ONLY into the
+        // "VirtualGeometryDebug" MCP capture target, so a human flipping the Statistics
+        // panel's "Debug view" combo saw absolutely nothing change and reasonably concluded
+        // the feature was broken. When this is on, the virtual geometry is replaced in-place
+        // by its flat debug colour and everything else stays lit — so you can see which
+        // objects in a real scene are virtualized, and how their clusters/LODs break down.
+        //
+        // No effect when the debug mode is Off. Ignored outside Deferred (there is no virtual
+        // geometry to visualize there).
+        bool VirtualDebugToViewport = true;
+
         // --- Transparency ---
         // Weighted-blended OIT for transparents (particles, decals). The OIT
         // shaders are path-agnostic — this is exposed at top level so it can

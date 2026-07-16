@@ -91,7 +91,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     ModelComponent:
-      FilePath: assets/models/Sponza/glTF/Sponza.gltf
+      FilePath: SandboxProject/Assets/Models/Sponza/Sponza.gltf
       Visible: true
   # -- 120 point lights (6 X * 4 Z * 5 Y) --
   - Entity: 770000000000100

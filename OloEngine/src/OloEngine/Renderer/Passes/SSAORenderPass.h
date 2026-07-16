@@ -15,6 +15,13 @@ namespace OloEngine
         SSAORenderPass();
         ~SSAORenderPass() override;
 
+        // Name the pass's raw GL noise texture is published under in the render
+        // graph (issue #607). Setup ImportTexture()s it on every frame the pass
+        // runs, which is what makes it resolvable by olo_render_list_targets /
+        // olo_render_capture_target — a corrupted or all-zero rotation kernel is
+        // otherwise invisible and looks like a broken AO shader.
+        static constexpr const char* kNoiseTargetName = "SSAONoise";
+
         void Setup(RGBuilder& builder, FrameBlackboard& blackboard) override;
         void Init(const FramebufferSpecification& spec) override;
         void Execute(RGCommandContext& context) override;

@@ -784,6 +784,8 @@ namespace OloEngine
         static constexpr u32 UBO_FROXEL_FOG = 46;           // Froxel volumetric fog params (volume dims, depth slicing, temporal reprojection — issue #435)
         static constexpr u32 UBO_FLUID = 47;                // GPU fluid solver params (PBF kernels, grid dims, Jolt coupling — issue #630)
         static constexpr u32 UBO_FLUID_RENDER = 48;         // Screen-space fluid rendering params (tint, absorption, foam, smoothing — issue #630)
+        static constexpr u32 UBO_VIRTUAL_DRAW = 49;         // Virtualized-geometry per-MDI-call draw info: instance index + command segment base (issue #629)
+        static constexpr u32 UBO_VIRTUAL_DEBUG = 50;        // Virtualized-geometry debug-visualization mode (cluster/LOD/overdraw) — issue #629
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -934,6 +936,20 @@ namespace OloEngine
         static constexpr u32 SSBO_FLUID_BODY_IMPULSES = 31;  // GPUFluidBodyImpulse[kFluidMaxBodyProxies]: fixed-point reaction accumulators
         static constexpr u32 SSBO_FLUID_VELOCITIES_ALT = 32; // vec4[max]: XSPH/vorticity-corrected velocities (pong)
 
+        // Virtualized geometry cluster pipeline (Nanite-style cluster LOD DAG, issue #629)
+        // — VirtualClusterCull.comp / VirtualMeshGBuffer.glsl
+        static constexpr u32 SSBO_VIRTUAL_CLUSTERS = 33;      // VirtualClusterGpuRecord[]: cull spheres + cones + geometry windows (all registered meshes pooled)
+        static constexpr u32 SSBO_VIRTUAL_GROUPS = 34;        // VirtualGroupGpuRecord[]: LOD spheres + monotone DAG errors
+        static constexpr u32 SSBO_VIRTUAL_INSTANCES = 35;     // VirtualInstanceGpuRecord[]: per-frame instance transforms + mesh ranges
+        static constexpr u32 SSBO_VIRTUAL_DRAW_COMMANDS = 36; // DrawElementsIndirectCommand[]: compacted by the cull compute, segmented per instance
+        static constexpr u32 SSBO_VIRTUAL_DRAW_ARGS = 37;     // VirtualDrawArgs[instance]: draw count (also bound as GL_PARAMETER_BUFFER) + cull stats
+        static constexpr u32 SSBO_VIRTUAL_VISIBLE = 38;       // VirtualVisibleCluster[]: per-draw (instance, cluster) records indexed via gl_BaseInstance
+        static constexpr u32 SSBO_VIRTUAL_VERTICES = 39;      // VirtualGpuVertex[]: cluster-owned packed vertices (positionU, normalV)
+        static constexpr u32 SSBO_VIRTUAL_SW_LIST = 40;       // { uint Count; pad[3]; VirtualVisibleCluster[] }: clusters routed to the software rasterizer
+        static constexpr u32 SSBO_VIRTUAL_VISBUFFER = 41;     // uvec2[width*height] visibility buffer: .y = depth bits (atomicMin), .x = (visibleSlot << 9 | tri)
+        static constexpr u32 SSBO_VIRTUAL_INDICES = 42;       // u32[]: pooled cluster-local index buffer (same GL buffer the MDI path uses as element array)
+        static constexpr u32 SSBO_VIRTUAL_GROUP_STATES = 43;  // u32[group]: bit0 = page resident (CPU), bit1 = page requested (GPU atomicOr), bit2 = touched for LRU (GPU atomicOr)
+
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE
         // =============================================================================
@@ -1071,6 +1087,10 @@ namespace OloEngine
                 case UBO_FLUID:
                 case UBO_FLUID_RENDER:
                     return name.contains("Fluid") || name.contains("fluid");
+                case UBO_VIRTUAL_DRAW:
+                    return name.contains("VirtualDraw");
+                case UBO_VIRTUAL_DEBUG:
+                    return name.contains("VirtualDebug");
                 default:
                     return false;
             }
@@ -1096,7 +1116,13 @@ namespace OloEngine
                            // TEX_USER_0-2's documented pass-local reuse) — issue #627.
                            name == "u_HDRColor" || name == "u_ScatterVolume" ||
                            name == "u_ShadowMapCSM" || name == "u_HZB" ||
-                           name == "u_Butterfly" || name == "u_H0";
+                           name == "u_Butterfly" || name == "u_H0" ||
+                           // Virtual-geometry debug overlay (issue #629): a fullscreen pass
+                           // whose only input is the cluster/LOD/overdraw image, composited
+                           // over the lit frame at the end of DeferredLightingPass. Same
+                           // pass-local slot-0 reuse as the entries above — no material is
+                           // bound during a fullscreen draw.
+                           name == "u_VirtualDebugColor";
                 case TEX_SPECULAR:
                     // Slot 1 is reused across shader contexts: Metallic/Roughness in PBR,
                     // Depth textures in particle effects, Bloom textures in post-processing,

@@ -1,0 +1,35 @@
+{
+  "$comment": [
+    "External assets that are NOT committed to the repository.",
+    "",
+    "Anything here is either too large to live in git history (a mesh in the hundreds of MB is",
+    "irreversible once committed) or carries a licence that requires the user to fetch it",
+    "themselves rather than have it redistributed. Fetch with:",
+    "",
+    "    scripts/Fetch-Assets.ps1                  # everything",
+    "    scripts/Fetch-Assets.ps1 -Tag nanite      # one group",
+    "    scripts/Fetch-Assets.ps1 -Name xyzrgb-dragon",
+    "",
+    "Every consumer (scene, test) must degrade gracefully when an asset is absent: SKIP with a",
+    "message naming the fetch command, never fail. A missing optional asset is a setup step the",
+    "user has not run, not a broken build.",
+    "",
+    "Fields: name, url, sha256 (of the DOWNLOADED file, before any unpacking), dest (repo-relative",
+    "path of the FINAL file), unpack (none|gzip), sizeBytes, triangles, licence, credit, tags."
+  ],
+  "assets": [
+    {
+      "name": "xyzrgb-dragon",
+      "description": "Stanford XYZ RGB Asian Dragon — 7.2M triangles. The geometry stress asset for the virtualized-geometry (Nanite) pipeline: dense enough that the classic renderer chokes and the far-field triangles go genuinely sub-pixel, which is the regime cluster LOD exists for.",
+      "url": "https://graphics.stanford.edu/data/3Dscanrep/xyzrgb/xyzrgb_dragon.ply.gz",
+      "sha256": "8aa449f1966cbb50e5896ecc32cf57ab5f0cdfd3c3e37d3e6f60b948997da5c1",
+      "unpack": "gzip",
+      "dest": "OloEditor/SandboxProject/Assets/Models/Stanford/xyzrgb_dragon.ply",
+      "sizeBytes": 70527166,
+      "triangles": 7219045,
+      "licence": "Free to use; the Stanford Computer Graphics Laboratory asks that the source be acknowledged.",
+      "credit": "Stanford Computer Graphics Laboratory, 3D Scanning Repository (https://graphics.stanford.edu/data/3Dscanrep/)",
+      "tags": ["nanite", "heavy", "geometry"]
+    }
+  ]
+}

@@ -51,6 +51,28 @@ namespace OloEngine::Tests
             data.Settings = rs;
             return data.Pipeline->ComputeBlackboardFingerprint(data);
         }
+
+        // The raw GL texture IDs the blackboard IMPORTS (as opposed to declares). They are
+        // not settings, so they need their own hook.
+        struct ImportedIBL
+        {
+            u32 Irradiance = 0;
+            u32 Prefilter = 0;
+            u32 BRDFLut = 0;
+            u32 Environment = 0;
+        };
+
+        [[nodiscard]] static u64 FingerprintWithIBL(const ImportedIBL& ibl)
+        {
+            Renderer3D::Renderer3DData data;
+            data.Settings = RendererSettings{};
+            data.Settings.Path = RenderingPath::Deferred;
+            data.GlobalIrradianceMapID = ibl.Irradiance;
+            data.GlobalPrefilterMapID = ibl.Prefilter;
+            data.GlobalBRDFLutMapID = ibl.BRDFLut;
+            data.GlobalEnvironmentMapID = ibl.Environment;
+            return data.Pipeline->ComputeBlackboardFingerprint(data);
+        }
     };
 
     namespace
@@ -179,5 +201,62 @@ namespace OloEngine::Tests
         EXPECT_EQ(RenderPipelineFingerprintAccess::Fingerprint(tweaked, rs), baseFp)
             << "SSR value params (intensity/distance/roughness) are per-frame UBO uploads, not graph "
                "topology — they must NOT change the blackboard fingerprint.";
+    }
+
+    // Same class of bug as SSREnabled, but for an IMPORTED resource rather than a declared
+    // one — and this one shipped and fired thousands of times a second.
+    //
+    // PopulateBlackboard imports the IBL textures into the graph by RAW GL ID. Switching
+    // scenes destroys the old EnvironmentMap — deleting those GL textures — and builds new
+    // ones with new IDs. Nothing else in the fingerprint changes, so PopulateBlackboard
+    // short-circuited and the graph went on resolving the DELETED IDs; DeferredLightingPass
+    // bound them every frame and the driver logged
+    //   "GL_INVALID_OPERATION ... <texture> is not a valid texture name"
+    // once per frame, forever. It looked intermittent only because GL frequently recycles
+    // freed texture names, in which case the stale ID silently happens to be valid again.
+    //
+    // The shadow-map renderer IDs were already hashed for exactly this reason. These are the
+    // same thing and were simply missed.
+    TEST(RenderGraphFingerprint, ChangingAnImportedIBLTextureIdChangesFingerprint)
+    {
+        using Access = RenderPipelineFingerprintAccess;
+        const Access::ImportedIBL base{ .Irradiance = 26, .Prefilter = 45, .BRDFLut = 46, .Environment = 12 };
+        const u64 baseFp = Access::FingerprintWithIBL(base);
+
+        // Each ID must independently invalidate: a scene switch can change any subset.
+        {
+            Access::ImportedIBL changed = base;
+            changed.Irradiance = 99;
+            EXPECT_NE(Access::FingerprintWithIBL(changed), baseFp)
+                << "GlobalIrradianceMapID is imported by raw GL ID — a change must repopulate the blackboard.";
+        }
+        {
+            Access::ImportedIBL changed = base;
+            changed.Prefilter = 99;
+            EXPECT_NE(Access::FingerprintWithIBL(changed), baseFp)
+                << "GlobalPrefilterMapID is imported by raw GL ID — a change must repopulate the blackboard.";
+        }
+        {
+            Access::ImportedIBL changed = base;
+            changed.BRDFLut = 99;
+            EXPECT_NE(Access::FingerprintWithIBL(changed), baseFp)
+                << "GlobalBRDFLutMapID is imported by raw GL ID — a change must repopulate the blackboard.";
+        }
+        {
+            Access::ImportedIBL changed = base;
+            changed.Environment = 99;
+            EXPECT_NE(Access::FingerprintWithIBL(changed), baseFp)
+                << "GlobalEnvironmentMapID is imported by raw GL ID — a change must repopulate the blackboard.";
+        }
+
+        // And the teardown case: a scene with NO environment map clears the IDs to 0. That is
+        // the transition that leaves the graph holding freed textures if it does not invalidate.
+        EXPECT_NE(Access::FingerprintWithIBL({}), baseFp)
+            << "Clearing the IBL (scene with no EnvironmentMap) must repopulate the blackboard — "
+               "otherwise the graph keeps importing the destroyed scene's textures.";
+
+        // Stability: the same IDs must produce the same fingerprint, or the blackboard would
+        // repopulate every frame and the cache would be pointless.
+        EXPECT_EQ(Access::FingerprintWithIBL(base), baseFp);
     }
 } // namespace OloEngine::Tests

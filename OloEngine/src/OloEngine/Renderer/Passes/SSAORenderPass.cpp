@@ -63,6 +63,30 @@ namespace OloEngine
             m_SelectedBlurFramebuffer = blackboard.Scratch.SSAOBlur;
             builder.Write(blackboard.Scratch.SSAOBlur, RGWriteUsage::RenderTarget);
         }
+
+        // Publish the pass-owned raw GL noise texture so it resolves through
+        // RenderGraph::GetRegisteredResources() — without this both
+        // olo_render_list_targets and olo_render_capture_target are blind to it
+        // (issue #607). Import-only: the pass samples it directly by raw id, so
+        // there is deliberately no Read/Write declaration to change the graph's
+        // ordering or culling.
+        //
+        // Reached only past the early-out above, so the import appears exactly on
+        // the frames the pass runs. That gate (SSAOEnabled + ActiveAOTechnique)
+        // is already hashed into the pipeline fingerprint (RenderPipeline.cpp
+        // HashBool(SSAOEnabled) / HashU32(ActiveAOTechnique)), so the
+        // topology-keyed caches invalidate correctly when it flips
+        // (docs/agent-rules/render-pipeline-caches.md).
+        if (m_NoiseTexture != 0)
+        {
+            RGResourceDesc noiseDesc =
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, kNoiseTargetName);
+            noiseDesc.Format = RGResourceFormat::RG16Float;
+            noiseDesc.Width = 4;
+            noiseDesc.Height = 4;
+            [[maybe_unused]] const RGTextureHandle noiseHandle =
+                builder.ImportTexture(kNoiseTargetName, m_NoiseTexture, noiseDesc);
+        }
     }
 
     SSAORenderPass::~SSAORenderPass()

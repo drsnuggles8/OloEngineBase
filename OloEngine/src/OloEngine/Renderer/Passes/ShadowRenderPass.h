@@ -36,6 +36,10 @@ namespace OloEngine
         glm::mat4 transform = glm::mat4(1.0f);
         RendererID shadowVaoID = 0;         // Position-merged shadow IB; 0 = use vaoID
         BoundingBox WorldBounds = NoBounds; // World-space AABB; NoBounds = always include
+        // Material is MaterialFlag::TwoSided — rendered into the shadow map with culling DISABLED
+        // instead of the default front-face cull, so single-sided planar geometry (a quad, a
+        // banner, a foliage sheet) still casts a shadow when lit from the front (issue #650).
+        bool twoSided = false;
     };
 
     struct ShadowSkinnedCaster
@@ -107,7 +111,8 @@ namespace OloEngine
         // frustum culling in Execute() so empty cascades skip all GPU work.
         // Leave as NoBounds when no tight bounds are available (foliage, terrain, etc.).
         void AddMeshCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
-                           RendererID shadowVaoID = 0, const BoundingBox& worldBounds = NoBounds);
+                           RendererID shadowVaoID = 0, const BoundingBox& worldBounds = NoBounds,
+                           bool twoSided = false);
         void AddSkinnedCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                               u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds = NoBounds);
         void AddTerrainCaster(RendererID vaoID, u32 indexCount, u32 patchVertexCount,
@@ -120,6 +125,14 @@ namespace OloEngine
         // Returns true if caster has valid bounds AND those bounds fail the frustum test.
         // Casters with NoBounds always pass (are included).
         [[nodiscard]] static bool ShouldCull(const BoundingBox& worldBounds, const Frustum& frustum);
+
+        // Does any virtualized-geometry instance submitted this frame cast a shadow?
+        //
+        // The cascade-skip check treats virtual geometry as an UNBOUNDED caster (like terrain /
+        // foliage / voxels): its per-instance bounds never enter the CPU caster lists, because
+        // the cluster cull culls on the GPU, per cluster. Without this, a cascade whose only
+        // casters were virtual meshes was skipped outright and Nanite geometry cast no shadow.
+        [[nodiscard]] static bool AnyVirtualShadowCaster();
 
         void RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight,
                                  const Frustum* cullFrustum = nullptr) const;

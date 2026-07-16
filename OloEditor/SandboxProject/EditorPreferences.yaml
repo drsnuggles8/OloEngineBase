@@ -4,7 +4,7 @@ EditorPreferences:
   TranslateSnap: 0.5
   RotateSnap: 45
   ScaleSnap: 0.5
-  CameraFlySpeed: 11
+  CameraFlySpeed: 17.5
   ShowPhysicsColliders: false
   ShowLightGizmos: false
   ShowBoundingBoxes: false

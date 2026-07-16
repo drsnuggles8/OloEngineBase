@@ -858,3 +858,17 @@ case 632812143u: // UIWorldAnchorComponent
         return false;
     break;
 }
+case 2502968764u: // VirtualMeshComponent
+{
+    auto& comp = deserializedEntity.AddComponent<VirtualMeshComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Enabled))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.m_MeshSource))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.m_ErrorThresholdPixels))
+        return false;
+    comp.m_ErrorThresholdPixels = std::clamp(comp.m_ErrorThresholdPixels, static_cast<f32>(0.05f), static_cast<f32>(64.0f));
+    if (!SceneBinIO::Read(reader, comp.m_CastShadows))
+        return false;
+    break;
+}

@@ -142,6 +142,65 @@ static Ref<MeshSource> MakeWavyGridMesh(u32 gridSize)
 }
 
 // =============================================================================
+// Helper: a closed, curved, UNWELDED icosphere — the true analogue of the Stanford
+// dragon (a closed organic surface imported without normals). Assimp's aiProcess_GenNormals
+// synthesises FLAT per-face normals, splitting every shared vertex, and
+// aiProcess_JoinIdenticalVertices cannot re-merge them (normals differ per face). meshopt
+// derives adjacency from shared INDICES, so this is a disconnected triangle soup to the
+// simplifier — every internal edge is a spurious one-sided border. On a CLOSED surface there
+// is no real boundary to relieve those spurious borders, so nothing collapses. (Issue #653 /
+// found via #651.)
+// =============================================================================
+static Ref<MeshSource> MakeUnweldedIcosphere(u32 subdivisions)
+{
+    const f32 t = (1.0f + std::sqrt(5.0f)) / 2.0f;
+    std::vector<glm::vec3> pos = { { -1, t, 0 }, { 1, t, 0 }, { -1, -t, 0 }, { 1, -t, 0 }, { 0, -1, t }, { 0, 1, t }, { 0, -1, -t }, { 0, 1, -t }, { t, 0, -1 }, { t, 0, 1 }, { -t, 0, -1 }, { -t, 0, 1 } };
+    for (auto& p : pos)
+    {
+        p = glm::normalize(p);
+    }
+    std::vector<u32> idx = { 0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11, 1, 5, 9, 5, 11,
+                             4, 11, 10, 2, 10, 7, 6, 7, 1, 8, 3, 9, 4, 3, 4, 2, 3, 2, 6, 3,
+                             6, 8, 3, 8, 9, 4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1 };
+    for (u32 s = 0; s < subdivisions; ++s)
+    {
+        std::vector<u32> next;
+        for (sizet i = 0; i + 2 < idx.size(); i += 3)
+        {
+            const u32 a = idx[i], b = idx[i + 1], c = idx[i + 2];
+            const auto mid = [&](u32 x, u32 y) -> u32
+            {
+                pos.push_back(glm::normalize((pos[x] + pos[y]) * 0.5f));
+                return static_cast<u32>(pos.size() - 1);
+            };
+            const u32 ab = mid(a, b), bc = mid(b, c), ca = mid(c, a);
+            for (u32 v : { a, ab, ca, b, bc, ab, c, ca, bc, ab, bc, ca })
+            {
+                next.push_back(v);
+            }
+        }
+        idx = std::move(next);
+    }
+
+    // Emit UNWELDED: one fresh vertex trio per triangle, with the flat face normal.
+    TArray<Vertex> vertices;
+    TArray<u32> indices;
+    for (sizet i = 0; i + 2 < idx.size(); i += 3)
+    {
+        const glm::vec3 a = pos[idx[i]], b = pos[idx[i + 1]], c = pos[idx[i + 2]];
+        const glm::vec3 n = glm::normalize(glm::cross(b - a, c - a));
+        const auto base = static_cast<u32>(vertices.Num());
+        vertices.Add(Vertex(a, n, { 0.0f, 0.0f }));
+        vertices.Add(Vertex(b, n, { 0.0f, 0.0f }));
+        vertices.Add(Vertex(c, n, { 0.0f, 0.0f }));
+        indices.Add(base);
+        indices.Add(base + 1);
+        indices.Add(base + 2);
+    }
+    return Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+}
+
+// =============================================================================
 // Helper: extract canonical triangle multiset from a mesh
 // Each triangle is a sorted triple of positions for order-independent comparison
 // =============================================================================
@@ -288,6 +347,61 @@ TEST(MeshOptimization, GenerateLODWithVeryLowRatioProducesMinimalMesh)
 
     // Should produce at least 1 triangle
     EXPECT_GE(lod->GetIndices().Num(), 3);
+}
+
+// Issue #653: LOD generation must simplify an UNWELDED mesh, not just a welded one.
+//
+// meshoptimizer sees an index-unwelded mesh (co-located vertices with distinct
+// indices — what Assimp produces for any normal-less source, see MakeUnweldedGridMesh)
+// as a disconnected triangle soup and collapses nothing. Every existing LOD test uses a
+// welded grid, so this whole class of real-world assets (Stanford scans, raw PLY/OBJ
+// without normals) silently produced NO usable LOD — the classic sibling of the #651
+// virtual-geometry DAG failure. The fix position-welds the index buffer before
+// simplifying (a no-op on an already-welded mesh, so the welded tests are unaffected).
+// The reproduction had to be a CLOSED curved surface (an unwelded icosphere — the dragon's
+// shape), and finding that out was the whole point of writing the test first. An unwelded
+// *open* grid simplifies fine, because collapses are cheap at its real boundary; it is only a
+// closed surface — where every "border" is spurious and there is no real boundary to relieve
+// it — that collapses to zero. The bug is real (measured: 5120 -> 5120, zero reduction).
+TEST(MeshOptimization, GenerateLODSimplifiesAnUnweldedClosedSurface)
+{
+    auto mesh = MakeUnweldedIcosphere(4); // 20,480 loose triangles, ~61k split vertices
+    const auto originalTriCount = mesh->GetIndices().Num() / 3;
+
+    auto lod = MeshOptimization::GenerateLODMesh(*mesh, 0.25f, 1.0f);
+    ASSERT_NE(lod, nullptr);
+    const auto lodTriCount = lod->GetIndices().Num() / 3;
+
+    RecordProperty("unwelded_original_tris", std::to_string(originalTriCount));
+    RecordProperty("unwelded_lod_tris", std::to_string(lodTriCount));
+
+    EXPECT_LT(lodTriCount, originalTriCount * 3 / 4)
+        << "GenerateLODMesh did not reduce an unwelded closed surface (" << originalTriCount
+        << " -> " << lodTriCount << "). meshopt sees the co-located-but-distinct-index vertices "
+                                    "as a disconnected triangle soup; GenerateLODMesh must position-weld the index buffer "
+                                    "before simplifying (issue #653).";
+    EXPECT_GT(lodTriCount, 0u);
+
+    const auto vertCount = static_cast<u32>(lod->GetVertices().Num());
+    for (i32 i = 0; i < lod->GetIndices().Num(); ++i)
+    {
+        EXPECT_LT(lod->GetIndices()[i], vertCount) << "invalid LOD index at " << i;
+    }
+}
+
+TEST(MeshOptimization, GenerateLODWithAttributesSimplifiesAnUnweldedClosedSurface)
+{
+    auto mesh = MakeUnweldedIcosphere(4);
+    const auto originalTriCount = mesh->GetIndices().Num() / 3;
+
+    auto lod = MeshOptimization::GenerateLODMeshWithAttributes(*mesh, 0.25f, 1.0f);
+    ASSERT_NE(lod, nullptr);
+    const auto lodTriCount = lod->GetIndices().Num() / 3;
+
+    EXPECT_LT(lodTriCount, originalTriCount * 3 / 4)
+        << "attribute-aware LOD did not reduce an unwelded closed surface (" << originalTriCount
+        << " -> " << lodTriCount << ") — same unweld cause as issue #653.";
+    EXPECT_GT(lodTriCount, 0u);
 }
 
 // =============================================================================
@@ -632,4 +746,167 @@ TEST(MeshOptimization, AttributeAwareLODProducesValidOutput)
     // Attribute-aware LOD should produce equal or smaller UV span per triangle
     // (it penalises collapsing edges that cross UV seams)
     EXPECT_LE(attrUVSpan, basicUVSpan + 1e-4);
+}
+
+// =============================================================================
+// Degenerate-triangle census (issue #629)
+//
+// A UV-DEGENERATE triangle has zero area in texture space but real area in 3D.
+// Its UV gradient is zero along at least one axis, so a tangent frame built from
+// screen-space UV derivatives collapses to the zero vector and `normalize` returns
+// NaN — which is exactly how Sponza's potted vines grew a white lacework through
+// the G-Buffer (see docs/bug-investigations/nanite-foliage-white-fringe-*.md).
+// Sponza ships 314 of them and the cluster-DAG simplifier creates more.
+//
+// The shader guards the collapse; these tests pin the IMPORT-side census that makes
+// such an asset visible instead of silently expensive. Nothing is dropped: the
+// triangles carry real 3D area (two whole Sponza submeshes are 100% UV-degenerate),
+// so removing them would punch holes in the mesh.
+// =============================================================================
+
+// Three corners sharing one texcoord — the case the investigation found in Sponza
+// (80 of the 314) and the one the shader probe reproduces.
+TEST(MeshOptimization, DetectsTriangleWhoseCornersShareOneTexcoord)
+{
+    TArray<Vertex> vertices;
+    vertices.Add(Vertex({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.5f, 0.5f }));
+    vertices.Add(Vertex({ 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.5f, 0.5f }));
+    vertices.Add(Vertex({ 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.5f, 0.5f }));
+
+    TArray<u32> indices;
+    indices.Add(0);
+    indices.Add(1);
+    indices.Add(2);
+
+    auto mesh = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+    const auto stats = MeshOptimization::AnalyzeDegenerateTriangles(*mesh);
+
+    EXPECT_EQ(stats.TriangleCount, 1u);
+    EXPECT_EQ(stats.ZeroUvAreaCount, 1u);
+    EXPECT_EQ(stats.ZeroAreaCount, 0u); // it has REAL 3D area — that is why it cannot be dropped
+    EXPECT_GT(stats.ZeroUvArea3DSum, 0.0);
+    EXPECT_TRUE(stats.HasDegenerates());
+}
+
+// The majority case in Sponza (234 of the 314): three DISTINCT texcoords that are
+// collinear in UV space (here, constant v). The UV area is still zero, so the
+// tangent still collapses — a "do the corners share a UV?" check would miss these.
+TEST(MeshOptimization, DetectsTriangleWhoseTexcoordsAreCollinearInUvSpace)
+{
+    TArray<Vertex> vertices;
+    vertices.Add(Vertex({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.10f, 0.78f }));
+    vertices.Add(Vertex({ 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.40f, 0.78f }));
+    vertices.Add(Vertex({ 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.70f, 0.78f }));
+
+    TArray<u32> indices;
+    indices.Add(0);
+    indices.Add(1);
+    indices.Add(2);
+
+    auto mesh = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+    const auto stats = MeshOptimization::AnalyzeDegenerateTriangles(*mesh);
+
+    EXPECT_EQ(stats.ZeroUvAreaCount, 1u);
+    EXPECT_EQ(stats.ZeroAreaCount, 0u);
+}
+
+// A zero-3D-area triangle is a different animal: it is dead geometry (Assimp's
+// aiProcess_FindDegenerates normally removes it) and must not be counted as a
+// UV-degenerate — nothing shades it, so it costs no fragments.
+TEST(MeshOptimization, ZeroAreaTriangleIsCountedSeparatelyFromUvDegenerates)
+{
+    TArray<Vertex> vertices;
+    vertices.Add(Vertex({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f }));
+    vertices.Add(Vertex({ 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }));
+    vertices.Add(Vertex({ 2.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f })); // collinear in 3D
+
+    TArray<u32> indices;
+    indices.Add(0);
+    indices.Add(1);
+    indices.Add(2);
+
+    auto mesh = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+    const auto stats = MeshOptimization::AnalyzeDegenerateTriangles(*mesh);
+
+    EXPECT_EQ(stats.TriangleCount, 1u);
+    EXPECT_EQ(stats.ZeroAreaCount, 1u);
+    EXPECT_EQ(stats.ZeroUvAreaCount, 0u);
+    EXPECT_DOUBLE_EQ(stats.ZeroUvArea3DSum, 0.0);
+}
+
+// A healthy textured mesh must not be reported — the census is a warning channel,
+// and a false positive on every quad would train everyone to ignore it.
+TEST(MeshOptimization, HealthyMeshReportsNoDegenerates)
+{
+    auto mesh = MakeQuadMesh(); // two triangles, full 0..1 UV square
+    const auto stats = MeshOptimization::AnalyzeDegenerateTriangles(*mesh);
+
+    EXPECT_EQ(stats.TriangleCount, 2u);
+    EXPECT_EQ(stats.ZeroUvAreaCount, 0u);
+    EXPECT_EQ(stats.ZeroAreaCount, 0u);
+    EXPECT_FALSE(stats.HasDegenerates());
+}
+
+// Mixed mesh: the census must count per triangle, not give up at the first one.
+TEST(MeshOptimization, CountsDegeneratesAlongsideHealthyTrianglesInTheSameMesh)
+{
+    TArray<Vertex> vertices;
+    // Healthy quad (2 tris)
+    vertices.Add(Vertex({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f }));
+    vertices.Add(Vertex({ 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }));
+    vertices.Add(Vertex({ 1.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f }));
+    vertices.Add(Vertex({ 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }));
+    // UV-degenerate triangle (real 3D area, one shared texcoord)
+    vertices.Add(Vertex({ 2.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.25f, 0.25f }));
+    vertices.Add(Vertex({ 3.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.25f, 0.25f }));
+    vertices.Add(Vertex({ 2.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.25f, 0.25f }));
+
+    TArray<u32> indices;
+    for (u32 i : { 0u, 1u, 2u, 0u, 2u, 3u, 4u, 5u, 6u })
+    {
+        indices.Add(i);
+    }
+
+    auto mesh = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+    const auto stats = MeshOptimization::AnalyzeDegenerateTriangles(*mesh);
+
+    EXPECT_EQ(stats.TriangleCount, 3u);
+    EXPECT_EQ(stats.ZeroUvAreaCount, 1u);
+    EXPECT_EQ(stats.ZeroAreaCount, 0u);
+    EXPECT_NEAR(stats.ZeroUvArea3DSum, 0.5, 1e-6); // the 1x1 right triangle
+}
+
+// The census is pure analysis: OptimizeMesh reports it but must not delete anything.
+// This is the "do not silently delete real geometry" contract.
+TEST(MeshOptimization, OptimizeMeshKeepsUvDegenerateTriangles)
+{
+    TArray<Vertex> vertices;
+    vertices.Add(Vertex({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.25f, 0.25f }));
+    vertices.Add(Vertex({ 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.25f, 0.25f }));
+    vertices.Add(Vertex({ 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.25f, 0.25f }));
+    vertices.Add(Vertex({ 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f }));
+    vertices.Add(Vertex({ 1.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f }));
+    vertices.Add(Vertex({ 0.0f, 1.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f }));
+
+    TArray<u32> indices;
+    for (u32 i = 0; i < 6; ++i)
+    {
+        indices.Add(i);
+    }
+
+    auto mesh = Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(indices));
+    Submesh sub;
+    sub.m_BaseVertex = 0;
+    sub.m_BaseIndex = 0;
+    sub.m_VertexCount = 6;
+    sub.m_IndexCount = 6;
+    mesh->AddSubmesh(sub);
+
+    const u32 before = MeshOptimization::AnalyzeDegenerateTriangles(*mesh).ZeroUvAreaCount;
+    ASSERT_EQ(before, 1u);
+
+    MeshOptimization::OptimizeMesh(*mesh);
+
+    EXPECT_EQ(mesh->GetIndices().Num(), 6); // no triangle removed
+    EXPECT_EQ(MeshOptimization::AnalyzeDegenerateTriangles(*mesh).ZeroUvAreaCount, 1u);
 }

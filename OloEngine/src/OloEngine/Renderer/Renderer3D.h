@@ -199,6 +199,19 @@ namespace OloEngine
         // render" gates only.
         static bool HasInitialized();
 
+        // Diagnostics: which GPU-resource-holding members of s_Data are still alive?
+        //
+        // Shutdown() must release every one of them. A Ref<> it forgets survives into
+        // STATIC destruction at process exit, where its destructor frees GPU buffers
+        // through FrameResourceManager / RendererMemoryTracker / GPUResourceInspector —
+        // Meyer's singletons that are already gone — and segfaults the process on the way
+        // out, AFTER the test binary has printed a clean pass. Ref<GPUFrustumCuller> hid
+        // there for exactly that reason. Pinned by RendererShutdownTest.
+        //
+        // Returns the names of the members still holding resources; empty after a correct
+        // Shutdown(). Add any new GPU-owning s_Data member here AND to Shutdown().
+        [[nodiscard]] static std::vector<std::string> DebugLiveGpuOwningStatics();
+
         // Asset hot-reload handler — ensures next frame picks up new RendererIDs
         static void OnAssetReloaded(const AssetReloadedEvent& e);
 
@@ -207,6 +220,24 @@ namespace OloEngine
         static void BeginScene(const Camera& camera, const glm::mat4& transform);
         static void EndScene();
         static CommandPacket* DrawMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, bool isStatic = true, i32 entityID = -1, const LODGroup* lodGroup = nullptr);
+        // Virtualized geometry (issue #629): queues a cluster-LOD-DAG instance
+        // for the GPU-driven VirtualGeometryPass. Builds + registers the DAG for
+        // the mesh source on first sight (synchronous for now; the cook slice
+        // moves this offline). Rendered by the Deferred path only.
+        // overrideMaterial: an explicit MaterialComponent, or nullptr to shade each submesh
+        // with the material it was imported with. defaultMaterial is the last resort for a
+        // submesh that carries none.
+        static void SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
+                                      const glm::mat4& modelMatrix, const Material* overrideMaterial,
+                                      const Material& defaultMaterial, i32 entityID,
+                                      f32 errorThresholdPixels, bool castShadows);
+        // Flatten a Material into the exact POD record the frame material table
+        // uploads for a draw (factors, alpha mode/cutoff, and the resolved GL
+        // texture id per slot, incl. the global-IBL fallback). Public because it
+        // is the single source of truth for "what the GPU was actually given" —
+        // olo_material_get (MCP, issue #607) reports it verbatim rather than
+        // re-deriving the resolution and risking a confidently wrong answer.
+        static auto CreatePODMaterialDataForMaterial(const Material& material, RendererID shaderRendererID) -> PODMaterialData;
         // Animated drawing commands
         static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = false, i32 entityID = -1);
         // Same as DrawAnimatedMesh but also carries the previous-frame bone matrices used by the
@@ -843,7 +874,8 @@ namespace OloEngine
         }
 
         static void AddMeshShadowCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
-                                        RendererID shadowVaoID = 0, const BoundingBox& worldBounds = NoBounds);
+                                        RendererID shadowVaoID = 0, const BoundingBox& worldBounds = NoBounds,
+                                        bool twoSided = false);
 
         static void AddSkinnedShadowCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                                            u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds = NoBounds);
@@ -1359,7 +1391,6 @@ namespace OloEngine
         static bool IsDeferredCapableShader(const Ref<Shader>& shader);
         static auto GetRenderStreamNode(RenderStreamType stream) -> CommandBufferRenderPass*;
         static auto ValidateDrawMeshRendererIDs(const char* context, u32 vaoID, u32 shaderID) -> bool;
-        static auto CreatePODMaterialDataForMaterial(const Material& material, RendererID shaderRendererID) -> PODMaterialData;
 
         // Shared Deferred-vs-forward-overlay shader routing decision for the
         // instanced submission paths (DrawMeshInstanced's CPU-cull path and

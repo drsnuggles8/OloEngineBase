@@ -456,11 +456,11 @@ namespace OloEngine::MCP
             tool.Title = "List entity writable fields";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
-                "List the writable component fields of one entity, with each field's type and current value — "
-                "the read-only discovery half of olo_entity_set_field. Only components the entity actually has "
-                "(and that expose writable fields) are returned, so the result is exactly what you can write "
-                "right now. Pass an optional 'component' to restrict the listing. Field names match the keys "
-                "shown in olo_scene_get_entity's YAML.";
+                "List the writable component fields of one entity, with each field's type, current value and "
+                "(where the field has a serializer-enforced range) its 'min'/'max' — the read-only discovery "
+                "half of olo_entity_set_field. Only components the entity actually has (and that expose writable "
+                "fields) are returned, so the result is exactly what you can write right now. Pass an optional "
+                "'component' to restrict the listing. Field names match the keys shown in olo_scene_get_entity's YAML.";
             tool.InputSchema = GenericFieldWrite::ListInputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_EntityListFields;
@@ -481,13 +481,18 @@ namespace OloEngine::MCP
             tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
             tool.Description =
                 "Set a single component field on an entity by (component, field, value) — the generic, "
-                "undoable successor to olo_set_collision_layer that mutates ANY registered field (transform "
-                "translation/scale, light color/intensity/range/shadows, sprite/circle color, camera flags, "
-                "tag, ...). The value type must match the field: a boolean, a number, a string, or an array "
-                "of numbers for a vector (e.g. [r,g,b] for a vec3 color). The change is applied through the "
-                "editor's undo stack, so it is a single Ctrl-Z. This is a WRITE tool: it is refused unless "
-                "'Allow writes' is enabled in the editor's MCP Server panel (off by default). Discover the "
-                "exact writable (component, field) names + value shapes for an entity with olo_entity_list_fields.";
+                "undoable successor to olo_set_collision_layer. The registry is GENERATED from every component "
+                "definition (issue #607), so it covers the whole ECS surface: transforms, meshes/models/materials, "
+                "VirtualMesh (Nanite), lights, fog/probes/sky, physics bodies + colliders, text, UI, nav, water, "
+                "terrain, ... — everything except per-tick runtime state. The value type must match the field: a "
+                "boolean, a number, a string (also for an AssetHandle: a decimal-digit u64 string), or an array of "
+                "numbers for a vector (e.g. [r,g,b] for a vec3 color). A field with a serializer-enforced range is "
+                "CLAMPED into it and the result says clamped:true with the original requestedValue. The result also "
+                "echoes 'value' READ BACK from the component after the write plus changed:true/false — verify those "
+                "rather than assuming a returned call applied. Applied through the editor's undo stack, so it is a "
+                "single Ctrl-Z. This is a WRITE tool: refused unless 'Allow writes' is enabled in the editor's MCP "
+                "Server panel (off by default). Discover the exact writable (component, field) names, value shapes "
+                "and ranges for an entity with olo_entity_list_fields.";
             tool.InputSchema = GenericFieldWrite::InputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_EntitySetField;

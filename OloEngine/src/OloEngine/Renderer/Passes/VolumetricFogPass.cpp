@@ -14,6 +14,7 @@
 #include <glad/gl.h>
 
 #include <algorithm>
+#include <cmath>
 
 namespace OloEngine
 {
@@ -177,6 +178,26 @@ namespace OloEngine
 
         if (clusteredActive)
             forwardPlus.UnbindAfterShading();
+
+        // Publish the froxel mapping this dispatch used (issue #607). Recorded
+        // BEFORE the ping-pong swap below, so ScatterTextureID is the volume the
+        // scatter dispatch just WROTE, not the one that becomes history next
+        // frame — a probe reading the other buffer would silently answer from
+        // the previous frame's scattering.
+        m_VolumeState.Valid = true;
+        m_VolumeState.DimX = kVolumeWidth;
+        m_VolumeState.DimY = kVolumeHeight;
+        m_VolumeState.DimZ = kVolumeDepth;
+        m_VolumeState.Near = fogNear;
+        m_VolumeState.Far = fogFar;
+        m_VolumeState.LogFarOverNear = std::log2(fogFar / fogNear);
+        m_VolumeState.View = viewRelative;
+        m_VolumeState.InverseView = ubo.InverseView;
+        m_VolumeState.Projection = projection;
+        m_VolumeState.InverseProjection = ubo.InverseProjection;
+        m_VolumeState.RenderOrigin = renderOrigin;
+        m_VolumeState.ScatterTextureID = m_ScatterVolume[m_CurrentScatter]->GetRendererID();
+        m_VolumeState.IntegratedTextureID = m_IntegratedVolume->GetRendererID();
 
         // Bookkeeping for the next frame
         m_CurrentScatter = historyIndex;

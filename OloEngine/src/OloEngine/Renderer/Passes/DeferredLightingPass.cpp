@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 
 #include <glad/gl.h>
 
@@ -421,12 +422,106 @@ namespace OloEngine
             }
         }
 
+        // Virtualized-geometry debug view (issue #629). Composited HERE, after the lighting
+        // draw, because anything drawn before it is overwritten by it.
+        BlitVirtualGeometryDebugOverlay();
+
         m_SceneFramebuffer->Unbind();
 
         // Unbind the fullscreen-triangle VAO and the deferred-lighting shader
         // so downstream passes see a clean slate. The GLStateGuard would
         // otherwise restore both via ApplyCore() — explicit clears here keep
         // the safety net pristine so it surfaces only genuine regressions.
+        ::glBindVertexArray(0);
+        ::glUseProgram(0);
+    }
+
+    void DeferredLightingPass::BlitVirtualGeometryDebugOverlay()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const auto& settings = Renderer3D::GetRendererSettings();
+        if (!settings.VirtualDebugToViewport || !m_SceneFramebuffer)
+        {
+            return;
+        }
+
+        auto& registry = VirtualMeshRegistry::Get();
+        if (registry.GetDebugMode() == VirtualDebugMode::Off)
+        {
+            return;
+        }
+
+        const u32 debugTexID = registry.GetDebugColorTextureID();
+        if (debugTexID == 0)
+        {
+            return;
+        }
+
+        // The debug image is sized to the G-Buffer. If the viewport resized this frame and the
+        // debug target has not caught up yet, skip rather than sample a mismatched texture —
+        // the overlay is a diagnostic, and a diagnostic that lies for one frame is worse than
+        // one that is briefly absent. texelFetch (not a sampler) means the dimensions must
+        // actually agree, not merely be filterable.
+        if (m_GBuffer && (registry.GetDebugWidth() != m_GBuffer->GetWidth() ||
+                          registry.GetDebugHeight() != m_GBuffer->GetHeight()))
+        {
+            return;
+        }
+
+        if (!m_VirtualDebugOverlay)
+        {
+            m_VirtualDebugOverlay = Shader::Create("assets/shaders/VirtualDebugOverlay.glsl");
+        }
+        if (!m_VirtualDebugOverlay)
+        {
+            return;
+        }
+
+        GLStateGuard guard("DeferredLightingPass::VirtualDebugOverlay", GLStateGuard::Policy::Restore);
+
+        // Scene colour only (RT0). The scene FB also carries entity-id / normals attachments;
+        // writing the overlay into those would corrupt mouse picking with cluster-hash colours.
+        const u32 sceneFBID = m_SceneFramebuffer->GetRendererID();
+        const GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0 };
+        glNamedFramebufferDrawBuffers(sceneFBID, 1, drawBufs);
+
+        RenderCommand::SetViewport(0, 0, m_SceneFramebuffer->GetSpecification().Width,
+                                   m_SceneFramebuffer->GetSpecification().Height);
+        RenderCommand::SetDepthTest(false);
+        RenderCommand::SetDepthMask(false);
+        RenderCommand::SetBlendState(false); // the shader discards; it does not blend
+
+        m_VirtualDebugOverlay->Bind();
+        // Slot 0 is the engine's documented pass-local fullscreen-input slot (see
+        // ShaderBindingLayout::IsKnownTextureBinding) — no material is bound during this draw.
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_DIFFUSE, debugTexID);
+
+        auto va = MeshPrimitives::GetFullscreenTriangle();
+        va->Bind();
+        RenderCommand::DrawIndexed(va);
+
+        // Restore the scene FB's full draw-buffer set — ForwardOverlayPass runs next and
+        // expects every attachment to be available on bind (same contract as the lighting
+        // draw's own restore above).
+        const auto& spec = m_SceneFramebuffer->GetSpecification();
+        u32 colorCount = 0;
+        for (const auto& att : spec.Attachments.Attachments)
+        {
+            const bool isDepth = (att.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
+                                  att.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F);
+            if (!isDepth && att.TextureFormat != FramebufferTextureFormat::None)
+                ++colorCount;
+        }
+        if (colorCount > 0)
+        {
+            std::array<GLenum, 16> fullDrawBufs{};
+            const u32 n = std::min<u32>(colorCount, static_cast<u32>(fullDrawBufs.size()));
+            for (u32 i = 0; i < n; ++i)
+                fullDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
+            glNamedFramebufferDrawBuffers(sceneFBID, static_cast<GLsizei>(n), fullDrawBufs.data());
+        }
+
         ::glBindVertexArray(0);
         ::glUseProgram(0);
     }

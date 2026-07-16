@@ -1138,6 +1138,28 @@ namespace OloEngine
         return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason);
     }
 
+    u32 RenderGraph::GetTextureViewLayerIndex(std::string_view name) const
+    {
+        const auto viewIt = m_TextureViewDefinitions.find(std::string(name));
+        if (viewIt == m_TextureViewDefinitions.end())
+            return 0u;
+
+        // An array-layer view records the layer in BaseLayer; a cube-face view
+        // records the face in BaseSlice (see CreateTextureCubeFaceView). Both
+        // are the z offset glGetTextureSubImage wants. Every other view kind
+        // (mip / multisample-resolve / framebuffer attachment) addresses layer 0
+        // of its parent.
+        switch (viewIt->second.Kind)
+        {
+            case TextureViewKind::TextureArrayLayer:
+                return viewIt->second.ParentRange.BaseLayer;
+            case TextureViewKind::TextureCubeFace:
+                return viewIt->second.ParentRange.BaseSlice;
+            default:
+                return 0u;
+        }
+    }
+
     RGTextureHandle RenderGraph::CreateTextureCubeFaceView(std::string_view name,
                                                            const RGTextureHandle textureHandle,
                                                            const u32 faceIndex)

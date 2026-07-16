@@ -11,7 +11,28 @@ namespace OloEngine
     struct AssetPackFile
     {
         static constexpr u32 MagicNumber = 0x504C4F4F; // "OLOO" in little endian
-        static constexpr u32 Version = 3;
+
+        // v4 (issue #629): MeshSource records carry a trailing virtualized-geometry
+        // (cluster LOD DAG) blob. Appended at the END of the MeshSource payload and
+        // gated on `stream.GetArchiveVersion() >= kVirtualMeshPackVersion` at the read
+        // site, so a v1-v3 pack — which never wrote those bytes — still reads cleanly.
+        //
+        // v5 (issue #629): MeshSource records also carry the materials the mesh was
+        // IMPORTED with (an ImportedMaterialCodec blob: factors, alpha mode/cutoff,
+        // flags, and per-slot texture asset handles). Before v5 the pack shipped only
+        // the `TMap<u32, AssetHandle> m_Materials` map — which the import path never
+        // populates — so a packed game had no materials at all and every mesh rendered
+        // with the flat engine-default material. Same discipline as v4: appended at the
+        // END of the payload, gated on `GetArchiveVersion() >= kImportedMaterialsPackVersion`.
+        static constexpr u32 Version = 5;
+
+        // The pack version that introduced the MeshSource virtual-mesh blob. Read sites
+        // gate on this rather than on `Version` so the constant stays meaningful after
+        // the next bump.
+        static constexpr u32 VirtualMeshPackVersion = 4;
+
+        // The pack version that introduced the MeshSource imported-material table.
+        static constexpr u32 ImportedMaterialsPackVersion = 5;
 
         // Oldest FileHeader::Version this build will still load (issue #454). A pack
         // built by a newer engine (Header.Version > Version) is rejected outright --

@@ -34,6 +34,31 @@ namespace OloEngine
     // The pass must execute AFTER ScenePass (the clustered light lists are
     // dispatched inline there) and after ShadowPass; it re-binds the cluster
     // SSBOs itself since ScenePass unbinds them after its color pass.
+    // The froxel mapping of the LAST frame the compute chain ran — the CPU
+    // mirror of the FroxelFogData UBO both shaders read (issue #607). Exposed
+    // so a diagnostic (olo_froxel_fog_probe) can reproduce the shader's
+    // world <-> froxel transform EXACTLY instead of re-deriving it from the
+    // camera and silently drifting: the froxel z distribution is exponential,
+    // and a probe that got that wrong would confidently report a neighbouring
+    // cell's scattering as the sampled point's.
+    struct FroxelVolumeState
+    {
+        bool Valid = false; // the chain has run at least once; the fields below are that frame's
+        u32 DimX = 0;
+        u32 DimY = 0;
+        u32 DimZ = 0;
+        f32 Near = 0.0f;           // fog volume near plane (view depth, metres)
+        f32 Far = 0.0f;            // fog volume far plane
+        f32 LogFarOverNear = 0.0f; // log2(Far / Near) — the exponential slice exponent
+        glm::mat4 View{ 1.0f };    // render-RELATIVE world -> view
+        glm::mat4 InverseView{ 1.0f };
+        glm::mat4 Projection{ 1.0f };
+        glm::mat4 InverseProjection{ 1.0f };
+        glm::vec3 RenderOrigin{ 0.0f };
+        u32 ScatterTextureID = 0;    // the volume the last scatter dispatch WROTE (rgb = in-scatter, a = extinction)
+        u32 IntegratedTextureID = 0; // FroxelFogIntegrate's output (rgb = accumulated in-scatter, a = transmittance)
+    };
+
     class VolumetricFogPass : public RenderGraphNode
     {
       public:
@@ -89,6 +114,16 @@ namespace OloEngine
         // the froxel chain did not run this frame).
         void UploadDisabledUBO();
 
+        // The froxel mapping + volume ids of the last frame the chain ran.
+        // Valid == false until then (and it deliberately KEEPS the last valid
+        // mapping after a disabling toggle, so a probe can still say "this is
+        // the volume that produced the frame you are looking at" rather than
+        // silently answering from an identity transform).
+        [[nodiscard]] const FroxelVolumeState& GetFroxelVolumeState() const noexcept
+        {
+            return m_VolumeState;
+        }
+
       private:
         bool m_Enabled = false;
         bool m_RanThisFrame = false;
@@ -108,5 +143,8 @@ namespace OloEngine
         // Previous frame's ABSOLUTE-world view-projection for 3D reprojection
         glm::mat4 m_PrevViewProjection = glm::mat4(1.0f);
         bool m_PrevViewProjectionValid = false;
+
+        // Last frame's froxel mapping, published for olo_froxel_fog_probe.
+        FroxelVolumeState m_VolumeState;
     };
 } // namespace OloEngine

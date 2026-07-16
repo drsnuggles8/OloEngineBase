@@ -44,3 +44,4 @@ ids.insert(entt::type_hash<UIScrollViewComponent>::value());
 ids.insert(entt::type_hash<UISliderComponent>::value());
 ids.insert(entt::type_hash<UIToggleComponent>::value());
 ids.insert(entt::type_hash<UIWorldAnchorComponent>::value());
+ids.insert(entt::type_hash<VirtualMeshComponent>::value());

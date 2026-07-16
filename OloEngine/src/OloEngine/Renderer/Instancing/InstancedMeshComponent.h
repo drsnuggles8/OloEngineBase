@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Scene/ComponentReflection.h" // OLO_SERIALIZE marker
 
 #include <vector>
 
@@ -85,6 +86,11 @@ namespace OloEngine
             sizet AssetSize = 0;
             const InstanceData* AssetDataPtr = nullptr;
         };
+        // Runtime-derived cache — never serialized, and (Skip) never MCP-writable:
+        // sub-object addressing would otherwise expose _MergedCache.PlacementHandle as
+        // a writable field, and desynchronising the invalidation fingerprint from the
+        // data it fingerprints makes the renderer reuse a stale instance buffer.
+        OLO_SERIALIZE(Skip)
         MergedCache _MergedCache;
 
         // Drop the cache so the next render-loop pass rebuilds it.

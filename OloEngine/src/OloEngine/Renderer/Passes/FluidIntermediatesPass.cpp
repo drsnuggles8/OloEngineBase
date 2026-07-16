@@ -94,6 +94,36 @@ namespace OloEngine
             [[maybe_unused]] const auto sceneDepthRead =
                 builder.Read(blackboard.Scene.SceneDepthAttachment, RGReadUsage::ShaderSample);
         }
+
+        // Publish the pass-owned raw GL targets into the graph so they resolve
+        // through RenderGraph::GetRegisteredResources() — without this, both
+        // olo_render_list_targets and olo_render_capture_target are blind to
+        // them and a broken fluid frame cannot be bisected to the splat / smooth
+        // stage from an agent session (issue #607 / #630). Import-only: the pass
+        // renders into them through its own FBOs, and the composite samples them
+        // by raw id, so there is deliberately no Read/Write declaration to change
+        // the graph's ordering or culling.
+        //
+        // Gated on the SAME condition as the early-out above (enabled + pending
+        // draws) plus "the targets actually exist", so the imports appear exactly
+        // on the frames the pass runs. That makes the set of registered resources
+        // depend on HasPendingDraws() — already hashed into the pipeline
+        // fingerprint (RenderPipeline.cpp, "Fluid draws gate ..."), so the
+        // topology-keyed caches invalidate correctly
+        // (docs/agent-rules/render-pipeline-caches.md).
+        const auto publishTarget = [&builder](const char* name, u32 textureID, RGResourceFormat format,
+                                              u32 width, u32 height)
+        {
+            if (textureID == 0)
+                return;
+            RGResourceDesc desc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, name);
+            desc.Format = format;
+            desc.Width = width;
+            desc.Height = height;
+            [[maybe_unused]] const RGTextureHandle handle = builder.ImportTexture(name, textureID, desc);
+        };
+        publishTarget(kSmoothedDepthTargetName, m_DepthTexA, RGResourceFormat::R32Float, m_Width, m_Height);
+        publishTarget(kThicknessTargetName, m_ThicknessTex, RGResourceFormat::RG16Float, m_Width, m_Height);
     }
 
     void FluidIntermediatesPass::Execute(RGCommandContext& context)

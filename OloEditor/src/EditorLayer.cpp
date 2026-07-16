@@ -7,7 +7,10 @@
 #include "MCP/McpServerPanel.h"
 #include "MCP/McpTools.h"
 #include "OloEngine/Renderer/Preview/AssetPreviewRenderer.h"
+#include "OloEngine/Core/SyntheticInput.h"
 
+#include <backends/imgui_impl_glfw.h>
+#include <GLFW/glfw3.h>
 #include <stb_image/stb_image_write.h>
 
 #include <cstdlib>
@@ -552,6 +555,17 @@ namespace OloEngine
                 result.SceneName = m_ActiveScene ? m_ActiveScene->GetName() : std::string{};
                 return result;
             };
+            // olo_input_inject (#607): synthetic mouse/keyboard input. All three run on
+            // the game thread (inside a MarshalRead job) — ImGuiIO and the engine event
+            // dispatch are not thread-safe, so nothing here may be called from the HTTP
+            // worker. QueueMcpInput only ENQUEUES; the events are applied one frame at a
+            // time by DrainMcpInputQueue at the top of OnUpdate.
+            mcpContext.GetInputViewportInfo = [this]() -> MCP::McpInputViewportInfo
+            { return GetMcpInputViewportInfo(); };
+            mcpContext.InjectInput = [this](const MCP::McpInputPlan& plan) -> MCP::McpInputInjectResult
+            { return QueueMcpInput(plan); };
+            mcpContext.GetInputState = [this]() -> MCP::McpInputStateSnapshot
+            { return GetMcpInputState(); };
             mcpContext.GetFrameIndex = [this]() -> u64
             { return m_FrameIndex; };
             mcpContext.IsCaptureUnready = [this]() -> bool
@@ -569,12 +583,17 @@ namespace OloEngine
             m_McpServer = CreateScope<MCP::McpServer>(std::move(mcpContext));
             MCP::RegisterBuiltinTools(*m_McpServer);
             // Project-authored Lua script tools (issue #357 / ADR 0005): scan
-            // <project assets>/McpTools before the server can start, so the tool
-            // set is complete and immutable per run. The panel's start button
-            // rescans, so a script edit needs only a server restart, not an
-            // editor restart.
+            // <project assets>/McpTools so the tool set is populated before the
+            // server starts. Since issue #607 the scan is also safe to repeat
+            // LIVE — olo_script_tools_reload (registered here) and the MCP panel's
+            // "Reload script tools" button republish the set through an atomic
+            // copy-on-write swap and notify connected agents, so a script edit
+            // needs neither a server restart nor an editor restart.
             if (const auto scriptDir = MCP::DefaultScriptToolsDirectory(); !scriptDir.empty())
+            {
+                MCP::RegisterScriptToolsReloadTool(*m_McpServer, scriptDir);
                 (void)MCP::LoadScriptTools(*m_McpServer, scriptDir);
+            }
             // Apply the persisted redaction preference (loaded by OpenProject above).
             m_McpServer->SetRedactPaths(m_Prefs.McpRedactPaths);
 
@@ -627,6 +646,12 @@ namespace OloEngine
         if (m_McpServer)
             m_McpServer->Stop();
 
+        // Drop any synthetic input a half-drained plan left held (olo_input_inject,
+        // #607) — the overlay is process-wide static state, so a key left "down" here
+        // would outlive the editor layer.
+        m_McpInputQueue.clear();
+        SyntheticInput::Reset();
+
         // Properly stop the scene if still in play/simulate mode
         // (e.g., user closed the window while playing)
         if (m_SceneState == SceneState::Play || m_SceneState == SceneState::Simulate)
@@ -669,12 +694,257 @@ namespace OloEngine
         }
     }
 
+    // ---- MCP synthetic input injection (olo_input_inject, issue #607) ------------
+    //
+    // WHICH LAYER, AND WHY. There are four candidate seams and only one is right:
+    //
+    //  1. The OS (Win32 SendInput / SetCursorPos) — REJECTED. When an agent drives the
+    //     editor it is a background window (Windows will not let a background process
+    //     take foreground), so OS-level input lands in whatever window IS focused. That
+    //     is not merely useless: it would type into the user's real foreground app.
+    //  2. ImGuiIO alone (io.AddMousePosEvent / AddMouseButtonEvent) — INSUFFICIENT. It
+    //     drives ImGui widgets but produces no engine Event, so EditorLayer's viewport
+    //     picking (OnMouseButtonPressed) never fires. A click would select nothing.
+    //  3. The engine Event dispatch alone (Application::OnEvent) — INSUFFICIENT, and the
+    //     mirror image: viewport picking fires, but ImGui never sees the click, so no
+    //     button, menu, or hierarchy row responds. It would also break the picking it
+    //     appears to serve, since the hovered entity is read at ImGui's mouse position.
+    //  4. The ImGui GLFW BACKEND CALLBACKS — CHOSEN. ImGui_ImplGlfw_CursorPosCallback /
+    //     MouseButtonCallback / KeyCallback / CharCallback are the exact functions GLFW
+    //     invokes for real input. Each feeds ImGuiIO *and* chains to the engine's own
+    //     previously-installed GLFW callback (the backend was initialised with
+    //     install_callbacks=true, so it saved them), which raises the corresponding
+    //     engine Event through Application::OnEvent -> the layer stack. One call, both
+    //     consumers, on exactly the path real input takes.
+    //
+    // One gap remains at seam 4: the engine's Input:: API answers from the CURRENT
+    // HARDWARE state (glfwGetKey / glfwGetMouseButton / glfwGetCursorPos), which a
+    // synthetic event cannot move — and the editor mixes styles (OnMouseButtonPressed
+    // reacts to the event but reads its modifier via Input::IsKeyPressed(LeftControl)).
+    // OloEngine::SyntheticInput is the overlay that closes it: the platform Input
+    // implementations OR this state over the hardware state.
+
+    MCP::McpInputInjectResult EditorLayer::QueueMcpInput(const MCP::McpInputPlan& plan)
+    {
+        MCP::McpInputInjectResult result;
+        result.Available = true;
+
+        if (plan.Frames.empty())
+        {
+            result.Message = "Empty input plan (nothing to inject).";
+            return result;
+        }
+        // Refuse to interleave two plans: the second one's press would land in the
+        // middle of the first one's drag and neither would mean anything.
+        if (!m_McpInputQueue.empty())
+        {
+            result.Message = "An injected input sequence is still in flight (" +
+                             std::to_string(m_McpInputQueue.size()) + " frame(s) left). Retry once it drains.";
+            return result;
+        }
+
+        for (const auto& frame : plan.Frames)
+            m_McpInputQueue.push_back(frame);
+
+        result.Ok = true;
+        result.BaseFrame = m_FrameIndex;
+        result.FrameCount = static_cast<u32>(plan.Frames.size());
+        result.Message = "Queued " + std::to_string(result.FrameCount) + " frame(s) of synthetic input.";
+        return result;
+    }
+
+    void EditorLayer::DrainMcpInputQueue()
+    {
+        if (m_McpInputQueue.empty())
+        {
+            // Nothing in flight: make sure a previous plan left no key stuck down.
+            if (m_McpSyntheticCtrl || m_McpSyntheticShift || m_McpSyntheticAlt)
+            {
+                m_McpSyntheticCtrl = false;
+                m_McpSyntheticShift = false;
+                m_McpSyntheticAlt = false;
+            }
+            return;
+        }
+
+        const std::vector<MCP::McpInputEvent> frame = std::move(m_McpInputQueue.front());
+        m_McpInputQueue.pop_front();
+
+        for (const MCP::McpInputEvent& event : frame)
+            ApplyMcpInputEvent(event);
+
+        // Re-assert the synthetic modifiers into ImGui LAST. Every ImGui_ImplGlfw_*
+        // callback calls ImGui_ImplGlfw_UpdateKeyModifiers, which recomputes io.KeyMods
+        // by polling the REAL keyboard — so the synthetic Ctrl we pressed a frame ago
+        // is cleared by the very mouse-button callback that needs it. Queueing the mod
+        // events after the frame's events makes ours the last word (ImGui applies its
+        // input queue in order at NewFrame). Only ever forced TRUE: a synthetic
+        // modifier must not mask one a human is genuinely holding.
+        ImGuiIO& io = ImGui::GetIO();
+        if (m_McpSyntheticCtrl)
+            io.AddKeyEvent(ImGuiMod_Ctrl, true);
+        if (m_McpSyntheticShift)
+            io.AddKeyEvent(ImGuiMod_Shift, true);
+        if (m_McpSyntheticAlt)
+            io.AddKeyEvent(ImGuiMod_Alt, true);
+
+        // The last frame of the plan has drained: release the cursor override so the
+        // real mouse takes over again. Any key/button the plan left held stays held —
+        // that is the documented contract of keyAction "press".
+        if (m_McpInputQueue.empty())
+            SyntheticInput::ClearMousePosition();
+    }
+
+    void EditorLayer::ApplyMcpInputEvent(const MCP::McpInputEvent& event)
+    {
+        auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
+        if (!window)
+            return;
+
+        // The GLFW modifier bitmask the callbacks would have carried. ImGui's backend
+        // ignores it (it re-polls the hardware), but the engine's own callbacks are
+        // handed it, and keeping it honest costs nothing.
+        i32 mods = 0;
+        if (m_McpSyntheticCtrl)
+            mods |= GLFW_MOD_CONTROL;
+        if (m_McpSyntheticShift)
+            mods |= GLFW_MOD_SHIFT;
+        if (m_McpSyntheticAlt)
+            mods |= GLFW_MOD_ALT;
+
+        switch (event.Type)
+        {
+            case MCP::McpInputEvent::Kind::MousePos:
+            {
+                // Window-client logical coordinates — exactly what GLFW hands the real
+                // cursor-pos callback. The backend adds the window position back itself
+                // when multi-viewport is enabled, so ImGui ends up with the right screen
+                // coordinate without us duplicating that math.
+                SyntheticInput::SetMousePosition({ event.X, event.Y });
+                ::ImGui_ImplGlfw_CursorPosCallback(window, static_cast<f64>(event.X), static_cast<f64>(event.Y));
+                break;
+            }
+            case MCP::McpInputEvent::Kind::MouseButton:
+            {
+                SyntheticInput::SetMouseButton(static_cast<MouseCode>(event.Code), event.Down);
+                ::ImGui_ImplGlfw_MouseButtonCallback(window, event.Code, event.Down ? GLFW_PRESS : GLFW_RELEASE, mods);
+                break;
+            }
+            case MCP::McpInputEvent::Kind::Key:
+            {
+                const auto key = static_cast<KeyCode>(event.Code);
+                SyntheticInput::SetKey(key, event.Down);
+                if (key == Key::LeftControl || key == Key::RightControl)
+                    m_McpSyntheticCtrl = event.Down;
+                else if (key == Key::LeftShift || key == Key::RightShift)
+                    m_McpSyntheticShift = event.Down;
+                else if (key == Key::LeftAlt || key == Key::RightAlt)
+                    m_McpSyntheticAlt = event.Down;
+
+                // Recompute the bitmask so the modifier key event itself carries its own
+                // state (GLFW sets the bit on the press that establishes it).
+                i32 keyMods = 0;
+                if (m_McpSyntheticCtrl)
+                    keyMods |= GLFW_MOD_CONTROL;
+                if (m_McpSyntheticShift)
+                    keyMods |= GLFW_MOD_SHIFT;
+                if (m_McpSyntheticAlt)
+                    keyMods |= GLFW_MOD_ALT;
+
+                const i32 scancode = ::glfwGetKeyScancode(event.Code);
+                ::ImGui_ImplGlfw_KeyCallback(window, event.Code, scancode, event.Down ? GLFW_PRESS : GLFW_RELEASE, keyMods);
+                break;
+            }
+            case MCP::McpInputEvent::Kind::Char:
+            {
+                ::ImGui_ImplGlfw_CharCallback(window, static_cast<unsigned int>(event.Code));
+                break;
+            }
+        }
+    }
+
+    MCP::McpInputViewportInfo EditorLayer::GetMcpInputViewportInfo() const
+    {
+        MCP::McpInputViewportInfo info;
+
+        // The viewport panel bounds are only meaningful once UI_Viewport has run at
+        // least once and the render target has a size.
+        const glm::vec2 panelSize = m_ViewportBounds[1] - m_ViewportBounds[0];
+        if (m_ViewportSize.x < 1.0f || m_ViewportSize.y < 1.0f || panelSize.x < 1.0f || panelSize.y < 1.0f)
+            return info;
+
+        info.Available = true;
+        info.PanelX = m_ViewportBounds[0].x;
+        info.PanelY = m_ViewportBounds[0].y;
+        info.LogicalWidth = m_ViewportSize.x;
+        info.LogicalHeight = m_ViewportSize.y;
+        info.DpiScale = Window::s_HighDPIScaleFactor;
+
+        // ImGui screen coordinates are DESKTOP coordinates while multi-viewport is on
+        // (this editor enables it), so the window's own client-area origin must be
+        // subtracted to get back to the window-client space GLFW's callbacks speak.
+        // Without multi-viewport the two spaces coincide and the origin is (0, 0).
+        const ImGuiIO& io = ImGui::GetIO();
+        if ((io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0)
+        {
+            if (auto* const window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow()); window)
+            {
+                int windowX = 0;
+                int windowY = 0;
+                ::glfwGetWindowPos(window, &windowX, &windowY);
+                info.WindowX = static_cast<f32>(windowX);
+                info.WindowY = static_cast<f32>(windowY);
+            }
+        }
+
+        const Window& appWindow = Application::Get().GetWindow();
+        info.WindowWidth = appWindow.GetWidth();
+        info.WindowHeight = appWindow.GetHeight();
+        return info;
+    }
+
+    MCP::McpInputStateSnapshot EditorLayer::GetMcpInputState() const
+    {
+        MCP::McpInputStateSnapshot state;
+        state.Available = true;
+        state.Pending = !m_McpInputQueue.empty();
+        state.ViewportHovered = m_ViewportHovered;
+
+        const ImVec2 mouse = ImGui::GetMousePos();
+        // ImGui screen -> window client, the same correction GetMcpInputViewportInfo
+        // applies, so the reported cursor is in the space the caller injected in.
+        const MCP::McpInputViewportInfo info = GetMcpInputViewportInfo();
+        state.MouseX = mouse.x - info.WindowX;
+        state.MouseY = mouse.y - info.WindowY;
+
+        // Entity::GetName() is non-const, so take copies (an Entity is a handle pair —
+        // copying it is free) rather than widening this method's constness.
+        if (Entity selected = m_SceneHierarchyPanel.GetSelectedEntity(); selected)
+        {
+            state.SelectedEntityId = static_cast<u64>(selected.GetUUID());
+            state.SelectedEntityName = selected.GetName();
+        }
+        if (Entity hovered = m_HoveredEntity; hovered)
+        {
+            state.HoveredEntityId = static_cast<u64>(hovered.GetUUID());
+            state.HoveredEntityName = hovered.GetName();
+        }
+        return state;
+    }
+
     void EditorLayer::OnUpdate(Timestep const ts)
     {
         OLO_PROFILE_FUNCTION();
         OLO_PERF_SCOPE("EditorLayer::OnUpdate", Application::Get().GetPerformanceProfiler());
 
         ++m_FrameIndex; // MCP capture tools key off this to await a rendered frame
+
+        // Apply at most ONE frame of queued synthetic input (olo_input_inject, #607).
+        // Deliberately before every early-return below (a scene-less editor must still
+        // drain, or an injected plan would hang the caller waiting on frames that never
+        // consume it) and before ImGuiLayer::Begin, so the events are picked up by this
+        // frame's ImGui::NewFrame.
+        DrainMcpInputQueue();
 
         m_LastFrameTimeMs = ts.GetMilliseconds();
 

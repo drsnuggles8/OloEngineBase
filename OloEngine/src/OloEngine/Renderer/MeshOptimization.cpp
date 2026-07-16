@@ -17,6 +17,43 @@
 
 namespace OloEngine::MeshOptimization
 {
+    namespace
+    {
+        // Position-weld an index buffer for the simplifier (issue #653).
+        //
+        // meshoptimizer derives edge adjacency from shared vertex INDICES, not shared positions.
+        // A mesh whose co-located vertices carry distinct indices — what Assimp produces for any
+        // source imported WITHOUT normals (aiProcess_GenNormals synthesises flat per-face normals
+        // that split every vertex; JoinIdenticalVertices then cannot re-merge them) — is a
+        // disconnected triangle soup to the simplifier: every internal edge is a spurious
+        // one-sided border, and on a closed surface nothing can collapse. Remapping each index to
+        // its canonical per-position representative reconnects the topology.
+        //
+        // No-op on an already-welded mesh (identity remap), so it never changes existing behaviour.
+        // The returned indices reference the representative vertex per position — valid indices
+        // into the unchanged vertex array — so the caller keeps its full vertex buffer as-is and
+        // the simplified output just points at the representatives. This is the same fix the
+        // virtualized-geometry builder uses (VirtualMeshBuilder, issue #651).
+        [[nodiscard]] std::vector<u32> WeldIndicesByPosition(const Vertex* vertices, sizet vertexCount,
+                                                             const u32* indices, sizet indexCount)
+        {
+            std::vector<u32> remap(vertexCount);
+            meshopt_generatePositionRemap(remap.data(), &vertices[0].Position.x, vertexCount, sizeof(Vertex));
+
+            std::vector<u32> welded(indexCount);
+            for (sizet i = 0; i < indexCount; ++i)
+            {
+                // Guard the remap lookup: an out-of-range index (a degenerate/corrupt source
+                // that reaches this before any index-range validation) would read past `remap`.
+                // Pass a bad index through untouched — that is exactly what fed meshopt before
+                // welding existed, so its own validation still gets to reject it downstream.
+                u32 const index = indices[i];
+                welded[i] = (index < vertexCount) ? remap[index] : index;
+            }
+            return welded;
+        }
+    } // namespace
+
     // ── Core optimization ──────────────────────────────────────────
 
     void OptimizeMesh(MeshSource& meshSource)
@@ -33,6 +70,22 @@ namespace OloEngine::MeshOptimization
 
         auto vertexCount = static_cast<sizet>(vertices.Num());
         auto indexCount = static_cast<sizet>(indices.Num());
+
+        // Census the mesh's degenerate triangles at import so a bad asset is VISIBLE
+        // (issue #629). Nothing is removed: a UV-degenerate triangle has real 3D area —
+        // in Sponza, 314 of them, two submeshes entirely — so dropping it would punch a
+        // hole in the silhouette. The renderer copes (getNormalFromMap falls back to the
+        // geometric normal when the UV gradient is zero); this line is how you find out
+        // that a mesh is making it do that.
+        if (const DegenerateTriangleStats degenerates = AnalyzeDegenerateTriangles(meshSource); degenerates.HasDegenerates())
+        {
+            OLO_CORE_WARN("MeshOptimization::OptimizeMesh: {} of {} triangles are degenerate "
+                          "({} zero-area, {} zero-UV-area covering {:.1f} units^2 of real geometry). "
+                          "Zero-UV-area triangles carry no texture gradient — they are kept, but they "
+                          "shade with the geometric normal instead of the normal map.",
+                          degenerates.ZeroAreaCount + degenerates.ZeroUvAreaCount, degenerates.TriangleCount,
+                          degenerates.ZeroAreaCount, degenerates.ZeroUvAreaCount, degenerates.ZeroUvArea3DSum);
+        }
 
         // 1 & 2. Per-submesh cache and overdraw optimization.
         // These operations reorder triangles within the index buffer, so they
@@ -203,11 +256,23 @@ namespace OloEngine::MeshOptimization
             targetIndexCount = 3;
         }
 
+        // Position-weld before simplifying (issue #653) — otherwise an unwelded mesh (any source
+        // imported without normals) is a disconnected triangle soup to meshopt and does not reduce
+        // at all. No-op on an already-welded mesh.
+        const std::vector<u32> weldedIndices =
+            WeldIndicesByPosition(srcVertices.GetData(), vertexCount, srcIndices.GetData(), indexCount);
+
+        // meshopt_SimplifySparse: the welded index buffer references only the canonical
+        // representative per position (a subset of the full, still-unwelded vertex array), so
+        // meshopt must be told to ignore the unreferenced coincident duplicates. Without it,
+        // non-sparse simplify still sees the duplicate positions and refuses to collapse — welding
+        // the indices alone is necessary but NOT sufficient (issue #653; matches VirtualMeshBuilder).
         std::vector<u32> simplifiedIndices(indexCount);
+        f32 resultError = 0.0f;
         auto resultIndexCount = meshopt_simplify(
-            simplifiedIndices.data(), srcIndices.GetData(), indexCount,
+            simplifiedIndices.data(), weldedIndices.data(), indexCount,
             &srcVertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex),
-            targetIndexCount, targetError);
+            targetIndexCount, targetError, meshopt_SimplifySparse, &resultError);
 
         if (resultIndexCount == 0)
         {
@@ -325,14 +390,20 @@ namespace OloEngine::MeshOptimization
         // Normals matter less than UVs for visual quality
         f32 attributeWeights[kAttributeCount] = { 0.5f, 0.5f, 0.5f, 1.0f, 1.0f };
 
+        // Position-weld before simplifying (issue #653) — see GenerateLODMesh. The attribute
+        // array stays indexed by original vertex; the welded indices reference the canonical
+        // representative per position, whose attributes meshopt reads from the same array.
+        const std::vector<u32> weldedIndices =
+            WeldIndicesByPosition(srcVertices.GetData(), vertexCount, srcIndices.GetData(), indexCount);
+
         std::vector<u32> simplifiedIndices(indexCount);
         auto resultIndexCount = meshopt_simplifyWithAttributes(
-            simplifiedIndices.data(), srcIndices.GetData(), indexCount,
+            simplifiedIndices.data(), weldedIndices.data(), indexCount,
             &srcVertices.GetData()[0].Position.x, vertexCount, sizeof(Vertex),
             attributes.data(), sizeof(f32) * kAttributeCount,
             attributeWeights, kAttributeCount,
             nullptr, // no vertex locking
-            targetIndexCount, targetError, 0, nullptr);
+            targetIndexCount, targetError, meshopt_SimplifySparse, nullptr);
 
         if (resultIndexCount == 0)
         {
@@ -496,6 +567,77 @@ namespace OloEngine::MeshOptimization
     }
 
     // ── Mesh analysis ──────────────────────────────────────────────
+
+    DegenerateTriangleStats AnalyzeDegenerateTriangles(const Vertex* vertices, sizet vertexCount,
+                                                       const u32* indices, sizet indexCount)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        DegenerateTriangleStats stats;
+        if (vertices == nullptr || indices == nullptr || vertexCount == 0 || indexCount < 3)
+        {
+            return stats;
+        }
+
+        for (sizet i = 0; i + 2 < indexCount; i += 3)
+        {
+            const u32 i0 = indices[i];
+            const u32 i1 = indices[i + 1];
+            const u32 i2 = indices[i + 2];
+            if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount)
+            {
+                continue; // corrupt index — not this function's problem to report
+            }
+
+            ++stats.TriangleCount;
+
+            const Vertex& v0 = vertices[i0];
+            const Vertex& v1 = vertices[i1];
+            const Vertex& v2 = vertices[i2];
+
+            // 2x the 3D area (the factor cancels out of every comparison below except the
+            // reported sum, which is halved at the end).
+            const f32 area3DTimesTwo = glm::length(glm::cross(v1.Position - v0.Position, v2.Position - v0.Position));
+
+            // Signed 2x UV area — the determinant of the two UV edge vectors. This is exactly
+            // the determinant the shader's derivative tangent divides by, so zero here is
+            // precisely the case that collapses the tangent frame.
+            const glm::vec2 uv1 = v1.TexCoord - v0.TexCoord;
+            const glm::vec2 uv2 = v2.TexCoord - v0.TexCoord;
+            const f32 uvAreaTimesTwo = std::abs((uv1.x * uv2.y) - (uv2.x * uv1.y));
+
+            // Exact zero, not an epsilon: a tiny-but-nonzero UV area still yields a finite
+            // (if noisy) tangent, and epsilon-thresholding real geometry into the "junk"
+            // bucket would over-report. Non-finite values are treated as degenerate.
+            const bool degenerate3D = !(area3DTimesTwo > 0.0f);
+            const bool degenerateUv = !(uvAreaTimesTwo > 0.0f);
+
+            if (degenerate3D)
+            {
+                ++stats.ZeroAreaCount;
+            }
+            else if (degenerateUv)
+            {
+                ++stats.ZeroUvAreaCount;
+                stats.ZeroUvArea3DSum += static_cast<f64>(area3DTimesTwo) * 0.5;
+            }
+        }
+
+        return stats;
+    }
+
+    DegenerateTriangleStats AnalyzeDegenerateTriangles(const MeshSource& meshSource)
+    {
+        const auto& vertices = meshSource.GetVertices();
+        const auto& indices = meshSource.GetIndices();
+        if (vertices.IsEmpty() || indices.IsEmpty())
+        {
+            return {};
+        }
+
+        return AnalyzeDegenerateTriangles(vertices.GetData(), static_cast<sizet>(vertices.Num()),
+                                          indices.GetData(), static_cast<sizet>(indices.Num()));
+    }
 
     MeshAnalysis AnalyzeMesh(const MeshSource& meshSource)
     {

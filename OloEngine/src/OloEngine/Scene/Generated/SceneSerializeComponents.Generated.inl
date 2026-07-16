@@ -627,3 +627,15 @@ if (entity.HasComponent<UIWorldAnchorComponent>())
     out << YAML::Key << "WorldOffset" << YAML::Value << comp.m_WorldOffset;
     out << YAML::EndMap; // UIWorldAnchorComponent
 }
+
+if (entity.HasComponent<VirtualMeshComponent>())
+{
+    out << YAML::Key << "VirtualMeshComponent";
+    out << YAML::BeginMap; // VirtualMeshComponent
+    auto const& comp = entity.GetComponent<VirtualMeshComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::Key << "MeshSource" << YAML::Value << static_cast<u64>(comp.m_MeshSource);
+    out << YAML::Key << "ErrorThresholdPixels" << YAML::Value << comp.m_ErrorThresholdPixels;
+    out << YAML::Key << "CastShadows" << YAML::Value << comp.m_CastShadows;
+    out << YAML::EndMap; // VirtualMeshComponent
+}

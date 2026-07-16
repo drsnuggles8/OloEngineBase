@@ -9,6 +9,7 @@
 namespace OloEngine
 {
     class MeshSource;
+    struct Vertex;
 
     // Mesh analysis results from meshoptimizer diagnostic functions.
     struct MeshAnalysis
@@ -23,6 +24,32 @@ namespace OloEngine
         // Mesh totals
         u32 VertexCount = 0;
         u32 TriangleCount = 0;
+    };
+
+    // Degenerate-triangle census for a mesh (issue #629).
+    //
+    // A UV-DEGENERATE triangle has zero area in TEXTURE space but non-zero area in 3D:
+    // its three corners share a texcoord (or are collinear in UV), so the interpolated UV
+    // is constant along at least one axis and the screen-space UV derivative used to build
+    // a tangent frame collapses. `normalize(vec3(0))` is NaN, and a NaN tangent poisons the
+    // G-Buffer normal — Sponza's potted vines rendered a white lacework because of exactly
+    // this. The shader guards it (getNormalFromMap in PBRCommon.glsl falls back to the
+    // geometric normal), but the data is still junk, so it is worth SEEING at import.
+    //
+    // These triangles are NOT dropped: they carry real 3D area (in Sponza, two whole
+    // submeshes are 100% UV-degenerate), so removing them would punch holes in the mesh.
+    struct DegenerateTriangleStats
+    {
+        u32 TriangleCount = 0;     // Total triangles examined
+        u32 ZeroAreaCount = 0;     // Zero 3D area — genuinely dead geometry (Assimp's
+                                   // aiProcess_FindDegenerates normally removes these)
+        u32 ZeroUvAreaCount = 0;   // Zero UV area BUT non-zero 3D area — real, untextured geometry
+        f64 ZeroUvArea3DSum = 0.0; // Total 3D area those UV-degenerate triangles cover
+
+        [[nodiscard]] bool HasDegenerates() const
+        {
+            return ZeroAreaCount > 0 || ZeroUvAreaCount > 0;
+        }
     };
 
     // Meshlet data for GPU-driven mesh rendering (mesh shader pipeline).
@@ -91,6 +118,17 @@ namespace OloEngine
 
         // Returns vertex cache, overdraw, and fetch statistics for a mesh.
         MeshAnalysis AnalyzeMesh(const MeshSource& meshSource);
+
+        // Counts degenerate triangles (zero 3D area, and zero-UV-area-but-real-geometry).
+        // Pure analysis — changes nothing. Called by OptimizeMesh at import so a bad asset
+        // logs a warning instead of silently costing every covered fragment a NaN-guard.
+        DegenerateTriangleStats AnalyzeDegenerateTriangles(const MeshSource& meshSource);
+
+        // Same census over a raw vertex/index span — used by the cluster-DAG builder to
+        // report how many UV-degenerate triangles SIMPLIFICATION creates on top of the ones
+        // the source mesh already ships.
+        DegenerateTriangleStats AnalyzeDegenerateTriangles(const Vertex* vertices, sizet vertexCount,
+                                                           const u32* indices, sizet indexCount);
 
         // ── Meshlet generation ──
 

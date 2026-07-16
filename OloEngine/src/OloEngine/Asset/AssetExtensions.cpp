@@ -108,6 +108,10 @@ namespace OloEngine
         s_ExtensionMap["obj"] = AssetType::MeshSource;
         s_ExtensionMap["dae"] = AssetType::MeshSource;
         s_ExtensionMap["vrm"] = AssetType::MeshSource;
+        // Stanford PLY. Assimp has always read it; it simply was not registered, so the
+        // scanning-repository meshes (the canonical multi-million-triangle geometry stress
+        // assets, and the reason virtualized geometry exists) could not be imported at all.
+        s_ExtensionMap["ply"] = AssetType::MeshSource;
 
         // Textures
         s_ExtensionMap["png"] = AssetType::Texture2D;

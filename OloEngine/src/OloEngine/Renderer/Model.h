@@ -52,6 +52,12 @@ namespace OloEngine
         // Parallel draw methods - uses SubmitMeshesParallel for efficient multi-threaded command generation
         void DrawParallel(const glm::mat4& transform, const Material& fallbackMaterial, i32 entityID = -1) const;
         void DrawParallel(const glm::mat4& transform, i32 entityID = -1) const;
+        // Full material precedence: an explicit override (the entity's MaterialComponent, or
+        // nullptr for none) -> the material each submesh was imported with -> fallbackMaterial.
+        // Shares OloEngine::ResolveSubmeshMaterial with the MeshComponent and virtualized
+        // paths so the three cannot drift apart again (issue #629).
+        void DrawParallel(const glm::mat4& transform, const Material* overrideMaterial,
+                          const Material& fallbackMaterial, i32 entityID) const;
 
         void GetDrawCommands(const glm::mat4& transform, const Material& material, std::vector<CommandPacket*>& outCommands) const;
         void GetDrawCommands(const glm::mat4& transform, const Ref<const Material>& material, std::vector<CommandPacket*>& outCommands) const;
@@ -147,11 +153,25 @@ namespace OloEngine
         Ref<Mesh> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
         std::vector<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type, const aiScene* scene);
         Ref<Material> ProcessMaterial(const aiMaterial* mat, const aiScene* scene);
+        // Builds the virtualized-geometry cluster DAG (issue #629) for the
+        // combined source and serializes it into m_CookedVirtualMeshBlob, so
+        // both the .omesh cache write and any later CreateCombinedMeshSource
+        // result carry the cook. No-op for multi-submesh / rigged / tiny meshes.
+        void CookVirtualMesh(const MeshSource& combined);
 
         std::vector<Ref<Mesh>> m_Meshes;
+        // The already-combined MeshSource restored from the .omesh cache. On that path every
+        // m_Meshes[i] is a submesh *view* into this one source rather than a source of its own,
+        // so CreateCombinedMeshSource must return it instead of concatenating (see there).
+        Ref<MeshSource> m_CachedCombinedSource;
+        std::vector<u8> m_CookedVirtualMeshBlob;         // OVGM cook; attached by CreateCombinedMeshSource
         std::vector<Ref<Material>> m_Materials;          // Materials corresponding to each mesh
         std::unordered_map<u32, u32> m_MaterialIndexMap; // Maps Assimp material indices to m_Materials indices
         std::string m_Directory;
+        // The model file this Model was loaded from. Used (with the Assimp texture
+        // reference) to derive the STABLE cooked filename of an embedded texture, so
+        // re-importing the same model reuses the same cooked asset and its handle.
+        std::string m_SourcePath;
         std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;
         std::optional<TextureOverride> m_TextureOverride;
         bool m_FlipUV = false;
