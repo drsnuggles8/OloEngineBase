@@ -257,6 +257,7 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
         "PhysicsKick",
         "Dialogue",
         "Quest",
+        "Progression",
         "PhysicsFence",
         "PropagateTransforms",
         "Navigation",
@@ -339,13 +340,16 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     EXPECT_TRUE(sched.DependsOn("PhysicsKick", "Fluid"));
     EXPECT_TRUE(sched.DependsOn("Fluid", "Cinematics"));
 
-    // The physics shadow's legality is the ABSENCE of paths: Dialogue and Quest
-    // must be unordered against both physics nodes (they may run on the game
-    // thread while the world step is in flight), in both directions.
+    // The physics shadow's legality is the ABSENCE of paths: Dialogue, Quest,
+    // and Progression must be unordered against both physics nodes (they may
+    // run on the game thread while the world step is in flight), in both
+    // directions.
     EXPECT_FALSE(sched.DependsOn("Dialogue", "PhysicsKick"));
     EXPECT_FALSE(sched.DependsOn("PhysicsFence", "Dialogue"));
     EXPECT_FALSE(sched.DependsOn("Quest", "PhysicsKick"));
     EXPECT_FALSE(sched.DependsOn("PhysicsFence", "Quest"));
+    EXPECT_FALSE(sched.DependsOn("Progression", "PhysicsKick"));
+    EXPECT_FALSE(sched.DependsOn("PhysicsFence", "Progression"));
 
     // Post-physics consumers: every transform reader/writer downstream of the
     // fence, in the documented relative order.

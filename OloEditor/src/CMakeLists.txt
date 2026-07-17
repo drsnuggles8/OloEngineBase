@@ -62,6 +62,8 @@
 		"Panels/EditorPreferencesPanel.h"
 		"Panels/DialogueEditorPanel.cpp"
 		"Panels/DialogueEditorPanel.h"
+		"Panels/SkillTreeEditorPanel.cpp"
+		"Panels/SkillTreeEditorPanel.h"
 		"Panels/CinematicTimelinePanel.cpp"
 		"Panels/CinematicTimelinePanel.h"
 		"Panels/InputSettingsPanel.cpp"

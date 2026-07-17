@@ -43,6 +43,8 @@
 #include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
 #include "OloEngine/Gameplay/Abilities/Damage/DamageCalculation.h"
 #include "OloEngine/Gameplay/Abilities/Damage/DamageEvent.h"
+#include "OloEngine/Gameplay/Progression/ProgressionComponents.h"
+#include "OloEngine/Gameplay/Progression/ProgressionSystem.h"
 #include "OloEngine/Physics3D/SceneQueries.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
@@ -2892,6 +2894,155 @@ namespace OloEngine
         mono_free(tagStr);
     }
 
+    ///////////////////////////////////////////////////////////////////////////
+    // Progression ////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////
+
+    static void ProgressionComponent_GrantExperience(UUID entityID, i32 amount)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        ProgressionSystem::GrantExperience(ScriptEngine::GetSceneContext(), entity, amount);
+    }
+
+    static i32 ProgressionComponent_GetLevel(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        return entity.GetComponent<ProgressionComponent>().Level;
+    }
+
+    static i32 ProgressionComponent_GetXP(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        return entity.GetComponent<ProgressionComponent>().CurrentXP;
+    }
+
+    static i32 ProgressionComponent_GetXPToNextLevel(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        return ProgressionSystem::GetXPToNextLevel(ScriptEngine::GetSceneContext(), entity);
+    }
+
+    static i32 ProgressionComponent_GetMaxLevel(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        return ProgressionSystem::GetMaxLevel(ScriptEngine::GetSceneContext(), entity);
+    }
+
+    static i32 ProgressionComponent_GetAttributePoints(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        return entity.GetComponent<ProgressionComponent>().AttributePoints;
+    }
+
+    static i32 ProgressionComponent_GetSkillPoints(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        return entity.GetComponent<ProgressionComponent>().SkillPoints;
+    }
+
+    static bool ProgressionComponent_SpendAttributePoint(UUID entityID, MonoString* attribute, i32 count)
+    {
+        if (!attribute)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        return ProgressionSystem::SpendAttributePoint(ScriptEngine::GetSceneContext(), entity, Utils::MonoStringToString(attribute), count);
+    }
+
+    static bool ProgressionComponent_RefundAttributePoint(UUID entityID, MonoString* attribute, i32 count)
+    {
+        if (!attribute)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        return ProgressionSystem::RefundAttributePoint(ScriptEngine::GetSceneContext(), entity, Utils::MonoStringToString(attribute), count);
+    }
+
+    static i32 ProgressionComponent_Respec(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        return ProgressionSystem::RespecAttributes(ScriptEngine::GetSceneContext(), entity);
+    }
+
+    static bool ProgressionComponent_UnlockSkillNode(UUID entityID, MonoString* nodeId)
+    {
+        if (!nodeId)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        return ProgressionSystem::UnlockSkillNode(ScriptEngine::GetSceneContext(), entity, Utils::MonoStringToString(nodeId));
+    }
+
+    static bool ProgressionComponent_RefundSkillNode(UUID entityID, MonoString* nodeId)
+    {
+        if (!nodeId)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        return ProgressionSystem::RefundSkillNode(ScriptEngine::GetSceneContext(), entity, Utils::MonoStringToString(nodeId));
+    }
+
+    static i32 ProgressionComponent_RespecSkills(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        return ProgressionSystem::RespecSkills(ScriptEngine::GetSceneContext(), entity);
+    }
+
+    static bool ProgressionComponent_CanUnlockSkillNode(UUID entityID, MonoString* nodeId)
+    {
+        if (!nodeId)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        return ProgressionSystem::CanUnlockSkillNode(ScriptEngine::GetSceneContext(), entity, Utils::MonoStringToString(nodeId));
+    }
+
+    static bool ProgressionComponent_IsNodeUnlocked(UUID entityID, MonoString* nodeId)
+    {
+        if (!nodeId)
+        {
+            return false;
+        }
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        return entity.GetComponent<ProgressionComponent>().UnlockedNodes.contains(Utils::MonoStringToString(nodeId));
+    }
+
+    static bool ProgressionComponent_InitializeFromClass(UUID entityID, MonoString* classId)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        // An empty class id is valid — it re-initializes from the stored ClassID.
+        std::string id = classId ? Utils::MonoStringToString(classId) : "";
+        return ProgressionSystem::InitializeFromClass(ScriptEngine::GetSceneContext(), entity, id);
+    }
+
+    static MonoString* ProgressionComponent_GetClassID(UUID entityID)
+    {
+        auto entity = GetEntity(entityID);
+        OLO_CORE_ASSERT(entity.HasComponent<ProgressionComponent>());
+        return ScriptEngine::CreateString(entity.GetComponent<ProgressionComponent>().ClassID.c_str());
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////////////
     // Physics raycast ////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -2992,7 +3143,6 @@ namespace OloEngine
         }
 
         auto const& sourceAC = source.GetComponent<AbilityComponent>();
-        auto& targetAC = target.GetComponent<AbilityComponent>();
 
         DamageEvent event;
         event.Source = source;
@@ -3012,13 +3162,10 @@ namespace OloEngine
             mono_free(tagStr);
         }
 
-        f32 finalDamage = DamageCalculation::Calculate(event, sourceAC.Attributes, targetAC.Attributes);
-
-        // Apply the damage to the target's Health attribute
-        f32 currentHealth = targetAC.Attributes.GetCurrentValue("Health");
-        targetAC.Attributes.SetBaseValue("Health", std::max(currentHealth - finalDamage, 0.0f));
-
-        return finalDamage;
+        // Single damage choke point: calculation, Health base-value write,
+        // death-tag flip, EntityKilledEvent, and the kill-XP bounty (issue
+        // #635) all live in GameplayAbilitySystem::ApplyDamage.
+        return GameplayAbilitySystem::ApplyDamage(scene, event);
     }
 
     static bool AbilityComponent_TryActivateAbilityOnTarget(UUID casterEntityID, MonoString* abilityTag, UUID targetEntityID)
@@ -3652,6 +3799,27 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(AbilityComponent_RemoveTag);
         OLO_ADD_INTERNAL_CALL(AbilityComponent_ApplyDamageToTarget);
         OLO_ADD_INTERNAL_CALL(AbilityComponent_TryActivateAbilityOnTarget);
+
+        ///////////////////////////////////////////////////////////////
+        // Progression ////////////////////////////////////////////////
+        ///////////////////////////////////////////////////////////////
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_GrantExperience);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_GetLevel);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_GetXP);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_GetXPToNextLevel);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_GetMaxLevel);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_GetAttributePoints);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_GetSkillPoints);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_SpendAttributePoint);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_RefundAttributePoint);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_Respec);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_UnlockSkillNode);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_RefundSkillNode);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_RespecSkills);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_CanUnlockSkillNode);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_IsNodeUnlocked);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_InitializeFromClass);
+        OLO_ADD_INTERNAL_CALL(ProgressionComponent_GetClassID);
 
         ///////////////////////////////////////////////////////////////
         // Physics ////////////////////////////////////////////////////

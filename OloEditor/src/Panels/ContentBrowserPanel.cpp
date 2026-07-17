@@ -17,6 +17,10 @@
 #include "OloEngine/Audio/SoundGraph/GraphGeneration.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphSerializer.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphNode.h"
+#include "OloEngine/Asset/AssetSerializer.h"
+#include "OloEngine/Gameplay/Progression/CharacterClassDatabase.h"
+#include "OloEngine/Gameplay/Progression/ExperienceCurve.h"
+#include "OloEngine/Gameplay/Progression/SkillTreeDatabase.h"
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Video/VideoDecoder.h"
 
@@ -1331,6 +1335,145 @@ namespace OloEngine
                     }
 
                     OLO_CORE_INFO("Created sound graph: {}", sgPath.string());
+                    SafeRefreshSubtree(m_CurrentDirectory);
+                    RebuildItemList();
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Skill Tree"))
+            {
+                static char skillTreeName[256] = "NewSkillTree";
+                ImGui::InputText("Name", skillTreeName, sizeof(skillTreeName));
+                if (ImGui::Button("Create##SkillTree"))
+                {
+                    if (!IsValidLeafName(skillTreeName))
+                    {
+                        OLO_CORE_WARN("ContentBrowser: Invalid skill tree name '{}'", skillTreeName);
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        return;
+                    }
+                    std::filesystem::path currentDir =
+                        m_DirectoryTree.GetAssetRoot() / (m_CurrentDirectory ? m_CurrentDirectory->RelativePath : "");
+                    std::string baseName = skillTreeName;
+                    std::filesystem::path treePath = currentDir / (baseName + ".oloskilltree");
+                    int counter = 1;
+                    while (std::filesystem::exists(treePath))
+                    {
+                        treePath = currentDir / (baseName + "_" + std::to_string(counter++) + ".oloskilltree");
+                    }
+
+                    auto treeAsset = Ref<SkillTreeDatabase>::Create();
+                    treeAsset->m_TreeID = baseName;
+                    treeAsset->m_DisplayName = baseName;
+                    SkillTreeNode rootNode;
+                    rootNode.NodeID = "root";
+                    rootNode.DisplayName = "New Skill";
+                    rootNode.Payload = SkillTreeNode::PayloadKind::None;
+                    rootNode.EditorPosition = { 0.0f, 0.0f };
+                    treeAsset->m_Nodes.push_back(std::move(rootNode));
+                    treeAsset->RebuildIndex();
+
+                    // The progression serializers resolve metadata.FilePath
+                    // against GetProjectDirectory() (matching the registry's
+                    // project-relative convention), so relativize against the
+                    // project root — not the asset directory.
+                    AssetMetadata metadata;
+                    metadata.FilePath = std::filesystem::relative(treePath, Project::GetProjectDirectory());
+                    metadata.Type = AssetType::SkillTreeDatabase;
+
+                    SkillTreeDatabaseSerializer serializer;
+                    serializer.Serialize(metadata, treeAsset);
+
+                    OLO_CORE_INFO("Created skill tree: {}", treePath.string());
+                    SafeRefreshSubtree(m_CurrentDirectory);
+                    RebuildItemList();
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Character Class Database"))
+            {
+                static char classDbName[256] = "NewCharacterClasses";
+                ImGui::InputText("Name", classDbName, sizeof(classDbName));
+                if (ImGui::Button("Create##CharacterClassDb"))
+                {
+                    if (!IsValidLeafName(classDbName))
+                    {
+                        OLO_CORE_WARN("ContentBrowser: Invalid class database name '{}'", classDbName);
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        return;
+                    }
+                    std::filesystem::path currentDir =
+                        m_DirectoryTree.GetAssetRoot() / (m_CurrentDirectory ? m_CurrentDirectory->RelativePath : "");
+                    std::string baseName = classDbName;
+                    std::filesystem::path classDbPath = currentDir / (baseName + ".olocharclass");
+                    int counter = 1;
+                    while (std::filesystem::exists(classDbPath))
+                    {
+                        classDbPath = currentDir / (baseName + "_" + std::to_string(counter++) + ".olocharclass");
+                    }
+
+                    auto classDbAsset = Ref<CharacterClassDatabase>::Create();
+                    CharacterClassDefinition classDef;
+                    classDef.ClassID = "new_class";
+                    classDef.DisplayName = "New Class";
+                    classDbAsset->m_Classes.push_back(std::move(classDef));
+                    classDbAsset->RebuildIndex();
+
+                    AssetMetadata metadata;
+                    metadata.FilePath = std::filesystem::relative(classDbPath, Project::GetProjectDirectory());
+                    metadata.Type = AssetType::CharacterClassDatabase;
+
+                    CharacterClassDatabaseSerializer serializer;
+                    serializer.Serialize(metadata, classDbAsset);
+
+                    OLO_CORE_INFO("Created character class database: {}", classDbPath.string());
+                    SafeRefreshSubtree(m_CurrentDirectory);
+                    RebuildItemList();
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Experience Curve"))
+            {
+                static char xpCurveName[256] = "NewExperienceCurve";
+                ImGui::InputText("Name", xpCurveName, sizeof(xpCurveName));
+                if (ImGui::Button("Create##ExperienceCurve"))
+                {
+                    if (!IsValidLeafName(xpCurveName))
+                    {
+                        OLO_CORE_WARN("ContentBrowser: Invalid experience curve name '{}'", xpCurveName);
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        return;
+                    }
+                    std::filesystem::path currentDir =
+                        m_DirectoryTree.GetAssetRoot() / (m_CurrentDirectory ? m_CurrentDirectory->RelativePath : "");
+                    std::string baseName = xpCurveName;
+                    std::filesystem::path curvePath = currentDir / (baseName + ".oloxpcurve");
+                    int counter = 1;
+                    while (std::filesystem::exists(curvePath))
+                    {
+                        curvePath = currentDir / (baseName + "_" + std::to_string(counter++) + ".oloxpcurve");
+                    }
+
+                    // Defaults: Formula mode, 100 * level^1.5, max level 50
+                    auto curveAsset = Ref<ExperienceCurve>::Create();
+
+                    AssetMetadata metadata;
+                    metadata.FilePath = std::filesystem::relative(curvePath, Project::GetProjectDirectory());
+                    metadata.Type = AssetType::ExperienceCurve;
+
+                    ExperienceCurveSerializer serializer;
+                    serializer.Serialize(metadata, curveAsset);
+
+                    OLO_CORE_INFO("Created experience curve: {}", curvePath.string());
                     SafeRefreshSubtree(m_CurrentDirectory);
                     RebuildItemList();
                     ImGui::CloseCurrentPopup();

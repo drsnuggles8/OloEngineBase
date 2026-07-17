@@ -21,6 +21,7 @@ namespace OloEngine
         UUID EntityID;
         std::string QuestID;
         std::string BranchChoice;
+        i32 ExperiencePoints = 0; ///< CompletionRewards XP (already granted to the completer's ProgressionComponent by QuestSystem)
     };
 
     struct QuestFailedEvent

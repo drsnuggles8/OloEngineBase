@@ -278,16 +278,39 @@ What is writable:
   JSON shape: `bool`, `int`/`uint`/small ints, `float`, `glm::vec2|3|4`, an `enum`
   (as its integer value), `std::string`, and `AssetHandle` (a decimal-digit **string**
   — a u64 exceeds JSON's safe-integer range).
+- **Sub-object addressing**: a component whose authored surface lives inside a public
+  nested struct/class member is still reachable — the field name is a dotted
+  member-access chain (`System.Emitter.RateOverTime` for `ParticleSystemComponent`,
+  whose entire authored surface lives inside its `System` member). The descent stops
+  at a container (`std::vector`/`set`/`map`) — there is no static field name for an
+  element — and respects `OLO_SERIALIZE(Skip)` on a nested runtime field the same way
+  a top-level one is respected.
+- **Setter-expression-based fields** (issue #607's `AudioSourceComponent` slice): a
+  field behind a **private** member — reached only through an `OLO_PROPERTY`
+  `Get`/`Set` expression pair, no public member/nested-member chain exists at all —
+  is reachable too, via a small OloHeaderTool allowlist that reuses the SAME
+  `OLO_PROPERTY` expressions Lua/C# scripting already compiles
+  (`AudioSourceComponent`'s 16 parameters, all behind `private
+  std::unique_ptr<AudioSourceColdData> m_Cold`). Unlike every other field above, a
+  write here calls the `Set` expression **directly on the live component** instead of
+  copying the whole component and swapping it in — `AudioSourceComponent::operator=`
+  cannot be trusted to preserve `ActiveEventID` or to push the new value into the
+  live `Ref<AudioSource> Source`, so the ordinary copy+swap path would silently
+  detach a playing sound. See `McpGenericFieldWrite.h`'s `MakeSetterField` doc
+  comment and OloHeaderTool's `EmitMcpSetterFields` for why this stays a narrow
+  allowlist rather than "every `OLO_PROPERTY` component" (most of those already have
+  their field reachable as a plain public member, so routing them through this path
+  too would just double-register the same field).
 - **Not** writable, by design: per-tick runtime state (the `*StateComponent` family,
   `AnimationStateComponent`, `UIResolvedRectComponent`, `WorldTransformComponent`),
   entity identity (`IDComponent` — its UUID is the addressing key), any field marked
   `OLO_SERIALIZE(Skip)` (e.g. `NavAgentComponent`'s pathfinder state), any non-public
-  member (`TransformComponent::Rotation` — a derived euler/quat pair behind setters),
-  and any field with no scalar JSON shape (a `Ref<T>`, a nested struct, a container,
-  a `glm::quat`/`mat4`/`ivec*`). A component whose members are *all* of that kind
-  (e.g. `ParticleSystemComponent`, `AudioSourceComponent`, whose authored parameters
-  live inside a nested non-POD object) therefore exposes **no** writable fields yet —
-  addressing sub-objects is a follow-up.
+  member with no `OLO_PROPERTY` Get/Set pair (`TransformComponent::Rotation` — a
+  derived euler/quat pair behind setters, but no OLO_PROPERTY annotation), any field
+  with no scalar JSON shape (a `Ref<T>`, a container, a `glm::quat`/`mat4`/`ivec*`),
+  and a dynamic keyset a static registry entry cannot name
+  (`MorphTargetComponent::Weights`, a `std::unordered_map<std::string, f32>` — needs
+  map-key addressing, a follow-up).
 
 **Ranges are enforced, and a clamp is reported.** A field whose scene-load path
 clamps or rejects out-of-range values carries the same bounds here — from its

@@ -14,6 +14,7 @@
 #include "Panels/ThreadInspectorPanel.h"
 #include "Panels/ConsolePanel.h"
 #include "Panels/DialogueEditorPanel.h"
+#include "Panels/SkillTreeEditorPanel.h"
 #include "Panels/CinematicTimelinePanel.h"
 #include "Panels/NavMeshPanel.h"
 #include "Panels/BehaviorTreeEditorPanel.h"
@@ -276,6 +277,8 @@ namespace OloEngine
         ConsolePanel m_ConsolePanel;
         StatisticsPanel m_StatisticsPanel;
         DialogueEditorPanel m_DialogueEditorPanel;
+        SkillTreeEditorPanel m_SkillTreeEditorPanel;
+        bool m_ShowSkillTreeEditor = false;
         CinematicTimelinePanel m_CinematicTimelinePanel;
         bool m_ShowCinematicTimeline = false;
         EditorPreferencesPanel m_EditorPreferencesPanel;

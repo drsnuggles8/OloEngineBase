@@ -3344,6 +3344,115 @@ namespace OloEngine::Tests
         EXPECT_TRUE(std::isfinite(anim.m_BlendDuration)) << "Inf BlendDuration should be sanitized to a finite value";
     }
 
+    // -------------------------------------------------------------------------
+    // ProgressionComponent (issue #635) — fully GENERATED serializer blocks.
+    // This is the first real component exercising the generated
+    // std::unordered_map<std::string, i32> scene-YAML path (AllocatedPoints,
+    // emitted as a sorted-key YAML mapping) alongside the generated
+    // std::unordered_set<std::string> path (UnlockedNodes, emitted as a
+    // sorted sequence). PendingXP and RuntimeInitialized carry
+    // OLO_SERIALIZE(Skip): they must never appear in the YAML and must come
+    // back at their constructor defaults.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, ProgressionComponentSurvivesYAMLRoundTrip)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& prog = entity.AddComponent<ProgressionComponent>();
+            // Non-default values for every SERIALIZED field, inside the load
+            // clamps (Level >= 1, the point pools / XP / bounty >= 0).
+            prog.Level = 7;
+            prog.CurrentXP = 350;
+            prog.AttributePoints = 12;
+            prog.SkillPoints = 4;
+            prog.XPBounty = 250;
+            prog.HealOnLevelUp = false;
+            prog.UnlockedNodes = { "toughness", "power_strike", "battle_focus" };
+            prog.AllocatedPoints["AttackPower"] = 3;
+            prog.AllocatedPoints["Defense"] = 2;
+            prog.ExperienceCurveHandle = AssetHandle{ 111 };
+            prog.ClassDatabaseHandle = AssetHandle{ 222 };
+            prog.SkillTreeHandle = AssetHandle{ 333 };
+            prog.ClassID = "warrior";
+            // Runtime-only fields, set non-default to prove the Skip:
+            prog.PendingXP = 999;
+            prog.RuntimeInitialized = true;
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty());
+        EXPECT_EQ(yaml.find("PendingXP"), std::string::npos)
+            << "PendingXP carries OLO_SERIALIZE(Skip) — it must not be emitted into scene YAML.";
+        EXPECT_EQ(yaml.find("RuntimeInitialized"), std::string::npos)
+            << "RuntimeInitialized carries OLO_SERIALIZE(Skip) — it must not be emitted into scene YAML.";
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<ProgressionComponent>())
+            << "ProgressionComponent was dropped during round-trip.";
+
+        const auto& prog = restored.GetComponent<ProgressionComponent>();
+        EXPECT_EQ(prog.Level, 7);
+        EXPECT_EQ(prog.CurrentXP, 350);
+        EXPECT_EQ(prog.AttributePoints, 12);
+        EXPECT_EQ(prog.SkillPoints, 4);
+        EXPECT_EQ(prog.XPBounty, 250);
+        EXPECT_FALSE(prog.HealOnLevelUp);
+
+        EXPECT_EQ(prog.UnlockedNodes.size(), 3u)
+            << "the generated unordered_set sequence lost entries.";
+        EXPECT_TRUE(prog.UnlockedNodes.contains("toughness"));
+        EXPECT_TRUE(prog.UnlockedNodes.contains("power_strike"));
+        EXPECT_TRUE(prog.UnlockedNodes.contains("battle_focus"));
+
+        ASSERT_EQ(prog.AllocatedPoints.size(), 2u)
+            << "the generated string-keyed unordered_map lost entries.";
+        ASSERT_TRUE(prog.AllocatedPoints.contains("AttackPower"));
+        EXPECT_EQ(prog.AllocatedPoints.at("AttackPower"), 3);
+        ASSERT_TRUE(prog.AllocatedPoints.contains("Defense"));
+        EXPECT_EQ(prog.AllocatedPoints.at("Defense"), 2);
+
+        EXPECT_EQ(static_cast<u64>(prog.ExperienceCurveHandle), 111u);
+        EXPECT_EQ(static_cast<u64>(prog.ClassDatabaseHandle), 222u);
+        EXPECT_EQ(static_cast<u64>(prog.SkillTreeHandle), 333u);
+        EXPECT_EQ(prog.ClassID, "warrior");
+
+        EXPECT_EQ(prog.PendingXP, 0)
+            << "PendingXP must come back at its constructor default (0) after a scene load.";
+        EXPECT_FALSE(prog.RuntimeInitialized)
+            << "RuntimeInitialized must come back false so the first tick re-applies runtime state.";
+    }
+
+    // The generated writer must emit the unordered containers DETERMINISTICALLY
+    // (sorted set sequence, sorted map keys): serialize -> load -> serialize
+    // must be byte-identical or two saves of the same scene would diff.
+    TEST(ComponentRoundTrip, ProgressionComponentSerializeLoadSerializeIsStable)
+    {
+        auto scene = Scene::Create();
+        Entity entity = scene->CreateEntity(kTestTag);
+        auto& prog = entity.AddComponent<ProgressionComponent>();
+        prog.UnlockedNodes = { "zeta", "alpha", "mid" };
+        prog.AllocatedPoints["Strength"] = 1;
+        prog.AllocatedPoints["Agility"] = 2;
+        prog.AllocatedPoints["Wisdom"] = 3;
+
+        const std::string first = SceneSerializer(scene).SerializeToYAML();
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(first));
+        const std::string second = SceneSerializer(reloaded).SerializeToYAML();
+
+        EXPECT_EQ(first, second)
+            << "serialize -> load -> serialize must produce identical YAML — the unordered "
+               "set/map emission is not deterministic (missing sort before emit?).";
+    }
+
     // =========================================================================
     // YAML converters for the glm integer-vector / quaternion / matrix types
     // (#451 glm slice). No shipping component is all-trivial-plus-glm-math (the

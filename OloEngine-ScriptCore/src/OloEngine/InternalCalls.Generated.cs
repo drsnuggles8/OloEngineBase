@@ -970,6 +970,17 @@ namespace OloEngine
 		internal static extern void ProceduralSkyComponent_SetIBLIntensity(ulong entityID, float value);
 		#endregion
 
+		#region ProgressionComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int ProgressionComponent_GetXPBounty(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ProgressionComponent_SetXPBounty(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool ProgressionComponent_GetHealOnLevelUp(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void ProgressionComponent_SetHealOnLevelUp(ulong entityID, bool value);
+		#endregion
+
 		#region RagdollComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool RagdollComponent_GetEnabled(ulong entityID);

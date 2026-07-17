@@ -45,13 +45,16 @@ namespace OloEngine
         InstancePlacement = 33,
         CinematicSequence = 34,
         FluidSettings = 35,
+        ExperienceCurve = 36,
+        SkillTreeDatabase = 37,
+        CharacterClassDatabase = 38,
     };
 
-    // If AssetType grows past FluidSettings, bump kMaxKnownValue in
+    // If AssetType grows past CharacterClassDatabase, bump kMaxKnownValue in
     // OloEngine/tests/AssetExtensionsCoverageTest.cpp or that test will
     // silently skip the new entries.
-    static_assert(std::to_underlying(AssetType::FluidSettings) == 35,
-                  "AssetType::FluidSettings moved; update kMaxKnownValue in "
+    static_assert(std::to_underlying(AssetType::CharacterClassDatabase) == 38,
+                  "AssetType::CharacterClassDatabase moved; update kMaxKnownValue in "
                   "AssetExtensionsCoverageTest.cpp to match the new max value.");
 
     enum class AssetFlag : u16
@@ -189,6 +192,12 @@ namespace OloEngine
                     return "CinematicSequence";
                 case AssetType::FluidSettings:
                     return "FluidSettings";
+                case AssetType::ExperienceCurve:
+                    return "ExperienceCurve";
+                case AssetType::SkillTreeDatabase:
+                    return "SkillTreeDatabase";
+                case AssetType::CharacterClassDatabase:
+                    return "CharacterClassDatabase";
             }
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
@@ -276,6 +285,12 @@ namespace OloEngine
                 return AssetType::CinematicSequence;
             if (assetType == "FluidSettings")
                 return AssetType::FluidSettings;
+            if (assetType == "ExperienceCurve")
+                return AssetType::ExperienceCurve;
+            if (assetType == "SkillTreeDatabase")
+                return AssetType::SkillTreeDatabase;
+            if (assetType == "CharacterClassDatabase")
+                return AssetType::CharacterClassDatabase;
 
             return AssetType::None;
         }

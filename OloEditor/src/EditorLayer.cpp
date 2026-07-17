@@ -1553,6 +1553,7 @@ namespace OloEngine
             ImGui::MenuItem("Network Debug", nullptr, &m_ShowNetworkDebug);
             ImGui::MenuItem("Thread Inspector", nullptr, &m_ShowThreadInspector);
             ImGui::MenuItem("Dialogue Editor", nullptr, &m_ShowDialogueEditor);
+            ImGui::MenuItem("Skill Tree Editor", nullptr, &m_ShowSkillTreeEditor);
             ImGui::MenuItem("Cinematic Timeline", nullptr, &m_ShowCinematicTimeline);
             ImGui::MenuItem("NavMesh Panel", nullptr, &m_ShowNavMeshPanel);
             ImGui::MenuItem("Behavior Tree Editor", nullptr, &m_ShowBehaviorTreeEditor);
@@ -2102,6 +2103,17 @@ namespace OloEngine
         {
             m_DialogueEditorPanel.OnImGuiRender();
             m_ShowDialogueEditor = m_DialogueEditorPanel.IsOpen();
+        }
+
+        // Skill Tree Editor Panel — SetOpen(true) before rendering (the
+        // ShaderGraph/SoundGraph variant of the panel-internal open flag
+        // pattern) so re-checking the Window menu item after the user closed
+        // the window with its X actually reopens it.
+        if (m_ShowSkillTreeEditor)
+        {
+            m_SkillTreeEditorPanel.SetOpen(true);
+            m_SkillTreeEditorPanel.OnImGuiRender();
+            m_ShowSkillTreeEditor = m_SkillTreeEditorPanel.IsOpen();
         }
 
         // Cinematic Timeline Panel — context is set per-frame so scrubbing /
@@ -2887,6 +2899,30 @@ namespace OloEngine
                 m_ShaderEditorPanel.OpenFile(path);
                 m_ShowShaderEditor = true;
             }
+            else if (type == ContentFileType::SkillTree)
+            {
+                if (m_SkillTreeEditorPanel.HasUnsavedChanges())
+                {
+                    auto const result = MessagePrompt::YesNoCancel(
+                        "Unsaved Skill Tree",
+                        "The current skill tree has unsaved changes. Do you want to save before opening a new one?");
+
+                    switch (result)
+                    {
+                        case MessagePromptResult::Yes:
+                            if (!m_SkillTreeEditorPanel.SaveIfNeeded())
+                                return;
+                            break;
+                        case MessagePromptResult::Cancel:
+                            return;
+                        case MessagePromptResult::No:
+                        default:
+                            break;
+                    }
+                }
+                m_SkillTreeEditorPanel.OpenSkillTree(path);
+                m_ShowSkillTreeEditor = true;
+            }
             else if (type == ContentFileType::Scene)
             {
                 if (ConfirmDiscardChanges())
@@ -2905,6 +2941,13 @@ namespace OloEngine
                                                                {
             m_CinematicTimelinePanel.OpenSequence(handle);
             m_ShowCinematicTimeline = true; });
+
+        // "Edit Skill Tree" on the ProgressionComponent inspector opens the
+        // referenced tree in the skill tree editor panel.
+        m_SceneHierarchyPanel.SetOpenSkillTreeEditorCallback([this](AssetHandle handle)
+                                                             {
+            m_SkillTreeEditorPanel.OpenSkillTree(handle);
+            m_ShowSkillTreeEditor = true; });
 
         // Clicking a bone in the Animation panel's Bone Hierarchy selects its entity.
         m_AnimationPanel.SetSelectBoneEntityCallback([this](Entity boneEntity)
@@ -2926,6 +2969,8 @@ namespace OloEngine
         Project::New();
         NewScene();
         m_DialogueEditorPanel.NewDialogue();
+        m_SkillTreeEditorPanel.NewTree();
+        m_ShowSkillTreeEditor = false;
         m_CinematicTimelinePanel.Reset();
         m_ShowCinematicTimeline = false;
         m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
@@ -2981,6 +3026,8 @@ namespace OloEngine
             OpenScene(startScenePath);
 
             m_DialogueEditorPanel.NewDialogue();
+            m_SkillTreeEditorPanel.NewTree();
+            m_ShowSkillTreeEditor = false;
             m_CinematicTimelinePanel.Reset();
             m_ShowCinematicTimeline = false;
             m_ContentBrowserPanel = CreateScope<ContentBrowserPanel>();
@@ -3599,6 +3646,7 @@ namespace OloEngine
         m_BehaviorTreeEditorPanel.SetContext(m_EditorScene);
         m_FSMEditorPanel.SetContext(m_EditorScene);
         m_DialogueEditorPanel.SetCommandHistory(&m_CommandHistory);
+        m_SkillTreeEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_AnimationGraphEditorPanel.SetContext(m_EditorScene);
         m_AnimationGraphEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_SoundGraphEditorPanel.SetCommandHistory(&m_CommandHistory);
@@ -3733,6 +3781,31 @@ namespace OloEngine
             {
                 case MessagePromptResult::Yes:
                     if (!m_ShaderEditorPanel.Save())
+                    {
+                        Application::Get().CancelClose();
+                        return true;
+                    }
+                    break;
+                case MessagePromptResult::Cancel:
+                    Application::Get().CancelClose();
+                    return true;
+                case MessagePromptResult::No:
+                default:
+                    break;
+            }
+        }
+
+        // Check skill tree editor unsaved changes — mirrors the graph editor flows above
+        if (m_SkillTreeEditorPanel.HasUnsavedChanges())
+        {
+            auto const result = MessagePrompt::YesNoCancel(
+                "Unsaved Skill Tree",
+                "The current skill tree has unsaved changes. Do you want to save before closing?");
+
+            switch (result)
+            {
+                case MessagePromptResult::Yes:
+                    if (!m_SkillTreeEditorPanel.SaveIfNeeded())
                     {
                         Application::Get().CancelClose();
                         return true;

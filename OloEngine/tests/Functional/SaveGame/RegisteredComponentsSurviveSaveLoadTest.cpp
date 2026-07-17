@@ -12,6 +12,9 @@
 //   vanished through save-games. A regression looks like "loaded a quicksave
 //   and the inventory / quest journal / IK pose / dialogue trigger was reset
 //   to defaults" with no error logged.
+//   (+ ProgressionComponent, issue #635: full fidelity incl. PendingXP —
+//   which scene YAML deliberately drops — with RuntimeInitialized reset
+//   false on load so the first tick re-applies runtime state.)
 //
 // Scenario: build a scene with one entity per affected component, each
 // carrying distinctly non-default values. Capture the scene state, restore
@@ -35,6 +38,7 @@
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Inventory/Item.h"
 #include "OloEngine/Gameplay/Inventory/ItemDatabase.h"
+#include "OloEngine/Gameplay/Progression/ProgressionComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
 #include "OloEngine/SaveGame/SaveGameSerializer.h"
@@ -309,6 +313,28 @@ class RegisteredComponentsSurviveSaveLoadTest : public FunctionalTest
             ActiveAbility ability;
             ability.Definition = std::move(def);
             abilities.Abilities.push_back(std::move(ability));
+        }
+        {
+            // Every value distinctly non-default and inside the load-time
+            // clamps (Level >= 1, pools/XP/bounty >= 0, AllocatedPoints
+            // entries > 0). RuntimeInitialized deliberately true here to
+            // prove the load resets it.
+            auto& prog = make("ProgressionComponent").AddComponent<ProgressionComponent>();
+            prog.Level = 7;
+            prog.CurrentXP = 350;
+            prog.AttributePoints = 12;
+            prog.SkillPoints = 4;
+            prog.XPBounty = 250;
+            prog.HealOnLevelUp = false;
+            prog.UnlockedNodes = { "toughness", "power_strike" };
+            prog.AllocatedPoints["AttackPower"] = 3;
+            prog.AllocatedPoints["Defense"] = 2;
+            prog.ExperienceCurveHandle = AssetHandle{ 111 };
+            prog.ClassDatabaseHandle = AssetHandle{ 222 };
+            prog.SkillTreeHandle = AssetHandle{ 333 };
+            prog.ClassID = "warrior";
+            prog.PendingXP = 42; // save-games persist PendingXP (scene YAML does not)
+            prog.RuntimeInitialized = true;
         }
     }
 
@@ -631,4 +657,34 @@ TEST_F(RegisteredComponentsSurviveSaveLoadTest, PreviouslyDroppedComponentsRound
                                  EXPECT_EQ(abilities.Abilities.front().Definition.Name, "Heal");
                                  EXPECT_NEAR(abilities.Abilities.front().Definition.CooldownDuration, 2.5f, 1e-4f);
                              });
+
+    Verify<ProgressionComponent>(restored, "ProgressionComponent",
+                                 [](const ProgressionComponent& prog)
+                                 {
+                                     EXPECT_EQ(prog.Level, 7);
+                                     EXPECT_EQ(prog.CurrentXP, 350);
+                                     EXPECT_EQ(prog.AttributePoints, 12);
+                                     EXPECT_EQ(prog.SkillPoints, 4);
+                                     EXPECT_EQ(prog.XPBounty, 250);
+                                     EXPECT_FALSE(prog.HealOnLevelUp);
+                                     EXPECT_EQ(prog.UnlockedNodes.size(), 2u)
+                                         << "UnlockedNodes set lost entries";
+                                     EXPECT_TRUE(prog.UnlockedNodes.contains("toughness"));
+                                     EXPECT_TRUE(prog.UnlockedNodes.contains("power_strike"));
+                                     ASSERT_EQ(prog.AllocatedPoints.size(), 2u)
+                                         << "AllocatedPoints map lost entries";
+                                     ASSERT_TRUE(prog.AllocatedPoints.contains("AttackPower"));
+                                     EXPECT_EQ(prog.AllocatedPoints.at("AttackPower"), 3);
+                                     ASSERT_TRUE(prog.AllocatedPoints.contains("Defense"));
+                                     EXPECT_EQ(prog.AllocatedPoints.at("Defense"), 2);
+                                     EXPECT_EQ(static_cast<u64>(prog.ExperienceCurveHandle), 111u);
+                                     EXPECT_EQ(static_cast<u64>(prog.ClassDatabaseHandle), 222u);
+                                     EXPECT_EQ(static_cast<u64>(prog.SkillTreeHandle), 333u);
+                                     EXPECT_EQ(prog.ClassID, "warrior");
+                                     EXPECT_EQ(prog.PendingXP, 42)
+                                         << "save-games must persist PendingXP with full fidelity";
+                                     EXPECT_FALSE(prog.RuntimeInitialized)
+                                         << "RuntimeInitialized must reset false on load so the "
+                                            "first Progression tick re-applies runtime state";
+                                 });
 }

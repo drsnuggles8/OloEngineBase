@@ -521,6 +521,65 @@ case 1013186614u: // PointLightComponent
         return false;
     break;
 }
+case 4235738839u: // ProgressionComponent
+{
+    auto& comp = deserializedEntity.AddComponent<ProgressionComponent>();
+    if (!SceneBinIO::Read(reader, comp.Level))
+        return false;
+    comp.Level = std::max(comp.Level, static_cast<i32>(1));
+    if (!SceneBinIO::Read(reader, comp.CurrentXP))
+        return false;
+    comp.CurrentXP = std::max(comp.CurrentXP, static_cast<i32>(0));
+    if (!SceneBinIO::Read(reader, comp.AttributePoints))
+        return false;
+    comp.AttributePoints = std::max(comp.AttributePoints, static_cast<i32>(0));
+    if (!SceneBinIO::Read(reader, comp.SkillPoints))
+        return false;
+    comp.SkillPoints = std::max(comp.SkillPoints, static_cast<i32>(0));
+    if (!SceneBinIO::Read(reader, comp.XPBounty))
+        return false;
+    comp.XPBounty = std::max(comp.XPBounty, static_cast<i32>(0));
+    if (!SceneBinIO::Read(reader, comp.HealOnLevelUp))
+        return false;
+    {
+        u32 bn0 = 0;
+        if (!SceneBinIO::ReadU32(reader, bn0) || bn0 > SceneBinIO::MaxContainerElements)
+            return false;
+        comp.UnlockedNodes.clear();
+        for (u32 bi0 = 0; bi0 < bn0; ++bi0)
+        {
+            decltype(comp.UnlockedNodes)::value_type bv0{};
+            if (!SceneBinIO::Read(reader, bv0))
+                return false;
+            comp.UnlockedNodes.insert(std::move(bv0));
+        }
+    }
+    {
+        u32 bn0 = 0;
+        if (!SceneBinIO::ReadU32(reader, bn0) || bn0 > SceneBinIO::MaxContainerElements)
+            return false;
+        comp.AllocatedPoints.clear();
+        for (u32 bi0 = 0; bi0 < bn0; ++bi0)
+        {
+            std::string bk0;
+            if (!SceneBinIO::Read(reader, bk0))
+                return false;
+            decltype(comp.AllocatedPoints)::mapped_type bv0{};
+            if (!SceneBinIO::Read(reader, bv0))
+                return false;
+            comp.AllocatedPoints[std::move(bk0)] = std::move(bv0);
+        }
+    }
+    if (!SceneBinIO::Read(reader, comp.ExperienceCurveHandle))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.ClassDatabaseHandle))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.SkillTreeHandle))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.ClassID))
+        return false;
+    break;
+}
 case 594860865u: // QuestGiverComponent
 {
     auto& comp = deserializedEntity.AddComponent<QuestGiverComponent>();

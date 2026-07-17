@@ -45,6 +45,8 @@
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Abilities/Effects/GameplayEffect.h"
 #include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
+#include "OloEngine/Gameplay/Progression/ProgressionComponents.h"
+#include "OloEngine/Gameplay/Progression/ProgressionSystem.h"
 #include "../UndoRedo/EntityCommands.h"
 #include "../UndoRedo/ComponentCommands.h"
 #include "../UndoRedo/SpecializedCommands.h"
@@ -1958,6 +1960,7 @@ namespace OloEngine
 
             // Gameplay Ability System
             DisplayAddComponentEntry<AbilityComponent>("Gameplay Ability");
+            DisplayAddComponentEntry<ProgressionComponent>("Progression");
 
             ImGui::Separator();
 
@@ -7383,6 +7386,237 @@ namespace OloEngine
             if (ImGui::Button("Init Default RPG Attributes"))
             {
                 component.InitializeDefaultRPGAttributes(100.0f, 50.0f, 10.0f, 5.0f);
+            } });
+
+        DrawComponent<ProgressionComponent>("Progression", entity, [this, entity, scene = m_Context](auto& component) mutable
+                                            {
+            // --- Level / XP ---
+            if (ImGui::DragInt("Level", &component.Level, 0.1f))
+            {
+                component.Level = std::max(component.Level, 1);
+            }
+            if (ImGui::DragInt("Current XP", &component.CurrentXP, 1.0f))
+            {
+                component.CurrentXP = std::max(component.CurrentXP, 0);
+            }
+
+            // XP progress toward the next level. GetXPToNextLevel returns 0 at
+            // the level cap — show a full "MAX" bar there (also guards the
+            // divide by zero).
+            {
+                i32 const xpToNext = ProgressionSystem::GetXPToNextLevel(scene.get(), entity);
+                if (xpToNext > 0)
+                {
+                    // i64 sum: both operands can individually approach the i32
+                    // saturation cap, so the total must not wrap.
+                    i64 const levelTotal = static_cast<i64>(component.CurrentXP) + xpToNext;
+                    f32 const fraction = static_cast<f32>(component.CurrentXP) / static_cast<f32>(levelTotal);
+                    std::string overlay = "Level " + std::to_string(component.Level) + " - " +
+                                          std::to_string(component.CurrentXP) + "/" + std::to_string(levelTotal) + " XP";
+                    ImGui::ProgressBar(fraction, ImVec2(-1, 0), overlay.c_str());
+                }
+                else
+                {
+                    std::string overlay = "Level " + std::to_string(component.Level) + " - MAX";
+                    ImGui::ProgressBar(1.0f, ImVec2(-1, 0), overlay.c_str());
+                }
+            }
+
+            if (ImGui::SmallButton("Grant 100 XP"))
+            {
+                // Queued into PendingXP; resolved on the next Progression tick
+                // while the scene is playing.
+                ProgressionSystem::GrantExperience(scene.get(), entity, 100);
+            }
+
+            // --- Point pools / bounty ---
+            if (ImGui::DragInt("Attribute Points", &component.AttributePoints, 1.0f))
+            {
+                component.AttributePoints = std::max(component.AttributePoints, 0);
+            }
+            if (ImGui::DragInt("Skill Points", &component.SkillPoints, 1.0f))
+            {
+                component.SkillPoints = std::max(component.SkillPoints, 0);
+            }
+            if (ImGui::DragInt("XP Bounty", &component.XPBounty, 1.0f))
+            {
+                component.XPBounty = std::max(component.XPBounty, 0);
+            }
+            ImGui::Checkbox("Heal On Level Up", &component.HealOnLevelUp);
+
+            // --- Class ---
+            ImGui::Separator();
+            ImGui::InputText("Class ID", &component.ClassID);
+            if (ImGui::Button("Initialize From Class"))
+            {
+                if (!ProgressionSystem::InitializeFromClass(scene.get(), entity))
+                {
+                    OLO_CORE_WARN("Progression inspector: InitializeFromClass failed for class '{}'", component.ClassID);
+                }
+            }
+            if (component.ClassDatabaseHandle == 0)
+            {
+                ImGui::TextDisabled("Assign a Character Class Database below to initialize from a class.");
+            }
+
+            // --- Asset reference slots (DialogueComponent pattern) ---
+            auto drawAssetSlot = [](const char* label, const char* idSuffix, const char* fileFilter,
+                                    const char* extension, AssetType expectedType, AssetHandle& handle)
+            {
+                ImGui::PushID(idSuffix);
+
+                ImGui::Text("%s:", label);
+                ImGui::SameLine();
+                if (handle != 0)
+                {
+                    auto metadata = AssetManager::GetAssetMetadata(handle);
+                    if (metadata.IsValid())
+                        ImGui::Text("%s", metadata.FilePath.filename().string().c_str());
+                    else
+                        ImGui::Text("<invalid handle>");
+                }
+                else
+                {
+                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "<none>");
+                }
+
+                // Browse button
+                if (ImGui::Button("Browse..."))
+                {
+                    std::string filepath = FileDialogs::OpenFile(fileFilter);
+                    if (!filepath.empty())
+                    {
+                        auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
+                        if (assetManager)
+                        {
+                            AssetHandle importedHandle = assetManager->ImportAsset(filepath);
+                            if (importedHandle != 0 && AssetManager::GetAssetType(importedHandle) == expectedType)
+                                handle = importedHandle;
+                            else if (importedHandle != 0)
+                                OLO_CORE_WARN("Imported asset is not a {}", AssetUtils::AssetTypeToString(expectedType));
+                        }
+                    }
+                }
+
+                // Drag-drop target (also accepts drops on the Browse button)
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                    {
+                        std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                        if (assetPath.extension() == extension)
+                        {
+                            auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
+                            if (assetManager)
+                            {
+                                AssetHandle importedHandle = assetManager->ImportAsset(assetPath);
+                                if (importedHandle != 0 && AssetManager::GetAssetType(importedHandle) == expectedType)
+                                    handle = importedHandle;
+                                else if (importedHandle != 0)
+                                    OLO_CORE_WARN("Dropped asset is not a {}", AssetUtils::AssetTypeToString(expectedType));
+                            }
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+
+                if (handle != 0)
+                {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Clear"))
+                        handle = 0;
+                }
+
+                ImGui::PopID();
+            };
+
+            ImGui::Separator();
+            drawAssetSlot("Experience Curve", "##ProgressionXPCurve",
+                          "Experience Curve (*.oloxpcurve)\0*.oloxpcurve\0All Files (*.*)\0*.*\0",
+                          ".oloxpcurve", AssetType::ExperienceCurve, component.ExperienceCurveHandle);
+            drawAssetSlot("Class Database", "##ProgressionClassDb",
+                          "Character Class Database (*.olocharclass)\0*.olocharclass\0All Files (*.*)\0*.*\0",
+                          ".olocharclass", AssetType::CharacterClassDatabase, component.ClassDatabaseHandle);
+            drawAssetSlot("Skill Tree", "##ProgressionSkillTree",
+                          "Skill Tree (*.oloskilltree)\0*.oloskilltree\0All Files (*.*)\0*.*\0",
+                          ".oloskilltree", AssetType::SkillTreeDatabase, component.SkillTreeHandle);
+
+            // --- Attribute point spending ---
+            ImGui::Separator();
+            if (entity.HasComponent<AbilityComponent>())
+            {
+                ImGui::Text("Attributes (unspent points: %d)", component.AttributePoints);
+                auto& abilityComponent = entity.GetComponent<AbilityComponent>();
+                auto attrNames = abilityComponent.Attributes.GetAttributeNames();
+                std::sort(attrNames.begin(), attrNames.end());
+                for (auto const& name : attrNames)
+                {
+                    f32 const currentVal = abilityComponent.Attributes.GetCurrentValue(name);
+                    i32 allocated = 0;
+                    if (auto it = component.AllocatedPoints.find(name); it != component.AllocatedPoints.end())
+                        allocated = it->second;
+
+                    ImGui::Text("%s", name.c_str());
+                    ImGui::SameLine(140.0f);
+                    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "%.1f", currentVal);
+                    ImGui::SameLine(200.0f);
+                    ImGui::Text("(+%d)", allocated);
+                    ImGui::SameLine();
+                    if (std::string plusLabel = "+##attr_" + name; ImGui::SmallButton(plusLabel.c_str()))
+                    {
+                        ProgressionSystem::SpendAttributePoint(scene.get(), entity, name);
+                    }
+                    ImGui::SameLine();
+                    if (std::string minusLabel = "-##attr_" + name; ImGui::SmallButton(minusLabel.c_str()))
+                    {
+                        ProgressionSystem::RefundAttributePoint(scene.get(), entity, name);
+                    }
+                }
+            }
+            else
+            {
+                ImGui::TextDisabled("Add a Gameplay Ability component to spend attribute points.");
+            }
+
+            if (ImGui::Button("Respec Attributes"))
+            {
+                i32 const refunded = ProgressionSystem::RespecAttributes(scene.get(), entity);
+                if (refunded > 0)
+                    OLO_CORE_INFO("Progression inspector: refunded {} attribute point(s)", refunded);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Respec Skills"))
+            {
+                i32 const refunded = ProgressionSystem::RespecSkills(scene.get(), entity);
+                if (refunded > 0)
+                    OLO_CORE_INFO("Progression inspector: refunded {} skill point(s)", refunded);
+            }
+
+            // --- Unlocked skill nodes (read-only) ---
+            if (!component.UnlockedNodes.empty())
+            {
+                ImGui::Separator();
+                ImGui::Text("Unlocked Nodes (%d):", static_cast<int>(component.UnlockedNodes.size()));
+                std::vector<std::string> sortedNodes(component.UnlockedNodes.begin(), component.UnlockedNodes.end());
+                std::sort(sortedNodes.begin(), sortedNodes.end());
+                for (auto const& nodeId : sortedNodes)
+                {
+                    ImGui::BulletText("%s", nodeId.c_str());
+                }
+            }
+
+            // --- Skill tree editor hook ---
+            ImGui::Separator();
+            ImGui::BeginDisabled(component.SkillTreeHandle == 0);
+            if (ImGui::Button("Edit Skill Tree") && m_OpenSkillTreeEditor)
+            {
+                m_OpenSkillTreeEditor(component.SkillTreeHandle);
+            }
+            ImGui::EndDisabled();
+            if (component.SkillTreeHandle == 0)
+            {
+                ImGui::SameLine();
+                ImGui::TextDisabled("Assign a Skill Tree asset first.");
             } });
 
         DrawComponent<IKTargetComponent>("IK Target", entity, [this](auto& component)

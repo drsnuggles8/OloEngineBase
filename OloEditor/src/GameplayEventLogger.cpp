@@ -6,6 +6,8 @@
 #include "OloEngine/Gameplay/GameplayEventBus.h"
 #include "OloEngine/Gameplay/Quest/QuestEvents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryEvents.h"
+#include "OloEngine/Gameplay/Progression/ProgressionEvents.h"
+#include "OloEngine/Gameplay/Abilities/Damage/CombatEvents.h"
 #include "OloEngine/Physics3D/PhysicsEvents.h"
 
 namespace OloEngine
@@ -49,6 +51,20 @@ namespace OloEngine
         bus.Subscribe<ItemUnequippedEvent>([](const ItemUnequippedEvent& e)
                                            { OLO_CORE_INFO("[GameplayEvents] ItemUnequipped  entity={} instance={} slot='{}'", static_cast<u64>(e.EntityID), static_cast<u64>(e.ItemInstanceID), e.SlotName); });
 
+        // --- Progression events -----------------------------------------------
+        bus.Subscribe<ExperienceGainedEvent>([](const ExperienceGainedEvent& e)
+                                             { OLO_CORE_INFO("[GameplayEvents] ExperienceGained entity={} amount={} level={} currentXP={}", static_cast<u64>(e.EntityID), e.Amount, e.Level, e.CurrentXP); });
+
+        bus.Subscribe<LevelUpEvent>([](const LevelUpEvent& e)
+                                    { OLO_CORE_INFO("[GameplayEvents] LevelUp         entity={} {}->{} attrPoints+={} skillPoints+={}", static_cast<u64>(e.EntityID), e.PreviousLevel, e.NewLevel, e.AttributePointsGained, e.SkillPointsGained); });
+
+        bus.Subscribe<SkillNodeUnlockedEvent>([](const SkillNodeUnlockedEvent& e)
+                                              { OLO_CORE_INFO("[GameplayEvents] SkillNodeUnlocked entity={} node='{}'", static_cast<u64>(e.EntityID), e.NodeID); });
+
+        // --- Combat events ------------------------------------------------------
+        bus.Subscribe<EntityKilledEvent>([](const EntityKilledEvent& e)
+                                         { OLO_CORE_INFO("[GameplayEvents] EntityKilled    victim={} killer={} xpGranted={}", static_cast<u64>(e.VictimID), static_cast<u64>(e.KillerID), e.ExperienceGranted); });
+
         // --- Physics events ---------------------------------------------------
         bus.Subscribe<JointBrokeEvent>([](const JointBrokeEvent& e)
                                        {
@@ -56,7 +72,7 @@ namespace OloEngine
             const char* cause = (e.BrokeByForce && e.BrokeByTorque) ? "force+torque" : (e.BrokeByForce ? "force" : "torque");
             OLO_CORE_INFO("[GameplayEvents] JointBroke      entity={} connected={} force={:.1f}N torque={:.1f}N·m by={}", static_cast<u64>(e.EntityID), static_cast<u64>(e.ConnectedEntityID), e.Force, e.Torque, cause); });
 
-        OLO_CORE_INFO("[GameplayEvents] Logger attached — quest/inventory/physics events will stream to the Console panel.");
+        OLO_CORE_INFO("[GameplayEvents] Logger attached — quest/inventory/progression/combat/physics events will stream to the Console panel.");
     }
 
 } // namespace OloEngine

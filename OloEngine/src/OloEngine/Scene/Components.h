@@ -46,6 +46,7 @@
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
+#include "OloEngine/Gameplay/Progression/ProgressionComponents.h"
 #include "OloEngine/Cinematic/CinematicComponent.h"
 #include "OloEngine/Scene/ComponentReflection.h"
 

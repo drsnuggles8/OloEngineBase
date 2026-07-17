@@ -77,6 +77,10 @@ namespace OloEngine
         { ".olofluid", ContentFileType::FluidSettings },
         // Save Games
         { ".olosave", ContentFileType::SaveGame },
+        // RPG progression data (issue #635)
+        { ".oloskilltree", ContentFileType::SkillTree },
+        { ".olocharclass", ContentFileType::CharacterClass },
+        { ".oloxpcurve", ContentFileType::ExperienceCurve },
     };
 
     ContentFileType GetFileTypeFromExtension(const std::filesystem::path& filepath)
@@ -170,6 +174,15 @@ namespace OloEngine
                 break;
             case ContentFileType::FluidSettings:
                 ImGui::TextColored(ImVec4(0.4f, 0.7f, 0.95f, 1.0f), "Fluid Settings");
+                break;
+            case ContentFileType::SkillTree:
+                ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.3f, 1.0f), "Skill Tree");
+                break;
+            case ContentFileType::CharacterClass:
+                ImGui::TextColored(ImVec4(0.7f, 0.5f, 0.9f, 1.0f), "Character Class Database");
+                break;
+            case ContentFileType::ExperienceCurve:
+                ImGui::TextColored(ImVec4(0.4f, 0.85f, 0.7f, 1.0f), "Experience Curve");
                 break;
             default:
                 break;

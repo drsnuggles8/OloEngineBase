@@ -42,6 +42,9 @@
 #include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
 #include "OloEngine/Gameplay/Abilities/Damage/DamageCalculation.h"
 #include "OloEngine/Gameplay/Abilities/Damage/DamageEvent.h"
+#include "OloEngine/Gameplay/Progression/ExperienceCurve.h"
+#include "OloEngine/Gameplay/Progression/ProgressionComponents.h"
+#include "OloEngine/Gameplay/Progression/ProgressionSystem.h"
 #include "OloEngine/Physics3D/SceneQueries.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
@@ -199,6 +202,7 @@ namespace OloEngine
             REGISTER_COMPONENT(ItemContainerComponent),
             REGISTER_COMPONENT(QuestJournalComponent),
             REGISTER_COMPONENT(QuestGiverComponent),
+            REGISTER_COMPONENT(ProgressionComponent),
             REGISTER_COMPONENT(ScriptComponent),
             REGISTER_COMPONENT(LuaScriptComponent),
             REGISTER_COMPONENT(ModelComponent),
@@ -3421,6 +3425,36 @@ namespace OloEngine
                                               "offeredQuestIDs", &QuestGiverComponent::OfferedQuestIDs,
                                               "turnInQuestIDs", &QuestGiverComponent::TurnInQuestIDs);
 
+        // --- ProgressionComponent ---
+        // Mutations route through ProgressionSystem when an owning entity can
+        // be resolved (entity-stamped gameplay events); without a scene
+        // context they fall back to the raw component (or a safe default) so
+        // the bindings stay usable in headless tests.
+        lua.new_usertype<ProgressionComponent>("ProgressionComponent", "GrantExperience", [](ProgressionComponent& comp, i32 amount)
+                                               {
+                auto [scene, entity] = LuaOwnerContext(comp);
+                if (entity)
+                    ProgressionSystem::GrantExperience(scene, entity, amount);
+                else
+                    comp.AddPendingXP(amount); }, "GetLevel", [](const ProgressionComponent& comp) -> i32
+                                               { return comp.Level; }, "GetXP", [](const ProgressionComponent& comp) -> i32
+                                               { return comp.CurrentXP; }, "GetPendingXP", [](const ProgressionComponent& comp) -> i32
+                                               { return comp.PendingXP; }, "GetXPToNextLevel", [](ProgressionComponent& comp) -> i32
+                                               { auto [scene, entity] = LuaOwnerContext(comp); return entity ? ProgressionSystem::GetXPToNextLevel(scene, entity) : std::max(ExperienceCurve::DefaultXPForLevelUp(comp.Level) - comp.CurrentXP, 0); }, "GetMaxLevel", [](ProgressionComponent& comp) -> i32
+                                               { auto [scene, entity] = LuaOwnerContext(comp); return entity ? ProgressionSystem::GetMaxLevel(scene, entity) : ExperienceCurve::kDefaultMaxLevel; }, "GetAttributePoints", [](const ProgressionComponent& comp) -> i32
+                                               { return comp.AttributePoints; }, "GetSkillPoints", [](const ProgressionComponent& comp) -> i32
+                                               { return comp.SkillPoints; }, "SpendAttributePoint", [](ProgressionComponent& comp, const std::string& attribute, sol::optional<i32> count) -> bool
+                                               { auto [scene, entity] = LuaOwnerContext(comp); return entity ? ProgressionSystem::SpendAttributePoint(scene, entity, attribute, count.value_or(1)) : false; }, "RefundAttributePoint", [](ProgressionComponent& comp, const std::string& attribute, sol::optional<i32> count) -> bool
+                                               { auto [scene, entity] = LuaOwnerContext(comp); return entity ? ProgressionSystem::RefundAttributePoint(scene, entity, attribute, count.value_or(1)) : false; }, "Respec", [](ProgressionComponent& comp) -> i32
+                                               { auto [scene, entity] = LuaOwnerContext(comp); return entity ? ProgressionSystem::RespecAttributes(scene, entity) : 0; }, "UnlockSkillNode", [](ProgressionComponent& comp, const std::string& nodeId) -> bool
+                                               { auto [scene, entity] = LuaOwnerContext(comp); return entity ? ProgressionSystem::UnlockSkillNode(scene, entity, nodeId) : false; }, "RefundSkillNode", [](ProgressionComponent& comp, const std::string& nodeId) -> bool
+                                               { auto [scene, entity] = LuaOwnerContext(comp); return entity ? ProgressionSystem::RefundSkillNode(scene, entity, nodeId) : false; }, "RespecSkills", [](ProgressionComponent& comp) -> i32
+                                               { auto [scene, entity] = LuaOwnerContext(comp); return entity ? ProgressionSystem::RespecSkills(scene, entity) : 0; }, "CanUnlockSkillNode", [](ProgressionComponent& comp, const std::string& nodeId) -> bool
+                                               { auto [scene, entity] = LuaOwnerContext(comp); return entity ? ProgressionSystem::CanUnlockSkillNode(scene, entity, nodeId) : false; }, "IsNodeUnlocked", [](const ProgressionComponent& comp, const std::string& nodeId) -> bool
+                                               { return comp.UnlockedNodes.contains(nodeId); }, "InitializeFromClass", [](ProgressionComponent& comp, sol::optional<std::string> classId) -> bool
+                                               { auto [scene, entity] = LuaOwnerContext(comp); return entity ? ProgressionSystem::InitializeFromClass(scene, entity, classId.value_or("")) : false; }, "GetClassID", [](const ProgressionComponent& comp) -> std::string
+                                               { return comp.ClassID; }, "xpBounty", &ProgressionComponent::XPBounty, "healOnLevelUp", &ProgressionComponent::HealOnLevelUp);
+
         // --- Log (global table) ---
         auto logTable = lua.create_named_table("Log");
         logTable["Trace"] = [](const std::string& msg)
@@ -3545,7 +3579,6 @@ namespace OloEngine
                 return 0.0f;
 
             auto const& sourceAC = source.GetComponent<AbilityComponent>();
-            auto& targetAC = target.GetComponent<AbilityComponent>();
 
             DamageEvent event;
             event.Source = source;
@@ -3556,12 +3589,10 @@ namespace OloEngine
             const std::string dt = damageType.value_or("Physical");
             event.DamageType = GameplayTag(dt);
 
-            f32 finalDamage = DamageCalculation::Calculate(event, sourceAC.Attributes, targetAC.Attributes);
-
-            f32 currentHealth = targetAC.Attributes.GetCurrentValue("Health");
-            targetAC.Attributes.SetBaseValue("Health", std::max(currentHealth - finalDamage, 0.0f));
-
-            return finalDamage;
+            // Single damage choke point: calculation, Health base-value write,
+            // death-tag flip, EntityKilledEvent, and the kill-XP bounty (issue
+            // #635) all live in GameplayAbilitySystem::ApplyDamage.
+            return GameplayAbilitySystem::ApplyDamage(scene, event);
         };
 
         damageTable["TryActivateAbility"] = [](u64 casterID, const std::string& abilityTag) -> bool

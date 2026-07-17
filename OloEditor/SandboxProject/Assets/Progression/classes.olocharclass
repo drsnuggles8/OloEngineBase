@@ -1,0 +1,101 @@
+CharacterClasses:
+  Classes:
+    - ClassID: warrior
+      DisplayName: Warrior
+      Description: Front-line fighter. High health and physical damage growth.
+      AttributePointsPerLevel: 5
+      SkillPointsPerLevel: 1
+      LevelCap: 0
+      # Cross-asset references are AssetHandles assigned by the project's asset
+      # registry at import — wire the experience curve / skill trees in the
+      # editor inspector (0 = engine defaults / none).
+      ExperienceCurve: 0
+      SkillTrees: []
+      StartingTags: [State.Alive, Class.Warrior]
+      Attributes:
+        - Attribute: MaxHealth
+          BaseValue: 120
+          GrowthPerLevel: 12
+          ValuePerPoint: 5
+        - Attribute: Health
+          BaseValue: 120
+          GrowthPerLevel: 0
+          ValuePerPoint: 0
+        - Attribute: MaxMana
+          BaseValue: 30
+          GrowthPerLevel: 2
+          ValuePerPoint: 2
+        - Attribute: Mana
+          BaseValue: 30
+          GrowthPerLevel: 0
+          ValuePerPoint: 0
+        - Attribute: AttackPower
+          BaseValue: 14
+          GrowthPerLevel: 2
+          ValuePerPoint: 1
+        - Attribute: Defense
+          BaseValue: 8
+          GrowthPerLevel: 1.5
+          ValuePerPoint: 1
+      StartingAbilities:
+        - Name: Shield Bash
+          AbilityTag: Ability.ShieldBash
+          CooldownDuration: 4
+          ResourceCost: 10
+          CostAttribute: Mana
+          IsChanneled: false
+          IsToggled: false
+          ChannelDuration: 0
+          RequiredTags: [State.Alive]
+          BlockedTags: [State.Dead]
+          ActivationGrantedTags: []
+          ActivationEffects: []
+          TargetActivationEffects: []
+    - ClassID: mage
+      DisplayName: Mage
+      Description: Fragile spellcaster. High mana and ability damage growth.
+      AttributePointsPerLevel: 5
+      SkillPointsPerLevel: 1
+      LevelCap: 0
+      ExperienceCurve: 0
+      SkillTrees: []
+      StartingTags: [State.Alive, Class.Mage]
+      Attributes:
+        - Attribute: MaxHealth
+          BaseValue: 70
+          GrowthPerLevel: 6
+          ValuePerPoint: 4
+        - Attribute: Health
+          BaseValue: 70
+          GrowthPerLevel: 0
+          ValuePerPoint: 0
+        - Attribute: MaxMana
+          BaseValue: 100
+          GrowthPerLevel: 10
+          ValuePerPoint: 5
+        - Attribute: Mana
+          BaseValue: 100
+          GrowthPerLevel: 0
+          ValuePerPoint: 0
+        - Attribute: AttackPower
+          BaseValue: 6
+          GrowthPerLevel: 1
+          ValuePerPoint: 1
+        - Attribute: Defense
+          BaseValue: 4
+          GrowthPerLevel: 1
+          ValuePerPoint: 1
+      StartingAbilities:
+        - Name: Firebolt
+          AbilityTag: Ability.Firebolt
+          CooldownDuration: 2
+          ResourceCost: 15
+          CostAttribute: Mana
+          IsChanneled: false
+          IsToggled: false
+          ChannelDuration: 0
+          RequiredTags: [State.Alive]
+          BlockedTags: [State.Dead]
+          ActivationGrantedTags: []
+          ActivationEffects: []
+          TargetActivationEffects: []

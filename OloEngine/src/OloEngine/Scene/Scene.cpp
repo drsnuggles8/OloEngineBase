@@ -104,6 +104,7 @@
 #include "OloEngine/Gameplay/Inventory/InventorySystem.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestSystem.h"
+#include "OloEngine/Gameplay/Progression/ProgressionSystem.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestDialogueBridge.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
@@ -324,6 +325,7 @@ namespace OloEngine
     // to map back to their owning entity when publishing gameplay events.
     template Entity Scene::GetEntityForComponent<InventoryComponent>(const InventoryComponent&);
     template Entity Scene::GetEntityForComponent<QuestJournalComponent>(const QuestJournalComponent&);
+    template Entity Scene::GetEntityForComponent<ProgressionComponent>(const ProgressionComponent&);
 
     GameplayEventBus& Scene::GetGameplayEvents()
     {
@@ -2362,6 +2364,10 @@ namespace OloEngine
         //   * Quest moved from its historical post-AI slot into the shadow: it
         //     ticks journal timers and publishes bus events; subscribers still
         //     run on the game thread.
+        //   * Progression (issue #635) registered directly into the shadow,
+        //     after Quest: it drains pending XP into level-ups, mutates
+        //     Progression/Ability/QuestJournal components, and publishes bus
+        //     events — no transforms, no physics, no Jolt queries.
         // Their shadow placement is tie-break positioning (they have no edges);
         // the schedule order test pins it, and DependsOn seam tests prove the
         // shadow legality (no path linking them to either physics node).
@@ -2477,6 +2483,13 @@ namespace OloEngine
                             { s.UpdateDialogue(ts); });
             sched.AddSystem("Quest", [](Scene& s, Timestep ts)
                             { s.UpdateQuest(ts); });
+            // Progression sits after Quest (registration-order tie-break) so
+            // XP granted by a quest completion in this tick's Quest slot
+            // resolves into levels the same tick. Touches Progression/Ability/
+            // QuestJournal components + the bus only — no transforms, no
+            // physics, no Jolt queries.
+            sched.AddSystem("Progression", [](Scene& s, Timestep ts)
+                            { s.UpdateProgression(ts); });
 
             // Fence the physics step: join the world-step task, run the joint-
             // break phase (ECS reads + event publish), and write body poses back
@@ -2584,9 +2597,10 @@ namespace OloEngine
             //                       only. Stays an unmarked barrier ordered
             //                       Before(PhysicsKick) so queued impulses are
             //                       integrated this tick.
-            // (Dialogue / Quest run in the physics shadow above — game thread, no
-            // worker audit needed. Navigation / MorphEval are pinned main-thread:
-            // TransformComponent writes / GL vertex-buffer upload.)
+            // (Dialogue / Quest / Progression run in the physics shadow above —
+            // game thread, no worker audit needed. Navigation / MorphEval are
+            // pinned main-thread: TransformComponent writes / GL vertex-buffer
+            // upload.)
             sched.AddSystem("Inventory", [](Scene& s, Timestep ts)
                             { s.UpdateInventory(ts); })
                 .Reads(kLocalTransforms);
@@ -3011,6 +3025,12 @@ namespace OloEngine
     {
         // Update quest system (timers, conditions)
         QuestSystem::OnUpdate(this, ts.GetSeconds());
+    }
+
+    void Scene::UpdateProgression(Timestep ts)
+    {
+        // Resolve pending XP into level-ups, stat growth, and point grants
+        ProgressionSystem::OnUpdate(this, ts.GetSeconds());
     }
 
     void Scene::UpdateAbilities(Timestep ts)

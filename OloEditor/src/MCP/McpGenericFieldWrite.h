@@ -343,6 +343,44 @@ namespace OloEngine::MCP::GenericFieldWrite
         Json Data;
     };
 
+    namespace Detail
+    {
+        // Shared result-building tail for MakeFieldAccess::Apply and
+        // MakeSetterField::Apply below — both coerce, range-clamp, and no-op-detect
+        // the value THE SAME WAY and differ only in how the new value gets written
+        // into the live component (a whole-object copy+swap vs. a direct setter
+        // call). Keeping the JSON shape in one place means the two write paths can't
+        // silently drift on what "changed"/"clamped"/"undoable" mean.
+        template<typename F>
+        [[nodiscard]] inline ApplyResult BuildFieldApplyResult(const std::string& component, const std::string& field,
+                                                               u64 uuid, const F& requested, const F& previous,
+                                                               const F& applied, bool clamped)
+        {
+            ApplyResult result;
+            result.Ok = true;
+            const bool changed = FieldChanged<F>(previous, applied);
+            result.Data = Json{
+                { "entity", std::to_string(uuid) },
+                { "component", component },
+                { "field", field },
+                { "type", std::string(FieldTypeName<F>()) },
+                { "previousValue", FieldToJson<F>(previous) },
+                // Read back from the component AFTER the write, not the coerced input.
+                { "value", FieldToJson<F>(applied) },
+                { "changed", changed },
+                // `undoable` reflects whether a command was actually pushed (a no-op
+                // write pushes nothing): a single Ctrl-Z reverts only when changed.
+                { "undoable", changed },
+                // True when the requested value was outside the field's serializer-
+                // enforced range and was clamped into it.
+                { "clamped", clamped },
+            };
+            if (clamped)
+                result.Data["requestedValue"] = FieldToJson<F>(requested);
+            return result;
+        }
+    } // namespace Detail
+
     // One writable (component, field) pair, type-erased over the field type. The
     // closures bake in the component type C and a pointer-to-member, so dispatch on
     // a runtime string lands on real typed code with no per-type branching at the
@@ -414,6 +452,15 @@ namespace OloEngine::MCP::GenericFieldWrite
 
             // Copy the previous value out BEFORE the command runs: the command
             // replaces the component, so a reference into it would be stale after.
+            // Predicting `willChange` from previous-vs-coerced (rather than applying
+            // first and checking previous-vs-applied, as MakeSetterField below does)
+            // is deliberate here, not an inconsistency: `access(newData) = coerced` is
+            // a bare assignment, so applied is ALWAYS exactly coerced — the prediction
+            // can't diverge from the outcome. Applying unconditionally first would
+            // instead mean invoking the component's operator= (inside
+            // ComponentChangeCommand<C>::Execute) even for a genuine no-op, which is
+            // exactly the kind of unwanted side effect this whole write path exists to
+            // avoid for a component like AudioSourceComponent (see MakeSetterField).
             const F previous = access(entity.GetComponent<C>());
             const bool willChange = FieldChanged<F>(previous, coerced);
             if (willChange)
@@ -429,28 +476,7 @@ namespace OloEngine::MCP::GenericFieldWrite
             // "did the write take effect?". If the command silently failed to apply,
             // `value` shows the old value and `changed` is false.
             const F applied = access(entity.GetComponent<C>());
-            const bool changed = FieldChanged<F>(previous, applied);
-
-            result.Ok = true;
-            result.Data = Json{
-                { "entity", std::to_string(uuid) },
-                { "component", component },
-                { "field", field },
-                { "type", std::string(FieldTypeName<F>()) },
-                { "previousValue", FieldToJson<F>(previous) },
-                // Read back from the component AFTER the write, not the coerced input.
-                { "value", FieldToJson<F>(applied) },
-                { "changed", changed },
-                // `undoable` reflects whether a command was actually pushed (a no-op
-                // write pushes nothing): a single Ctrl-Z reverts only when changed.
-                { "undoable", changed },
-                // True when the requested value was outside the field's serializer-
-                // enforced range and was clamped into it.
-                { "clamped", clamped },
-            };
-            if (clamped)
-                result.Data["requestedValue"] = FieldToJson<F>(requested);
-            return result;
+            return Detail::BuildFieldApplyResult<F>(component, field, uuid, requested, previous, applied, clamped);
         };
 
         entry.Read = [access](Entity entity) -> std::optional<Json>
@@ -472,6 +498,106 @@ namespace OloEngine::MCP::GenericFieldWrite
     {
         return MakeFieldAccess<C>(std::move(component), std::move(field), [member](C& c) -> F&
                                   { return c.*member; }, range);
+    }
+
+    // Build one registry entry from a component type + a script-facing field name +
+    // a Get/Set EXPRESSION PAIR compiled from the SAME OLO_PROPERTY annotation that
+    // drives Lua/C# scripting (issue #607's AudioSourceComponent slice). Unlike
+    // MakeFieldAccess/MakeField above — which copy the whole component, mutate the
+    // copy, and swap it in via ComponentChangeCommand<C> — this calls `setFn`
+    // DIRECTLY on the live component on both Execute and Undo, through
+    // PropertySetCommand<C, F, SetFn>. No whole-object copy or assignment ever
+    // happens.
+    //
+    // This is required whenever a component's operator= cannot be trusted to
+    // preserve runtime-only state or to push a value into a live subsystem handle:
+    // AudioSourceComponent's operator= resets ActiveEventID to 0 and never
+    // re-invokes Source->SetVolume()/SetPitch()/etc, so routing an MCP write through
+    // the whole-object path would silently detach a playing sound AND leave its
+    // actual playback parameter unchanged even though the reported "value" looked
+    // right. `getFn`/`setFn` are generated from the exact `Get =` / `Set =`
+    // expression strings the OLO_PROPERTY annotation already carries for Lua/C#
+    // (OloHeaderTool's EmitMcpSetterFields reuses ParseHeaders' scan output — no
+    // second parser).
+    //
+    // Reserved for fields the plain member/nested-member scan (MakeFieldAccess)
+    // cannot reach AT ALL — a private field behind a getter/setter pair. A component
+    // with a mix of plain public fields and OLO_PROPERTY setters keeps using
+    // MakeFieldAccess for the former; OloHeaderTool's emitter skips a property here
+    // that the field scan already exposes, so a (component, field) pair is never
+    // registered twice.
+    template<typename C, typename F, typename GetFn, typename SetFn>
+    [[nodiscard]] inline FieldEntry MakeSetterField(std::string component, std::string field,
+                                                    GetFn getFn, SetFn setFn, FieldRange range = {})
+    {
+        static_assert(std::is_same_v<std::invoke_result_t<GetFn, const C&>, F>,
+                      "MakeSetterField: getFn must return exactly F");
+
+        FieldEntry entry;
+        entry.Component = component;
+        entry.Field = field;
+        entry.Type = std::string(FieldTypeName<F>());
+        entry.Range = range;
+
+        entry.Apply = [getFn, setFn, component, field, range](const Ref<Scene>& scene, CommandHistory& history,
+                                                              Entity entity, u64 uuid, const Json& value) -> ApplyResult
+        {
+            ApplyResult result;
+            if (!entity.HasComponent<C>())
+            {
+                result.Error = "Entity has no " + component + ".";
+                return result;
+            }
+
+            F coerced{};
+            if (const auto error = CoerceJson<F>(value, coerced))
+            {
+                result.Error = "Invalid 'value' for " + component + "." + field +
+                               " (expects " + std::string(FieldTypeName<F>()) + "): " + *error + ".";
+                return result;
+            }
+
+            // Range the request the same way a scene load would, and remember whether
+            // that actually moved the value so the caller is told (never silently).
+            const F requested = coerced;
+            RangeField<F>(coerced, range);
+            const bool clamped = FieldChanged<F>(requested, coerced);
+
+            // Read the previous value via getFn BEFORE writing — there is no
+            // whole-object copy here to read it out of afterward.
+            const F previous = getFn(entity.GetComponent<C>());
+            F applied = previous;
+            if (FieldChanged<F>(previous, coerced))
+            {
+                // Unlike MakeFieldAccess's plain `access(newData) = coerced` (a bare
+                // assignment, always exact), `setFn` is an arbitrary OLO_PROPERTY Set
+                // expression that could in principle transform/clamp beyond RangeField
+                // above. So apply it FIRST, then read the value BACK OUT of the live
+                // component — the honest answer to "did the write take effect, and to
+                // what?" — instead of assuming `applied == coerced`. The command is
+                // pushed via PushAlreadyExecuted (setFn already ran) and stores the
+                // OBSERVED `applied` value, not the merely-requested one, so a later
+                // Redo reproduces exactly what was seen the first time.
+                setFn(entity.GetComponent<C>(), coerced);
+                applied = getFn(entity.GetComponent<C>());
+                if (FieldChanged<F>(previous, applied))
+                {
+                    history.PushAlreadyExecuted(std::make_unique<PropertySetCommand<C, F, SetFn>>(
+                        scene, UUID(uuid), setFn, previous, applied, "Set " + component + "." + field));
+                }
+            }
+
+            return Detail::BuildFieldApplyResult<F>(component, field, uuid, requested, previous, applied, clamped);
+        };
+
+        entry.Read = [getFn](Entity entity) -> std::optional<Json>
+        {
+            if (!entity.HasComponent<C>())
+                return std::nullopt;
+            return FieldToJson<F>(getFn(entity.GetComponent<C>()));
+        };
+
+        return entry;
     }
 
     // The writable-field registry, GENERATED by OloHeaderTool (issue #607) from the
@@ -504,6 +630,20 @@ namespace OloEngine::MCP::GenericFieldWrite
     // member — and rebuild GenerateBindings. To keep a runtime-only field out, mark it
     // OLO_SERIALIZE(Skip); to keep a whole runtime-only component out, add it to
     // kComponentsNotMcpEditable in tools/OloHeaderTool/main.cpp.
+    //
+    // SETTER-BASED FIELDS (issue #607's AudioSourceComponent slice): a field behind a
+    // PRIVATE member reached only through an OLO_PROPERTY Get/Set expression pair (no
+    // public member/nested-member chain exists at all) is unreachable to the above —
+    // AudioSourceComponent's 16 parameters live behind `private
+    // std::unique_ptr<AudioSourceColdData> m_Cold`. For those, the generated .inl also
+    // contains calls to MakeSetterField<Comp, F>(component, field, getFn, setFn[,
+    // range]), whose getFn/setFn are lambdas compiled from the OLO_PROPERTY Get/Set
+    // expression strings (OloHeaderTool's EmitMcpSetterFields, scoped to a small
+    // allowlist — see that function's comment for why it is not "every OLO_PROPERTY
+    // component"). Unlike MakeFieldAccess, MakeSetterField writes through the setter
+    // DIRECTLY on the live component (PropertySetCommand, not ComponentChangeCommand<C>)
+    // — required because AudioSourceComponent's operator= cannot be trusted to preserve
+    // ActiveEventID or push a value into the live Ref<AudioSource> Source.
 #define OLO_GFW_FIELD(Comp, FieldName, MemberExpr) \
     MakeFieldAccess<Comp>(#Comp, FieldName, [](Comp& c) -> auto& { return c.MemberExpr; })
 #define OLO_GFW_FIELD_RANGE(Comp, FieldName, MemberExpr, MinBound, MaxBound) \

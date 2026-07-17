@@ -43,6 +43,7 @@ namespace OloEngine
         i32 CurrentCount = 0;     // ObjectiveProgress
         i32 RequiredCount = 0;    // ObjectiveProgress
         i32 NewStageIndex = 0;    // StageAdvanced
+        i32 ExperiencePoints = 0; // QuestCompleted — CompletionRewards XP, granted by QuestSystem (issue #635)
     };
 
     // Append-only sink the journal pushes QuestJournalChange records into when

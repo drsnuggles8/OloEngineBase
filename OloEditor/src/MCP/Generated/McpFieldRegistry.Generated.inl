@@ -589,6 +589,18 @@ registry.push_back(OLO_GFW_FIELD(ProceduralSkyComponent, "EnableIBL", m_EnableIB
 registry.push_back(OLO_GFW_FIELD(ProceduralSkyComponent, "IBLIntensity", m_IBLIntensity));
 registry.push_back(OLO_GFW_FIELD(ProceduralSkyComponent, "CubemapResolution", m_CubemapResolution));
 
+// ProgressionComponent
+registry.push_back(OLO_GFW_FIELD_RANGE(ProgressionComponent, "Level", Level, OLO_GFW_BOUND(1), OLO_GFW_NO_BOUND));
+registry.push_back(OLO_GFW_FIELD_RANGE(ProgressionComponent, "CurrentXP", CurrentXP, OLO_GFW_BOUND(0), OLO_GFW_NO_BOUND));
+registry.push_back(OLO_GFW_FIELD_RANGE(ProgressionComponent, "AttributePoints", AttributePoints, OLO_GFW_BOUND(0), OLO_GFW_NO_BOUND));
+registry.push_back(OLO_GFW_FIELD_RANGE(ProgressionComponent, "SkillPoints", SkillPoints, OLO_GFW_BOUND(0), OLO_GFW_NO_BOUND));
+registry.push_back(OLO_GFW_FIELD_RANGE(ProgressionComponent, "XPBounty", XPBounty, OLO_GFW_BOUND(0), OLO_GFW_NO_BOUND));
+registry.push_back(OLO_GFW_FIELD(ProgressionComponent, "HealOnLevelUp", HealOnLevelUp));
+registry.push_back(OLO_GFW_FIELD(ProgressionComponent, "ExperienceCurveHandle", ExperienceCurveHandle));
+registry.push_back(OLO_GFW_FIELD(ProgressionComponent, "ClassDatabaseHandle", ClassDatabaseHandle));
+registry.push_back(OLO_GFW_FIELD(ProgressionComponent, "SkillTreeHandle", SkillTreeHandle));
+registry.push_back(OLO_GFW_FIELD(ProgressionComponent, "ClassID", ClassID));
+
 // QuestGiverComponent
 registry.push_back(OLO_GFW_FIELD(QuestGiverComponent, "QuestMarkerIcon", QuestMarkerIcon));
 
@@ -1025,3 +1037,161 @@ registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTSpectrumType", m_FFTSpectru
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTJonswapGamma", m_FFTJonswapGamma));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTJonswapFetch", m_FFTJonswapFetch));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "NeedsRebuild", m_NeedsRebuild));
+
+// AudioSourceComponent (OLO_PROPERTY setter-based — private cold-data fields)
+registry.push_back(MakeSetterField<AudioSourceComponent, float>(
+    "AudioSourceComponent", "Volume",
+    [](const AudioSourceComponent& comp) -> float
+    { return (comp.GetConfig().VolumeMultiplier); },
+    [](AudioSourceComponent& comp, const float& v)
+    {
+        comp.GetConfig().VolumeMultiplier = v;
+        if (comp.Source)
+            comp.Source->SetVolume(v);
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, float>(
+    "AudioSourceComponent", "Pitch",
+    [](const AudioSourceComponent& comp) -> float
+    { return (comp.GetConfig().PitchMultiplier); },
+    [](AudioSourceComponent& comp, const float& v)
+    {
+        comp.GetConfig().PitchMultiplier = v;
+        if (comp.Source)
+            comp.Source->SetPitch(v);
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, bool>(
+    "AudioSourceComponent", "PlayOnAwake",
+    [](const AudioSourceComponent& comp) -> bool
+    { return (comp.GetConfig().PlayOnAwake); },
+    [](AudioSourceComponent& comp, const bool& v)
+    {
+        comp.GetConfig().PlayOnAwake = v;
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, bool>(
+    "AudioSourceComponent", "Looping",
+    [](const AudioSourceComponent& comp) -> bool
+    { return (comp.GetConfig().Looping); },
+    [](AudioSourceComponent& comp, const bool& v)
+    {
+        comp.GetConfig().Looping = v;
+        if (comp.Source)
+            comp.Source->SetLooping(v);
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, bool>(
+    "AudioSourceComponent", "Spatialization",
+    [](const AudioSourceComponent& comp) -> bool
+    { return (comp.GetConfig().Spatialization); },
+    [](AudioSourceComponent& comp, const bool& v)
+    {
+        comp.GetConfig().Spatialization = v;
+        if (comp.Source)
+            comp.Source->SetSpatialization(v);
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, int>(
+    "AudioSourceComponent", "AttenuationModel",
+    [](const AudioSourceComponent& comp) -> int
+    { return (static_cast<int>(comp.GetConfig().AttenuationModel)); },
+    [](AudioSourceComponent& comp, const int& v)
+    {
+        comp.GetConfig().AttenuationModel = static_cast<AttenuationModelType>(v);
+        if (comp.Source)
+            comp.Source->SetAttenuationModel(comp.GetConfig().AttenuationModel);
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, float>(
+    "AudioSourceComponent", "RollOff",
+    [](const AudioSourceComponent& comp) -> float
+    { return (comp.GetConfig().RollOff); },
+    [](AudioSourceComponent& comp, const float& v)
+    {
+        comp.GetConfig().RollOff = v;
+        if (comp.Source)
+            comp.Source->SetRollOff(v);
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, float>(
+    "AudioSourceComponent", "MinGain",
+    [](const AudioSourceComponent& comp) -> float
+    { return (comp.GetConfig().MinGain); },
+    [](AudioSourceComponent& comp, const float& v)
+    {
+        comp.GetConfig().MinGain = v;
+        if (comp.Source)
+            comp.Source->SetMinGain(v);
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, float>(
+    "AudioSourceComponent", "MaxGain",
+    [](const AudioSourceComponent& comp) -> float
+    { return (comp.GetConfig().MaxGain); },
+    [](AudioSourceComponent& comp, const float& v)
+    {
+        comp.GetConfig().MaxGain = v;
+        if (comp.Source)
+            comp.Source->SetMaxGain(v);
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, float>(
+    "AudioSourceComponent", "MinDistance",
+    [](const AudioSourceComponent& comp) -> float
+    { return (comp.GetConfig().MinDistance); },
+    [](AudioSourceComponent& comp, const float& v)
+    {
+        comp.GetConfig().MinDistance = v;
+        if (comp.Source)
+            comp.Source->SetMinDistance(v);
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, float>(
+    "AudioSourceComponent", "MaxDistance",
+    [](const AudioSourceComponent& comp) -> float
+    { return (comp.GetConfig().MaxDistance); },
+    [](AudioSourceComponent& comp, const float& v)
+    {
+        comp.GetConfig().MaxDistance = v;
+        if (comp.Source)
+            comp.Source->SetMaxDistance(v);
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, float>(
+    "AudioSourceComponent", "ConeInnerAngle",
+    [](const AudioSourceComponent& comp) -> float
+    { return (comp.GetConfig().ConeInnerAngle); },
+    [](AudioSourceComponent& comp, const float& v)
+    {
+        comp.GetConfig().ConeInnerAngle = v;
+        if (comp.Source)
+            comp.Source->SetCone(comp.GetConfig().ConeInnerAngle, comp.GetConfig().ConeOuterAngle, comp.GetConfig().ConeOuterGain);
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, float>(
+    "AudioSourceComponent", "ConeOuterAngle",
+    [](const AudioSourceComponent& comp) -> float
+    { return (comp.GetConfig().ConeOuterAngle); },
+    [](AudioSourceComponent& comp, const float& v)
+    {
+        comp.GetConfig().ConeOuterAngle = v;
+        if (comp.Source)
+            comp.Source->SetCone(comp.GetConfig().ConeInnerAngle, comp.GetConfig().ConeOuterAngle, comp.GetConfig().ConeOuterGain);
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, float>(
+    "AudioSourceComponent", "ConeOuterGain",
+    [](const AudioSourceComponent& comp) -> float
+    { return (comp.GetConfig().ConeOuterGain); },
+    [](AudioSourceComponent& comp, const float& v)
+    {
+        comp.GetConfig().ConeOuterGain = v;
+        if (comp.Source)
+            comp.Source->SetCone(comp.GetConfig().ConeInnerAngle, comp.GetConfig().ConeOuterAngle, comp.GetConfig().ConeOuterGain);
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, float>(
+    "AudioSourceComponent", "DopplerFactor",
+    [](const AudioSourceComponent& comp) -> float
+    { return (comp.GetConfig().DopplerFactor); },
+    [](AudioSourceComponent& comp, const float& v)
+    {
+        comp.GetConfig().DopplerFactor = v;
+        if (comp.Source)
+            comp.Source->SetDopplerFactor(v);
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, AssetHandle>(
+    "AudioSourceComponent", "SoundConfigHandle",
+    [](const AudioSourceComponent& comp) -> AssetHandle
+    { return (static_cast<u64>(comp.GetSoundConfigHandle())); },
+    [](AudioSourceComponent& comp, const AssetHandle& v)
+    {
+        comp.SetSoundConfigHandle(AssetHandle(v));
+    }));
