@@ -1,12 +1,28 @@
 // =============================================================================
-// LightProbeSampling.glsl — Trilinear probe grid sampling with validity checks
-// Depends on: SphericalHarmonics.glsl
+// LightProbeSampling.glsl — probe-volume irradiance sampling
+//
+// Two backends behind one entry point (issue #632):
+//   - sampleLightProbeGrid: the baked path — trilinear L2-SH blend with a
+//     binary validity skip. NO visibility term: it leaks light through walls,
+//     which is why Realtime/Hybrid volumes exist.
+//   - sampleDDGIIrradiance (include/DDGICommon.glsl): the realtime path —
+//     trilinear × wrap-shading × Chebyshev-visibility weighting against the
+//     GPU-relit octahedral atlases. This is the leak-fixed sampler.
+// Lit passes call sampleProbeVolumeIrradiance(), which routes/blends per the
+// bound volume's mode (u_DDGIEnabled / u_DDGIHybridBlend from UBO 51).
+//
+// Depends on: SphericalHarmonics.glsl, DDGICommon.glsl
 // =============================================================================
 
 #ifndef LIGHT_PROBE_SAMPLING_GLSL
 #define LIGHT_PROBE_SAMPLING_GLSL
 
 #include "SphericalHarmonics.glsl"
+
+// Lit-pass consumers sample the engine-global DDGI atlas bindings (56/57/58).
+// The DDGI update passes bind their own units and must NOT include this file.
+#define DDGI_GLOBAL_SAMPLERS
+#include "DDGICommon.glsl"
 
 // Light probe volume UBO (binding 22)
 layout(std140, binding = 22) uniform LightProbeVolume {
@@ -135,6 +151,37 @@ vec3 sampleLightProbeGrid(vec3 worldPos, vec3 normal)
     // Evaluate SH for the surface normal
     vec3 irradiance = evaluateSH(blendedCoeffs, normal);
     return irradiance * u_ProbeIntensity;
+}
+
+// Unified probe-volume irradiance for the lit passes (issue #632).
+// viewDir points FROM the surface TOWARD the camera (needed by the DDGI
+// self-shadow bias). Returns vec3(0) when no probe volume applies — callers
+// keep their existing IBL/simple-ambient fallback ladder.
+//
+// Hybrid mode: u_DDGIHybridBlend ramps 0 -> 1 with DDGI capture coverage, so
+// a freshly-enabled volume shows baked SH instantly and hands over to the
+// realtime atlases as they fill; DDGI rejection (outside volume, every corner
+// probe uncaptured) falls back to baked entirely rather than blending in
+// black.
+vec3 sampleProbeVolumeIrradiance(vec3 worldPos, vec3 normal, vec3 viewDir)
+{
+    vec3 baked = vec3(0.0);
+    bool bakedNeeded = (u_DDGIEnabled == 0) || (u_DDGIHybridBlend < 0.999);
+    if (bakedNeeded)
+    {
+        baked = sampleLightProbeGrid(worldPos, normal);
+    }
+    if (u_DDGIEnabled == 0)
+    {
+        return baked;
+    }
+
+    vec3 ddgi = sampleDDGIIrradiance(worldPos, normal, viewDir);
+    if (dot(ddgi, ddgi) <= 0.0)
+    {
+        return baked;
+    }
+    return mix(baked, ddgi, u_DDGIHybridBlend);
 }
 
 #endif // LIGHT_PROBE_SAMPLING_GLSL

@@ -42,6 +42,9 @@ namespace OloEngine
     class Framebuffer;
     class GPUDrivenOcclusionPass;
     class DeferredGPUOcclusionPass;
+    class DDGIProbeUpdatePass;
+    struct DDGIVolumeDesc;
+    struct DDGIMeshCaster;
     class RenderCommand;
     class UniformBuffer;
     class CommandBucket;
@@ -887,6 +890,21 @@ namespace OloEngine
         static void AddVoxelShadowCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform);
 
         static void AddFoliageShadowCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time);
+
+        // --- Realtime DDGI (#632) ---
+        // Scene-side per-frame submission for the active Realtime/Hybrid
+        // LightProbeVolumeComponent (called from ProcessScene3DSharedLogic's
+        // probe block, before the mesh traversal). No-op when the DDGI pass
+        // doesn't exist (renderer not initialized for 3D).
+        static void SubmitDDGIVolume(const DDGIVolumeDesc& desc);
+        // True while the DDGI pass wants capture geometry this frame — the
+        // mesh submission sites gate their AddDDGICaster calls on this so the
+        // caster list costs nothing when DDGI is idle.
+        [[nodiscard]] static bool IsDDGICollectingCasters();
+        static void AddDDGICaster(const DDGIMeshCaster& caster);
+        // The pass itself, for the editor debug viz + MCP capture accessors
+        // (may be null before Init / after Shutdown).
+        [[nodiscard]] static DDGIProbeUpdatePass* GetDDGIPass();
 
         // @brief Record this frame's transform for an entity and return the
         // previous frame's transform (or the current one if no history exists

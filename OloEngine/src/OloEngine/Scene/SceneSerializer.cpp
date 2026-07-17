@@ -3012,6 +3012,21 @@ namespace OloEngine
             lpv.m_Active = lpvComponent["Active"].as<bool>(lpv.m_Active);
             lpv.m_BakedDataAsset = lpvComponent["BakedDataAsset"].as<u64>(lpv.m_BakedDataAsset);
 
+            // Realtime DDGI fields (issue #632); a missing key keeps the
+            // constructor default (pre-#632 scenes stay Baked).
+            if (int const modeValue = lpvComponent["Mode"].as<int>(static_cast<int>(lpv.m_Mode));
+                modeValue >= 0 && modeValue <= 2)
+            {
+                lpv.m_Mode = static_cast<LightProbeVolumeComponent::Mode>(modeValue);
+            }
+            // out-of-range Mode keeps the default (Baked) — an unknown future
+            // mode must not steer the runtime down an undefined path.
+            lpv.m_RaysPerProbe = lpvComponent["RaysPerProbe"].as<i32>(lpv.m_RaysPerProbe);
+            lpv.m_Hysteresis = lpvComponent["Hysteresis"].as<f32>(lpv.m_Hysteresis);
+            lpv.m_ProbeCaptureBudget = lpvComponent["ProbeCaptureBudget"].as<i32>(lpv.m_ProbeCaptureBudget);
+            lpv.m_RelightBudget = lpvComponent["RelightBudget"].as<i32>(lpv.m_RelightBudget);
+            lpv.m_SelfShadowBias = lpvComponent["SelfShadowBias"].as<f32>(lpv.m_SelfShadowBias);
+
             // Sanitize deserialized values
             if (!std::isfinite(lpv.m_Spacing) || lpv.m_Spacing <= 0.0f)
             {
@@ -3029,6 +3044,19 @@ namespace OloEngine
                     std::swap(lpv.m_BoundsMin[axis], lpv.m_BoundsMax[axis]);
                 }
             }
+            lpv.m_RaysPerProbe = std::clamp(lpv.m_RaysPerProbe, 1, 4096);
+            if (!std::isfinite(lpv.m_Hysteresis))
+            {
+                lpv.m_Hysteresis = 0.9f;
+            }
+            lpv.m_Hysteresis = std::clamp(lpv.m_Hysteresis, 0.0f, 0.98f);
+            lpv.m_ProbeCaptureBudget = std::clamp(lpv.m_ProbeCaptureBudget, 1, 64);
+            lpv.m_RelightBudget = std::clamp(lpv.m_RelightBudget, 0, 1048576);
+            if (!std::isfinite(lpv.m_SelfShadowBias))
+            {
+                lpv.m_SelfShadowBias = 0.3f;
+            }
+            lpv.m_SelfShadowBias = std::clamp(lpv.m_SelfShadowBias, 0.0f, 4.0f);
         }
 
         if (auto rpComponent = entity["ReflectionProbeComponent"]; rpComponent)
@@ -5165,6 +5193,15 @@ namespace OloEngine
             out << YAML::Key << "Intensity" << YAML::Value << lpv.m_Intensity;
             out << YAML::Key << "Active" << YAML::Value << lpv.m_Active;
             out << YAML::Key << "BakedDataAsset" << YAML::Value << lpv.m_BakedDataAsset;
+
+            // Realtime DDGI fields (issue #632). m_Dirty / m_ShowDebugProbes stay
+            // runtime-only, as before.
+            out << YAML::Key << "Mode" << YAML::Value << static_cast<int>(lpv.m_Mode);
+            out << YAML::Key << "RaysPerProbe" << YAML::Value << lpv.m_RaysPerProbe;
+            out << YAML::Key << "Hysteresis" << YAML::Value << lpv.m_Hysteresis;
+            out << YAML::Key << "ProbeCaptureBudget" << YAML::Value << lpv.m_ProbeCaptureBudget;
+            out << YAML::Key << "RelightBudget" << YAML::Value << lpv.m_RelightBudget;
+            out << YAML::Key << "SelfShadowBias" << YAML::Value << lpv.m_SelfShadowBias;
 
             out << YAML::EndMap;
         }

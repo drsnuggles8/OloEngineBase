@@ -329,7 +329,7 @@ namespace OloEngine
         {
             data = YAML::Load(yamlString);
         }
-        catch (const YAML::ParserException& e)
+        catch (const YAML::Exception& e)
         {
             OLO_CORE_ERROR("ExperienceCurveSerializer - YAML parse error: {}", e.what());
             return false;
@@ -530,7 +530,7 @@ namespace OloEngine
         {
             data = YAML::Load(yamlString);
         }
-        catch (const YAML::ParserException& e)
+        catch (const YAML::Exception& e)
         {
             OLO_CORE_ERROR("SkillTreeDatabaseSerializer - YAML parse error: {}", e.what());
             return false;
@@ -798,7 +798,7 @@ namespace OloEngine
         {
             data = YAML::Load(yamlString);
         }
-        catch (const YAML::ParserException& e)
+        catch (const YAML::Exception& e)
         {
             OLO_CORE_ERROR("CharacterClassDatabaseSerializer - YAML parse error: {}", e.what());
             return false;

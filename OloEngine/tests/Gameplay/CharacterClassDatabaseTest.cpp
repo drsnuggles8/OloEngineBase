@@ -16,6 +16,7 @@
 
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Gameplay/Progression/CharacterClassDatabase.h"
+#include "OloEngine/Memory/Platform.h" // OLO_ASAN_ENABLED
 
 #include <string>
 
@@ -290,9 +291,18 @@ TEST(CharacterClassDatabaseTest, SerializerRejectsMalformedYAML)
 {
     CharacterClassDatabaseSerializer serializer;
 
+    // The syntax-error branch is skipped under Windows ASan — clang-cl +
+    // /fsanitize=address crashes inside the C++ exception-dispatch machinery
+    // when yaml-cpp throws through certain instrumented frame shapes. Full
+    // evidence trail in the identical guard in
+    // ExperienceCurveTest::SerializerRejectsMalformedYAML; Windows-ASan
+    // coverage of the yaml-cpp throw/catch plumbing continues via
+    // EngineSubsystemSmoke.ProjectLoadMalformedYAMLFailsCleanly.
+#if !(OLO_ASAN_ENABLED && defined(_WIN32))
     auto scratch = Ref<CharacterClassDatabase>::Create();
     EXPECT_FALSE(serializer.TestDeserializeFromYAML("key: [unclosed", scratch))
         << "a YAML syntax error must be rejected";
+#endif
 
     auto scratch2 = Ref<CharacterClassDatabase>::Create();
     EXPECT_FALSE(serializer.TestDeserializeFromYAML("SomethingElse: 1\n", scratch2))

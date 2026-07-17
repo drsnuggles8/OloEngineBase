@@ -75,6 +75,8 @@
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/DDGI/DDGICommon.h"
+#include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"
@@ -5647,6 +5649,42 @@ namespace OloEngine
     // one DrawMesh packet per submesh, each shaded with the shared material-resolution rule,
     // plus its shadow caster.
     //
+    // DDGI capture caster submission (issue #632). Static opaque geometry
+    // only — skinned meshes are deliberately absent (receive-only dynamics,
+    // ADR 0006). Gated on the material's alpha mode (the capture
+    // mini-G-buffer has no alpha sampling, so a masked banner would occlude
+    // as a solid sheet) but NOT on the shadow-enable toggle or the
+    // DisableShadowCasting flag: geometry must occlude and bounce GI even in
+    // a shadows-off scene, and "no shadow" is an artist lighting intent, not
+    // a "doesn't exist for GI" statement.
+    static void SubmitDDGICasterIfCollecting(const Ref<Mesh>& mesh, const glm::mat4& worldTransform, const Material& material)
+    {
+        if (!mesh || !Renderer3D::IsDDGICollectingCasters())
+        {
+            return;
+        }
+        if (material.GetAlphaMode() != AlphaMode::Opaque)
+        {
+            return;
+        }
+        auto va = mesh->GetVertexArray();
+        if (!va)
+        {
+            return;
+        }
+
+        DDGIMeshCaster caster;
+        caster.vaoID = va->GetRendererID();
+        caster.indexCount = mesh->GetIndexCount();
+        caster.baseIndex = mesh->GetBaseIndex();
+        caster.transform = worldTransform;
+        caster.worldBounds = mesh->GetTransformedBoundingBox(worldTransform);
+        caster.baseColor = material.GetBaseColorFactor();
+        caster.albedoTextureID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRendererID() : 0;
+        caster.twoSided = material.GetFlag(MaterialFlag::TwoSided);
+        Renderer3D::AddDDGICaster(caster);
+    }
+
     // Called from TWO places, and deliberately shared rather than copied: the MeshComponent
     // loop, and the VirtualMeshComponent loop's fallback when virtual geometry is globally
     // disabled (RendererSettings::VirtualGeometryEnabled). The entire point of that toggle is
@@ -5687,6 +5725,8 @@ namespace OloEngine
                                                     material.GetFlag(MaterialFlag::TwoSided));
                 }
             }
+
+            SubmitDDGICasterIfCollecting(submesh, worldTransform, material);
         }
     }
 
@@ -6138,6 +6178,54 @@ namespace OloEngine
                 {
                     ShaderBindingLayout::LightProbeVolumeUBO disabledUBO{};
                     Renderer3D::UploadLightProbeData(disabledUBO, nullptr, 0);
+                }
+            }
+
+            // Realtime DDGI (#632): submit the first active Realtime/Hybrid
+            // volume to the DDGI pass EVERY frame (deliberately not
+            // dirty-gated — the pass consumes per-frame budgets and shifts
+            // its UBO by the render origin, so a stale gate would go wrong
+            // the moment the origin rebases). The dirty-gated baked SH upload
+            // above is unchanged and remains the Hybrid fallback payload.
+            // Runs before the mesh traversal below, so the caster sites see
+            // IsDDGICollectingCasters() == true in the same frame.
+            {
+                const auto& rendererSettings = Renderer3D::GetRendererSettings();
+                if (rendererSettings.EnableDDGI && rendererSettings.Deferred.EnableLightProbes)
+                {
+                    auto ddgiView = m_Registry.view<LightProbeVolumeComponent>();
+                    for (auto entity : ddgiView)
+                    {
+                        auto const& lpv = ddgiView.get<LightProbeVolumeComponent>(entity);
+                        if (!lpv.m_Active || lpv.m_Mode == LightProbeVolumeComponent::Mode::Baked)
+                        {
+                            continue;
+                        }
+
+                        DDGIVolumeDesc desc;
+                        desc.BoundsMin = glm::min(lpv.m_BoundsMin, lpv.m_BoundsMax);
+                        desc.BoundsMax = glm::max(lpv.m_BoundsMin, lpv.m_BoundsMax);
+                        desc.Resolution = glm::max(lpv.m_Resolution, glm::ivec3(1));
+                        desc.HitCacheTexels = DDGI::HitCacheResolutionForRayCount(lpv.m_RaysPerProbe);
+                        desc.Hysteresis = std::clamp(lpv.m_Hysteresis, 0.0f, 0.98f);
+                        desc.Intensity = lpv.m_Intensity;
+                        desc.SelfShadowBias = lpv.m_SelfShadowBias;
+                        f32 const budgetScale = std::max(rendererSettings.DDGIBudgetScale, 0.0f);
+                        desc.CaptureBudget = std::max(1, static_cast<i32>(std::lround(static_cast<f64>(lpv.m_ProbeCaptureBudget) * budgetScale)));
+                        desc.RelightBudget = lpv.m_RelightBudget > 0
+                                                 ? std::max(1, static_cast<i32>(std::lround(static_cast<f64>(lpv.m_RelightBudget) * budgetScale)))
+                                                 : 0;
+                        desc.Mode = static_cast<u8>(lpv.m_Mode);
+                        desc.BakedAvailable = false;
+                        if (lpv.m_BakedDataAsset != 0)
+                        {
+                            auto probeAsset = AssetManager::GetAsset<LightProbeVolumeAsset>(lpv.m_BakedDataAsset);
+                            desc.BakedAvailable = probeAsset && probeAsset->HasBakedData();
+                        }
+
+                        Renderer3D::SubmitDDGIVolume(desc);
+                        break; // one volume at a time — the engine-wide probe contract
+                    }
                 }
             }
 
@@ -7721,6 +7809,17 @@ namespace OloEngine
                                 }
                             }
                         }
+
+                        // DDGI capture casters: one per instance (the capture
+                        // pass range-culls per probe, so per-instance bounds
+                        // matter the same way they do for shadow cascades).
+                        if (submesh)
+                        {
+                            for (sizet k = 0; k < totalCount; ++k)
+                            {
+                                SubmitDDGICasterIfCollecting(submesh, instData[k].Transform, material);
+                            }
+                        }
                     }
                 }
             }
@@ -7783,6 +7882,8 @@ namespace OloEngine
                             material.GetFlag(MaterialFlag::TwoSided));
                     }
                 }
+
+                SubmitDDGICasterIfCollecting(submesh.m_Mesh, worldTransform, material);
             }
         }
 
@@ -7812,8 +7913,10 @@ namespace OloEngine
 
                 // Submit each submesh as a shadow caster — Model::DrawParallel
                 // only enqueues color draws, so without this loop ModelComponent
-                // meshes never reach ShadowRenderPass.
-                if (meshHasActiveShadows)
+                // meshes never reach ShadowRenderPass. The loop also feeds the
+                // DDGI capture (which must not depend on the shadow toggle),
+                // hence the widened gate.
+                if (meshHasActiveShadows || Renderer3D::IsDDGICollectingCasters())
                 {
                     const auto& meshes = model.m_Model->GetMeshes();
                     const auto& materials = model.m_Model->GetMaterials();
@@ -7822,13 +7925,16 @@ namespace OloEngine
                         if (!submesh)
                             continue;
 
-                        // ShadowDepth.glsl has no UV/albedo sampling, so an alpha-masked
-                        // banner would otherwise project its full geometry as a solid
-                        // shadow. Skip until a separate alpha-aware shadow shader exists.
                         const u32 matIdx = submesh->GetSubmesh().m_MaterialIndex;
                         const Material* imported = (matIdx < materials.size() && materials[matIdx]) ? materials[matIdx].get() : nullptr;
                         const Material& shadowMaterial = ResolveSubmeshMaterial(overrideMaterial, imported, GetDefaultMaterial());
-                        if (!MaterialCastsShadows(shadowMaterial))
+
+                        SubmitDDGICasterIfCollecting(submesh, modelTransform, shadowMaterial);
+
+                        // ShadowDepth.glsl has no UV/albedo sampling, so an alpha-masked
+                        // banner would otherwise project its full geometry as a solid
+                        // shadow. Skip until a separate alpha-aware shadow shader exists.
+                        if (!meshHasActiveShadows || !MaterialCastsShadows(shadowMaterial))
                             continue;
 
                         auto va = submesh->GetVertexArray();
@@ -7979,6 +8085,8 @@ namespace OloEngine
                                     material.GetFlag(MaterialFlag::TwoSided));
                             }
                         }
+
+                        SubmitDDGICasterIfCollecting(tileComp.TileMesh, tileTransform, material);
                     }
                 }
             }
@@ -8214,11 +8322,48 @@ namespace OloEngine
                                     vol.m_Resolution.x > 1 ? static_cast<f32>(x) / static_cast<f32>(vol.m_Resolution.x - 1) : 0.5f,
                                     vol.m_Resolution.y > 1 ? static_cast<f32>(y) / static_cast<f32>(vol.m_Resolution.y - 1) : 0.5f,
                                     vol.m_Resolution.z > 1 ? static_cast<f32>(z) / static_cast<f32>(vol.m_Resolution.z - 1) : 0.5f);
-                                glm::vec3 const probePos = vol.m_BoundsMin + t * extent;
+                                glm::vec3 probePos = vol.m_BoundsMin + t * extent;
 
                                 // Color-code: green = valid, red = invalid, yellow = no baked data
                                 glm::vec3 probeColor(0.8f, 0.8f, 0.2f); // Yellow = no baked data
-                                if (probeAsset && probeAsset->HasBakedData())
+
+                                // Realtime DDGI (#632): show the pass's CPU
+                                // scheduling truth — the RELOCATED position and
+                                // the classification state (yellow = not yet
+                                // captured, green = active, red = in-wall
+                                // inactive) — instead of the baked-asset
+                                // validity the SH path shows.
+                                bool ddgiHandled = false;
+                                if (vol.m_Mode != LightProbeVolumeComponent::Mode::Baked)
+                                {
+                                    if (auto* ddgiPass = Renderer3D::GetDDGIPass(); ddgiPass)
+                                    {
+                                        const auto& records = ddgiPass->GetProbeRecords();
+                                        i32 const idx = vol.GridIndex(x, y, z);
+                                        if (idx >= 0 && static_cast<sizet>(idx) < records.size())
+                                        {
+                                            const auto& rec = records[static_cast<sizet>(idx)];
+                                            probePos = DDGI::ProbeWorldPosition({ x, y, z }, vol.m_BoundsMin,
+                                                                                vol.m_BoundsMax, vol.m_Resolution,
+                                                                                rec.OffsetN);
+                                            switch (rec.State)
+                                            {
+                                                case DDGI::ProbeState::Active:
+                                                    probeColor = glm::vec3(0.2f, 0.8f, 0.2f);
+                                                    break;
+                                                case DDGI::ProbeState::Inactive:
+                                                    probeColor = glm::vec3(0.8f, 0.2f, 0.2f);
+                                                    break;
+                                                case DDGI::ProbeState::Uncaptured:
+                                                    probeColor = glm::vec3(0.8f, 0.8f, 0.2f);
+                                                    break;
+                                            }
+                                            ddgiHandled = true;
+                                        }
+                                    }
+                                }
+
+                                if (!ddgiHandled && probeAsset && probeAsset->HasBakedData())
                                 {
                                     i32 const idx = vol.GridIndex(x, y, z);
                                     i32 const baseOffset = idx * static_cast<i32>(SH_COEFFICIENT_COUNT);

@@ -19,6 +19,7 @@
 
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Gameplay/Progression/ExperienceCurve.h"
+#include "OloEngine/Memory/Platform.h" // OLO_ASAN_ENABLED
 
 #include <cmath>
 #include <limits>
@@ -335,9 +336,25 @@ TEST(ExperienceCurveTest, SerializerRejectsMalformedYAML)
 {
     ExperienceCurveSerializer serializer;
 
+    // The syntax-error branch is skipped under Windows ASan: clang-cl +
+    // /fsanitize=address crashes with SEH 0xc0000005 INSIDE the C++
+    // exception-dispatch machinery when yaml-cpp throws ParserException
+    // through certain sanitizer-instrumented frame shapes (reproduced
+    // locally on LLVM 21: ASan reports an AV reading null+8 during the
+    // throw, r9 = 0x19930520 — the MSVC C++ throw magic — before any catch
+    // clause runs; neither the input shape nor the catch type matters, and
+    // which TESTS crash is frame-layout/clang-version dependent — e.g.
+    // InputActionSerializerTest.MalformedYAML crashes on LLVM 21 locally
+    // but passes the CI runner's clang). The same yaml-cpp throw/catch
+    // plumbing keeps Windows-ASan coverage through
+    // EngineSubsystemSmoke.ProjectLoadMalformedYAMLFailsCleanly, whose
+    // frame shape the bug does not hit. Every other configuration still
+    // runs this branch.
+#if !(OLO_ASAN_ENABLED && defined(_WIN32))
     auto curve = Ref<ExperienceCurve>::Create();
     EXPECT_FALSE(serializer.TestDeserializeFromYAML("key: [unclosed sequence", curve))
         << "a YAML syntax error must be rejected";
+#endif
 
     auto curve2 = Ref<ExperienceCurve>::Create();
     EXPECT_FALSE(serializer.TestDeserializeFromYAML("SomethingElse: 1\n", curve2))

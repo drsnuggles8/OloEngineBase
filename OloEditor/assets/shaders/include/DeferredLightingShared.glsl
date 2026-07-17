@@ -176,7 +176,9 @@ vec3 ComputeDeferredLit(
     vec3 ambient = vec3(0.0);
     if (enableProbes && enableIBL)
     {
-        vec3 probeIrradiance = sampleLightProbeGrid(worldPos, N);
+        // Issue #632: unified probe sampling — realtime DDGI atlases when a
+        // Realtime/Hybrid volume is bound, baked SH otherwise.
+        vec3 probeIrradiance = sampleProbeVolumeIrradiance(worldPos, N, V);
         if (dot(probeIrradiance, probeIrradiance) > 0.0)
         {
             ambient = calculateCombinedAmbient(probeIrradiance, N, V, albedo, metallic, roughness,
@@ -192,7 +194,7 @@ vec3 ComputeDeferredLit(
     }
     else if (enableProbes)
     {
-        vec3 probeIrradiance = sampleLightProbeGrid(worldPos, N);
+        vec3 probeIrradiance = sampleProbeVolumeIrradiance(worldPos, N, V);
         if (dot(probeIrradiance, probeIrradiance) > 0.0)
             ambient = calculateLightProbeAmbient(probeIrradiance, albedo, metallic, roughness, N, V);
         else

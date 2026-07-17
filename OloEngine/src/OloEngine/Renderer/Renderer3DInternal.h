@@ -42,6 +42,7 @@
 #include "OloEngine/Renderer/Passes/DepthVelocityUpscalePass.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
 #include "OloEngine/Renderer/Passes/VignetteRenderPass.h"
+#include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
 #include "OloEngine/Renderer/Passes/VolumetricFogPass.h"
 #include "OloEngine/Renderer/Passes/WaterRenderPass.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -136,11 +137,17 @@ namespace OloEngine
     {
         Ref<ShadowRenderPass> Shadow;
         Ref<SceneRenderPass> Scene;
+        // Realtime DDGI probe capture/relight/blend (#632). Path-agnostic:
+        // registered between ShadowPass (its relight samples the CSM/atlas)
+        // and ScenePass (the forward lit shaders sample the atlases it
+        // publishes; DeferredLightingPass does too).
+        Ref<DDGIProbeUpdatePass> DDGIProbeUpdate;
 
         void Reset()
         {
             Shadow.Reset();
             Scene.Reset();
+            DDGIProbeUpdate.Reset();
         }
     };
 

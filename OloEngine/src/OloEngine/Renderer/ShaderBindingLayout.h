@@ -388,6 +388,41 @@ namespace OloEngine
                 return sizeof(LightProbeVolumeUBO);
             }
         };
+        // @brief Realtime DDGI probe volume parameters (binding 51, issue #632).
+        //
+        // Mirrors the `DDGIVolume` std140 block in
+        // OloEditor/assets/shaders/include/DDGICommon.glsl. Uploaded every
+        // frame while a Realtime/Hybrid LightProbeVolumeComponent is active
+        // (bounds are render-origin-relative per issue #429, so a dirty-flag
+        // gate would go stale when the origin rebases). Atlas tile sizes
+        // (irradiance 6+2, visibility 14+2) are compile-time constants shared
+        // via Renderer/DDGI/DDGICommon.h, not UBO fields.
+        struct DDGIVolumeUBO
+        {
+            glm::vec4 BoundsMin;       // xyz = min corner (render-origin-relative), w = unused
+            glm::vec4 BoundsMax;       // xyz = max corner (render-origin-relative), w = unused
+            glm::ivec4 GridDimensions; // xyz = probe count per axis, w = total probe count
+            glm::vec4 ProbeSpacing;    // xyz = per-axis spacing (extent/(res-1)), w = min axial spacing
+            i32 Enabled;               // 1 = DDGI atlases valid and sampling active
+            f32 Intensity;             // global intensity multiplier (component m_Intensity)
+            f32 Hysteresis;            // temporal EMA history weight [0, 0.98]
+            f32 SelfShadowBias;        // sampler bias scale (JCGT 2021 form), default 0.3
+            i32 HitCacheTexels;        // per-probe hit-cache octahedral resolution (8/16/32)
+            i32 FrameIndex;            // monotonically increasing DDGI update counter
+            f32 HybridBlend;           // 0 = baked SH only .. 1 = DDGI only (Hybrid coverage ramp)
+            f32 EnergyConservation;    // bounce-feedback albedo clamp, default 0.9
+            f32 MaxRayDistance;        // visibility distance clamp = 1.5 * |ProbeSpacing.xyz|
+            f32 _pad0 = 0.0f;
+            f32 _pad1 = 0.0f;
+            f32 _pad2 = 0.0f;
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(DDGIVolumeUBO);
+            }
+        };
+        static_assert(sizeof(DDGIVolumeUBO) % 16 == 0, "DDGIVolumeUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(DDGIVolumeUBO) == 112, "DDGIVolumeUBO std140 size drifted from GLSL expectation (112 B)");
         // @brief Water surface rendering parameters
         struct WaterUBO
         {
@@ -786,6 +821,7 @@ namespace OloEngine
         static constexpr u32 UBO_FLUID_RENDER = 48;         // Screen-space fluid rendering params (tint, absorption, foam, smoothing — issue #630)
         static constexpr u32 UBO_VIRTUAL_DRAW = 49;         // Virtualized-geometry per-MDI-call draw info: instance index + command segment base (issue #629)
         static constexpr u32 UBO_VIRTUAL_DEBUG = 50;        // Virtualized-geometry debug-visualization mode (cluster/LOD/overdraw) — issue #629
+        static constexpr u32 UBO_DDGI = 51;                 // Realtime DDGI probe volume params (bounds, grid, hysteresis, hybrid blend — issue #632)
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -881,7 +917,16 @@ namespace OloEngine
         // established procedure for new engine slots.
         static constexpr u32 TEX_FLUID_DEPTH = 54;     // R32F view-space depth (smoothed)
         static constexpr u32 TEX_FLUID_THICKNESS = 55; // RG16F: r = thickness, g = speed-weighted thickness (foam)
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 56;  // First shader graph user texture slot (must be after all engine-reserved slots)
+        // Realtime DDGI probe atlases (issue #632), written by the DDGI update
+        // passes and sampled by the deferred/forward lit passes via
+        // include/DDGICommon.glsl (and exposed as the shared binding a future
+        // froxel-fog bounce term can sample). The shader-graph user base
+        // shifts up by three, per the established procedure for new engine
+        // slots.
+        static constexpr u32 TEX_DDGI_IRRADIANCE = 56; // RGBA16F octahedral irradiance atlas (6x6 interior + 1px border per probe)
+        static constexpr u32 TEX_DDGI_VISIBILITY = 57; // RG16F Chebyshev atlas (mean, mean^2 distance; 14x14 interior + 1px border)
+        static constexpr u32 TEX_DDGI_PROBE_DATA = 58; // RGBA16F per-probe data (xyz = relocation offset / spacing, w = state)
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 59;  // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -1091,6 +1136,8 @@ namespace OloEngine
                     return name.contains("VirtualDraw");
                 case UBO_VIRTUAL_DEBUG:
                     return name.contains("VirtualDebug");
+                case UBO_DDGI:
+                    return name.contains("DDGI");
                 default:
                     return false;
             }
@@ -1117,6 +1164,8 @@ namespace OloEngine
                            name == "u_HDRColor" || name == "u_ScatterVolume" ||
                            name == "u_ShadowMapCSM" || name == "u_HZB" ||
                            name == "u_Butterfly" || name == "u_H0" ||
+                           // DDGI fullscreen-pass pass-local reuse (issue #632).
+                           name == "u_Radiance" || name == "u_HitGeo" ||
                            // Virtual-geometry debug overlay (issue #629): a fullscreen pass
                            // whose only input is the cluster/LOD/overdraw image, composited
                            // over the lit frame at the end of DeferredLightingPass. Same
@@ -1134,26 +1183,34 @@ namespace OloEngine
                            name == "u_BandTexture" || name == "u_JFAResult" ||
                            name == "u_EntityID" ||
                            // Compute dispatch pass-local reuse (issue #627).
-                           name == "u_ShadowAtlas";
+                           name == "u_ShadowAtlas" ||
+                           // DDGI fullscreen-pass pass-local reuse (issue #632).
+                           name == "u_HitGeo" || name == "u_CaptureGeo" || name == "u_PrevVisibility";
                 case TEX_NORMAL:
                     return name.contains("Normal") || name.contains("normal") ||
                            // Slot 2 is reused as the velocity input slot for TAA / motion-blur passes.
                            name == "u_Velocity" ||
                            // Compute dispatch pass-local reuse (issue #627).
-                           name == "u_HistoryVolume";
+                           name == "u_HistoryVolume" ||
+                           // DDGI fullscreen-pass pass-local reuse (issue #632).
+                           name == "u_PrevIrradiance";
                 case TEX_HEIGHT:
                     return name.contains("Height") || name.contains("height") ||
                            name.contains("Displacement") || name.contains("displacement") ||
                            // Slot 3 is reused as the fog-history input slot for the fog pass.
                            name == "u_FogHistory" ||
                            // Compute dispatch pass-local reuse (issue #627).
-                           name == "u_HZBDepth";
+                           name == "u_HZBDepth" ||
+                           // DDGI fullscreen-pass pass-local reuse (issue #632).
+                           name == "u_ProbeData" || name == "u_CurrVisibility";
                 case TEX_AMBIENT:
                     return name.contains("AO") || name.contains("Ambient") ||
                            name.contains("ambient") || name.contains("Occlusion") ||
                            name.contains("occlusion") ||
                            // Compute dispatch pass-local reuse (issue #627).
-                           name == "u_ViewNormals" || name == "u_InputDepth";
+                           name == "u_ViewNormals" || name == "u_InputDepth" ||
+                           // DDGI fullscreen-pass pass-local reuse (issue #632).
+                           name == "u_ProbeData";
                 case TEX_EMISSIVE:
                     return name.contains("Emissive") || name.contains("emissive") ||
                            name.contains("Emission") || name.contains("emission") ||
@@ -1239,6 +1296,12 @@ namespace OloEngine
                     // Screen-space fluid intermediates (issue #630):
                     // u_FluidDepth / u_FluidThickness.
                     return name.contains("Fluid") || name.contains("fluid");
+                case TEX_DDGI_IRRADIANCE:
+                case TEX_DDGI_VISIBILITY:
+                case TEX_DDGI_PROBE_DATA:
+                    // Realtime DDGI probe atlases (issue #632):
+                    // u_DDGIIrradianceAtlas / u_DDGIVisibilityAtlas / u_DDGIProbeData.
+                    return name.contains("DDGI");
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)

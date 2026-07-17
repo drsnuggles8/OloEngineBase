@@ -42,6 +42,19 @@ namespace OloEngine::RenderPipelineBuilderInternal
     {
         OLO_CORE_ASSERT(inputs.Passes, "RegisterSceneAndLightingNodes requires pass inputs");
         graph.AddNode(PrepareGraphNode("ShadowPass", inputs.Passes->Shadow));
+
+        // Realtime DDGI probe update (#632): its relight stage samples the
+        // CSM/shadow atlas (after ShadowPass), and BOTH lit paths consume the
+        // atlases it publishes at TEX_DDGI_* — ScenePass's forward PBR shaders
+        // and DeferredLightingPass alike — so it must execute before ScenePass.
+        // Self-disables (disabled-UBO upload only) when no Realtime/Hybrid
+        // volume was submitted this frame; registered on every path since DDGI
+        // is path-agnostic.
+        if (inputs.Passes->DDGIProbeUpdate)
+        {
+            graph.AddNode(PrepareGraphNode("DDGIProbeUpdatePass", inputs.Passes->DDGIProbeUpdate));
+        }
+
         AddExistingNode(graph, inputs.Passes->Scene);
 
         // Virtualized geometry (#629): DAG-cut cull compute + hardware MDI

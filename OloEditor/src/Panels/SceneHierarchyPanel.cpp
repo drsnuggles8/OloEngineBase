@@ -6309,44 +6309,92 @@ namespace OloEngine
 
                 ImGui::Separator();
 
+                // Realtime DDGI controls (issue #632)
+                const char* modeItems[] = { "Baked", "Realtime", "Hybrid" };
+                if (int modeIdx = static_cast<int>(component.m_Mode); ImGui::Combo("Mode##ProbeVolume", &modeIdx, modeItems, IM_ARRAYSIZE(modeItems)))
+                {
+                    component.m_Mode = static_cast<LightProbeVolumeComponent::Mode>(modeIdx);
+                    component.m_Dirty = true;
+                }
+                if (component.m_Mode != LightProbeVolumeComponent::Mode::Baked)
+                {
+                    // Rays per probe snaps to the octahedral cache resolutions (8x8 / 16x16 / 32x32).
+                    const i32 kRaySteps[] = { 64, 256, 1024 };
+                    int rayIdx = IM_ARRAYSIZE(kRaySteps) - 1;
+                    for (int i = 0; i < IM_ARRAYSIZE(kRaySteps); ++i)
+                    {
+                        if (component.m_RaysPerProbe <= kRaySteps[i]) { rayIdx = i; break; }
+                    }
+                    if (ImGui::Combo("Rays Per Probe", &rayIdx, "64\0""256\0""1024\0\0"))
+                    {
+                        component.m_RaysPerProbe = kRaySteps[rayIdx];
+                        component.m_Dirty = true;
+                    }
+                    if (ImGui::DragFloat("Hysteresis", &component.m_Hysteresis, 0.005f, 0.0f, 0.98f, "%.3f"))
+                    {
+                        component.m_Dirty = true;
+                    }
+                    if (ImGui::DragInt("Capture Budget", &component.m_ProbeCaptureBudget, 1, 1, 64))
+                    {
+                        component.m_Dirty = true;
+                    }
+                    if (ImGui::DragInt("Relight Budget", &component.m_RelightBudget, 1, 0, 4096))
+                    {
+                        component.m_Dirty = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(0 = all)");
+                    if (ImGui::DragFloat("Self Shadow Bias", &component.m_SelfShadowBias, 0.01f, 0.0f, 1.0f, "%.2f"))
+                    {
+                        component.m_Dirty = true;
+                    }
+                }
+
+                ImGui::Separator();
+
                 // Bake progress state (static per-frame tracking)
                 static f32 s_BakeProgress = 0.0f;
                 static bool s_BakeInProgress = false;
 
-                if (s_BakeInProgress)
+                // Realtime mode never reads the baked SH asset, so hide the bake
+                // UI there; Baked and Hybrid both consume it.
+                if (component.m_Mode != LightProbeVolumeComponent::Mode::Realtime)
                 {
-                    ImGui::ProgressBar(s_BakeProgress, ImVec2(-1.0f, 0.0f), "Baking...");
-                }
+                    if (s_BakeInProgress)
+                    {
+                        ImGui::ProgressBar(s_BakeProgress, ImVec2(-1.0f, 0.0f), "Baking...");
+                    }
 
-                if (ImGui::Button("Bake Light Probes"))
-                {
-                    OLO_PROFILE_SCOPE("Bake Light Probes");
-                    s_BakeInProgress = true;
-                    s_BakeProgress = 0.0f;
-                    auto asset = Ref<LightProbeVolumeAsset>::Create();
-                    LightProbeBaker::BakeVolume(
-                        m_Context,
-                        component,
-                        asset,
-                        64,
-                        [](u32 current, u32 total)
-                        {
-                            s_BakeProgress = static_cast<f32>(current) / static_cast<f32>(total);
-                            OLO_CORE_INFO("Baking probe {}/{}", current, total);
-                        });
-                    s_BakeInProgress = false;
-                    s_BakeProgress = 1.0f;
+                    if (ImGui::Button("Bake Light Probes"))
+                    {
+                        OLO_PROFILE_SCOPE("Bake Light Probes");
+                        s_BakeInProgress = true;
+                        s_BakeProgress = 0.0f;
+                        auto asset = Ref<LightProbeVolumeAsset>::Create();
+                        LightProbeBaker::BakeVolume(
+                            m_Context,
+                            component,
+                            asset,
+                            64,
+                            [](u32 current, u32 total)
+                            {
+                                s_BakeProgress = static_cast<f32>(current) / static_cast<f32>(total);
+                                OLO_CORE_INFO("Baking probe {}/{}", current, total);
+                            });
+                        s_BakeInProgress = false;
+                        s_BakeProgress = 1.0f;
 
-                    // Register the baked asset and assign its handle to the component
-                    AssetHandle handle = AssetManager::AddMemoryOnlyAsset(asset);
-                    component.m_BakedDataAsset = handle;
-                    component.m_Dirty = true;
-                    OLO_CORE_INFO("Light probe baking complete ({} probes), asset handle: {}", component.GetTotalProbeCount(), handle);
-                }
-                if (s_BakeProgress > 0.0f && !s_BakeInProgress)
-                {
-                    ImGui::SameLine();
-                    ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "Complete!");
+                        // Register the baked asset and assign its handle to the component
+                        AssetHandle handle = AssetManager::AddMemoryOnlyAsset(asset);
+                        component.m_BakedDataAsset = handle;
+                        component.m_Dirty = true;
+                        OLO_CORE_INFO("Light probe baking complete ({} probes), asset handle: {}", component.GetTotalProbeCount(), handle);
+                    }
+                    if (s_BakeProgress > 0.0f && !s_BakeInProgress)
+                    {
+                        ImGui::SameLine();
+                        ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "Complete!");
+                    }
                 } });
 
         DrawComponent<ReflectionProbeComponent>("Reflection Probe", entity, [this, entity](auto& component)

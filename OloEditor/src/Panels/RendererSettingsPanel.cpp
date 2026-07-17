@@ -165,6 +165,7 @@ namespace OloEngine
         ShadowSettings shadowCopy = Renderer3D::GetShadowMap().GetSettings();
         ApplyTieringToSettings(qt, Renderer3D::GetPostProcessSettings(), shadowCopy);
         Renderer3D::GetShadowMap().SetSettings(shadowCopy);
+        ApplyTieringToRendererSettings(qt, Renderer3D::GetRendererSettings());
     }
 
     void RendererSettingsPanel::DrawPresetControls(QualityTieringSettings& qt)

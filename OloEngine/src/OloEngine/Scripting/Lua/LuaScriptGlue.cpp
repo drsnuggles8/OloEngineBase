@@ -1927,6 +1927,24 @@ namespace OloEngine
                                                                                { if (std::isfinite(v) && v >= 0.0f) c.m_Intensity = v; }),
                                                     "active", &LightProbeVolumeComponent::m_Active,
                                                     "dirty", &LightProbeVolumeComponent::m_Dirty,
+                                                    "mode", sol::property([](const LightProbeVolumeComponent& c)
+                                                                          { return static_cast<int>(c.m_Mode); }, [](LightProbeVolumeComponent& c, int v)
+                                                                          { if (v >= 0 && v <= 2) c.m_Mode = static_cast<LightProbeVolumeComponent::Mode>(v); }),
+                                                    "raysPerProbe", sol::property([](const LightProbeVolumeComponent& c)
+                                                                                  { return c.m_RaysPerProbe; }, [](LightProbeVolumeComponent& c, i32 v)
+                                                                                  { if (v >= 1 && v <= 4096) c.m_RaysPerProbe = v; }),
+                                                    "hysteresis", sol::property([](const LightProbeVolumeComponent& c)
+                                                                                { return c.m_Hysteresis; }, [](LightProbeVolumeComponent& c, f32 v)
+                                                                                { if (std::isfinite(v) && v >= 0.0f && v <= 0.98f) c.m_Hysteresis = v; }),
+                                                    "probeCaptureBudget", sol::property([](const LightProbeVolumeComponent& c)
+                                                                                        { return c.m_ProbeCaptureBudget; }, [](LightProbeVolumeComponent& c, i32 v)
+                                                                                        { if (v >= 1 && v <= 64) c.m_ProbeCaptureBudget = v; }),
+                                                    "relightBudget", sol::property([](const LightProbeVolumeComponent& c)
+                                                                                   { return c.m_RelightBudget; }, [](LightProbeVolumeComponent& c, i32 v)
+                                                                                   { if (v >= 0 && v <= 1048576) c.m_RelightBudget = v; }),
+                                                    "selfShadowBias", sol::property([](const LightProbeVolumeComponent& c)
+                                                                                    { return c.m_SelfShadowBias; }, [](LightProbeVolumeComponent& c, f32 v)
+                                                                                    { if (std::isfinite(v) && v >= 0.0f && v <= 4.0f) c.m_SelfShadowBias = v; }),
                                                     "getTotalProbeCount", &LightProbeVolumeComponent::GetTotalProbeCount);
 
         // --- ReflectionProbeComponent ---

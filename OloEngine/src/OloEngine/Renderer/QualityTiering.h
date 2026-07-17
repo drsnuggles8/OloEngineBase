@@ -48,6 +48,13 @@ namespace OloEngine
         bool VignetteEnabled = false;
         bool ChromaticAberrationEnabled = false;
 
+        // Realtime DDGI (issue #632). Applied to RendererSettings via
+        // ApplyTieringToRendererSettings — one-directional (not part of the
+        // per-scene PP overlay StripTieringOverlay round-trips), since
+        // RendererSettings::EnableDDGI/DDGIBudgetScale are runtime knobs.
+        bool DDGIEnabled = true;
+        f32 DDGIBudgetScale = 1.0f;
+
         // Canonical High-preset defaults (single source of truth for struct initializers).
         [[nodiscard]] static QualityTieringSettings HighDefaults();
     };
@@ -57,6 +64,12 @@ namespace OloEngine
 
     // Write tiering values into the runtime structs.
     void ApplyTieringToSettings(const QualityTieringSettings& tiering, PostProcessSettings& pp, ShadowSettings& shadow);
+
+    // Write the tier's realtime-DDGI knobs into RendererSettings (issue #632).
+    // Separate from ApplyTieringToSettings because RendererSettings is not part
+    // of the per-scene PP overlay round-trip — call it alongside at apply sites.
+    struct RendererSettings;
+    void ApplyTieringToRendererSettings(const QualityTieringSettings& tiering, RendererSettings& renderer);
 
     // Copy tier-owned PP fields from tiering into pp (single mapping used by Apply and Strip).
     void CopyTierPPFields(const QualityTieringSettings& tiering, PostProcessSettings& pp);

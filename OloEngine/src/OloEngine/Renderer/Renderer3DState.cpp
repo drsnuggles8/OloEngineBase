@@ -66,6 +66,33 @@ namespace OloEngine
         }
     }
 
+    void Renderer3D::SubmitDDGIVolume(const DDGIVolumeDesc& desc)
+    {
+        if (auto ddgiPass = s_Data.Pipeline->FrameCorePasses.DDGIProbeUpdate; ddgiPass)
+        {
+            ddgiPass->SubmitVolume(desc);
+        }
+    }
+
+    bool Renderer3D::IsDDGICollectingCasters()
+    {
+        auto ddgiPass = s_Data.Pipeline->FrameCorePasses.DDGIProbeUpdate;
+        return ddgiPass && ddgiPass->WantsCasters();
+    }
+
+    void Renderer3D::AddDDGICaster(const DDGIMeshCaster& caster)
+    {
+        if (auto ddgiPass = s_Data.Pipeline->FrameCorePasses.DDGIProbeUpdate; ddgiPass)
+        {
+            ddgiPass->AddMeshCaster(caster);
+        }
+    }
+
+    DDGIProbeUpdatePass* Renderer3D::GetDDGIPass()
+    {
+        return s_Data.Pipeline ? s_Data.Pipeline->FrameCorePasses.DDGIProbeUpdate.Raw() : nullptr;
+    }
+
     void Renderer3D::SetViewPosition(const glm::vec3& position)
     {
         s_Data.ViewPos = position;

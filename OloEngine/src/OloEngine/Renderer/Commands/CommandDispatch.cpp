@@ -461,7 +461,11 @@ namespace OloEngine
                 pbrMaterialData.ApplyGammaCorrection = 1;
                 pbrMaterialData.AlphaCutoff = mat.alphaCutoff;
                 pbrMaterialData.AlphaMode = mat.alphaMode;
-                pbrMaterialData.EnableLightProbes = 0;
+                // Issue #632: this was a hard-coded 0, which made the forward
+                // path's probe-ambient shader code dead. Wire it to the same
+                // master toggle the deferred path uses so Forward+ scenes get
+                // probe GI (baked SH or realtime DDGI) too.
+                pbrMaterialData.EnableLightProbes = Renderer3D::GetRendererSettings().Deferred.EnableLightProbes ? 1 : 0;
                 pbrMaterialData.IBLIntensity = mat.iblIntensity;
 
                 if (s_Data.MaterialUBO)

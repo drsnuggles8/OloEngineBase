@@ -141,6 +141,27 @@ namespace OloEngine::Tests
             return buf;
         }
 
+        // Writes exactly the fields LightProbeVolumeComponent::Serialize() reads
+        // unconditionally before its "Format v9" (realtime DDGI, issue #632) gate.
+        std::vector<u8> BuildPreV9LightProbeVolumePayload(const LightProbeVolumeComponent& c)
+        {
+            std::vector<u8> buf;
+            FMemoryWriter w(buf);
+            w.ArIsSaveGame = true;
+
+            glm::vec3 boundsMin = c.m_BoundsMin, boundsMax = c.m_BoundsMax;
+            glm::ivec3 resolution = c.m_Resolution;
+            f32 spacing = c.m_Spacing, intensity = c.m_Intensity;
+            bool active = c.m_Active, dirty = c.m_Dirty, showDebugProbes = c.m_ShowDebugProbes;
+            AssetHandle bakedDataAsset = c.m_BakedDataAsset;
+
+            w << boundsMin << boundsMax << resolution;
+            w << spacing << intensity;
+            w << active << dirty << showDebugProbes;
+            w << bakedDataAsset;
+            return buf;
+        }
+
         // Locates the single typeHash+dataSize+payload component block within a
         // captured save-game buffer (SAVE_COMPONENT's on-disk framing) and returns
         // its [start, end) byte range -- start is the typeHash's first byte, end is
@@ -259,6 +280,46 @@ namespace OloEngine::Tests
         EXPECT_EQ(loaded.ChainIterations, freshDefault.ChainIterations);
         EXPECT_FLOAT_EQ(loaded.ChainTolerance, freshDefault.ChainTolerance);
         EXPECT_FLOAT_EQ(loaded.ChainWeight, freshDefault.ChainWeight);
+    }
+
+    TEST(SaveGameVersionMigration, PreV9LightProbeVolumePayloadDefaultsDDGIFieldsNoDesync)
+    {
+        LightProbeVolumeComponent seed;
+        seed.m_BoundsMin = { -8.0f, -2.0f, -8.0f };
+        seed.m_BoundsMax = { 8.0f, 4.0f, 8.0f };
+        seed.m_Resolution = { 8, 4, 8 };
+        seed.m_Spacing = 2.5f;
+        seed.m_Intensity = 1.5f;
+        seed.m_Active = false;
+
+        std::vector<u8> payload = BuildPreV9LightProbeVolumePayload(seed);
+
+        LightProbeVolumeComponent loaded;
+        FMemoryReader reader(payload);
+        reader.ArIsSaveGame = true;
+        reader.SetArchiveVersion(8); // pre-v9
+
+        SaveGameComponentSerializer::Serialize(reader, loaded);
+
+        EXPECT_FALSE(reader.IsError());
+        EXPECT_TRUE(reader.AtEnd()) << "Reader did not consume exactly the pre-v9 payload -- desync";
+
+        EXPECT_FLOAT_EQ(loaded.m_BoundsMin.x, -8.0f);
+        EXPECT_FLOAT_EQ(loaded.m_BoundsMax.y, 4.0f);
+        EXPECT_EQ(loaded.m_Resolution, glm::ivec3(8, 4, 8));
+        EXPECT_FLOAT_EQ(loaded.m_Spacing, 2.5f);
+        EXPECT_FLOAT_EQ(loaded.m_Intensity, 1.5f);
+        EXPECT_FALSE(loaded.m_Active);
+
+        // Realtime DDGI (v9+) fields must stay at their constructor defaults
+        // (Mode::Baked — the pre-#632 behavior).
+        LightProbeVolumeComponent freshDefault;
+        EXPECT_EQ(loaded.m_Mode, freshDefault.m_Mode);
+        EXPECT_EQ(loaded.m_RaysPerProbe, freshDefault.m_RaysPerProbe);
+        EXPECT_FLOAT_EQ(loaded.m_Hysteresis, freshDefault.m_Hysteresis);
+        EXPECT_EQ(loaded.m_ProbeCaptureBudget, freshDefault.m_ProbeCaptureBudget);
+        EXPECT_EQ(loaded.m_RelightBudget, freshDefault.m_RelightBudget);
+        EXPECT_FLOAT_EQ(loaded.m_SelfShadowBias, freshDefault.m_SelfShadowBias);
     }
 
     // ========================================================================

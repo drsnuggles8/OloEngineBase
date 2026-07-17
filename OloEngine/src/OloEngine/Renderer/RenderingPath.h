@@ -97,6 +97,19 @@ namespace OloEngine
         // --- Deferred tuning (when Path == Deferred) ---
         DeferredSettings Deferred;
 
+        // --- Realtime DDGI (issue #632) ---
+        // Master switch for the realtime probe-relighting pipeline. When off,
+        // a Realtime/Hybrid LightProbeVolumeComponent behaves as Baked (the
+        // baked SH path stays available); the DDGI passes upload a disabled
+        // UBO and do no GPU work. Path-agnostic: DDGI irradiance feeds the
+        // ambient ladder of BOTH the deferred and forward(+) lit passes.
+        // DeferredSettings::EnableLightProbes remains the master toggle for
+        // probe ambient as a whole (baked AND realtime).
+        bool EnableDDGI = true;
+        // Multiplier on the per-volume capture/relight budgets — the quality
+        // tiering hook (Low tier forces DDGI off instead; see QualityTiering).
+        f32 DDGIBudgetScale = 1.0f;
+
         // --- Virtualized geometry (Nanite-style cluster LOD DAG, issue #629) ---
         // Master switch for the whole virtual-geometry path. Deferred-only regardless (the
         // pass is not even added to the graph outside Deferred), so this is an ADDITIONAL
