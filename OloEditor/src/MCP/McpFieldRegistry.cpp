@@ -14,17 +14,29 @@
 // OloEngine-Tests (OloEngine/tests/CMakeLists.txt, MCP section — the test
 // binary deliberately compiles the real registry, not a re-implementation).
 
+// OloEnginePCH.h first, like every sibling MCP TU: it defines NOMINMAX before
+// anything can pull in windows.h, so std::numeric_limits<T>::max() deeper in
+// the include chain (ContainerAllocationPolicies.h) isn't macro-clobbered. The
+// local VS-generator build force-includes the CMake PCH and masked its absence;
+// the CI Ninja builds (MSVC Release + clang-cl ASan) do not.
+#include "OloEnginePCH.h"
+
 #include "MCP/McpGenericFieldWrite.h"
 
 namespace OloEngine::MCP::GenericFieldWrite
 {
     namespace
     {
-// The generated .inl is a flat list of
+// The generated .inl is a series of BuildRegistryChunkN functions — each a
+// bounded run of
 //   registry.push_back(OLO_GFW_FIELD(Comp, "FieldName", MemberExpr));
 //   registry.push_back(OLO_GFW_FIELD_RANGE(Comp, "FieldName", MemberExpr, min, max));
-// plus MakeSetterField calls for OLO_PROPERTY getter/setter fields. The macros
-// are file-scoped and #undef'd below so they never leak out of this TU.
+// (plus MakeSetterField calls for OLO_PROPERTY getter/setter fields) — and a
+// BuildRegistryChunks driver that calls them all. Chunked because compiler peak
+// memory scales with the largest FUNCTION: as one flat BuildRegistry() body the
+// ~1600 closure-heavy entries ran clang-cl Release+ASan out of memory on CI
+// even with this dedicated-TU split. The macros are file-scoped and #undef'd
+// below so they never leak out of this TU.
 #define OLO_GFW_FIELD(Comp, FieldName, MemberExpr) \
     MakeFieldAccess<Comp>(#Comp, FieldName, [](Comp& c) -> auto& { return c.MemberExpr; })
 #define OLO_GFW_FIELD_RANGE(Comp, FieldName, MemberExpr, MinBound, MaxBound) \
@@ -33,16 +45,18 @@ namespace OloEngine::MCP::GenericFieldWrite
         FieldRange{ MinBound, MaxBound })
 #define OLO_GFW_BOUND(Expr) std::optional<double>(static_cast<double>(Expr))
 #define OLO_GFW_NO_BOUND std::optional<double>()
-        [[nodiscard]] std::vector<FieldEntry> BuildRegistry()
-        {
-            std::vector<FieldEntry> registry;
 #include "MCP/Generated/McpFieldRegistry.Generated.inl"
-            return registry;
-        }
 #undef OLO_GFW_FIELD
 #undef OLO_GFW_FIELD_RANGE
 #undef OLO_GFW_BOUND
 #undef OLO_GFW_NO_BOUND
+
+        [[nodiscard]] std::vector<FieldEntry> BuildRegistry()
+        {
+            std::vector<FieldEntry> registry;
+            BuildRegistryChunks(registry);
+            return registry;
+        }
     } // namespace
 
     const std::vector<FieldEntry>& Registry()
