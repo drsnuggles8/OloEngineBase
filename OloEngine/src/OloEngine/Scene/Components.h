@@ -2169,7 +2169,7 @@ namespace OloEngine
         // GI update mode (issue #632). Baked = offline SH bake, static upload
         // (the pre-#632 behavior, default so existing scenes are unchanged).
         // Realtime = DDGI hit-point-cache relighting (see
-        // docs/adr/0006-ddgi-hit-point-cache-gather.md). Hybrid = baked SH
+        // docs/adr/0007-ddgi-hit-point-cache-gather.md). Hybrid = baked SH
         // while DDGI capture coverage converges, then DDGI (scalar blend by
         // captured-probe fraction); baked SH stays the fallback when DDGI is
         // disabled by renderer settings.

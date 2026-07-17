@@ -16,7 +16,7 @@
 // References: Majercik et al., JCGT 2019 "Dynamic Diffuse Global Illumination
 // with Ray-Traced Irradiance Fields"; Majercik et al., JCGT 2021 "Scaling
 // Probe-Based Real-Time Dynamic Global Illumination for Production"; the
-// NVIDIA RTXGI-DDGI SDK. Architecture: docs/adr/0006-ddgi-hit-point-cache-gather.md.
+// NVIDIA RTXGI-DDGI SDK. Architecture: docs/adr/0007-ddgi-hit-point-cache-gather.md.
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
@@ -77,7 +77,7 @@ namespace OloEngine::DDGI
 
     // Snap an authored rays-per-probe value to a supported hit-cache
     // resolution (GLSL: n/a — CPU-side scheduling only).
-    [[nodiscard]] constexpr i32 HitCacheResolutionForRayCount(i32 raysPerProbe) noexcept
+    [[nodiscard("the snapped hit-cache resolution is the only effect")]] constexpr i32 HitCacheResolutionForRayCount(i32 raysPerProbe) noexcept
     {
         if (raysPerProbe <= kHitCacheResolutionLow * kHitCacheResolutionLow)
         {
@@ -94,12 +94,12 @@ namespace OloEngine::DDGI
     // engine's G-buffer octEncode uses plain sign() (harmless for shading
     // normals); probe-atlas texel directions are generated on exact fold
     // seams, so DDGI deliberately uses signNotZero (RTXGI convention).
-    [[nodiscard]] inline f32 SignNotZero(f32 v) noexcept
+    [[nodiscard("pure sign computation — the result is the only effect")]] inline f32 SignNotZero(f32 v) noexcept
     {
         return (v >= 0.0f) ? 1.0f : -1.0f;
     }
 
-    [[nodiscard]] inline glm::vec2 SignNotZero(const glm::vec2& v) noexcept
+    [[nodiscard("pure sign computation — the result is the only effect")]] inline glm::vec2 SignNotZero(const glm::vec2& v) noexcept
     {
         return { SignNotZero(v.x), SignNotZero(v.y) };
     }
@@ -109,7 +109,7 @@ namespace OloEngine::DDGI
     // -------------------------------------------------------------------------
 
     // Unit direction -> octahedral coordinates in [-1, 1]^2.
-    [[nodiscard]] inline glm::vec2 OctEncode(const glm::vec3& n) noexcept
+    [[nodiscard("the octahedral encoding is the only effect")]] inline glm::vec2 OctEncode(const glm::vec3& n) noexcept
     {
         f32 const l1 = glm::abs(n.x) + glm::abs(n.y) + glm::abs(n.z);
         glm::vec2 uv = glm::vec2(n.x, n.y) / glm::max(l1, 1e-8f);
@@ -121,7 +121,7 @@ namespace OloEngine::DDGI
     }
 
     // Octahedral coordinates in [-1, 1]^2 -> unit direction.
-    [[nodiscard]] inline glm::vec3 OctDecode(const glm::vec2& f) noexcept
+    [[nodiscard("the decoded unit direction is the only effect")]] inline glm::vec3 OctDecode(const glm::vec2& f) noexcept
     {
         glm::vec3 n(f.x, f.y, 1.0f - glm::abs(f.x) - glm::abs(f.y));
         f32 const t = glm::clamp(-n.z, 0.0f, 1.0f);
@@ -132,7 +132,7 @@ namespace OloEngine::DDGI
 
     // Center direction of an interior texel of an N x N octahedral tile.
     // GLSL mirror: ddgiTexelDirection.
-    [[nodiscard]] inline glm::vec3 TexelDirection(const glm::ivec2& interiorTexel, i32 interiorResolution) noexcept
+    [[nodiscard("the texel direction is the only effect")]] inline glm::vec3 TexelDirection(const glm::ivec2& interiorTexel, i32 interiorResolution) noexcept
     {
         glm::vec2 const uv01 = (glm::vec2(interiorTexel) + 0.5f) / static_cast<f32>(interiorResolution);
         return OctDecode(uv01 * 2.0f - 1.0f);
@@ -144,12 +144,12 @@ namespace OloEngine::DDGI
     // realtime paths agree on probe identity.
     // -------------------------------------------------------------------------
 
-    [[nodiscard]] inline i32 ProbeLinearIndex(const glm::ivec3& coord, const glm::ivec3& dims) noexcept
+    [[nodiscard("the linear probe index is the only effect")]] inline i32 ProbeLinearIndex(const glm::ivec3& coord, const glm::ivec3& dims) noexcept
     {
         return coord.z * dims.y * dims.x + coord.y * dims.x + coord.x;
     }
 
-    [[nodiscard]] inline glm::ivec3 ProbeGridCoord(i32 linearIndex, const glm::ivec3& dims) noexcept
+    [[nodiscard("the grid coordinate is the only effect")]] inline glm::ivec3 ProbeGridCoord(i32 linearIndex, const glm::ivec3& dims) noexcept
     {
         i32 const planeSize = dims.x * dims.y;
         return { linearIndex % dims.x, (linearIndex / dims.x) % dims.y, linearIndex / planeSize };
@@ -158,13 +158,13 @@ namespace OloEngine::DDGI
     // Probe tile within the 2D atlas: column = x, row = z * dimY + y. Atlas is
     // therefore (dims.x * tileTexels) wide and (dims.y * dims.z * tileTexels)
     // tall. GLSL mirror: ddgiProbeTileCoord.
-    [[nodiscard]] inline glm::ivec2 ProbeTileCoord(i32 linearIndex, const glm::ivec3& dims) noexcept
+    [[nodiscard("the atlas tile coordinate is the only effect")]] inline glm::ivec2 ProbeTileCoord(i32 linearIndex, const glm::ivec3& dims) noexcept
     {
         glm::ivec3 const c = ProbeGridCoord(linearIndex, dims);
         return { c.x, c.z * dims.y + c.y };
     }
 
-    [[nodiscard]] inline glm::ivec2 AtlasTileDimensions(const glm::ivec3& dims) noexcept
+    [[nodiscard("the atlas tile dimensions are the only effect")]] inline glm::ivec2 AtlasTileDimensions(const glm::ivec3& dims) noexcept
     {
         return { dims.x, dims.y * dims.z };
     }
@@ -173,7 +173,7 @@ namespace OloEngine::DDGI
     // a probe's tile (border-safe: [tileOrigin+1, tileOrigin+1+interior]).
     // Divide by atlas texel dimensions for a normalized UV.
     // GLSL mirror: ddgiProbeAtlasTexel.
-    [[nodiscard]] inline glm::vec2 ProbeAtlasTexel(i32 linearIndex, const glm::ivec3& dims, const glm::vec3& direction, i32 interiorResolution) noexcept
+    [[nodiscard("the atlas texel coordinate is the only effect")]] inline glm::vec2 ProbeAtlasTexel(i32 linearIndex, const glm::ivec3& dims, const glm::vec3& direction, i32 interiorResolution) noexcept
     {
         i32 const tileTexels = interiorResolution + 2;
         glm::vec2 const tileOrigin = glm::vec2(ProbeTileCoord(linearIndex, dims) * tileTexels);
@@ -187,7 +187,7 @@ namespace OloEngine::DDGI
     // taps stay inside the probe. Edges mirror one row inward; corners copy
     // the diagonally opposite interior corner (RTXGI convention).
     // Interior texels return themselves. GLSL mirror: ddgiBorderSourceTexel.
-    [[nodiscard]] inline glm::ivec2 BorderSourceTexel(const glm::ivec2& localTexel, i32 tileTexels) noexcept
+    [[nodiscard("the border-gutter source texel is the only effect")]] inline glm::ivec2 BorderSourceTexel(const glm::ivec2& localTexel, i32 tileTexels) noexcept
     {
         i32 const maxT = tileTexels - 1;
         bool const onLeft = (localTexel.x == 0);
@@ -221,20 +221,20 @@ namespace OloEngine::DDGI
     // collapses that axis to grid coordinate 0 regardless).
     // -------------------------------------------------------------------------
 
-    [[nodiscard]] inline glm::vec3 ProbeSpacing(const glm::vec3& boundsMin, const glm::vec3& boundsMax, const glm::ivec3& dims) noexcept
+    [[nodiscard("the per-axis spacing is the only effect")]] inline glm::vec3 ProbeSpacing(const glm::vec3& boundsMin, const glm::vec3& boundsMax, const glm::ivec3& dims) noexcept
     {
         glm::vec3 const extent = glm::max(boundsMax - boundsMin, glm::vec3(1e-6f));
         return extent / glm::vec3(glm::max(dims - glm::ivec3(1), glm::ivec3(1)));
     }
 
-    [[nodiscard]] inline glm::vec3 ProbeGridPosition(const glm::ivec3& coord, const glm::vec3& boundsMin, const glm::vec3& boundsMax, const glm::ivec3& dims) noexcept
+    [[nodiscard("the probe grid position is the only effect")]] inline glm::vec3 ProbeGridPosition(const glm::ivec3& coord, const glm::vec3& boundsMin, const glm::vec3& boundsMax, const glm::ivec3& dims) noexcept
     {
         return boundsMin + ProbeSpacing(boundsMin, boundsMax, dims) * glm::vec3(coord);
     }
 
     // World position including the relocation offset (offset is stored
     // normalized by per-axis spacing, RTXGI convention).
-    [[nodiscard]] inline glm::vec3 ProbeWorldPosition(const glm::ivec3& coord, const glm::vec3& boundsMin, const glm::vec3& boundsMax, const glm::ivec3& dims, const glm::vec3& offsetNormalized) noexcept
+    [[nodiscard("the relocated probe position is the only effect")]] inline glm::vec3 ProbeWorldPosition(const glm::ivec3& coord, const glm::vec3& boundsMin, const glm::vec3& boundsMax, const glm::ivec3& dims, const glm::vec3& offsetNormalized) noexcept
     {
         return ProbeGridPosition(coord, boundsMin, boundsMax, dims) + offsetNormalized * ProbeSpacing(boundsMin, boundsMax, dims);
     }
@@ -248,7 +248,7 @@ namespace OloEngine::DDGI
     // is unoccluded from the probe, given the distance distribution's mean and
     // mean^2 along the sample direction. 1 when r <= mean (closer than the
     // average occluder). Cubed to sharpen, floored to keep a minimum bleed.
-    [[nodiscard]] inline f32 ChebyshevWeight(f32 mean, f32 meanSquared, f32 r) noexcept
+    [[nodiscard("the visibility weight must be applied to the probe contribution")]] inline f32 ChebyshevWeight(f32 mean, f32 meanSquared, f32 r) noexcept
     {
         if (r <= mean)
         {
@@ -263,7 +263,7 @@ namespace OloEngine::DDGI
     // Wrapped backface weight: smoothly de-weights probes behind the shading
     // surface without the hard cut that causes seams (JCGT 2019 eq. via
     // RTXGI: ((dot+1)/2)^2 + 0.2).
-    [[nodiscard]] inline f32 WrapShadingWeight(const glm::vec3& dirToProbe, const glm::vec3& normal) noexcept
+    [[nodiscard("the backface weight must be applied to the probe contribution")]] inline f32 WrapShadingWeight(const glm::vec3& dirToProbe, const glm::vec3& normal) noexcept
     {
         f32 const wrapped = (glm::dot(dirToProbe, normal) + 1.0f) * 0.5f;
         return wrapped * wrapped + 0.2f;
@@ -271,7 +271,7 @@ namespace OloEngine::DDGI
 
     // Crush tiny weights smoothly to zero (suppresses variance amplification
     // when normalizing a near-zero total weight; RTXGI convention).
-    [[nodiscard]] inline f32 CrushWeight(f32 w) noexcept
+    [[nodiscard("the crushed weight must replace the input weight")]] inline f32 CrushWeight(f32 w) noexcept
     {
         if (w < kWeightCrushThreshold)
         {
@@ -283,7 +283,7 @@ namespace OloEngine::DDGI
     // Self-shadow bias applied to the shading point before probe lookups
     // (JCGT 2021 unified form): offset along a blend of surface normal and
     // the direction back to the camera, scaled by grid spacing.
-    [[nodiscard]] inline glm::vec3 SelfShadowBias(const glm::vec3& normal, const glm::vec3& viewDir, f32 minAxialSpacing, f32 biasScale) noexcept
+    [[nodiscard("the bias offset must be applied to the shading point")]] inline glm::vec3 SelfShadowBias(const glm::vec3& normal, const glm::vec3& viewDir, f32 minAxialSpacing, f32 biasScale) noexcept
     {
         return (0.2f * normal + 0.8f * viewDir) * (0.75f * minAxialSpacing) * biasScale;
     }
@@ -294,7 +294,7 @@ namespace OloEngine::DDGI
 
     // Cosine weight of a cached hit direction for an irradiance texel
     // direction (power 1: Lambertian irradiance).
-    [[nodiscard]] inline f32 IrradianceBlendWeight(const glm::vec3& texelDir, const glm::vec3& hitDir) noexcept
+    [[nodiscard("the cosine blend weight must be applied to the ray radiance")]] inline f32 IrradianceBlendWeight(const glm::vec3& texelDir, const glm::vec3& hitDir) noexcept
     {
         return glm::max(0.0f, glm::dot(texelDir, hitDir));
     }
@@ -303,13 +303,13 @@ namespace OloEngine::DDGI
     // distance estimate is directional; RTXGI probeDistanceExponent default).
     inline constexpr f32 kDistanceBlendExponent = 50.0f;
 
-    [[nodiscard]] inline f32 DistanceBlendWeight(const glm::vec3& texelDir, const glm::vec3& hitDir, f32 exponent = kDistanceBlendExponent) noexcept
+    [[nodiscard("the power-cosine blend weight must be applied to the hit distance")]] inline f32 DistanceBlendWeight(const glm::vec3& texelDir, const glm::vec3& hitDir, f32 exponent = kDistanceBlendExponent) noexcept
     {
         return glm::pow(glm::max(0.0f, glm::dot(texelDir, hitDir)), exponent);
     }
 
     // Temporal EMA: hysteresis is the fraction of HISTORY kept.
-    [[nodiscard]] inline glm::vec3 BlendEMA(const glm::vec3& newValue, const glm::vec3& oldValue, f32 hysteresis) noexcept
+    [[nodiscard("the blended value must be written back to the atlas texel")]] inline glm::vec3 BlendEMA(const glm::vec3& newValue, const glm::vec3& oldValue, f32 hysteresis) noexcept
     {
         return glm::mix(newValue, oldValue, hysteresis);
     }
@@ -317,7 +317,7 @@ namespace OloEngine::DDGI
     // Big-change response: when the new estimate departs strongly from
     // history, cut hysteresis so lights snapping on/off do not smear (JCGT
     // 2021 thresholds: >25% of full range -> reduce, >80% -> drop history).
-    [[nodiscard]] inline f32 AdjustHysteresis(f32 hysteresis, const glm::vec3& newValue, const glm::vec3& oldValue) noexcept
+    [[nodiscard("the adjusted hysteresis must replace the input hysteresis")]] inline f32 AdjustHysteresis(f32 hysteresis, const glm::vec3& newValue, const glm::vec3& oldValue) noexcept
     {
         glm::vec3 const delta = glm::abs(newValue - oldValue);
         f32 const maxComponentDelta = glm::max(glm::max(delta.x, delta.y), delta.z);
@@ -351,7 +351,7 @@ namespace OloEngine::DDGI
 
     // Returns the new offset, normalized by per-axis spacing. minFrontfaceDistance
     // is in world units (RTXGI default 1.0, scaled to scene by callers).
-    [[nodiscard]] inline glm::vec3 RelocateProbe(const glm::vec3& currentOffsetN, const ProbeHitAggregates& agg, const glm::vec3& spacing, f32 minFrontfaceDistance) noexcept
+    [[nodiscard("relocation has no side effects — the new offset must be stored")]] inline glm::vec3 RelocateProbe(const glm::vec3& currentOffsetN, const ProbeHitAggregates& agg, const glm::vec3& spacing, f32 minFrontfaceDistance) noexcept
     {
         glm::vec3 offsetWorld = currentOffsetN * spacing;
 
@@ -394,7 +394,7 @@ namespace OloEngine::DDGI
         return currentOffsetN;
     }
 
-    [[nodiscard]] inline ProbeState ClassifyProbe(const ProbeHitAggregates& agg) noexcept
+    [[nodiscard("classification has no side effects — the state must be stored")]] inline ProbeState ClassifyProbe(const ProbeHitAggregates& agg) noexcept
     {
         if (agg.BackfaceFraction > kBackfaceFraction)
         {

@@ -49,7 +49,7 @@ namespace OloEngine
     };
 
     // @brief Realtime DDGI probe update pass (issue #632,
-    // docs/adr/0006-ddgi-hit-point-cache-gather.md).
+    // docs/adr/0007-ddgi-hit-point-cache-gather.md).
     //
     // Owns ALL DDGI GPU state and performs capture + relight + blend in one
     // render-graph node:

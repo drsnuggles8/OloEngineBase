@@ -1,6 +1,6 @@
 // =============================================================================
 // DDGICommon.glsl — realtime DDGI probe math + visibility-weighted sampler
-// (issue #632, docs/adr/0006-ddgi-hit-point-cache-gather.md)
+// (issue #632, docs/adr/0007-ddgi-hit-point-cache-gather.md)
 //
 // Every function here mirrors a C++ counterpart in
 // OloEngine/src/OloEngine/Renderer/DDGI/DDGICommon.h one-for-one (the C++ name

@@ -3,7 +3,7 @@
 // DDGIVisualEvidenceTest.cpp
 //
 // Visual + pipeline evidence for the realtime DDGI probe relighting path
-// (issue #632, docs/adr/0006-ddgi-hit-point-cache-gather.md).
+// (issue #632, docs/adr/0007-ddgi-hit-point-cache-gather.md).
 //
 // The scene is the programmatic twin of the manual bring-up rig
 // (OloEditor/SandboxProject/Assets/Scenes/DDGITest.olo): a grey-floored room
