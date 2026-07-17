@@ -23,6 +23,10 @@
 		"MCP/McpToolsPhysics.cpp"
 		"MCP/McpToolsRender.cpp"
 		"MCP/McpToolsScene.cpp"
+		# The generated writable-field registry in its own TU (see the file's
+		# header comment: keeping it inline in McpGenericFieldWrite.h OOM'd
+		# clang-cl Release+ASan compiling McpToolsScene.cpp).
+		"MCP/McpFieldRegistry.cpp"
 		"MCP/McpToolsScripting.cpp"
 		"MCP/McpToolsShader.cpp"
 		"MCP/McpScriptTools.cpp"

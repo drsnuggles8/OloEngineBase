@@ -2496,11 +2496,20 @@ namespace OloEngine
         // comparison in the editor).
         auto operator==(const TimeOfDayComponent& other) const -> bool
         {
+            // While the edit-mode clock is running (m_AdvanceInEditMode:
+            // TimeOfDaySystem::AdvanceClockInEditMode ticks it every editor
+            // frame), the clock fields drift between the editor's undo
+            // snapshot and its compare — including them would push a spurious
+            // undo entry every frame the inspector is open. Excluding them is
+            // symmetric/transitive because the three gating bools are compared
+            // for equality first.
+            const bool clockDrifts = m_Enabled && m_AdvanceInEditMode && !m_Paused;
             return m_Enabled == other.m_Enabled &&
                    m_Paused == other.m_Paused &&
                    m_AdvanceInEditMode == other.m_AdvanceInEditMode &&
-                   m_DayOfYear == other.m_DayOfYear &&
-                   Math::BitwiseEqual(m_TimeOfDayHours, other.m_TimeOfDayHours) &&
+                   (clockDrifts ||
+                    (m_DayOfYear == other.m_DayOfYear &&
+                     Math::BitwiseEqual(m_TimeOfDayHours, other.m_TimeOfDayHours))) &&
                    Math::BitwiseEqual(m_LatitudeDegrees, other.m_LatitudeDegrees) &&
                    Math::BitwiseEqual(m_DayLengthMinutes, other.m_DayLengthMinutes) &&
                    Math::BitwiseEqual(m_TimeScale, other.m_TimeScale) &&
@@ -2597,9 +2606,35 @@ namespace OloEngine
         CloudscapeComponent() = default;
         CloudscapeComponent(const CloudscapeComponent&) = default;
 
+        // Member-wise, not whole-object Math::BitwiseEqual: the struct has
+        // padding (bool → f32 alignment gaps), so a memcmp would compare
+        // indeterminate padding bytes (SonarCloud cpp:S5000 — the
+        // PerceptibleComponent precedent). Floats compare bitwise per rule 2;
+        // the AssetHandle goes through u64 to dodge the UUID C2666 footgun.
         auto operator==(const CloudscapeComponent& other) const -> bool
         {
-            return Math::BitwiseEqual(*this, other);
+            return m_Enabled == other.m_Enabled &&
+                   Math::BitwiseEqual(m_LayerBottom, other.m_LayerBottom) &&
+                   Math::BitwiseEqual(m_LayerTop, other.m_LayerTop) &&
+                   Math::BitwiseEqual(m_Coverage, other.m_Coverage) &&
+                   Math::BitwiseEqual(m_Density, other.m_Density) &&
+                   Math::BitwiseEqual(m_TypeBlend, other.m_TypeBlend) &&
+                   Math::BitwiseEqual(m_ErosionStrength, other.m_ErosionStrength) &&
+                   Math::BitwiseEqual(m_WindAnimationScale, other.m_WindAnimationScale) &&
+                   static_cast<u64>(m_WeatherMapHandle) == static_cast<u64>(other.m_WeatherMapHandle) &&
+                   Math::BitwiseEqual(m_WeatherMapScaleKm, other.m_WeatherMapScaleKm) &&
+                   m_MaxSteps == other.m_MaxSteps &&
+                   m_LightSteps == other.m_LightSteps &&
+                   Math::BitwiseEqual(m_SunLightScale, other.m_SunLightScale) &&
+                   Math::BitwiseEqual(m_AmbientScale, other.m_AmbientScale) &&
+                   Math::BitwiseEqual(m_MultiScatterStrength, other.m_MultiScatterStrength) &&
+                   Math::BitwiseEqual(m_PhaseG, other.m_PhaseG) &&
+                   Math::BitwiseEqual(m_PowderStrength, other.m_PowderStrength) &&
+                   m_CastCloudShadows == other.m_CastCloudShadows &&
+                   Math::BitwiseEqual(m_ShadowStrength, other.m_ShadowStrength) &&
+                   Math::BitwiseEqual(m_ShadowMapWorldSize, other.m_ShadowMapWorldSize) &&
+                   Math::BitwiseEqual(m_TemporalBlend, other.m_TemporalBlend) &&
+                   m_AffectIBL == other.m_AffectIBL;
         }
     };
 

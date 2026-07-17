@@ -163,15 +163,19 @@ namespace OloEngine::Functional
         const f32 noonWarmth = light.m_Color.r / std::max(light.m_Color.b, 1.0e-4f);
         EXPECT_FALSE(tod.m_IsNight);
 
-        // Golden hour: still sun-lit but weaker and warmer.
-        tod.m_TimeOfDayHours = 18.0f; // near equinox sunset
+        // Golden hour: still sun-lit but weaker and warmer. 17:00 at the
+        // equinox (day 80, lat 48) puts the sun ~9.6° up — deterministic
+        // daylight, so the warmth assertions run unconditionally (18:00 sat
+        // at −0.4° elevation and only stayed lit through the intensity
+        // ramp's below-horizon tail; a guard there could silently skip the
+        // whole block if the ramp constants were ever retuned).
+        tod.m_TimeOfDayHours = 17.0f;
         TimeOfDaySystem::Apply(GetScene());
-        if (light.m_Intensity > 0.0f && !tod.m_IsNight)
-        {
-            EXPECT_LT(light.m_Intensity, noonIntensity);
-            const f32 eveningWarmth = light.m_Color.r / std::max(light.m_Color.b, 1.0e-4f);
-            EXPECT_GT(eveningWarmth, noonWarmth) << "horizon sun must be warmer than noon";
-        }
+        EXPECT_GT(light.m_Intensity, 0.0f) << "golden-hour sun must still light the scene";
+        EXPECT_FALSE(tod.m_IsNight);
+        EXPECT_LT(light.m_Intensity, noonIntensity);
+        const f32 eveningWarmth = light.m_Color.r / std::max(light.m_Color.b, 1.0e-4f);
+        EXPECT_GT(eveningWarmth, noonWarmth) << "horizon sun must be warmer than noon";
 
         // Midnight, full moon: the single directional light swaps to
         // moonlight — cool, dim, and the component reports night.

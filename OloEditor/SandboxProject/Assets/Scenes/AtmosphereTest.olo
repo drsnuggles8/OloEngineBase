@@ -45,8 +45,8 @@ SnowSettings:
   SSSBlurRadius: 2
   SSSBlurFalloff: 1
   WindDriftFactor: 0.4
-XFogSettingsDisabledX:
-  Enabled: true
+FogSettings:
+  Enabled: false
   Mode: 1
   Color: [0.6, 0.65, 0.75]
   Density: 0.01

@@ -1195,6 +1195,15 @@ namespace OloEngine
     {
     };
 
+    // CloudscapeComponent is trivially copyable but has padding (bool → f32
+    // alignment gaps), so the memcmp path compares indeterminate padding bytes
+    // (SonarCloud cpp:S5000 — same as PerceptibleComponent). It defines a
+    // member-wise operator==, so use the value-comparison path.
+    template<>
+    struct PreferValueComparison<CloudscapeComponent> : std::true_type
+    {
+    };
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {

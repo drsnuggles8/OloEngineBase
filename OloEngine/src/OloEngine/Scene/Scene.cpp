@@ -3625,6 +3625,14 @@ namespace OloEngine
         // the inspector's time slider always works.
         TimeOfDaySystem::AdvanceClockInEditMode(*this, ts);
 
+        // Weather director preview (issue #633): apply the current blend to
+        // the scene + Renderer3D settings without advancing time, so
+        // WeatherStateComponent edits (inspector, MCP field writes) preview
+        // in edit mode without pressing Play. Respects m_Enabled; the zero-dt
+        // apply recomputes the blend only, so transitions and wetness don't
+        // drift just from the scene being open.
+        WeatherSystem::ApplyImmediate(*this);
+
         // Compose parent-chain world matrices early — editor-preview mode has
         // no physics step, and gizmo/inspector edits to local transforms need
         // to show composed parent transforms in this same frame's render (#499).
@@ -5520,27 +5528,33 @@ namespace OloEngine
 
                     // Cloud tint for IBL/reflections (bucketed so it hash-gates
                     // cleanly): coverage from the weather director's blend when
-                    // one is enabled, else the cloudscape's authored value.
-                    for (auto cloudEntity : m_Registry.view<CloudscapeComponent>())
+                    // one is enabled, else the cloudscape's authored value. Only
+                    // the first cloudscape / weather entity is consulted (one
+                    // cloudscape drives the scene), so these are single lookups,
+                    // not loops.
                     {
-                        const auto& clouds = m_Registry.get<CloudscapeComponent>(cloudEntity);
-                        if (!clouds.m_Enabled || !clouds.m_AffectIBL)
-                            break;
-                        f32 coverage = clouds.m_Coverage;
-                        f32 wetness = 0.0f;
-                        for (auto weatherEntity : m_Registry.view<WeatherStateComponent>())
+                        auto cloudView = m_Registry.view<CloudscapeComponent>();
+                        if (auto cloudIt = cloudView.begin(); cloudIt != cloudView.end())
                         {
-                            const auto& weather = m_Registry.get<WeatherStateComponent>(weatherEntity);
-                            if (weather.m_Enabled && weather.m_BlendedValid)
+                            if (const auto& clouds = m_Registry.get<CloudscapeComponent>(*cloudIt);
+                                clouds.m_Enabled && clouds.m_AffectIBL)
                             {
-                                coverage = weather.m_Blended.CloudCoverage;
-                                wetness = weather.m_Blended.CloudWetness;
+                                f32 coverage = clouds.m_Coverage;
+                                f32 wetness = 0.0f;
+                                auto weatherView = m_Registry.view<WeatherStateComponent>();
+                                if (auto weatherIt = weatherView.begin(); weatherIt != weatherView.end())
+                                {
+                                    if (const auto& weather = m_Registry.get<WeatherStateComponent>(*weatherIt);
+                                        weather.m_Enabled && weather.m_BlendedValid)
+                                    {
+                                        coverage = weather.m_Blended.CloudCoverage;
+                                        wetness = weather.m_Blended.CloudWetness;
+                                    }
+                                }
+                                ap.CloudCoverage = std::round(std::clamp(coverage, 0.0f, 1.0f) * 20.0f) / 20.0f;
+                                ap.CloudWetness = std::round(std::clamp(wetness, 0.0f, 1.0f) * 10.0f) / 10.0f;
                             }
-                            break;
                         }
-                        ap.CloudCoverage = std::round(std::clamp(coverage, 0.0f, 1.0f) * 20.0f) / 20.0f;
-                        ap.CloudWetness = std::round(std::clamp(wetness, 0.0f, 1.0f) * 10.0f) / 10.0f;
-                        break;
                     }
 
                     hash = AtmosphereSky::HashParameters(ap, sky.m_CubemapResolution);
@@ -6217,25 +6231,27 @@ namespace OloEngine
             {
                 CloudscapeRenderState cloudState; // defaults = everything off
 
-                // Weather signals apply with or without a cloud layer.
+                // Weather signals apply with or without a cloud layer. Only the
+                // first weather / cloudscape entity is consulted (one of each
+                // drives the scene), so these are single lookups, not loops.
                 const WeatherStateComponent* weather = nullptr;
-                for (auto weatherEntity : m_Registry.view<WeatherStateComponent>())
+                auto weatherView = m_Registry.view<WeatherStateComponent>();
+                if (auto weatherIt = weatherView.begin(); weatherIt != weatherView.end())
                 {
-                    if (const auto& w = m_Registry.get<WeatherStateComponent>(weatherEntity);
+                    if (const auto& w = m_Registry.get<WeatherStateComponent>(*weatherIt);
                         w.m_Enabled && w.m_BlendedValid)
                     {
                         weather = &w;
                     }
-                    break;
                 }
                 if (weather)
                     cloudState.SurfaceWetness = std::clamp(weather->m_Wetness, 0.0f, 1.0f);
 
-                for (auto cloudEntity : m_Registry.view<CloudscapeComponent>())
+                auto cloudView = m_Registry.view<CloudscapeComponent>();
+                if (auto cloudIt = cloudView.begin();
+                    cloudIt != cloudView.end() && m_Registry.get<CloudscapeComponent>(*cloudIt).m_Enabled)
                 {
-                    const auto& clouds = m_Registry.get<CloudscapeComponent>(cloudEntity);
-                    if (!clouds.m_Enabled)
-                        break;
+                    const auto& clouds = m_Registry.get<CloudscapeComponent>(*cloudIt);
 
                     cloudState.Enabled = true;
                     cloudState.LayerBottom = clouds.m_LayerBottom;
@@ -6286,12 +6302,13 @@ namespace OloEngine
                     }
 
                     // Ambient estimate + night blend from the time-of-day clock
-                    // when present; a plain day sky estimate otherwise.
-                    for (auto todEntity : m_Registry.view<TimeOfDayComponent>())
+                    // when present; a plain day sky estimate otherwise. Only the
+                    // first clock is consulted, matching TimeOfDaySystem.
+                    auto todView = m_Registry.view<TimeOfDayComponent>();
+                    if (auto todIt = todView.begin();
+                        todIt != todView.end() && m_Registry.get<TimeOfDayComponent>(*todIt).m_Enabled)
                     {
-                        const auto& tod = m_Registry.get<TimeOfDayComponent>(todEntity);
-                        if (!tod.m_Enabled)
-                            break;
+                        const auto& tod = m_Registry.get<TimeOfDayComponent>(*todIt);
                         const f32 night = Ephemeris::NightBlend(glm::radians(tod.m_SunElevationDegrees));
                         cloudState.NightBlend = night;
                         const glm::vec3 dayAmbient = glm::vec3(0.42f, 0.52f, 0.72f) *
@@ -6299,9 +6316,7 @@ namespace OloEngine
                                                                           glm::radians(tod.m_SunElevationDegrees)));
                         const glm::vec3 nightAmbient = glm::vec3(0.02f, 0.025f, 0.04f);
                         cloudState.AmbientColor = glm::mix(dayAmbient, nightAmbient, night);
-                        break;
                     }
-                    break; // one cloudscape drives the scene
                 }
 
                 Renderer3D::SetCloudscapeState(cloudState);

@@ -21,8 +21,8 @@ namespace OloEngine
     //
     // Registered in Scene::GetGameplayScheduler() as "Weather"
     // (Before("PhysicsKick") — cloth reads wind settings inside the kick).
-    // In edit mode the scheduler doesn't run; the editor inspector calls
-    // ApplyImmediate for previews.
+    // In edit mode the scheduler doesn't run; Scene::OnUpdateEditor calls
+    // ApplyImmediate every editor tick so edits preview live without Play.
     class WeatherSystem
     {
       public:
