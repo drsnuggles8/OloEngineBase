@@ -256,8 +256,12 @@ namespace OloEngine::Tests
         }
 
         // Set the matrix cell, render, read back (top-down), save/compare the
-        // PNG, and record the band stats for the cross-capture contracts.
-        void Capture(const std::string& name, f32 hours, WeatherStateId weatherState)
+        // PNG, and record the band stats for the cross-capture contracts. The
+        // default pose is the ground-level horizon view every matrix cell
+        // uses; the aerial capture below passes its own (positive pitch tilts
+        // the view down, per EditorCamera).
+        void Capture(const std::string& name, f32 hours, WeatherStateId weatherState,
+                     const glm::vec3& cameraEye = { 0.0f, 3.0f, 14.0f }, f32 cameraPitch = -0.08f)
         {
             auto& tod = m_Atmosphere.GetComponent<TimeOfDayComponent>();
             tod.m_TimeOfDayHours = hours;
@@ -275,7 +279,7 @@ namespace OloEngine::Tests
             camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
             // Ground-level pose looking over the props toward the horizon —
             // sky (with clouds) fills the top half, lit ground the bottom.
-            camera.SetPose({ 0.0f, 3.0f, 14.0f }, 0.0f, -0.08f);
+            camera.SetPose(cameraEye, 0.0f, cameraPitch);
 
             // Several ticks: the sky rebake happens on the first, the cloud
             // temporal accumulation settles over the rest.
@@ -402,6 +406,23 @@ namespace OloEngine::Tests
                     return;
             }
         }
+
+        // 13th capture — a substantially different angle, per the repo's
+        // multi-angle visual-verification rule: an elevated vantage over the
+        // props pitched ~22° down (the 120 m ground plane fills the lower
+        // half; the top-of-frame ray still clears the horizon, keeping the
+        // 700 m cloud deck in the top band). Exposes what the horizon pose
+        // can't: the props/ground depth-compositing seen from above, the
+        // scattered noon cumulus casting ground shadows, and the cloud
+        // field's structure from a second vantage. First attempt used
+        // { 0, 380, 60 } pitch 0.85 — at 60° FOV that puts the WHOLE frustum
+        // below the horizon and shrinks the plane to a sliver; the frame was
+        // a featureless haze. No named contract reads this cell; the golden
+        // pins it.
+        Capture("NoonClearAerial", 12.0f, WeatherStateId::Clear,
+                { 0.0f, 45.0f, 55.0f }, 0.38f);
+        if (::testing::Test::HasFatalFailure())
+            return;
 
         // ── Cross-capture physical contracts ──
         // 1. Noon clear sky: bright and blue.

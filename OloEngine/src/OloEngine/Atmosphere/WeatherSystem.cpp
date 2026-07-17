@@ -105,7 +105,12 @@ namespace OloEngine
         if (!std::isfinite(dt) || dt <= 0.0f)
             return current;
 
-        const f32 rate = precipitating ? std::max(riseRate, 0.0f) : std::max(dryRate, 0.0f);
+        // std::max(NaN, 0) returns NaN (the comparison is false), so the
+        // finiteness check is explicit: a NaN rate (a Lua script writes the
+        // field directly, no ingress validation) must not poison the wetness
+        // signal every consumer shades with.
+        const f32 chosen = precipitating ? riseRate : dryRate;
+        const f32 rate = std::isfinite(chosen) ? std::max(chosen, 0.0f) : 0.0f;
         const f32 step = rate * dt;
         if (current < target)
             return std::min(current + step, target);

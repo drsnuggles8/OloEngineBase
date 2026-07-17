@@ -1595,10 +1595,24 @@ TEST_F(LuaBindingTest, TimeOfDayComponent_DerivedOutputsAreReadOnly)
     EXPECT_FLOAT_EQ(result.get<f32>(2), 30.0f);
     EXPECT_TRUE(result.get<bool>(3));
 
-    // Writing a derived output raises a Lua error and leaves state untouched
+    // Writing ANY derived output raises a Lua error and leaves state
+    // untouched — each property is registered individually in Sol2, so one
+    // accidentally-writable sibling would slip past a single-property probe.
     auto writeResult = lua.safe_script("tod.sunElevationDegrees = 75.0", sol::script_pass_on_error);
     EXPECT_FALSE(writeResult.valid());
     EXPECT_FLOAT_EQ(tod.m_SunElevationDegrees, 30.0f);
+
+    writeResult = lua.safe_script("tod.sunDirection = vec3.new(1.0, 0.0, 0.0)", sol::script_pass_on_error);
+    EXPECT_FALSE(writeResult.valid());
+    EXPECT_FLOAT_EQ(tod.m_SunDirection.y, 0.5f);
+
+    writeResult = lua.safe_script("tod.moonDirection = vec3.new(1.0, 0.0, 0.0)", sol::script_pass_on_error);
+    EXPECT_FALSE(writeResult.valid());
+    EXPECT_FLOAT_EQ(tod.m_MoonDirection.y, -0.5f);
+
+    writeResult = lua.safe_script("tod.isNight = false", sol::script_pass_on_error);
+    EXPECT_FALSE(writeResult.valid());
+    EXPECT_TRUE(tod.m_IsNight);
 }
 
 // =============================================================================
@@ -1666,6 +1680,14 @@ TEST_F(LuaBindingTest, WeatherStateComponent_PropertyRoundTrip)
     auto writeResult = lua.safe_script("ws.currentState = 'Storm'", sol::script_pass_on_error);
     EXPECT_FALSE(writeResult.valid());
     EXPECT_EQ(ws.m_CurrentState, WeatherStateId::Snow);
+
+    writeResult = lua.safe_script("ws.transitionProgress = 1.0", sol::script_pass_on_error);
+    EXPECT_FALSE(writeResult.valid());
+    EXPECT_FLOAT_EQ(ws.m_TransitionProgress, 0.5f);
+
+    writeResult = lua.safe_script("ws.wetness = 0.0", sol::script_pass_on_error);
+    EXPECT_FALSE(writeResult.valid());
+    EXPECT_FLOAT_EQ(ws.m_Wetness, 0.75f);
 }
 
 // =============================================================================

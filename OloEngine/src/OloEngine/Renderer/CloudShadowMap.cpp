@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/CloudShadowMap.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
@@ -105,6 +106,13 @@ namespace OloEngine
 
         if (s_Data.m_TextureID != 0)
         {
+            // The shadow map is bound through the PBR mesh dispatch's TRACKED
+            // path (CommandDispatch::SetCloudShadowTextureID), so drop any
+            // cached "slot already has this texture" entry before the ID is
+            // deleted — a future bind with a recycled GL ID must not be
+            // skipped against stale tracking (the same contract the
+            // OpenGLTexture2D destructor honors).
+            CommandDispatch::InvalidateTextureBinding(s_Data.m_TextureID);
             RenderCommand::DeleteTexture(s_Data.m_TextureID);
         }
         s_Data.m_GenerateShader = nullptr;

@@ -1486,7 +1486,7 @@ namespace OloEngine
             c.m_TypeBlend = std::isfinite(c.m_TypeBlend) ? std::clamp(c.m_TypeBlend, 0.0f, 1.0f) : 0.5f;
             c.m_ErosionStrength = std::isfinite(c.m_ErosionStrength) ? std::clamp(c.m_ErosionStrength, 0.0f, 1.0f) : 0.5f;
             c.m_WindAnimationScale = std::isfinite(c.m_WindAnimationScale) ? std::clamp(c.m_WindAnimationScale, 0.0f, 8.0f) : 1.0f;
-            c.m_WeatherMapScaleKm = std::isfinite(c.m_WeatherMapScaleKm) ? std::clamp(c.m_WeatherMapScaleKm, 1.0f, 200.0f) : 30.0f;
+            c.m_WeatherMapScaleKm = std::isfinite(c.m_WeatherMapScaleKm) ? std::clamp(c.m_WeatherMapScaleKm, 1.0f, 200.0f) : 12.0f;
             c.m_MaxSteps = std::clamp(c.m_MaxSteps, 16, 128);
             c.m_LightSteps = std::clamp(c.m_LightSteps, 2, 12);
             c.m_SunLightScale = std::isfinite(c.m_SunLightScale) ? std::clamp(c.m_SunLightScale, 0.0f, 10.0f) : 1.0f;
