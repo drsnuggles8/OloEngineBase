@@ -24,13 +24,17 @@
 //      frames (no recapture needed — geometry is unchanged); the formerly
 //      dark side brightens and the formerly lit side goes dark.
 //   4. MultiAngleGoldens — three golden PNGs (lit / dark / top-down).
+//   5. ForwardPlusPathSmoke — the same rig on RenderingPath::ForwardPlus:
+//      the pass must run, capture must cover the grid, and the lit/dark band
+//      asymmetry must hold (no goldens). This pins the Forward+ wiring
+//      directly — the shared LightProbeSampling.glsl sampler carries the
+//      FORMULAS across paths, but the forward path's enable flags, atlas
+//      bindings and graph registration are their own seams and get their own
+//      GPU coverage here.
 //
-// Rendering path: DEFERRED, explicitly (RendererSettings::Path). Deferred is
-// the primary GI consumer (DeferredLightingShared.glsl samples the DDGI
-// atlases in its ambient ladder); the forward PBR_MultiLight parity is
-// covered by the photometric integration the shared LightProbeSampling.glsl
-// sampler carries — same include, same formulas — so this file does not
-// duplicate the captures on the forward path.
+// Rendering path: DEFERRED for tests 1-4 (the primary GI consumer —
+// DeferredLightingShared.glsl samples the DDGI atlases in its ambient
+// ladder); test 5 switches to ForwardPlus for the frame-level smoke.
 //
 // Determinism / goldens
 // ---------------------
@@ -515,6 +519,43 @@ namespace OloEngine::Tests
             }
         }
 
+        // Mean LINEAR RGB of one probe's 6x6 irradiance-atlas INTERIOR
+        // (border excluded), read straight from the pass's live FP16 atlas.
+        // This measures probe irradiance ONLY — no direct lighting, no
+        // camera, no tone mapping — the bounce-isolated instrument the
+        // relight contract needs (the composited band means also carry the
+        // direct term, which responds per frame regardless of DDGI).
+        [[nodiscard]] glm::dvec3 ReadIrradianceTileMeanLinear(const glm::ivec3& probeCoord)
+        {
+            auto* pass = Renderer3D::GetDDGIPass();
+            EXPECT_NE(pass, nullptr) << "DDGI pass missing for atlas readback";
+            if (!pass)
+                return glm::dvec3(0.0);
+            const u32 atlasID = pass->GetIrradianceAtlasID();
+            EXPECT_NE(atlasID, 0u) << "Irradiance atlas not created yet — pass never ran?";
+            if (atlasID == 0u)
+                return glm::dvec3(0.0);
+
+            constexpr glm::ivec3 kDims{ 4, 3, 4 }; // the rig's grid (kTotalProbes)
+            const i32 probeIdx = DDGI::ProbeLinearIndex(probeCoord, kDims);
+            const glm::ivec2 tileOrigin = DDGI::ProbeTileCoord(probeIdx, kDims) * DDGI::kIrradianceTileTexels;
+            constexpr i32 kInner = DDGI::kIrradianceInteriorTexels;
+
+            std::vector<f32> texels(static_cast<sizet>(kInner) * kInner * 4u);
+            glGetTextureSubImage(atlasID, 0, tileOrigin.x + 1, tileOrigin.y + 1, 0, kInner, kInner, 1,
+                                 GL_RGBA, GL_FLOAT,
+                                 static_cast<GLsizei>(texels.size() * sizeof(f32)), texels.data());
+
+            glm::dvec3 sum(0.0);
+            for (i32 i = 0; i < kInner * kInner; ++i)
+            {
+                sum += glm::dvec3(texels[static_cast<sizet>(i) * 4u + 0u],
+                                  texels[static_cast<sizet>(i) * 4u + 1u],
+                                  texels[static_cast<sizet>(i) * 4u + 2u]);
+            }
+            return sum / static_cast<f64>(kInner * kInner);
+        }
+
         // Golden-image model (WaterVisualEvidenceTest's): rebase mode
         // (OLOENGINE_GOLDEN_REBASE=1) (re)writes the PNG; a normal run
         // COMPARES against the committed golden (RMSE) and never writes.
@@ -715,6 +756,20 @@ namespace OloEngine::Tests
         ASSERT_GT(litBefore, kNearBlackFloor)
             << "Lit-side baseline is near-black (" << litBefore << ") — cannot measure a drop";
 
+        // Bounce-isolated PRIMARY instrument: the irradiance ATLAS itself.
+        // Probe (0,1,1) sits mid-height in the lit (-X) half, (3,1,1) in the
+        // dark (+X) half. Note on recapture: the continuous refresh DOES
+        // re-capture ~1 probe/frame throughout this test, and that is
+        // harmless BY CONSTRUCTION — capture stores geometry only
+        // (albedo / normal / distance); lighting enters the cache exclusively
+        // through the per-frame relight, so recapture cannot confound the
+        // cached-hit-relight contract being pinned here.
+        const glm::dvec3 litProbeBefore = ReadIrradianceTileMeanLinear({ 0, 1, 1 });
+        const glm::dvec3 darkProbeBefore = ReadIrradianceTileMeanLinear({ 3, 1, 1 });
+        ASSERT_GT(litProbeBefore.r, 1e-4)
+            << "Lit-half probe carries no red irradiance before the move — the atlas "
+               "instrument is not seeing the light at all";
+
         // Move the red light to the mirrored position on the other side of
         // the divider — a plain transform write, no component dirtying.
         m_RedLight.GetComponent<TransformComponent>().Translation = { 5.0f, 3.0f, 0.0f };
@@ -756,6 +811,27 @@ namespace OloEngine::Tests
         EXPECT_LT(DisplayMeanToLinear(litAfter), kRelightDropFactorLinear * DisplayMeanToLinear(litBefore))
             << "Formerly-lit side did not go dark after the light moved (before=" << litBefore
             << " after=" << litAfter << " display) — stale probe irradiance is not decaying";
+
+        // --- Bounce-isolated PRIMARY contract: the atlas red irradiance must
+        // SWAP sides. Direct lighting never enters the atlas, so unlike the
+        // composited band means above these cannot pass on direct-light
+        // response alone.
+        const glm::dvec3 litProbeAfter = ReadIrradianceTileMeanLinear({ 0, 1, 1 });
+        const glm::dvec3 darkProbeAfter = ReadIrradianceTileMeanLinear({ 3, 1, 1 });
+        std::cout << "[DDGI] atlas red irradiance — lit-half probe: " << litProbeBefore.r << " -> "
+                  << litProbeAfter.r << "; dark-half probe: " << darkProbeBefore.r << " -> "
+                  << darkProbeAfter.r << "\n";
+
+        EXPECT_GT(litProbeBefore.r, 3.0 * darkProbeBefore.r)
+            << "Before the move, the lit-half probe should dominate in red irradiance";
+        EXPECT_GT(darkProbeAfter.r, 3.0 * litProbeAfter.r)
+            << "After the move, atlas red irradiance did not swap to the (+X) half — the "
+               "cached hit points are not being relit";
+        EXPECT_LT(litProbeAfter.r, 0.5 * litProbeBefore.r)
+            << "The formerly-lit probe's red irradiance did not decay — stale atlas content";
+        EXPECT_GT(darkProbeAfter.r, 2.0 * darkProbeBefore.r)
+            << "The formerly-dark probe's red irradiance did not rise — the relight is not "
+               "propagating the moved light through the cached hits";
     }
 
     // -------------------------------------------------------------------------
@@ -810,5 +886,64 @@ namespace OloEngine::Tests
             if (::testing::Test::HasFatalFailure())
                 return;
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. Forward+ smoke: the same rig on RenderingPath::ForwardPlus. The
+    //    shared LightProbeSampling.glsl sampler carries the FORMULAS across
+    //    paths, but the forward path has its own seams — the per-material
+    //    EnableLightProbes flag (a dead hard-coded 0 before #632), the global
+    //    atlas bindings surviving into ScenePass's forward shaders, and the
+    //    DDGI pass registration on a non-deferred graph — so it gets direct
+    //    GPU coverage. Band asymmetry only, no goldens (LightLeakRegression
+    //    owns the pixel-exact evidence on the primary path).
+    // -------------------------------------------------------------------------
+    TEST_F(DDGIVisualEvidenceTest, ForwardPlusPathSmokeAsymmetry)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ScopedMockTime scopedMockTime(kCaptureTime);
+
+        // Switch the path for this test only (the fixture snapshots/restores
+        // RendererSettings per test). ApplyRendererSettings rebuilds the
+        // render graph on a path change.
+        Renderer3D::GetRendererSettings().Path = RenderingPath::ForwardPlus;
+        Renderer3D::ApplyRendererSettings();
+
+        Converge(kDarkEye, kDarkTarget, kConvergenceFrames);
+
+        auto* pass = Renderer3D::GetDDGIPass();
+        ASSERT_NE(pass, nullptr) << "DDGI pass not reachable on the Forward+ graph";
+        EXPECT_TRUE(pass->RanThisFrame())
+            << "DDGI pass did not execute on the Forward+ path — registration is "
+               "deferred-only or the volume submission is gated on the path";
+        EXPECT_FLOAT_EQ(pass->GetCapturedFraction(), 1.0f)
+            << "Capture schedule did not cover the grid on the Forward+ path";
+
+        std::vector<u8> darkPixels;
+        CaptureView("fplus_dark", kDarkEye, kDarkTarget, darkPixels);
+        if (::testing::Test::HasFatalFailure())
+            return;
+        std::vector<u8> litPixels;
+        CaptureView("fplus_lit", kLitEye, kLitTarget, litPixels);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        const BandStats dark = SampleBand(darkPixels, kBandX0, kBandX1, kBandY0, kBandY1);
+        const BandStats lit = SampleBand(litPixels, kBandX0, kBandX1, kBandY0, kBandY1);
+        const f64 darkMean = MeanChannel(dark);
+        const f64 litMean = MeanChannel(lit);
+        std::cout << "[DDGI] Forward+ bands — lit mean=" << litMean << " dark mean=" << darkMean
+                  << "\n";
+
+        EXPECT_GT(litMean, kNearBlackFloor)
+            << "Forward+ lit side is near-black — the forward probe/lighting path produced "
+               "nothing (check PBRMaterialUBO.EnableLightProbes wiring)";
+        EXPECT_GE(DisplayMeanToLinear(litMean), kLitOverDarkMinLinearRatio * DisplayMeanToLinear(darkMean))
+            << "Forward+ lit/dark linear contrast collapsed (lit=" << litMean
+            << " dark=" << darkMean << " display) — leak or dead GI on the forward path";
+        const f64 litRedExcess = lit.R - std::max(lit.G, lit.B);
+        EXPECT_GT(litRedExcess, kLitRedExcessFloor)
+            << "Forward+ lit side shows no red excess (" << litRedExcess
+            << ") — the red light is not reaching the forward lit pass";
     }
 } // namespace OloEngine::Tests

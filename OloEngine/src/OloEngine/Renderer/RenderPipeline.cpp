@@ -1378,6 +1378,7 @@ namespace OloEngine
         // may change between frames — not just the post-process chain.
         HashPassState(h, FrameCorePasses.Shadow);
         HashPassState(h, FrameCorePasses.Scene);
+        HashPassState(h, FrameCorePasses.DDGIProbeUpdate);
         HashPassState(h, SceneCompositePasses.DeferredLighting);
         HashPassState(h, SceneCompositePasses.DeferredOpaqueDecal);
         HashPassState(h, SceneCompositePasses.DeferredGPUOcclusion);

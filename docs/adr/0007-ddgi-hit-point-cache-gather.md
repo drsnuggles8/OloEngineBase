@@ -32,12 +32,16 @@ time, each probe owns a **static hit-point cache** — a small octahedral-space
 mini-G-buffer (albedo, octahedral-encoded normal, hit distance, backface
 flag; default 16×16 = 256 fixed directions per probe) captured by a budgeted,
 amortized rasterization pass (a few probes per frame, ShadowRenderPass-style
-mini-render, 6 cube faces resampled to octahedral by compute). Every frame, a
-compute pass **relights all cached hit points** with current shadowed direct
-lighting (reusing the CSM + local-light shadow atlas and the same PBRCommon
-formulas the main paths use) **plus the previous frame's probe irradiance at
-the hit point** (infinite bounce), then cosine-convolves the result into the
-irradiance atlas under EMA hysteresis.
+mini-render, 6 cube faces resampled to octahedral by a per-tile fullscreen
+draw). Every frame, a fullscreen **graphics** pass over the radiance
+framebuffer **relights all cached hit points** — a fragment pass rather than
+compute precisely so it can `#include` PBRCommon and reuse the CSM +
+local-light shadow atlas evaluators and falloff formulas the main lit paths
+use (`DDGIProbeUpdatePass::RelightProbes`; a `RelightBudget` maps probe
+ranges to scissored atlas-row `DrawIndexed` windows) — **plus the previous
+frame's probe irradiance at the hit point** (infinite bounce). A second
+fullscreen draw then cosine-convolves the result into the irradiance atlas
+under EMA hysteresis.
 
 In one sentence: **rasterization is the amortized *capture* stage; the
 per-frame stage is a *relight* of cached hits.**

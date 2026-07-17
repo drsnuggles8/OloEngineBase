@@ -477,10 +477,15 @@ namespace OloEngine
             }
         }
 
-        // 2) Never-captured probes, linear cursor.
+        // 2) Never-captured probes, linear cursor. Scan indices derive from a
+        //    FROZEN copy of the cursor: advancing m_CaptureCursor on each
+        //    selection while also using it in the index expression made the
+        //    scan jump ahead by the accumulated selections, skipping probes
+        //    and underfilling the budget within a single frame's pass.
+        const i32 scanStart = m_CaptureCursor;
         for (i32 n = 0; n < total && static_cast<i32>(result.size()) < budget; ++n)
         {
-            const i32 idx = (m_CaptureCursor + n) % total;
+            const i32 idx = (scanStart + n) % total;
             if (picked[idx] == 0u && m_Records[idx].State == DDGI::ProbeState::Uncaptured)
             {
                 result.push_back(idx);
