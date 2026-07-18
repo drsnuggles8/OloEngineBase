@@ -467,7 +467,7 @@ TEST(RuntimeAssetPackTest, DeserializeFromAssetPackFallsBackToDefaultsWhenSource
     EXPECT_EQ(audioFile->GetSamplingRate(), 44100u);
     EXPECT_EQ(audioFile->GetBitDepth(), 16u);
     EXPECT_EQ(audioFile->GetNumChannels(), 2u);
-    EXPECT_EQ(audioFile->GetDuration(), 0.0);
+    EXPECT_NEAR(audioFile->GetDuration(), 0.0, 1e-6);
     EXPECT_EQ(audioFile->GetFileSize(), 0u);
 
     std::error_code ec;

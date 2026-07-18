@@ -1235,7 +1235,7 @@ namespace OloEngine
         // Default metadata, used as a fallback when the source path couldn't be
         // resolved (e.g. no active project for a relative packed path), the source
         // file doesn't exist on disk, or analysis fails/produces out-of-bounds values.
-        double duration = 0.0;
+        f64 duration = 0.0;
         u32 samplingRate = 44100;
         u16 bitDepth = 16;
         u16 numChannels = 2;
@@ -1279,7 +1279,7 @@ namespace OloEngine
         return audioFile;
     }
 
-    bool AudioFileSourceSerializer::AnalyzeAudioFile(const std::filesystem::path& filePath, u64 fileSize, double& outDuration, u32& outSamplingRate, u16& outBitDepth, u16& outNumChannels)
+    bool AudioFileSourceSerializer::AnalyzeAudioFile(const std::filesystem::path& filePath, u64 fileSize, f64& outDuration, u32& outSamplingRate, u16& outBitDepth, u16& outNumChannels)
     {
         u32 channels = 0;
         u32 frames = 0;

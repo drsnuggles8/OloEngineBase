@@ -247,7 +247,7 @@ namespace OloEngine
         // Vorbis), so a real source never reports an exact-but-wrong zero duration.
         // Returns false (out params left untouched) if the file can't be analyzed or
         // fails validation; callers should fall back to defaults.
-        [[nodiscard]] static bool AnalyzeAudioFile(const std::filesystem::path& filePath, u64 fileSize, double& outDuration, u32& outSamplingRate, u16& outBitDepth, u16& outNumChannels);
+        [[nodiscard]] static bool AnalyzeAudioFile(const std::filesystem::path& filePath, u64 fileSize, f64& outDuration, u32& outSamplingRate, u16& outBitDepth, u16& outNumChannels);
     };
 
     class SoundConfigSerializer : public AssetSerializer
