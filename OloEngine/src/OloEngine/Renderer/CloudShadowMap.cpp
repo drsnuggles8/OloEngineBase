@@ -77,7 +77,7 @@ namespace OloEngine
                                std::floor(cameraPosAbsolute.z / texelSize) * texelSize);
 
         // NOTE: the compute also reads the CloudscapeData UBO (binding 52)
-        // and the noise samplers (56/57/58) — the caller uploaded/bound those
+        // and the noise samplers (59/60/61) — the caller uploaded/bound those
         // BEFORE this call (see the class comment in CloudShadowMap.h).
         s_Data.m_GenerateShader->Bind();
         s_Data.m_GenerateShader->SetFloat2("u_ShadowCenter", center);

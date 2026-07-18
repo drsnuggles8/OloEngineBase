@@ -102,7 +102,7 @@ namespace OloEngine
 
         // Cloud shadow transmittance map (R8, issue #633) — set per-frame
         // from CloudShadowMap by RenderPipeline::UploadExecutionState; bound
-        // at TEX_CLOUD_SHADOW (59) during PBR mesh dispatch (0 = none; bound
+        // at TEX_CLOUD_SHADOW (62) during PBR mesh dispatch (0 = none; bound
         // only when non-zero, gated shader-side by the AtmosphereShadingUBO
         // enabled flag).
         static void SetCloudShadowTextureID(u32 textureID);

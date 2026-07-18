@@ -8,7 +8,7 @@
 //
 // CPU twin: UBOStructures::AtmosphereShadingUBO (ShaderBindingLayout.h),
 // uploaded once per frame at UBO_ATMOSPHERE_SHADING (53); a zeroed upload
-// disables both effects. Cloud shadow map: TEX_CLOUD_SHADOW (59), R8,
+// disables both effects. Cloud shadow map: TEX_CLOUD_SHADOW (62), R8,
 // 1 = unshadowed transmittance (see CloudShadow_Generate.comp).
 // =============================================================================
 

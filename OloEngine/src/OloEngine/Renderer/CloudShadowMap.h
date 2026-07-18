@@ -22,9 +22,9 @@ namespace OloEngine
      * surface's actual Y and the y = 0 reference plane is ignored (v1).
      *
      * Consumed by the PBR surface shaders' directional-light branch via
-     * include/AtmosphereShading.glsl (sampler TEX_CLOUD_SHADOW = 59, bound
+     * include/AtmosphereShading.glsl (sampler TEX_CLOUD_SHADOW = 62, bound
      * during mesh dispatch by CommandDispatch) with the map transform
-     * delivered in the AtmosphereShadingUBO (binding 53).
+     * delivered in the AtmosphereShadingUBO (binding 54).
      *
      * IMPORTANT — caller contract: CloudShadow_Generate.comp also reads the
      * CloudscapeData UBO (binding 52) and the cloud noise samplers

@@ -9,7 +9,7 @@
 // transmittance: 1 = unshadowed, 0 = fully occluded.
 //
 // Consumed by the PBR surface shaders' directional-light branch via
-// include/AtmosphereShading.glsl (sampler TEX_CLOUD_SHADOW = 59), and
+// include/AtmosphereShading.glsl (sampler TEX_CLOUD_SHADOW = 62), and
 // mirrored into the froxel fog scatter's sun term. Height parallax between
 // a surface's actual Y and the y = 0 reference plane is ignored (v1 —
 // documented in CloudShadowMap.h).

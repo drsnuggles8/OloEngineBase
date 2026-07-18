@@ -38,7 +38,7 @@ void main()
 layout(location = 0) in vec3 v_LocalPos;
 layout(location = 0) out vec4 o_Color;
 
-// Must match ShaderBindingLayout::UBO_ATMOSPHERE_SKY (51).
+// Must match ShaderBindingLayout::UBO_ATMOSPHERE_SKY (52).
 layout(std140, binding = 52) uniform AtmosphereSkyData {
     // Day half — identical layout to ProceduralSkyData (PreethamCoefficientsUBO).
     vec4 u_SunDirection;  // xyz = toward-sun unit vec, w = cos(angular radius * disk size)

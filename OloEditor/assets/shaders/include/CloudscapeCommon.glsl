@@ -21,7 +21,7 @@ layout(binding = 59) uniform sampler3D u_CloudBaseNoise;
 layout(binding = 60) uniform sampler3D u_CloudDetailNoise;
 layout(binding = 61) uniform sampler2D u_CloudWeatherMap;
 
-// Must match ShaderBindingLayout::UBO_CLOUDSCAPE (52) and the CPU-side
+// Must match ShaderBindingLayout::UBO_CLOUDSCAPE (53) and the CPU-side
 // CloudscapeUBO struct (CloudscapeRenderPass.h) member for member.
 layout(std140, binding = 53) uniform CloudscapeData {
     vec4 u_CloudLayer;      // x = bottom (m), y = top (m), z = 1/(top-bottom), w = density scale

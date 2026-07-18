@@ -18,13 +18,20 @@ or a model. It exposes data over a standard protocol; you bring your own agent. 
 - Every request must carry a **bearer token** the editor generates and displays. A fresh
   token is minted each time you start the server.
 - The `Origin` header is validated (DNS-rebinding defence) and the dispatch layer is
-  **read-only with respect to your project** — no tool writes scenes, assets, or files.
+  **read-only with respect to your project by default** — no tool writes scenes, assets,
+  or files unless you explicitly enable the consent-gated write tier (below).
   The Tier-0 inspection tools (issue #316) may adjust *editor-only viewport state* — the
   editor camera pose and the viewport capture size — which is never persisted. The
   render-override tools (`olo_render_toggle_pass` / `olo_render_set_debug_view`) likewise
   edit only the renderer's *session-global* post-process / fog settings, never the loaded
   scene's own copy, so the change is ephemeral (a scene reload restores it) and never
-  written to disk.
+  written to disk. The **(consented write)** tools behind the Agent-writes gate go one
+  step further than those ephemeral overrides: `olo_entity_set_field`,
+  `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, and `olo_scene_set_weather`
+  mutate **serialized components of the loaded scene in memory** — undoable in the
+  editor, discarded on reload, and reaching disk only if you save the scene yourself;
+  no tool ever writes a file. The gate is off by default and never persisted (see
+  [Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c)).
 - Optional **path redaction** scrubs absolute filesystem paths from text output (toggle in
   the panel) for when you don't want project layout / usernames leaving the process.
 

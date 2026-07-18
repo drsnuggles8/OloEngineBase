@@ -1217,8 +1217,8 @@ namespace OloEngine
         // pass's CloudscapeUBO snapshot) -> PopulateBlackboard (history
         // storage/sink) -> THIS -> BuildFrameGraph -> Execute. The UBO is
         // uploaded + bound HERE — before graph execution — because
-        // CloudShadow_Generate.comp consumes UBO 52 and the noise samplers
-        // 56/57/58 outside the graph.
+        // CloudShadow_Generate.comp consumes UBO 53 and the noise samplers
+        // 59/60/61 outside the graph.
         if (PostProcessPasses.Cloudscape && data.Cloudscape.Enabled)
         {
             if (CloudNoise::EnsureGenerated())
@@ -1279,7 +1279,7 @@ namespace OloEngine
                     // absolute world space (issue #429).
                     CloudShadowMap::Update(cloudState, data.ViewPos);
                     // Publish for the PBR mesh dispatch bind at
-                    // TEX_CLOUD_SHADOW (59); CommandDispatch::ResetState()
+                    // TEX_CLOUD_SHADOW (62); CommandDispatch::ResetState()
                     // zeroed it in PrepareFrame (same lifecycle as the snow
                     // depth id above).
                     CommandDispatch::SetCloudShadowTextureID(CloudShadowMap::GetTextureID());
@@ -1295,7 +1295,7 @@ namespace OloEngine
             }
         }
 
-        // Surface weather response (AtmosphereShadingUBO, binding 53) —
+        // Surface weather response (AtmosphereShadingUBO, binding 54) —
         // ALWAYS uploaded: the weather director's global wetness signal
         // applies with or without clouds, and a zeroed upload is the
         // canonical "everything off" state the PBR surface shaders gate on.
@@ -1323,7 +1323,7 @@ namespace OloEngine
                                                shadowWorldSize > 0.0f ? 1.0f / shadowWorldSize : 0.0f);
             }
             AtmosphereShadingUBO->SetData(&atmosphere, UBOStructures::AtmosphereShadingUBO::GetSize());
-            // Re-establish the binding-53 slot every upload — same rationale
+            // Re-establish the binding-54 slot every upload — same rationale
             // as the binding-17 fog re-bind above: consumers rely on a
             // persistent glBindBufferBase, and any transient UBO created on
             // this slot (then destroyed) reverts it to 0.
@@ -3214,7 +3214,7 @@ namespace OloEngine
         PostProcessPasses.Cloudscape->SetName("CloudscapePass");
         PostProcessPasses.Cloudscape->Init(finalPassSpec);
 
-        // Surface weather response UBO (binding 53, issue #633): wetness +
+        // Surface weather response UBO (binding 54, issue #633): wetness +
         // cloud-shadow map transform for the PBR surface shaders. Uploaded
         // every frame by UploadExecutionState (zeroed when nothing is
         // enabled).

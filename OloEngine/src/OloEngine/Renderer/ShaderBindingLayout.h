@@ -476,7 +476,7 @@ namespace OloEngine
         static_assert(sizeof(FroxelFogUBO) == 240, "FroxelFogUBO std140 size drifted from GLSL expectation (240 B)");
 
         // @brief Volumetric cloudscape raymarch parameters (issue #633),
-        // uploaded at UBO_CLOUDSCAPE (52). GLSL twin: the CloudscapeData block
+        // uploaded at UBO_CLOUDSCAPE (53). GLSL twin: the CloudscapeData block
         // in include/CloudscapeCommon.glsl — shared by the raymarch pass, the
         // temporal resolve, and the CloudShadow_Generate compute so every
         // consumer evaluates the same field.
