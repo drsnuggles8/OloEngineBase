@@ -11,9 +11,9 @@
 // proves the frame doesn't pop.
 //
 // This test renders the SAME sphere-on-plane-under-a-sun scene twice:
-//   * far_before : geometry built ~45 km from the origin, camera posed relative
-//                  to it, camera-relative rendering ON — the frame the moment
-//                  BEFORE a rebase fires.
+//   * far_before : geometry built ~50 km from the origin (the 50 km² map scale
+//                  in issue #429's acceptance bar), camera posed relative to it,
+//                  camera-relative rendering ON — the frame BEFORE a rebase fires.
 //   * rebased_after : Scene::RebaseOrigin shifts the whole world (geometry) back
 //                  to the origin; the camera is re-posed by the same relative
 //                  offset (as it would be, since it tracks the player who also
@@ -45,6 +45,7 @@
 #include <gtest/gtest.h>
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -206,7 +207,7 @@ namespace OloEngine::Tests
         const f32 yaw = 0.0f;
         const f32 pitch = 0.30f;
 
-        const glm::vec3 farCenter(45000.0f, 0.0f, -45000.0f);
+        const glm::vec3 farCenter(50000.0f, 0.0f, -50000.0f);
 
         std::vector<Entity> ents;
         PopulateScene(farCenter, ents);
@@ -236,9 +237,61 @@ namespace OloEngine::Tests
         OLO_CORE_INFO("WorldOriginRebaseVisualEvidence: RMSE before-vs-after={:.3f}", rmse);
 
         // No visible pop: the pixels barely move. (A small non-zero RMSE is
-        // expected — the 45 km frame carries a touch of residual f32 noise the
+        // expected — the 50 km frame carries a touch of residual f32 noise the
         // origin frame doesn't, exactly the precision the rebase recovers.)
         EXPECT_LT(rmse, 5.0)
             << "the rebase produced a visible pop — before/after frames diverge (RMSE " << rmse << ")";
+    }
+
+    // A full traversal fires MANY rebases; the no-pop guarantee must hold at every
+    // boundary, not just once. This walks the geometry from ~50 km back toward the
+    // origin in several hops, rebasing between each and re-posing the camera at the
+    // same relative offset (as it tracks the player who shifted too). Every
+    // consecutive pair of frames must be pixel-near-identical — the 50 km² traversal
+    // acceptance bar rendered as a continuity check. SKIPs without a GL 4.6 context.
+    TEST_F(WorldOriginRebaseVisualEvidenceTest, MultipleSequentialRebasesProduceNoVisiblePop)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const glm::vec3 eyeOffset(0.0f, 4.0f, 9.0f);
+        const f32 yaw = 0.0f;
+        const f32 pitch = 0.30f;
+
+        Renderer3D::SetCameraRelativeEnabled(true);
+
+        glm::vec3 center(50000.0f, 0.0f, -50000.0f);
+        std::vector<Entity> ents;
+        PopulateScene(center, ents);
+
+        // 4 waypoints, 3 rebases. Each rebase hops the whole world a big chunk back
+        // toward the origin; the camera re-poses at the same relative offset.
+        const glm::vec3 rebaseStep(-16000.0f, 0.0f, 16000.0f);
+        std::vector<u8> prev;
+        f64 worstRmse = 0.0;
+        for (int i = 0; i < 4; ++i)
+        {
+            std::vector<u8> frame;
+            Capture("traversal_" + std::to_string(i), center + eyeOffset, yaw, pitch, frame);
+            EXPECT_GT(NonClearFraction(frame), 0.10) << "traversal frame " << i << " looks blank";
+
+            if (!prev.empty())
+            {
+                const f64 rmse = Rgba8Rmse(prev, frame);
+                worstRmse = std::max(worstRmse, rmse);
+                EXPECT_LT(rmse, 5.0)
+                    << "visible pop at rebase boundary " << i << " (RMSE " << rmse << ")";
+            }
+            prev = frame;
+
+            if (i < 3)
+            {
+                GetScene().RebaseOrigin(rebaseStep);
+                center += rebaseStep; // geometry + tracked camera moved with the world
+            }
+        }
+
+        ClearEntities(ents);
+        OLO_CORE_INFO("WorldOriginRebaseVisualEvidence: worst consecutive RMSE across 3 rebases={:.3f}",
+                      worstRmse);
     }
 } // namespace OloEngine::Tests

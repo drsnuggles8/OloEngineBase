@@ -1181,6 +1181,26 @@ namespace OloEngine
             bodyInterface.SetPosition(bid, bodyInterface.GetPosition(bid) + joltDelta, JPH::EActivation::DontActivate);
         }
 
+        // Cloth soft bodies (issue #613). A JPH soft body IS a JPH::Body whose
+        // particle positions are stored RELATIVE to the body's centre of mass
+        // (SoftBodyVertex::mPosition is "relative to the center of mass of the
+        // soft body"), so moving the body's origin translates every vertex by
+        // exactly `delta` — the same SetPosition shift the rigid bodies use is
+        // correct and uniform here. GetPosition/SetPosition are exact inverses
+        // (both add/remove rotation * shape COM), so this is a clean += delta on
+        // the body origin. The COM-relative representation is self-consistent
+        // across the next step, so the shift persists. DontActivate leaves a
+        // settled/slept cloth asleep and its velocities untouched.
+        for (auto& [id, cloth] : m_Cloths)
+        {
+            if (cloth.m_BodyID.IsInvalid())
+            {
+                continue;
+            }
+            bodyInterface.SetPosition(cloth.m_BodyID, bodyInterface.GetPosition(cloth.m_BodyID) + joltDelta,
+                                      JPH::EActivation::DontActivate);
+        }
+
         // Character controllers (CharacterVirtual — tracked separately from the
         // rigid-body set). SetTranslation instantly moves the controller.
         for (auto& [id, controller] : m_CharacterControllers)
@@ -1189,6 +1209,91 @@ namespace OloEngine
             {
                 controller->SetTranslation(controller->GetTranslation() + delta);
             }
+        }
+
+        // World-anchored constraint anchors (issue #613). Two-body joints between
+        // real bodies already translate together (both endpoints moved above), but
+        // a constraint anchored to an ABSOLUTE world point — a pulley's fixed
+        // pivots, or a single-body joint realised against JPH::Body::sFixedToWorld
+        // — holds a world-space anchor that the body shift leaves behind, stretching
+        // the joint. Translate those anchors by the same delta so the whole world
+        // (including its "fixed" points) stays geometrically consistent. This is
+        // what lets Scene::MaybeRebaseOrigin stop deferring the rebase.
+        ShiftWorldAnchoredConstraints(delta);
+    }
+
+    void JoltScene::ShiftWorldAnchoredConstraints(const glm::vec3& delta)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_JoltSystem || m_Constraints.empty())
+        {
+            return;
+        }
+
+        // sFixedToWorld's body id self-matches whichever side of a world-anchored
+        // TwoBodyConstraint is the fixed-world body (NotifyShapeChanged checks
+        // body1 then body2 against it), so passing it always targets the world-side
+        // local anchor. It is a reserved id no real body shares.
+        const JPH::BodyID worldBodyID = JPH::Body::sFixedToWorld.GetID();
+        const JPH::Vec3 joltDelta = JoltUtils::ToJoltVector(delta);
+
+        // A pulley's fixed pivots have no runtime setter, so it must be rebuilt.
+        // Collect the owners first — the rebuild mutates m_Constraints, so it can't
+        // run inside this iteration.
+        std::vector<UUID> pulleysToRebuild;
+
+        for (auto& [id, constraint] : m_Constraints)
+        {
+            if (!constraint)
+            {
+                continue;
+            }
+
+            // Pulley: mFixedPoint1/2 are private absolute world points with no
+            // setter, and NotifyShapeChanged only moves the body-attach points, not
+            // the pivots. Defer to a destroy+rebuild from shifted settings.
+            if (constraint->GetSubType() == JPH::EConstraintSubType::Pulley)
+            {
+                pulleysToRebuild.push_back(id);
+                continue;
+            }
+
+            // Every other world-anchored joint (Fixed/Point/Distance/Hinge/Slider/
+            // Cone/SwingTwist/SixDOF/Path) stores its world-side anchor as a local-
+            // space position on the sFixedToWorld body (COM at origin → local ==
+            // absolute). NotifyShapeChanged(worldBody, -delta) shifts exactly that
+            // anchor by +delta; the body-side anchor already moved with its body, so
+            // the joint's world frame ends up shifted by delta with its rest state,
+            // motors and warm-start impulses intact — no solver snap (both anchors
+            // moved by the same delta, so the constraint error is unchanged).
+            if (constraint->GetType() == JPH::EConstraintType::TwoBodyConstraint)
+            {
+                const auto& tbc = static_cast<const JPH::TwoBodyConstraint&>(*constraint);
+                if (tbc.GetBody1() == &JPH::Body::sFixedToWorld || tbc.GetBody2() == &JPH::Body::sFixedToWorld)
+                {
+                    constraint->NotifyShapeChanged(worldBodyID, -joltDelta);
+                }
+            }
+        }
+
+        for (UUID id : pulleysToRebuild)
+        {
+            Entity entity = m_Scene ? m_Scene->GetEntityByUUID(id) : Entity{};
+            if (!entity || !entity.HasComponent<PhysicsJoint3DComponent>())
+            {
+                continue;
+            }
+            auto& joint = entity.GetComponent<PhysicsJoint3DComponent>();
+            // The authored fixed pivots are absolute world points; shift them so the
+            // rebuilt pulley pins to the same relative geometry. The two body-attach
+            // points are re-derived from the (already-shifted) TransformComponents
+            // inside CreateConstraint, so all four pulley points move by the same
+            // delta and the [min,max] rope-length span is preserved.
+            joint.m_PulleyFixedPointA += delta;
+            joint.m_PulleyFixedPointB += delta;
+            DestroyConstraint(entity);
+            CreateConstraint(entity);
         }
     }
 

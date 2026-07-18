@@ -51,3 +51,10 @@ sub-frame lag is invisible for a walking character; don't try to "fix" it by reo
 
 Behaviour is pinned headlessly by `ClothSkeletonAttachTest` (follow + free-part-still-sags + a no-attach
 control) and on-screen by `ClothCapeVisualEvidenceTest` (a cape trailing a swinging box, two angles).
+
+## Related: shifting a cloth for a floating-origin rebase is the OPPOSITE lever
+
+For a one-time origin shift (not a per-frame bone weld), do **not** apply the velocity-drive above and
+do **not** add `delta` to every vertex — the vertices are COM-relative, so a whole-cloud translation
+comes from a single `BodyInterface::SetPosition(GetPosition() + delta)` on the soft body's COM. See
+[floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) §1 (issue #613).
