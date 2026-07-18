@@ -85,6 +85,15 @@ regenerated mesh. Cost: one full Recast bake per rebase — bounded (the bake co
 `NavMeshBoundsComponent` region, not the whole 50 km² world) and rare (every ~2 km of travel), but
 it's the one rebase step that isn't O(cheap); measure it if nav-heavy scenes hitch.
 
+Trap (c) — **UBSan**: Detour's crowd runs in the rebased frame, and its spatial hashes multiply a
+cell/tile index by a large prime (`DetourProximityGrid::hashPos2` `x*73856093`, and the navmesh tile
+hash), which overflows `int` for any coordinate more than ~174 m from the origin — a *benign* wrap
+(immediately masked into a hash bucket) but flagged as `signed-integer-overflow`. This is inherent to
+running a `dtCrowd` at large coordinates (up to the rebase threshold, or at a rebaked shifted frame),
+not specific to a test. Since we don't patch vendored recast, `OloEngine/vendor/CMakeLists.txt`
+de-instruments *just* that one UBSan check on the recast targets (target-level `-fno-sanitize=signed-integer-overflow`
+wins over the directory-level `-fsanitize=undefined`), leaving the other UBSan checks active.
+
 ## 4. Terrain streaming — make `WorldOrigin` entity-relative, and it's rebase-free
 
 `TerrainTile::WorldOrigin` was set at tile-request time and **never read** — so every streamed tile
