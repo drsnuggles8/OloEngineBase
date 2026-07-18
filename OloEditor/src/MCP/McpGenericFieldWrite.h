@@ -649,18 +649,29 @@ namespace OloEngine::MCP::GenericFieldWrite
     //
     // Like MakeSetterField (not MakeFieldAccess), the write calls `setFn` DIRECTLY on
     // the live component — never a whole-map copy+swap — reusing
-    // PropertySetCommand<C, V, SetFn> for undo/redo by binding `key` into the setter
-    // closure passed to it.
+    // MapKeyPropertySetCommand<C, V, SetFn, EraseFn> for undo/redo by binding `key`
+    // into the setter/eraser closures passed to it. Undo restores the captured old
+    // value when the key already existed, or ERASES the key entirely when it did
+    // not — a plain re-apply-old-value undo (as PropertySetCommand does) would
+    // leave a phantom entry at the map's semantic default for a key that never
+    // existed before the write (ComponentCommands.h has the full rationale).
     //
-    // getFn:  (const C&, const std::string& key) -> V   (a missing key returns the
-    //         map's own semantic default, e.g. MorphTargetComponent::GetWeight()'s 0.0f)
-    // setFn:  (C&, const std::string& key, const V& value) -> void
-    // keysFn: (const C&) -> std::vector<std::string>   (the map's CURRENT keys, for
-    //         olo_entity_list_fields discovery — order doesn't matter, ListFields sorts)
-    template<typename C, typename V, typename GetFn, typename SetFn, typename KeysFn>
+    // getFn:      (const C&, const std::string& key) -> V   (a missing key returns
+    //             the map's own semantic default, e.g. MorphTargetComponent::
+    //             GetWeight()'s 0.0f)
+    // setFn:      (C&, const std::string& key, const V& value) -> void
+    // hasKeyFn:   (const C&, const std::string& key) -> bool   (whether the key is
+    //             currently present — checked BEFORE the write so Undo knows
+    //             whether to restore a value or erase the key)
+    // removeKeyFn: (C&, const std::string& key) -> void   (erase the key entirely —
+    //             only ever invoked by Undo, for a key that did not exist before)
+    // keysFn:     (const C&) -> std::vector<std::string>   (the map's CURRENT keys,
+    //             for olo_entity_list_fields discovery — order doesn't matter,
+    //             ListFields sorts)
+    template<typename C, typename V, typename GetFn, typename SetFn, typename HasKeyFn, typename RemoveKeyFn, typename KeysFn>
     [[nodiscard]] inline FieldEntry MakeMapKeyField(std::string component, std::string field,
-                                                    GetFn getFn, SetFn setFn, KeysFn keysFn,
-                                                    FieldRange range = {})
+                                                    GetFn getFn, SetFn setFn, HasKeyFn hasKeyFn, RemoveKeyFn removeKeyFn,
+                                                    KeysFn keysFn, FieldRange range = {})
     {
         static_assert(std::is_same_v<std::invoke_result_t<GetFn, const C&, const std::string&>, V>,
                       "MakeMapKeyField: getFn must return exactly V");
@@ -668,15 +679,18 @@ namespace OloEngine::MCP::GenericFieldWrite
         FieldEntry entry;
         entry.Component = component;
         entry.Field = field;
-        entry.Type = "map<string," + std::string(FieldTypeName<V>()) + ">";
+        // The SCALAR type — one dotted entry ("Weights.Smile") addresses exactly
+        // one V, never the whole map, so discovery (olo_entity_list_fields) must
+        // report the same type a plain scalar field would.
+        entry.Type = std::string(FieldTypeName<V>());
         entry.Range = range;
         entry.IsMapKeyed = true;
         entry.HasComponent = [](Entity e)
         { return e.HasComponent<C>(); };
 
-        entry.ApplyKeyed = [getFn, setFn, component, field, range](const Ref<Scene>& scene, CommandHistory& history,
-                                                                   Entity entity, u64 uuid, const std::string& key,
-                                                                   const Json& value) -> ApplyResult
+        entry.ApplyKeyed = [getFn, setFn, hasKeyFn, removeKeyFn, component, field, range](
+                               const Ref<Scene>& scene, CommandHistory& history, Entity entity, u64 uuid,
+                               const std::string& key, const Json& value) -> ApplyResult
         {
             ApplyResult result;
             if (!entity.HasComponent<C>())
@@ -700,6 +714,7 @@ namespace OloEngine::MCP::GenericFieldWrite
             // Same "apply then read back" honesty contract as MakeSetterField: setFn
             // may itself clamp/transform (MorphTargetComponent::SetWeight does), so
             // the reported value comes from getFn AFTER the write, not from `coerced`.
+            const bool hadKey = hasKeyFn(entity.GetComponent<C>(), key);
             const V previous = getFn(entity.GetComponent<C>(), key);
             V applied = previous;
             if (FieldChanged<V>(previous, coerced))
@@ -710,8 +725,10 @@ namespace OloEngine::MCP::GenericFieldWrite
                 applied = getFn(entity.GetComponent<C>(), key);
                 if (FieldChanged<V>(previous, applied))
                 {
-                    history.PushAlreadyExecuted(std::make_unique<PropertySetCommand<C, V, decltype(keyedSetFn)>>(
-                        scene, UUID(uuid), keyedSetFn, previous, applied,
+                    auto keyedEraseFn = [key, removeKeyFn](C& c)
+                    { removeKeyFn(c, key); };
+                    history.PushAlreadyExecuted(std::make_unique<MapKeyPropertySetCommand<C, V, decltype(keyedSetFn), decltype(keyedEraseFn)>>(
+                        scene, UUID(uuid), keyedSetFn, keyedEraseFn, previous, applied, hadKey,
                         "Set " + component + "." + field + "." + key));
                 }
             }

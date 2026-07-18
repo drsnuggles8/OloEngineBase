@@ -68,6 +68,10 @@ namespace OloEngine::MCP::GenericFieldWrite
                 { return c.GetWeight(key); },
                 [](MorphTargetComponent& c, const std::string& key, const f32& v)
                 { c.SetWeight(key, v); },
+                [](const MorphTargetComponent& c, const std::string& key) -> bool
+                { return c.Weights.contains(key); },
+                [](MorphTargetComponent& c, const std::string& key)
+                { c.Weights.erase(key); },
                 [](const MorphTargetComponent& c) -> std::vector<std::string>
                 {
                     std::vector<std::string> keys;

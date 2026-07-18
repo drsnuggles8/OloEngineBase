@@ -685,6 +685,7 @@ TEST(McpFieldRegistry, WeightsKeyRoundTripsAndUndoes)
     Fixture f;
     auto& morph = f.TheEntity.AddComponent<OloEngine::MorphTargetComponent>();
     ASSERT_FLOAT_EQ(morph.GetWeight("Smile"), 0.0f); // absent key reads as 0
+    ASSERT_FALSE(morph.Weights.contains("Smile"));
 
     const auto result = GFW::Apply(f.Scene_, f.History, f.Uuid, "MorphTargetComponent", "Weights.Smile", Json(0.75));
     ASSERT_TRUE(result.Ok) << result.Error;
@@ -699,6 +700,33 @@ TEST(McpFieldRegistry, WeightsKeyRoundTripsAndUndoes)
     ASSERT_TRUE(f.History.CanUndo());
     f.History.Undo();
     EXPECT_FLOAT_EQ(f.TheEntity.GetComponent<OloEngine::MorphTargetComponent>().GetWeight("Smile"), 0.0f);
+    // Not just "reads as 0" (GetWeight's default for a missing key) — the key must
+    // be GONE, exactly as it was before the write. A plain re-apply-old-value undo
+    // would instead leave a phantom "Smile" -> 0.0 entry, which would wrongly start
+    // showing up in olo_entity_list_fields / ListMapKeys for a key that was never
+    // actually authored.
+    EXPECT_FALSE(f.TheEntity.GetComponent<OloEngine::MorphTargetComponent>().Weights.contains("Smile"))
+        << "undo of a first-time key write must remove the key, not just reset its value";
+}
+
+// The complementary undo branch: overwriting a key that ALREADY existed restores
+// the captured old value (and keeps the key present), rather than erasing it —
+// erase-on-undo is only for a key that did not exist before the write.
+TEST(McpFieldRegistry, UndoOfAnExistingKeyOverwriteRestoresTheOldValueRatherThanErasing)
+{
+    Fixture f;
+    auto& morph = f.TheEntity.AddComponent<OloEngine::MorphTargetComponent>();
+    morph.SetWeight("Smile", 0.4f);
+
+    const auto result = GFW::Apply(f.Scene_, f.History, f.Uuid, "MorphTargetComponent", "Weights.Smile", Json(0.9));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_FLOAT_EQ(f.TheEntity.GetComponent<OloEngine::MorphTargetComponent>().GetWeight("Smile"), 0.9f);
+
+    ASSERT_TRUE(f.History.CanUndo());
+    f.History.Undo();
+    EXPECT_TRUE(f.TheEntity.GetComponent<OloEngine::MorphTargetComponent>().Weights.contains("Smile"))
+        << "the key existed before the write, so undo must restore its value, not erase it";
+    EXPECT_FLOAT_EQ(f.TheEntity.GetComponent<OloEngine::MorphTargetComponent>().GetWeight("Smile"), 0.4f);
 }
 
 // A second, DISTINCT key on the same field is independently addressable and does
@@ -780,7 +808,10 @@ TEST(McpFieldRegistry, ListFieldsExpandsMapKeysIntoDottedEntries)
     {
         if (field["field"] == "Weights.Smile")
         {
-            EXPECT_EQ(field["type"], "map<string,float>");
+            // A dotted entry addresses exactly ONE value, so its type is the
+            // scalar type — the same "float" a plain scalar field reports, not
+            // the whole map's container type.
+            EXPECT_EQ(field["type"], "float");
             EXPECT_FLOAT_EQ(field["value"].get<f32>(), 0.5f);
             ASSERT_TRUE(field.contains("min"));
             ASSERT_TRUE(field.contains("max"));
