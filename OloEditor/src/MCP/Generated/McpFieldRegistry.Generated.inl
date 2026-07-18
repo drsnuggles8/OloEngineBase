@@ -347,7 +347,7 @@ static void BuildRegistryChunk4(std::vector<FieldEntry>& registry)
     // LightProbeVolumeComponent
     registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "BoundsMin", m_BoundsMin));
     registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "BoundsMax", m_BoundsMax));
-    registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "Spacing", m_Spacing));
+    registry.push_back(OLO_GFW_FIELD_RANGE(LightProbeVolumeComponent, "Spacing", m_Spacing, OLO_GFW_BOUND(0.01f), OLO_GFW_NO_BOUND));
     registry.push_back(OLO_GFW_FIELD_RANGE(LightProbeVolumeComponent, "Intensity", m_Intensity, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
     registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "Active", m_Active));
     registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "Dirty", m_Dirty));
@@ -662,7 +662,7 @@ static void BuildRegistryChunk7(std::vector<FieldEntry>& registry)
     registry.push_back(OLO_GFW_FIELD(RagdollComponent, "TwistLimitDeg", m_TwistLimitDeg));
 
     // ReflectionProbeComponent
-    registry.push_back(OLO_GFW_FIELD(ReflectionProbeComponent, "InfluenceRadius", m_InfluenceRadius));
+    registry.push_back(OLO_GFW_FIELD_RANGE(ReflectionProbeComponent, "InfluenceRadius", m_InfluenceRadius, OLO_GFW_BOUND(0.01f), OLO_GFW_NO_BOUND));
     registry.push_back(OLO_GFW_FIELD_RANGE(ReflectionProbeComponent, "BlendDistance", m_BlendDistance, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
     registry.push_back(OLO_GFW_FIELD_RANGE(ReflectionProbeComponent, "Resolution", m_Resolution, OLO_GFW_BOUND(16u), OLO_GFW_BOUND(2048u)));
     registry.push_back(OLO_GFW_FIELD_RANGE(ReflectionProbeComponent, "Intensity", m_Intensity, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));

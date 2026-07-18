@@ -2680,6 +2680,7 @@ namespace OloEngine
         OLO_PROPERTY(Set = "comp.m_BoundsMax = {v}; comp.m_Dirty = true")
         glm::vec3 m_BoundsMax = glm::vec3(10.0f);
         glm::ivec3 m_Resolution = glm::ivec3(4, 2, 4);
+        OLO_SERIALIZE(Clamp, Min = 0.01f)
         OLO_PROPERTY(Set = "comp.m_Spacing = {v}; comp.m_Dirty = true")
         f32 m_Spacing = 5.0f;
         OLO_PROPERTY(Set = "comp.m_Intensity = {v}; comp.m_Dirty = true")
@@ -2765,6 +2766,7 @@ namespace OloEngine
     // or SaveGameComponentSerializer — re-bake after load).
     struct ReflectionProbeComponent
     {
+        OLO_SERIALIZE(Clamp, Min = 0.01f)
         OLO_PROPERTY()
         f32 m_InfluenceRadius = 10.0f;
         OLO_PROPERTY()
