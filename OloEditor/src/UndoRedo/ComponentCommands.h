@@ -222,6 +222,71 @@ namespace OloEngine
         std::string m_Description;
     };
 
+    // UUID-based undo/redo for a SINGLE MAP-KEY write applied through a setter
+    // function DIRECTLY on the live component (issue #607's MorphTargetComponent::
+    // Weights map-key addressing slice) — the map-typed sibling of
+    // PropertySetCommand above. A plain PropertySetCommand's Undo just re-applies
+    // `setFn` with the captured old value, which is wrong for a map key that did
+    // NOT exist before the write: `setFn` (e.g. MorphTargetComponent::SetWeight)
+    // uses `operator[]`, so re-applying it on Undo would leave a phantom entry at
+    // the map's semantic default (e.g. weight 0.0) instead of restoring "the key
+    // was never there" — a caller enumerating current keys (olo_entity_list_fields)
+    // would then see a key that never existed before the original write. Undo
+    // therefore branches on `keyExistedBefore`: restore the captured old value when
+    // the key was already present, or erase the key entirely when it was not.
+    template<typename T, typename F, typename SetFn, typename EraseFn>
+    class MapKeyPropertySetCommand : public EditorCommand
+    {
+      public:
+        MapKeyPropertySetCommand(Ref<Scene> scene, UUID entityUUID, SetFn setFn, EraseFn eraseFn,
+                                 F oldValue, F newValue, bool keyExistedBefore, std::string description = "Property Change")
+            : m_Scene(std::move(scene)), m_EntityUUID(entityUUID), m_SetFn(std::move(setFn)), m_EraseFn(std::move(eraseFn)),
+              m_OldValue(std::move(oldValue)), m_NewValue(std::move(newValue)), m_KeyExistedBefore(keyExistedBefore),
+              m_Description(std::move(description))
+        {
+        }
+
+        void Execute() override
+        {
+            auto entityOpt = m_Scene->TryGetEntityWithUUID(m_EntityUUID);
+            if (entityOpt && entityOpt->HasComponent<T>())
+            {
+                m_SetFn(entityOpt->GetComponent<T>(), m_NewValue);
+            }
+        }
+
+        void Undo() override
+        {
+            auto entityOpt = m_Scene->TryGetEntityWithUUID(m_EntityUUID);
+            if (entityOpt && entityOpt->HasComponent<T>())
+            {
+                if (m_KeyExistedBefore)
+                {
+                    m_SetFn(entityOpt->GetComponent<T>(), m_OldValue);
+                }
+                else
+                {
+                    m_EraseFn(entityOpt->GetComponent<T>());
+                }
+            }
+        }
+
+        [[nodiscard]] std::string GetDescription() const override
+        {
+            return m_Description;
+        }
+
+      private:
+        Ref<Scene> m_Scene;
+        UUID m_EntityUUID;
+        SetFn m_SetFn;
+        EraseFn m_EraseFn;
+        F m_OldValue;
+        F m_NewValue;
+        bool m_KeyExistedBefore;
+        std::string m_Description;
+    };
+
     // Undo/Redo for adding a component with a post-init callback (e.g. particle presets)
     template<typename T>
     class AddComponentWithInitCommand : public EditorCommand

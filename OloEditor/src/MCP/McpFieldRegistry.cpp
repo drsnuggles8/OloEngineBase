@@ -51,10 +51,43 @@ namespace OloEngine::MCP::GenericFieldWrite
 #undef OLO_GFW_BOUND
 #undef OLO_GFW_NO_BOUND
 
+        // MorphTargetComponent::Weights (issue #607's map-key addressing slice) —
+        // the ONE map-typed MCP field in the engine today, hand-registered rather
+        // than generated: its keyset (target/bone name) doesn't exist until a
+        // MorphTargetSet is bound at runtime, so no static field name could ever be
+        // emitted for it the way a nested struct's dotted chain is (see
+        // MakeMapKeyField's doc comment in McpGenericFieldWrite.h). A caller
+        // addresses one entry via a dotted key ("Weights.Smile"); the range mirrors
+        // MorphTargetComponent::SetWeight's own [0, 1] clamp so a write can never put
+        // a weight outside what SetWeight would already allow.
+        [[nodiscard]] FieldEntry BuildMorphTargetWeightsField()
+        {
+            return MakeMapKeyField<MorphTargetComponent, f32>(
+                "MorphTargetComponent", "Weights",
+                [](const MorphTargetComponent& c, const std::string& key) -> f32
+                { return c.GetWeight(key); },
+                [](MorphTargetComponent& c, const std::string& key, const f32& v)
+                { c.SetWeight(key, v); },
+                [](const MorphTargetComponent& c, const std::string& key) -> bool
+                { return c.Weights.contains(key); },
+                [](MorphTargetComponent& c, const std::string& key)
+                { c.Weights.erase(key); },
+                [](const MorphTargetComponent& c) -> std::vector<std::string>
+                {
+                    std::vector<std::string> keys;
+                    keys.reserve(c.Weights.size());
+                    for (const auto& [name, weight] : c.Weights)
+                        keys.push_back(name);
+                    return keys;
+                },
+                FieldRange{ std::optional<double>(0.0), std::optional<double>(1.0) });
+        }
+
         [[nodiscard]] std::vector<FieldEntry> BuildRegistry()
         {
             std::vector<FieldEntry> registry;
             BuildRegistryChunks(registry);
+            registry.push_back(BuildMorphTargetWeightsField());
             return registry;
         }
     } // namespace

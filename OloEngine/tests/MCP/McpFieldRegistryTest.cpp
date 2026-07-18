@@ -558,24 +558,23 @@ TEST(McpFieldRegistry, ListFieldsReportsNestedDottedFields)
 
 // ---- 6. what sub-object addressing deliberately does NOT reach ---------------
 //
-// One component still exposes no authored field, and it is not a gap a dotted
-// member-access path can close. Pinned here so the limitation is a stated contract
-// rather than a silent surprise, and so the day someone closes it the test tells them
-// to update this comment.
-//
-//   * MorphTargetComponent's authored surface is a DYNAMIC keyset
-//     (`std::unordered_map<std::string, f32> Weights`), which needs map-key
-//     addressing ("Weights.<targetName>"), not sub-object addressing: the field names
-//     do not exist until a MorphTargetSet is bound at runtime, so no static registry
-//     entry can name them.
+// Sub-object addressing (a dotted member-access CHAIN, sections 1-5 above) only
+// reaches a field with a compile-time-known name. It cannot address
+// MorphTargetComponent's authored surface — a DYNAMIC keyset
+// (`std::unordered_map<std::string, f32> Weights`) whose keys (target/bone names)
+// do not exist until a MorphTargetSet is bound at runtime, so no static dotted name
+// could ever be generated for one. The bare prefix "Weights" therefore stays
+// unreachable via Find() (it names the container, not an addressable value) — that
+// is not a residual gap, it is the map-key mechanism's OWN contract (section 8
+// below closes the actual gap via a dotted RUNTIME key, "Weights.<name>").
 //
 // AudioSourceComponent used to be pinned here too (its 16 parameters live behind a
 // PRIVATE cold blob a member-access chain cannot cross) — issue #607's
 // AudioSourceComponent slice closed that gap with a setter-expression-based
 // mechanism instead of sub-object addressing. See section 7 below.
-TEST(McpFieldRegistry, KnownGapsWithNoStaticFieldPathStayUnreachable)
+TEST(McpFieldRegistry, MapFieldBarePrefixIsNotDirectlyWritable)
 {
-    EXPECT_FALSE(RegistryHas("MorphTargetComponent", "Weights")); // dynamic keyset, not a field
+    EXPECT_FALSE(RegistryHas("MorphTargetComponent", "Weights")); // names the container, not a value
 }
 
 // ---- 7. AudioSourceComponent: setter-expression-based fields (issue #607) ----
@@ -667,4 +666,173 @@ TEST(McpFieldRegistry, WriteDoesNotResetActiveEventID)
     f.History.Undo();
     EXPECT_EQ(f.TheEntity.GetComponent<OloEngine::AudioSourceComponent>().ActiveEventID, 4242u);
     EXPECT_FLOAT_EQ(f.TheEntity.GetComponent<OloEngine::AudioSourceComponent>().GetConfig().VolumeMultiplier, 1.0f);
+}
+
+// ---- 8. map-key addressing: MorphTargetComponent::Weights (issue #607) -------
+//
+// Weights (`std::unordered_map<std::string, f32>`, target/bone name -> weight) has
+// no compile-time-known key, so it cannot be a plain or nested field (sections 1-5)
+// or a setter-expression field (section 7) — both assume ONE fixed name per entity.
+// MakeMapKeyField registers ONE entry for the whole field ("Weights"), and a caller
+// addresses a single entry with a DOTTED runtime key ("Weights.Smile"), resolved by
+// FindMapKeyed() stripping the registered "Weights." prefix. The write goes through
+// MorphTargetComponent::SetWeight/GetWeight directly on the live component (like
+// MakeSetterField, never a whole-map copy+swap), so its own [0, 1] clamp and the
+// registry's mirrored FieldRange agree by construction.
+
+TEST(McpFieldRegistry, WeightsKeyRoundTripsAndUndoes)
+{
+    Fixture f;
+    auto& morph = f.TheEntity.AddComponent<OloEngine::MorphTargetComponent>();
+    ASSERT_FLOAT_EQ(morph.GetWeight("Smile"), 0.0f); // absent key reads as 0
+    ASSERT_FALSE(morph.Weights.contains("Smile"));
+
+    const auto result = GFW::Apply(f.Scene_, f.History, f.Uuid, "MorphTargetComponent", "Weights.Smile", Json(0.75));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_EQ(result.Data["field"], "Weights.Smile");
+    EXPECT_EQ(result.Data["key"], "Smile");
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+    EXPECT_TRUE(result.Data["undoable"].get<bool>());
+    EXPECT_FLOAT_EQ(result.Data["previousValue"].get<f32>(), 0.0f);
+    EXPECT_FLOAT_EQ(result.Data["value"].get<f32>(), 0.75f);
+    EXPECT_FLOAT_EQ(f.TheEntity.GetComponent<OloEngine::MorphTargetComponent>().GetWeight("Smile"), 0.75f);
+
+    ASSERT_TRUE(f.History.CanUndo());
+    f.History.Undo();
+    EXPECT_FLOAT_EQ(f.TheEntity.GetComponent<OloEngine::MorphTargetComponent>().GetWeight("Smile"), 0.0f);
+    // Not just "reads as 0" (GetWeight's default for a missing key) — the key must
+    // be GONE, exactly as it was before the write. A plain re-apply-old-value undo
+    // would instead leave a phantom "Smile" -> 0.0 entry, which would wrongly start
+    // showing up in olo_entity_list_fields / ListMapKeys for a key that was never
+    // actually authored.
+    EXPECT_FALSE(f.TheEntity.GetComponent<OloEngine::MorphTargetComponent>().Weights.contains("Smile"))
+        << "undo of a first-time key write must remove the key, not just reset its value";
+}
+
+// The complementary undo branch: overwriting a key that ALREADY existed restores
+// the captured old value (and keeps the key present), rather than erasing it —
+// erase-on-undo is only for a key that did not exist before the write.
+TEST(McpFieldRegistry, UndoOfAnExistingKeyOverwriteRestoresTheOldValueRatherThanErasing)
+{
+    Fixture f;
+    auto& morph = f.TheEntity.AddComponent<OloEngine::MorphTargetComponent>();
+    morph.SetWeight("Smile", 0.4f);
+
+    const auto result = GFW::Apply(f.Scene_, f.History, f.Uuid, "MorphTargetComponent", "Weights.Smile", Json(0.9));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_FLOAT_EQ(f.TheEntity.GetComponent<OloEngine::MorphTargetComponent>().GetWeight("Smile"), 0.9f);
+
+    ASSERT_TRUE(f.History.CanUndo());
+    f.History.Undo();
+    EXPECT_TRUE(f.TheEntity.GetComponent<OloEngine::MorphTargetComponent>().Weights.contains("Smile"))
+        << "the key existed before the write, so undo must restore its value, not erase it";
+    EXPECT_FLOAT_EQ(f.TheEntity.GetComponent<OloEngine::MorphTargetComponent>().GetWeight("Smile"), 0.4f);
+}
+
+// A second, DISTINCT key on the same field is independently addressable and does
+// not disturb the first key's value — the whole point of per-key addressing rather
+// than a single scalar accessor.
+TEST(McpFieldRegistry, DistinctKeysOnTheSameMapFieldAreIndependentlyAddressable)
+{
+    Fixture f;
+    auto& morph = f.TheEntity.AddComponent<OloEngine::MorphTargetComponent>();
+    morph.SetWeight("Smile", 0.5f);
+
+    const auto result = GFW::Apply(f.Scene_, f.History, f.Uuid, "MorphTargetComponent", "Weights.Blink", Json(0.3));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_FLOAT_EQ(f.TheEntity.GetComponent<OloEngine::MorphTargetComponent>().GetWeight("Blink"), 0.3f);
+    EXPECT_FLOAT_EQ(f.TheEntity.GetComponent<OloEngine::MorphTargetComponent>().GetWeight("Smile"), 0.5f)
+        << "writing one key must not disturb another";
+}
+
+// The registry's range mirrors SetWeight's own [0, 1] clamp, reported the same way
+// a plain field's OLO_SERIALIZE(Clamp) range is (clamped:true + requestedValue).
+TEST(McpFieldRegistry, WeightsKeyClampsToZeroOneRange)
+{
+    Fixture f;
+    f.TheEntity.AddComponent<OloEngine::MorphTargetComponent>();
+
+    const auto high = GFW::Apply(f.Scene_, f.History, f.Uuid, "MorphTargetComponent", "Weights.Smile", Json(5.0));
+    ASSERT_TRUE(high.Ok) << high.Error;
+    EXPECT_TRUE(high.Data["clamped"].get<bool>());
+    EXPECT_DOUBLE_EQ(high.Data["requestedValue"].get<double>(), 5.0);
+    EXPECT_FLOAT_EQ(high.Data["value"].get<f32>(), 1.0f);
+    EXPECT_FLOAT_EQ(f.TheEntity.GetComponent<OloEngine::MorphTargetComponent>().GetWeight("Smile"), 1.0f);
+
+    const auto low = GFW::Apply(f.Scene_, f.History, f.Uuid, "MorphTargetComponent", "Weights.Smile", Json(-2.0));
+    ASSERT_TRUE(low.Ok) << low.Error;
+    EXPECT_TRUE(low.Data["clamped"].get<bool>());
+    EXPECT_FLOAT_EQ(low.Data["value"].get<f32>(), 0.0f);
+}
+
+// A write to an unknown component still refuses with the ordinary error; a write to
+// the bare "Weights" prefix (no key) refuses too — it is not a component-lacks-field
+// gap, it just names the container, not a value.
+TEST(McpFieldRegistry, BareWeightsFieldWithNoKeyIsRefused)
+{
+    Fixture f;
+    f.TheEntity.AddComponent<OloEngine::MorphTargetComponent>();
+
+    const auto result = GFW::Apply(f.Scene_, f.History, f.Uuid, "MorphTargetComponent", "Weights", Json(0.5));
+    EXPECT_FALSE(result.Ok);
+    EXPECT_NE(result.Error.find("has no editable field"), std::string::npos);
+    // The self-correcting hint names the dotted placeholder form, not a bare "Weights".
+    EXPECT_NE(result.Error.find("Weights.<key>"), std::string::npos);
+}
+
+// olo_entity_list_fields expands a map field into one discoverable dotted entry PER
+// CURRENT KEY (there is no static key to list ahead of time) — "exactly what you can
+// write right now", the same contract every other field honors.
+TEST(McpFieldRegistry, ListFieldsExpandsMapKeysIntoDottedEntries)
+{
+    Fixture f;
+    auto& morph = f.TheEntity.AddComponent<OloEngine::MorphTargetComponent>();
+    morph.SetWeight("Smile", 0.5f);
+    morph.SetWeight("Blink", 0.25f);
+
+    bool found = false;
+    const Json out = GFW::ListFields(f.Scene_, f.Uuid, "MorphTargetComponent", found);
+    ASSERT_TRUE(found);
+    ASSERT_EQ(out["components"].size(), 1u);
+
+    std::vector<std::string> seenFields;
+    for (const auto& field : out["components"][0]["fields"])
+        seenFields.push_back(field["field"].get<std::string>());
+
+    EXPECT_NE(std::find(seenFields.begin(), seenFields.end(), "Weights.Smile"), seenFields.end());
+    EXPECT_NE(std::find(seenFields.begin(), seenFields.end(), "Weights.Blink"), seenFields.end());
+    EXPECT_EQ(std::find(seenFields.begin(), seenFields.end(), "Weights"), seenFields.end())
+        << "the bare prefix itself must not be listed as a writable field";
+
+    for (const auto& field : out["components"][0]["fields"])
+    {
+        if (field["field"] == "Weights.Smile")
+        {
+            // A dotted entry addresses exactly ONE value, so its type is the
+            // scalar type — the same "float" a plain scalar field reports, not
+            // the whole map's container type.
+            EXPECT_EQ(field["type"], "float");
+            EXPECT_FLOAT_EQ(field["value"].get<f32>(), 0.5f);
+            ASSERT_TRUE(field.contains("min"));
+            ASSERT_TRUE(field.contains("max"));
+            EXPECT_NEAR(field["min"].get<double>(), 0.0, 1e-6);
+            EXPECT_NEAR(field["max"].get<double>(), 1.0, 1e-6);
+        }
+    }
+}
+
+// An entity with no MorphTargetSet bound (an empty Weights map) reports zero
+// "Weights.*" entries rather than erroring — an empty map is a valid, listable state.
+TEST(McpFieldRegistry, ListFieldsOnEmptyWeightsMapReportsNoMapEntries)
+{
+    Fixture f;
+    f.TheEntity.AddComponent<OloEngine::MorphTargetComponent>();
+
+    bool found = false;
+    const Json out = GFW::ListFields(f.Scene_, f.Uuid, "MorphTargetComponent", found);
+    ASSERT_TRUE(found);
+    ASSERT_EQ(out["components"].size(), 1u);
+
+    for (const auto& field : out["components"][0]["fields"])
+        EXPECT_EQ(field["field"].get<std::string>().find("Weights."), std::string::npos);
 }

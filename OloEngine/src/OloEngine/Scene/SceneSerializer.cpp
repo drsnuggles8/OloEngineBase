@@ -3029,11 +3029,14 @@ namespace OloEngine
             lpv.m_RelightBudget = lpvComponent["RelightBudget"].as<i32>(lpv.m_RelightBudget);
             lpv.m_SelfShadowBias = lpvComponent["SelfShadowBias"].as<f32>(lpv.m_SelfShadowBias);
 
-            // Sanitize deserialized values
-            if (!std::isfinite(lpv.m_Spacing) || lpv.m_Spacing <= 0.0f)
-            {
-                lpv.m_Spacing = 5.0f;
-            }
+            // Sanitize deserialized values. Spacing mirrors the
+            // OLO_SERIALIZE(Clamp, Min = 0.01f) annotation on the field (this
+            // component stays hand-written for unrelated reasons — Resolution's
+            // >= 1 clamp and the BoundsMin/Max ordering are cross-field
+            // invariants a single-field Clamp can't express) — a non-finite
+            // read falls back to the constructor default, a finite-but-tiny or
+            // negative value is pulled up to the floor rather than reset.
+            lpv.m_Spacing = std::isfinite(lpv.m_Spacing) ? std::max(lpv.m_Spacing, 0.01f) : 5.0f;
             if (!std::isfinite(lpv.m_Intensity) || lpv.m_Intensity < 0.0f)
             {
                 lpv.m_Intensity = 1.0f;
@@ -3070,11 +3073,14 @@ namespace OloEngine
             rp.m_Intensity = rpComponent["Intensity"].as<f32>(rp.m_Intensity);
             rp.m_Active = rpComponent["Active"].as<bool>(rp.m_Active);
 
-            // Sanitize deserialized values — never trust file input
-            if (!std::isfinite(rp.m_InfluenceRadius) || rp.m_InfluenceRadius <= 0.0f)
-            {
-                rp.m_InfluenceRadius = 10.0f;
-            }
+            // Sanitize deserialized values — never trust file input. InfluenceRadius
+            // mirrors the OLO_SERIALIZE(Clamp, Min = 0.01f) annotation on the field
+            // (this component stays hand-written for unrelated reasons — the
+            // BakedEnvironment/NeedsBake runtime fields and Resolution/BlendDistance's
+            // own guards) — a non-finite read falls back to the constructor default,
+            // a finite-but-tiny or negative value is pulled up to the floor rather
+            // than reset.
+            rp.m_InfluenceRadius = std::isfinite(rp.m_InfluenceRadius) ? std::max(rp.m_InfluenceRadius, 0.01f) : 10.0f;
             if (!std::isfinite(rp.m_BlendDistance) || rp.m_BlendDistance < 0.0f)
             {
                 rp.m_BlendDistance = 1.0f;

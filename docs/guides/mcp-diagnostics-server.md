@@ -311,27 +311,42 @@ What is writable:
   allowlist rather than "every `OLO_PROPERTY` component" (most of those already have
   their field reachable as a plain public member, so routing them through this path
   too would just double-register the same field).
+- **Map-key addressing** (issue #607's `MorphTargetComponent::Weights` slice): a
+  MAP-typed field (`std::unordered_map<std::string, f32> Weights` — target/bone name
+  -> weight) has no compile-time-known key, so no static registry entry could ever
+  name one ahead of time. ONE `MakeMapKeyField` entry is registered per map field
+  (hand-written in `McpFieldRegistry.cpp`, not codegen'd — there is exactly one such
+  field in the engine today), addressed by a **dotted runtime key**:
+  `{ "field": "Weights.Smile", "value": 0.75 }` writes the `Smile` target's weight.
+  The bare prefix (`"Weights"` with no key) is deliberately **not** writable — it
+  names the container, not a value — so `olo_entity_list_fields` expands the field
+  into one dotted entry **per current key** instead of listing `Weights` itself.
+  The write goes through `MorphTargetComponent::SetWeight`/`GetWeight` directly on
+  the live component (never a whole-map copy+swap), and the registered range mirrors
+  `SetWeight`'s own `[0, 1]` clamp.
 - **Not** writable, by design: per-tick runtime state (the `*StateComponent` family,
   `AnimationStateComponent`, `UIResolvedRectComponent`, `WorldTransformComponent`),
   entity identity (`IDComponent` — its UUID is the addressing key), any field marked
   `OLO_SERIALIZE(Skip)` (e.g. `NavAgentComponent`'s pathfinder state), any non-public
   member with no `OLO_PROPERTY` Get/Set pair (`TransformComponent::Rotation` — a
-  derived euler/quat pair behind setters, but no OLO_PROPERTY annotation), any field
-  with no scalar JSON shape (a `Ref<T>`, a container, a `glm::quat`/`mat4`/`ivec*`),
-  and a dynamic keyset a static registry entry cannot name
-  (`MorphTargetComponent::Weights`, a `std::unordered_map<std::string, f32>` — needs
-  map-key addressing, a follow-up).
+  derived euler/quat pair behind setters, but no OLO_PROPERTY annotation), and any
+  field with no scalar JSON shape (a `Ref<T>`, a container other than a
+  string-keyed scalar map, a `glm::quat`/`mat4`/`ivec*`).
 
 **Ranges are enforced, and a clamp is reported.** A field whose scene-load path
 clamps or rejects out-of-range values carries the same bounds here — from its
 `OLO_SERIALIZE(Clamp, Min=…, Max=…)` annotation, or (for a component whose serializer
 is hand-written) from the generator's `kMcpFieldClamps` table. So MCP can never put a
 component into a state a scene load could not produce. Bounds are visible up front in
-`olo_entity_list_fields` (`min`/`max` per field). *Known gap:* a hand-written
-serializer's strict `> 0` guards (e.g. `LightProbeVolumeComponent::Spacing`,
-`ReflectionProbeComponent::InfluenceRadius`) are **not** approximated with an invented
-epsilon and stay unclamped here; the fix is to migrate those hand-written clamps onto
-`OLO_SERIALIZE(Clamp, …)`, after which MCP inherits them for free.
+`olo_entity_list_fields` (`min`/`max` per field). `LightProbeVolumeComponent::Spacing`
+and `ReflectionProbeComponent::InfluenceRadius` — previously a hand-written strict
+`> 0` guard approximated by nothing here — are now `OLO_SERIALIZE(Clamp, Min=0.01f)`
+annotated, so MCP inherits their range the same way any other annotated field does
+(no `kMcpFieldClamps` entry needed); both components still keep their hand-written
+`SceneSerializer.cpp` block for unrelated reasons (cross-field invariants a
+single-field `Clamp` can't express), so the two components did not flip to
+fully-generated serialization, only the two named fields' range semantics changed
+from reject-and-reset-to-default to clamp-to-floor.
 
 **The response is verifiable — do not trust "the call returned".** `value` is read
 back **out of the live component after the write**, not echoed from the input, and

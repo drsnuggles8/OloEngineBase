@@ -392,6 +392,12 @@ namespace OloEngine::MCP::GenericFieldWrite
         std::string Type; // FieldTypeName<F>()
         FieldRange Range; // empty unless the serializer enforces a load-time range
 
+        // Whether the entity currently carries the owning component C — checked
+        // BEFORE Read/Apply (or ReadKeyed/ApplyKeyed) so ListFields can tell "entity
+        // lacks this component" from every other outcome (an empty map, a false
+        // bool, ...) uniformly across both plain and map-keyed fields.
+        std::function<bool(Entity)> HasComponent;
+
         // Coerce `value`, range-clamp it, no-op-detect, and (when changed) push a
         // single undoable ComponentChangeCommand<C>. The entity is already resolved +
         // known to exist. The reported `value` is READ BACK from the live component
@@ -399,6 +405,30 @@ namespace OloEngine::MCP::GenericFieldWrite
         std::function<ApplyResult(const Ref<Scene>&, CommandHistory&, Entity, u64, const Json&)> Apply;
         // The field's current value as JSON, or nullopt when the entity lacks C.
         std::function<std::optional<Json>(Entity)> Read;
+
+        // ---- map-key addressing (issue #607's MorphTargetComponent::Weights slice) --
+        //
+        // A MAP-typed field has no compile-time-known key — MorphTargetComponent's
+        // Weights (target/bone name -> weight) doesn't even have its keyset known
+        // until a MorphTargetSet is bound at runtime — so it cannot be a plain
+        // FieldEntry (Apply/Read above assume a single addressable F& per entity).
+        // Instead ONE entry is registered per map FIELD (not per key), with
+        // IsMapKeyed=true and Field holding the PREFIX ("Weights", no trailing dot).
+        // Find() deliberately never matches this entry by itself (Field alone names
+        // the container, not a value) — resolution instead happens against the
+        // caller's dotted field string "Weights.<key>" via FindMapKeyed(), which
+        // strips the entry's Field+"." prefix off to recover the runtime key. This
+        // mirrors the existing dotted SUB-OBJECT ADDRESSING convention
+        // ("System.Emitter.RateOverTime") rather than inventing a second argument.
+        bool IsMapKeyed = false;
+        // Same contract as Apply above, plus the resolved runtime key.
+        std::function<ApplyResult(const Ref<Scene>&, CommandHistory&, Entity, u64, const std::string& key, const Json&)> ApplyKeyed;
+        // Same contract as Read above, plus the resolved runtime key.
+        std::function<std::optional<Json>(Entity, const std::string& key)> ReadKeyed;
+        // The map's CURRENT keys (unsorted; callers sort for deterministic output) —
+        // drives olo_entity_list_fields' "exactly what you can write right now"
+        // contract for a map field, since no key is known ahead of time.
+        std::function<std::vector<std::string>(Entity)> ListMapKeys;
     };
 
     // Build one registry entry from a component type + a script-facing field name +
@@ -425,6 +455,8 @@ namespace OloEngine::MCP::GenericFieldWrite
         entry.Field = field;
         entry.Type = std::string(FieldTypeName<F>());
         entry.Range = range;
+        entry.HasComponent = [](Entity e)
+        { return e.HasComponent<C>(); };
 
         entry.Apply = [access, component, field, range](const Ref<Scene>& scene, CommandHistory& history,
                                                         Entity entity, u64 uuid, const Json& value) -> ApplyResult
@@ -538,6 +570,8 @@ namespace OloEngine::MCP::GenericFieldWrite
         entry.Field = field;
         entry.Type = std::string(FieldTypeName<F>());
         entry.Range = range;
+        entry.HasComponent = [](Entity e)
+        { return e.HasComponent<C>(); };
 
         entry.Apply = [getFn, setFn, component, field, range](const Ref<Scene>& scene, CommandHistory& history,
                                                               Entity entity, u64 uuid, const Json& value) -> ApplyResult
@@ -600,6 +634,127 @@ namespace OloEngine::MCP::GenericFieldWrite
         return entry;
     }
 
+    // Build one registry entry for a MAP-typed field, addressed at write time by a
+    // RUNTIME key rather than a compile-time accessor chain (issue #607's
+    // MorphTargetComponent::Weights slice — a target/bone name -> weight map whose
+    // keyset doesn't exist until a MorphTargetSet is bound, so no static field name
+    // can be generated ahead of time the way a nested struct's dotted chain is).
+    //
+    // ONE entry is registered per map FIELD (not per key): `field` is the PREFIX
+    // ("Weights"), and a caller addresses one entry with the dotted name
+    // "Weights.<key>" — resolved at call time by FindMapKeyed(), which strips the
+    // registered prefix + "." off the requested field to recover `key`. This reuses
+    // the existing dotted SUB-OBJECT ADDRESSING convention
+    // ("System.Emitter.RateOverTime") instead of adding a second JSON argument.
+    //
+    // Like MakeSetterField (not MakeFieldAccess), the write calls `setFn` DIRECTLY on
+    // the live component — never a whole-map copy+swap — reusing
+    // MapKeyPropertySetCommand<C, V, SetFn, EraseFn> for undo/redo by binding `key`
+    // into the setter/eraser closures passed to it. Undo restores the captured old
+    // value when the key already existed, or ERASES the key entirely when it did
+    // not — a plain re-apply-old-value undo (as PropertySetCommand does) would
+    // leave a phantom entry at the map's semantic default for a key that never
+    // existed before the write (ComponentCommands.h has the full rationale).
+    //
+    // getFn:      (const C&, const std::string& key) -> V   (a missing key returns
+    //             the map's own semantic default, e.g. MorphTargetComponent::
+    //             GetWeight()'s 0.0f)
+    // setFn:      (C&, const std::string& key, const V& value) -> void
+    // hasKeyFn:   (const C&, const std::string& key) -> bool   (whether the key is
+    //             currently present — checked BEFORE the write so Undo knows
+    //             whether to restore a value or erase the key)
+    // removeKeyFn: (C&, const std::string& key) -> void   (erase the key entirely —
+    //             only ever invoked by Undo, for a key that did not exist before)
+    // keysFn:     (const C&) -> std::vector<std::string>   (the map's CURRENT keys,
+    //             for olo_entity_list_fields discovery — order doesn't matter,
+    //             ListFields sorts)
+    template<typename C, typename V, typename GetFn, typename SetFn, typename HasKeyFn, typename RemoveKeyFn, typename KeysFn>
+    [[nodiscard]] inline FieldEntry MakeMapKeyField(std::string component, std::string field,
+                                                    GetFn getFn, SetFn setFn, HasKeyFn hasKeyFn, RemoveKeyFn removeKeyFn,
+                                                    KeysFn keysFn, FieldRange range = {})
+    {
+        static_assert(std::is_same_v<std::invoke_result_t<GetFn, const C&, const std::string&>, V>,
+                      "MakeMapKeyField: getFn must return exactly V");
+
+        FieldEntry entry;
+        entry.Component = component;
+        entry.Field = field;
+        // The SCALAR type — one dotted entry ("Weights.Smile") addresses exactly
+        // one V, never the whole map, so discovery (olo_entity_list_fields) must
+        // report the same type a plain scalar field would.
+        entry.Type = std::string(FieldTypeName<V>());
+        entry.Range = range;
+        entry.IsMapKeyed = true;
+        entry.HasComponent = [](Entity e)
+        { return e.HasComponent<C>(); };
+
+        entry.ApplyKeyed = [getFn, setFn, hasKeyFn, removeKeyFn, component, field, range](
+                               const Ref<Scene>& scene, CommandHistory& history, Entity entity, u64 uuid,
+                               const std::string& key, const Json& value) -> ApplyResult
+        {
+            ApplyResult result;
+            if (!entity.HasComponent<C>())
+            {
+                result.Error = "Entity has no " + component + ".";
+                return result;
+            }
+
+            V coerced{};
+            if (const auto error = CoerceJson<V>(value, coerced))
+            {
+                result.Error = "Invalid 'value' for " + component + "." + field + "." + key +
+                               " (expects " + std::string(FieldTypeName<V>()) + "): " + *error + ".";
+                return result;
+            }
+
+            const V requested = coerced;
+            RangeField<V>(coerced, range);
+            const bool clamped = FieldChanged<V>(requested, coerced);
+
+            // Same "apply then read back" honesty contract as MakeSetterField: setFn
+            // may itself clamp/transform (MorphTargetComponent::SetWeight does), so
+            // the reported value comes from getFn AFTER the write, not from `coerced`.
+            const bool hadKey = hasKeyFn(entity.GetComponent<C>(), key);
+            const V previous = getFn(entity.GetComponent<C>(), key);
+            V applied = previous;
+            if (FieldChanged<V>(previous, coerced))
+            {
+                auto keyedSetFn = [key, setFn](C& c, const V& v)
+                { setFn(c, key, v); };
+                keyedSetFn(entity.GetComponent<C>(), coerced);
+                applied = getFn(entity.GetComponent<C>(), key);
+                if (FieldChanged<V>(previous, applied))
+                {
+                    auto keyedEraseFn = [key, removeKeyFn](C& c)
+                    { removeKeyFn(c, key); };
+                    history.PushAlreadyExecuted(std::make_unique<MapKeyPropertySetCommand<C, V, decltype(keyedSetFn), decltype(keyedEraseFn)>>(
+                        scene, UUID(uuid), keyedSetFn, keyedEraseFn, previous, applied, hadKey,
+                        "Set " + component + "." + field + "." + key));
+                }
+            }
+
+            ApplyResult out = Detail::BuildFieldApplyResult<V>(component, field + "." + key, uuid, requested, previous, applied, clamped);
+            out.Data["key"] = key;
+            return out;
+        };
+
+        entry.ReadKeyed = [getFn](Entity entity, const std::string& key) -> std::optional<Json>
+        {
+            if (!entity.HasComponent<C>())
+                return std::nullopt;
+            return FieldToJson<V>(getFn(entity.GetComponent<C>(), key));
+        };
+
+        entry.ListMapKeys = [keysFn](Entity entity) -> std::vector<std::string>
+        {
+            if (!entity.HasComponent<C>())
+                return {};
+            return keysFn(entity.GetComponent<C>());
+        };
+
+        return entry;
+    }
+
     // The writable-field registry, GENERATED by OloHeaderTool (issue #607) from the
     // same component data-member scan that drives the scene serializer — see the
     // header comment at the top of this file. Field names are the m_-stripped keys an
@@ -644,6 +799,17 @@ namespace OloEngine::MCP::GenericFieldWrite
     // DIRECTLY on the live component (PropertySetCommand, not ComponentChangeCommand<C>)
     // — required because AudioSourceComponent's operator= cannot be trusted to preserve
     // ActiveEventID or push a value into the live Ref<AudioSource> Source.
+    //
+    // MAP-KEY ADDRESSING (issue #607's MorphTargetComponent::Weights slice): a
+    // map-typed field (a runtime keyset, e.g. target/bone name -> weight) has no
+    // static field name to register per key. ONE MakeMapKeyField(...) entry is
+    // hand-registered per map FIELD in McpFieldRegistry.cpp (not emitted by the
+    // generator — there is exactly one such field in the engine today, so this
+    // stays a manual addition rather than a speculative "any map field" codegen
+    // classifier). A caller addresses one entry with a DOTTED key
+    // ("Weights.Smile"), resolved by FindMapKeyed() below; Find() never matches a
+    // map field's bare prefix ("Weights" alone names the container, not a value).
+    //
     // The process-wide registry, built once. DEFINED in McpFieldRegistry.cpp —
     // the one TU that #includes the generated .inl. It used to be built by an
     // inline BuildRegistry() right here, but the ~100-component registry is
@@ -658,15 +824,43 @@ namespace OloEngine::MCP::GenericFieldWrite
     [[nodiscard]] const std::vector<FieldEntry>& Registry();
 
     // Look up the entry for (component, field), or nullptr. Pointers into the static
-    // registry are stable for the process lifetime.
+    // registry are stable for the process lifetime. Deliberately never matches a
+    // map-keyed entry by its bare prefix — "Weights" alone names the container, not
+    // an addressable value; use FindMapKeyed() for "Weights.<key>" instead.
     [[nodiscard]] inline const FieldEntry* Find(std::string_view component, std::string_view field)
     {
         for (const FieldEntry& entry : Registry())
         {
-            if (entry.Component == component && entry.Field == field)
+            if (!entry.IsMapKeyed && entry.Component == component && entry.Field == field)
                 return &entry;
         }
         return nullptr;
+    }
+
+    // Resolve a dotted "<mapField>.<key>" against COMPONENT's registered map fields:
+    // on a match, `outKey` receives the runtime key (the remainder after the longest
+    // matching "<mapField>." prefix — longest wins only in case a component ever
+    // registers more than one map field with an overlapping prefix, which does not
+    // happen today) and the owning entry is returned. nullptr if `field` names no
+    // known map field's prefix (either the component has none, or nothing follows
+    // the dot).
+    [[nodiscard]] inline const FieldEntry* FindMapKeyed(std::string_view component, std::string_view field, std::string& outKey)
+    {
+        const FieldEntry* best = nullptr;
+        for (const FieldEntry& entry : Registry())
+        {
+            if (!entry.IsMapKeyed || entry.Component != component)
+                continue;
+            const std::string prefix = entry.Field + ".";
+            if (field.size() <= prefix.size() || field.substr(0, prefix.size()) != prefix)
+                continue;
+            if (best == nullptr || entry.Field.size() > best->Field.size())
+            {
+                best = &entry;
+                outKey = std::string(field.substr(prefix.size()));
+            }
+        }
+        return best;
     }
 
     // The distinct editable component type names, in first-seen order.
@@ -681,14 +875,17 @@ namespace OloEngine::MCP::GenericFieldWrite
         return names;
     }
 
-    // The editable field names for one component (empty if the component is unknown).
+    // The editable field names for one component (empty if the component is
+    // unknown). A map-keyed field is listed as "<field>.<key>" (e.g. "Weights.<key>")
+    // so the placeholder form is self-explanatory in an error/discovery message
+    // without implying the bare prefix is itself writable.
     [[nodiscard]] inline std::vector<std::string> EditableFieldsFor(std::string_view component)
     {
         std::vector<std::string> fields;
         for (const FieldEntry& entry : Registry())
         {
             if (entry.Component == component)
-                fields.push_back(entry.Field);
+                fields.push_back(entry.IsMapKeyed ? (entry.Field + ".<key>") : entry.Field);
         }
         return fields;
     }
@@ -732,7 +929,7 @@ namespace OloEngine::MCP::GenericFieldWrite
         return Schema::Object()
             .Prop("entity", Schema::EntityId("UUID of the entity to modify (a decimal-digit string)."))
             .Prop("component", Schema::String().Desc("Component type name, e.g. 'TransformComponent' or 'PointLightComponent'. Discover writable components/fields with olo_entity_list_fields."))
-            .Prop("field", Schema::String().Desc("Field name to set, e.g. 'Translation' or 'Intensity' — the m_-stripped name shown in olo_scene_get_entity's YAML."))
+            .Prop("field", Schema::String().Desc("Field name to set, e.g. 'Translation' or 'Intensity' — the m_-stripped name shown in olo_scene_get_entity's YAML. For a map-typed field (e.g. MorphTargetComponent's 'Weights'), address one entry with a dotted key, e.g. 'Weights.Smile' — discover current keys with olo_entity_list_fields."))
             .Prop("value", Schema::Raw(Json{ { "type", Json::array({ "boolean", "number", "string", "array" }) } })
                                .Desc("New value, typed to match the field: a boolean, a number, a string, or an array of numbers for a vector (e.g. [x, y, z] for a vec3)."))
             .Required({ "entity", "component", "field", "value" })
@@ -808,21 +1005,33 @@ namespace OloEngine::MCP::GenericFieldWrite
             return result;
         }
 
-        const FieldEntry* entry = Find(component, field);
-        if (entry == nullptr)
+        if (const FieldEntry* entry = Find(component, field))
         {
-            result.Error = DescribeUnknownField(component, field);
-            return result;
+            const auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityUuid));
+            if (!entityOpt)
+            {
+                result.Error = "No entity with UUID " + std::to_string(entityUuid) + " in the active scene.";
+                return result;
+            }
+            return entry->Apply(scene, history, *entityOpt, entityUuid, value);
         }
 
-        const auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityUuid));
-        if (!entityOpt)
+        // Not a plain field — try a map-keyed one ("Weights.Smile" against the
+        // registered "Weights" prefix) before giving up.
+        std::string key;
+        if (const FieldEntry* mapEntry = FindMapKeyed(component, field, key))
         {
-            result.Error = "No entity with UUID " + std::to_string(entityUuid) + " in the active scene.";
-            return result;
+            const auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityUuid));
+            if (!entityOpt)
+            {
+                result.Error = "No entity with UUID " + std::to_string(entityUuid) + " in the active scene.";
+                return result;
+            }
+            return mapEntry->ApplyKeyed(scene, history, *entityOpt, entityUuid, key, value);
         }
 
-        return entry->Apply(scene, history, *entityOpt, entityUuid, value);
+        result.Error = DescribeUnknownField(component, field);
+        return result;
     }
 
     // List the writable fields of one entity, with their current values, restricted
@@ -866,8 +1075,32 @@ namespace OloEngine::MCP::GenericFieldWrite
             {
                 if (entry.Component != componentName)
                     continue;
+                if (!entry.HasComponent(entity)) // entity lacks this component
+                    break;
+
+                if (entry.IsMapKeyed)
+                {
+                    // No key is known ahead of time — expand into one discoverable
+                    // dotted field per CURRENT map entry ("Weights.Smile", ...),
+                    // exactly what an agent can re-issue as a write right now.
+                    std::vector<std::string> keys = entry.ListMapKeys(entity);
+                    std::sort(keys.begin(), keys.end());
+                    for (const std::string& mapKey : keys)
+                    {
+                        Json field = Json{ { "field", entry.Field + "." + mapKey },
+                                           { "type", entry.Type },
+                                           { "value", *entry.ReadKeyed(entity, mapKey) } };
+                        if (entry.Range.Min)
+                            field["min"] = *entry.Range.Min;
+                        if (entry.Range.Max)
+                            field["max"] = *entry.Range.Max;
+                        fields.push_back(std::move(field));
+                    }
+                    continue;
+                }
+
                 const std::optional<Json> current = entry.Read(entity);
-                if (!current) // entity lacks this component
+                if (!current) // shouldn't happen — HasComponent already checked above
                     break;
                 Json field = Json{ { "field", entry.Field },
                                    { "type", entry.Type },

@@ -491,8 +491,10 @@ namespace OloEngine::MCP
                 "echoes 'value' READ BACK from the component after the write plus changed:true/false — verify those "
                 "rather than assuming a returned call applied. Applied through the editor's undo stack, so it is a "
                 "single Ctrl-Z. This is a WRITE tool: refused unless 'Allow writes' is enabled in the editor's MCP "
-                "Server panel (off by default). Discover the exact writable (component, field) names, value shapes "
-                "and ranges for an entity with olo_entity_list_fields.";
+                "Server panel (off by default). A map-typed field (e.g. MorphTargetComponent's per-target 'Weights') "
+                "is addressed one entry at a time with a dotted key, e.g. field 'Weights.Smile' — its current keys "
+                "are only discoverable per-entity, not ahead of time. Discover the exact writable (component, field) "
+                "names, value shapes and ranges for an entity with olo_entity_list_fields.";
             tool.InputSchema = GenericFieldWrite::InputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_EntitySetField;
