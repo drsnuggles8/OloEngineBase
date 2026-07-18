@@ -475,6 +475,53 @@ namespace OloEngine
         static_assert(sizeof(FroxelFogUBO) % 16 == 0, "FroxelFogUBO must be 16-byte aligned for std140");
         static_assert(sizeof(FroxelFogUBO) == 240, "FroxelFogUBO std140 size drifted from GLSL expectation (240 B)");
 
+        // @brief Volumetric cloudscape raymarch parameters (issue #633),
+        // uploaded at UBO_CLOUDSCAPE (53). GLSL twin: the CloudscapeData block
+        // in include/CloudscapeCommon.glsl — shared by the raymarch pass, the
+        // temporal resolve, and the CloudShadow_Generate compute so every
+        // consumer evaluates the same field.
+        struct CloudscapeUBO
+        {
+            glm::vec4 Layer = glm::vec4(1500.0f, 4000.0f, 1.0f / 2500.0f, 1.0f); // bottom, top, 1/(top-bottom), density scale
+            glm::vec4 Field = glm::vec4(0.35f, 0.5f, 0.5f, 0.0f);                // coverage, type blend, erosion, cloud wetness
+            glm::vec4 Wind = glm::vec4(0.0f);                                    // xy = accumulated wind offset (m), z = anim scale, w = time (s)
+            glm::vec4 Map = glm::vec4(1.0f / 30000.0f, 64.0f, 6.0f, 0.6f);       // 1/map extent (1/m), max steps, light steps, phase g
+            glm::vec4 Light = glm::vec4(1.0f, 1.0f, 0.5f, 1.0f);                 // sun scale, ambient scale, multi-scatter, powder
+            glm::vec4 Misc = glm::vec4(0.0f);                                    // temporal blend, frame index, shadow strength, enabled
+            glm::vec4 SunDirection = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);          // xyz toward active body, w = night blend
+            glm::vec4 SunColor = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);              // rgb = colour * intensity
+            glm::vec4 Ambient = glm::vec4(0.4f, 0.5f, 0.7f, 0.0f);               // rgb = sky ambient estimate
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(CloudscapeUBO));
+            }
+        };
+
+        static_assert(sizeof(CloudscapeUBO) % 16 == 0, "CloudscapeUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(CloudscapeUBO) == 144, "CloudscapeUBO std140 size drifted from GLSL expectation (144 B)");
+
+        // @brief Surface weather response parameters (issue #633): the weather
+        // director's global wetness signal plus the cloud-shadow map transform,
+        // consumed by the PBR surface shaders (forward, deferred, terrain) and
+        // uploaded once per frame at UBO_ATMOSPHERE_SHADING. A zeroed upload
+        // (default construction) disables both effects.
+        struct AtmosphereShadingUBO
+        {
+            glm::mat4 CloudShadowViewProj = glm::mat4(1.0f); // ABSOLUTE world -> cloud shadow map clip (top-down ortho)
+            glm::vec4 Params0 = glm::vec4(0.0f);             // x = wetness [0,1], y = cloud shadow strength [0,1],
+                                                             // z = cloud shadow enabled (0/1), w = unused
+            glm::vec4 Params1 = glm::vec4(0.0f);             // xy = shadow map center (world xz), z = world size, w = 1/world size
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(AtmosphereShadingUBO));
+            }
+        };
+
+        static_assert(sizeof(AtmosphereShadingUBO) % 16 == 0, "AtmosphereShadingUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(AtmosphereShadingUBO) == 96, "AtmosphereShadingUBO std140 size drifted from GLSL expectation (96 B)");
+
         // @brief GPU fluid solver parameters UBO (Position-Based Fluids, issue #630).
         //
         // Shared by every Fluid_*.comp pass. Uploaded once per solver step and
@@ -822,6 +869,9 @@ namespace OloEngine
         static constexpr u32 UBO_VIRTUAL_DRAW = 49;         // Virtualized-geometry per-MDI-call draw info: instance index + command segment base (issue #629)
         static constexpr u32 UBO_VIRTUAL_DEBUG = 50;        // Virtualized-geometry debug-visualization mode (cluster/LOD/overdraw) — issue #629
         static constexpr u32 UBO_DDGI = 51;                 // Realtime DDGI probe volume params (bounds, grid, hysteresis, hybrid blend — issue #632)
+        static constexpr u32 UBO_ATMOSPHERE_SKY = 52;       // Combined day/night atmosphere sky bake params (AtmosphereSkyUBO, 11 vec4 — issue #633)
+        static constexpr u32 UBO_CLOUDSCAPE = 53;           // Volumetric cloudscape raymarch params (CloudscapeUBO — issue #633)
+        static constexpr u32 UBO_ATMOSPHERE_SHADING = 54;   // Surface weather response: wetness + cloud-shadow map transform + enables (AtmosphereShadingUBO — issue #633)
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -920,13 +970,21 @@ namespace OloEngine
         // Realtime DDGI probe atlases (issue #632), written by the DDGI update
         // passes and sampled by the deferred/forward lit passes via
         // include/DDGICommon.glsl (and exposed as the shared binding a future
-        // froxel-fog bounce term can sample). The shader-graph user base
-        // shifts up by three, per the established procedure for new engine
-        // slots.
+        // froxel-fog bounce term can sample).
         static constexpr u32 TEX_DDGI_IRRADIANCE = 56; // RGBA16F octahedral irradiance atlas (6x6 interior + 1px border per probe)
         static constexpr u32 TEX_DDGI_VISIBILITY = 57; // RG16F Chebyshev atlas (mean, mean^2 distance; 14x14 interior + 1px border)
         static constexpr u32 TEX_DDGI_PROBE_DATA = 58; // RGBA16F per-probe data (xyz = relocation offset / spacing, w = state)
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 59;  // First shader graph user texture slot (must be after all engine-reserved slots)
+        // Volumetric cloudscape inputs (issue #633): tiling Perlin-Worley 3D
+        // noise (base 128³ + detail 32³, RGBA8, repeat), the 2D weather map
+        // (R = coverage, G = type, B = wetness), and the top-down cloud-shadow
+        // transmittance map sampled by the PBR direct-light path. Together with
+        // the DDGI atlases above, the shader-graph user base shifts up by
+        // seven, per the established procedure for new engine slots.
+        static constexpr u32 TEX_CLOUD_BASE_NOISE = 59;   // sampler3D RGBA8 (repeat)
+        static constexpr u32 TEX_CLOUD_DETAIL_NOISE = 60; // sampler3D RGBA8 (repeat)
+        static constexpr u32 TEX_CLOUD_WEATHER_MAP = 61;  // sampler2D RGBA8
+        static constexpr u32 TEX_CLOUD_SHADOW = 62;       // sampler2D R8 (1 = unshadowed transmittance)
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 63;     // First shader graph user texture slot (must be after all engine-reserved slots)
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -1138,6 +1196,12 @@ namespace OloEngine
                     return name.contains("VirtualDebug");
                 case UBO_DDGI:
                     return name.contains("DDGI");
+                case UBO_ATMOSPHERE_SKY:
+                    return name.contains("AtmosphereSky") || name.contains("atmosphereSky");
+                case UBO_CLOUDSCAPE:
+                    return name.contains("Cloudscape") || name.contains("cloudscape");
+                case UBO_ATMOSPHERE_SHADING:
+                    return name.contains("AtmosphereShading") || name.contains("atmosphereShading");
                 default:
                     return false;
             }
@@ -1166,6 +1230,10 @@ namespace OloEngine
                            name == "u_Butterfly" || name == "u_H0" ||
                            // DDGI fullscreen-pass pass-local reuse (issue #632).
                            name == "u_Radiance" || name == "u_HitGeo" ||
+                           // Cloudscape temporal resolve (issue #633): this
+                           // frame's half-res raymarch at the pass-local slot 0
+                           // (fullscreen pass, no material bound).
+                           name == "u_CloudCurrent" ||
                            // Virtual-geometry debug overlay (issue #629): a fullscreen pass
                            // whose only input is the cluster/LOD/overdraw image, composited
                            // over the lit frame at the end of DeferredLightingPass. Same
@@ -1185,7 +1253,12 @@ namespace OloEngine
                            // Compute dispatch pass-local reuse (issue #627).
                            name == "u_ShadowAtlas" ||
                            // DDGI fullscreen-pass pass-local reuse (issue #632).
-                           name == "u_HitGeo" || name == "u_CaptureGeo" || name == "u_PrevVisibility";
+                           name == "u_HitGeo" || name == "u_CaptureGeo" || name == "u_PrevVisibility" ||
+                           // Cloudscape passes (issue #633): the temporal
+                           // resolve samples last frame's history, the
+                           // composite samples the resolved half-res clouds —
+                           // both pass-local slot-1 reuse in fullscreen draws.
+                           name == "u_CloudHistory" || name == "u_CloudResolved";
                 case TEX_NORMAL:
                     return name.contains("Normal") || name.contains("normal") ||
                            // Slot 2 is reused as the velocity input slot for TAA / motion-blur passes.
@@ -1302,6 +1375,17 @@ namespace OloEngine
                     // Realtime DDGI probe atlases (issue #632):
                     // u_DDGIIrradianceAtlas / u_DDGIVisibilityAtlas / u_DDGIProbeData.
                     return name.contains("DDGI");
+                // Volumetric cloudscape inputs (issue #633). Exact names, one
+                // per slot — a shared contains("Cloud") would silently accept a
+                // shader whose base/detail/weather/shadow bindings are swapped.
+                case TEX_CLOUD_BASE_NOISE:
+                    return name == "u_CloudBaseNoise";
+                case TEX_CLOUD_DETAIL_NOISE:
+                    return name == "u_CloudDetailNoise";
+                case TEX_CLOUD_WEATHER_MAP:
+                    return name == "u_CloudWeatherMap";
+                case TEX_CLOUD_SHADOW:
+                    return name == "u_CloudShadowMap";
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)

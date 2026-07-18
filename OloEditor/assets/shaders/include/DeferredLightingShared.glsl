@@ -24,6 +24,10 @@
 #ifndef DEFERRED_LIGHTING_SHARED_GLSL
 #define DEFERRED_LIGHTING_SHARED_GLSL
 
+// Surface weather response (wetness + cloud shadow, issue #633) — self-
+// contained (UBO 53 + sampler 59), safe to pull in from an include.
+#include "AtmosphereShading.glsl"
+
 vec3 OctDecodeGB(vec2 e)
 {
     vec3 n = vec3(e, 1.0 - abs(e.x) - abs(e.y));
@@ -89,6 +93,13 @@ vec3 ComputeDeferredLit(
 
     vec3 V = normalize(u_CameraPosition - worldPos);
 
+    // Weather response + cloud shadow (issue #633) — identical placement to
+    // the forward path (PBR_MultiLight.glsl) so the two paths stay in
+    // photometric parity: wetness before any lighting reads albedo/roughness,
+    // cloud shadow applied per directional light inside the loop.
+    atmosphereApplyWetness(albedo, roughness, N);
+    float cloudShadow = atmosphereCloudShadow(worldPos);
+
     bool enableIBL     = u_DeferredControls.x > 0.5;
     bool enableProbes  = u_DeferredControls.y > 0.5;
     float iblIntensity = u_DeferredControls.z;
@@ -110,6 +121,10 @@ vec3 ComputeDeferredLit(
         int lightType = int(u_Lights[i].position.w);
         vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, worldPos);
 
+        if (lightType == DIRECTIONAL_LIGHT)
+        {
+            lightContrib *= cloudShadow;
+        }
         if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
         {
             vec4 viewSpacePos = u_View * vec4(worldPos, 1.0);

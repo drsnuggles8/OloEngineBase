@@ -669,23 +669,10 @@ namespace OloEngine
             return s_Data.GlobalIBLIntensity;
         }
 
-        // Ephemeral sun-direction override (#316 Part 4). Set by the MCP
-        // olo_scene_set_time_of_day / olo_scene_set_sun_angle tools to drive the
-        // procedural sky's sun from the editor for lighting iteration; consumed by
-        // Scene::LoadAndRenderSkybox, which bakes with this toward-sun direction
-        // instead of the ProceduralSkyComponent's serialized m_SunDirection while it
-        // is Active — without mutating the component, so it is never saved. `dir`
-        // need not be normalised (the bake handles that, like the authored value).
-        static void SetSunDirectionOverride(const glm::vec3& towardSunDirection);
-        static void ClearSunDirectionOverride();
-        [[nodiscard]] static bool HasSunDirectionOverride()
-        {
-            return s_Data.SunDirectionOverrideActive;
-        }
-        [[nodiscard]] static const glm::vec3& GetSunDirectionOverride()
-        {
-            return s_Data.SunDirectionOverride;
-        }
+        // (The ephemeral MCP sun-direction override from #316 Part 4 was
+        // retired by issue #633: olo_scene_set_time_of_day / set_sun_angle now
+        // write the scene's TimeOfDayComponent — a real, serialized clock —
+        // and TimeOfDaySystem drives the directional light + sky from it.)
 
         // Culling methods
         static void EnableFrustumCulling(bool enable);
@@ -1243,6 +1230,21 @@ namespace OloEngine
             return s_Data.Precipitation;
         }
 
+        // Per-frame cloudscape / atmosphere state (issue #633). Written by
+        // Scene::ProcessScene3DSharedLogic from the first enabled
+        // CloudscapeComponent (+ weather director blend + wetness), reset to
+        // defaults by BeginScene when the scene stops publishing — consumed by
+        // RenderPipeline for the cloud raymarch pass, the cloud-shadow compute
+        // and the AtmosphereShadingUBO upload.
+        static void SetCloudscapeState(const CloudscapeRenderState& state)
+        {
+            s_Data.Cloudscape = state;
+        }
+        [[nodiscard]] static const CloudscapeRenderState& GetCloudscapeState()
+        {
+            return s_Data.Cloudscape;
+        }
+
         // Shader library access for PBR material shader selection
         static ShaderLibrary& GetShaderLibrary();
 
@@ -1670,16 +1672,20 @@ namespace OloEngine
             Ref<Mesh> DecalCubeMesh;
             Ref<Texture2D> WhiteTexture; // 1x1 fallback for untextured decals
 
-            // Ephemeral MCP sun-direction override (#316 Part 4 —
-            // olo_scene_set_time_of_day / olo_scene_set_sun_angle). When Active,
-            // Scene::LoadAndRenderSkybox bakes the ProceduralSkyComponent with this
-            // toward-sun direction INSTEAD of the component's serialized
-            // m_SunDirection — without writing the component — so an agent can
-            // iterate lighting from the editor. Session-global like PostProcess /
-            // Fog below, so the change is never saved and a scene reload, play-stop,
-            // server-stop, or explicit clear restores the authored sun.
-            bool SunDirectionOverrideActive = false;
-            glm::vec3 SunDirectionOverride = glm::vec3(0.0f, 1.0f, 0.0f);
+            // Volumetric cloudscape / atmosphere per-frame state (issue #633).
+            // Cloudscape: scene-published snapshot (see SetCloudscapeState).
+            // CloudWindOffset/CloudTime: wind-advection accumulators shared by
+            // the raymarch pass and the cloud-shadow compute so both sample
+            // the field at the same scroll position (advanced once per frame
+            // in RenderPipeline::UploadExecutionState from the wind settings).
+            CloudscapeRenderState Cloudscape;
+            glm::vec2 CloudWindOffset{ 0.0f, 0.0f };
+            f32 CloudTime = 0.0f;
+            u32 CloudFrameIndex = 0;
+            // Previous Time::GetTime() sample for the cloud dt (mockable via
+            // Time::SetMockTime, unlike a steady_clock time point — the
+            // determinism hook the visual-evidence goldens rely on).
+            f32 CloudPrevTimeSeconds = 0.0f;
 
             // Post-processing
             PostProcessSettings PostProcess;

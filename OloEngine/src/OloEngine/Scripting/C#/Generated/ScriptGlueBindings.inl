@@ -1559,6 +1559,116 @@ static void ClothComponent_SetEnabled(UUID entityID, bool value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// CloudscapeComponent                                                            //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool CloudscapeComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CloudscapeComponent>();
+    return comp.m_Enabled;
+}
+
+static void CloudscapeComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CloudscapeComponent>();
+    comp.m_Enabled = value;
+}
+
+static float CloudscapeComponent_GetCoverage(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CloudscapeComponent>();
+    return comp.m_Coverage;
+}
+
+static void CloudscapeComponent_SetCoverage(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<CloudscapeComponent>();
+    comp.m_Coverage = value;
+}
+
+static float CloudscapeComponent_GetDensity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CloudscapeComponent>();
+    return comp.m_Density;
+}
+
+static void CloudscapeComponent_SetDensity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<CloudscapeComponent>();
+    comp.m_Density = value;
+}
+
+static float CloudscapeComponent_GetTypeBlend(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CloudscapeComponent>();
+    return comp.m_TypeBlend;
+}
+
+static void CloudscapeComponent_SetTypeBlend(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<CloudscapeComponent>();
+    comp.m_TypeBlend = value;
+}
+
+static bool CloudscapeComponent_GetCastCloudShadows(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CloudscapeComponent>();
+    return comp.m_CastCloudShadows;
+}
+
+static void CloudscapeComponent_SetCastCloudShadows(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CloudscapeComponent>();
+    comp.m_CastCloudShadows = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // DirectionalLightComponent                                                      //
 ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -4792,26 +4902,6 @@ static void ProceduralSkyComponent_SetShowSunDisk(UUID entityID, bool value)
     comp.m_ShowSunDisk = value;
 }
 
-static bool ProceduralSkyComponent_GetLinkSunToDirectionalLight(UUID entityID)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
-    return comp.m_LinkSunToDirectionalLight;
-}
-
-static void ProceduralSkyComponent_SetLinkSunToDirectionalLight(UUID entityID, bool value)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<ProceduralSkyComponent>();
-    comp.m_LinkSunToDirectionalLight = value;
-}
-
 static bool ProceduralSkyComponent_GetEnableSkybox(UUID entityID)
 {
     Scene* scene = ScriptEngine::GetSceneContext();
@@ -6861,6 +6951,268 @@ static void TextComponent_SetLineSpacing(UUID entityID, float value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// TimeOfDayComponent                                                             //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool TimeOfDayComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    return comp.m_Enabled;
+}
+
+static void TimeOfDayComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    comp.m_Enabled = value;
+}
+
+static float TimeOfDayComponent_GetTimeOfDayHours(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    return comp.m_TimeOfDayHours;
+}
+
+static void TimeOfDayComponent_SetTimeOfDayHours(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    comp.m_TimeOfDayHours = value;
+}
+
+static int TimeOfDayComponent_GetDayOfYear(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    return comp.m_DayOfYear;
+}
+
+static void TimeOfDayComponent_SetDayOfYear(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    comp.m_DayOfYear = value;
+}
+
+static float TimeOfDayComponent_GetLatitudeDegrees(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    return comp.m_LatitudeDegrees;
+}
+
+static void TimeOfDayComponent_SetLatitudeDegrees(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    comp.m_LatitudeDegrees = value;
+}
+
+static float TimeOfDayComponent_GetDayLengthMinutes(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    return comp.m_DayLengthMinutes;
+}
+
+static void TimeOfDayComponent_SetDayLengthMinutes(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    comp.m_DayLengthMinutes = value;
+}
+
+static float TimeOfDayComponent_GetTimeScale(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    return comp.m_TimeScale;
+}
+
+static void TimeOfDayComponent_SetTimeScale(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    comp.m_TimeScale = value;
+}
+
+static bool TimeOfDayComponent_GetPaused(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    return comp.m_Paused;
+}
+
+static void TimeOfDayComponent_SetPaused(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    comp.m_Paused = value;
+}
+
+static float TimeOfDayComponent_GetMoonPhase(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    return comp.m_MoonPhase;
+}
+
+static void TimeOfDayComponent_SetMoonPhase(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    comp.m_MoonPhase = value;
+}
+
+static void TimeOfDayComponent_GetSunDirection(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    *outValue = comp.m_SunDirection;
+}
+
+static void TimeOfDayComponent_SetSunDirection(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.m_SunDirection = *value;
+}
+
+static void TimeOfDayComponent_GetMoonDirection(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    *outValue = comp.m_MoonDirection;
+}
+
+static void TimeOfDayComponent_SetMoonDirection(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.m_MoonDirection = *value;
+}
+
+static float TimeOfDayComponent_GetSunElevationDegrees(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    return comp.m_SunElevationDegrees;
+}
+
+static void TimeOfDayComponent_SetSunElevationDegrees(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    comp.m_SunElevationDegrees = value;
+}
+
+static bool TimeOfDayComponent_GetIsNight(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    return comp.m_IsNight;
+}
+
+static void TimeOfDayComponent_SetIsNight(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<TimeOfDayComponent>();
+    comp.m_IsNight = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // TransformComponent                                                             //
 ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -8552,4 +8904,94 @@ static void VideoSurfaceComponent_SetVideoPath(UUID entityID, MonoString* value)
     auto& comp = entity.GetComponent<VideoSurfaceComponent>();
     std::string converted = Utils::MonoStringToString(value);
     comp.VideoPath = converted;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
+// WeatherStateComponent                                                          //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool WeatherStateComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<WeatherStateComponent>();
+    return comp.m_Enabled;
+}
+
+static void WeatherStateComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<WeatherStateComponent>();
+    comp.m_Enabled = value;
+}
+
+static float WeatherStateComponent_GetTransitionDuration(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<WeatherStateComponent>();
+    return comp.m_TransitionDuration;
+}
+
+static void WeatherStateComponent_SetTransitionDuration(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<WeatherStateComponent>();
+    comp.m_TransitionDuration = value;
+}
+
+static float WeatherStateComponent_GetTransitionProgress(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<WeatherStateComponent>();
+    return comp.m_TransitionProgress;
+}
+
+static void WeatherStateComponent_SetTransitionProgress(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<WeatherStateComponent>();
+    comp.m_TransitionProgress = value;
+}
+
+static float WeatherStateComponent_GetWetness(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<WeatherStateComponent>();
+    return comp.m_Wetness;
+}
+
+static void WeatherStateComponent_SetWetness(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<WeatherStateComponent>();
+    comp.m_Wetness = value;
 }

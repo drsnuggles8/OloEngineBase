@@ -29,6 +29,7 @@ using AllComponents = ComponentGroup<
     CircleCollider2DComponent,
     CircleRendererComponent,
     ClothComponent,
+    CloudscapeComponent,
     ConvexMeshCollider3DComponent,
     DecalComponent,
     DialogueComponent,
@@ -97,6 +98,7 @@ using AllComponents = ComponentGroup<
     TerrainComponent,
     TextComponent,
     TileRendererComponent,
+    TimeOfDayComponent,
     TransformComponent,
     TriangleMeshCollider3DComponent,
     UIButtonComponent,
@@ -118,4 +120,5 @@ using AllComponents = ComponentGroup<
     VideoOverlayComponent,
     VideoSurfaceComponent,
     VirtualMeshComponent,
-    WaterComponent>;
+    WaterComponent,
+    WeatherStateComponent>;

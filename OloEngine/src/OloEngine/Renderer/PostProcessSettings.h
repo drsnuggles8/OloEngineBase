@@ -1158,6 +1158,58 @@ namespace OloEngine
         }
     };
 
+    // Volumetric cloudscape render state (issue #633). Populated each frame by
+    // the scene (Scene::ProcessScene3DSharedLogic) from the first enabled
+    // CloudscapeComponent — with the weather director's blended
+    // coverage/type/wetness overrides applied — plus the atmosphere signals
+    // the surface shaders need even without clouds (global wetness). Consumed
+    // by RenderPipeline (CloudscapeRenderPass UBO, CloudShadowMap dispatch,
+    // AtmosphereShadingUBO upload). Default construction = everything off.
+    struct CloudscapeRenderState
+    {
+        bool Enabled = false;
+
+        // Field shape (weather-blended where a director is active)
+        f32 LayerBottom = 1500.0f;
+        f32 LayerTop = 4000.0f;
+        f32 Coverage = 0.35f;
+        f32 Density = 1.0f;
+        f32 TypeBlend = 0.5f;
+        f32 Erosion = 0.5f;
+        f32 CloudWetness = 0.0f;
+        f32 WindAnimationScale = 1.0f;
+
+        // Weather map (resolved scene-side; 0 = use the procedural default)
+        u32 WeatherMapTextureID = 0;
+        f32 WeatherMapExtentMeters = 30000.0f;
+
+        // Raymarch quality + lighting
+        i32 MaxSteps = 64;
+        i32 LightSteps = 6;
+        f32 SunLightScale = 1.0f;
+        f32 AmbientScale = 1.0f;
+        f32 MultiScatterStrength = 0.5f;
+        f32 PhaseG = 0.6f;
+        f32 PowderStrength = 1.0f;
+        f32 TemporalBlend = 0.9f;
+
+        // Ground shadows
+        bool CastShadows = true;
+        f32 ShadowStrength = 0.8f;
+        f32 ShadowWorldSize = 8000.0f;
+
+        // Lighting inputs mirrored from the active directional body + sky
+        glm::vec3 SunDirection = glm::vec3(0.0f, 1.0f, 0.0f); // toward sun/moon
+        glm::vec3 SunColor = glm::vec3(1.0f);                 // colour * intensity
+        glm::vec3 AmbientColor = glm::vec3(0.4f, 0.5f, 0.7f);
+        f32 NightBlend = 0.0f;
+
+        // Surface weather response (applies with or without clouds)
+        f32 SurfaceWetness = 0.0f;
+
+        bool operator==(const CloudscapeRenderState&) const = default;
+    };
+
     // Underwater rendering state. Populated each frame by the scene when the
     // camera sits inside a water volume (WATER_FUTURE_IMPROVEMENTS.md §7.2).
     // `Active == false` short-circuits the underwater fog pass; the pass

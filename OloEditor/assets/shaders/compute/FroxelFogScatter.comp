@@ -27,6 +27,11 @@ layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
 #include "../include/FogCommon.glsl"
 #include "../include/FogVolumeCommon.glsl"
+// Cloud shadow for the sun in-scatter term (issue #633) — the same
+// atmosphereCloudShadow the PBR surface shaders apply to the directional
+// light (parity: media under a cloud must darken like the ground under it).
+// Self-contained (UBO 53 + sampler 59), so a compute stage can include it.
+#include "../include/AtmosphereShading.glsl"
 
 // Froxel fog parameters (binding 46) — mirrors UBOStructures::FroxelFogUBO
 layout(std140, binding = 46) uniform FroxelFogData
@@ -397,6 +402,10 @@ void main()
         vec3 rayleigh = u_FogScatterParams.x * rPhase * u_FogRayleighColorAndMaxOpacity.rgb;
         vec3 mie = u_FogScatterParams.y * mPhase * vec3(1.0);
         vec3 scatter = u_FogScatterParams.w * (rayleigh + mie) * combinedDensity;
+        // Cloud shadow attenuates the sun's in-scatter exactly like the
+        // surface shaders attenuate the directional light (issue #633).
+        // relPos is render-relative — atmosphereCloudShadow's contract.
+        scatter *= atmosphereCloudShadow(relPos);
         inscatter += multiScatterApprox(scatter, combinedDensity);
     }
 

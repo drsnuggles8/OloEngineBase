@@ -315,6 +315,29 @@ namespace OloEngine
 		internal static extern void ClothComponent_SetEnabled(ulong entityID, bool value);
 		#endregion
 
+		#region CloudscapeComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool CloudscapeComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CloudscapeComponent_SetEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CloudscapeComponent_GetCoverage(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CloudscapeComponent_SetCoverage(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CloudscapeComponent_GetDensity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CloudscapeComponent_SetDensity(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CloudscapeComponent_GetTypeBlend(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CloudscapeComponent_SetTypeBlend(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool CloudscapeComponent_GetCastCloudShadows(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CloudscapeComponent_SetCastCloudShadows(ulong entityID, bool value);
+		#endregion
+
 		#region DirectionalLightComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void DirectionalLightComponent_GetColor(ulong entityID, out Vector3 value);
@@ -953,10 +976,6 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void ProceduralSkyComponent_SetShowSunDisk(ulong entityID, bool value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern bool ProceduralSkyComponent_GetLinkSunToDirectionalLight(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void ProceduralSkyComponent_SetLinkSunToDirectionalLight(ulong entityID, bool value);
-		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool ProceduralSkyComponent_GetEnableSkybox(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void ProceduralSkyComponent_SetEnableSkybox(ulong entityID, bool value);
@@ -1375,6 +1394,57 @@ namespace OloEngine
 		internal static extern void TextComponent_SetLineSpacing(ulong entityID, float value);
 		#endregion
 
+		#region TimeOfDayComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool TimeOfDayComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TimeOfDayComponent_SetEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TimeOfDayComponent_GetTimeOfDayHours(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TimeOfDayComponent_SetTimeOfDayHours(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int TimeOfDayComponent_GetDayOfYear(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TimeOfDayComponent_SetDayOfYear(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TimeOfDayComponent_GetLatitudeDegrees(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TimeOfDayComponent_SetLatitudeDegrees(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TimeOfDayComponent_GetDayLengthMinutes(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TimeOfDayComponent_SetDayLengthMinutes(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TimeOfDayComponent_GetTimeScale(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TimeOfDayComponent_SetTimeScale(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool TimeOfDayComponent_GetPaused(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TimeOfDayComponent_SetPaused(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TimeOfDayComponent_GetMoonPhase(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TimeOfDayComponent_SetMoonPhase(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TimeOfDayComponent_GetSunDirection(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TimeOfDayComponent_SetSunDirection(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TimeOfDayComponent_GetMoonDirection(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TimeOfDayComponent_SetMoonDirection(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float TimeOfDayComponent_GetSunElevationDegrees(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TimeOfDayComponent_SetSunElevationDegrees(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool TimeOfDayComponent_GetIsNight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void TimeOfDayComponent_SetIsNight(ulong entityID, bool value);
+		#endregion
+
 		#region TransformComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void TransformComponent_GetTranslation(ulong entityID, out Vector3 value);
@@ -1726,6 +1796,25 @@ namespace OloEngine
 		internal static extern string VideoSurfaceComponent_GetVideoPath(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void VideoSurfaceComponent_SetVideoPath(ulong entityID, string value);
+		#endregion
+
+		#region WeatherStateComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool WeatherStateComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void WeatherStateComponent_SetEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float WeatherStateComponent_GetTransitionDuration(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void WeatherStateComponent_SetTransitionDuration(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float WeatherStateComponent_GetTransitionProgress(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void WeatherStateComponent_SetTransitionProgress(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float WeatherStateComponent_GetWetness(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void WeatherStateComponent_SetWetness(ulong entityID, float value);
 		#endregion
 
 	}

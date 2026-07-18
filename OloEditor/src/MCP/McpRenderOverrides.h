@@ -16,18 +16,20 @@
 // server stays read-only with respect to the project — the same boundary the
 // Tier-0 camera/viewport tools respect.
 //
-//   * olo_scene_set_time_of_day — set an ephemeral time-of-day (0-24h) that
-//                                  drives the procedural sky's sun direction.
-//   * olo_scene_set_sun_angle    — set the sun direction directly from a
-//                                  yaw (azimuth) / pitch (elevation) pair.
+//   * olo_scene_set_time_of_day — write the scene's TimeOfDayComponent clock
+//                                  (hours / day-of-year / latitude / pause),
+//                                  the serialized, authoritative sun source.
+//   * olo_scene_set_sun_angle    — solve for the time of day whose ephemeris
+//                                  sun best matches a requested azimuth /
+//                                  elevation pair and write THAT into the
+//                                  TimeOfDayComponent.
 //     Both back the lighting inner loop: move the sun -> olo_screenshot ->
-//     move it again. They mutate ONLY a session-global Renderer3D sun-direction
-//     override (read by Scene::LoadAndRenderSkybox when baking the procedural
-//     sky), never the ProceduralSkyComponent's serialized m_SunDirection — so
-//     the change is visible next frame, never saved, and resets on scene reload
-//     / play-stop / server-stop / explicit clear. The sun-direction math lives
-//     here as pure float functions (NO glm) so it unit-tests without a renderer;
-//     the handler converts the result to glm::vec3.
+//     move it again. Since issue #633 they write the scene's serialized
+//     TimeOfDayComponent (the ephemeral Renderer3D sun-direction override they
+//     used to drive is retired), so they are consented PROJECT writes. The
+//     angle->time solver lives here as a pure float function (NO Scene, NO
+//     renderer) so it unit-tests headlessly; the component lookup/write stays
+//     in the McpToolsRender.cpp handlers.
 //
 // The handler in McpTools.cpp does the renderer-bound work on the main thread
 // (resolve the token to the bool field on PostProcessSettings / FogSettings, flip
@@ -36,7 +38,10 @@
 // functions with NO renderer / editor / GPU dependencies means this contract is
 // unit-tested directly (the MCP test binary compiles the dispatch core but
 // deliberately NOT McpTools.cpp), the same split McpShaderReload.h /
-// McpRenderExplain.h use. Only nlohmann::json + the standard library here.
+// McpRenderExplain.h use. Only nlohmann::json, the scalar typedefs from
+// OloEngine/Core/Base.h, and the standard library here.
+
+#include "OloEngine/Core/Base.h"
 
 #include <nlohmann/json.hpp>
 
@@ -383,105 +388,103 @@ namespace OloEngine::MCP::RenderOverrides
         return j;
     }
 
-    // ---- Sun / time-of-day override ----------------------------------------
-    // Pure sun-direction math for olo_scene_set_time_of_day / olo_scene_set_sun_angle.
-    // A "toward-sun" unit direction in world space (Y up), kept as plain doubles so
-    // this header stays free of glm; the handler converts to glm::vec3 before
-    // handing it to Renderer3D::SetSunDirectionOverride.
+    // ---- Sun-angle -> time-of-day solver ------------------------------------
+    // Pure math for olo_scene_set_sun_angle (issue #633): the ephemeral
+    // Renderer3D sun-direction override is retired and the serialized
+    // TimeOfDayComponent is the single authoritative sun source, so "aim the
+    // sun at azimuth A / elevation E" becomes "solve for the clock time whose
+    // ephemeris sun best matches that direction"; the handler writes the
+    // solved hours into the component.
+    //
+    // Conventions (matching Atmosphere/Ephemeris.h, which itself kept the old
+    // override tools' frame): +Y up, azimuth in degrees measured from +Z
+    // (north) toward +X (east) — 90 = east, 180 = south, 270 = west;
+    // elevation in degrees above the horizon (negative = below). The azimuth
+    // is honoured ONLY for its east/west side (the morning/afternoon branch of
+    // the hour angle): with one knob — the time of day — the solver can hit
+    // any *achievable* elevation exactly, but the azimuth then falls out of
+    // the ephemeris; matching both would be over-constrained.
+    //
+    // Model (the same Cooper-declination / hour-angle sphere Ephemeris pins):
+    //   sin(elev) = sin(delta)*sin(lat) + cos(delta)*cos(lat)*cos(H)
+    // solved for the hour angle H = +/-acos(...), the east (morning) side
+    // taking the negative branch; hours = 12 + H / 15deg. When the requested
+    // elevation is outside the day's achievable [min, max], the acos operand
+    // leaves [-1, 1]: it is clamped (H = 0 -> solar noon, H = pi -> solar
+    // midnight), Clamped is set, and AchievedElevationDeg reports the
+    // elevation actually reached.
 
-    struct SunVec3
+    struct SunAngleSolve
     {
-        double X = 0.0;
-        double Y = 1.0;
-        double Z = 0.0;
+        f32 Hours = 12.0f;               // solved clock time in [0, 24)
+        f32 AchievedElevationDeg = 0.0f; // elevation the solved hour actually yields
+        bool Clamped = false;            // requested elevation was outside the day's range
     };
 
-    // Normalise to a unit vector; a (near-)zero vector collapses to straight up so
-    // a degenerate input never yields a NaN direction.
-    [[nodiscard]] inline SunVec3 NormalizeSun(SunVec3 d)
+    [[nodiscard]] inline SunAngleSolve SolveTimeForSunAngle(f32 elevationDeg, f32 azimuthDeg,
+                                                            i32 dayOfYear, f32 latitudeDeg)
     {
-        const double len = std::sqrt(d.X * d.X + d.Y * d.Y + d.Z * d.Z);
-        if (len < 1e-9)
-            return SunVec3{ 0.0, 1.0, 0.0 };
-        return SunVec3{ d.X / len, d.Y / len, d.Z / len };
-    }
+        constexpr f64 kDeg2Rad = std::numbers::pi / 180.0;
+        constexpr f64 kRad2Deg = 180.0 / std::numbers::pi;
 
-    // Build a toward-sun unit direction from an azimuth (yaw) and elevation (pitch),
-    // both in degrees. Azimuth is measured from +Z toward +X: 0deg -> +Z, 90deg ->
-    // +X. Elevation is the angle above the horizon: 0deg on the horizon, 90deg
-    // straight up, negative below. This is the shared spherical->cartesian core both
-    // tools resolve to.
-    [[nodiscard]] inline SunVec3 SunDirectionFromAngles(double azimuthDegrees, double elevationDegrees)
-    {
-        constexpr double kDeg2Rad = std::numbers::pi / 180.0;
-        const double az = azimuthDegrees * kDeg2Rad;
-        const double el = elevationDegrees * kDeg2Rad;
-        const double cosE = std::cos(el);
-        return NormalizeSun(SunVec3{ cosE * std::sin(az), std::sin(el), cosE * std::cos(az) });
-    }
+        // Untrusted inputs (agent JSON / scene YAML): non-finite falls back to
+        // a sane default, the rest clamps — mirroring EphemerisInputs'
+        // sanitizing so the solver can never produce a NaN clock time.
+        const f64 elevation = std::isfinite(elevationDeg)
+                                  ? std::clamp(static_cast<f64>(elevationDeg), -90.0, 90.0)
+                                  : 0.0;
+        const f64 azimuth = std::isfinite(azimuthDeg) ? static_cast<f64>(azimuthDeg) : 180.0;
+        const f64 latitude = std::isfinite(latitudeDeg)
+                                 ? std::clamp(static_cast<f64>(latitudeDeg), -90.0, 90.0) * kDeg2Rad
+                                 : 48.0 * kDeg2Rad;
+        const i32 day = std::clamp(dayOfYear, 1, 365);
 
-    // Map a 24-hour clock time to a toward-sun direction. The sun rises on the east
-    // horizon (+X) at 06:00, climbs to overhead (+Y) at noon, and sets on the west
-    // horizon (-X) at 18:00; before 06:00 / after 18:00 the elevation is negative
-    // (the sun is below the horizon -> night). Elevation follows a smooth
-    // 90*sin(pi*(h-6)/12) arc and the azimuth sweeps east->south->west at 15deg/hr,
-    // so the mapping is monotonic and continuous across the day.
-    [[nodiscard]] inline SunVec3 SunDirectionFromTimeOfDay(double hours)
-    {
-        const double elevationDegrees = 90.0 * std::sin(std::numbers::pi * (hours - 6.0) / 12.0);
-        const double azimuthDegrees = 90.0 + (hours - 6.0) * 15.0;
-        return SunDirectionFromAngles(azimuthDegrees, elevationDegrees);
-    }
+        // Cooper (1969) declination — the same model Ephemeris::SolarDeclination pins.
+        const f64 declination = -23.44 * kDeg2Rad *
+                                std::cos(2.0 * std::numbers::pi * (static_cast<f64>(day) + 10.0) / 365.0);
 
-    // Elevation (degrees above the horizon) of a toward-sun direction; expects a
-    // roughly-unit vector. Clamped so a slightly-denormalised input can't trip asin.
-    [[nodiscard]] inline double SunElevationDegrees(SunVec3 d)
-    {
-        constexpr double kRad2Deg = 180.0 / std::numbers::pi;
-        return std::asin(std::clamp(d.Y, -1.0, 1.0)) * kRad2Deg;
-    }
+        const f64 sinDsinL = std::sin(declination) * std::sin(latitude);
+        const f64 cosDcosL = std::cos(declination) * std::cos(latitude);
 
-    // Azimuth (degrees, measured from +Z toward +X, normalised to [0, 360)) of a
-    // toward-sun direction — the inverse of SunDirectionFromAngles' azimuth.
-    [[nodiscard]] inline double SunAzimuthDegrees(SunVec3 d)
-    {
-        constexpr double kRad2Deg = 180.0 / std::numbers::pi;
-        double az = std::atan2(d.X, d.Z) * kRad2Deg;
-        if (az < 0.0)
-            az += 360.0;
-        return az;
-    }
+        SunAngleSolve solve;
+        f64 hourAngle = 0.0; // radians; 0 = solar noon, negative = morning
 
-    // Facts gathered by the handler after a set / clear / introspect call on the
-    // ephemeral sun-direction override.
-    struct SunOverrideResult
-    {
-        bool Active = false;   // an override is in effect after this call
-        bool Cleared = false;  // this call cleared a previously-active override
-        SunVec3 Direction{};   // toward-sun unit direction (meaningful when Active)
-        bool HasHours = false; // Hours is meaningful (the override came from set_time_of_day)
-        double Hours = 0.0;    // 0-24 clock time
-        std::string Source;    // "timeOfDay" | "sunAngle" | "cleared" | "current"
-        std::string Note;      // optional hint (no procedural sky / below-horizon); empty if none
-    };
-
-    [[nodiscard]] inline Json ToJson(const SunOverrideResult& r)
-    {
-        Json j;
-        j["active"] = r.Active;
-        j["source"] = r.Source;
-        if (r.Cleared)
-            j["cleared"] = true;
-        if (r.Active)
+        if (std::abs(cosDcosL) < 1e-9)
         {
-            j["sunDirection"] = Json::array({ r.Direction.X, r.Direction.Y, r.Direction.Z });
-            j["elevationDegrees"] = SunElevationDegrees(r.Direction);
-            j["azimuthDegrees"] = SunAzimuthDegrees(r.Direction);
-            if (r.HasHours)
-                j["hours"] = r.Hours;
+            // Degenerate pole case: the elevation is (nearly) constant all
+            // day, so noon is as good an answer as any hour.
+            solve.Clamped = std::abs(std::sin(elevation * kDeg2Rad) - sinDsinL) > 1e-6;
         }
-        if (!r.Note.empty())
-            j["note"] = r.Note;
-        return j;
+        else
+        {
+            const f64 operand = (std::sin(elevation * kDeg2Rad) - sinDsinL) / cosDcosL;
+            if (operand >= 1.0)
+                hourAngle = 0.0; // above the day's maximum -> solar noon
+            else if (operand <= -1.0)
+                hourAngle = std::numbers::pi; // below the day's minimum -> solar midnight
+            else
+                hourAngle = std::acos(operand);
+            solve.Clamped = operand > 1.0 || operand < -1.0;
+
+            // East/west branch: an easterly azimuth (sin > 0, i.e. (0, 180)
+            // mod 360) is the morning sun -> negative hour angle; westerly is
+            // the afternoon. Only the side is honoured — see the note above.
+            if (std::sin(azimuth * kDeg2Rad) > 0.0)
+                hourAngle = -hourAngle;
+        }
+
+        // The elevation actually reached at the solved hour (== the requested
+        // one when not clamped, up to fp): cos is even, so the morning /
+        // afternoon branch sign does not change it.
+        solve.AchievedElevationDeg = static_cast<f32>(
+            std::asin(std::clamp(sinDsinL + cosDcosL * std::cos(hourAngle), -1.0, 1.0)) * kRad2Deg);
+
+        f64 hours = 12.0 + (hourAngle * kRad2Deg) / 15.0; // 15 deg of hour angle per hour
+        if (hours >= 24.0)
+            hours -= 24.0;
+        if (hours < 0.0)
+            hours += 24.0;
+        solve.Hours = static_cast<f32>(hours);
+        return solve;
     }
 } // namespace OloEngine::MCP::RenderOverrides

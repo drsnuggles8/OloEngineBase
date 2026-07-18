@@ -1505,6 +1505,248 @@ TEST_F(LuaBindingTest, SphereAreaLightComponent_RejectsInvalidInputs)
     EXPECT_FLOAT_EQ(al.m_Intensity, 2.0f);
 }
 
+// =============================================================================
+// TimeOfDayComponent (issue #633)
+// =============================================================================
+
+TEST_F(LuaBindingTest, TimeOfDayComponent_PropertyRoundTrip)
+{
+    TimeOfDayComponent tod;
+    lua["tod"] = &tod;
+
+    lua.script("tod.enabled = false; tod.paused = true");
+    EXPECT_FALSE(tod.m_Enabled);
+    EXPECT_TRUE(tod.m_Paused);
+
+    lua.script("tod.timeOfDayHours = 18.5; tod.dayOfYear = 300; tod.latitudeDegrees = -33.9");
+    EXPECT_FLOAT_EQ(tod.m_TimeOfDayHours, 18.5f);
+    EXPECT_EQ(tod.m_DayOfYear, 300);
+    EXPECT_FLOAT_EQ(tod.m_LatitudeDegrees, -33.9f);
+
+    lua.script("tod.dayLengthMinutes = 30.0; tod.timeScale = 2.0; tod.moonPhase = 0.25; tod.northOffsetDegrees = 90.0");
+    EXPECT_FLOAT_EQ(tod.m_DayLengthMinutes, 30.0f);
+    EXPECT_FLOAT_EQ(tod.m_TimeScale, 2.0f);
+    EXPECT_FLOAT_EQ(tod.m_MoonPhase, 0.25f);
+    EXPECT_FLOAT_EQ(tod.m_NorthOffsetDegrees, 90.0f);
+}
+
+TEST_F(LuaBindingTest, TimeOfDayComponent_TimeOfDayHoursWrapsAndRejectsNonFinite)
+{
+    TimeOfDayComponent tod;
+    lua["tod"] = &tod;
+
+    lua.script("tod.timeOfDayHours = 25.0"); // wraps into [0,24)
+    EXPECT_FLOAT_EQ(tod.m_TimeOfDayHours, 1.0f);
+
+    lua.script("tod.timeOfDayHours = -1.0"); // negative wraps to 23
+    EXPECT_FLOAT_EQ(tod.m_TimeOfDayHours, 23.0f);
+
+    lua.script("tod.timeOfDayHours = 24.0"); // 24 wraps to 0
+    EXPECT_FLOAT_EQ(tod.m_TimeOfDayHours, 0.0f);
+
+    tod.m_TimeOfDayHours = 10.0f;
+    lua.script("tod.timeOfDayHours = 0.0/0.0"); // NaN rejected
+    EXPECT_FLOAT_EQ(tod.m_TimeOfDayHours, 10.0f);
+
+    lua.script("tod.timeOfDayHours = math.huge"); // inf rejected
+    EXPECT_FLOAT_EQ(tod.m_TimeOfDayHours, 10.0f);
+}
+
+TEST_F(LuaBindingTest, TimeOfDayComponent_ClampsOutOfRangeInputs)
+{
+    TimeOfDayComponent tod;
+    lua["tod"] = &tod;
+
+    lua.script("tod.dayOfYear = 0"); // clamped to [1,365]
+    EXPECT_EQ(tod.m_DayOfYear, 1);
+    lua.script("tod.dayOfYear = 400");
+    EXPECT_EQ(tod.m_DayOfYear, 365);
+
+    lua.script("tod.latitudeDegrees = 120.0"); // clamped to [-90,90]
+    EXPECT_FLOAT_EQ(tod.m_LatitudeDegrees, 90.0f);
+    lua.script("tod.latitudeDegrees = -120.0");
+    EXPECT_FLOAT_EQ(tod.m_LatitudeDegrees, -90.0f);
+
+    lua.script("tod.dayLengthMinutes = 0.0"); // clamped to [0.1,10080]
+    EXPECT_FLOAT_EQ(tod.m_DayLengthMinutes, 0.1f);
+
+    lua.script("tod.timeScale = -5.0"); // clamped to [0,1000]
+    EXPECT_FLOAT_EQ(tod.m_TimeScale, 0.0f);
+
+    lua.script("tod.moonPhase = 2.0"); // clamped to [0,1]
+    EXPECT_FLOAT_EQ(tod.m_MoonPhase, 1.0f);
+
+    lua.script("tod.northOffsetDegrees = 720.0"); // clamped to [-360,360]
+    EXPECT_FLOAT_EQ(tod.m_NorthOffsetDegrees, 360.0f);
+}
+
+TEST_F(LuaBindingTest, TimeOfDayComponent_DerivedOutputsAreReadOnly)
+{
+    TimeOfDayComponent tod;
+    tod.m_SunDirection = glm::vec3(0.0f, 0.5f, 0.5f);
+    tod.m_MoonDirection = glm::vec3(0.0f, -0.5f, -0.5f);
+    tod.m_SunElevationDegrees = 30.0f;
+    tod.m_IsNight = true;
+    lua["tod"] = &tod;
+
+    auto result = lua.script("return tod.sunDirection.y, tod.moonDirection.y, tod.sunElevationDegrees, tod.isNight");
+    EXPECT_FLOAT_EQ(result.get<f32>(0), 0.5f);
+    EXPECT_FLOAT_EQ(result.get<f32>(1), -0.5f);
+    EXPECT_FLOAT_EQ(result.get<f32>(2), 30.0f);
+    EXPECT_TRUE(result.get<bool>(3));
+
+    // Writing ANY derived output raises a Lua error and leaves state
+    // untouched — each property is registered individually in Sol2, so one
+    // accidentally-writable sibling would slip past a single-property probe.
+    auto writeResult = lua.safe_script("tod.sunElevationDegrees = 75.0", sol::script_pass_on_error);
+    EXPECT_FALSE(writeResult.valid());
+    EXPECT_FLOAT_EQ(tod.m_SunElevationDegrees, 30.0f);
+
+    writeResult = lua.safe_script("tod.sunDirection = vec3.new(1.0, 0.0, 0.0)", sol::script_pass_on_error);
+    EXPECT_FALSE(writeResult.valid());
+    EXPECT_FLOAT_EQ(tod.m_SunDirection.y, 0.5f);
+
+    writeResult = lua.safe_script("tod.moonDirection = vec3.new(1.0, 0.0, 0.0)", sol::script_pass_on_error);
+    EXPECT_FALSE(writeResult.valid());
+    EXPECT_FLOAT_EQ(tod.m_MoonDirection.y, -0.5f);
+
+    writeResult = lua.safe_script("tod.isNight = false", sol::script_pass_on_error);
+    EXPECT_FALSE(writeResult.valid());
+    EXPECT_TRUE(tod.m_IsNight);
+}
+
+// =============================================================================
+// WeatherStateComponent (issue #633)
+// =============================================================================
+
+TEST_F(LuaBindingTest, WeatherStateComponent_TargetStateStringRoundTrip)
+{
+    WeatherStateComponent ws;
+    lua["ws"] = &ws;
+
+    auto initial = lua.script("return ws.targetState");
+    EXPECT_EQ(initial.get<std::string>(), "Clear");
+
+    lua.script("ws.targetState = 'Storm'");
+    EXPECT_EQ(ws.m_TargetState, WeatherStateId::Storm);
+
+    lua.script("ws.targetState = 'FogBank'");
+    EXPECT_EQ(ws.m_TargetState, WeatherStateId::FogBank);
+
+    auto result = lua.script("return ws.targetState");
+    EXPECT_EQ(result.get<std::string>(), "FogBank");
+}
+
+TEST_F(LuaBindingTest, WeatherStateComponent_IgnoresUnknownTargetStateNames)
+{
+    WeatherStateComponent ws;
+    ws.m_TargetState = WeatherStateId::Rain;
+    lua["ws"] = &ws;
+
+    lua.script("ws.targetState = 'Drizzle'"); // unknown name ignored (warns)
+    EXPECT_EQ(ws.m_TargetState, WeatherStateId::Rain);
+
+    lua.script("ws.targetState = 'storm'"); // case-sensitive: lowercase ignored
+    EXPECT_EQ(ws.m_TargetState, WeatherStateId::Rain);
+}
+
+TEST_F(LuaBindingTest, WeatherStateComponent_PropertyRoundTrip)
+{
+    WeatherStateComponent ws;
+    ws.m_CurrentState = WeatherStateId::Snow;
+    ws.m_TransitionProgress = 0.5f;
+    ws.m_Wetness = 0.75f;
+    lua["ws"] = &ws;
+
+    lua.script("ws.enabled = false");
+    EXPECT_FALSE(ws.m_Enabled);
+
+    lua.script("ws.transitionDuration = 42.0");
+    EXPECT_FLOAT_EQ(ws.m_TransitionDuration, 42.0f);
+
+    lua.script("ws.transitionDuration = 1000.0"); // clamped to [0,600]
+    EXPECT_FLOAT_EQ(ws.m_TransitionDuration, 600.0f);
+
+    ws.m_TransitionDuration = 10.0f;
+    lua.script("ws.transitionDuration = 0.0/0.0"); // NaN rejected
+    EXPECT_FLOAT_EQ(ws.m_TransitionDuration, 10.0f);
+
+    // currentState / transitionProgress / wetness are readonly
+    auto result = lua.script("return ws.currentState, ws.transitionProgress, ws.wetness");
+    EXPECT_EQ(result.get<std::string>(0), "Snow");
+    EXPECT_FLOAT_EQ(result.get<f32>(1), 0.5f);
+    EXPECT_FLOAT_EQ(result.get<f32>(2), 0.75f);
+
+    auto writeResult = lua.safe_script("ws.currentState = 'Storm'", sol::script_pass_on_error);
+    EXPECT_FALSE(writeResult.valid());
+    EXPECT_EQ(ws.m_CurrentState, WeatherStateId::Snow);
+
+    writeResult = lua.safe_script("ws.transitionProgress = 1.0", sol::script_pass_on_error);
+    EXPECT_FALSE(writeResult.valid());
+    EXPECT_FLOAT_EQ(ws.m_TransitionProgress, 0.5f);
+
+    writeResult = lua.safe_script("ws.wetness = 0.0", sol::script_pass_on_error);
+    EXPECT_FALSE(writeResult.valid());
+    EXPECT_FLOAT_EQ(ws.m_Wetness, 0.75f);
+}
+
+// =============================================================================
+// CloudscapeComponent (issue #633)
+// =============================================================================
+
+TEST_F(LuaBindingTest, CloudscapeComponent_PropertyRoundTrip)
+{
+    CloudscapeComponent cs;
+    lua["cs"] = &cs;
+
+    lua.script("cs.enabled = false; cs.castCloudShadows = false");
+    EXPECT_FALSE(cs.m_Enabled);
+    EXPECT_FALSE(cs.m_CastCloudShadows);
+
+    lua.script("cs.coverage = 0.8; cs.density = 2.0; cs.typeBlend = 0.9; cs.erosionStrength = 0.3");
+    EXPECT_FLOAT_EQ(cs.m_Coverage, 0.8f);
+    EXPECT_FLOAT_EQ(cs.m_Density, 2.0f);
+    EXPECT_FLOAT_EQ(cs.m_TypeBlend, 0.9f);
+    EXPECT_FLOAT_EQ(cs.m_ErosionStrength, 0.3f);
+
+    lua.script("cs.windAnimationScale = 4.0; cs.shadowStrength = 0.5; cs.layerBottom = 1000.0; cs.layerTop = 5000.0");
+    EXPECT_FLOAT_EQ(cs.m_WindAnimationScale, 4.0f);
+    EXPECT_FLOAT_EQ(cs.m_ShadowStrength, 0.5f);
+    EXPECT_FLOAT_EQ(cs.m_LayerBottom, 1000.0f);
+    EXPECT_FLOAT_EQ(cs.m_LayerTop, 5000.0f);
+}
+
+TEST_F(LuaBindingTest, CloudscapeComponent_ClampsAndRejectsInvalidInputs)
+{
+    CloudscapeComponent cs;
+    lua["cs"] = &cs;
+
+    lua.script("cs.coverage = 1.5"); // clamped to [0,1]
+    EXPECT_FLOAT_EQ(cs.m_Coverage, 1.0f);
+    lua.script("cs.coverage = -0.5");
+    EXPECT_FLOAT_EQ(cs.m_Coverage, 0.0f);
+
+    lua.script("cs.density = 10.0"); // clamped to [0,4]
+    EXPECT_FLOAT_EQ(cs.m_Density, 4.0f);
+
+    lua.script("cs.windAnimationScale = 100.0"); // clamped to [0,8]
+    EXPECT_FLOAT_EQ(cs.m_WindAnimationScale, 8.0f);
+
+    lua.script("cs.layerBottom = -100.0"); // clamped to [0,20000]
+    EXPECT_FLOAT_EQ(cs.m_LayerBottom, 0.0f);
+
+    lua.script("cs.layerTop = 50.0"); // clamped to [100,30000]
+    EXPECT_FLOAT_EQ(cs.m_LayerTop, 100.0f);
+
+    cs.m_TypeBlend = 0.5f;
+    lua.script("cs.typeBlend = 0.0/0.0"); // NaN rejected
+    EXPECT_FLOAT_EQ(cs.m_TypeBlend, 0.5f);
+
+    cs.m_ShadowStrength = 0.8f;
+    lua.script("cs.shadowStrength = math.huge"); // inf rejected
+    EXPECT_FLOAT_EQ(cs.m_ShadowStrength, 0.8f);
+}
+
 TEST_F(LuaBindingTest, TagComponent_PropertyRoundTrip)
 {
     TagComponent tc("Hello");

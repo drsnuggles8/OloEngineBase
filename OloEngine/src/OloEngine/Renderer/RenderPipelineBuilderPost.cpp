@@ -58,6 +58,16 @@ namespace OloEngine::RenderPipelineBuilderInternal
                                        inputs.Passes->MotionBlur));
         graph.AddNode(PrepareGraphNode("TAAPass",
                                        inputs.Passes->TAA));
+        // Volumetric cloudscape (issue #633): half-res raymarch + temporal
+        // resolve + full-res composite. Runs after TAA (it consumes the
+        // anti-aliased scene colour) and before Precipitation/Fog so screen
+        // streaks overlay the clouds and the froxel fog applies aerial
+        // perspective over them. Self-skips when disabled (its CloudsColor
+        // resource is never declared).
+        if (inputs.Passes->Cloudscape)
+        {
+            graph.AddNode(PrepareGraphNode("CloudscapePass", inputs.Passes->Cloudscape));
+        }
         graph.AddNode(PrepareGraphNode("PrecipitationPass",
                                        inputs.Passes->Precipitation));
         // Froxel volumetric fog compute chain (issue #435): builds the 3D

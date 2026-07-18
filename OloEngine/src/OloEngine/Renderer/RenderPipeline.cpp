@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
+#include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -15,6 +16,9 @@
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionState.h"
 #include "OloEngine/Renderer/CameraRelative.h"
+#include "OloEngine/Renderer/CloudNoise.h"
+#include "OloEngine/Renderer/CloudShadowMap.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderPipelineBuilder.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -746,6 +750,51 @@ namespace OloEngine
             PostProcessPasses.TAA->SetSettings(data.PostProcess);
         }
 
+        if (PostProcessPasses.Cloudscape)
+        {
+            PostProcessPasses.Cloudscape->SetEnabled(data.Cloudscape.Enabled);
+            // Full 288-byte camera UBO so the cloud shaders' u_CameraPosition /
+            // u_RenderOrigin reads stay in-bounds even if an earlier stage left
+            // a smaller ViewProjection-only camera UBO bound at slot 0 (same
+            // rationale as the FogRenderPass camera re-bind below).
+            PostProcessPasses.Cloudscape->SetCameraUBO(data.SharedSceneUBOs.Camera);
+
+            if (data.Cloudscape.Enabled)
+            {
+                // Fill this frame's CloudscapeUBO snapshot. EndScene runs this
+                // hook FIRST (Renderer3DFrameExecution.cpp), then
+                // UploadExecutionState uploads + binds the snapshot pre-graph
+                // because CloudShadow_Generate.comp consumes the same UBO
+                // outside the graph. The wind accumulators are advanced there
+                // too, so this snapshot carries the previous advance — a
+                // one-frame lag that is identical for every consumer.
+                const auto& cloud = data.Cloudscape;
+                UBOStructures::CloudscapeUBO cloudUBO;
+                const f32 layerThickness = std::max(cloud.LayerTop - cloud.LayerBottom, 1.0f);
+                cloudUBO.Layer = glm::vec4(cloud.LayerBottom, cloud.LayerTop, 1.0f / layerThickness, cloud.Density);
+                cloudUBO.Field = glm::vec4(cloud.Coverage, cloud.TypeBlend, cloud.Erosion, cloud.CloudWetness);
+                cloudUBO.Wind = glm::vec4(data.CloudWindOffset, cloud.WindAnimationScale, data.CloudTime);
+                cloudUBO.Map = glm::vec4(1.0f / std::max(cloud.WeatherMapExtentMeters, 1.0f),
+                                         static_cast<f32>(cloud.MaxSteps),
+                                         static_cast<f32>(cloud.LightSteps),
+                                         cloud.PhaseG);
+                cloudUBO.Light = glm::vec4(cloud.SunLightScale, cloud.AmbientScale, cloud.MultiScatterStrength, cloud.PowderStrength);
+                // Misc.x (temporal blend) is re-gated against the
+                // post-PopulateBlackboard history validity inside
+                // CloudscapeRenderPass::UploadAndBindUBO — the value here uses
+                // last frame's flag, which EnsureHistoryStorage may still
+                // reset on a resize later in EndScene.
+                cloudUBO.Misc = glm::vec4(CloudsHistoryValid ? cloud.TemporalBlend : 0.0f,
+                                          static_cast<f32>(data.CloudFrameIndex),
+                                          cloud.ShadowStrength,
+                                          1.0f);
+                cloudUBO.SunDirection = glm::vec4(cloud.SunDirection, cloud.NightBlend);
+                cloudUBO.SunColor = glm::vec4(cloud.SunColor, 0.0f);
+                cloudUBO.Ambient = glm::vec4(cloud.AmbientColor, 0.0f);
+                PostProcessPasses.Cloudscape->SetUBOData(cloudUBO);
+            }
+        }
+
         if (PostProcessPasses.Precipitation)
         {
             const bool precipEnabled = data.Precipitation.Enabled &&
@@ -1163,10 +1212,130 @@ namespace OloEngine
             }
         }
 
+        // Volumetric cloudscape (issue #633). EndScene call order
+        // (Renderer3DFrameExecution.cpp): ConfigurePassesForFrame (fills the
+        // pass's CloudscapeUBO snapshot) -> PopulateBlackboard (history
+        // storage/sink) -> THIS -> BuildFrameGraph -> Execute. The UBO is
+        // uploaded + bound HERE — before graph execution — because
+        // CloudShadow_Generate.comp consumes UBO 53 and the noise samplers
+        // 59/60/61 outside the graph.
+        if (PostProcessPasses.Cloudscape && data.Cloudscape.Enabled)
+        {
+            if (CloudNoise::EnsureGenerated())
+            {
+                const auto& cloudState = data.Cloudscape;
+
+                // Advance the wind-advection accumulators (shared by the
+                // raymarch and the cloud-shadow compute so both sample the
+                // field at the same scroll position). Deliberately driven by
+                // Time::GetTime() rather than a raw steady_clock so
+                // Time::SetMockTime freezes the cloud field for deterministic
+                // golden captures (AtmosphereVisualEvidenceTest) — under a
+                // mocked clock the dt is 0 and the field holds still.
+                const f32 cloudNow = Time::GetTime();
+                const f32 cloudDt = std::clamp(cloudNow - data.CloudPrevTimeSeconds, 0.0f, 0.1f);
+                data.CloudPrevTimeSeconds = cloudNow;
+                const glm::vec2 cloudWindXZ(data.Wind.Direction.x, data.Wind.Direction.z);
+                if (const f32 cloudWindLen = glm::length(cloudWindXZ); cloudWindLen > 1e-6f)
+                {
+                    data.CloudWindOffset += (cloudWindXZ / cloudWindLen) *
+                                            (data.Wind.Speed * cloudState.WindAnimationScale * cloudDt);
+                }
+                data.CloudTime += cloudDt;
+                // Wrap at 1024 to stay well within float32 integer-exact
+                // range (the raymarch reads Misc.y as f32 — same rationale
+                // as the fog frame index above).
+                data.CloudFrameIndex = (data.CloudFrameIndex + 1u) & 0x3FFu;
+
+                // Weather map: scene-authored override or the procedural default.
+                const u32 weatherMapID = cloudState.WeatherMapTextureID != 0u
+                                             ? cloudState.WeatherMapTextureID
+                                             : CloudNoise::GetDefaultWeatherMapTextureID();
+                // Noise ids are handed over here (not in ConfigurePassesForFrame)
+                // because on the first enabled frame EnsureGenerated() has only
+                // just run — the getters returned 0 before this point.
+                PostProcessPasses.Cloudscape->SetNoiseTextures(CloudNoise::GetBaseNoiseTextureID(),
+                                                               CloudNoise::GetDetailNoiseTextureID(),
+                                                               weatherMapID);
+                // History AFTER PopulateBlackboard: EnsureHistoryStorage may
+                // have (re)created the texture this frame, so the id handed
+                // to the pass must be read post-populate.
+                PostProcessPasses.Cloudscape->SetHistory(
+                    CloudsHistoryTexture ? CloudsHistoryTexture->GetRendererID() : 0u,
+                    CloudsHistoryValid);
+
+                PostProcessPasses.Cloudscape->UploadAndBindUBO();
+
+                RenderCommand::BindTexture(ShaderBindingLayout::TEX_CLOUD_BASE_NOISE, CloudNoise::GetBaseNoiseTextureID());
+                RenderCommand::BindTexture(ShaderBindingLayout::TEX_CLOUD_DETAIL_NOISE, CloudNoise::GetDetailNoiseTextureID());
+                RenderCommand::BindTexture(ShaderBindingLayout::TEX_CLOUD_WEATHER_MAP, weatherMapID);
+
+                if (cloudState.CastShadows)
+                {
+                    // data.ViewPos IS the absolute world camera position (the
+                    // render origin is derived FROM it in PrepareFrame and
+                    // only the camera-UBO copy is made relative), so hand it
+                    // to the shadow map directly — the cloud field lives in
+                    // absolute world space (issue #429).
+                    CloudShadowMap::Update(cloudState, data.ViewPos);
+                    // Publish for the PBR mesh dispatch bind at
+                    // TEX_CLOUD_SHADOW (62); CommandDispatch::ResetState()
+                    // zeroed it in PrepareFrame (same lifecycle as the snow
+                    // depth id above).
+                    CommandDispatch::SetCloudShadowTextureID(CloudShadowMap::GetTextureID());
+                }
+            }
+            else
+            {
+                // Noise generation failed (latched): the pass was already
+                // declared enabled for this frame, so fail safe by forcing
+                // the UBO's enabled lane off — the cloud shaders early-out
+                // instead of sampling unbound noise volumes.
+                PostProcessPasses.Cloudscape->UploadDisabledUBO();
+            }
+        }
+
+        // Surface weather response (AtmosphereShadingUBO, binding 54) —
+        // ALWAYS uploaded: the weather director's global wetness signal
+        // applies with or without clouds, and a zeroed upload is the
+        // canonical "everything off" state the PBR surface shaders gate on.
+        if (AtmosphereShadingUBO)
+        {
+            UBOStructures::AtmosphereShadingUBO atmosphere{};
+            atmosphere.Params0.x = data.Cloudscape.SurfaceWetness;
+            const bool cloudShadowActive = data.Cloudscape.Enabled &&
+                                           data.Cloudscape.CastShadows &&
+                                           CloudShadowMap::IsReady();
+            if (cloudShadowActive)
+            {
+                // SPACE CONTRACT (AtmosphereShading.glsl): consumers pass
+                // RENDER-RELATIVE positions (mesh v_WorldPos / froxel relPos,
+                // issue #429), so the map center — absolute world, where the
+                // shadow compute marches the field — must be shifted by the
+                // render origin before upload.
+                const glm::vec3& renderOrigin = Renderer3D::GetRenderOrigin();
+                const glm::vec2 shadowCenter = CloudShadowMap::GetCenter() -
+                                               glm::vec2(renderOrigin.x, renderOrigin.z);
+                const f32 shadowWorldSize = CloudShadowMap::GetWorldSize();
+                atmosphere.Params0.y = data.Cloudscape.ShadowStrength;
+                atmosphere.Params0.z = 1.0f;
+                atmosphere.Params1 = glm::vec4(shadowCenter, shadowWorldSize,
+                                               shadowWorldSize > 0.0f ? 1.0f / shadowWorldSize : 0.0f);
+            }
+            AtmosphereShadingUBO->SetData(&atmosphere, UBOStructures::AtmosphereShadingUBO::GetSize());
+            // Re-establish the binding-54 slot every upload — same rationale
+            // as the binding-17 fog re-bind above: consumers rely on a
+            // persistent glBindBufferBase, and any transient UBO created on
+            // this slot (then destroyed) reverts it to 0.
+            AtmosphereShadingUBO->Bind();
+        }
+
         // Upload motion blur / inverse VP matrices (needed by motion blur AND fog depth reconstruction
         // AND the deferred lighting pass, which reconstructs world-space position from G-Buffer depth
-        // AND TAA for camera-only velocity reprojection in Forward / Forward+).
-        if (data.PostProcess.MotionBlurEnabled || data.PostProcess.TAAEnabled || data.Fog.Enabled || data.Settings.Path == RenderingPath::Deferred)
+        // AND TAA for camera-only velocity reprojection in Forward / Forward+
+        // AND the cloudscape raymarch/resolve ray reconstruction).
+        if (data.PostProcess.MotionBlurEnabled || data.PostProcess.TAAEnabled || data.Fog.Enabled ||
+            data.Cloudscape.Enabled || data.Settings.Path == RenderingPath::Deferred)
         {
             auto& mb = data.PostProcessGPU.MotionBlurData;
             mb.InverseViewProjection = data.InverseViewProjectionMatrix;
@@ -1331,6 +1500,10 @@ namespace OloEngine
         // so the volumetric toggle changes graph declarations and MUST be
         // hashed or flipping it reuses a stale cached build (#530 class).
         HashBool(h, data.Fog.EnableVolumetric);
+        // Cloudscape (issue #633): the enable gates the CloudsColor +
+        // half-res scratch declarations in PopulateBlackboard, so it MUST be
+        // hashed or toggling it reuses a stale cached build (#530 class).
+        HashBool(h, data.Cloudscape.Enabled);
         HashBool(h, data.Snow.Enabled);
         HashBool(h, data.Snow.SSSBlurEnabled);
 
@@ -1370,6 +1543,11 @@ namespace OloEngine
         // into VolumetricFogPass's own 3D volume (issue #435) and no longer
         // flows through the blackboard.
         HashBool(h, TAAHistoryValid);
+        // Same first-frame false→true transition contract for the
+        // cloudscape's half-res resolve history (issue #633): the flag gates
+        // the CloudsHistory import below, so the flip MUST invalidate the
+        // cache or the resolve never sees its history.
+        HashBool(h, CloudsHistoryValid);
 
         // Pass-set readiness (covers branches like
         //   `if (pipeline.PostProcessPasses.X && X->IsReadyForExecution())`)
@@ -1402,6 +1580,7 @@ namespace OloEngine
         HashPassState(h, PostProcessPasses.DOF);
         HashPassState(h, PostProcessPasses.MotionBlur);
         HashPassState(h, PostProcessPasses.TAA);
+        HashPassState(h, PostProcessPasses.Cloudscape);
         HashPassState(h, PostProcessPasses.Precipitation);
         HashPassState(h, PostProcessPasses.VolumetricFog);
         HashPassState(h, PostProcessPasses.Fog);
@@ -2443,6 +2622,36 @@ namespace OloEngine
             board.Post.TAAColorTexture = taaOutput.Texture;
         }
 
+        // CloudsColor is declared only when the cloudscape is enabled (issue
+        // #633); the two half-resolution scratch framebuffers (raymarch
+        // output + temporal resolve) ride the same gate. Both gates are
+        // hashed into the fingerprint (Cloudscape.Enabled + HashPassState).
+        if (pipeline.PostProcessPasses.Cloudscape && data.Cloudscape.Enabled &&
+            pipeline.PostProcessPasses.Cloudscape->IsReadyForExecution())
+        {
+            const auto cloudsOutput = declareGraphOnlyPostProcessOutput(
+                ResourceNames::CloudsColor,
+                ResourceNames::CloudsColorTexture,
+                RGResourceFormat::RGBA16Float);
+            board.Post.CloudsColor = cloudsOutput.Framebuffer;
+            board.Post.CloudsColorTexture = cloudsOutput.Texture;
+
+            const auto& cloudsSpec = pipeline.PostProcessPasses.Cloudscape->GetFramebufferSpecification();
+            if (cloudsSpec.Width > 0u && cloudsSpec.Height > 0u)
+            {
+                RGResourceDesc cloudsHalfDesc;
+                cloudsHalfDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                cloudsHalfDesc.Format = RGResourceFormat::RGBA16Float;
+                cloudsHalfDesc.Width = (cloudsSpec.Width + 1u) / 2u;
+                cloudsHalfDesc.Height = (cloudsSpec.Height + 1u) / 2u;
+                cloudsHalfDesc.DebugName = std::string(ResourceNames::CloudsRaw);
+                board.Scratch.CloudsRaw = declareGraphOnlyFramebuffer(ResourceNames::CloudsRaw, cloudsHalfDesc);
+
+                cloudsHalfDesc.DebugName = std::string(ResourceNames::CloudsResolved);
+                board.Scratch.CloudsResolved = declareGraphOnlyFramebuffer(ResourceNames::CloudsResolved, cloudsHalfDesc);
+            }
+        }
+
         // PrecipitationColor is declared only when screen FX are active.
         const bool precipScreenEnabled = data.Precipitation.Enabled &&
                                          (data.Precipitation.ScreenStreaksEnabled ||
@@ -2691,6 +2900,29 @@ namespace OloEngine
                 ResourceNames::TAAHistory, pipeline.TAAHistoryTexture->GetRendererID());
         }
 
+        // CloudsHistory (issue #633): half-resolution resolved-cloud
+        // accumulation — the same sink/import mechanics as TAAHistory above,
+        // at ceil(viewport/2) to match the CloudsResolved scratch the pass
+        // extracts from.
+        if (pipeline.PostProcessPasses.Cloudscape)
+        {
+            const auto& cloudsSpec = pipeline.PostProcessPasses.Cloudscape->GetFramebufferSpecification();
+            const u32 cloudsHalfWidth = (cloudsSpec.Width + 1u) / 2u;
+            const u32 cloudsHalfHeight = (cloudsSpec.Height + 1u) / 2u;
+            EnsureHistoryStorage(pipeline.CloudsHistoryTexture, pipeline.CloudsHistoryValid, cloudsHalfWidth, cloudsHalfHeight);
+            graph.RegisterHistoryTextureSink(
+                ResourceNames::CloudsHistory,
+                pipeline.CloudsHistoryTexture ? pipeline.CloudsHistoryTexture->GetRendererID() : 0u,
+                pipeline.CloudsHistoryTexture ? pipeline.CloudsHistoryTexture->GetWidth() : 0u,
+                pipeline.CloudsHistoryTexture ? pipeline.CloudsHistoryTexture->GetHeight() : 0u,
+                &pipeline.CloudsHistoryValid);
+        }
+        if (pipeline.CloudsHistoryValid && pipeline.CloudsHistoryTexture)
+        {
+            board.Temporal.CloudsHistory = graph.ImportHistory(
+                ResourceNames::CloudsHistory, pipeline.CloudsHistoryTexture->GetRendererID());
+        }
+
         // (The 2D FogHistory sink/import died with the screen-space fog
         // raymarch — the froxel fog's temporal accumulation lives in
         // VolumetricFogPass's own 3D scatter volume, issue #435.)
@@ -2755,6 +2987,7 @@ namespace OloEngine
         inputs.Passes.DOF = PostProcessPasses.DOF.Raw();
         inputs.Passes.MotionBlur = PostProcessPasses.MotionBlur.Raw();
         inputs.Passes.TAA = PostProcessPasses.TAA.Raw();
+        inputs.Passes.Cloudscape = PostProcessPasses.Cloudscape.Raw();
         inputs.Passes.Precipitation = PostProcessPasses.Precipitation.Raw();
         inputs.Passes.VolumetricFog = PostProcessPasses.VolumetricFog.Raw();
         inputs.Passes.Fog = PostProcessPasses.Fog.Raw();
@@ -2974,6 +3207,19 @@ namespace OloEngine
         PostProcessPasses.TAA = Ref<TAARenderPass>::Create();
         PostProcessPasses.TAA->SetName("TAAPass");
         PostProcessPasses.TAA->Init(finalPassSpec);
+
+        // Volumetric cloudscape (issue #633): half-res raymarch + temporal
+        // resolve + full-res composite. Sits between TAA and Precipitation.
+        PostProcessPasses.Cloudscape = Ref<CloudscapeRenderPass>::Create();
+        PostProcessPasses.Cloudscape->SetName("CloudscapePass");
+        PostProcessPasses.Cloudscape->Init(finalPassSpec);
+
+        // Surface weather response UBO (binding 54, issue #633): wetness +
+        // cloud-shadow map transform for the PBR surface shaders. Uploaded
+        // every frame by UploadExecutionState (zeroed when nothing is
+        // enabled).
+        AtmosphereShadingUBO = UniformBuffer::Create(UBOStructures::AtmosphereShadingUBO::GetSize(),
+                                                     ShaderBindingLayout::UBO_ATMOSPHERE_SHADING);
 
         // Screen-space precipitation standalone pass.
         // Sits between TAA and Fog.

@@ -610,8 +610,8 @@ namespace OloEngine::MCP::GenericFieldWrite
     // The generated .inl is a flat list of:
     //   registry.push_back(OLO_GFW_FIELD(Comp, "FieldName", MemberExpr));
     //   registry.push_back(OLO_GFW_FIELD_RANGE(Comp, "FieldName", MemberExpr, min, max));
-    // where a bound is OLO_GFW_BOUND(expr) or OLO_GFW_NO_BOUND. The macros are scoped
-    // to this function and #undef'd below so they never leak out of the header.
+    // where a bound is OLO_GFW_BOUND(expr) or OLO_GFW_NO_BOUND. The macros (and the
+    // #include of the generated .inl) live in McpFieldRegistry.cpp, file-scoped.
     //
     // SUB-OBJECT ADDRESSING: `MemberExpr` is a member-ACCESS CHAIN, not a single name
     // — `Translation` for a top-level field, `System.Emitter.RateOverTime` for a field
@@ -644,32 +644,18 @@ namespace OloEngine::MCP::GenericFieldWrite
     // DIRECTLY on the live component (PropertySetCommand, not ComponentChangeCommand<C>)
     // — required because AudioSourceComponent's operator= cannot be trusted to preserve
     // ActiveEventID or push a value into the live Ref<AudioSource> Source.
-#define OLO_GFW_FIELD(Comp, FieldName, MemberExpr) \
-    MakeFieldAccess<Comp>(#Comp, FieldName, [](Comp& c) -> auto& { return c.MemberExpr; })
-#define OLO_GFW_FIELD_RANGE(Comp, FieldName, MemberExpr, MinBound, MaxBound) \
-    MakeFieldAccess<Comp>(                                                   \
-        #Comp, FieldName, [](Comp& c) -> auto& { return c.MemberExpr; },     \
-        FieldRange{ MinBound, MaxBound })
-#define OLO_GFW_BOUND(Expr) std::optional<double>(static_cast<double>(Expr))
-#define OLO_GFW_NO_BOUND std::optional<double>()
-    [[nodiscard]] inline std::vector<FieldEntry> BuildRegistry()
-    {
-        std::vector<FieldEntry> registry;
-#include "MCP/Generated/McpFieldRegistry.Generated.inl"
-        return registry;
-    }
-#undef OLO_GFW_FIELD
-#undef OLO_GFW_FIELD_RANGE
-#undef OLO_GFW_BOUND
-#undef OLO_GFW_NO_BOUND
-
-    // The process-wide registry, built once. `inline` => one shared instance across
-    // every TU that includes this header (McpTools.cpp + the test binary).
-    [[nodiscard]] inline const std::vector<FieldEntry>& Registry()
-    {
-        static const std::vector<FieldEntry> registry = BuildRegistry();
-        return registry;
-    }
+    // The process-wide registry, built once. DEFINED in McpFieldRegistry.cpp —
+    // the one TU that #includes the generated .inl. It used to be built by an
+    // inline BuildRegistry() right here, but the ~100-component registry is
+    // thousands of MakeFieldAccess/MakeSetterField instantiations (two lambdas
+    // each), re-instantiated in EVERY includer of this header (McpToolsScene.cpp
+    // + two MCP test TUs). Under clang-cl Release+ASan that pushed
+    // McpToolsScene.cpp past the CI runner's memory ("LLVM ERROR: out of
+    // memory") once the #635 + #633 component additions landed; a dedicated TU
+    // compiles the instantiation storm exactly once, next to nothing else.
+    // Both consumers link it: OloEditor (OloEditor/src/CMakeLists.txt) and
+    // OloEngine-Tests (OloEngine/tests/CMakeLists.txt, MCP section).
+    [[nodiscard]] const std::vector<FieldEntry>& Registry();
 
     // Look up the entry for (component, field), or nullptr. Pointers into the static
     // registry are stable for the process lifetime.

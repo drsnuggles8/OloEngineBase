@@ -53,6 +53,9 @@ namespace OloEngine
     struct EnvironmentMapComponent;
     struct ProceduralSkyComponent;
     struct StarNestSkyComponent;
+    struct TimeOfDayComponent;
+    struct WeatherStateComponent;
+    struct CloudscapeComponent;
     struct LightProbeComponent;
     struct LightProbeVolumeComponent;
     struct ReflectionProbeComponent;
@@ -173,6 +176,9 @@ namespace OloEngine
         static void Serialize(FArchive& ar, EnvironmentMapComponent& c);
         static void Serialize(FArchive& ar, ProceduralSkyComponent& c);
         static void Serialize(FArchive& ar, StarNestSkyComponent& c);
+        static void Serialize(FArchive& ar, TimeOfDayComponent& c);
+        static void Serialize(FArchive& ar, WeatherStateComponent& c);
+        static void Serialize(FArchive& ar, CloudscapeComponent& c);
         static void Serialize(FArchive& ar, LightProbeComponent& c);
         static void Serialize(FArchive& ar, LightProbeVolumeComponent& c);
         static void Serialize(FArchive& ar, ReflectionProbeComponent& c);

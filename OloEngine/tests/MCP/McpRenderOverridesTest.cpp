@@ -13,7 +13,10 @@
 // the response shapes the agent reads.
 #include "MCP/McpRenderOverrides.h"
 
+#include "OloEngine/Atmosphere/Ephemeris.h"
+
 #include <cmath>
+#include <limits>
 #include <string>
 
 namespace
@@ -232,135 +235,134 @@ TEST(McpRenderOverrides, JoinTokensProducesCommaSeparatedList)
     EXPECT_NE(std::string::npos, RO::JoinTokens(RO::PassTokens()).find("bloom"));
 }
 
-// ---- Sun / time-of-day override ------------------------------------------
-// Pure sun-direction math behind olo_scene_set_time_of_day / olo_scene_set_sun_angle.
-// The live bake/override is verified over the MCP attach loop; this pins the
-// time -> direction / angle -> direction mapping and the result JSON shape.
+// ---- Sun-angle -> time-of-day solver ---------------------------------------
+// Pure math behind olo_scene_set_sun_angle (issue #633): the ephemeral sun
+// override is retired and the serialized TimeOfDayComponent is the single sun
+// source, so the tool SOLVES for the clock time whose ephemeris sun best
+// matches a requested elevation/azimuth and writes that into the component.
+// The live component write is verified over the MCP attach loop; this pins the
+// solver — the branch selection (east = morning), the clamp-to-achievable
+// behaviour, and agreement with the engine ephemeris the solved hours feed.
 
-TEST(McpRenderOverridesSun, TimeOfDayNoonIsOverhead)
+namespace
 {
-    const RO::SunVec3 d = RO::SunDirectionFromTimeOfDay(12.0);
-    EXPECT_NEAR(0.0, d.X, 1e-9);
-    EXPECT_NEAR(1.0, d.Y, 1e-9);
-    EXPECT_NEAR(0.0, d.Z, 1e-9);
-    EXPECT_NEAR(90.0, RO::SunElevationDegrees(d), 1e-6);
-}
-
-TEST(McpRenderOverridesSun, TimeOfDaySunriseAndSunsetSitOnHorizon)
-{
-    const RO::SunVec3 sunrise = RO::SunDirectionFromTimeOfDay(6.0);
-    EXPECT_NEAR(0.0, RO::SunElevationDegrees(sunrise), 1e-6); // on the horizon
-    EXPECT_GT(sunrise.X, 0.5);                                // rises in the east (+X)
-
-    const RO::SunVec3 sunset = RO::SunDirectionFromTimeOfDay(18.0);
-    EXPECT_NEAR(0.0, RO::SunElevationDegrees(sunset), 1e-6);
-    EXPECT_LT(sunset.X, -0.5); // sets in the west (-X)
-}
-
-TEST(McpRenderOverridesSun, TimeOfDayNightIsBelowHorizonAndDayIsAbove)
-{
-    EXPECT_LT(RO::SunElevationDegrees(RO::SunDirectionFromTimeOfDay(0.0)), 0.0);  // midnight
-    EXPECT_LT(RO::SunElevationDegrees(RO::SunDirectionFromTimeOfDay(24.0)), 0.0); // wraps to midnight
-    EXPECT_LT(RO::SunElevationDegrees(RO::SunDirectionFromTimeOfDay(3.0)), 0.0);  // pre-dawn
-    EXPECT_GT(RO::SunElevationDegrees(RO::SunDirectionFromTimeOfDay(9.0)), 0.0);  // mid-morning
-    EXPECT_GT(RO::SunElevationDegrees(RO::SunDirectionFromTimeOfDay(15.0)), 0.0); // mid-afternoon
-}
-
-TEST(McpRenderOverridesSun, EveryDirectionIsUnitLength)
-{
-    // Integer step counter (avoids a floating-point loop counter); samples
-    // h = 0.0, 1.5, ... 24.0 inclusive.
-    for (std::size_t step = 0; step <= 16; ++step)
+    // The engine-side sun state for a solved time (north offset 0, so the
+    // solver's frame and the ephemeris frame coincide).
+    OloEngine::SunMoonState EphemerisStateFor(float hours, int dayOfYear, float latitudeDeg)
     {
-        const double h = static_cast<double>(step) * 1.5;
-        const RO::SunVec3 d = RO::SunDirectionFromTimeOfDay(h);
-        EXPECT_NEAR(1.0, std::sqrt(d.X * d.X + d.Y * d.Y + d.Z * d.Z), 1e-9) << "hours=" << h;
+        OloEngine::EphemerisInputs inputs;
+        inputs.TimeOfDayHours = hours;
+        inputs.DayOfYear = dayOfYear;
+        inputs.LatitudeDegrees = latitudeDeg;
+        inputs.NorthOffsetDegrees = 0.0f;
+        return OloEngine::Ephemeris::ComputeSunMoon(inputs);
     }
+
+    constexpr double kRadToDeg = 180.0 / 3.14159265358979323846;
+} // namespace
+
+TEST(McpRenderOverridesSunSolve, SouthNoonElevationSolvesToNoon)
+{
+    // Day 80 (~March equinox) at latitude 48 N: the noon maximum elevation is
+    // ~90 - 48 + declination(80) ~= 41.5 deg, due south. Asking for exactly
+    // that elevation from the south must land on (solar) noon.
+    const RO::SunAngleSolve s = RO::SolveTimeForSunAngle(41.5f, 180.0f, 80, 48.0f);
+    EXPECT_NEAR(12.0, static_cast<double>(s.Hours), 0.2);
+    EXPECT_TRUE(std::isfinite(s.AchievedElevationDeg));
+    EXPECT_NEAR(41.5, static_cast<double>(s.AchievedElevationDeg), 0.5);
 }
 
-TEST(McpRenderOverridesSun, SunAnglesRoundTripThroughDirection)
+TEST(McpRenderOverridesSunSolve, EastIsMorningWestIsAfternoon)
+{
+    // Same reachable elevation, opposite sides of the sky: the east request
+    // must resolve before noon, the west request after — and the two must
+    // mirror around noon (cos is even, only the branch sign differs).
+    const RO::SunAngleSolve morning = RO::SolveTimeForSunAngle(20.0f, 90.0f /*east*/, 172, 48.0f);
+    const RO::SunAngleSolve afternoon = RO::SolveTimeForSunAngle(20.0f, 270.0f /*west*/, 172, 48.0f);
+
+    EXPECT_FALSE(morning.Clamped);
+    EXPECT_FALSE(afternoon.Clamped);
+    EXPECT_LT(morning.Hours, 12.0f);
+    EXPECT_GT(afternoon.Hours, 12.0f);
+    EXPECT_NEAR(24.0, static_cast<double>(morning.Hours + afternoon.Hours), 1e-3);
+}
+
+TEST(McpRenderOverridesSunSolve, UnachievableElevationClampsToFiniteNoon)
+{
+    // Day 355 (~December solstice) at latitude 48 N: the noon maximum is
+    // ~90 - 48 - 23.44 ~= 18.6 deg, so 80 deg is far out of range. The solver
+    // must clamp to the day's maximum (solar noon) instead of NaN-ing on acos.
+    const RO::SunAngleSolve s = RO::SolveTimeForSunAngle(80.0f, 180.0f, 355, 48.0f);
+    EXPECT_TRUE(s.Clamped);
+    EXPECT_TRUE(std::isfinite(s.Hours));
+    EXPECT_TRUE(std::isfinite(s.AchievedElevationDeg));
+    EXPECT_NEAR(12.0, static_cast<double>(s.Hours), 0.2); // the max sits at solar noon
+    EXPECT_NEAR(18.6, static_cast<double>(s.AchievedElevationDeg), 0.5);
+    EXPECT_LT(s.AchievedElevationDeg, 80.0f); // reported honestly, not parroted
+}
+
+TEST(McpRenderOverridesSunSolve, SolvedHoursStayInRange)
+{
+    const RO::SunAngleSolve high = RO::SolveTimeForSunAngle(89.0f, 180.0f, 172, 0.1f);
+    EXPECT_GE(high.Hours, 0.0f);
+    EXPECT_LT(high.Hours, 24.0f);
+
+    const RO::SunAngleSolve low = RO::SolveTimeForSunAngle(-89.0f, 270.0f, 355, 48.0f);
+    EXPECT_GE(low.Hours, 0.0f);
+    EXPECT_LT(low.Hours, 24.0f);
+}
+
+TEST(McpRenderOverridesSunSolve, DegenerateInputsStayFinite)
+{
+    // Agent JSON is untrusted: non-finite angles and out-of-range day/latitude
+    // must still produce a finite, in-range clock time.
+    const RO::SunAngleSolve s = RO::SolveTimeForSunAngle(std::numeric_limits<float>::quiet_NaN(),
+                                                         std::numeric_limits<float>::infinity(), 4000, 95.0f);
+    EXPECT_TRUE(std::isfinite(s.Hours));
+    EXPECT_GE(s.Hours, 0.0f);
+    EXPECT_LT(s.Hours, 24.0f);
+    EXPECT_TRUE(std::isfinite(s.AchievedElevationDeg));
+}
+
+TEST(McpRenderOverridesSunSolve, RoundTripsThroughEngineEphemeris)
 {
     struct Case
     {
-        double Yaw;
-        double Pitch;
+        float ElevationDeg;
+        float AzimuthDeg;
+        int DayOfYear;
+        float LatitudeDeg;
     };
-    // Avoid pitch == +/-90 where azimuth is degenerate (the pole).
-    const Case cases[] = { { 0.0, 0.0 }, { 90.0, 0.0 }, { 45.0, 30.0 }, { 200.0, -20.0 }, { 270.0, 15.0 } };
+    // Reachable elevations on both sides of the sky, both hemispheres. Avoid
+    // near-noon azimuths (180/0), where the east/west side of the achieved sun
+    // is numerically degenerate.
+    const Case cases[] = {
+        { 20.0f, 90.0f, 172, 48.0f },   // northern summer, east -> morning
+        { 10.0f, 135.0f, 100, 35.0f },  // spring, south-east
+        { 5.0f, 250.0f, 250, 48.0f },   // late summer, west -> afternoon
+        { 30.0f, 300.0f, 200, -33.0f }, // southern winter, west
+    };
     for (const Case& c : cases)
     {
-        const RO::SunVec3 d = RO::SunDirectionFromAngles(c.Yaw, c.Pitch);
-        EXPECT_NEAR(c.Pitch, RO::SunElevationDegrees(d), 1e-6) << "yaw=" << c.Yaw;
-        EXPECT_NEAR(c.Yaw, RO::SunAzimuthDegrees(d), 1e-6) << "yaw=" << c.Yaw;
+        const RO::SunAngleSolve s =
+            RO::SolveTimeForSunAngle(c.ElevationDeg, c.AzimuthDeg, c.DayOfYear, c.LatitudeDeg);
+        ASSERT_FALSE(s.Clamped) << "case elev=" << c.ElevationDeg << " az=" << c.AzimuthDeg;
+
+        // Feeding the solved hours back into the ENGINE ephemeris (the exact
+        // math TimeOfDaySystem::Apply runs on the written component) must
+        // reproduce the elevation the solver promised...
+        const OloEngine::SunMoonState state = EphemerisStateFor(s.Hours, c.DayOfYear, c.LatitudeDeg);
+        const double achievedDeg = static_cast<double>(state.SunElevationRadians) * kRadToDeg;
+        EXPECT_NEAR(static_cast<double>(s.AchievedElevationDeg), achievedDeg, 0.5)
+            << "case elev=" << c.ElevationDeg << " az=" << c.AzimuthDeg;
+        EXPECT_NEAR(static_cast<double>(c.ElevationDeg), achievedDeg, 0.5)
+            << "case elev=" << c.ElevationDeg << " az=" << c.AzimuthDeg;
+
+        // ...and place the sun on the requested east/west side (azimuth from
+        // +Z north toward +X east: sin > 0 = east).
+        const double requestedSide = std::sin(static_cast<double>(c.AzimuthDeg) / kRadToDeg);
+        const double achievedSide = std::sin(static_cast<double>(state.SunAzimuthRadians));
+        EXPECT_GT(requestedSide * achievedSide, 0.0)
+            << "case elev=" << c.ElevationDeg << " az=" << c.AzimuthDeg;
     }
-}
-
-TEST(McpRenderOverridesSun, SunAnglePitchStraightUpIsOverhead)
-{
-    const RO::SunVec3 d = RO::SunDirectionFromAngles(123.0 /*any yaw*/, 90.0);
-    EXPECT_NEAR(0.0, d.X, 1e-9);
-    EXPECT_NEAR(1.0, d.Y, 1e-9);
-    EXPECT_NEAR(0.0, d.Z, 1e-9);
-}
-
-TEST(McpRenderOverridesSun, NormalizeSunCollapsesZeroToUp)
-{
-    const RO::SunVec3 d = RO::NormalizeSun(RO::SunVec3{ 0.0, 0.0, 0.0 });
-    EXPECT_NEAR(0.0, d.X, 1e-12);
-    EXPECT_NEAR(1.0, d.Y, 1e-12);
-    EXPECT_NEAR(0.0, d.Z, 1e-12);
-}
-
-TEST(McpRenderOverridesSun, OverrideJsonActiveFromTimeOfDay)
-{
-    RO::SunOverrideResult r;
-    r.Active = true;
-    r.Direction = RO::SunDirectionFromTimeOfDay(12.0);
-    r.HasHours = true;
-    r.Hours = 12.0;
-    r.Source = "timeOfDay";
-
-    const Json j = RO::ToJson(r);
-    EXPECT_TRUE(j.at("active").get<bool>());
-    EXPECT_EQ("timeOfDay", j.at("source").get<std::string>());
-    ASSERT_TRUE(j.at("sunDirection").is_array());
-    ASSERT_EQ(3u, j.at("sunDirection").size());
-    EXPECT_NEAR(90.0, j.at("elevationDegrees").get<double>(), 1e-6);
-    EXPECT_TRUE(j.contains("azimuthDegrees"));
-    EXPECT_DOUBLE_EQ(12.0, j.at("hours").get<double>());
-    EXPECT_FALSE(j.contains("cleared")); // only present when a clear happened
-    EXPECT_FALSE(j.contains("note"));
-}
-
-TEST(McpRenderOverridesSun, OverrideJsonClearedOmitsDirection)
-{
-    RO::SunOverrideResult r;
-    r.Active = false;
-    r.Cleared = true;
-    r.Source = "cleared";
-
-    const Json j = RO::ToJson(r);
-    EXPECT_FALSE(j.at("active").get<bool>());
-    EXPECT_TRUE(j.at("cleared").get<bool>());
-    EXPECT_EQ("cleared", j.at("source").get<std::string>());
-    // No direction-derived fields when no override is active.
-    EXPECT_FALSE(j.contains("sunDirection"));
-    EXPECT_FALSE(j.contains("elevationDegrees"));
-    EXPECT_FALSE(j.contains("azimuthDegrees"));
-    EXPECT_FALSE(j.contains("hours"));
-}
-
-TEST(McpRenderOverridesSun, OverrideJsonAngleSourceOmitsHoursAndKeepsNote)
-{
-    RO::SunOverrideResult r;
-    r.Active = true;
-    r.Direction = RO::SunDirectionFromAngles(45.0, 30.0);
-    r.Source = "sunAngle";
-    r.Note = "No ProceduralSkyComponent in the active scene, so this sun override has no visible effect yet.";
-
-    const Json j = RO::ToJson(r);
-    EXPECT_TRUE(j.at("active").get<bool>());
-    EXPECT_FALSE(j.contains("hours")); // HasHours is false for the angle path
-    ASSERT_TRUE(j.contains("note"));
-    EXPECT_NE(std::string::npos, j.at("note").get<std::string>().find("ProceduralSky"));
 }

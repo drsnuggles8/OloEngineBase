@@ -933,12 +933,10 @@ namespace OloEngine::MCP
         }
         m_Token.clear();
 
-        // Drop any ephemeral sun-direction override an agent left active
-        // (olo_scene_set_time_of_day / olo_scene_set_sun_angle, #316 Part 4) so the
-        // editor returns to the authored procedural-sky sun once its agent is gone.
-        // Stop() runs on the game thread, so touching renderer session state here is
-        // safe; a no-op when no override is active.
-        Renderer3D::ClearSunDirectionOverride();
+        // (The ephemeral sun-direction override clear that used to live here was
+        // retired by issue #633 — olo_scene_set_time_of_day now edits the
+        // serialized TimeOfDayComponent instead of session-global renderer state,
+        // so there is nothing to restore on server stop.)
 
         OLO_CORE_INFO("[MCP] Diagnostics server stopped");
     }

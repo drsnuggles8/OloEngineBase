@@ -18,13 +18,20 @@ or a model. It exposes data over a standard protocol; you bring your own agent. 
 - Every request must carry a **bearer token** the editor generates and displays. A fresh
   token is minted each time you start the server.
 - The `Origin` header is validated (DNS-rebinding defence) and the dispatch layer is
-  **read-only with respect to your project** — no tool writes scenes, assets, or files.
+  **read-only with respect to your project by default** — no tool writes scenes, assets,
+  or files unless you explicitly enable the consent-gated write tier (below).
   The Tier-0 inspection tools (issue #316) may adjust *editor-only viewport state* — the
   editor camera pose and the viewport capture size — which is never persisted. The
   render-override tools (`olo_render_toggle_pass` / `olo_render_set_debug_view`) likewise
   edit only the renderer's *session-global* post-process / fog settings, never the loaded
   scene's own copy, so the change is ephemeral (a scene reload restores it) and never
-  written to disk.
+  written to disk. The **(consented write)** tools behind the Agent-writes gate go one
+  step further than those ephemeral overrides: `olo_entity_set_field`,
+  `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, and `olo_scene_set_weather`
+  mutate **serialized components of the loaded scene in memory** — undoable in the
+  editor, discarded on reload, and reaching disk only if you save the scene yourself;
+  no tool ever writes a file. The gate is off by default and never persisted (see
+  [Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c)).
 - Optional **path redaction** scrubs absolute filesystem paths from text output (toggle in
   the panel) for when you don't want project layout / usernames leaving the process.
 
@@ -206,8 +213,10 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_render_toggle_pass` | flip a post-process / fog feature on/off (`name` + optional `enabled`) — the ephemeral A/B loop: toggle off → `olo_screenshot` → toggle on → `olo_screenshot`. No `name` lists every pass + its live state |
 | `olo_render_set_debug_view` | switch the viewport to a raw AO/SSR/SSGI buffer, the overdraw heatmap, or a virtualized-geometry visualization (`mode`: none/ssao/gtao/ssr/ssgi/overdraw/**vgclusterid/vglod/vgoverdraw**); reports whether the backing pass is actually running, and (for the vg\* modes) the `captureTarget` to read back. No `mode` lists the modes + current state |
 | `olo_renderer_settings_set` | **(consented write)** set a multi-valued, session-global renderer / post-process setting — `upscale` (FSR1 spatial-upscale mode), `tonemap` (operator), `renderpath` (forward/forward+/deferred), `depthprepass` (off/on/auto — the #316 perf lever), `softshadows` (pcf/pcss — THE ScenePass shadow-cost lever) — to verify a rendering feature live at each value. The enum-valued sibling of `olo_render_toggle_pass`; reports `previousValue` for restore-prior-value (no undo stack). No args lists every setting + current value + allowed values. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
-| `olo_scene_set_time_of_day` | move the procedural sky's sun to a 24-hour clock time (`hours` 0–24) for lighting iteration — ephemeral session override of the sun direction, never written to the scene. `clear`:true restores the authored sun; no args reports the current override |
-| `olo_scene_set_sun_angle` | aim the procedural sky's sun directly from a `yaw` (azimuth) / `pitch` (elevation) pair — the precise sibling of `olo_scene_set_time_of_day`, same ephemeral session override. `clear`:true restores; no args reports state |
+| `olo_scene_set_time_of_day` | **(consented write)** set the scene's time-of-day clock — writes the **serialized `TimeOfDayComponent`** (the single authoritative sun source since issue #633; the old ephemeral override is retired): `hours` [0,24) and/or `dayOfYear`, `latitudeDegrees`, `timeScale`, `paused`, `enabled`. TimeOfDaySystem drives the sun/sky from it next frame, edit and play alike; returns the component state + derived sun elevation / isNight / sun+moon directions. In-memory edit (persisted on scene save); errors with guidance when the scene has no `TimeOfDayComponent`. `clear`:true is a legacy no-op (note only). Gated behind **Agent writes** |
+| `olo_scene_set_sun_angle` | **(consented write)** aim the sun from a `yaw` (azimuth) / `pitch` (elevation) pair — SOLVES for the time of day whose ephemeris sun best matches and writes the solved hours into the `TimeOfDayComponent`. Pitch is matched exactly when the day/latitude can reach it (else clamped, reported via `clamped` + note); yaw is honoured for its east/west side only (east = morning, west = afternoon). Returns the component state + `achievedElevationDeg`/`clamped`. Gated behind **Agent writes** |
+| `olo_scene_set_weather` | **(consented write)** drive the weather director — writes the `WeatherStateComponent`'s target `state` (Clear \| Overcast \| Rain \| Storm \| Snow \| FogBank, case-sensitive) with optional `transitionSeconds` (0–600) and `immediate`:true snap; applies the blend to the scene + renderer immediately (edit-mode preview). Returns currentState/targetState/transitionDuration/transitionProgress/wetness; errors with guidance when the scene has no `WeatherStateComponent`. Gated behind **Agent writes** |
+| `olo_scene_get_atmosphere` | read the scene's atmosphere in one call — `timeOfDay` block (hours, dayOfYear, latitude, paused, derived sun elevation / isNight / sun+moon directions), `weather` block (current/target state, transitionProgress, wetness, blended cloud coverage), `cloudscape` block (enabled, coverage, layer bottom/top, castCloudShadows). Blocks for absent components are omitted; the note lists which components were found |
 | `olo_render_why_not_visible` | explain why one entity (`entity`) is NOT on screen — the "why can't I see my mesh?" debugger: root-cause `reasonCode`, summary, ordered checks, and the raw render facts |
 | `olo_physics_layer_matrix` | the collision-layer matrix the sim uses: built-in object layers + user-defined layers, with pairwise collide/no-collide (works in Edit mode) |
 | `olo_physics_list_colliders` | paginated entities with a rigidbody: authored body type / layer / trigger / collider shapes, plus live object layer, position, awake/asleep when playing |
@@ -249,8 +258,9 @@ and the human at the editor opts in for the session:
 Every entity/component write still routes through the editor's **undo stack** — an
 approved change is a single **Ctrl-Z** — so *Prompt* and *Allow all* differ only in
 whether you confirm each action up front, not in reversibility. (The renderer-settings
-and sun/time-of-day writes are session-global and restore-prior-value instead; see
-those sections.)
+writes are session-global and restore-prior-value instead; see that section. The
+sun/time-of-day and weather tools edit serialized components since issue #633, so
+they behave like any other component write.)
 
 Threading: the write handler runs on a cpp-httplib worker thread and blocks there
 while the main (UI) thread renders the modal and records your decision — the same
@@ -359,7 +369,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_crash_list`, `olo_crash_get` |
 | `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_stop` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
-| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe` |
+| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
 | `assets` | `olo_assets_list`, `olo_assets_problems` |
 | `scripting` | `olo_script_get_api`, `olo_script_get_last_errors`, `olo_reload_script` |
@@ -936,48 +946,50 @@ Calling the tool with **no arguments** lists every setting with its live
 `currentValue` and the full allowed-value catalogue (still behind the write gate,
 since the whole tool is a write tool).
 
-### Sun / time-of-day override (`olo_scene_set_time_of_day` / `olo_scene_set_sun_angle`)
+### Sun / time-of-day (`olo_scene_set_time_of_day` / `olo_scene_set_sun_angle`)
 
-The **lighting** counterpart of the render-override A/B loop: move the procedural
-sky's sun from the editor so an agent can iterate lighting for any rendering / water
-/ GI / god-ray work, without restarting the editor or touching the user's project.
+The **lighting** counterpart of the render-override A/B loop: move the sun from the
+editor so an agent can iterate lighting for any rendering / water / GI / god-ray
+work, without restarting the editor.
 
-**Like the toggle/debug-view tools, the change is ephemeral.** Both tools edit only a
-session-global Renderer3D sun-direction override that `Scene::LoadAndRenderSkybox`
-bakes the **`ProceduralSkyComponent`** with — instead of the component's serialized
-`m_SunDirection` — **without ever writing the component**. So a move is visible on the
-next baked frame, is never saved, and the authored sun is restored on **scene reload,
-play-stop, server-stop, or an explicit `clear`**. The sky is hash-gated, so a changed
-(or cleared) sun triggers exactly one re-bake, not a per-frame one.
+**Since issue #633 these are real component writes, not an ephemeral override.**
+Both tools edit the scene's serialized **`TimeOfDayComponent`** — the astronomical
+clock `TimeOfDaySystem` drives the directional light and the day/night
+`AtmosphereSky` bake from. A change is visible on the next frame (the light moves
+continuously; the baked sky follows on the component's rebake quantum), participates
+in the editor undo stack like any component write, and is gated behind **Agent
+writes** consent. There is nothing to "restore": the component is the authored
+state. If the scene has no `TimeOfDayComponent`, both tools return an error asking
+for one to be added (Add Component > Time Of Day) — they never auto-create entities.
 
-`olo_scene_set_time_of_day { hours }` maps a 24-hour clock time to the sun direction —
-`0` = midnight, `6` = sunrise (sun on the east horizon, +X), `12` = noon (overhead),
-`18` = sunset (west horizon, −X); before 06:00 / after 18:00 the sun is below the
-horizon (night). The lighting inner loop:
+`olo_scene_set_time_of_day { hours, dayOfYear?, latitudeDegrees?, timeScale?,
+paused?, enabled? }` sets the clock directly — `0` = midnight, `12` = noon; sunrise
+and sunset fall where the ephemeris puts them for the component's day-of-year and
+latitude. The lighting inner loop:
 
 ```jsonc
-// 1) olo_scene_set_time_of_day { "hours": 8 }
-{ "active": true, "source": "timeOfDay", "sunDirection": [0.61, 0.71, -0.35],
-  "elevationDegrees": 45.0, "azimuthDegrees": 120.0, "hours": 8 }
-// 2) olo_screenshot { … }                       -> the morning reference
-// 3) olo_scene_set_time_of_day { "hours": 17 }   -> low evening sun
-// 4) olo_screenshot { … }                        -> compare
-// 5) olo_scene_set_time_of_day { "clear": true } -> restore the authored sun
-{ "active": false, "cleared": true, "source": "cleared" }
+// 1) olo_scene_set_time_of_day { "hours": 8 }     -> morning
+// 2) olo_screenshot { … }                          -> the morning reference
+// 3) olo_scene_set_time_of_day { "hours": 17 }     -> low evening sun
+// 4) olo_screenshot { … }                          -> compare
+// 5) Ctrl-Z twice (or set the original hours back) -> restore
 ```
 
-`olo_scene_set_sun_angle { yaw, pitch }` aims the sun directly: `yaw` is the azimuth in
-degrees (measured from +Z toward +X: `0` = +Z, `90` = +X/east, `270` = −X/west) and
-`pitch` is the elevation in degrees in `[-90, 90]` (`90` = straight up, `0` = horizon,
-negative = below). **Both are required to set** — a half-specified direction is
-rejected with guidance rather than guessed.
+`olo_scene_set_sun_angle { yaw, pitch }` aims the sun by angles: `yaw` is the azimuth
+in degrees (from +Z toward +X: `0` = +Z, `90` = +X/east) and `pitch` the elevation in
+`[-90, 90]`. It **solves for the clock time** that best places the sun there (given
+the component's day-of-year and latitude) and writes that time; when the requested
+elevation is unreachable on that day, it clamps to the closest achievable one and
+says so in `note` (with `clamped: true`).
 
-Both validate every numeric input with `std::isfinite`, report the resulting
-`sunDirection` with its `elevationDegrees` / `azimuthDegrees`, and surface a **`note`**
-when the override can't be seen — there is **no `ProceduralSkyComponent` in the active
-scene** (nothing to bake), or the **sun is below the horizon** (the sky bakes dark).
-Calling either tool with no arguments reports the current override state; `clear`:true
-removes it.
+Both validate every numeric input with `std::isfinite` and report the resulting
+component state plus the derived sun elevation / is-night flags. `clear: true` is
+accepted for backward compatibility and reports that there is nothing to clear.
+
+Weather has the same pair of controls: `olo_scene_set_weather { state,
+transitionSeconds?, immediate? }` retargets the scene's `WeatherStateComponent`
+(states: Clear, Overcast, Rain, Storm, Snow, FogBank) and `olo_scene_get_atmosphere`
+(read-only) reports the time-of-day, weather, and cloudscape state in one call.
 
 ### Physics introspection (the `olo_physics_*` family)
 

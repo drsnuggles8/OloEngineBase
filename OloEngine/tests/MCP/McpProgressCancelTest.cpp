@@ -247,15 +247,21 @@ namespace
     {
       protected:
         // Derive a per-process base port (same trick as McpHeadlessHost) and
-        // sweep forward until a bind succeeds.
+        // sweep until a bind succeeds. The sweep STRIDES by a prime larger
+        // than Windows' Hyper-V/WSL excluded-port blocks (netsh reserves them
+        // in ~100-port chunks; nothing listens there but every bind fails):
+        // a consecutive +1 sweep of 32 ports drowned whole test runs when the
+        // ASLR-derived base landed inside one of those blocks, and the base is
+        // sticky for a given binary image, so every rerun failed identically.
         u16 StartServer()
         {
             static int anchor = 0;
-            const auto base = static_cast<u16>(21000 + (reinterpret_cast<std::uintptr_t>(&anchor) % 30000u));
-            for (u16 i = 0; i < 32; ++i)
+            const auto base = static_cast<u32>(21000 + (reinterpret_cast<std::uintptr_t>(&anchor) % 30000u));
+            for (u32 i = 0; i < 32; ++i)
             {
-                if (m_Server.Start(static_cast<u16>(base + i)))
-                    return static_cast<u16>(base + i);
+                const auto candidate = static_cast<u16>(21000 + ((base - 21000 + i * 137u) % 30000u));
+                if (m_Server.Start(candidate))
+                    return candidate;
             }
             return 0;
         }

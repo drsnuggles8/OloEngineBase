@@ -118,6 +118,11 @@ add_executable(OloEngine-Tests
 		Rendering/SphereAreaLightMathTest.cpp
 		Rendering/ProceduralSkyMathTest.cpp
 		Rendering/StarNestSkyMathTest.cpp
+		Atmosphere/EphemerisMathTest.cpp
+		Atmosphere/WeatherBlendTest.cpp
+		Atmosphere/CloudDensityMathTest.cpp
+		Atmosphere/AtmosphereSkyMathTest.cpp
+		Rendering/PropertyTests/AtmosphereVisualEvidenceTest.cpp
 		Rendering/AutoExposureMathTest.cpp
 		Rendering/ScreenSpaceReflectionMathTest.cpp
 		Rendering/ScreenSpaceGIMathTest.cpp
@@ -442,6 +447,11 @@ add_executable(OloEngine-Tests
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsPhysics.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsRender.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsScene.cpp
+		# The generated writable-field registry TU (McpGenericFieldWrite.h's
+		# Registry() definition). Compiled once here instead of inline in every
+		# includer — the inline form OOM'd clang-cl Release+ASan on this very
+		# target's McpToolsScene.cpp.obj once the registry crossed ~100 components.
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpFieldRegistry.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsScripting.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsShader.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpScriptApi.cpp
@@ -561,8 +571,8 @@ add_executable(OloEngine-Tests
 		# companion olo_entity_list_fields (#306 item C, second slice). Same seams as
 		# McpConsentedWriteTest.cpp — the session write gate + inputSchema enforcement
 		# at the McpServer.cpp dispatch seam, and the shared reflect+coerce+apply core
-		# (MCP/McpGenericFieldWrite.h). Header-only on the editor side, so no extra
-		# editor TU is pulled in.
+		# (MCP/McpGenericFieldWrite.h; its Registry() links from the
+		# McpFieldRegistry.cpp TU pulled in above).
 		MCP/McpGenericFieldWriteTest.cpp
 		# The GENERATED writable-field registry behind those two tools (#607):
 		# OloHeaderTool emits MCP/Generated/McpFieldRegistry.Generated.inl from the same
@@ -673,6 +683,7 @@ add_executable(OloEngine-Tests
 		Functional/Asset/AssetManagerImportsStagedAssetTest.cpp
 		Functional/Gameplay/TimedQuestFailsAfterDeadlineTest.cpp
 		Functional/Gameplay/AbilityCooldownTicksDownViaSceneTickTest.cpp
+		Functional/Atmosphere/WeatherTimeOfDayDirectorTest.cpp
 		Functional/Scripting/LuaScriptSetsRigidbody2DVelocityTest.cpp
 		Functional/SaveGame/AbilityComponentRoundTripTest.cpp
 		Functional/Dialogue/DialogueTextRevealsOverTicksTest.cpp

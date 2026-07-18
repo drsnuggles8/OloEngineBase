@@ -2252,7 +2252,9 @@ namespace OloEngine
             if (std::isfinite(sunDiskSize) && sunDiskSize > 0.0f)
                 sky.m_SunDiskSize = sunDiskSize;
             sky.m_ShowSunDisk = procSky["ShowSunDisk"].as<bool>(sky.m_ShowSunDisk);
-            sky.m_LinkSunToDirectionalLight = procSky["LinkSunToDirectionalLight"].as<bool>(sky.m_LinkSunToDirectionalLight);
+            // "LinkSunToDirectionalLight" (retired by issue #633) is silently
+            // dropped when present in older scenes — the TimeOfDayComponent
+            // now owns sun driving.
             sky.m_EnableSkybox = procSky["EnableSkybox"].as<bool>(sky.m_EnableSkybox);
             sky.m_EnableIBL = procSky["EnableIBL"].as<bool>(sky.m_EnableIBL);
             const f32 iblIntensity = procSky["IBLIntensity"].as<f32>(sky.m_IBLIntensity);
@@ -4189,7 +4191,6 @@ namespace OloEngine
             out << YAML::Key << "SunIntensity" << YAML::Value << sky.m_SunIntensity;
             out << YAML::Key << "SunDiskSize" << YAML::Value << sky.m_SunDiskSize;
             out << YAML::Key << "ShowSunDisk" << YAML::Value << sky.m_ShowSunDisk;
-            out << YAML::Key << "LinkSunToDirectionalLight" << YAML::Value << sky.m_LinkSunToDirectionalLight;
             out << YAML::Key << "EnableSkybox" << YAML::Value << sky.m_EnableSkybox;
             out << YAML::Key << "EnableIBL" << YAML::Value << sky.m_EnableIBL;
             out << YAML::Key << "IBLIntensity" << YAML::Value << sky.m_IBLIntensity;

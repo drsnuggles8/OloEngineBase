@@ -7,6 +7,7 @@ namespace OloEngine
 {
     enum class Texture3DFormat
     {
+        RGBA8,
         RGBA16F,
         RGBA32F
     };
@@ -17,6 +18,10 @@ namespace OloEngine
         u32 Height = 128;
         u32 Depth = 128;
         Texture3DFormat Format = Texture3DFormat::RGBA16F;
+        // Wrap mode on all three axes: false = clamp-to-edge (wind fields,
+        // froxel volumes — samples outside the grid get the boundary value),
+        // true = repeat (tiling noise volumes such as the cloud-noise textures).
+        bool Repeat = false;
     };
 
     // @brief 3D volume texture abstraction.

@@ -247,6 +247,13 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
     const std::vector<std::string> expected{
         "Scripts",
         "Cinematics",
+        // Atmosphere systems (issue #633): TimeOfDay is the component clock
+        // (tie-break slot after Cinematics — its light/sky application runs
+        // on the render path, not here); Weather must complete before
+        // PhysicsKick (ClothWindSystem samples the wind settings inside the
+        // kick), pinned by the Before edge, position by tie-break.
+        "TimeOfDay",
+        "Weather",
         "Locomotion",
         "Retargeting",
         "Animation",
@@ -308,6 +315,13 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     // Locomotion seam (issue #631 part 4): the graph evaluation consumes the
     // parameters the controller writes (RAW on AnimationParams).
     EXPECT_TRUE(sched.DependsOn("AnimationGraph", "Locomotion"));
+
+    // Weather seam (issue #633): the director's wind/fog/precipitation writes
+    // must land before the physics kick — ClothWindSystem samples the scene
+    // wind settings inside the kick's game-thread phase, and this tick's
+    // cloth must feel this tick's wind (an explicit Before edge, since
+    // scene-level settings structs aren't scheduler channels).
+    EXPECT_TRUE(sched.DependsOn("PhysicsKick", "Weather"));
 
     // Live-retargeting seam (issue #631 part 2): both animation systems sample
     // the clip lists the bake writes (RAW on AnimationClips).
