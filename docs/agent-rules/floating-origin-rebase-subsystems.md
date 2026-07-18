@@ -92,7 +92,9 @@ hash), which overflows `int` for any coordinate more than ~174 m from the origin
 running a `dtCrowd` at large coordinates (up to the rebase threshold, or at a rebaked shifted frame),
 not specific to a test. Since we don't patch vendored recast, `OloEngine/vendor/CMakeLists.txt`
 de-instruments *just* that one UBSan check on the recast targets (target-level `-fno-sanitize=signed-integer-overflow`
-wins over the directory-level `-fsanitize=undefined`), leaving the other UBSan checks active.
+wins over the directory-level `-fsanitize=undefined`), leaving the other UBSan checks active. Reported +
+fixed upstream (recastnavigation/recastnavigation#826, PR #827 — `hashPos2` multiplied through `unsigned`);
+drop the exclusion once the vendored recast tag is bumped past that fix.
 
 ## 4. Terrain streaming — make `WorldOrigin` entity-relative, and it's rebase-free
 

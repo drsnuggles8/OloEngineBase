@@ -267,6 +267,9 @@ FetchContent_MakeAvailable(assimp atomic_queue box2d entt filewatch glad glfw gl
 # other UBSan checks (null, alignment, …) stay active. Target-level -fno-sanitize
 # appends after the directory-level -fsanitize=undefined from cmake/Sanitizers.cmake,
 # and the last -f{no-,}sanitize flag wins (GCC and Clang). ASan/TSan are unaffected.
+# Reported + fixed upstream: recastnavigation/recastnavigation#826 (fix PR #827,
+# hashPos2 unsigned-multiply). DROP this exclusion once the vendored recast GIT_TAG
+# (above) is bumped past that fix.
 if(OLO_ENABLE_UBSAN AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 	foreach(_recast_target Recast Detour DetourCrowd DetourTileCache DebugUtils)
 		if(TARGET ${_recast_target})
