@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 #include <filesystem>
+#include <optional>
 #include <variant>
 #include "AssetMetadata.h"
 #include "MeshColliderAsset.h"
@@ -230,7 +231,23 @@ namespace OloEngine
         } // CPU-only: no GPU resources
 
       private:
-        [[nodiscard]] bool GetWavFileInfo(const std::filesystem::path& filePath, double& duration, u32& samplingRate, u16& bitDepth, u16& numChannels) const;
+        // Resolves a source path (already-resolved, or absent if it couldn't be
+        // resolved - e.g. a relative packed path with no active project) into an
+        // AudioFile: analyzes the file via AnalyzeAudioFile when present, and falls
+        // back to default metadata (with a warning) when the path is absent, the file
+        // is missing, or analysis fails. `fromPack` only affects log message wording.
+        // Shared tail for both TryLoadData and DeserializeFromAssetPack.
+        [[nodiscard]] static Ref<AudioFile> BuildAudioFileFromSource(const std::optional<std::filesystem::path>& resolvedSourcePath, AssetHandle handle, bool fromPack);
+
+        // Analyzes an audio file via the miniaudio-backed AudioLoader and validates the
+        // decoded values (finite/sane sample rate, channel count, bit depth) before
+        // trusting them - a corrupt or malicious file must not propagate garbage into
+        // the AudioFile asset. `fileSize` is used only as a rough duration-estimate
+        // fallback for formats miniaudio can decode but can't length-query (e.g.
+        // Vorbis), so a real source never reports an exact-but-wrong zero duration.
+        // Returns false (out params left untouched) if the file can't be analyzed or
+        // fails validation; callers should fall back to defaults.
+        [[nodiscard]] static bool AnalyzeAudioFile(const std::filesystem::path& filePath, u64 fileSize, f64& outDuration, u32& outSamplingRate, u16& outBitDepth, u16& outNumChannels);
     };
 
     class SoundConfigSerializer : public AssetSerializer

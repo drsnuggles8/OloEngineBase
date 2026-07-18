@@ -18,6 +18,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/GPUResourceQueue.h"
+#include "OloEngine/Audio/AudioLoader.h"
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Asset/SoundGraphAsset.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphSerializer.h"
@@ -58,6 +59,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <limits>
 
 namespace OloEngine
@@ -1151,68 +1153,11 @@ namespace OloEngine
         // Get the file path for analysis
         std::filesystem::path filePath = Project::GetProjectDirectory() / metadata.FilePath;
 
-        // Initialize default values
-        double duration = 0.0;
-        u32 samplingRate = 44100;
-        u16 bitDepth = 16;
-        u16 numChannels = 2;
-        u64 fileSize = 0;
-
-        // Get file size
-        std::error_code ec;
-        if (std::filesystem::exists(filePath, ec) && !ec)
-        {
-            fileSize = std::filesystem::file_size(filePath, ec);
-            if (ec)
-                fileSize = 0;
-        }
-
-        // Basic audio file format detection and analysis
-        std::string extension = filePath.extension().string();
-        std::ranges::transform(extension, extension.begin(),
-                               [](unsigned char c)
-                               { return static_cast<char>(std::tolower(c)); });
-
-        if (extension == ".wav")
-        {
-            // Basic WAV header analysis
-            if (GetWavFileInfo(filePath, duration, samplingRate, bitDepth, numChannels))
-            {
-                OLO_CORE_TRACE("AudioFileSourceSerializer: Analyzed WAV file - Duration: {:.2f}s, Rate: {}Hz, Depth: {}bit, Channels: {}",
-                               duration, samplingRate, bitDepth, numChannels);
-            }
-        }
-        else if (extension == ".mp3" || extension == ".ogg" || extension == ".flac")
-        {
-            // For other formats, use estimated values based on file size
-            // These are rough estimates - in the future, proper audio decoding should be implemented
-            if (fileSize > 0)
-            {
-                // Estimate duration based on average bitrate assumptions
-                double estimatedBitrate = 128000.0; // 128 kbps average for compressed audio
-                if (extension == ".flac")
-                    estimatedBitrate = 1000000.0; // 1 Mbps for FLAC
-
-                duration = (fileSize * 8.0) / estimatedBitrate; // Convert bytes to duration
-                samplingRate = 44100;                           // Standard CD quality
-                bitDepth = 16;                                  // Standard for compressed formats
-                numChannels = 2;                                // Assume stereo
-            }
-
-            OLO_CORE_TRACE("AudioFileSourceSerializer: Estimated audio properties for {} - Duration: {:.2f}s (estimated)",
-                           extension, duration);
-        }
-        else
-        {
-            // No additional handling required.
-        }
-
-        // Create AudioFile asset with extracted/estimated metadata
-        asset = Ref<AudioFile>::Create(duration, samplingRate, bitDepth, numChannels, fileSize);
-        asset->SetHandle(metadata.Handle);
+        Ref<AudioFile> audioFile = BuildAudioFileFromSource(filePath, metadata.Handle, /*fromPack*/ false);
+        asset = audioFile;
 
         OLO_CORE_TRACE("AudioFileSourceSerializer: Loaded AudioFile asset {} - {}MB",
-                       metadata.Handle, fileSize / (1024 * 1024));
+                       metadata.Handle, audioFile->GetFileSize() / (1024 * 1024));
         return true;
     }
 
@@ -1260,111 +1205,122 @@ namespace OloEngine
         std::string filePath;
         stream.ReadString(filePath);
 
-        // Create AudioFile asset with file path information
-        // TODO(olbu): In runtime, analyze the audio file to get proper metadata (#598)
-        Ref<AudioFile> audioFile = Ref<AudioFile>::Create();
-        audioFile->SetHandle(assetInfo.Handle);
+        // SerializeToAssetPack writes an asset-directory-relative path, falling back to
+        // an absolute one if relative() couldn't compute one - resolve the same way. A
+        // relative path needs an active project to resolve against; an absolute one
+        // doesn't (this also keeps DeserializeFromAssetPack usable in headless tests
+        // that build a pack without ever creating a Project). The active project is
+        // captured once into a local Ref so the absolute path it's resolved against
+        // can't change between the availability check and the resolve call (this may
+        // run off the main thread - see CanDeserializeFromAssetPackOffThread below).
+        std::optional<std::filesystem::path> resolvedSourcePath;
+        if (!filePath.empty())
+        {
+            std::filesystem::path sourcePath(filePath);
+            if (sourcePath.is_absolute())
+                resolvedSourcePath = sourcePath;
+            else if (Ref<Project> activeProject = Project::GetActive())
+                resolvedSourcePath = activeProject->GetAssetDir() / sourcePath;
+        }
 
-        OLO_CORE_TRACE("AudioFileSourceSerializer: Deserialized AudioFile from pack - Handle: {0}, Path: {1}",
-                       assetInfo.Handle, filePath);
+        Ref<AudioFile> audioFile = BuildAudioFileFromSource(resolvedSourcePath, assetInfo.Handle, /*fromPack*/ true);
+
+        OLO_CORE_TRACE("AudioFileSourceSerializer: Deserialized AudioFile from pack - Handle: {0}, Path: {1}, Duration: {2:.2f}s, Rate: {3}Hz, Channels: {4}",
+                       assetInfo.Handle, filePath, audioFile->GetDuration(), audioFile->GetSamplingRate(), audioFile->GetNumChannels());
         return audioFile;
     }
 
-    bool AudioFileSourceSerializer::GetWavFileInfo(const std::filesystem::path& filePath, double& duration, u32& samplingRate, u16& bitDepth, u16& numChannels) const
+    Ref<AudioFile> AudioFileSourceSerializer::BuildAudioFileFromSource(const std::optional<std::filesystem::path>& resolvedSourcePath, AssetHandle handle, bool fromPack)
     {
-        std::ifstream file(filePath, std::ios::binary);
-        if (!file.is_open())
+        // Default metadata, used as a fallback when the source path couldn't be
+        // resolved (e.g. no active project for a relative packed path), the source
+        // file doesn't exist on disk, or analysis fails/produces out-of-bounds values.
+        f64 duration = 0.0;
+        u32 samplingRate = 44100;
+        u16 bitDepth = 16;
+        u16 numChannels = 2;
+        u64 fileSize = 0;
+
+        const char* context = fromPack ? "packed " : "";
+        if (resolvedSourcePath)
         {
-            OLO_CORE_WARN("AudioFileSourceSerializer: Failed to open WAV file: {}", filePath.string());
-            return false;
-        }
+            const std::filesystem::path& sourcePath = *resolvedSourcePath;
 
-        // Read RIFF header
-        char riffHeader[4];
-        file.read(riffHeader, 4);
-        if (std::memcmp(riffHeader, "RIFF", 4) != 0)
-        {
-            OLO_CORE_WARN("AudioFileSourceSerializer: Invalid RIFF header in WAV file: {}", filePath.string());
-            return false;
-        }
-
-        // Skip chunk size (4 bytes)
-        file.seekg(4, std::ios::cur);
-
-        // Read WAVE format
-        char waveHeader[4];
-        file.read(waveHeader, 4);
-        if (std::memcmp(waveHeader, "WAVE", 4) != 0)
-        {
-            OLO_CORE_WARN("AudioFileSourceSerializer: Invalid WAVE header in WAV file: {}", filePath.string());
-            return false;
-        }
-
-        // Find fmt chunk
-        bool fmtFound = false;
-        u32 dataSize = 0;
-
-        while (!file.eof() && (!fmtFound || dataSize == 0))
-        {
-            char chunkId[4];
-            u32 chunkSize;
-
-            file.read(chunkId, 4);
-            file.read(reinterpret_cast<char*>(&chunkSize), 4);
-
-            if (std::strncmp(chunkId, "fmt ", 4) == 0)
+            // A single file_size() call serves as both the existence check and the size
+            // query - std::filesystem::file_size's error_code overload reports a missing
+            // file via ec instead of throwing, so a separate exists() stat is redundant.
+            std::error_code ec;
+            const u64 size = static_cast<u64>(std::filesystem::file_size(sourcePath, ec));
+            if (ec)
             {
-                // Read format chunk
-                u16 audioFormat, channels, blockAlign, bitsPerSample;
-                u32 sampleRate, byteRate;
-
-                file.read(reinterpret_cast<char*>(&audioFormat), 2);
-                file.read(reinterpret_cast<char*>(&channels), 2);
-                file.read(reinterpret_cast<char*>(&sampleRate), 4);
-                file.read(reinterpret_cast<char*>(&byteRate), 4);
-                file.read(reinterpret_cast<char*>(&blockAlign), 2);
-                file.read(reinterpret_cast<char*>(&bitsPerSample), 2);
-
-                // Store values
-                numChannels = channels;
-                samplingRate = sampleRate;
-                bitDepth = bitsPerSample;
-                fmtFound = true;
-
-                // Skip any extra fmt data
-                if (chunkSize > 16)
-                {
-                    file.seekg(chunkSize - 16, std::ios::cur);
-                }
-            }
-            else if (std::strncmp(chunkId, "data", 4) == 0)
-            {
-                dataSize = chunkSize;
-                // Skip the data chunk content
-                file.seekg(chunkSize, std::ios::cur);
+                OLO_CORE_WARN("AudioFileSourceSerializer: {}audio source file '{}' not found, using default metadata", context, sourcePath.string());
             }
             else
             {
-                // Skip unknown chunk
-                file.seekg(chunkSize, std::ios::cur);
+                fileSize = size;
+                if (AnalyzeAudioFile(sourcePath, fileSize, duration, samplingRate, bitDepth, numChannels))
+                {
+                    OLO_CORE_TRACE("AudioFileSourceSerializer: Analyzed {}audio file - Duration: {:.2f}s, Rate: {}Hz, Depth: {}bit, Channels: {}",
+                                   context, duration, samplingRate, bitDepth, numChannels);
+                }
+                else
+                {
+                    OLO_CORE_WARN("AudioFileSourceSerializer: Failed to analyze {}audio file '{}', using default metadata", context, sourcePath.string());
+                }
             }
         }
-
-        if (fmtFound && dataSize > 0)
+        else
         {
-            // Calculate duration: dataSize / (sampleRate * channels * (bitDepth/8))
-            if (u32 bytesPerSample = (bitDepth / 8) * numChannels; bytesPerSample > 0 && samplingRate > 0)
-            {
-                duration = static_cast<double>(dataSize) / (samplingRate * bytesPerSample);
-            }
-
-            OLO_CORE_TRACE("AudioFileSourceSerializer: WAV analysis complete - {}Hz, {}bit, {} channels, {:.2f}s",
-                           samplingRate, bitDepth, numChannels, duration);
-            return true;
+            OLO_CORE_WARN("AudioFileSourceSerializer: No resolvable source path for {}audio asset {}, using default metadata", context, handle);
         }
 
-        OLO_CORE_WARN("AudioFileSourceSerializer: Failed to find required chunks in WAV file: {}", filePath.string());
-        return false;
+        Ref<AudioFile> audioFile = Ref<AudioFile>::Create(duration, samplingRate, bitDepth, numChannels, fileSize);
+        audioFile->SetHandle(handle);
+        return audioFile;
+    }
+
+    bool AudioFileSourceSerializer::AnalyzeAudioFile(const std::filesystem::path& filePath, u64 fileSize, f64& outDuration, u32& outSamplingRate, u16& outBitDepth, u16& outNumChannels)
+    {
+        u32 channels = 0;
+        u32 frames = 0;
+        f64 sampleRate = 0.0;
+        f64 duration = 0.0;
+        u16 bitDepth = 0;
+
+        if (!Audio::AudioLoader::GetAudioFileInfo(filePath, channels, frames, sampleRate, duration, bitDepth))
+            return false;
+
+        // Validate decoder output before trusting it - a corrupt or malicious audio
+        // file must not propagate garbage (NaN/absurd values) into the AudioFile asset.
+        constexpr f64 kMaxSampleRateHz = 384000.0; // covers every format miniaudio supports, well beyond hi-res audio
+        constexpr u32 kMaxChannels = 32;
+        if (!std::isfinite(sampleRate) || sampleRate <= 0.0 || sampleRate > kMaxSampleRateHz)
+            return false;
+        if (!std::isfinite(duration) || duration < 0.0)
+            return false;
+        if (channels == 0 || channels > kMaxChannels)
+            return false;
+        if (bitDepth != 8 && bitDepth != 16 && bitDepth != 24 && bitDepth != 32)
+            return false;
+
+        // Some formats (e.g. Vorbis) decode successfully but can't report a frame count
+        // (AudioLoader::GetAudioFileInfo documents this as MA_NOT_IMPLEMENTED / totalFrames
+        // == 0), leaving duration at exactly 0.0. Propagating that verbatim makes
+        // downstream consumers - e.g. SoundGraphSource::DataSourceContext, which derives
+        // TotalFrames from duration * sampleRate - treat the source as already finished
+        // before any audio plays. Fall back to a rough size-based estimate for this case
+        // only, so a real (if approximate) nonzero duration reaches those consumers.
+        if (frames == 0 && duration <= 0.0 && fileSize > 0)
+        {
+            constexpr f64 kAssumedBitrateBps = 128000.0; // 128 kbps average compressed-audio estimate
+            duration = (static_cast<f64>(fileSize) * 8.0) / kAssumedBitrateBps;
+        }
+
+        outDuration = duration;
+        outSamplingRate = static_cast<u32>(sampleRate);
+        outBitDepth = bitDepth;
+        outNumChannels = static_cast<u16>(channels);
+        return true;
     }
 
     //////////////////////////////////////////////////////////////////////////////////

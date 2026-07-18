@@ -19,6 +19,15 @@
 //   4. AsyncLoadIntegratesThroughManager — the full async path
 //      (GetAssetAsync -> worker -> SyncWithAssetThread -> loaded cache) for a
 //      CPU-only asset type (Audio).
+//   5. DeserializeFromAssetPackAnalyzesRealAudioMetadata — the runtime pack path
+//      (AudioFileSourceSerializer::DeserializeFromAssetPack) analyzes the actual
+//      audio file (via the miniaudio-backed AudioLoader) instead of returning a
+//      default-constructed AudioFile (issue #598). Uses a real fixture under
+//      SandboxProject/Assets, resolved through an absolute packed path so the
+//      test doesn't need an active Project.
+//   6. DeserializeFromAssetPackFallsBackToDefaultsWhenSourceMissing — a packed
+//      path that doesn't resolve to a file on disk must not crash; it degrades to
+//      the same default metadata the pre-#598 code always returned.
 //
 // All headless: scenes/audio deserialize on the CPU with no GL context.
 // =============================================================================
@@ -26,6 +35,7 @@
 #include "OloEngine/Asset/AssetPack.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
+#include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
@@ -369,4 +379,97 @@ TEST(RuntimeAssetPackTest, AsyncLoadIntegratesThroughManager)
 
     std::error_code ec;
     fs::remove(packPath, ec);
+}
+
+// -----------------------------------------------------------------------------
+// 5. DeserializeFromAssetPack analyzes the real audio file instead of returning
+//    a default-constructed AudioFile (issue #598).
+// -----------------------------------------------------------------------------
+TEST(RuntimeAssetPackTest, DeserializeFromAssetPackAnalyzesRealAudioMetadata)
+{
+    // Real fixture, known via its RIFF fmt chunk: PCM, 2 channels, 44100 Hz,
+    // 24-bit, ~979868 bytes of data -> ~3.7024s duration.
+    const fs::path wavPath = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject" / "Assets" / "Audio" / "ding.wav";
+    ASSERT_TRUE(fs::exists(wavPath)) << "Fixture missing: " << wavPath.string();
+    const u64 expectedFileSize = static_cast<u64>(fs::file_size(wavPath));
+
+    // Write the (absolute) fixture path into a synthetic pack blob exactly as
+    // AudioFileSourceSerializer::SerializeToAssetPack does: a single length-prefixed
+    // string. An absolute path resolves without needing an active Project.
+    const fs::path tmp = fs::temp_directory_path() / ("olo_audio_meta_" + std::to_string(OloRapGetPid()) + ".bin");
+    {
+        FileStreamWriter writer(tmp);
+        ASSERT_TRUE(writer.IsStreamGood());
+        writer.WriteString(wavPath.string());
+    }
+
+    AssetPackFile::AssetInfo assetInfo;
+    assetInfo.Handle = static_cast<AssetHandle>(0xA0D10ULL);
+    assetInfo.PackedOffset = 0;
+    assetInfo.PackedSize = 0; // unused by the reader
+    assetInfo.Type = AssetType::Audio;
+    assetInfo.Flags = 0;
+
+    FileStreamReader reader(tmp);
+    ASSERT_TRUE(reader.IsStreamGood());
+
+    AudioFileSourceSerializer serializer;
+    Ref<Asset> result = serializer.DeserializeFromAssetPack(reader, assetInfo);
+    ASSERT_TRUE(result);
+    EXPECT_EQ(result->GetHandle(), assetInfo.Handle);
+
+    Ref<AudioFile> audioFile = result.As<AudioFile>();
+    ASSERT_TRUE(audioFile);
+    EXPECT_EQ(audioFile->GetSamplingRate(), 44100u);
+    EXPECT_EQ(audioFile->GetBitDepth(), 24u);
+    EXPECT_EQ(audioFile->GetNumChannels(), 2u);
+    EXPECT_EQ(audioFile->GetFileSize(), expectedFileSize);
+    EXPECT_NEAR(audioFile->GetDuration(), 3.7024, 0.01)
+        << "Duration must reflect the real decoded frame count, not the pre-#598 default of 0";
+
+    std::error_code ec;
+    fs::remove(tmp, ec);
+}
+
+// -----------------------------------------------------------------------------
+// 6. A packed path that can't be resolved/opened must not crash - it degrades to
+//    the same default metadata the code always returned before #598.
+// -----------------------------------------------------------------------------
+TEST(RuntimeAssetPackTest, DeserializeFromAssetPackFallsBackToDefaultsWhenSourceMissing)
+{
+    const fs::path missingPath = fs::temp_directory_path() / ("olo_missing_audio_" + std::to_string(OloRapGetPid()) + ".wav");
+    std::error_code removeEc;
+    fs::remove(missingPath, removeEc); // make sure it really doesn't exist
+
+    const fs::path tmp = fs::temp_directory_path() / ("olo_audio_meta_missing_" + std::to_string(OloRapGetPid()) + ".bin");
+    {
+        FileStreamWriter writer(tmp);
+        ASSERT_TRUE(writer.IsStreamGood());
+        writer.WriteString(missingPath.string());
+    }
+
+    AssetPackFile::AssetInfo assetInfo;
+    assetInfo.Handle = static_cast<AssetHandle>(0xA0D11ULL);
+    assetInfo.PackedOffset = 0;
+    assetInfo.PackedSize = 0;
+    assetInfo.Type = AssetType::Audio;
+    assetInfo.Flags = 0;
+
+    FileStreamReader reader(tmp);
+    ASSERT_TRUE(reader.IsStreamGood());
+
+    AudioFileSourceSerializer serializer;
+    Ref<Asset> result = serializer.DeserializeFromAssetPack(reader, assetInfo);
+    ASSERT_TRUE(result) << "A missing source file must still yield a default-metadata AudioFile, not nullptr";
+
+    Ref<AudioFile> audioFile = result.As<AudioFile>();
+    ASSERT_TRUE(audioFile);
+    EXPECT_EQ(audioFile->GetSamplingRate(), 44100u);
+    EXPECT_EQ(audioFile->GetBitDepth(), 16u);
+    EXPECT_EQ(audioFile->GetNumChannels(), 2u);
+    EXPECT_NEAR(audioFile->GetDuration(), 0.0, 1e-6);
+    EXPECT_EQ(audioFile->GetFileSize(), 0u);
+
+    std::error_code ec;
+    fs::remove(tmp, ec);
 }
