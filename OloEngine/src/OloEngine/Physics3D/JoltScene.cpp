@@ -1279,11 +1279,15 @@ namespace OloEngine
 
         for (UUID id : pulleysToRebuild)
         {
-            Entity entity = m_Scene ? m_Scene->GetEntityByUUID(id) : Entity{};
-            if (!entity || !entity.HasComponent<PhysicsJoint3DComponent>())
+            // Missing-safe lookup: Scene::GetEntityByUUID asserts on a stale UUID,
+            // so use the optional variant and skip if the entity is gone (or has
+            // since lost its joint) rather than crashing.
+            std::optional<Entity> entityOpt = m_Scene ? m_Scene->TryGetEntityWithUUID(id) : std::nullopt;
+            if (!entityOpt || !entityOpt->HasComponent<PhysicsJoint3DComponent>())
             {
                 continue;
             }
+            Entity entity = *entityOpt;
             auto& joint = entity.GetComponent<PhysicsJoint3DComponent>();
             // The authored fixed pivots are absolute world points; shift them so the
             // rebuilt pulley pins to the same relative geometry. The two body-attach
