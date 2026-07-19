@@ -2196,11 +2196,15 @@ namespace OloEngine
             foliageData.AlphaCutoff = cmd->alphaCutoff;
             foliageData.PrevTime = cmd->prevTime;
             foliageData.BaseColor = cmd->baseColor;
+            // Octahedral impostor params (issue #433) — zero on the billboard path.
+            foliageData.ImpostorParams0 = glm::vec4(cmd->impostorFramesPerAxis, cmd->impostorHemi, cmd->impostorStartDistance, cmd->impostorBand);
+            foliageData.ImpostorParams1 = glm::vec4(cmd->impostorEnabled, cmd->impostorRadius, cmd->impostorParallaxScale, 0.0f);
             foliageUBO->SetData(&foliageData, ShaderBindingLayout::FoliageUBO::GetSize());
             glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_FOLIAGE, foliageUBO->GetRendererID());
         }
 
-        // Bind albedo texture (with redundancy check)
+        // Bind albedo texture (with redundancy check). On the impostor path this
+        // is the octahedral albedo atlas.
         if (cmd->albedoTextureID != 0)
         {
             if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != cmd->albedoTextureID)
@@ -2210,6 +2214,10 @@ namespace OloEngine
                 ++s_Data.Stats.TextureBinds;
             }
         }
+
+        // Bind the octahedral normal+depth atlas (impostor path only).
+        // BindTrackedTextureUnit skips a 0 id and does the redundancy check.
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_USER_0, cmd->impostorNormalDepthTextureID);
 
         // Bind VAO (cached) and draw instanced foliage
         BindVAOIfNeeded(cmd->vertexArrayID);

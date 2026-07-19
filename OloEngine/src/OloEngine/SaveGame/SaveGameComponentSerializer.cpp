@@ -537,6 +537,28 @@ namespace OloEngine
         ar << l.BaseColor;
         ar << l.Roughness << l.AlphaCutoff;
         ar << l.Enabled;
+        // Octahedral impostor fields appended in save-format v11 (issue #433).
+        // Gated so v10-and-older saves keep the exact pre-v11 field order (Enabled
+        // was the last field) and read back with the constructor defaults.
+        if (HasFieldsSince(ar, 11))
+        {
+            ar << l.UseImpostor;
+            ar << l.ImpostorStartDistance << l.ImpostorTransitionBand;
+            ar << l.ImpostorFramesPerAxis << l.ImpostorAtlasResolution;
+            ar << l.ImpostorHemiOctahedral;
+
+            if (ar.IsLoading())
+            {
+                // Guard a corrupt/hostile save from feeding NaN / a negative band
+                // into Impostor::ImpostorFade (mirrors the scene deserializer).
+                if (!std::isfinite(l.ImpostorStartDistance))
+                    l.ImpostorStartDistance = 40.0f;
+                l.ImpostorStartDistance = std::max(l.ImpostorStartDistance, 0.0f);
+                if (!std::isfinite(l.ImpostorTransitionBand))
+                    l.ImpostorTransitionBand = 15.0f;
+                l.ImpostorTransitionBand = std::max(l.ImpostorTransitionBand, 0.0f);
+            }
+        }
         // AlbedoTexture (Ref<Texture2D>) is runtime — not serialized
     }
 

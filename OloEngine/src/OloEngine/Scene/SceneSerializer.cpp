@@ -1340,6 +1340,16 @@ namespace OloEngine
                 layer.BaseColor = layerNode["BaseColor"].as<glm::vec3>(layer.BaseColor);
                 layer.Roughness = layerNode["Roughness"].as<f32>(layer.Roughness);
                 layer.AlphaCutoff = layerNode["AlphaCutoff"].as<f32>(layer.AlphaCutoff);
+                layer.UseImpostor = layerNode["UseImpostor"].as<bool>(layer.UseImpostor);
+                // Validate: non-finite or negative would break Impostor::ImpostorFade
+                // (NaN start / negative band feeds the smoothstep). Keep the default on bad input.
+                if (const f32 v = layerNode["ImpostorStartDistance"].as<f32>(layer.ImpostorStartDistance); std::isfinite(v))
+                    layer.ImpostorStartDistance = std::max(v, 0.0f);
+                if (const f32 v = layerNode["ImpostorTransitionBand"].as<f32>(layer.ImpostorTransitionBand); std::isfinite(v))
+                    layer.ImpostorTransitionBand = std::max(v, 0.0f);
+                layer.ImpostorFramesPerAxis = layerNode["ImpostorFramesPerAxis"].as<u32>(layer.ImpostorFramesPerAxis);
+                layer.ImpostorAtlasResolution = layerNode["ImpostorAtlasResolution"].as<u32>(layer.ImpostorAtlasResolution);
+                layer.ImpostorHemiOctahedral = layerNode["ImpostorHemiOctahedral"].as<bool>(layer.ImpostorHemiOctahedral);
                 layer.Enabled = layerNode["Enabled"].as<bool>(layer.Enabled);
                 foliage.m_Layers.push_back(layer);
             }
@@ -4919,6 +4929,12 @@ namespace OloEngine
                     out << YAML::Key << "BaseColor" << YAML::Value << layer.BaseColor;
                     out << YAML::Key << "Roughness" << YAML::Value << layer.Roughness;
                     out << YAML::Key << "AlphaCutoff" << YAML::Value << layer.AlphaCutoff;
+                    out << YAML::Key << "UseImpostor" << YAML::Value << layer.UseImpostor;
+                    out << YAML::Key << "ImpostorStartDistance" << YAML::Value << layer.ImpostorStartDistance;
+                    out << YAML::Key << "ImpostorTransitionBand" << YAML::Value << layer.ImpostorTransitionBand;
+                    out << YAML::Key << "ImpostorFramesPerAxis" << YAML::Value << layer.ImpostorFramesPerAxis;
+                    out << YAML::Key << "ImpostorAtlasResolution" << YAML::Value << layer.ImpostorAtlasResolution;
+                    out << YAML::Key << "ImpostorHemiOctahedral" << YAML::Value << layer.ImpostorHemiOctahedral;
                     out << YAML::Key << "Enabled" << YAML::Value << layer.Enabled;
                     out << YAML::EndMap;
                 }

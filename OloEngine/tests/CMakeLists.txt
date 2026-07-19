@@ -751,6 +751,9 @@ add_executable(OloEngine-Tests
 		Functional/Scripting/LuaGrantsExperienceViaSceneTickTest.cpp
 		# FramePacer: frame-rate cap sleep/spin math + EMA delta smoothing (#456)
 		FramePacerTest.cpp
+		# Octahedral foliage impostor atlas mapping (issue #433)
+		Rendering/ImpostorOctahedralTest.cpp
+		Rendering/PropertyTests/ImpostorBakeEvidenceTest.cpp
 		# Animated MeshPrimitives (issue #592): CreateAnimatedCube / CreateMultiBoneAnimatedCube
 		# skinning correctness against the MeshSource bone-influence contract.
 		Rendering/PropertyTests/AnimatedMeshPrimitivesPropertyTests.cpp

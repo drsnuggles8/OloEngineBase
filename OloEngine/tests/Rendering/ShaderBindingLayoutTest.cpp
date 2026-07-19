@@ -100,7 +100,8 @@ TEST(ShaderBindingLayout, BrushPreviewUBOSizeStable)
 
 TEST(ShaderBindingLayout, FoliageUBOSizeStable)
 {
-    EXPECT_EQ(sizeof(UBOStructures::FoliageUBO), 48u);
+    // 48 base bytes + 2 vec4 octahedral impostor params (issue #433) = 80.
+    EXPECT_EQ(sizeof(UBOStructures::FoliageUBO), 80u);
 }
 
 TEST(ShaderBindingLayout, DecalUBOSizeStable)

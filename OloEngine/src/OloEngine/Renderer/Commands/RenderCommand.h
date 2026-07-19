@@ -844,8 +844,20 @@ namespace OloEngine
         f32 _pad1 = 0.0f;
         glm::vec4 baseColor = glm::vec4(1.0f); // xyz = color, w = unused
 
-        // Albedo texture (0 = no texture)
+        // Albedo texture (0 = no texture). On the impostor path this is the
+        // octahedral albedo atlas (rgb + coverage).
         RendererID albedoTextureID = 0;
+
+        // Octahedral impostor atlas (issue #433): normal+depth atlas + params.
+        // impostorEnabled == 0 for the flat-billboard path (fields ignored).
+        RendererID impostorNormalDepthTextureID = 0;
+        f32 impostorEnabled = 0.0f;
+        f32 impostorFramesPerAxis = 8.0f;
+        f32 impostorHemi = 1.0f;
+        f32 impostorStartDistance = 40.0f;
+        f32 impostorBand = 15.0f;
+        f32 impostorRadius = 1.0f;
+        f32 impostorParallaxScale = 0.5f;
 
         // Entity ID for picking
         i32 entityID = -1;

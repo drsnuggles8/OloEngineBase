@@ -178,7 +178,8 @@ namespace OloEngine
         f32 viewDistance, f32 fadeStart, f32 alphaCutoff,
         const glm::vec4& baseColor,
         const BoundingBox& layerBounds,
-        i32 entityID)
+        i32 entityID,
+        const FoliageImpostorParams& impostor)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -193,13 +194,20 @@ namespace OloEngine
             return nullptr;
         }
 
+        // Octahedral impostor path (issue #433): always routes through the
+        // forward FoliagePass with the impostor shader — the card does its own
+        // relighting, so it composites into SceneColor after (deferred) lighting.
+        const bool useImpostor = impostor.Enabled && impostor.AlbedoAtlasID != 0 && s_Data.FoliageImpostorShader;
+
         // Deferred: route through ScenePass (the G-Buffer FB) with the
         // G-Buffer variant shader so foliage participates in the deferred
         // lighting composite. Falls back to the forward FoliagePass route
         // when the variant is missing.
         const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
-        const bool useGBufferVariant = deferredActive && s_Data.FoliageGBufferShader && s_Data.Pipeline->FrameCorePasses.Scene;
-        Ref<Shader> activeShader = useGBufferVariant ? s_Data.FoliageGBufferShader : s_Data.FoliageShader;
+        const bool useGBufferVariant = !useImpostor && deferredActive && s_Data.FoliageGBufferShader && s_Data.Pipeline->FrameCorePasses.Scene;
+        Ref<Shader> activeShader = useImpostor         ? s_Data.FoliageImpostorShader
+                                   : useGBufferVariant ? s_Data.FoliageGBufferShader
+                                                       : s_Data.FoliageShader;
 
         // Frustum cull the entire layer using the precomputed bounding box.
         if (s_Data.FrustumCullingEnabled)
@@ -236,8 +244,21 @@ namespace OloEngine
         cmd->fadeStart = fadeStart;
         cmd->alphaCutoff = alphaCutoff;
         cmd->baseColor = baseColor;
-        cmd->albedoTextureID = albedoTextureID;
+        cmd->albedoTextureID = useImpostor ? impostor.AlbedoAtlasID : albedoTextureID;
         cmd->entityID = entityID;
+
+        // Octahedral impostor payload (issue #433).
+        if (useImpostor)
+        {
+            cmd->impostorNormalDepthTextureID = impostor.NormalDepthAtlasID;
+            cmd->impostorEnabled = 1.0f;
+            cmd->impostorFramesPerAxis = static_cast<f32>(impostor.FramesPerAxis);
+            cmd->impostorHemi = impostor.Hemi ? 1.0f : 0.0f;
+            cmd->impostorStartDistance = impostor.StartDistance;
+            cmd->impostorBand = impostor.TransitionBand;
+            cmd->impostorRadius = impostor.Radius;
+            cmd->impostorParallaxScale = impostor.ParallaxScale;
+        }
 
         // Foliage render state: opaque alpha-tested, depth test + write, no blend.
         {
@@ -246,7 +267,10 @@ namespace OloEngine
             foliageState.depthFunction = GL_LEQUAL;
             foliageState.depthWriteMask = true;
             foliageState.blendEnabled = false;
-            foliageState.cullingEnabled = true;
+            // The impostor card is a camera-facing quad — draw it double-sided so
+            // it never culls to nothing on either winding (matches the two-sided
+            // foliage lighting); the flat billboard keeps back-face culling.
+            foliageState.cullingEnabled = !useImpostor;
             foliageState.cullFace = GL_BACK;
             cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(foliageState);
         }

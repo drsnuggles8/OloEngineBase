@@ -7101,6 +7101,19 @@ namespace OloEngine
                     auto layerInfos = foliage.m_Renderer->GetActiveLayerDrawInfo();
                     for (const auto& layer : layerInfos)
                     {
+                        Renderer3D::FoliageImpostorParams impostor;
+                        if (layer.UseImpostor)
+                        {
+                            impostor.Enabled = true;
+                            impostor.AlbedoAtlasID = layer.ImpostorAlbedoAtlasID;
+                            impostor.NormalDepthAtlasID = layer.ImpostorNormalDepthAtlasID;
+                            impostor.FramesPerAxis = layer.ImpostorFramesPerAxis;
+                            impostor.Hemi = layer.ImpostorHemi;
+                            impostor.StartDistance = layer.ImpostorStartDistance;
+                            impostor.TransitionBand = layer.ImpostorTransitionBand;
+                            impostor.Radius = layer.ImpostorRadius;
+                        }
+
                         auto* packet = Renderer3D::DrawFoliageLayer(
                             layer.VertexArrayID, layer.IndexCount, layer.InstanceCount,
                             layer.AlbedoTextureID,
@@ -7111,7 +7124,8 @@ namespace OloEngine
                             layer.ViewDistance, layer.FadeStartDistance, layer.AlphaCutoff,
                             glm::vec4(layer.BaseColor, 0.0f),
                             layer.Bounds,
-                            entityID);
+                            entityID,
+                            impostor);
                         if (packet)
                         {
                             Renderer3D::SubmitFoliagePacket(packet);

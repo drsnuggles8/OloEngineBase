@@ -200,7 +200,7 @@ namespace OloEngine
 
         u32 shaderIdx = 0;
         // NOTE: Keep totalShaders3D in sync with the number of Load() calls below.
-        constexpr u32 totalShaders3D = 46;
+        constexpr u32 totalShaders3D = 48;
 
         // Boot + fallback are idempotent — no-ops when already initialized by
         // Renderer::Init().  Needed here for the lazy-init path (EditorLayer
@@ -252,6 +252,8 @@ namespace OloEngine
             "assets/shaders/Foliage_Instance.glsl",
             "assets/shaders/Foliage_Instance_GBuffer.glsl",
             "assets/shaders/Foliage_Depth.glsl",
+            "assets/shaders/Foliage_Impostor.glsl",
+            "assets/shaders/Impostor_Bake.glsl",
             "assets/shaders/Water.glsl",
             "assets/shaders/Decal.glsl",
             "assets/shaders/Decal_OIT.glsl",
@@ -317,6 +319,7 @@ namespace OloEngine
         s_Data.FoliageShader = m_ShaderLibrary.Get("Foliage_Instance");
         s_Data.FoliageGBufferShader = m_ShaderLibrary.Get("Foliage_Instance_GBuffer");
         s_Data.FoliageDepthShader = m_ShaderLibrary.Get("Foliage_Depth");
+        s_Data.FoliageImpostorShader = m_ShaderLibrary.Get("Foliage_Impostor");
         s_Data.WaterShader = m_ShaderLibrary.Get("Water");
         s_Data.DecalShader = m_ShaderLibrary.Get("Decal");
         s_Data.DecalGBufferShader = m_ShaderLibrary.Get("Decal_GBuffer");

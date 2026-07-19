@@ -17,6 +17,9 @@
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Frustum.h"
+#include "OloEngine/Renderer/Impostor/ImpostorBaker.h"
+#include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/Model.h"
 
 #include <cstring>
 #include <glm/gtc/constants.hpp>
@@ -168,6 +171,13 @@ namespace OloEngine
             {
                 renderData.AlbedoTexture = Texture2D::Create(layer.AlbedoPath, /*srgb=*/true);
             }
+
+            // Octahedral impostor LOD (issue #433): store the per-layer params and
+            // bake/re-bake the atlas from the layer mesh if needed.
+            renderData.UseImpostor = layer.UseImpostor;
+            renderData.ImpostorStartDistance = layer.ImpostorStartDistance;
+            renderData.ImpostorTransitionBand = layer.ImpostorTransitionBand;
+            UpdateImpostorAtlas(renderData, layer);
 
             // Calculate grid spacing from density
             f32 spacing = 1.0f / std::sqrt(layer.Density);
@@ -415,6 +425,58 @@ namespace OloEngine
         return total;
     }
 
+    void FoliageRenderer::UpdateImpostorAtlas(LayerRenderData& data, const FoliageLayer& layer)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!layer.UseImpostor || layer.MeshPath.empty())
+        {
+            // Impostor turned off (or no mesh) — drop any stale atlas.
+            data.Impostor = ImpostorAtlas{};
+            data.ImpostorBakedMeshPath.clear();
+            data.ImpostorBakedFrames = 0;
+            data.ImpostorBakedResolution = 0;
+            return;
+        }
+
+        // Re-bake only when anything the atlas is baked FROM changed: mesh, grid,
+        // atlas resolution, layout, AND the material inputs (albedo texture path,
+        // tint, alpha cutoff) — the bake bakes those in, so a tint/cutoff change
+        // with the same mesh must still re-bake or the atlas goes stale.
+        const bool upToDate = data.Impostor.IsValid() && data.ImpostorBakedMeshPath == layer.MeshPath && data.ImpostorBakedFrames == layer.ImpostorFramesPerAxis && data.ImpostorBakedResolution == layer.ImpostorAtlasResolution && data.ImpostorBakedHemi == layer.ImpostorHemiOctahedral && data.ImpostorBakedAlbedoPath == layer.AlbedoPath && Math::BitwiseEqual(data.ImpostorBakedBaseColor, layer.BaseColor) && Math::BitwiseEqual(data.ImpostorBakedAlphaCutoff, layer.AlphaCutoff);
+        if (upToDate)
+            return;
+
+        Model model(layer.MeshPath);
+        if (model.GetMeshCount() == 0)
+        {
+            OLO_CORE_WARN("FoliageRenderer: impostor layer '{}' mesh '{}' failed to load — impostor disabled for this layer",
+                          layer.Name, layer.MeshPath);
+            data.Impostor = ImpostorAtlas{};
+            return;
+        }
+
+        // Bake with the layer albedo (if any) applied to the mesh UVs, tinted by
+        // BaseColor. A mesh with its own material texture is a natural follow-up.
+        const Ref<Mesh> mesh = model.GetMesh(0);
+        const Ref<Texture2D> albedo = data.AlbedoTexture; // may be null -> white fallback
+        data.Impostor = ImpostorBaker::Bake(
+            mesh, albedo, layer.BaseColor,
+            layer.ImpostorFramesPerAxis, layer.ImpostorAtlasResolution,
+            layer.ImpostorHemiOctahedral, layer.AlphaCutoff);
+
+        if (data.Impostor.IsValid())
+        {
+            data.ImpostorBakedMeshPath = layer.MeshPath;
+            data.ImpostorBakedAlbedoPath = layer.AlbedoPath;
+            data.ImpostorBakedBaseColor = layer.BaseColor;
+            data.ImpostorBakedAlphaCutoff = layer.AlphaCutoff;
+            data.ImpostorBakedFrames = layer.ImpostorFramesPerAxis;
+            data.ImpostorBakedResolution = layer.ImpostorAtlasResolution;
+            data.ImpostorBakedHemi = layer.ImpostorHemiOctahedral;
+        }
+    }
+
     std::vector<FoliageLayerDrawInfo> FoliageRenderer::GetActiveLayerDrawInfo() const
     {
         std::vector<FoliageLayerDrawInfo> result;
@@ -439,6 +501,20 @@ namespace OloEngine
             info.BaseColor = layer.BaseColor;
             info.AlphaCutoff = layer.AlphaCutoff;
             info.Bounds = layer.Bounds;
+
+            // Octahedral impostor (issue #433) — only when the atlas baked OK.
+            if (layer.UseImpostor && layer.Impostor.IsValid())
+            {
+                info.UseImpostor = true;
+                info.ImpostorAlbedoAtlasID = layer.Impostor.Albedo->GetRendererID();
+                info.ImpostorNormalDepthAtlasID = layer.Impostor.NormalDepth->GetRendererID();
+                info.ImpostorFramesPerAxis = layer.Impostor.FramesPerAxis;
+                info.ImpostorHemi = layer.Impostor.Hemi;
+                info.ImpostorStartDistance = layer.ImpostorStartDistance;
+                info.ImpostorTransitionBand = layer.ImpostorTransitionBand;
+                info.ImpostorRadius = layer.Impostor.Radius;
+            }
+
             result.push_back(info);
         }
 
