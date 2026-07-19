@@ -712,6 +712,9 @@ namespace OloEngine
                 m_JoltScene->DestroyTerrainBody(entityUUID);
                 terrain.m_RuntimeCollisionBodyToken = 0;
             }
+            // Streamed terrains own per-tile bodies with no runtime token — sweep them
+            // too so destroying the entity doesn't leak the tile bodies (issue #469).
+            m_JoltScene->DestroyTerrainTilesForEntity(entityUUID);
         }
 
         // Same deal for a cloth soft body (issue #460) — keyed by entity UUID, no
@@ -4659,6 +4662,74 @@ namespace OloEngine
             terrain.m_RuntimeCollisionBodyToken = bodyID.IsInvalid() ? 0 : static_cast<u64>(bodyID.GetIndexAndSequenceNumber());
         }
 
+        // Reconcile per-tile collision bodies for a STREAMED terrain against the streamer's
+        // currently-ready tiles (issue #469). Runs each frame in the render path after the
+        // streamer Update, when physics is live and collision is enabled: builds a static
+        // height-field body for every newly-ready tile and destroys the bodies of tiles no
+        // longer loaded, so collision tracks the visual load/unload in step. Each tile body
+        // reuses the tile's own CPU height field placed at its world origin and carries the
+        // entity transform exactly like the draw path (tileModel = entityTransform *
+        // translate(tile.WorldOrigin) — see submitChunkPackets), so collision coincides
+        // with the rendered tile.
+        void ReconcileStreamingTerrainCollision(JoltScene& joltScene, Entity entity, TerrainComponent& terrain)
+        {
+            const UUID entityID = entity.GetUUID();
+
+            if (!terrain.m_Streamer)
+            {
+                joltScene.DestroyTerrainTilesForEntity(entityID);
+                return;
+            }
+
+            const auto& transform = entity.GetComponent<TransformComponent>();
+            const glm::quat rotation = transform.GetRotation();
+
+            std::vector<Ref<TerrainTile>> readyTiles;
+            terrain.m_Streamer->GetReadyTiles(readyTiles);
+
+            // Pack a tile grid coord into a single key for the desired-set membership test.
+            auto packKey = [](i32 x, i32 z) -> i64
+            {
+                return (static_cast<i64>(x) << 32) | (static_cast<i64>(static_cast<u32>(z)));
+            };
+
+            std::unordered_set<i64> desired;
+            desired.reserve(readyTiles.size());
+            for (const auto& tile : readyTiles)
+            {
+                if (!tile)
+                    continue;
+                desired.insert(packKey(tile->GridX, tile->GridZ));
+
+                // Already have a body for this tile — nothing to do (tile heights are
+                // immutable once loaded; a re-loaded tile after eviction gets a fresh body).
+                if (joltScene.HasTerrainTileBody(entityID, tile->GridX, tile->GridZ))
+                    continue;
+
+                Ref<TerrainData> data = tile->GetTerrainData();
+                if (!data || data->GetResolution() < 2)
+                    continue;
+
+                JPH::Ref<JPH::Shape> shape = JoltShapes::CreateTerrainHeightFieldShape(
+                    data->GetHeightData(), data->GetResolution(),
+                    tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale, transform.Scale);
+                if (!shape)
+                    continue;
+
+                // Body pose that reproduces entityTransform * translate(WorldOrigin) given
+                // the shape already bakes entity scale: T + R*(S ⊙ WorldOrigin), rotation R.
+                const glm::vec3 tilePos = transform.Translation + (rotation * (transform.Scale * tile->WorldOrigin));
+                (void)joltScene.CreateTerrainTileBody(entity, tile->GridX, tile->GridZ, shape, tilePos, rotation);
+            }
+
+            // Destroy bodies whose tile is no longer loaded (evicted / out of range).
+            for (const auto& [tx, tz] : joltScene.GetTerrainTileCoords(entityID))
+            {
+                if (!desired.contains(packKey(tx, tz)))
+                    joltScene.DestroyTerrainTileBody(entityID, tx, tz);
+            }
+        }
+
         // ── Cloth soft bodies (issue #460) ─────────────────────────────────────
         // Row-major triangle indices for a columns×rows cloth grid (two triangles per
         // cell). Winding matches the soft-body faces built in CreateClothSharedSettings.
@@ -4936,6 +5007,8 @@ namespace OloEngine
                 m_JoltScene->DestroyTerrainBody(ent.GetUUID());
                 terrain.m_RuntimeCollisionBodyToken = 0;
             }
+            // Streamed terrains own per-tile bodies instead (issue #469).
+            m_JoltScene->DestroyTerrainTilesForEntity(ent.GetUUID());
         }
 
         // Tear down cloth soft bodies and drop their runtime render state (issue #460).
@@ -4945,6 +5018,34 @@ namespace OloEngine
         m_ClothRuntime.clear();
 
         m_JoltScene->Shutdown();
+    }
+
+    bool Scene::UpdateTerrainCollisionAfterEdit(Entity terrainEntity, u32 regionX, u32 regionZ,
+                                                u32 regionWidth, u32 regionHeight)
+    {
+        if (!m_JoltScene || !m_JoltScene->IsInitialized())
+            return false; // Edit mode / physics off — collision is (re)built at OnPhysics3DStart.
+        if (!terrainEntity || !terrainEntity.HasComponent<TerrainComponent>())
+            return false;
+
+        auto& terrain = terrainEntity.GetComponent<TerrainComponent>();
+        if (!terrain.m_CollisionEnabled || terrain.m_StreamingEnabled)
+            return false; // Streamed terrain is handled by the per-tile reconcile instead.
+        if (!terrain.m_TerrainData || terrain.m_TerrainData->GetResolution() < 2)
+            return false;
+
+        const u32 resolution = terrain.m_TerrainData->GetResolution();
+        const UUID entityID = terrainEntity.GetUUID();
+
+        // Fast path: mutate the existing height-field body in place over the dirty rect.
+        if (m_JoltScene->UpdateTerrainBodyHeights(entityID, regionX, regionZ, regionWidth, regionHeight,
+                                                  terrain.m_TerrainData->GetHeightData(), resolution))
+            return true;
+
+        // No live body yet (terrain built after OnPhysics3DStart, or a prior build failed).
+        // Build a fresh full body from the current heights so collision still reflects the edit.
+        BuildTerrainCollisionBody(*m_JoltScene, terrainEntity, terrain);
+        return m_JoltScene->HasTerrainBody(entityID);
     }
 
     const std::vector<glm::vec3>* Scene::GetClothVertexPositions(UUID entityID) const
@@ -6653,6 +6754,18 @@ namespace OloEngine
                     // the old world-anchored feed, plus the un-stacking fix.)
                     const glm::vec3 terrainTranslation = terrainView.get<TransformComponent>(entity).Translation;
                     terrain.m_Streamer->Update(cameraPosition - terrainTranslation, m_TerrainFrameCounter);
+
+                    // Per-tile collision (issue #469): when physics is live, keep a static
+                    // height-field body per ready tile in step with the visual load/unload.
+                    // Collision disabled at runtime → tear down any tiles we still own.
+                    if (m_JoltScene && m_JoltScene->IsInitialized())
+                    {
+                        Entity terrainEnt = { entity, this };
+                        if (terrain.m_CollisionEnabled)
+                            ReconcileStreamingTerrainCollision(*m_JoltScene, terrainEnt, terrain);
+                        else
+                            m_JoltScene->DestroyTerrainTilesForEntity(terrainEnt.GetUUID());
+                    }
                 }
                 else
                 {

@@ -130,6 +130,45 @@ namespace OloEngine
             return m_TerrainBodies.contains(entityID);
         }
 
+        // Per-tile terrain collision for STREAMED terrain (issue #469). A streaming
+        // TerrainComponent owns many static height-field bodies at once — one per
+        // loaded tile — instead of the single body above, so they are tracked in a
+        // separate map keyed by (owning terrain entity UUID, tile grid X, tile grid Z).
+        // Each tile body is otherwise identical to the single-tile terrain body: a raw
+        // static JPH body on NON_MOVING, UserData = the OWNING TERRAIN ENTITY UUID (so a
+        // raycast against any tile resolves the terrain entity), entered in the
+        // BodyID→entity reverse map. The caller (Scene) builds the tile's HeightFieldShape
+        // from that tile's CPU heights and places it at the tile's world origin. Create is
+        // idempotent per (entity, x, z). Returns the new BodyID (invalid on failure).
+        JPH::BodyID CreateTerrainTileBody(Entity terrainEntity, i32 tileX, i32 tileZ,
+                                          const JPH::Ref<JPH::Shape>& shape,
+                                          const glm::vec3& position, const glm::quat& rotation);
+        void DestroyTerrainTileBody(UUID terrainEntityID, i32 tileX, i32 tileZ);
+        bool HasTerrainTileBody(UUID terrainEntityID, i32 tileX, i32 tileZ) const;
+        // Grid coords of every tile body currently tracked for a terrain. The per-frame
+        // streaming reconcile uses this to destroy the tiles that are no longer loaded.
+        [[nodiscard]] std::vector<std::pair<i32, i32>> GetTerrainTileCoords(UUID terrainEntityID) const;
+        // Destroy every tile body owned by a terrain (streaming disabled at runtime, or
+        // the terrain entity destroyed). Cheap no-op when the terrain owns no tile bodies.
+        void DestroyTerrainTilesForEntity(UUID terrainEntityID);
+
+        // Partial in-place update of a SINGLE-TILE terrain body's height field after a
+        // sculpt / erosion edit (issue #469). Mutates the body's JPH::HeightFieldShape via
+        // HeightFieldShape::SetHeights over the dirty rect [regionX, regionX+regionWidth) ×
+        // [regionZ, regionZ+regionHeight) (in heightmap sample coords, X = column / world
+        // X, Z = row / world Z), snapping it outward to the shape's block-size grid (Jolt
+        // requires block alignment) and edge-replicating any sample the pad added beyond
+        // `resolution`, then NotifyShapeChanged to refresh the broadphase bounds.
+        // `fullHeights` / `resolution` are the terrain's full CPU field (row-major,
+        // normalized [0,1], index = z*resolution + x) — the SAME field the shape was built
+        // from, now edited. MUST be called on the game thread OUTSIDE the physics step:
+        // SetHeights mutates shared shape data and races concurrent collision queries
+        // (see HeightFieldShape::SetHeights docs). Returns false if the terrain has no
+        // single-tile body, the body's shape is not a height field, or the input is bad.
+        bool UpdateTerrainBodyHeights(UUID terrainEntityID, u32 regionX, u32 regionZ,
+                                      u32 regionWidth, u32 regionHeight,
+                                      const std::vector<f32>& fullHeights, u32 resolution);
+
         // Cloth / soft-body management (issue #460). Like terrain bodies, a cloth entity
         // carries no Rigidbody3DComponent / JoltBody wrapper — its Jolt soft body is a raw
         // JPH body tracked separately, keyed by the owning ClothComponent entity. The caller
@@ -520,6 +559,34 @@ namespace OloEngine
         // they live outside m_Bodies; they are still entered in m_BodyIDToEntity so
         // queries resolve them. Created/destroyed by Create/DestroyTerrainBody.
         std::unordered_map<UUID, JPH::BodyID> m_TerrainBodies;
+
+        // Per-tile terrain height-field bodies for STREAMED terrain (issue #469), keyed by
+        // (owning terrain entity UUID, tile grid X, tile grid Z). Same raw-static-body
+        // convention as m_TerrainBodies (entered in m_BodyIDToEntity under the owning
+        // terrain entity UUID). Created/destroyed by Create/DestroyTerrainTileBody as the
+        // TerrainStreamer loads / evicts tiles.
+        struct TerrainTileKey
+        {
+            UUID Terrain;
+            i32 X = 0;
+            i32 Z = 0;
+
+            bool operator==(const TerrainTileKey& other) const
+            {
+                return Terrain == other.Terrain && X == other.X && Z == other.Z;
+            }
+        };
+        struct TerrainTileKeyHash
+        {
+            sizet operator()(const TerrainTileKey& k) const
+            {
+                sizet h = std::hash<u64>{}(static_cast<u64>(k.Terrain));
+                h ^= std::hash<i32>{}(k.X) * 0x9E3779B97F4A7C15ULL + 0x9E3779B9ULL + (h << 6) + (h >> 2);
+                h ^= std::hash<i32>{}(k.Z) * 0x9E3779B97F4A7C15ULL + 0x9E3779B9ULL + (h << 6) + (h >> 2);
+                return h;
+            }
+        };
+        std::unordered_map<TerrainTileKey, JPH::BodyID, TerrainTileKeyHash> m_TerrainTileBodies;
 
         // Cloth soft bodies (issue #460), keyed by the owning ClothComponent entity. Like
         // terrain bodies these are raw JPH bodies (no JoltBody wrapper), so they live

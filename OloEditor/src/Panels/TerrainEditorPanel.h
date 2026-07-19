@@ -108,5 +108,8 @@ namespace OloEngine
         f32 m_StrokeWorldSizeX = 0.0f;
         f32 m_StrokeWorldSizeZ = 0.0f;
         f32 m_StrokeHeightScale = 0.0f;
+        // Owning terrain entity of the active sculpt stroke, so its collision body can be
+        // refreshed once at stroke settle when physics is running (issue #469).
+        entt::entity m_StrokeEntity = entt::null;
     };
 } // namespace OloEngine

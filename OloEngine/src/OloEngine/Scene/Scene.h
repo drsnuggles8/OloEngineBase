@@ -306,6 +306,19 @@ namespace OloEngine
         void OnPhysics2DStart();
         void OnPhysics2DStop();
 
+        // Terrain sculpt/erosion collision sync (issue #469). After a sculpt or erosion
+        // edit mutates a single-tile terrain's CPU height field over the given sample
+        // rect ([regionX, regionX+regionWidth) columns × [regionZ, regionZ+regionHeight)
+        // rows), refresh the static height-field collision body so a dropped body rests on
+        // the NEW surface. No-op unless physics is running and the terrain has a live
+        // collision body (edit mode has no JoltScene). Streamed terrains are not sculpted,
+        // so their per-tile bodies are managed by the streaming reconcile instead. Pass the
+        // whole edited region (or the accumulated stroke rect); it is snapped to Jolt's
+        // block grid internally. Debounce at the call site — one call per stroke settle,
+        // not per drag frame. Returns true if a collision body was updated.
+        bool UpdateTerrainCollisionAfterEdit(Entity terrainEntity, u32 regionX, u32 regionZ,
+                                             u32 regionWidth, u32 regionHeight);
+
         // Audio runtime init. Production code reaches this via
         // OnRuntimeStart (non-headless path). Exposed for headless test
         // harnesses that need a working AudioEventsManager + position
