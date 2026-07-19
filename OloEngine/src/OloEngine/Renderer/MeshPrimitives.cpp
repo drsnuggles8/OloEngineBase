@@ -4,8 +4,81 @@
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 
+#include <iterator>
+
 namespace OloEngine
 {
+    namespace
+    {
+        // Unit cube (1x1x1) vertex data: 24 verts (4 per face, duplicated at
+        // shared edges so each face gets its own normal/UV), optionally
+        // offset along Y. Single source of truth for every primitive that
+        // needs a plain axis-aligned unit-cube shell (CreateCube and the
+        // animated variants) so their geometry/UVs cannot silently drift
+        // apart from hand-copied duplicates.
+        std::vector<Vertex> MakeUnitCubeVertices(f32 centerY = 0.0f)
+        {
+            const f32 top = centerY + 0.5f;
+            const f32 bottom = centerY - 0.5f;
+            return {
+                // Front face
+                { { 0.5f, top, 0.5f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f } },     // 0
+                { { 0.5f, bottom, 0.5f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f } },  // 1
+                { { -0.5f, bottom, 0.5f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f } }, // 2
+                { { -0.5f, top, 0.5f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f } },    // 3
+
+                // Back face
+                { { 0.5f, top, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 1.0f } },     // 4
+                { { 0.5f, bottom, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f } },  // 5
+                { { -0.5f, bottom, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 1.0f, 0.0f } }, // 6
+                { { -0.5f, top, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 1.0f, 1.0f } },    // 7
+
+                // Right face
+                { { 0.5f, top, 0.5f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f } },     // 8
+                { { 0.5f, bottom, 0.5f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } },  // 9
+                { { 0.5f, bottom, -0.5f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } }, // 10
+                { { 0.5f, top, -0.5f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f } },    // 11
+
+                // Left face
+                { { -0.5f, top, 0.5f }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f } },     // 12
+                { { -0.5f, bottom, 0.5f }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },  // 13
+                { { -0.5f, bottom, -0.5f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } }, // 14
+                { { -0.5f, top, -0.5f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f } },    // 15
+
+                // Top face
+                { { 0.5f, top, 0.5f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f } },   // 16
+                { { 0.5f, top, -0.5f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 1.0f } },  // 17
+                { { -0.5f, top, -0.5f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } }, // 18
+                { { -0.5f, top, 0.5f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f } },  // 19
+
+                // Bottom face
+                { { 0.5f, bottom, 0.5f }, { 0.0f, -1.0f, 0.0f }, { 1.0f, 1.0f } },   // 20
+                { { 0.5f, bottom, -0.5f }, { 0.0f, -1.0f, 0.0f }, { 1.0f, 0.0f } },  // 21
+                { { -0.5f, bottom, -0.5f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } }, // 22
+                { { -0.5f, bottom, 0.5f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, 1.0f } }   // 23
+            };
+        }
+
+        // Winding-order indices matching MakeUnitCubeVertices()'s layout.
+        std::vector<u32> MakeUnitCubeIndices()
+        {
+            return {
+                // Front face (CCW from outside, normal +Z)
+                0, 3, 1, 3, 2, 1,
+                // Back face (CCW from outside, normal -Z)
+                4, 5, 7, 5, 6, 7,
+                // Right face (CCW from outside, normal +X)
+                8, 9, 11, 9, 10, 11,
+                // Left face (CCW from outside, normal -X)
+                12, 15, 13, 15, 14, 13,
+                // Top face (CCW from outside, normal +Y)
+                16, 17, 19, 17, 18, 19,
+                // Bottom face (CCW from outside, normal -Y)
+                20, 23, 21, 23, 22, 21
+            };
+        }
+    } // namespace
+
     // Static shared fullscreen triangle VAO (lazy-initialized)
     static Ref<VertexArray> s_FullscreenTriangleVA;
 
@@ -59,58 +132,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        std::vector<Vertex> vertices = {
-            // Front face
-            { { 0.5f, 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f } },   // 0
-            { { 0.5f, -0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f } },  // 1
-            { { -0.5f, -0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f } }, // 2
-            { { -0.5f, 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f } },  // 3
-
-            // Back face
-            { { 0.5f, 0.5f, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 1.0f } },   // 4
-            { { 0.5f, -0.5f, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f } },  // 5
-            { { -0.5f, -0.5f, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 1.0f, 0.0f } }, // 6
-            { { -0.5f, 0.5f, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 1.0f, 1.0f } },  // 7
-
-            // Right face
-            { { 0.5f, 0.5f, 0.5f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f } },   // 8
-            { { 0.5f, -0.5f, 0.5f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } },  // 9
-            { { 0.5f, -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } }, // 10
-            { { 0.5f, 0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f } },  // 11
-
-            // Left face
-            { { -0.5f, 0.5f, 0.5f }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f } },   // 12
-            { { -0.5f, -0.5f, 0.5f }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },  // 13
-            { { -0.5f, -0.5f, -0.5f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } }, // 14
-            { { -0.5f, 0.5f, -0.5f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f } },  // 15
-
-            // Top face
-            { { 0.5f, 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f } },   // 16
-            { { 0.5f, 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 1.0f } },  // 17
-            { { -0.5f, 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } }, // 18
-            { { -0.5f, 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f } },  // 19
-
-            // Bottom face
-            { { 0.5f, -0.5f, 0.5f }, { 0.0f, -1.0f, 0.0f }, { 1.0f, 1.0f } },   // 20
-            { { 0.5f, -0.5f, -0.5f }, { 0.0f, -1.0f, 0.0f }, { 1.0f, 0.0f } },  // 21
-            { { -0.5f, -0.5f, -0.5f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } }, // 22
-            { { -0.5f, -0.5f, 0.5f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, 1.0f } }   // 23
-        };
-
-        std::vector<u32> indices = {
-            // Front face (CCW from outside, normal +Z)
-            0, 3, 1, 3, 2, 1,
-            // Back face (CCW from outside, normal -Z)
-            4, 5, 7, 5, 6, 7,
-            // Right face (CCW from outside, normal +X)
-            8, 9, 11, 9, 10, 11,
-            // Left face (CCW from outside, normal -X)
-            12, 15, 13, 15, 14, 13,
-            // Top face (CCW from outside, normal +Y)
-            16, 17, 19, 17, 18, 19,
-            // Bottom face (CCW from outside, normal -Y)
-            20, 23, 21, 23, 22, 21
-        };
+        std::vector<Vertex> vertices = MakeUnitCubeVertices();
+        std::vector<u32> indices = MakeUnitCubeIndices();
 
         auto meshSource = Ref<MeshSource>::Create(vertices, indices);
 
@@ -905,6 +928,130 @@ namespace OloEngine
         submesh.m_MaterialIndex = 0;
         submesh.m_IsRigged = false;
         submesh.m_NodeName = "WaterGrid";
+        meshSource->AddSubmesh(submesh);
+
+        meshSource->Build();
+        return Ref<Mesh>::Create(meshSource, 0);
+    }
+
+    Ref<Mesh> MeshPrimitives::CreateAnimatedCube()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Same geometry as CreateCube(), rigged to a single root bone so the
+        // whole mesh moves rigidly with it. The minimal skinned primitive:
+        // proves the MeshSource <-> Skeleton wiring without any blend weights.
+        std::vector<Vertex> vertices = MakeUnitCubeVertices();
+        std::vector<u32> indices = MakeUnitCubeIndices();
+
+        auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+
+        auto skeleton = Ref<Skeleton>::Create(1);
+        skeleton->m_BoneNames = { "Root" };
+        skeleton->m_ParentIndices = { -1 };
+        skeleton->m_LocalTransforms = { glm::mat4(1.0f) };
+        skeleton->m_BonePreTransforms = { glm::mat4(1.0f) };
+        skeleton->m_GlobalTransforms[0] = skeleton->m_LocalTransforms[0];
+        skeleton->SetBindPose();
+        meshSource->SetSkeleton(skeleton);
+
+        BoneInfluence rootInfluence;
+        rootInfluence.SetBoneData(0, /*boneId=*/0, /*weight=*/1.0f);
+        for (u32 i = 0, n = static_cast<u32>(vertices.size()); i < n; ++i)
+        {
+            meshSource->SetVertexBoneData(i, rootInfluence);
+        }
+
+        meshSource->GetBoneInfo().Add(BoneInfo(skeleton->m_InverseBindPoses[0], 0));
+
+        Submesh submesh;
+        submesh.m_BaseVertex = 0;
+        submesh.m_BaseIndex = 0;
+        submesh.m_IndexCount = static_cast<u32>(indices.size());
+        submesh.m_VertexCount = static_cast<u32>(vertices.size());
+        submesh.m_MaterialIndex = 0;
+        submesh.m_IsRigged = true;
+        submesh.m_NodeName = "AnimatedCube";
+        meshSource->AddSubmesh(submesh);
+
+        meshSource->Build();
+        return Ref<Mesh>::Create(meshSource, 0);
+    }
+
+    Ref<Mesh> MeshPrimitives::CreateMultiBoneAnimatedCube()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Two vertically stacked unit cubes forming a 1x2x1 column: the lower
+        // half (y in [-1, 0]) is rigged to bone 0 ("Lower"), the upper half
+        // (y in [0, 1]) to bone 1 ("Upper"). Both bones share the bind-pose
+        // origin (0, 0, 0) - the seam - so rotating "Upper" bends the column
+        // at the seam instead of tearing it. Vertices exactly at the seam
+        // (y == 0) are weighted 50/50 between the two bones - the case that
+        // actually exercises blended influences.
+        constexpr u32 kLowerBone = 0;
+        constexpr u32 kUpperBone = 1;
+
+        // Lower box: y in [-1, 0]; Upper box: y in [0, 1].
+        std::vector<Vertex> vertices = MakeUnitCubeVertices(-0.5f);
+        const auto lowerBoxVertexCount = static_cast<u32>(vertices.size());
+        std::vector<Vertex> upperVertices = MakeUnitCubeVertices(0.5f);
+        vertices.reserve(vertices.size() + upperVertices.size());
+        vertices.insert(vertices.end(), std::make_move_iterator(upperVertices.begin()), std::make_move_iterator(upperVertices.end()));
+
+        const std::vector<u32> boxIndices = MakeUnitCubeIndices();
+        std::vector<u32> indices;
+        indices.reserve(boxIndices.size() * 2);
+        indices.insert(indices.end(), boxIndices.begin(), boxIndices.end());
+        for (u32 idx : boxIndices)
+        {
+            indices.push_back(idx + lowerBoxVertexCount);
+        }
+
+        auto meshSource = Ref<MeshSource>::Create(vertices, indices);
+
+        auto skeleton = Ref<Skeleton>::Create(2);
+        skeleton->m_BoneNames = { "Lower", "Upper" };
+        skeleton->m_ParentIndices = { -1, 0 };
+        skeleton->m_LocalTransforms = { glm::mat4(1.0f), glm::mat4(1.0f) };
+        skeleton->m_BonePreTransforms = { glm::mat4(1.0f), glm::mat4(1.0f) };
+        skeleton->m_GlobalTransforms[0] = skeleton->m_LocalTransforms[0];
+        skeleton->m_GlobalTransforms[1] = skeleton->m_GlobalTransforms[0] * skeleton->m_LocalTransforms[1];
+        skeleton->SetBindPose();
+        meshSource->SetSkeleton(skeleton);
+
+        constexpr f32 kSeamEpsilon = 1e-4f;
+        for (u32 i = 0, n = static_cast<u32>(vertices.size()); i < n; ++i)
+        {
+            const f32 y = vertices[i].Position.y;
+            BoneInfluence influence;
+            if (y < -kSeamEpsilon)
+            {
+                influence.SetBoneData(0, kLowerBone, 1.0f);
+            }
+            else if (y > kSeamEpsilon)
+            {
+                influence.SetBoneData(0, kUpperBone, 1.0f);
+            }
+            else
+            {
+                influence.SetBoneData(0, kLowerBone, 0.5f);
+                influence.SetBoneData(1, kUpperBone, 0.5f);
+            }
+            meshSource->SetVertexBoneData(i, influence);
+        }
+
+        meshSource->GetBoneInfo().Add(BoneInfo(skeleton->m_InverseBindPoses[0], kLowerBone));
+        meshSource->GetBoneInfo().Add(BoneInfo(skeleton->m_InverseBindPoses[1], kUpperBone));
+
+        Submesh submesh;
+        submesh.m_BaseVertex = 0;
+        submesh.m_BaseIndex = 0;
+        submesh.m_IndexCount = static_cast<u32>(indices.size());
+        submesh.m_VertexCount = static_cast<u32>(vertices.size());
+        submesh.m_MaterialIndex = 0;
+        submesh.m_IsRigged = true;
+        submesh.m_NodeName = "MultiBoneAnimatedCube";
         meshSource->AddSubmesh(submesh);
 
         meshSource->Build();

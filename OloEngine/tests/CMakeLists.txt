@@ -740,6 +740,9 @@ add_executable(OloEngine-Tests
 		Functional/Scripting/LuaGrantsExperienceViaSceneTickTest.cpp
 		# FramePacer: frame-rate cap sleep/spin math + EMA delta smoothing (#456)
 		FramePacerTest.cpp
+		# Animated MeshPrimitives (issue #592): CreateAnimatedCube / CreateMultiBoneAnimatedCube
+		# skinning correctness against the MeshSource bone-influence contract.
+		Rendering/PropertyTests/AnimatedMeshPrimitivesPropertyTests.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine

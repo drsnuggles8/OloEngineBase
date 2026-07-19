@@ -298,6 +298,10 @@ namespace OloEngine
         {
             return m_Skeleton.get();
         }
+        Skeleton* GetSkeleton()
+        {
+            return m_Skeleton.get();
+        }
         void SetSkeleton(Ref<Skeleton> skeleton)
         {
             m_Skeleton = skeleton;
