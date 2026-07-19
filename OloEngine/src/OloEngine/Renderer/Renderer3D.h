@@ -1177,8 +1177,12 @@ namespace OloEngine
             f32 viewDistance, f32 fadeStart, f32 alphaCutoff,
             const glm::vec4& baseColor,
             const BoundingBox& layerBounds,
-            i32 entityID = -1,
-            const FoliageImpostorParams& impostor = {});
+            i32 entityID,
+            // Not defaulted: `= {}` would require FoliageImpostorParams's default
+            // member initializers inside the enclosing class body, which Clang
+            // rejects (MSVC accepts it non-conformingly). The sole caller passes
+            // it explicitly.
+            const FoliageImpostorParams& impostor);
 
         // Water rendering parameters (grouped to avoid 25+ parameter function)
         struct WaterDrawParams
