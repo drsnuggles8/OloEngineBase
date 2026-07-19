@@ -73,8 +73,10 @@ gamenetworkingsockets failed`, because FetchContent tries to wipe and
 re-populate the directory while those orphaned processes still hold file
 handles inside it (`.git/modules/.../objects/pack/tmp_pack_*`).
 
-Diagnose with `tasklist | grep -i git.exe` (dozens of small-footprint
-processes is the signature) before assuming the vendor mirror is broken —
+Diagnose with `tasklist /FI "IMAGENAME eq git.exe"` (native `cmd`/PowerShell;
+`tasklist | grep -i git.exe` works too but needs Git Bash) — dozens of
+small-footprint processes is the signature — before assuming the vendor
+mirror is broken —
 letting them finish, or waiting a few minutes and retrying, is one fix. Far
 faster if a sibling worktree already has a fully-populated
 `gamenetworkingsockets-src` (check for one under `<other-worktree>/OloEngine/
@@ -85,9 +87,14 @@ it instead of re-cloning from GitHub —
 plain directory copy of an already-checked-out repo at the same pin; nothing
 worktree-specific lives inside it) — then delete the stale
 `gamenetworkingsockets-subbuild`/`-build` dirs so CMake regenerates them
-against the copied source, and reconfigure. Note **robocopy's exit code 1
-means "files copied successfully," not failure** — don't read a nonzero
-robocopy exit code as an error the way you would for every other tool.
+against the copied source, and reconfigure. Note **robocopy's exit code is a
+bitmask, not a plain 0-means-success signal**: codes **0-7** are all
+non-failure (0 = nothing to copy, 1 = files copied successfully, 2/4 = extra/
+mismatched files noted — any OR-combination of those three bits is still
+fine), while **8 or higher** sets the "some files/dirs could not be copied" or
+"serious error" bits and means stop and investigate. Don't read a nonzero
+robocopy exit code as an error the way you would for every other tool — check
+the actual value against that threshold instead.
 
 ## 4. Known toolchain bug: C++ throws through instrumented frames can AV (issue #661)
 

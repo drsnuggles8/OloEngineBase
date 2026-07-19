@@ -229,10 +229,12 @@ the server, so update the config (or re-copy from the panel) accordingly.
 
 ### Write consent — Disabled / Prompt / Allow all (issue #306 item C)
 
-Every project-mutating tool (`olo_set_collision_layer`, `olo_entity_set_field`,
-`olo_reload_script`, `olo_renderer_settings_set`, `olo_scene_open`,
-`olo_scene_play`, `olo_scene_stop`, `olo_editor_select_entity`, `olo_input_inject` —
-anything marked **(consented write)** above)
+Every tool marked **(consented write)** above (`olo_set_collision_layer`,
+`olo_entity_set_field`, `olo_reload_script`, `olo_renderer_settings_set`,
+`olo_scene_open`, `olo_scene_play`, `olo_scene_stop`, `olo_editor_select_entity`,
+`olo_input_inject` — not every one of these mutates the *project*; some, like
+`olo_editor_select_entity`, only mutate editor-only UI state, but all cross the
+read-only line the same way and are gated identically)
 is gated in the MCP panel by a three-way **Agent writes** control.
 It is **off by default and never persisted**, so every editor launch starts read-only
 and the human at the editor opts in for the session:
