@@ -396,6 +396,8 @@ add_executable(OloEngine-Tests
 		Scene/SystemSchedulerTest.cpp
 		# Floating-origin / origin-rebasing math (issue #429)
 		Scene/WorldOriginRebaseTest.cpp
+		# Floating-origin rebase cost characterization over N entities (issue #613)
+		Scene/WorldOriginRebaseBenchmarkTest.cpp
 		# Physics3D mesh mass-properties (divergence-theorem volume + centroid)
 		JoltShapesMeshMassPropertiesTest.cpp
 		# Physics3D cloth soft-body shared-settings contract (issue #460)
@@ -702,6 +704,7 @@ add_executable(OloEngine-Tests
 		Functional/Navigation/NavAgentUnreachableTargetTerminatesTest.cpp
 		Functional/Navigation/NavMeshGeneratorBoundsValidationTest.cpp
 		Functional/Navigation/CrowdAvoidancePreventsOverlapTest.cpp
+		Functional/Navigation/WorldOriginRebaseNavTest.cpp
 		Functional/Scripting/LuaRaycastHitsPhysicsBodyTest.cpp
 		Functional/Scripting/LuaCompletesQuestViaIncrementObjectiveTest.cpp
 		Functional/Dialogue/DialogueAdvanceMovesToNextNodeTest.cpp
@@ -740,6 +743,9 @@ add_executable(OloEngine-Tests
 		# Octahedral foliage impostor atlas mapping (issue #433)
 		Rendering/ImpostorOctahedralTest.cpp
 		Rendering/PropertyTests/ImpostorBakeEvidenceTest.cpp
+		# Animated MeshPrimitives (issue #592): CreateAnimatedCube / CreateMultiBoneAnimatedCube
+		# skinning correctness against the MeshSource bone-influence contract.
+		Rendering/PropertyTests/AnimatedMeshPrimitivesPropertyTests.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine

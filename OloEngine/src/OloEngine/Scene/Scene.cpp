@@ -1127,45 +1127,125 @@ namespace OloEngine
             auto agentView = GetAllEntitiesWith<NavAgentComponent>();
             if (agentView.begin() != agentView.end())
             {
-                // Determine bounds from NavMeshBoundsComponent or use defaults
-                glm::vec3 boundsMin(-100.0f, -10.0f, -100.0f);
-                glm::vec3 boundsMax(100.0f, 50.0f, 100.0f);
-
-                auto boundsView = GetAllEntitiesWith<NavMeshBoundsComponent>();
-                bool firstBounds = true;
-                std::vector<OffMeshLink> links;
-                for (auto e : boundsView)
-                {
-                    const auto& bounds = m_Registry.get<NavMeshBoundsComponent>(e);
-                    if (firstBounds)
-                    {
-                        boundsMin = bounds.m_Min;
-                        boundsMax = bounds.m_Max;
-                        firstBounds = false;
-                    }
-                    else
-                    {
-                        boundsMin = glm::min(boundsMin, bounds.m_Min);
-                        boundsMax = glm::max(boundsMax, bounds.m_Max);
-                    }
-                    links.insert(links.end(), bounds.m_Links.begin(), bounds.m_Links.end());
-                }
-
                 OLO_CORE_INFO("[Scene] Auto-baking NavMesh for {} agent(s)...",
                               std::distance(agentView.begin(), agentView.end()));
 
-                NavMeshSettings settings;
-                auto navMesh = NavMeshGenerator::Generate(this, settings, boundsMin, boundsMax, links);
-                if (navMesh)
-                {
-                    SetNavMesh(navMesh);
-                    OLO_CORE_INFO("[Scene] NavMesh auto-baked: {} polys", navMesh->GetPolyCount());
-                }
+                if (BakeNavMesh())
+                    OLO_CORE_INFO("[Scene] NavMesh auto-baked: {} polys", m_NavMesh->GetPolyCount());
                 else
-                {
                     OLO_CORE_WARN("[Scene] NavMesh auto-bake failed — NavAgent pathfinding will not work");
-                }
             }
+        }
+    }
+
+    bool Scene::BakeNavMesh()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Union every NavMeshBoundsComponent's box (defaults if none authored) and
+        // gather their off-mesh links — the same inputs the auto-bake used, now
+        // shared with the floating-origin rebake path (RebaseNavigation).
+        glm::vec3 boundsMin(-100.0f, -10.0f, -100.0f);
+        glm::vec3 boundsMax(100.0f, 50.0f, 100.0f);
+
+        auto boundsView = GetAllEntitiesWith<NavMeshBoundsComponent>();
+        bool firstBounds = true;
+        std::vector<OffMeshLink> links;
+        for (auto e : boundsView)
+        {
+            const auto& bounds = m_Registry.get<NavMeshBoundsComponent>(e);
+            if (firstBounds)
+            {
+                boundsMin = bounds.m_Min;
+                boundsMax = bounds.m_Max;
+                firstBounds = false;
+            }
+            else
+            {
+                boundsMin = glm::min(boundsMin, bounds.m_Min);
+                boundsMax = glm::max(boundsMax, bounds.m_Max);
+            }
+            links.insert(links.end(), bounds.m_Links.begin(), bounds.m_Links.end());
+        }
+
+        NavMeshSettings settings;
+        auto navMesh = NavMeshGenerator::Generate(this, settings, boundsMin, boundsMax, links);
+        if (!navMesh)
+            return false;
+
+        SetNavMesh(navMesh);
+        return true;
+    }
+
+    void Scene::RebaseNavigation(const glm::vec3& shift)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Only when a live navmesh exists is there Detour state in absolute world
+        // space to keep consistent; without one, agents hold no baked/crowd state.
+        if (!m_NavMesh || !m_NavMesh->IsValid())
+            return;
+
+        // Detour has no in-place tile translate (its tile-grid origin is private and
+        // drives every spatial query — see docs/agent-rules), so a live rebase means
+        // REGENERATING the mesh at the shifted location. First move the bake inputs
+        // that live in absolute world space but are NOT TransformComponents (so
+        // RebaseOrigin's root-transform shift didn't touch them): each
+        // NavMeshBoundsComponent's box and its off-mesh links.
+        for (auto e : GetAllEntitiesWith<NavMeshBoundsComponent>())
+        {
+            auto& bounds = m_Registry.get<NavMeshBoundsComponent>(e);
+            bounds.m_Min += shift;
+            bounds.m_Max += shift;
+            for (auto& link : bounds.m_Links)
+            {
+                link.m_Start += shift;
+                link.m_End += shift;
+            }
+        }
+
+        // Capture each agent's world-space target shifted into the new frame.
+        // SetNavMesh (called inside BakeNavMesh) resets per-agent runtime state —
+        // including m_HasTarget — so save/restore around it or agents would stop.
+        struct SavedAgentTarget
+        {
+            entt::entity m_Entity;
+            glm::vec3 m_Target;
+            bool m_HadTarget;
+        };
+        std::vector<SavedAgentTarget> savedTargets;
+        for (auto e : GetAllEntitiesWith<NavAgentComponent>())
+        {
+            const auto& agent = m_Registry.get<NavAgentComponent>(e);
+            savedTargets.push_back({ e, agent.m_TargetPosition + shift, agent.m_HasTarget });
+        }
+
+        // Regenerate from the (already-shifted) scene geometry at the shifted
+        // bounds. NavMeshGenerator composes world positions from each entity's own
+        // (shifted) TransformComponent, so this reads the new frame even though
+        // PropagateWorldTransforms hasn't run yet. BakeNavMesh → SetNavMesh rebuilds
+        // the query + crowd and zeroes m_CrowdAgentId, so NavigationSystem
+        // re-registers every agent next tick.
+        if (!BakeNavMesh())
+        {
+            OLO_CORE_WARN("[Scene] NavMesh rebake during origin rebase failed — nav agents "
+                          "may desync until the next successful bake");
+            return;
+        }
+
+        // Restore the shifted targets so in-flight agents resume toward the same
+        // world goal on the regenerated mesh (m_HasPath stays false from SetNavMesh,
+        // forcing a repath).
+        for (const auto& saved : savedTargets)
+        {
+            if (!m_Registry.valid(saved.m_Entity) || !m_Registry.all_of<NavAgentComponent>(saved.m_Entity))
+                continue;
+            if (!saved.m_HadTarget)
+                continue;
+            auto& agent = m_Registry.get<NavAgentComponent>(saved.m_Entity);
+            agent.m_TargetPosition = saved.m_Target;
+            agent.m_HasTarget = true;
+            agent.m_HasPath = false;
         }
     }
 
@@ -1948,24 +2028,12 @@ namespace OloEngine
             return glm::vec3(0.0f);
         }
 
-        // World-anchored physics constraints (pulleys, single-body joints fixed
-        // to the world) hold absolute anchor points that JoltScene::ShiftOrigin
-        // cannot move with the bodies, so a rebase would yank them. Defer the
-        // whole rebase while any exist rather than silently breaking them (issue
-        // #613 follow-up: translate the anchors). Rare and opt-in, so warn once.
-        if (m_JoltScene && m_JoltScene->HasWorldAnchoredConstraints())
-        {
-            static bool s_WarnedWorldAnchoredConstraints = false;
-            if (!s_WarnedWorldAnchoredConstraints)
-            {
-                OLO_CORE_WARN("Scene: origin rebase deferred — scene has world-anchored physics "
-                              "constraints (pulley / single-body-to-world joint) that a coordinate "
-                              "shift would break (issue #429 / #613).");
-                s_WarnedWorldAnchoredConstraints = true;
-            }
-            return glm::vec3(0.0f);
-        }
-
+        // World-anchored physics constraints (pulleys, single-body joints fixed to
+        // the world) used to force the whole rebase to be deferred here, because
+        // their absolute anchors would be left behind by a body shift. As of #613
+        // JoltScene::ShiftWorldAnchoredConstraints translates those anchors as part
+        // of ShiftOrigin, so the rebase no longer needs to be deferred — it applies
+        // uniformly and the anchors move with the world.
         RebaseOrigin(shift);
         return shift;
     }
@@ -2039,12 +2107,36 @@ namespace OloEngine
             }
         }
 
-        // 4. Re-propagate world matrices so any consumer reading a
+        // 4. Shift the cloth render cache (issue #613). JoltScene::ShiftOrigin
+        //    moved the soft bodies, but m_ClothRuntime[*].m_Positions holds an
+        //    ABSOLUTE-world CPU copy of the cloth vertices (refreshed each
+        //    PostPhysicsSync, read by the render/mesh path and headless tests).
+        //    Shift it here so a frame rendered between this rebase and the next
+        //    physics sync sees no cloth pop. m_Normals are directions — a pure
+        //    translation leaves them unchanged.
+        for (auto& [id, state] : m_ClothRuntime)
+        {
+            for (glm::vec3& p : state.m_Positions)
+            {
+                p += shift;
+            }
+        }
+
+        // 5. Rebase navigation (issue #613). A baked navmesh and its live crowd
+        //    live in absolute world space inside Detour, which offers no in-place
+        //    translate (its tile-grid origin is private and drives every spatial
+        //    query), so a shifted agent would path against an unshifted mesh.
+        //    RebaseNavigation regenerates the mesh at the shifted bounds and
+        //    rebuilds the query/crowd; agents re-register next tick at their
+        //    (already-shifted) transforms. No-op when no navmesh is active.
+        RebaseNavigation(shift);
+
+        // 6. Re-propagate world matrices so any consumer reading a
         //    WorldTransformComponent before the next tick's propagation (render,
         //    streaming, spatial queries) sees the shifted positions.
         PropagateWorldTransforms();
 
-        // 5. Accumulate the offset so absolute = rebased + m_WorldOrigin stays
+        // 7. Accumulate the offset so absolute = rebased + m_WorldOrigin stays
         //    invariant: stored coords gained `shift`, so the origin's absolute
         //    coordinate drops by `shift`.
         m_WorldOrigin -= shift;
@@ -6547,8 +6639,20 @@ namespace OloEngine
                         terrain.m_MaterialNeedsRebuild = false;
                     }
 
-                    // Update streamer each frame
-                    terrain.m_Streamer->Update(cameraPosition, m_TerrainFrameCounter);
+                    // Update streamer each frame. Feed it an ENTITY-LOCAL camera
+                    // position (world camera minus the terrain entity's translation)
+                    // so the tile grid — and therefore each tile's WorldOrigin — is
+                    // anchored to the entity, not to world zero (issue #613). The
+                    // draw path re-applies the entity transform (transform.GetTransform()
+                    // * translate(tile->WorldOrigin)), so this keeps render and grid in
+                    // the same frame and makes streamed terrain rebase-free: on a
+                    // floating-origin shift the entity translation and camera both move
+                    // by the same delta, the entity-local camera is invariant, and the
+                    // shifted entity transform carries every tile — nothing here needs
+                    // touching. (Identity entity transform → behaviour is unchanged from
+                    // the old world-anchored feed, plus the un-stacking fix.)
+                    const glm::vec3 terrainTranslation = terrainView.get<TransformComponent>(entity).Translation;
+                    terrain.m_Streamer->Update(cameraPosition - terrainTranslation, m_TerrainFrameCounter);
                 }
                 else
                 {
@@ -6747,26 +6851,43 @@ namespace OloEngine
                     {
                         bool useTess = terrain.m_TessellationEnabled;
 
-                        // Frustum for the non-tessellated cull path, in terrain-local
-                        // space so it matches the local chunk bounds far from origin
-                        // (#429) — mirrors the tessellated SelectVisibleChunks path.
-                        const TerrainLocalCullInputs terrainLocalCull = MakeTerrainLocalCullInputs(
-                            transform.GetTransform(), cameraPosition, viewProjection);
-
-                        // Lambda to submit command packets for one chunk manager
+                        // Lambda to submit command packets for one chunk manager.
+                        // The non-tessellated cull frustum is built PER TILE inside
+                        // (from tileModel), so a streamed tile offset by WorldOrigin
+                        // is culled against its true position — see below (#613).
                         auto submitChunkPackets = [&terrain, &transform, &splatmapID, &splatmap1ID,
                                                    &albedoArrayID, &normalArrayID, &armArrayID,
                                                    &hasMaterial, &useTess, &terrainShader, &entityID,
-                                                   &hasActiveShadows, &terrainLocalCull](const TerrainChunkManager& chunkMgr,
-                                                                                         const TerrainData* terrainData,
-                                                                                         const TerrainMaterial* tileMaterial,
-                                                                                         f32 worldSizeX, f32 worldSizeZ,
-                                                                                         f32 heightScale)
+                                                   &hasActiveShadows, &cameraPosition, &viewProjection](const TerrainChunkManager& chunkMgr,
+                                                                                                        const TerrainData* terrainData,
+                                                                                                        const TerrainMaterial* tileMaterial,
+                                                                                                        f32 worldSizeX, f32 worldSizeZ,
+                                                                                                        f32 heightScale,
+                                                                                                        const glm::vec3& tileWorldOrigin)
                         {
                             if (!chunkMgr.IsBuilt())
                             {
                                 return;
                             }
+
+                            // Per-tile model = entity transform × the tile's grid
+                            // origin (issue #613). Streamed tiles are all generated in
+                            // the same tile-local [0, WorldSize] space, so without this
+                            // additive origin every tile drew stacked at the entity
+                            // transform. tile->WorldOrigin is entity-local (the streamer
+                            // is fed an entity-local camera above), so post-multiplying
+                            // the entity transform places each tile correctly and keeps
+                            // it rebase-free. The single-tile path passes vec3(0).
+                            const glm::mat4 tileModel = transform.GetTransform() *
+                                                        glm::translate(glm::mat4(1.0f), tileWorldOrigin);
+
+                            // Non-tess cull frustum in THIS tile's local space, so a
+                            // tile offset by WorldOrigin is culled against its true
+                            // position (matches tileModel used for the draw). For the
+                            // single-tile path (WorldOrigin = 0) tileModel == the entity
+                            // transform, so this is identical to the pre-#613 frustum.
+                            const TerrainLocalCullInputs tileCull =
+                                MakeTerrainLocalCullInputs(tileModel, cameraPosition, viewProjection);
 
                             RendererID heightmapID = 0;
                             if (terrainData && terrainData->GetGPUHeightmap())
@@ -6843,7 +6964,7 @@ namespace OloEngine
                                         terrainShader,
                                         heightmapID, tileSplatmapID, tileSplatmap1ID,
                                         tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
-                                        transform.GetTransform(), terrainUBOData, entityID);
+                                        tileModel, terrainUBOData, entityID);
                                     if (packet)
                                         Renderer3D::SubmitPacket(packet);
 
@@ -6852,7 +6973,7 @@ namespace OloEngine
                                     {
                                         Renderer3D::AddTerrainShadowCaster(
                                             va->GetRendererID(), rc.Chunk->GetIndexCount(), 3,
-                                            transform.GetTransform(), heightmapID, terrainUBOData);
+                                            tileModel, heightmapID, terrainUBOData);
                                     }
                                 }
                             }
@@ -6861,7 +6982,7 @@ namespace OloEngine
                                 terrainUBOData.TessFactors = glm::vec4(1.0f);
                                 terrainUBOData.TessFactors2.w = 1.0f;
                                 std::vector<const TerrainChunk*> visibleChunks;
-                                chunkMgr.GetVisibleChunks(terrainLocalCull.ViewFrustum, visibleChunks);
+                                chunkMgr.GetVisibleChunks(tileCull.ViewFrustum, visibleChunks);
                                 for (const auto* chunk : visibleChunks)
                                 {
                                     auto va = chunk->GetVertexArray();
@@ -6875,7 +6996,7 @@ namespace OloEngine
                                         terrainShader,
                                         heightmapID, tileSplatmapID, tileSplatmap1ID,
                                         tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
-                                        transform.GetTransform(), terrainUBOData, entityID);
+                                        tileModel, terrainUBOData, entityID);
                                     if (packet)
                                         Renderer3D::SubmitPacket(packet);
 
@@ -6883,7 +7004,7 @@ namespace OloEngine
                                     {
                                         Renderer3D::AddTerrainShadowCaster(
                                             va->GetRendererID(), chunk->GetIndexCount(), 3,
-                                            transform.GetTransform(), heightmapID, terrainUBOData);
+                                            tileModel, heightmapID, terrainUBOData);
                                     }
                                 }
                             }
@@ -6903,14 +7024,16 @@ namespace OloEngine
                                 }
                                 submitChunkPackets(*chunkMgr, tile->GetTerrainData().get(),
                                                    tileMat ? tileMat.get() : nullptr,
-                                                   tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale);
+                                                   tile->WorldSizeX, tile->WorldSizeZ, tile->HeightScale,
+                                                   tile->WorldOrigin);
                             }
                         }
                         else if (terrain.m_ChunkManager && terrain.m_ChunkManager->IsBuilt())
                         {
                             submitChunkPackets(*terrain.m_ChunkManager, terrain.m_TerrainData.get(),
                                                nullptr,
-                                               terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                                               terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale,
+                                               glm::vec3(0.0f));
                         }
                         else
                         {

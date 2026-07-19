@@ -170,12 +170,24 @@ namespace OloEngine
         [[nodiscard]] static Ref<Mesh> CreateWaterGrid(f32 width = 100.0f, f32 length = 100.0f, u32 subdivisionsX = 128, u32 subdivisionsZ = 128);
 
         // =============================================================================
-        // ANIMATED MESH PRIMITIVES (TODO(olbu): Update for new MeshSource system, #592)
+        // ANIMATED MESH PRIMITIVES
         // =============================================================================
 
-        // TODO(olbu): Update these methods to work with new MeshSource bone influence system (#592)
-        // static Ref<Mesh> CreateAnimatedCube();
-        // static Ref<Mesh> CreateMultiBoneAnimatedCube();
+        // @brief Create a unit cube rigged to a single root bone
+        // @return Cube mesh with a MeshSource + one-bone Skeleton, all vertices
+        //         weighted 100% to the root bone (rigid skinning, no blending).
+        //         Minimal primitive for exercising the MeshSource<->Skeleton
+        //         bone-influence contract without external asset loading.
+        [[nodiscard]] static Ref<Mesh> CreateAnimatedCube();
+
+        // @brief Create a two-bone rigged column (1x2x1) for exercising blend weights
+        // @return Mesh made of two vertically stacked unit cubes: the lower half
+        //         is weighted to bone 0 ("Lower"), the upper half to bone 1
+        //         ("Upper"), both sharing a bind-pose origin at the seam
+        //         (y = 0). Vertices exactly at the seam are weighted 50/50
+        //         between the two bones, so rotating "Upper" visibly bends
+        //         the mesh at the seam instead of tearing it.
+        [[nodiscard]] static Ref<Mesh> CreateMultiBoneAnimatedCube();
     };
 
 } // namespace OloEngine

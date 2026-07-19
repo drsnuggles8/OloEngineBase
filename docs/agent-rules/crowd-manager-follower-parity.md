@@ -69,3 +69,13 @@ asserting `CrowdManager::GetActiveAgentCount()` drops by one).
 parity claim itself — it exercises the disconnected-navmesh-island scenario
 through whichever follower is active (the crowd, per the trap above) and
 still expects the same terminal `m_TargetUnreachable`/`m_HasTarget` contract.
+
+## Related: a floating-origin rebase REBAKES the navmesh (and resets agent targets)
+
+A `Scene::RebaseOrigin` shift cannot translate a live Detour navmesh in place (its tile-grid origin
+`m_orig` is private and drives every spatial query), so `Scene::RebaseNavigation` regenerates the mesh
+at the shifted bounds and calls `SetNavMesh` — which, per this doc, brings up a fresh `CrowdManager`
+and zeroes every `m_CrowdAgentId` so agents re-register next tick. Crucially `SetNavMesh` also resets
+`m_HasTarget`, so the rebase must **save each agent's (shifted) target and restore it after** the
+rebake. See [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) §3
+(issue #613).

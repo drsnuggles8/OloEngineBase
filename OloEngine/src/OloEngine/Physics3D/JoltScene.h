@@ -299,32 +299,44 @@ namespace OloEngine
         // Entity teleportation
         void Teleport(Entity entity, const glm::vec3& targetPosition, const glm::quat& targetRotation, bool force = false);
 
-        // Floating-origin rebase (issue #429): shift every physics body, static
-        // terrain height-field, and character controller by `delta` in one pass,
-        // preserving linear/angular velocities, rotations, and sleep state
-        // (SetPosition with DontActivate). Called by Scene::RebaseOrigin on the
-        // game thread with the simulation idle (between ticks). Joint / vehicle
-        // constraints connect bodies that all translate by the same delta, so
-        // their world frames stay consistent without explicit adjustment.
-        // NOT shifted (first-slice limitations, documented follow-ups): cloth
-        // soft-body particle clouds (JPH SetPosition semantics for soft bodies
-        // are unclear — a wrong shift is worse than none) and any constraint
-        // anchored to a fixed world point rather than a second body (see
-        // HasWorldAnchoredConstraints — the rebase is deferred while those exist
-        // rather than silently breaking them).
+        // Floating-origin rebase (issue #429 / #613): shift every physics body,
+        // static terrain height-field, cloth soft body, character controller, AND
+        // world-anchored constraint anchor by `delta` in one pass, preserving
+        // linear/angular velocities, rotations, and sleep state (SetPosition with
+        // DontActivate). Called by Scene::RebaseOrigin on the game thread with the
+        // simulation idle (between ticks). Two-body joints between real bodies stay
+        // consistent implicitly (both endpoints translate together); world-anchored
+        // ones need the explicit ShiftWorldAnchoredConstraints pass. Cloth vertices
+        // are stored relative to the soft body's COM, so shifting the body origin
+        // moves the whole cloth (see the m_Cloths loop). With #613 nothing physics-
+        // side is left behind, so the rebase no longer needs to be deferred.
         void ShiftOrigin(const glm::vec3& delta);
 
         // Floating-origin rebase support: true if any live constraint holds an
-        // ABSOLUTE world-space anchor that ShiftOrigin cannot move together with
-        // the bodies — a pulley (its two pivot points are world fixed points) or
-        // a single-body joint realised against the shared fixed world body (its
-        // world-side anchor is an absolute point). Scene::MaybeRebaseOrigin
-        // defers the rebase while any exist, so a shift never silently yanks
-        // their bodies (issue #613 follow-up: translate the anchors instead).
-        // Two-body joints are safe and NOT reported: their WorldSpace settings
-        // are converted to body-local frames at Create(), so both endpoints
-        // translate together and the constraint is preserved.
+        // ABSOLUTE world-space anchor — a pulley (its two pivot points are world
+        // fixed points) or a single-body joint realised against the shared fixed
+        // world body (its world-side anchor is an absolute point). Historically
+        // this gated a rebase *deferral*; as of #613 ShiftWorldAnchoredConstraints
+        // translates those anchors during the shift, so the predicate is retained
+        // only for diagnostics / tests (the presence of such a constraint no longer
+        // blocks a rebase). Two-body joints between real bodies are NOT reported:
+        // their WorldSpace settings are converted to body-local frames at Create(),
+        // so both endpoints translate together and the constraint is preserved.
         [[nodiscard]] bool HasWorldAnchoredConstraints() const;
+
+        // Floating-origin rebase (issue #613): translate every world-anchored
+        // constraint's ABSOLUTE anchor by `delta`, so a coordinate shift keeps the
+        // body↔anchor geometry identical instead of yanking the body. Called by
+        // ShiftOrigin AFTER the bodies have moved. For single-body-to-world joints
+        // (Fixed/Point/Distance/Hinge/Slider/Cone/SwingTwist/SixDOF/Path) the
+        // world-side anchor is shifted exactly in place via the constraint's own
+        // NotifyShapeChanged(sFixedToWorld, -delta) — preserving the joint's rest
+        // state, motors and warm-start. A pulley's fixed pivots have no runtime
+        // setter, so its authored PhysicsJoint3DComponent::m_PulleyFixedPointA/B are
+        // shifted and the constraint is rebuilt (DestroyConstraint + CreateConstraint
+        // from the already-shifted transforms). Two-body joints and vehicles need
+        // nothing here.
+        void ShiftWorldAnchoredConstraints(const glm::vec3& delta);
 
         // Transform synchronization
         void SynchronizeTransforms();
