@@ -959,7 +959,7 @@ namespace OloEngine
             result.Ok = false;
             result.Message = "No active scene.";
         }
-        else if (const auto entityOpt = m_ActiveScene->TryGetEntityWithUUID(UUID(entityUuid)); entityOpt)
+        else if (auto entityOpt = m_ActiveScene->TryGetEntityWithUUID(UUID(entityUuid)); entityOpt)
         {
             m_SceneHierarchyPanel.SetSelectedEntity(*entityOpt);
             result.Ok = true;
