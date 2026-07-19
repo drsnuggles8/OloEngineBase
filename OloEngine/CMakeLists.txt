@@ -285,6 +285,7 @@ if(MSVC)
 		BCrypt
 		DbgHelp.lib
 		dwmapi
+		Iphlpapi   # GetAdaptersAddresses — NetworkLobby LAN-discovery broadcast enumeration
 		Synchronization
 		Version
 		ws2_32
