@@ -1208,6 +1208,8 @@ namespace OloEngine
                     return name.contains("Cloudscape") || name.contains("cloudscape");
                 case UBO_ATMOSPHERE_SHADING:
                     return name.contains("AtmosphereShading") || name.contains("atmosphereShading");
+                case UBO_IMPOSTOR_BAKE:
+                    return name.contains("ImpostorBake") || name.contains("impostorBake");
                 default:
                     return false;
             }
