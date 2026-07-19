@@ -3,9 +3,11 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
+#include "OloEngine/Renderer/Impostor/ImpostorBaker.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 
 #include <glm/glm.hpp>
+#include <string>
 #include <vector>
 
 namespace OloEngine
@@ -34,6 +36,18 @@ namespace OloEngine
         glm::vec3 BaseColor{ 1.0f };
         f32 AlphaCutoff = 0.5f;
         BoundingBox Bounds; // Precomputed AABB encompassing all instances in this layer
+
+        // Octahedral impostor LOD (issue #433). UseImpostor + valid atlas IDs
+        // route this layer through the impostor card shader instead of the flat
+        // billboard; zero/false leaves the existing billboard path untouched.
+        bool UseImpostor = false;
+        u32 ImpostorAlbedoAtlasID = 0;
+        u32 ImpostorNormalDepthAtlasID = 0;
+        u32 ImpostorFramesPerAxis = 8;
+        bool ImpostorHemi = true;
+        f32 ImpostorStartDistance = 40.0f;
+        f32 ImpostorTransitionBand = 15.0f;
+        f32 ImpostorRadius = 1.0f;
     };
 
     // Manages foliage instance generation, culling, and instanced rendering.
@@ -96,10 +110,26 @@ namespace OloEngine
             f32 AlphaCutoff = 0.5f;
             Ref<Texture2D> AlbedoTexture;
             BoundingBox Bounds; // Precomputed AABB encompassing all instances
+
+            // Octahedral impostor (issue #433). Baked lazily from the layer mesh;
+            // the *Baked* fields cache the config the atlas was baked for so a
+            // regenerate only re-bakes when the mesh / grid / layout changes.
+            ImpostorAtlas Impostor;
+            bool UseImpostor = false;
+            f32 ImpostorStartDistance = 40.0f;
+            f32 ImpostorTransitionBand = 15.0f;
+            std::string ImpostorBakedMeshPath;
+            u32 ImpostorBakedFrames = 0;
+            u32 ImpostorBakedResolution = 0;
+            bool ImpostorBakedHemi = true;
         };
 
         void BuildQuadGeometry(LayerRenderData& data) const;
         void UploadInstances(LayerRenderData& data, const std::vector<FoliageInstanceData>& instances);
+
+        // Bakes (or re-bakes) the layer's octahedral impostor atlas if UseImpostor
+        // and the mesh/grid/layout differs from what was last baked. No-op otherwise.
+        void UpdateImpostorAtlas(LayerRenderData& data, const FoliageLayer& layer);
 
         std::vector<LayerRenderData> m_Layers;
         u32 m_VisibleInstances = 0;

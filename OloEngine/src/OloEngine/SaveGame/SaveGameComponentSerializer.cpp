@@ -536,6 +536,10 @@ namespace OloEngine
         ar << l.WindStrength << l.WindSpeed;
         ar << l.BaseColor;
         ar << l.Roughness << l.AlphaCutoff;
+        ar << l.UseImpostor;
+        ar << l.ImpostorStartDistance << l.ImpostorTransitionBand;
+        ar << l.ImpostorFramesPerAxis << l.ImpostorAtlasResolution;
+        ar << l.ImpostorHemiOctahedral;
         ar << l.Enabled;
         // AlbedoTexture (Ref<Texture2D>) is runtime — not serialized
     }

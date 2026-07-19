@@ -1150,6 +1150,22 @@ namespace OloEngine
             bool transparent,
             i32 entityID = -1);
 
+        // Octahedral impostor parameters for a foliage layer (issue #433).
+        // Enabled == false selects the flat-billboard path (all other fields
+        // ignored); the atlas texture IDs are the baked octahedral atlases.
+        struct FoliageImpostorParams
+        {
+            bool Enabled = false;
+            RendererID AlbedoAtlasID = 0;      // rgb + coverage
+            RendererID NormalDepthAtlasID = 0; // obj normal + card depth
+            u32 FramesPerAxis = 8;
+            bool Hemi = true;
+            f32 StartDistance = 40.0f;
+            f32 TransitionBand = 15.0f;
+            f32 Radius = 1.0f;
+            f32 ParallaxScale = 0.5f;
+        };
+
         // Foliage rendering (submits DrawFoliageLayerCommand to FoliageRenderPass bucket)
         static CommandPacket* DrawFoliageLayer(
             RendererID vertexArrayID, u32 indexCount, u32 instanceCount,
@@ -1161,7 +1177,8 @@ namespace OloEngine
             f32 viewDistance, f32 fadeStart, f32 alphaCutoff,
             const glm::vec4& baseColor,
             const BoundingBox& layerBounds,
-            i32 entityID = -1);
+            i32 entityID = -1,
+            const FoliageImpostorParams& impostor = {});
 
         // Water rendering parameters (grouped to avoid 25+ parameter function)
         struct WaterDrawParams
@@ -1659,6 +1676,7 @@ namespace OloEngine
             Ref<Shader> FoliageShader;
             Ref<Shader> FoliageGBufferShader; // Deferred: Foliage_Instance_GBuffer.glsl
             Ref<Shader> FoliageDepthShader;
+            Ref<Shader> FoliageImpostorShader; // Octahedral impostor card (issue #433)
 
             // Water
             Ref<Shader> WaterShader;

@@ -303,6 +303,11 @@ namespace OloEngine
             f32 _pad1 = 0.0f;
             glm::vec4 BaseColor; // xyz = color, w = unused
 
+            // Octahedral impostor params (issue #433). Consumed only by the
+            // Foliage_Impostor shader; zero/ignored on the flat-billboard path.
+            glm::vec4 ImpostorParams0{ 0.0f }; // x=framesPerAxis, y=hemi(0/1), z=startDistance, w=transitionBand
+            glm::vec4 ImpostorParams1{ 0.0f }; // x=enabled(0/1), y=meshRadius(object space), z=parallaxScale, w=unused
+
             static constexpr u32 GetSize()
             {
                 return sizeof(FoliageUBO);
@@ -786,7 +791,7 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::FoliageUBO) % 16 == 0, "FoliageUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::TerrainUBO) == 144, "TerrainUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::BrushPreviewUBO) == 32, "BrushPreviewUBO unexpected size — update GLSL layout");
-    static_assert(sizeof(UBOStructures::FoliageUBO) == 48, "FoliageUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::FoliageUBO) == 80, "FoliageUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::DecalUBO) % 16 == 0, "DecalUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::DecalUBO) == 160, "DecalUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");
@@ -872,6 +877,7 @@ namespace OloEngine
         static constexpr u32 UBO_ATMOSPHERE_SKY = 52;       // Combined day/night atmosphere sky bake params (AtmosphereSkyUBO, 11 vec4 — issue #633)
         static constexpr u32 UBO_CLOUDSCAPE = 53;           // Volumetric cloudscape raymarch params (CloudscapeUBO — issue #633)
         static constexpr u32 UBO_ATMOSPHERE_SHADING = 54;   // Surface weather response: wetness + cloud-shadow map transform + enables (AtmosphereShadingUBO — issue #633)
+        static constexpr u32 UBO_IMPOSTOR_BAKE = 55;        // Octahedral impostor atlas bake params (view-proj + center/radius/cutoff/tint — issue #433)
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
