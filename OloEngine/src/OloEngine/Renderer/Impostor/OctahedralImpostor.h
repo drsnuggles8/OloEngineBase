@@ -85,8 +85,12 @@ namespace OloEngine::Impostor
         dir.y = glm::max(dir.y, 0.001f);
         dir = glm::normalize(dir);
         const glm::vec3 octant = glm::sign(dir);
+        // Epsilon (not != 0) matches DirectionToOctaSphere and is NaN-safe: a NaN
+        // sum (from a non-finite input surviving normalize) fails `> kMinL1` and
+        // takes the +Y fallback instead of propagating NaN through the division.
+        constexpr f32 kMinL1 = 1e-6f;
         const f32 sum = glm::dot(dir, octant);
-        const glm::vec3 oct = (sum != 0.0f) ? dir / sum : glm::vec3(0.0f, 1.0f, 0.0f);
+        const glm::vec3 oct = (sum > kMinL1) ? dir / sum : glm::vec3(0.0f, 1.0f, 0.0f);
         return glm::vec2(oct.x + oct.z, oct.z - oct.x);
     }
 

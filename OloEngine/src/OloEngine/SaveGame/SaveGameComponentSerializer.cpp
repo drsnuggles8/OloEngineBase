@@ -546,6 +546,18 @@ namespace OloEngine
             ar << l.ImpostorStartDistance << l.ImpostorTransitionBand;
             ar << l.ImpostorFramesPerAxis << l.ImpostorAtlasResolution;
             ar << l.ImpostorHemiOctahedral;
+
+            if (ar.IsLoading())
+            {
+                // Guard a corrupt/hostile save from feeding NaN / a negative band
+                // into Impostor::ImpostorFade (mirrors the scene deserializer).
+                if (!std::isfinite(l.ImpostorStartDistance))
+                    l.ImpostorStartDistance = 40.0f;
+                l.ImpostorStartDistance = std::max(l.ImpostorStartDistance, 0.0f);
+                if (!std::isfinite(l.ImpostorTransitionBand))
+                    l.ImpostorTransitionBand = 15.0f;
+                l.ImpostorTransitionBand = std::max(l.ImpostorTransitionBand, 0.0f);
+            }
         }
         // AlbedoTexture (Ref<Texture2D>) is runtime — not serialized
     }
