@@ -536,11 +536,17 @@ namespace OloEngine
         ar << l.WindStrength << l.WindSpeed;
         ar << l.BaseColor;
         ar << l.Roughness << l.AlphaCutoff;
-        ar << l.UseImpostor;
-        ar << l.ImpostorStartDistance << l.ImpostorTransitionBand;
-        ar << l.ImpostorFramesPerAxis << l.ImpostorAtlasResolution;
-        ar << l.ImpostorHemiOctahedral;
         ar << l.Enabled;
+        // Octahedral impostor fields appended in save-format v11 (issue #433).
+        // Gated so v10-and-older saves keep the exact pre-v11 field order (Enabled
+        // was the last field) and read back with the constructor defaults.
+        if (HasFieldsSince(ar, 11))
+        {
+            ar << l.UseImpostor;
+            ar << l.ImpostorStartDistance << l.ImpostorTransitionBand;
+            ar << l.ImpostorFramesPerAxis << l.ImpostorAtlasResolution;
+            ar << l.ImpostorHemiOctahedral;
+        }
         // AlbedoTexture (Ref<Texture2D>) is runtime — not serialized
     }
 

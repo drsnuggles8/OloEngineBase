@@ -37,9 +37,19 @@ namespace OloEngine::Impostor
     // Full-sphere: any unit direction -> point on the folded octahedron square.
     [[nodiscard]] inline glm::vec2 DirectionToOctaSphere(glm::vec3 dir)
     {
-        dir = glm::normalize(dir);
+        // Guard degenerate / non-finite input BEFORE normalizing — glm::normalize
+        // of a zero or NaN vector yields NaN, which would propagate through the
+        // whole mapping. Fall back to +Y (top-down) for an invalid direction.
+        constexpr f32 kMinLenSq = 1e-12f;
+        const f32 lenSq = glm::dot(dir, dir);
+        if (!std::isfinite(lenSq) || lenSq < kMinLenSq)
+            dir = glm::vec3(0.0f, 1.0f, 0.0f);
+        else
+            dir *= 1.0f / std::sqrt(lenSq); // normalize
+
+        constexpr f32 kMinL1 = 1e-6f;
         const f32 sum = std::abs(dir.x) + std::abs(dir.y) + std::abs(dir.z); // L1 norm
-        glm::vec3 oct = (sum != 0.0f) ? dir / sum : glm::vec3(0.0f, 1.0f, 0.0f);
+        glm::vec3 oct = (sum > kMinL1) ? dir / sum : glm::vec3(0.0f, 1.0f, 0.0f);
         if (oct.y < 0.0f)
         {
             const glm::vec2 a = glm::abs(glm::vec2(oct.x, oct.z));

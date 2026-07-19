@@ -1341,8 +1341,12 @@ namespace OloEngine
                 layer.Roughness = layerNode["Roughness"].as<f32>(layer.Roughness);
                 layer.AlphaCutoff = layerNode["AlphaCutoff"].as<f32>(layer.AlphaCutoff);
                 layer.UseImpostor = layerNode["UseImpostor"].as<bool>(layer.UseImpostor);
-                layer.ImpostorStartDistance = layerNode["ImpostorStartDistance"].as<f32>(layer.ImpostorStartDistance);
-                layer.ImpostorTransitionBand = layerNode["ImpostorTransitionBand"].as<f32>(layer.ImpostorTransitionBand);
+                // Validate: non-finite or negative would break Impostor::ImpostorFade
+                // (NaN start / negative band feeds the smoothstep). Keep the default on bad input.
+                if (const f32 v = layerNode["ImpostorStartDistance"].as<f32>(layer.ImpostorStartDistance); std::isfinite(v))
+                    layer.ImpostorStartDistance = std::max(v, 0.0f);
+                if (const f32 v = layerNode["ImpostorTransitionBand"].as<f32>(layer.ImpostorTransitionBand); std::isfinite(v))
+                    layer.ImpostorTransitionBand = std::max(v, 0.0f);
                 layer.ImpostorFramesPerAxis = layerNode["ImpostorFramesPerAxis"].as<u32>(layer.ImpostorFramesPerAxis);
                 layer.ImpostorAtlasResolution = layerNode["ImpostorAtlasResolution"].as<u32>(layer.ImpostorAtlasResolution);
                 layer.ImpostorHemiOctahedral = layerNode["ImpostorHemiOctahedral"].as<bool>(layer.ImpostorHemiOctahedral);

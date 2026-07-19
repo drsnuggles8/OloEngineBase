@@ -439,8 +439,11 @@ namespace OloEngine
             return;
         }
 
-        // Re-bake only when the mesh / grid / atlas resolution / layout changed.
-        const bool upToDate = data.Impostor.IsValid() && data.ImpostorBakedMeshPath == layer.MeshPath && data.ImpostorBakedFrames == layer.ImpostorFramesPerAxis && data.ImpostorBakedResolution == layer.ImpostorAtlasResolution && data.ImpostorBakedHemi == layer.ImpostorHemiOctahedral;
+        // Re-bake only when anything the atlas is baked FROM changed: mesh, grid,
+        // atlas resolution, layout, AND the material inputs (albedo texture path,
+        // tint, alpha cutoff) — the bake bakes those in, so a tint/cutoff change
+        // with the same mesh must still re-bake or the atlas goes stale.
+        const bool upToDate = data.Impostor.IsValid() && data.ImpostorBakedMeshPath == layer.MeshPath && data.ImpostorBakedFrames == layer.ImpostorFramesPerAxis && data.ImpostorBakedResolution == layer.ImpostorAtlasResolution && data.ImpostorBakedHemi == layer.ImpostorHemiOctahedral && data.ImpostorBakedAlbedoPath == layer.AlbedoPath && Math::BitwiseEqual(data.ImpostorBakedBaseColor, layer.BaseColor) && Math::BitwiseEqual(data.ImpostorBakedAlphaCutoff, layer.AlphaCutoff);
         if (upToDate)
             return;
 
@@ -465,6 +468,9 @@ namespace OloEngine
         if (data.Impostor.IsValid())
         {
             data.ImpostorBakedMeshPath = layer.MeshPath;
+            data.ImpostorBakedAlbedoPath = layer.AlbedoPath;
+            data.ImpostorBakedBaseColor = layer.BaseColor;
+            data.ImpostorBakedAlphaCutoff = layer.AlphaCutoff;
             data.ImpostorBakedFrames = layer.ImpostorFramesPerAxis;
             data.ImpostorBakedResolution = layer.ImpostorAtlasResolution;
             data.ImpostorBakedHemi = layer.ImpostorHemiOctahedral;

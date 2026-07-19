@@ -119,6 +119,9 @@ namespace OloEngine
             f32 ImpostorStartDistance = 40.0f;
             f32 ImpostorTransitionBand = 15.0f;
             std::string ImpostorBakedMeshPath;
+            std::string ImpostorBakedAlbedoPath;
+            glm::vec3 ImpostorBakedBaseColor{ 0.0f };
+            f32 ImpostorBakedAlphaCutoff = 0.0f;
             u32 ImpostorBakedFrames = 0;
             u32 ImpostorBakedResolution = 0;
             bool ImpostorBakedHemi = true;

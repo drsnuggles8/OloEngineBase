@@ -53,7 +53,8 @@ namespace OloEngine
     static constexpr u32 kSaveGameMagic = 0x4F4C4F53; // "OLOS" in little-endian
     // v9:  LightProbeVolumeComponent gained the realtime DDGI fields (m_Mode, m_RaysPerProbe, m_Hysteresis, m_ProbeCaptureBudget, m_RelightBudget, m_SelfShadowBias — issue #632)
     // v10: ProceduralSkyComponent retired m_LinkSunToDirectionalLight (issue #633 — v9 and older saves read-and-discard the legacy bool)
-    static constexpr u32 kSaveGameFormatVersion = 10;
+    // v11: FoliageLayer gained the octahedral impostor fields (UseImpostor + impostor params — issue #433; v10 and older saves omit them and keep the constructor defaults)
+    static constexpr u32 kSaveGameFormatVersion = 11;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

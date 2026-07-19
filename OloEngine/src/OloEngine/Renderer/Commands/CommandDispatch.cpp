@@ -2216,15 +2216,8 @@ namespace OloEngine
         }
 
         // Bind the octahedral normal+depth atlas (impostor path only).
-        if (cmd->impostorNormalDepthTextureID != 0)
-        {
-            if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] != cmd->impostorNormalDepthTextureID)
-            {
-                glBindTextureUnit(ShaderBindingLayout::TEX_USER_0, cmd->impostorNormalDepthTextureID);
-                s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] = cmd->impostorNormalDepthTextureID;
-                ++s_Data.Stats.TextureBinds;
-            }
-        }
+        // BindTrackedTextureUnit skips a 0 id and does the redundancy check.
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_USER_0, cmd->impostorNormalDepthTextureID);
 
         // Bind VAO (cached) and draw instanced foliage
         BindVAOIfNeeded(cmd->vertexArrayID);
