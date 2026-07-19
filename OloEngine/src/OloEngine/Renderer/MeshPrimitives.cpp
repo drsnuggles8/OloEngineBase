@@ -991,10 +991,10 @@ namespace OloEngine
         // actually exercises blended influences.
         constexpr u32 kLowerBone = 0;
         constexpr u32 kUpperBone = 1;
-        constexpr u32 kVertsPerBox = 24;
 
         // Lower box: y in [-1, 0]; Upper box: y in [0, 1].
         std::vector<Vertex> vertices = MakeUnitCubeVertices(-0.5f);
+        const auto lowerBoxVertexCount = static_cast<u32>(vertices.size());
         std::vector<Vertex> upperVertices = MakeUnitCubeVertices(0.5f);
         vertices.reserve(vertices.size() + upperVertices.size());
         vertices.insert(vertices.end(), std::make_move_iterator(upperVertices.begin()), std::make_move_iterator(upperVertices.end()));
@@ -1005,7 +1005,7 @@ namespace OloEngine
         indices.insert(indices.end(), boxIndices.begin(), boxIndices.end());
         for (u32 idx : boxIndices)
         {
-            indices.push_back(idx + kVertsPerBox);
+            indices.push_back(idx + lowerBoxVertexCount);
         }
 
         auto meshSource = Ref<MeshSource>::Create(vertices, indices);
