@@ -256,6 +256,28 @@ endif()
 
 FetchContent_MakeAvailable(assimp atomic_queue box2d entt filewatch glad glfw glm googletest joltphysics meshoptimizer miniaudio recastnavigation spdlog tracy yaml-cpp)
 
+# UBSan: the vendored Recast/Detour spatial hashes multiply a cell/tile index by a
+# large prime (e.g. DetourProximityGrid::hashPos2 `x*73856093`, and the navmesh tile
+# hash), which overflows `int` for any coordinate more than ~174 m from the origin —
+# a BENIGN wrap (the result is immediately masked into a hash bucket), but UBSan flags
+# it as signed-integer-overflow and halts. Floating-origin nav (issue #613)
+# legitimately runs a dtCrowd at large coordinates (up to the rebase threshold, and a
+# rebake places the mesh/crowd at the shifted frame), so de-instrument JUST that one
+# check on the third-party recast targets — we don't patch vendored code, and the
+# other UBSan checks (null, alignment, …) stay active. Target-level -fno-sanitize
+# appends after the directory-level -fsanitize=undefined from cmake/Sanitizers.cmake,
+# and the last -f{no-,}sanitize flag wins (GCC and Clang). ASan/TSan are unaffected.
+# Reported + fixed upstream: recastnavigation/recastnavigation#826 (fix PR #827,
+# hashPos2 unsigned-multiply). DROP this exclusion once the vendored recast GIT_TAG
+# (above) is bumped past that fix.
+if(OLO_ENABLE_UBSAN AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+	foreach(_recast_target Recast Detour DetourCrowd DetourTileCache DebugUtils)
+		if(TARGET ${_recast_target})
+			target_compile_options(${_recast_target} PRIVATE -fno-sanitize=signed-integer-overflow)
+		endif()
+	endforeach()
+endif()
+
 # Fix Jolt's INTERFACE_INCLUDE_DIRECTORIES to remove absolute Vulkan SDK paths
 # This is a workaround for CMake's strict policy against source-dir absolute paths in interface directories
 if(TARGET Jolt)

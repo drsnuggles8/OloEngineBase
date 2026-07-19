@@ -591,6 +591,21 @@ namespace OloEngine
 
         // Navigation
         void SetNavMesh(const Ref<NavMesh>& navMesh);
+
+        // Bake a navmesh from the current scene geometry, using every
+        // NavMeshBoundsComponent's box (defaults if none) and off-mesh links, then
+        // install it via SetNavMesh. Returns false if generation failed. Shared by
+        // the OnRuntimeStart auto-bake and the floating-origin rebake path.
+        bool BakeNavMesh();
+
+        // Floating-origin rebase (issue #613): keep a live navmesh + crowd
+        // consistent across an origin shift. Detour cannot be translated in place,
+        // so this shifts the bake inputs (NavMeshBoundsComponent boxes / links) and
+        // each agent's world-space target by `shift`, regenerates the mesh at the
+        // shifted location, and restores agent targets. No-op without a live
+        // navmesh. Called by RebaseOrigin.
+        void RebaseNavigation(const glm::vec3& shift);
+
         [[nodiscard]] Ref<NavMesh> GetNavMesh() const
         {
             return m_NavMesh;
