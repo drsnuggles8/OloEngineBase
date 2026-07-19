@@ -315,6 +315,36 @@ else()
 	check_linker_flag(CXX "-lstdc++exp" OLO_HAVE_LIBSTDCXXEXP)
 	if(OLO_HAVE_LIBSTDCXXEXP)
 		target_link_libraries(OloEngine stdc++exp)
+	elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+		# Some GCC toolchains ship <stacktrace> but NOT libstdc++exp on the default
+		# library search path — notably the RHEL/Rocky gcc-toolset-N SCL packages
+		# (e.g. gcc-toolset-15), which omit libstdc++exp.a even though a compatible
+		# copy exists under the base GCC install. Without it the OpenGLDebug.cpp
+		# std::stacktrace call is undefined at every executable link. Search the
+		# base GCC lib dirs and add the newest match explicitly. (Clang here already
+		# resolves -lstdc++exp via its selected GCC install, so the check above
+		# passes and this branch is GNU-only.)
+		file(GLOB _olo_stdcxxexp_candidates
+			/usr/lib/gcc/*/*/libstdc++exp.a
+			/usr/lib64/gcc/*/*/libstdc++exp.a)
+		if(_olo_stdcxxexp_candidates)
+			list(SORT _olo_stdcxxexp_candidates COMPARE NATURAL ORDER DESCENDING)
+			list(GET _olo_stdcxxexp_candidates 0 _olo_stdcxxexp_lib)
+			get_filename_component(_olo_stdcxxexp_dir "${_olo_stdcxxexp_lib}" DIRECTORY)
+			message(STATUS "libstdc++exp not on the default link path; using "
+				"${_olo_stdcxxexp_lib} for std::stacktrace (base-GCC fallback for a "
+				"toolset that omits it).")
+			# PUBLIC so the -L and the lib propagate to the executables that actually
+			# link (tests / editor / runtime); -L precedes the -lstdc++exp search.
+			target_link_options(OloEngine PUBLIC "-L${_olo_stdcxxexp_dir}")
+			target_link_libraries(OloEngine stdc++exp)
+			set(OLO_HAVE_LIBSTDCXXEXP TRUE)
+		else()
+			message(WARNING "libstdc++exp (std::stacktrace) not found. Executable links that "
+				"reference std::stacktrace (Platform/OpenGL/OpenGLDebug.cpp) will fail to resolve "
+				"std::__stacktrace_impl::_S_current. Install libstdc++-static / the matching "
+				"libstdc++exp for your GCC, or use a toolchain that ships it.")
+		endif()
 	endif()
 endif()
 

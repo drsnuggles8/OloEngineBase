@@ -55,6 +55,24 @@
 			}
 		},
 		{
+			"name": "linux-gcc-toolset",
+			"displayName": "Linux GCC (toolset / system gcc, Ninja)",
+			"description": "For distros where the compiler is `gcc`/`g++` on PATH rather than versioned gcc-14 binaries — e.g. an activated RHEL/Rocky gcc-toolset-N. Shares build-linux/ with linux-gcc, so use one or the other. FFmpeg is off by default (its from-source build needs nasm); enable with -DOLO_VIDEO_FFMPEG=ON once nasm is installed. Pass -DCMAKE_PREFIX_PATH=$VULKAN_SDK for the shader stack. See docs/ops/build.md.",
+			"generator": "Ninja Multi-Config",
+			"binaryDir": "${sourceDir}/build-linux",
+			"cacheVariables": {
+				"BUILD_TESTS": "ON",
+				"CMAKE_C_COMPILER": "gcc",
+				"CMAKE_CXX_COMPILER": "g++",
+				"OLO_VIDEO_FFMPEG": "OFF"
+			},
+			"condition": {
+				"type": "equals",
+				"lhs": "${hostSystemName}",
+				"rhs": "Linux"
+			}
+		},
+		{
 			"name": "linux-asan",
 			"displayName": "Linux GCC + ASan",
 			"description": "GCC ASan build; also enables LSan automatically per cmake/Sanitizers.cmake.",
