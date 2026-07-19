@@ -605,6 +605,17 @@ add_executable(OloEngine-Tests
 		# EnTT registry / runtime in the editor), so the test injects fakes and never
 		# touches a scene. Header-only on the editor side, so no extra editor TU.
 		MCP/McpSceneControlTest.cpp
+		# Consented MCP WRITE tool: olo_editor_select_entity (#607) — select/clear
+		# the Scene Hierarchy panel's selection so the Properties inspector draws a
+		# given entity's components (unblocks screenshot verification of the whole
+		# DrawComponent<T> surface; olo_input_inject can't reliably land a Scene
+		# Hierarchy row click). Same dispatch seam (session write gate + inputSchema
+		# enforcement at McpServer.cpp) and shared shaping/validation
+		# (MCP/McpSelectEntity.h: schema, entity-XOR-clear ParseArgs, result->JSON).
+		# The selection ACTION is a context hook (SceneHierarchyPanel in the
+		# editor), so the test injects a fake and never opens a window. Header-only
+		# on the editor side, so no extra editor TU is pulled in.
+		MCP/McpSelectEntityTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Functional / cross-subsystem world-tick tests (see ADR 0001).

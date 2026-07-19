@@ -56,7 +56,40 @@ because of three non-obvious choices you must replicate locally:
   otherwise intercepts the fault before ASan's own SEGV reporter can
   print the stack.
 
-## 3. Known toolchain bug: C++ throws through instrumented frames can AV (issue #661)
+## 3. A fresh worktree's first `cmake --preset msvc` can wedge on the GameNetworkingSockets/WebRTC vendor clone
+
+Each git worktree gets its own independent `OloEngine/vendor/` — nothing is
+shared across worktrees — so a worktree that has never been configured pays
+the full vendor bootstrap, and `gamenetworkingsockets-src` (which vendors a
+WebRTC submodule tree, ~700 MB / ~9k files) is by far the heaviest of the
+CPM/FetchContent dependencies. If a previous configure attempt in that same
+worktree was interrupted (terminal closed, agent turn ended mid-build), git's
+submodule clone can leave orphaned `git.exe` child processes still crawling
+the WebRTC submodules in the background — invisible to whatever killed the
+parent build. The *next* configure then fails fast with
+`Error removing directory ".../gamenetworkingsockets-src". Failed to remove
+directory` / `CMake Error ... FetchContent.cmake ... Build step for
+gamenetworkingsockets failed`, because FetchContent tries to wipe and
+re-populate the directory while those orphaned processes still hold file
+handles inside it (`.git/modules/.../objects/pack/tmp_pack_*`).
+
+Diagnose with `tasklist | grep -i git.exe` (dozens of small-footprint
+processes is the signature) before assuming the vendor mirror is broken —
+letting them finish, or waiting a few minutes and retrying, is one fix. Far
+faster if a sibling worktree already has a fully-populated
+`gamenetworkingsockets-src` (check for one under `<other-worktree>/OloEngine/
+vendor/`, e.g. from `resume-worktrees`/`start-work`'s registry): mirror-copy
+it instead of re-cloning from GitHub —
+`robocopy <sibling>\OloEngine\vendor\gamenetworkingsockets-src
+<this-worktree>\OloEngine\vendor\gamenetworkingsockets-src /MIR /MT:16` (a
+plain directory copy of an already-checked-out repo at the same pin; nothing
+worktree-specific lives inside it) — then delete the stale
+`gamenetworkingsockets-subbuild`/`-build` dirs so CMake regenerates them
+against the copied source, and reconfigure. Note **robocopy's exit code 1
+means "files copied successfully," not failure** — don't read a nonzero
+robocopy exit code as an error the way you would for every other tool.
+
+## 4. Known toolchain bug: C++ throws through instrumented frames can AV (issue #661)
 
 clang-cl + `/fsanitize=address` on Windows crashes **inside the C++
 exception-dispatch machinery** (access-violation reading near null, with

@@ -566,6 +566,12 @@ namespace OloEngine
             { return QueueMcpInput(plan); };
             mcpContext.GetInputState = [this]() -> MCP::McpInputStateSnapshot
             { return GetMcpInputState(); };
+            // olo_editor_select_entity (#607): select/clear the Scene Hierarchy
+            // panel's selection so the Properties inspector draws the requested
+            // entity — see SelectEntityInEditor for the UUID resolution + the
+            // "leave the current selection untouched on a bad uuid" contract.
+            mcpContext.SelectEntityInEditor = [this](u64 entityUuid, bool clear) -> MCP::McpSelectEntityResult
+            { return SelectEntityInEditor(entityUuid, clear); };
             mcpContext.GetFrameIndex = [this]() -> u64
             { return m_FrameIndex; };
             mcpContext.IsCaptureUnready = [this]() -> bool
@@ -930,6 +936,55 @@ namespace OloEngine
             state.HoveredEntityName = hovered.GetName();
         }
         return state;
+    }
+
+    MCP::McpSelectEntityResult EditorLayer::SelectEntityInEditor(u64 entityUuid, bool clear)
+    {
+        MCP::McpSelectEntityResult result;
+        result.Available = true;
+
+        // Snapshot the selection BEFORE mutating, so Changed can be derived by
+        // comparison below instead of tracked ad hoc per branch.
+        const Entity previouslySelected = m_SceneHierarchyPanel.GetSelectedEntity();
+        const u64 previousEntityId = previouslySelected ? static_cast<u64>(previouslySelected.GetUUID()) : 0;
+
+        if (clear)
+        {
+            m_SceneHierarchyPanel.ClearSelection();
+            result.Ok = true;
+            result.Message = "Cleared the Scene Hierarchy selection.";
+        }
+        else if (!m_ActiveScene)
+        {
+            result.Ok = false;
+            result.Message = "No active scene.";
+        }
+        else if (const auto entityOpt = m_ActiveScene->TryGetEntityWithUUID(UUID(entityUuid)); entityOpt)
+        {
+            m_SceneHierarchyPanel.SetSelectedEntity(*entityOpt);
+            result.Ok = true;
+            result.Message = "Selected '" + entityOpt->GetName() + "'.";
+        }
+        else
+        {
+            // Bad uuid: leave the current selection untouched — a typo'd id
+            // should never look like a clear.
+            result.Ok = false;
+            result.Message = "No entity with UUID " + std::to_string(entityUuid) + " in the active scene.";
+        }
+
+        // Single source of truth for the resulting selection state: read it
+        // back from the panel rather than tracking it through locals above, so
+        // the success and failure paths above can't drift out of sync with what
+        // the panel actually holds.
+        if (Entity current = m_SceneHierarchyPanel.GetSelectedEntity(); current)
+        {
+            result.Selected = true;
+            result.EntityId = static_cast<u64>(current.GetUUID());
+            result.EntityName = current.GetName();
+        }
+        result.Changed = result.Ok && (result.EntityId != previousEntityId);
+        return result;
     }
 
     void EditorLayer::OnUpdate(Timestep const ts)
