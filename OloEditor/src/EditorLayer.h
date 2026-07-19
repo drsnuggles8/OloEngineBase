@@ -199,6 +199,15 @@ namespace OloEngine
         [[nodiscard]] MCP::McpInputViewportInfo GetMcpInputViewportInfo() const;
         [[nodiscard]] MCP::McpInputStateSnapshot GetMcpInputState() const;
 
+        // ---- MCP editor selection (olo_editor_select_entity, issue #607) --------
+        // Select/clear the Scene Hierarchy panel's selection so the Properties
+        // inspector draws the requested entity's components — the write
+        // EditorMcpContext::SelectEntityInEditor is wired to. `clear` true
+        // deselects (entityUuid ignored); otherwise entityUuid is resolved in the
+        // active scene. Main-thread-only (EnTT registry + ImGui panel selection
+        // state), called from inside a MarshalRead job.
+        [[nodiscard]] MCP::McpSelectEntityResult SelectEntityInEditor(u64 entityUuid, bool clear);
+
       private:
         OloEngine::OrthographicCameraController m_CameraController;
 

@@ -3,6 +3,7 @@
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpGenericFieldWrite.h"
 #include "MCP/McpSceneControl.h"
+#include "MCP/McpSelectEntity.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
@@ -376,6 +377,42 @@ namespace OloEngine::MCP
             return Handle_ScenePlayState(server, /*play*/ false);
         }
 
+        // ---- olo_editor_select_entity (main-marshaled; PROJECT WRITE) ----------
+        // Select / clear the Scene Hierarchy panel's selection over MCP (issue
+        // #607) — the write that makes the Properties inspector draw a given
+        // entity's components, unblocking screenshot verification of the whole
+        // DrawComponent<T> surface. olo_input_inject can't reliably land a
+        // panel-space click for this (the OS cursor reasserts over the synthetic
+        // position between injected frames), so this is a direct write instead.
+        // Gated at dispatch by the "Allow writes" session toggle
+        // (ToolDef::ProjectWrite): it mutates editor UI state on the agent's
+        // behalf, mirroring the other scene-control writes, even though it never
+        // touches project/scene DATA (not routed through CommandHistory/undo —
+        // selection isn't undoable). The shared schema + arg parsing + result
+        // shaping live in MCP/McpSelectEntity.h so they are unit-tested at the
+        // dispatch seam without this TU.
+        ToolResult Handle_SelectEntity(McpServer& server, const Json& args)
+        {
+            using namespace SelectEntity;
+
+            Request request;
+            if (const auto error = ParseArgs(args, request))
+                return ToolResult::Error(*error);
+
+            if (!server.Context().SelectEntityInEditor)
+                return ToolResult::Error("Entity selection is not available in this editor build.");
+
+            const Json result = server.MarshalRead([&server, request]() -> Json
+                                                   {
+                if (!server.Context().SelectEntityInEditor)
+                    return Json{ { "__error", "Entity selection is not available in this editor build." } };
+                return ToJson(server.Context().SelectEntityInEditor(request.EntityUuid, request.Clear)); });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Text(result.dump(2));
+        }
+
     } // namespace
 
     void RegisterSceneTools(McpServer& server)
@@ -573,6 +610,39 @@ namespace OloEngine::MCP
             tool.InputSchema = SceneControl::PlayStopInputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneStop;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_editor_select_entity";
+            tool.Toolset = "scene";
+            tool.Title = "Select entity in editor";
+            // A project-WRITE tool: it mutates the editor's Scene Hierarchy
+            // selection, gated behind "Allow writes" for consistency with every
+            // other editor-state write (olo_scene_open, olo_scene_play/stop) even
+            // though it never touches project/scene DATA — selection isn't
+            // undoable, so there is no CommandHistory entry. readOnlyHint:false;
+            // idempotent (selecting the already-selected entity, or clearing an
+            // already-empty selection, is a no-op); not destructive.
+            tool.ProjectWrite = true;
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Select (or clear) the entity shown in the editor's Scene Hierarchy / Properties panels — the "
+                "only way to drive the Properties inspector onto a specific entity over MCP, so its rendered "
+                "component UI (every DrawComponent<T>) becomes reachable for screenshot verification. "
+                "olo_input_inject cannot reliably land a click on a Scene Hierarchy row (the OS cursor reasserts "
+                "over the synthetic position between injected frames), so use this instead. Give 'entity' (a "
+                "UUID, see olo_scene_list_entities / olo_scene_get_entity) to select it, or 'clear':true to "
+                "deselect — exactly one of the two. An unknown 'entity' UUID leaves the CURRENT selection "
+                "untouched and reports ok:false rather than silently clearing it. The result's 'changed' field "
+                "distinguishes a real transition from a no-op (re-selecting the already-selected entity, or "
+                "clearing an already-empty selection). Follow with olo_screenshot (space:'window', to capture "
+                "the Properties panel outside the 3D viewport) to see the result. This is a WRITE tool: it is "
+                "refused unless 'Allow writes' is enabled in the editor's MCP Server panel (off by default).";
+            tool.InputSchema = SelectEntity::InputSchema();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_SelectEntity;
             server.RegisterTool(std::move(tool));
         }
     }

@@ -255,6 +255,30 @@ namespace OloEngine::MCP
         std::string Message;
     };
 
+    // Outcome of a consented editor-selection write (issue #607), returned by
+    // EditorMcpContext::SelectEntityInEditor. `Available` is false in a host with
+    // no editor (headless attach / dispatch tests). `Ok` is true when the
+    // requested transition applied (a bad uuid leaves the CURRENT selection
+    // untouched and reports Ok:false rather than blanking it). `Selected` /
+    // `EntityId` / `EntityName` describe the resulting selection state
+    // afterwards (Selected:false, EntityId:0 after a clear or a failed lookup) —
+    // always read back from the live panel selection, never tracked separately,
+    // so a success and a failure path can't disagree about what's selected.
+    // `Changed` is true only when this call actually moved the selection (an
+    // already-selected entity, or an already-empty selection being cleared
+    // again, reports Changed:false) — the tool is idempotentHint:true, and this
+    // is how a caller tells "already there" apart from "just moved".
+    struct McpSelectEntityResult
+    {
+        bool Available = false;
+        bool Ok = false;
+        bool Changed = false;
+        bool Selected = false;
+        u64 EntityId = 0;
+        std::string EntityName;
+        std::string Message;
+    };
+
     // ---- Synthetic input injection (olo_input_inject, issue #607) --------------
     // The editor is normally NOT the foreground window when an agent drives it, so
     // OS-level injection (SendInput / SetCursorPos) is both useless and dangerous —
@@ -435,6 +459,22 @@ namespace OloEngine::MCP
         // project-write tool (entering Play executes the user's game scripts). Null
         // in a headless host with no editor.
         std::function<McpScenePlayResult(bool play)> SetScenePlayState;
+
+        // Select / clear the Scene Hierarchy panel's selection — the "make the
+        // Properties inspector draw entity X" write (issue #607). `clear` true
+        // deselects (entityUuid ignored); otherwise `entityUuid` is resolved in
+        // the active scene and becomes the SceneHierarchyPanel selection. An
+        // unresolvable uuid leaves the CURRENT selection untouched and reports
+        // Ok:false (never silently blanks it). Deliberately NOT routed through
+        // CommandHistory/undo — selection isn't project data, so there is
+        // nothing to undo (mirrors the renderer-settings restore-prior-value
+        // framing rather than a ComponentChangeCommand). Main-thread-only
+        // (EnTT registry + ImGui panel state), so the server calls it from a
+        // MarshalRead job. Like GetCommandHistory this is a consented
+        // project-write tool, gated at dispatch by "Allow writes". Null in a
+        // headless host that owns no SceneHierarchyPanel — the tool then
+        // reports "not available".
+        std::function<McpSelectEntityResult(u64 entityUuid, bool clear)> SelectEntityInEditor;
 
         // ---- Synthetic input injection (olo_input_inject, issue #607) ----------
         // Report the viewport / window geometry the tool needs to resolve

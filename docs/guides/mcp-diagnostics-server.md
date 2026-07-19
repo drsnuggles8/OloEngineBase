@@ -178,6 +178,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_scene_summary` | active scene name, play state, entity count |
 | `olo_scene_open` | **(consented write)** open / switch the active scene by `path` (a `.olo`/`.scene` file, relative paths resolve against the project asset directory) — the scriptable scene switch. Loads directly, bypassing the auto-save recovery modal a remote agent can't click; stops Play mode first. Reports the loaded scene name + entity count. Gated behind **Agent writes** |
 | `olo_scene_play` / `olo_scene_stop` | **(consented write)** enter / leave Play mode — the same as the editor's Play/Stop buttons, so an agent can verify anything that only runs in Play (physics, cloth, scripts). Transient + fully reversible (stop restores the authored scene); idempotent (`changed:false` when already in that state); `olo_scene_summary` reports `isPlaying` to confirm. Gated behind **Agent writes** |
+| `olo_editor_select_entity` | **(consented write)** select (or `clear`) the entity in the editor's Scene Hierarchy / Properties panels — the only way to drive the Properties inspector onto a given entity over MCP, unblocking screenshot verification of its rendered component UI. `olo_input_inject` cannot reliably land a Scene Hierarchy row click (the OS cursor reasserts over the synthetic position between injected frames). An unknown `entity` UUID leaves the current selection untouched (`ok:false`), never silently clearing it. Not undoable (selection isn't project data). Gated behind **Agent writes** |
 | `olo_scene_list_entities` | paginated entity list (id, name, parent, child count) + name filter |
 | `olo_scene_get_entity` | one entity's full component data (YAML) by UUID |
 | `olo_entity_list_fields` | the writable (component, field) pairs of one entity with each field's type, current value, and — for a range-validated field — its `min`/`max`. The read-only discovery half of `olo_entity_set_field`; optional `component` filter. See [Component field writes](#component-field-writes-olo_entity_set_field) |
@@ -228,10 +229,12 @@ the server, so update the config (or re-copy from the panel) accordingly.
 
 ### Write consent — Disabled / Prompt / Allow all (issue #306 item C)
 
-Every project-mutating tool (`olo_set_collision_layer`, `olo_entity_set_field`,
-`olo_reload_script`, `olo_renderer_settings_set`, `olo_scene_open`,
-`olo_scene_play`, `olo_scene_stop`, `olo_input_inject` — anything marked
-**(consented write)** above)
+Every tool marked **(consented write)** above (`olo_set_collision_layer`,
+`olo_entity_set_field`, `olo_reload_script`, `olo_renderer_settings_set`,
+`olo_scene_open`, `olo_scene_play`, `olo_scene_stop`, `olo_editor_select_entity`,
+`olo_input_inject` — not every one of these mutates the *project*; some, like
+`olo_editor_select_entity`, only mutate editor-only UI state, but all cross the
+read-only line the same way and are gated identically)
 is gated in the MCP panel by a three-way **Agent writes** control.
 It is **off by default and never persisted**, so every editor launch starts read-only
 and the human at the editor opts in for the session:
@@ -382,7 +385,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | Toolset | Tools |
 |---|---|
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_crash_list`, `olo_crash_get` |
-| `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_stop` |
+| `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_stop`, `olo_editor_select_entity` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
 | `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
@@ -632,6 +635,50 @@ directly, since an agent explicitly asked for that scene.
 where Win32 injection cannot. But the env var stays the right answer for the
 recovery modal specifically: it removes the wedge at launch, before any tool call is
 possible, and needs no write consent.)
+
+### Driving the Properties inspector (`olo_editor_select_entity`)
+
+There was previously **no way to drive editor selection programmatically**: an
+agent could read every component of an entity via `olo_scene_get_entity`, but
+could not make the editor's Properties panel actually *render* that entity's
+component UI (`SceneHierarchyPanel::DrawComponent<T>`) for a screenshot check.
+`olo_input_inject` can click a viewport entity, but not reliably a Scene
+Hierarchy *panel row* — the OS cursor reasserts over the synthetic position
+between injected frames, so panel-space clicks never land a selection.
+`olo_editor_select_entity` closes that gap with a direct write.
+
+```jsonc
+// olo_editor_select_entity { "entity": "12652600558176869447" }
+{ "available": true, "ok": true, "changed": true, "selected": true,
+  "entity": "12652600558176869447", "name": "Cube",
+  "message": "Selected 'Cube'." }
+
+// olo_screenshot { "space": "window" } (or the run-oloengine driver's full-window
+// shot) now shows the Properties panel drawing Cube's components.
+
+// olo_editor_select_entity { "clear": true }
+{ "available": true, "ok": true, "changed": true, "selected": false,
+  "message": "Cleared the Scene Hierarchy selection." }
+```
+
+- Exactly one of **`entity`** (a UUID, from `olo_scene_list_entities` /
+  `olo_scene_get_entity` — a string or a number) or **`clear`:true** — giving
+  both, or neither, is a clean argument error.
+- An **unknown `entity` UUID leaves the current selection untouched** and
+  reports `ok:false` — it never silently clears the selection on a typo'd id.
+- `selected`/`entity`/`name` always reflect the **actual current selection**,
+  read back from the panel — including on an `ok:false` result, where they
+  describe whatever was already selected before the failed call (or are
+  omitted if nothing was). `changed` is `true` only when this call actually
+  moved the selection, so a redundant re-selection (or clearing an
+  already-empty selection) is distinguishable from a real transition — the
+  tool is `idempotentHint:true`.
+- **Not undoable.** Unlike `olo_entity_set_field`, this does not route through
+  the editor's `CommandHistory` — selection is editor UI state, not project
+  data, so there is nothing to undo.
+- A **consented write**, gated behind **Agent writes** for consistency with
+  the other editor-state writes (`olo_scene_open`, `olo_scene_play`/`stop`),
+  even though it never mutates the scene itself.
 
 ### Interactive UI verification (`olo_input_inject`)
 
