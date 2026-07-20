@@ -709,6 +709,15 @@ namespace OloEngine
             {
                 const u32 srcX = std::min(x0 + x, resolution - 1);
                 const f32 normalized = fullHeights[static_cast<sizet>(srcZ) * resolution + srcX];
+                // Reject a corrupt/NaN field before it reaches SetHeights — the same guard
+                // CreateTerrainHeightFieldShape applies at build (a non-finite sample floored
+                // into a quantized height is silently garbage collision). Leave the existing
+                // body untouched; the caller's fallback rebuild also fails safe.
+                if (!std::isfinite(normalized))
+                {
+                    OLO_CORE_ERROR("UpdateTerrainBodyHeights: non-finite height sample at ({0},{1}); skipping update", srcX, srcZ);
+                    return false;
+                }
                 region[static_cast<sizet>(z) * sizeX + x] = minWorldH + normalized * worldHRange;
             }
         }

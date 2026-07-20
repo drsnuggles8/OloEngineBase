@@ -4671,21 +4671,18 @@ namespace OloEngine
         // entity transform exactly like the draw path (tileModel = entityTransform *
         // translate(tile.WorldOrigin) — see submitChunkPackets), so collision coincides
         // with the rendered tile.
-        void ReconcileStreamingTerrainCollision(JoltScene& joltScene, Entity entity, TerrainComponent& terrain)
+        void ReconcileStreamingTerrainCollision(JoltScene& joltScene, Entity entity,
+                                                const std::vector<Ref<TerrainTile>>& readyTiles)
         {
             const UUID entityID = entity.GetUUID();
-
-            if (!terrain.m_Streamer)
-            {
-                joltScene.DestroyTerrainTilesForEntity(entityID);
-                return;
-            }
 
             const auto& transform = entity.GetComponent<TransformComponent>();
             const glm::quat rotation = transform.GetRotation();
 
-            std::vector<Ref<TerrainTile>> readyTiles;
-            terrain.m_Streamer->GetReadyTiles(readyTiles);
+            // `readyTiles` is the SAME per-frame snapshot the render submit path uses, taken
+            // once by the caller (GetReadyTiles takes a shared lock + copies) — an empty list
+            // (streamer not yet created / no ready tiles) correctly tears down every tile body
+            // via the coord sweep below.
 
             // Pack a tile grid coord into a single key for the desired-set membership test.
             auto packKey = [](i32 x, i32 z) -> i64
@@ -6754,18 +6751,8 @@ namespace OloEngine
                     // the old world-anchored feed, plus the un-stacking fix.)
                     const glm::vec3 terrainTranslation = terrainView.get<TransformComponent>(entity).Translation;
                     terrain.m_Streamer->Update(cameraPosition - terrainTranslation, m_TerrainFrameCounter);
-
-                    // Per-tile collision (issue #469): when physics is live, keep a static
-                    // height-field body per ready tile in step with the visual load/unload.
-                    // Collision disabled at runtime → tear down any tiles we still own.
-                    if (m_JoltScene && m_JoltScene->IsInitialized())
-                    {
-                        Entity terrainEnt = { entity, this };
-                        if (terrain.m_CollisionEnabled)
-                            ReconcileStreamingTerrainCollision(*m_JoltScene, terrainEnt, terrain);
-                        else
-                            m_JoltScene->DestroyTerrainTilesForEntity(terrainEnt.GetUUID());
-                    }
+                    // Per-tile collision reconcile shares the render loop's single
+                    // GetReadyTiles snapshot — see the terrainRenderView loop below (#469).
                 }
                 else
                 {
@@ -6960,6 +6947,29 @@ namespace OloEngine
 
                     i32 entityID = static_cast<i32>(std::to_underlying(entity));
 
+                    // One per-frame ready-tile snapshot for a streaming terrain, shared by
+                    // the collision reconcile (just below) and the render submit path inside
+                    // the terrainShader block — GetReadyTiles' shared-lock-plus-copy runs
+                    // once per terrain per frame, not twice (issue #469 review). Placed
+                    // BEFORE the terrainShader gate so collision never depends on the terrain
+                    // shader being loaded. The streamer already advanced in the update loop
+                    // above; nothing mutates its tile set between there and here.
+                    std::vector<Ref<TerrainTile>> readyTiles;
+                    if (terrain.m_StreamingEnabled && terrain.m_Streamer)
+                        terrain.m_Streamer->GetReadyTiles(readyTiles);
+
+                    // Per-tile collision (issue #469): when physics is live, keep a static
+                    // height-field body per ready tile in step with the visual load/unload.
+                    // Collision disabled at runtime → tear down any tiles we still own.
+                    if (terrain.m_StreamingEnabled && m_JoltScene && m_JoltScene->IsInitialized())
+                    {
+                        Entity terrainEnt = { entity, this };
+                        if (terrain.m_CollisionEnabled)
+                            ReconcileStreamingTerrainCollision(*m_JoltScene, terrainEnt, readyTiles);
+                        else
+                            m_JoltScene->DestroyTerrainTilesForEntity(terrainEnt.GetUUID());
+                    }
+
                     if (terrainShader)
                     {
                         bool useTess = terrain.m_TessellationEnabled;
@@ -7125,8 +7135,9 @@ namespace OloEngine
 
                         if (terrain.m_StreamingEnabled && terrain.m_Streamer)
                         {
-                            std::vector<Ref<TerrainTile>> readyTiles;
-                            terrain.m_Streamer->GetReadyTiles(readyTiles);
+                            // Reuse the frame's ready-tile snapshot taken above (before the
+                            // terrainShader gate) and shared with the collision reconcile —
+                            // one GetReadyTiles per terrain per frame (issue #469 review).
                             for (const auto& tile : readyTiles)
                             {
                                 auto tileMat = tile->GetMaterial();

@@ -99,3 +99,9 @@ drifts off the visible tile.
    apply button), never per drag frame — the editor wires it at the stroke-end /
    erosion-apply sites next to `RebuildDirtyChunks`, not through
    `terrain.m_NeedsRebuild` (that is a *full* procedural-rebuild flag).
+7. **Undo/redo must refresh collision too.** The stroke-settle call only covers
+   the initial live-applied stroke; an undo/redo re-applies heights through
+   `TerrainSculptCommand::ApplyHeights` (shared by `Execute`/`Undo`), so that path
+   calls `UpdateTerrainCollisionAfterEdit` as well — otherwise undoing a sculpt
+   during Play leaves the collision body on the redone surface. The command holds
+   the scene as a `WeakRef` so the undo history never keeps the whole `Scene` alive.

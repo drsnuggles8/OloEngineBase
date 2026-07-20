@@ -189,8 +189,9 @@ namespace OloEngine
                              Ref<TerrainChunkManager> chunkManager,
                              f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
                              u32 regionX, u32 regionY, u32 regionW, u32 regionH,
-                             std::vector<f32> oldHeights, std::vector<f32> newHeights)
-            : m_TerrainData(std::move(terrainData)), m_ChunkManager(std::move(chunkManager)), m_WorldSizeX(worldSizeX), m_WorldSizeZ(worldSizeZ), m_HeightScale(heightScale), m_RegionX(regionX), m_RegionY(regionY), m_RegionW(regionW), m_RegionH(regionH), m_OldHeights(std::move(oldHeights)), m_NewHeights(std::move(newHeights))
+                             std::vector<f32> oldHeights, std::vector<f32> newHeights,
+                             WeakRef<Scene> scene = {}, UUID terrainEntity = UUID(0))
+            : m_TerrainData(std::move(terrainData)), m_ChunkManager(std::move(chunkManager)), m_WorldSizeX(worldSizeX), m_WorldSizeZ(worldSizeZ), m_HeightScale(heightScale), m_RegionX(regionX), m_RegionY(regionY), m_RegionW(regionW), m_RegionH(regionH), m_OldHeights(std::move(oldHeights)), m_NewHeights(std::move(newHeights)), m_Scene(std::move(scene)), m_TerrainEntity(terrainEntity)
         {
         }
 
@@ -245,6 +246,19 @@ namespace OloEngine
                 TerrainBrush::RebuildDirtyChunks(*m_ChunkManager, *m_TerrainData, dirty,
                                                  m_WorldSizeX, m_WorldSizeZ, m_HeightScale);
             }
+
+            // Keep physics collision in step with the height edit on redo AND undo (issue
+            // #469 review): the stroke-settle path in the panel only covers the initial
+            // stroke, so an undo/redo during Play/Simulate would otherwise leave the
+            // collision body on the stale surface. No-op in edit mode (JoltScene null) or
+            // if the scene / entity is gone; the scene is held weakly so the undo history
+            // never keeps it alive.
+            if (Ref<Scene> scene = m_Scene.Lock())
+            {
+                Entity terrainEntity = scene->GetEntityByUUID(m_TerrainEntity);
+                if (terrainEntity)
+                    scene->UpdateTerrainCollisionAfterEdit(terrainEntity, m_RegionX, m_RegionY, m_RegionW, m_RegionH);
+            }
         }
 
         Ref<TerrainData> m_TerrainData;
@@ -258,6 +272,10 @@ namespace OloEngine
         u32 m_RegionH;
         std::vector<f32> m_OldHeights;
         std::vector<f32> m_NewHeights;
+        // Held WEAKLY so an entry in the undo history never keeps the whole Scene alive;
+        // used to refresh terrain collision on redo/undo (issue #469 review).
+        WeakRef<Scene> m_Scene;
+        UUID m_TerrainEntity;
     };
 
     // =========================================================================

@@ -397,19 +397,27 @@ namespace OloEngine
                         std::memcpy(&newHeights[dstIdx], &fullData[srcIdx], m_StrokeDirtyW * sizeof(f32));
                     }
 
+                    // Resolve the stroke's terrain entity once: the undo command uses it to
+                    // refresh collision on redo/undo (held weakly, issue #469 review), and the
+                    // stroke-settle call below covers the initial live-applied stroke.
+                    Entity strokeEnt = (m_Context && m_StrokeEntity != entt::null)
+                                           ? Entity{ m_StrokeEntity, m_Context.get() }
+                                           : Entity{};
+                    const UUID strokeUUID = strokeEnt ? strokeEnt.GetUUID() : UUID(0);
+
                     m_CommandHistory->PushAlreadyExecuted(
                         std::make_unique<TerrainSculptCommand>(
                             m_StrokeTerrainData, m_StrokeChunkManager,
                             m_StrokeWorldSizeX, m_StrokeWorldSizeZ, m_StrokeHeightScale,
                             m_StrokeDirtyX, m_StrokeDirtyY, m_StrokeDirtyW, m_StrokeDirtyH,
-                            std::move(oldRegion), std::move(newHeights)));
+                            std::move(oldRegion), std::move(newHeights),
+                            WeakRef<Scene>(m_Context), strokeUUID));
 
                     // Sync collision once at stroke settle so a body dropped on the sculpted
                     // region rests on the NEW surface (issue #469). No-op unless physics is
                     // running (Play/Simulate); debounced here rather than per drag frame.
-                    if (m_Context && m_StrokeEntity != entt::null)
+                    if (strokeEnt)
                     {
-                        Entity strokeEnt{ m_StrokeEntity, m_Context.get() };
                         m_Context->UpdateTerrainCollisionAfterEdit(
                             strokeEnt, m_StrokeDirtyX, m_StrokeDirtyY, m_StrokeDirtyW, m_StrokeDirtyH);
                     }
