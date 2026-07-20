@@ -25,13 +25,13 @@ message(STATUS "Downloading third party libraries using CMake's FetchContent and
 FetchContent_Declare(
 	assimp
 	GIT_REPOSITORY	https://github.com/assimp/assimp.git
-	GIT_TAG			f1de01d68eb224cf9f97ac3a3b1cad9aa92ec7ac  # master @ 2026-06-05
+	GIT_TAG			a939f2479513a4d92060f2348909886b67d548aa  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
 	atomic_queue
 	GIT_REPOSITORY	https://github.com/max0x7ba/atomic_queue.git
-	GIT_TAG			e9724223814e59a5f2d1aa46ed3ff00754191ace  # master @ 2026-06-05
+	GIT_TAG			094d87a56a2b20a856a5687844e2d253eb35a64d  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
@@ -75,7 +75,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	googletest
 	GIT_REPOSITORY https://github.com/google/googletest.git
-	GIT_TAG f132c893119698e10daef8525d0ad7a3f05176f2  # main @ 2026-06-05
+	GIT_TAG fa005b296f90faec4f352d7ab382287bf6548c8d  # main @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 # Pin Jolt to a fixed commit (not a floating branch). A floating `GIT_TAG master`
@@ -141,7 +141,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	yaml-cpp
 	GIT_REPOSITORY	https://github.com/jbeder/yaml-cpp.git
-	GIT_TAG			881f6108e5c8d290d33acbba2b01a803b1142df5  # master @ 2026-06-05
+	GIT_TAG			356643ba267039367d87fa70ce3d8f87144f55e9  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
@@ -318,7 +318,7 @@ set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
-	GIT_TAG 6029ee3789a2b7898f6423ec0c88cc4e5425f5a9  # docking @ 2026-06-05
+	GIT_TAG 81c008f90d488d18370dbe6741115e126d67f539  # docking @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if(imgui_ADDED)
@@ -341,7 +341,7 @@ endif()
 
 CPMAddPackage(NAME imguizmo
 	GITHUB_REPOSITORY CedricGuillemet/ImGuizmo
-	GIT_TAG fd138a7ce089cfcbfee16da8e8692f37a0e9481e  # master @ 2026-06-05
+	GIT_TAG dc25afb98bc3ebe00dfc9a23ba7235fead2ccb1d  # master @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if (imguizmo_ADDED)
