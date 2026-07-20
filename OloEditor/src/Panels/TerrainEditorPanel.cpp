@@ -397,12 +397,30 @@ namespace OloEngine
                         std::memcpy(&newHeights[dstIdx], &fullData[srcIdx], m_StrokeDirtyW * sizeof(f32));
                     }
 
+                    // Resolve the stroke's terrain entity once: the undo command uses it to
+                    // refresh collision on redo/undo (held weakly, issue #469 review), and the
+                    // stroke-settle call below covers the initial live-applied stroke.
+                    Entity strokeEnt = (m_Context && m_StrokeEntity != entt::null)
+                                           ? Entity{ m_StrokeEntity, m_Context.get() }
+                                           : Entity{};
+                    const UUID strokeUUID = strokeEnt ? strokeEnt.GetUUID() : UUID(0);
+
                     m_CommandHistory->PushAlreadyExecuted(
                         std::make_unique<TerrainSculptCommand>(
                             m_StrokeTerrainData, m_StrokeChunkManager,
                             m_StrokeWorldSizeX, m_StrokeWorldSizeZ, m_StrokeHeightScale,
                             m_StrokeDirtyX, m_StrokeDirtyY, m_StrokeDirtyW, m_StrokeDirtyH,
-                            std::move(oldRegion), std::move(newHeights)));
+                            std::move(oldRegion), std::move(newHeights),
+                            WeakRef<Scene>(m_Context), strokeUUID));
+
+                    // Sync collision once at stroke settle so a body dropped on the sculpted
+                    // region rests on the NEW surface (issue #469). No-op unless physics is
+                    // running (Play/Simulate); debounced here rather than per drag frame.
+                    if (strokeEnt)
+                    {
+                        m_Context->UpdateTerrainCollisionAfterEdit(
+                            strokeEnt, m_StrokeDirtyX, m_StrokeDirtyY, m_StrokeDirtyW, m_StrokeDirtyH);
+                    }
                 }
                 else if (m_EditMode == TerrainEditMode::Paint && m_StrokeMaterial)
                 {
@@ -485,6 +503,7 @@ namespace OloEngine
             m_StrokeTerrainData = nullptr;
             m_StrokeChunkManager = nullptr;
             m_StrokeMaterial = nullptr;
+            m_StrokeEntity = entt::null;
         }
 
         if (!hasHit || !mouseDown || m_EditMode == TerrainEditMode::None || !m_Context)
@@ -507,6 +526,7 @@ namespace OloEngine
                     m_StrokeActive = true;
                     m_StrokeTerrainData = terrain.m_TerrainData;
                     m_StrokeChunkManager = terrain.m_ChunkManager;
+                    m_StrokeEntity = entity;
                     m_StrokeWorldSizeX = terrain.m_WorldSizeX;
                     m_StrokeWorldSizeZ = terrain.m_WorldSizeZ;
                     m_StrokeHeightScale = terrain.m_HeightScale;
@@ -704,6 +724,15 @@ namespace OloEngine
                         terrain.m_ChunkManager->GenerateAllChunks(
                             *terrain.m_TerrainData,
                             terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                    }
+
+                    // Erosion rewrites the whole field, so sync the entire collision region
+                    // when physics is running (issue #469). No-op in edit mode.
+                    if (m_Context)
+                    {
+                        Entity terrainEnt{ entity, m_Context.get() };
+                        const u32 res = terrain.m_TerrainData->GetResolution();
+                        m_Context->UpdateTerrainCollisionAfterEdit(terrainEnt, 0, 0, res, res);
                     }
                 }
                 break;

@@ -531,6 +531,19 @@ namespace OloEngine
         JPH::HeightFieldShapeSettings settings(samples.data(), joltOffset, joltScale, sampleCount);
         settings.mBlockSize = kBlockSize;
 
+        // Pin the encodable sample range to the FULL normalized [0,1] band rather than
+        // letting Jolt derive it from the current samples (issue #469). Jolt quantizes
+        // heights into 16 bits over [mMinHeightValue, mMaxHeightValue]; left at the default
+        // it fits that window to the initial data, so a body built from a FLAT (or
+        // low-relief) field gets a near-zero vertical range and a later
+        // HeightFieldShape::SetHeights sculpt edit cannot raise a sample beyond it (the
+        // ridge silently clamps back to flat). Terrain heights are normalized [0,1] (world
+        // Y = sample * joltScale.Y), so [0,1] is the true encodable band and gives every
+        // terrain body headroom to be sculpted across its whole height range. The precision
+        // cost for a terrain that only uses a slice of [0,1] is sub-millimetre.
+        settings.mMinHeightValue = 0.0f;
+        settings.mMaxHeightValue = 1.0f;
+
         // Pick the sample precision adaptively: target ~2 cm of world-space height error.
         // Samples are normalized [0,1] and multiplied by the Y scale, so the per-sample
         // error budget is (worldError / worldHeightScale). Flat fields need very few bits;

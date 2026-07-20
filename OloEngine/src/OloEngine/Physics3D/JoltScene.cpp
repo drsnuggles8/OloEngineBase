@@ -53,6 +53,7 @@
 #include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h>
 #include <Jolt/Physics/SoftBody/SoftBodyCreationSettings.h>
 #include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h> // terrain tile bodies + sculpt SetHeights (#469)
 
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp> // glm::inverse(quat) for ragdoll bone-local anchors
@@ -519,8 +520,219 @@ namespace OloEngine
                 bodyInterface.RemoveBody(bodyID);
                 bodyInterface.DestroyBody(bodyID);
             }
+            // Streamed per-tile terrain bodies live in a separate map (#469).
+            for (const auto& [key, bodyID] : m_TerrainTileBodies)
+            {
+                m_BodyIDToEntity.erase(bodyID);
+                bodyInterface.RemoveBody(bodyID);
+                bodyInterface.DestroyBody(bodyID);
+            }
         }
         m_TerrainBodies.clear();
+        m_TerrainTileBodies.clear();
+    }
+
+    JPH::BodyID JoltScene::CreateTerrainTileBody(Entity terrainEntity, i32 tileX, i32 tileZ,
+                                                 const JPH::Ref<JPH::Shape>& shape,
+                                                 const glm::vec3& position, const glm::quat& rotation)
+    {
+        if (!m_Initialized || !m_JoltSystem)
+        {
+            OLO_CORE_ERROR("CreateTerrainTileBody: physics not initialized");
+            return JPH::BodyID();
+        }
+        if (!terrainEntity || !shape)
+        {
+            OLO_CORE_ERROR("CreateTerrainTileBody: invalid entity or null shape");
+            return JPH::BodyID();
+        }
+
+        const UUID entityID = terrainEntity.GetUUID();
+        const TerrainTileKey key{ entityID, tileX, tileZ };
+
+        // Idempotent per (entity, x, z): drop any prior body for this tile first.
+        DestroyTerrainTileBody(entityID, tileX, tileZ);
+
+        // Identical body convention to the single-tile terrain body (CreateTerrainBody):
+        // static, NON_MOVING, grippy, UserData = the OWNING TERRAIN ENTITY UUID so a
+        // raycast against any tile resolves the terrain entity.
+        JPH::BodyCreationSettings settings(
+            shape,
+            JoltUtils::ToJoltVector(position),
+            JoltUtils::ToJoltQuat(rotation),
+            JPH::EMotionType::Static,
+            ObjectLayers::NON_MOVING);
+        settings.mUserData = static_cast<u64>(entityID);
+        settings.mFriction = 0.8f;
+        settings.mRestitution = 0.0f;
+
+        JPH::BodyID bodyID = m_JoltSystem->GetBodyInterface().CreateAndAddBody(settings, JPH::EActivation::DontActivate);
+        if (bodyID.IsInvalid())
+        {
+            OLO_CORE_ERROR("CreateTerrainTileBody: Jolt failed to create body for terrain entity {0} tile ({1},{2})",
+                           (u64)entityID, tileX, tileZ);
+            return JPH::BodyID();
+        }
+
+        m_TerrainTileBodies[key] = bodyID;
+        m_BodyIDToEntity[bodyID] = entityID;
+
+        OLO_CORE_TRACE("Created terrain tile collision body for entity {0} tile ({1},{2}), BodyID: {3}",
+                       (u64)entityID, tileX, tileZ, bodyID.GetIndex());
+        return bodyID;
+    }
+
+    void JoltScene::DestroyTerrainTileBody(UUID terrainEntityID, i32 tileX, i32 tileZ)
+    {
+        auto it = m_TerrainTileBodies.find(TerrainTileKey{ terrainEntityID, tileX, tileZ });
+        if (it == m_TerrainTileBodies.end())
+            return;
+
+        const JPH::BodyID bodyID = it->second;
+        m_BodyIDToEntity.erase(bodyID);
+        if (m_JoltSystem)
+        {
+            auto& bodyInterface = m_JoltSystem->GetBodyInterface();
+            bodyInterface.RemoveBody(bodyID);
+            bodyInterface.DestroyBody(bodyID);
+        }
+        m_TerrainTileBodies.erase(it);
+    }
+
+    bool JoltScene::HasTerrainTileBody(UUID terrainEntityID, i32 tileX, i32 tileZ) const
+    {
+        return m_TerrainTileBodies.contains(TerrainTileKey{ terrainEntityID, tileX, tileZ });
+    }
+
+    std::vector<std::pair<i32, i32>> JoltScene::GetTerrainTileCoords(UUID terrainEntityID) const
+    {
+        std::vector<std::pair<i32, i32>> coords;
+        for (const auto& [key, bodyID] : m_TerrainTileBodies)
+        {
+            if (key.Terrain == terrainEntityID)
+                coords.emplace_back(key.X, key.Z);
+        }
+        return coords;
+    }
+
+    void JoltScene::DestroyTerrainTilesForEntity(UUID terrainEntityID)
+    {
+        JPH::BodyInterface* bodyInterface = m_JoltSystem ? &m_JoltSystem->GetBodyInterface() : nullptr;
+        for (auto it = m_TerrainTileBodies.begin(); it != m_TerrainTileBodies.end();)
+        {
+            if (it->first.Terrain == terrainEntityID)
+            {
+                const JPH::BodyID bodyID = it->second;
+                m_BodyIDToEntity.erase(bodyID);
+                if (bodyInterface)
+                {
+                    bodyInterface->RemoveBody(bodyID);
+                    bodyInterface->DestroyBody(bodyID);
+                }
+                it = m_TerrainTileBodies.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+
+    bool JoltScene::UpdateTerrainBodyHeights(UUID terrainEntityID, u32 regionX, u32 regionZ,
+                                             u32 regionWidth, u32 regionHeight,
+                                             const std::vector<f32>& fullHeights, u32 resolution)
+    {
+        if (!m_Initialized || !m_JoltSystem)
+            return false;
+        if (regionWidth == 0 || regionHeight == 0 || resolution < 2)
+            return false;
+        if (fullHeights.size() != static_cast<sizet>(resolution) * resolution)
+        {
+            OLO_CORE_ERROR("UpdateTerrainBodyHeights: height count {0} does not match resolution {1}x{1}",
+                           fullHeights.size(), resolution);
+            return false;
+        }
+
+        auto it = m_TerrainBodies.find(terrainEntityID);
+        if (it == m_TerrainBodies.end())
+            return false; // No single-tile terrain body (streaming terrain, or collision off).
+        const JPH::BodyID bodyID = it->second;
+
+        auto& bodyInterface = m_JoltSystem->GetBodyInterface();
+
+        // The height-field shape is created fresh per terrain body and never shared, so a
+        // const_cast to mutate it in place is safe (Jolt exposes SetHeights only on the
+        // concrete non-const HeightFieldShape). No manual body lock is taken here: the
+        // caller guarantees this runs on the game thread OUTSIDE the physics step (so no
+        // concurrent collision query reads the shape), and NotifyShapeChanged below takes
+        // the body lock itself — a BodyLockWrite held across it would deadlock.
+        JPH::RefConst<JPH::Shape> shapeRef = bodyInterface.GetShape(bodyID);
+        const JPH::Shape* shape = shapeRef.GetPtr();
+        if (!shape || shape->GetSubType() != JPH::EShapeSubType::HeightField)
+            return false;
+        auto* heightField = const_cast<JPH::HeightFieldShape*>(static_cast<const JPH::HeightFieldShape*>(shape));
+
+        const u32 sampleCount = heightField->GetSampleCount();
+        const u32 blockSize = std::max<u32>(heightField->GetBlockSize(), 1);
+
+        // SetHeights takes WORLD-space Y values (it re-quantizes via (h - offset)/scale),
+        // whereas `fullHeights` is the normalized [0,1] terrain field. The shape's encodable
+        // world band is [GetMinHeightValue(), GetMaxHeightValue()] — pinned to the full
+        // [0,1]·scale range at build (see CreateTerrainHeightFieldShape) — so a normalized
+        // sample n maps to world minH + n·(maxH - minH). Deriving the mapping from the shape
+        // keeps it correct under any entity Y-scale / height-scale without threading them in.
+        const f32 minWorldH = heightField->GetMinHeightValue();
+        const f32 worldHRange = heightField->GetMaxHeightValue() - minWorldH;
+
+        // Snap the dirty rect OUTWARD to the block grid — Jolt requires the start and the
+        // size to be multiples of the block size — then clamp to the padded sample count.
+        u32 x0 = (regionX / blockSize) * blockSize;
+        u32 z0 = (regionZ / blockSize) * blockSize;
+        u32 x1 = regionX + regionWidth;
+        u32 z1 = regionZ + regionHeight;
+        x1 = std::min(((x1 + blockSize - 1) / blockSize) * blockSize, sampleCount);
+        z1 = std::min(((z1 + blockSize - 1) / blockSize) * blockSize, sampleCount);
+        if (x1 <= x0 || z1 <= z0)
+            return false;
+        const u32 sizeX = x1 - x0;
+        const u32 sizeZ = z1 - z0;
+
+        // Build a contiguous, edge-replicated sample buffer for the snapped rect, exactly
+        // mirroring how CreateTerrainHeightFieldShape fills the padded shape: any sample at
+        // or beyond `resolution` clamps to the last real row/column, so the rect may safely
+        // extend into the pad the odd-resolution shape added. x-major within a row.
+        std::vector<f32> region(static_cast<sizet>(sizeX) * sizeZ);
+        for (u32 z = 0; z < sizeZ; ++z)
+        {
+            const u32 srcZ = std::min(z0 + z, resolution - 1);
+            for (u32 x = 0; x < sizeX; ++x)
+            {
+                const u32 srcX = std::min(x0 + x, resolution - 1);
+                const f32 normalized = fullHeights[static_cast<sizet>(srcZ) * resolution + srcX];
+                // Reject a corrupt/NaN field before it reaches SetHeights — the same guard
+                // CreateTerrainHeightFieldShape applies at build (a non-finite sample floored
+                // into a quantized height is silently garbage collision). Leave the existing
+                // body untouched; the caller's fallback rebuild also fails safe.
+                if (!std::isfinite(normalized))
+                {
+                    OLO_CORE_ERROR("UpdateTerrainBodyHeights: non-finite height sample at ({0},{1}); skipping update", srcX, srcZ);
+                    return false;
+                }
+                region[static_cast<sizet>(z) * sizeX + x] = minWorldH + normalized * worldHRange;
+            }
+        }
+
+        // Capture the center of mass BEFORE mutating so NotifyShapeChanged computes the
+        // correct position delta (SetHeights can shift the height field's COM).
+        const JPH::RVec3 prevCOM = bodyInterface.GetCenterOfMassPosition(bodyID);
+
+        JPH::TempAllocatorMalloc allocator;
+        heightField->SetHeights(x0, z0, sizeX, sizeZ, region.data(), static_cast<intptr_t>(sizeX), allocator);
+
+        // Refresh the broadphase bounds for the mutated shape. Static body → no mass
+        // properties, no activation.
+        bodyInterface.NotifyShapeChanged(bodyID, prevCOM, false, JPH::EActivation::DontActivate);
+        return true;
     }
 
     JPH::BodyID JoltScene::CreateClothBody(Entity entity, const JPH::Ref<JPH::SoftBodySharedSettings>& settings,
