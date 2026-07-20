@@ -406,6 +406,15 @@ namespace OloEngine::MCP::GenericFieldWrite
         // The field's current value as JSON, or nullopt when the entity lacks C.
         std::function<std::optional<Json>(Entity)> Read;
 
+        // Play-mode counterpart of Apply (issue #607's runtime field-write slice):
+        // same coerce/clamp/no-op-detect core, but writes STRAIGHT into the live
+        // component with no CommandHistory involved at all — there is no undo stack
+        // to push onto while the scene is playing (CommandHistory is nulled for the
+        // duration of Play), and the mutation does not survive Stop anyway. Callers
+        // must still mark the result `undoable: false` themselves (ApplyDirect() at
+        // namespace scope below does this uniformly for both entry kinds).
+        std::function<ApplyResult(Entity, u64, const Json&)> ApplyDirect;
+
         // ---- map-key addressing (issue #607's MorphTargetComponent::Weights slice) --
         //
         // A MAP-typed field has no compile-time-known key — MorphTargetComponent's
@@ -429,6 +438,8 @@ namespace OloEngine::MCP::GenericFieldWrite
         // drives olo_entity_list_fields' "exactly what you can write right now"
         // contract for a map field, since no key is known ahead of time.
         std::function<std::vector<std::string>(Entity)> ListMapKeys;
+        // Play-mode counterpart of ApplyKeyed — see ApplyDirect above.
+        std::function<ApplyResult(Entity, u64, const std::string& key, const Json&)> ApplyKeyedDirect;
     };
 
     // Build one registry entry from a component type + a script-facing field name +
@@ -516,6 +527,39 @@ namespace OloEngine::MCP::GenericFieldWrite
             if (!entity.HasComponent<C>())
                 return std::nullopt;
             return FieldToJson<F>(access(entity.GetComponent<C>()));
+        };
+
+        entry.ApplyDirect = [access, component, field, range](Entity entity, u64 uuid, const Json& value) -> ApplyResult
+        {
+            ApplyResult result;
+            if (!entity.HasComponent<C>())
+            {
+                result.Error = "Entity has no " + component + ".";
+                return result;
+            }
+
+            F coerced{};
+            if (const auto error = CoerceJson<F>(value, coerced))
+            {
+                result.Error = "Invalid 'value' for " + component + "." + field +
+                               " (expects " + std::string(FieldTypeName<F>()) + "): " + *error + ".";
+                return result;
+            }
+
+            const F requested = coerced;
+            RangeField<F>(coerced, range);
+            const bool clamped = FieldChanged<F>(requested, coerced);
+
+            // No whole-object copy/swap and no command — write the accessor's
+            // lvalue directly on the live component. Safe because, unlike the
+            // undoable path, there is nothing else that needs the pre-write value
+            // preserved (no Undo to serve).
+            const F previous = access(entity.GetComponent<C>());
+            if (FieldChanged<F>(previous, coerced))
+                access(entity.GetComponent<C>()) = coerced;
+
+            const F applied = access(entity.GetComponent<C>());
+            return Detail::BuildFieldApplyResult<F>(component, field, uuid, requested, previous, applied, clamped);
         };
 
         return entry;
@@ -629,6 +673,41 @@ namespace OloEngine::MCP::GenericFieldWrite
             if (!entity.HasComponent<C>())
                 return std::nullopt;
             return FieldToJson<F>(getFn(entity.GetComponent<C>()));
+        };
+
+        entry.ApplyDirect = [getFn, setFn, component, field, range](Entity entity, u64 uuid, const Json& value) -> ApplyResult
+        {
+            ApplyResult result;
+            if (!entity.HasComponent<C>())
+            {
+                result.Error = "Entity has no " + component + ".";
+                return result;
+            }
+
+            F coerced{};
+            if (const auto error = CoerceJson<F>(value, coerced))
+            {
+                result.Error = "Invalid 'value' for " + component + "." + field +
+                               " (expects " + std::string(FieldTypeName<F>()) + "): " + *error + ".";
+                return result;
+            }
+
+            const F requested = coerced;
+            RangeField<F>(coerced, range);
+            const bool clamped = FieldChanged<F>(requested, coerced);
+
+            // Same "call setFn, read back" honesty contract as Apply above — just
+            // with no PropertySetCommand pushed, since there is no undo stack to
+            // serve while playing.
+            const F previous = getFn(entity.GetComponent<C>());
+            F applied = previous;
+            if (FieldChanged<F>(previous, coerced))
+            {
+                setFn(entity.GetComponent<C>(), coerced);
+                applied = getFn(entity.GetComponent<C>());
+            }
+
+            return Detail::BuildFieldApplyResult<F>(component, field, uuid, requested, previous, applied, clamped);
         };
 
         return entry;
@@ -750,6 +829,41 @@ namespace OloEngine::MCP::GenericFieldWrite
             if (!entity.HasComponent<C>())
                 return {};
             return keysFn(entity.GetComponent<C>());
+        };
+
+        entry.ApplyKeyedDirect = [getFn, setFn, component, field, range](
+                                     Entity entity, u64 uuid, const std::string& key, const Json& value) -> ApplyResult
+        {
+            ApplyResult result;
+            if (!entity.HasComponent<C>())
+            {
+                result.Error = "Entity has no " + component + ".";
+                return result;
+            }
+
+            V coerced{};
+            if (const auto error = CoerceJson<V>(value, coerced))
+            {
+                result.Error = "Invalid 'value' for " + component + "." + field + "." + key +
+                               " (expects " + std::string(FieldTypeName<V>()) + "): " + *error + ".";
+                return result;
+            }
+
+            const V requested = coerced;
+            RangeField<V>(coerced, range);
+            const bool clamped = FieldChanged<V>(requested, coerced);
+
+            const V previous = getFn(entity.GetComponent<C>(), key);
+            V applied = previous;
+            if (FieldChanged<V>(previous, coerced))
+            {
+                setFn(entity.GetComponent<C>(), key, coerced);
+                applied = getFn(entity.GetComponent<C>(), key);
+            }
+
+            ApplyResult out = Detail::BuildFieldApplyResult<V>(component, field + "." + key, uuid, requested, previous, applied, clamped);
+            out.Data["key"] = key;
+            return out;
         };
 
         return entry;
@@ -1028,6 +1142,60 @@ namespace OloEngine::MCP::GenericFieldWrite
                 return result;
             }
             return mapEntry->ApplyKeyed(scene, history, *entityOpt, entityUuid, key, value);
+        }
+
+        result.Error = DescribeUnknownField(component, field);
+        return result;
+    }
+
+    // Play-mode counterpart of Apply (issue #607's runtime field-write slice): set
+    // one component field on the LIVE running scene with no CommandHistory at all
+    // — CommandHistory is nulled for the duration of Play, so there is no undo
+    // stack to push onto, and a Play-mode mutation is discarded on Stop regardless
+    // (Scene::OnScenePlay copies the edit-mode scene into m_ActiveScene; nothing
+    // here writes back). MUST run on the main (game) thread, same as Apply.
+    //
+    // The result always carries `undoable: false` (forced here rather than left to
+    // derive from `changed`, unlike Apply's `undoable == changed`) — a direct write
+    // is never undoable, changed or not, so a calling agent can tell at a glance
+    // that Ctrl-Z will not revert it and it will not survive Stop.
+    [[nodiscard]] inline ApplyResult ApplyDirect(const Ref<Scene>& scene, u64 entityUuid,
+                                                 const std::string& component, const std::string& field, const Json& value)
+    {
+        ApplyResult result;
+        if (!scene)
+        {
+            result.Error = "No active scene.";
+            return result;
+        }
+
+        if (const FieldEntry* entry = Find(component, field))
+        {
+            const auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityUuid));
+            if (!entityOpt)
+            {
+                result.Error = "No entity with UUID " + std::to_string(entityUuid) + " in the active scene.";
+                return result;
+            }
+            ApplyResult applied = entry->ApplyDirect(*entityOpt, entityUuid, value);
+            if (applied.Ok)
+                applied.Data["undoable"] = false;
+            return applied;
+        }
+
+        std::string key;
+        if (const FieldEntry* mapEntry = FindMapKeyed(component, field, key))
+        {
+            const auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityUuid));
+            if (!entityOpt)
+            {
+                result.Error = "No entity with UUID " + std::to_string(entityUuid) + " in the active scene.";
+                return result;
+            }
+            ApplyResult applied = mapEntry->ApplyKeyedDirect(*entityOpt, entityUuid, key, value);
+            if (applied.Ok)
+                applied.Data["undoable"] = false;
+            return applied;
         }
 
         result.Error = DescribeUnknownField(component, field);

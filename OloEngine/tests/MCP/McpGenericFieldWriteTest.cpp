@@ -44,9 +44,11 @@
 
 namespace
 {
+    using OloEngine::AudioSourceComponent;
     using OloEngine::CommandHistory;
     using OloEngine::DirectionalLightComponent;
     using OloEngine::Entity;
+    using OloEngine::MorphTargetComponent;
     using OloEngine::Ref;
     using OloEngine::Scene;
     using OloEngine::SpriteRendererComponent;
@@ -415,6 +417,222 @@ TEST(McpGenericFieldWriteApply, RejectsNonFiniteVector)
     const auto result = GFW::Apply(scene, history, uuid, "TransformComponent", "Translation", Json::array({ 0.0, inf, 0.0 }));
     EXPECT_FALSE(result.Ok);
     EXPECT_FALSE(history.CanUndo());
+}
+
+// ---- the shared apply core, Play-mode direct path (no CommandHistory) ------
+// GFW::ApplyDirect (issue #607's runtime field-write slice): the same
+// coerce/clamp/no-op-detect core as GFW::Apply, but with no CommandHistory
+// parameter at all — mirrors Handle_EntitySetField's Play-mode branch, where
+// CommandHistory is nulled for the duration of Play.
+
+TEST(McpGenericFieldWriteApplyDirect, ChangesVec3AndNeverTouchesHistory)
+{
+    auto scene = Ref<Scene>::Create();
+    Entity entity = scene->CreateEntity("E");
+    const u64 uuid = static_cast<u64>(entity.GetUUID());
+    CommandHistory history; // present in the environment; must stay untouched
+
+    const auto result = GFW::ApplyDirect(scene, uuid, "TransformComponent", "Scale", Json::array({ 2.0, 3.0, 4.0 }));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+    // Direct writes are never undoable — forced false regardless of `changed`,
+    // unlike GFW::Apply where undoable == changed.
+    EXPECT_FALSE(result.Data["undoable"].get<bool>());
+    EXPECT_EQ(result.Data["type"], "vec3");
+    ExpectVec3(entity.GetComponent<TransformComponent>().Scale, 2.0f, 3.0f, 4.0f);
+    EXPECT_FALSE(history.CanUndo());
+}
+
+TEST(McpGenericFieldWriteApplyDirect, ChangesFloatField)
+{
+    auto scene = Ref<Scene>::Create();
+    Entity entity = scene->CreateEntity("E");
+    entity.AddComponent<DirectionalLightComponent>();
+    const u64 uuid = static_cast<u64>(entity.GetUUID());
+
+    const auto result = GFW::ApplyDirect(scene, uuid, "DirectionalLightComponent", "Intensity", Json(2.5));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_EQ(result.Data["type"], "float");
+    EXPECT_FALSE(result.Data["undoable"].get<bool>());
+    EXPECT_FLOAT_EQ(entity.GetComponent<DirectionalLightComponent>().m_Intensity, 2.5f);
+}
+
+// A no-op write still reports `changed: false` AND `undoable: false` — the
+// latter is always false for a direct write, not merely coincident with the
+// no-op here (see ChangesVec3AndNeverTouchesHistory above for the changed case).
+TEST(McpGenericFieldWriteApplyDirect, NoOpWhenUnchanged)
+{
+    auto scene = Ref<Scene>::Create();
+    Entity entity = scene->CreateEntity("E");
+    const u64 uuid = static_cast<u64>(entity.GetUUID());
+
+    // Scale defaults to (1,1,1).
+    const auto result = GFW::ApplyDirect(scene, uuid, "TransformComponent", "Scale", Json::array({ 1.0, 1.0, 1.0 }));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_FALSE(result.Data["changed"].get<bool>());
+    EXPECT_FALSE(result.Data["undoable"].get<bool>());
+}
+
+TEST(McpGenericFieldWriteApplyDirect, UnknownComponentListsEditableComponents)
+{
+    auto scene = Ref<Scene>::Create();
+    Entity entity = scene->CreateEntity("E");
+    const u64 uuid = static_cast<u64>(entity.GetUUID());
+
+    const auto result = GFW::ApplyDirect(scene, uuid, "NotAComponent", "Field", Json(1));
+    EXPECT_FALSE(result.Ok);
+    EXPECT_NE(result.Error.find("Editable components"), std::string::npos);
+}
+
+TEST(McpGenericFieldWriteApplyDirect, EntityLackingComponentIsError)
+{
+    auto scene = Ref<Scene>::Create();
+    Entity entity = scene->CreateEntity("E"); // no SpriteRendererComponent
+    const u64 uuid = static_cast<u64>(entity.GetUUID());
+
+    const auto result = GFW::ApplyDirect(scene, uuid, "SpriteRendererComponent", "Color", Json::array({ 1.0, 1.0, 1.0, 1.0 }));
+    EXPECT_FALSE(result.Ok);
+    EXPECT_NE(result.Error.find("has no SpriteRendererComponent"), std::string::npos);
+}
+
+TEST(McpGenericFieldWriteApplyDirect, MissingEntityIsError)
+{
+    auto scene = Ref<Scene>::Create();
+    const auto result = GFW::ApplyDirect(scene, /*uuid*/ 424242, "TransformComponent", "Scale", Json::array({ 1.0, 1.0, 1.0 }));
+    EXPECT_FALSE(result.Ok);
+    EXPECT_FALSE(result.Error.empty());
+}
+
+// A setter-expression-backed field (MakeSetterField's ApplyDirect closure) —
+// AudioSourceComponent's Volume lives behind a private cold blob reached only
+// through an OLO_PROPERTY Get/Set pair, so this exercises the "call setFn
+// directly, read back" path rather than MakeFieldAccess's whole-object swap.
+TEST(McpGenericFieldWriteApplyDirect, ChangesSetterBackedFieldWithoutTouchingHistory)
+{
+    auto scene = Ref<Scene>::Create();
+    Entity entity = scene->CreateEntity("E");
+    auto& audio = entity.AddComponent<AudioSourceComponent>();
+    audio.GetConfig().VolumeMultiplier = 1.0f;
+    const u64 uuid = static_cast<u64>(entity.GetUUID());
+    CommandHistory history; // present in the environment; must stay untouched
+
+    const auto result = GFW::ApplyDirect(scene, uuid, "AudioSourceComponent", "Volume", Json(0.4));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_EQ(result.Data["type"], "float");
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+    EXPECT_FALSE(result.Data["undoable"].get<bool>());
+    EXPECT_FLOAT_EQ(result.Data["previousValue"].get<f32>(), 1.0f);
+    EXPECT_FLOAT_EQ(entity.GetComponent<AudioSourceComponent>().GetConfig().VolumeMultiplier, 0.4f);
+    EXPECT_FALSE(history.CanUndo());
+}
+
+// A map-keyed field (MakeMapKeyField's ApplyKeyedDirect closure), addressed via
+// GFW::ApplyDirect's dotted-key resolution (FindMapKeyed) — the direct-write
+// counterpart of the FindMapKeyed()-driven ApplyKeyed tests in
+// McpFieldRegistryTest.cpp's "map-key addressing" section.
+TEST(McpGenericFieldWriteApplyDirect, ChangesMapKeyedFieldWithoutTouchingHistory)
+{
+    auto scene = Ref<Scene>::Create();
+    Entity entity = scene->CreateEntity("E");
+    auto& morph = entity.AddComponent<MorphTargetComponent>();
+    const u64 uuid = static_cast<u64>(entity.GetUUID());
+    CommandHistory history; // present in the environment; must stay untouched
+
+    ASSERT_FLOAT_EQ(morph.GetWeight("Smile"), 0.0f); // absent key reads as 0
+
+    const auto result = GFW::ApplyDirect(scene, uuid, "MorphTargetComponent", "Weights.Smile", Json(0.75));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_EQ(result.Data["field"], "Weights.Smile");
+    EXPECT_EQ(result.Data["key"], "Smile");
+    EXPECT_EQ(result.Data["type"], "float");
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+    EXPECT_FALSE(result.Data["undoable"].get<bool>());
+    EXPECT_FLOAT_EQ(result.Data["value"].get<f32>(), 0.75f);
+    EXPECT_FLOAT_EQ(entity.GetComponent<MorphTargetComponent>().GetWeight("Smile"), 0.75f);
+    EXPECT_FALSE(history.CanUndo());
+}
+
+// ---- dispatch seam: Play-mode uses ApplyDirect and never touches CommandHistory
+
+// Mirrors Handle_EntitySetField's (McpToolsScene.cpp) Play-mode branch:
+// EditorMcpContext.IsPlaying() true → GFW::ApplyDirect, no CommandHistory
+// involved at all (the real editor nulls CommandHistory for the duration of
+// Play; this fixture models that by never setting GetCommandHistory).
+class McpGenericFieldWritePlayModeTest : public ::testing::Test
+{
+  protected:
+    McpGenericFieldWritePlayModeTest()
+        : m_Server(MakeContext())
+    {
+        Entity entity = m_Scene->CreateEntity("Thing"); // gets Transform + Tag
+        entity.AddComponent<DirectionalLightComponent>();
+        m_EntityUuid = static_cast<u64>(entity.GetUUID());
+
+        ToolDef tool;
+        tool.Name = "olo_entity_set_field";
+        tool.Description = "Set any registered component field (fake; test wiring).";
+        tool.ProjectWrite = true;
+        tool.InputSchema = GFW::InputSchema();
+        tool.Handler = [this](McpServer& server, const Json& args) -> ToolResult
+        {
+            u64 entityUuid = 0;
+            std::string component;
+            std::string field;
+            Json value;
+            if (const auto error = GFW::ParseArgs(args, entityUuid, component, field, value))
+                return ToolResult::Error(*error);
+
+            const bool isPlaying = server.Context().IsPlaying && server.Context().IsPlaying();
+            if (isPlaying)
+            {
+                const GFW::ApplyResult applied = GFW::ApplyDirect(m_Scene, entityUuid, component, field, value);
+                if (!applied.Ok)
+                    return ToolResult::Error(applied.Error);
+                return ToolResult::Text(applied.Data.dump());
+            }
+
+            CommandHistory* history = server.Context().GetCommandHistory ? server.Context().GetCommandHistory() : nullptr;
+            if (!history)
+                return ToolResult::Error("No editor command history available.");
+            const GFW::ApplyResult applied = GFW::Apply(m_Scene, *history, entityUuid, component, field, value);
+            if (!applied.Ok)
+                return ToolResult::Error(applied.Error);
+            return ToolResult::Text(applied.Data.dump());
+        };
+        m_Server.RegisterTool(std::move(tool));
+    }
+
+    // GetCommandHistory is deliberately left unset, matching the real editor
+    // nulling CommandHistory for the duration of Play.
+    static EditorMcpContext MakeContext()
+    {
+        EditorMcpContext context;
+        context.IsPlaying = []
+        { return true; };
+        return context;
+    }
+
+    Ref<Scene> m_Scene = Ref<Scene>::Create();
+    u64 m_EntityUuid = 0;
+    McpServer m_Server;
+};
+
+TEST_F(McpGenericFieldWritePlayModeTest, WritesLiveComponentWithoutCommandHistory)
+{
+    m_Server.SetAllowWrites(true);
+
+    const Json resp = m_Server.HandleMessage(MakeCallRequest(
+        1, Json{ { "entity", std::to_string(m_EntityUuid) }, { "component", "DirectionalLightComponent" }, { "field", "Intensity" }, { "value", Json(3.0) } }));
+
+    ASSERT_TRUE(resp.contains("result"));
+    EXPECT_FALSE(resp.contains("error"));
+    EXPECT_FALSE(resp["result"]["isError"]);
+
+    EXPECT_FLOAT_EQ((*m_Scene->TryGetEntityWithUUID(UUID(m_EntityUuid))).GetComponent<DirectionalLightComponent>().m_Intensity, 3.0f);
+
+    const Json data = Json::parse(resp["result"]["content"][0]["text"].get<std::string>());
+    EXPECT_TRUE(data["changed"].get<bool>());
+    EXPECT_FALSE(data["undoable"].get<bool>());
 }
 
 // ---- the shared coercion (CoerceJson<F>) -----------------------------------
