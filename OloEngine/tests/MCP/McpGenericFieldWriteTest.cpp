@@ -44,9 +44,11 @@
 
 namespace
 {
+    using OloEngine::AudioSourceComponent;
     using OloEngine::CommandHistory;
     using OloEngine::DirectionalLightComponent;
     using OloEngine::Entity;
+    using OloEngine::MorphTargetComponent;
     using OloEngine::Ref;
     using OloEngine::Scene;
     using OloEngine::SpriteRendererComponent;
@@ -499,6 +501,55 @@ TEST(McpGenericFieldWriteApplyDirect, MissingEntityIsError)
     const auto result = GFW::ApplyDirect(scene, /*uuid*/ 424242, "TransformComponent", "Scale", Json::array({ 1.0, 1.0, 1.0 }));
     EXPECT_FALSE(result.Ok);
     EXPECT_FALSE(result.Error.empty());
+}
+
+// A setter-expression-backed field (MakeSetterField's ApplyDirect closure) —
+// AudioSourceComponent's Volume lives behind a private cold blob reached only
+// through an OLO_PROPERTY Get/Set pair, so this exercises the "call setFn
+// directly, read back" path rather than MakeFieldAccess's whole-object swap.
+TEST(McpGenericFieldWriteApplyDirect, ChangesSetterBackedFieldWithoutTouchingHistory)
+{
+    auto scene = Ref<Scene>::Create();
+    Entity entity = scene->CreateEntity("E");
+    auto& audio = entity.AddComponent<AudioSourceComponent>();
+    audio.GetConfig().VolumeMultiplier = 1.0f;
+    const u64 uuid = static_cast<u64>(entity.GetUUID());
+    CommandHistory history; // present in the environment; must stay untouched
+
+    const auto result = GFW::ApplyDirect(scene, uuid, "AudioSourceComponent", "Volume", Json(0.4));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_EQ(result.Data["type"], "float");
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+    EXPECT_FALSE(result.Data["undoable"].get<bool>());
+    EXPECT_FLOAT_EQ(result.Data["previousValue"].get<f32>(), 1.0f);
+    EXPECT_FLOAT_EQ(entity.GetComponent<AudioSourceComponent>().GetConfig().VolumeMultiplier, 0.4f);
+    EXPECT_FALSE(history.CanUndo());
+}
+
+// A map-keyed field (MakeMapKeyField's ApplyKeyedDirect closure), addressed via
+// GFW::ApplyDirect's dotted-key resolution (FindMapKeyed) — the direct-write
+// counterpart of the FindMapKeyed()-driven ApplyKeyed tests in
+// McpFieldRegistryTest.cpp's "map-key addressing" section.
+TEST(McpGenericFieldWriteApplyDirect, ChangesMapKeyedFieldWithoutTouchingHistory)
+{
+    auto scene = Ref<Scene>::Create();
+    Entity entity = scene->CreateEntity("E");
+    auto& morph = entity.AddComponent<MorphTargetComponent>();
+    const u64 uuid = static_cast<u64>(entity.GetUUID());
+    CommandHistory history; // present in the environment; must stay untouched
+
+    ASSERT_FLOAT_EQ(morph.GetWeight("Smile"), 0.0f); // absent key reads as 0
+
+    const auto result = GFW::ApplyDirect(scene, uuid, "MorphTargetComponent", "Weights.Smile", Json(0.75));
+    ASSERT_TRUE(result.Ok) << result.Error;
+    EXPECT_EQ(result.Data["field"], "Weights.Smile");
+    EXPECT_EQ(result.Data["key"], "Smile");
+    EXPECT_EQ(result.Data["type"], "float");
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+    EXPECT_FALSE(result.Data["undoable"].get<bool>());
+    EXPECT_FLOAT_EQ(result.Data["value"].get<f32>(), 0.75f);
+    EXPECT_FLOAT_EQ(entity.GetComponent<MorphTargetComponent>().GetWeight("Smile"), 0.75f);
+    EXPECT_FALSE(history.CanUndo());
 }
 
 // ---- dispatch seam: Play-mode uses ApplyDirect and never touches CommandHistory
