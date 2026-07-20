@@ -186,6 +186,18 @@ namespace OloEngine::MCP
         // in McpGenericFieldWrite.h so it is unit-tested at the dispatch seam without
         // this TU. The command is built + executed inside the MarshalRead job, i.e.
         // on the main thread, since it touches the EnTT registry and command stack.
+        //
+        // Play-mode branch (issue #607's runtime field-write slice): CommandHistory
+        // is deliberately nulled while the scene is playing, so a Play-mode call used
+        // to hard-fail with "No editor command history available." — blocking an
+        // agent from driving/verifying live gameplay state without stopping Play,
+        // editing, and restarting. When EditorMcpContext.IsPlaying() reports the
+        // scene is running, skip the history requirement entirely and write straight
+        // into the live m_ActiveScene component via GenericFieldWrite::ApplyDirect —
+        // a real mutation with no undo and no persistence back to the edit-mode
+        // scene (mirrors the non-undoable framing of SelectEntityInEditor /
+        // olo_renderer_settings_set). The result's `undoable: false` tells the caller
+        // this write won't survive Stop and can't be Ctrl-Z'd.
         ToolResult Handle_EntitySetField(McpServer& server, const Json& args)
         {
             if (!server.Context().GetActiveScene || !server.Context().GetCommandHistory)
@@ -203,11 +215,22 @@ namespace OloEngine::MCP
                 const Ref<Scene> scene = server.Context().GetActiveScene
                                              ? server.Context().GetActiveScene()
                                              : nullptr;
+                if (!scene)
+                    return Json{ { "__error", "No active scene." } };
+
+                const bool isPlaying = server.Context().IsPlaying && server.Context().IsPlaying();
+                if (isPlaying)
+                {
+                    const GenericFieldWrite::ApplyResult applied =
+                        GenericFieldWrite::ApplyDirect(scene, entityUuid, component, field, value);
+                    if (!applied.Ok)
+                        return Json{ { "__error", applied.Error } };
+                    return applied.Data;
+                }
+
                 CommandHistory* history = server.Context().GetCommandHistory
                                               ? server.Context().GetCommandHistory()
                                               : nullptr;
-                if (!scene)
-                    return Json{ { "__error", "No active scene." } };
                 if (!history)
                     return Json{ { "__error", "No editor command history available." } };
 
