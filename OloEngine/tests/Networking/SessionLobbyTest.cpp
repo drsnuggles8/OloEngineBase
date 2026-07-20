@@ -258,3 +258,84 @@ TEST(NetworkLobby, CloseLobbyClosesDiscoverySocket)
     lobby.PollDiscovery();
     EXPECT_FALSE(lobby.IsHosting());
 }
+
+// ── Directed-broadcast math (Windows interface-enumeration path) ─────────────
+//
+// Host byte order throughout. Verifies the CIDR-prefix → subnet-broadcast
+// computation used to fan LAN-discovery probes across every local subnet.
+
+TEST(NetworkLobby, DirectedBroadcastClass24)
+{
+    // 192.168.1.10/24 → 192.168.1.255
+    const u32 addr = (192u << 24) | (168u << 16) | (1u << 8) | 10u;
+    const u32 expected = (192u << 24) | (168u << 16) | (1u << 8) | 255u;
+    EXPECT_EQ(NetworkLobby::DirectedBroadcast(addr, 24), expected);
+}
+
+TEST(NetworkLobby, DirectedBroadcastClass16)
+{
+    // 10.5.3.7/16 → 10.5.255.255
+    const u32 addr = (10u << 24) | (5u << 16) | (3u << 8) | 7u;
+    const u32 expected = (10u << 24) | (5u << 16) | (255u << 8) | 255u;
+    EXPECT_EQ(NetworkLobby::DirectedBroadcast(addr, 16), expected);
+}
+
+TEST(NetworkLobby, DirectedBroadcastPrefix0IsLimitedBroadcast)
+{
+    // /0 → all-ones, regardless of the host bits (no UB from a 32-bit shift)
+    EXPECT_EQ(NetworkLobby::DirectedBroadcast(0x0A000001u, 0), 0xFFFFFFFFu);
+}
+
+TEST(NetworkLobby, DirectedBroadcastPrefix32IsHostItself)
+{
+    // /32 → the host address unchanged
+    const u32 addr = (172u << 24) | (16u << 16) | (0u << 8) | 42u;
+    EXPECT_EQ(NetworkLobby::DirectedBroadcast(addr, 32), addr);
+}
+
+TEST(NetworkLobby, DirectedBroadcastPrefixAbove32ClampsTo32)
+{
+    // Defensive clamp: an out-of-range prefix behaves as /32, not UB.
+    const u32 addr = 0xC0A80105u; // 192.168.1.5
+    EXPECT_EQ(NetworkLobby::DirectedBroadcast(addr, 40), addr);
+}
+
+TEST(NetworkLobby, DirectedBroadcastClass25)
+{
+    // 192.168.1.130/25 → 192.168.1.255 (upper half of the /24)
+    const u32 addr = (192u << 24) | (168u << 16) | (1u << 8) | 130u;
+    const u32 expected = (192u << 24) | (168u << 16) | (1u << 8) | 255u;
+    EXPECT_EQ(NetworkLobby::DirectedBroadcast(addr, 25), expected);
+}
+
+// ── Player-count provider ────────────────────────────────────────────────────
+
+TEST(NetworkLobby, PlayerCountProviderDoesNotCrashWhenSet)
+{
+    NetworkLobby lobby;
+    u32 fakeCount = 3;
+    lobby.SetPlayerCountProvider([&fakeCount]()
+                                 { return fakeCount; });
+
+    // Provider is consulted from PollDiscovery when answering a probe; exercising
+    // the host path with a provider set must not crash even if the discovery
+    // socket failed to open (sandboxed CI) or no probe arrives.
+    lobby.CreateLobby("Provider Test", 27015, 8);
+    lobby.PollDiscovery();
+    fakeCount = 5;
+    lobby.PollDiscovery();
+    lobby.CloseLobby();
+    SUCCEED();
+}
+
+TEST(NetworkLobby, PlayerCountProviderCanBeCleared)
+{
+    NetworkLobby lobby;
+    lobby.SetPlayerCountProvider([]()
+                                 { return 7u; });
+    lobby.SetPlayerCountProvider(nullptr); // back to reporting 0
+    lobby.CreateLobby("Cleared", 27015);
+    lobby.PollDiscovery();
+    lobby.CloseLobby();
+    SUCCEED();
+}

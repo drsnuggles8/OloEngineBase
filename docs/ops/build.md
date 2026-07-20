@@ -107,6 +107,61 @@ export CC=gcc-14
 export CXX=g++-14
 ```
 
+#### Rocky / RHEL 10 (and other dnf-based distros)
+
+On RHEL-family distros the shader stack is split across repos and **SPIRV-Cross
+is not packaged at all**, so the simplest route is: install the GL/X11/Wayland dev
+libs from dnf and get the whole shader stack (SPIRV-Cross, glslang, shaderc,
+SPIRV-Tools) plus the Vulkan loader from the **LunarG Vulkan SDK** (installs to your
+home dir, no root).
+
+```bash
+# Compiler — the latest packaged GCC is the gcc-toolset-15 SCL (GCC 15.x). The
+# base `gcc gcc-c++` (GCC 14.x) also works and matches CI.
+sudo dnf install -y gcc-toolset-15          # or: sudo dnf install -y gcc gcc-c++
+source /opt/rh/gcc-toolset-15/enable 2>/dev/null \
+    || export PATH=/opt/rh/gcc-toolset-15/root/usr/bin:$PATH   # if there's no enable script
+
+# Graphics & windowing (X11 headers are needed to build the vendored GLFW)
+sudo dnf install -y mesa-libGL-devel \
+    libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libXext-devel \
+    wayland-devel wayland-protocols-devel libxkbcommon-devel
+
+# CMake 4.2+ and Ninja (the packaged cmake is too old for CMakePresets), plus
+# Jinja2 for the glad GL-loader generator — via pip, no root.
+python3 -m ensurepip --user        # only if pip is missing
+python3 -m pip install --user "cmake>=4.2" ninja jinja2
+
+# Vulkan SDK — bundles SPIRV-Cross (absent from dnf), glslang, shaderc,
+# SPIRV-Tools and the Vulkan loader. Installs to your home dir, no root.
+curl -L https://sdk.lunarg.com/sdk/download/latest/linux/vulkan_sdk.tar.xz -o ~/vulkan_sdk.tar.xz
+mkdir -p ~/vulkan-sdk && tar -xf ~/vulkan_sdk.tar.xz -C ~/vulkan-sdk
+source ~/vulkan-sdk/*/setup-env.sh   # sets VULKAN_SDK
+```
+
+Then configure with the **`linux-gcc-toolset`** preset (it uses `gcc`/`g++` from
+PATH instead of the Ubuntu-style `gcc-14` names, and turns FFmpeg off — see notes):
+
+```bash
+cmake --preset linux-gcc-toolset -DCMAKE_PREFIX_PATH="$VULKAN_SDK"
+cmake --build build-linux --target OloEngine-Tests --config Debug --parallel
+./build-linux/OloEngine/tests/Debug/OloEngine-Tests --gtest_filter='NetworkLobby.*:NetworkSession.*'
+```
+
+**RHEL/Rocky-specific notes:**
+- **FFmpeg** (`OLO_VIDEO_FFMPEG`, on by default) builds from source and needs
+  `nasm` (`sudo dnf install -y nasm`). The `linux-gcc-toolset` preset turns it
+  **off** (the engine falls back to the pl_mpeg MPEG-1 decoder); re-enable with
+  `-DOLO_VIDEO_FFMPEG=ON` once nasm is installed.
+- **`libstdc++exp`** (which holds `std::stacktrace`) is **not shipped by
+  gcc-toolset-15**. The build auto-detects a compatible copy under the base GCC
+  install (`/usr/lib/gcc/*/*/libstdc++exp.a`) and links it. If configure warns that
+  it wasn't found, install `libstdc++-static` (or the base `gcc`).
+- The distro `vulkan-loader-devel` package is only the loader — it does **not**
+  include SPIRV-Cross. Use the LunarG SDK above (or build SPIRV-Cross from source).
+- The `linux-gcc-toolset` preset shares `build-linux/` with `linux-gcc`; use one
+  or the other, not both against the same directory.
+
 ### Vulkan SDK Environment
 
 Ensure `VULKAN_SDK` is set before configuring:

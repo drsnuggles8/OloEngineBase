@@ -28,6 +28,13 @@ namespace OloEngine
         // Well-known UDP port used for LAN lobby discovery.
         static constexpr u16 kDiscoveryPort = 27099;
 
+        // Compute the directed-broadcast address of a subnet from a host address
+        // and its CIDR prefix length (argument and result in host byte order).
+        // prefix 0 → 255.255.255.255, prefix 32 → the host address unchanged.
+        // Pure helper backing the Windows interface-enumeration path (POSIX reads
+        // the interface broadcast address directly); exposed for unit testing.
+        [[nodiscard]] static u32 DirectedBroadcast(u32 hostOrderAddr, u8 prefixLen);
+
         NetworkLobby();
         ~NetworkLobby();
 
@@ -62,6 +69,12 @@ namespace OloEngine
         // Should be called periodically while hosting (e.g. from the network thread).
         void PollDiscovery();
 
+        // Supply a callback that reports the current player count for discovery
+        // responses. Called from PollDiscovery when answering a probe, so it
+        // always reflects live state. If unset, responses report 0 players.
+        // NetworkManager wires this to the live server/session count.
+        void SetPlayerCountProvider(std::function<u32()> provider);
+
         // Query
         [[nodiscard]] bool IsHosting() const;
         [[nodiscard]] bool IsInLobby() const;
@@ -77,6 +90,10 @@ namespace OloEngine
         std::string m_LobbyName;
         u16 m_Port = 0;
         u32 m_MaxPlayers = 0;
+
+        // Reports the live player count for discovery responses (see
+        // SetPlayerCountProvider). Empty until wired; treated as 0 when unset.
+        std::function<u32()> m_PlayerCountProvider;
 
         // Platform socket handle for the discovery beacon (INVALID_SOCKET when closed).
         u64 m_DiscoverySocket = UINT64_MAX;

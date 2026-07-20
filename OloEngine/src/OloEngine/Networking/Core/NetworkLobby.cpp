@@ -12,6 +12,7 @@
 #endif
 #include <WinSock2.h>
 #include <WS2tcpip.h>
+#include <iphlpapi.h> // GetAdaptersAddresses — enumerate per-interface broadcast targets
 using SocketType = SOCKET;
 using socklen_t = int;
 static constexpr SocketType kInvalidSocket = INVALID_SOCKET;
@@ -34,6 +35,8 @@ static inline bool SetNonBlocking(SocketType s)
 #include <sys/select.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <net/if.h>  // IFF_UP / IFF_LOOPBACK / IFF_BROADCAST flags
+#include <ifaddrs.h> // getifaddrs — enumerate per-interface broadcast targets
 #include <unistd.h>
 #include <fcntl.h>
 #include <cerrno>
@@ -59,6 +62,56 @@ static inline bool SetNonBlocking(SocketType s)
 }
 #endif
 
+namespace
+{
+    // Ensures the platform socket subsystem is initialised before the first
+    // socket() call and torn down at process exit. On Windows WinSock requires
+    // a WSAStartup/WSACleanup pair (both are OS-refcounted, so pairing with
+    // GameNetworkingSockets' own init is safe); on POSIX this is a no-op.
+    //
+    // Implemented as a Meyers singleton behind EnsureSocketSubsystem() so the
+    // very first CreateNonBlockingUDPSocket() call brings WinSock up — removing
+    // the old "Winsock may or may not be initialised" ambiguity that made LAN
+    // discovery silently fail when NetworkManager (and thus GNS) wasn't running.
+    class SocketSubsystem
+    {
+      public:
+        SocketSubsystem()
+        {
+#ifdef _WIN32
+            WSADATA data{};
+            m_Started = (WSAStartup(MAKEWORD(2, 2), &data) == 0);
+#endif
+        }
+
+        ~SocketSubsystem()
+        {
+#ifdef _WIN32
+            if (m_Started)
+            {
+                WSACleanup();
+            }
+#endif
+        }
+
+        SocketSubsystem(const SocketSubsystem&) = delete;
+        SocketSubsystem& operator=(const SocketSubsystem&) = delete;
+        SocketSubsystem(SocketSubsystem&&) = delete;
+        SocketSubsystem& operator=(SocketSubsystem&&) = delete;
+
+#ifdef _WIN32
+      private:
+        bool m_Started = false;
+#endif
+    };
+
+    static void EnsureSocketSubsystem()
+    {
+        static SocketSubsystem s_Subsystem;
+        (void)s_Subsystem;
+    }
+} // namespace
+
 namespace OloEngine
 {
     // Discovery protocol constants
@@ -71,6 +124,8 @@ namespace OloEngine
 
     static SocketType CreateNonBlockingUDPSocket()
     {
+        EnsureSocketSubsystem();
+
         SocketType sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (sock == kInvalidSocket)
         {
@@ -85,7 +140,106 @@ namespace OloEngine
         return sock;
     }
 
+    // Enumerate the directed-broadcast address of every up, non-loopback IPv4
+    // interface, always including the limited broadcast (255.255.255.255) as a
+    // fallback. Sending the discovery probe to each directed broadcast reaches
+    // hosts on every locally attached subnet — limited broadcast alone is
+    // dropped by many stacks/routers and only ever hits the default interface.
+    // Returns network-order in_addr values, de-duplicated.
+    static std::vector<in_addr> CollectBroadcastTargets()
+    {
+        std::vector<in_addr> targets;
+
+        auto pushUnique = [&targets](u32 netOrderAddr)
+        {
+            for (const in_addr& existing : targets)
+            {
+                if (existing.s_addr == netOrderAddr)
+                {
+                    return;
+                }
+            }
+            in_addr addr{};
+            addr.s_addr = netOrderAddr;
+            targets.push_back(addr);
+        };
+
+#ifdef _WIN32
+        ULONG bufLen = 15000; // Recommended starting size (MSDN GetAdaptersAddresses)
+        std::vector<u8> buffer(bufLen);
+        auto* adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
+        constexpr ULONG flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+
+        ULONG result = GetAdaptersAddresses(AF_INET, flags, nullptr, adapters, &bufLen);
+        if (result == ERROR_BUFFER_OVERFLOW)
+        {
+            buffer.resize(bufLen);
+            adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
+            result = GetAdaptersAddresses(AF_INET, flags, nullptr, adapters, &bufLen);
+        }
+
+        if (result == NO_ERROR)
+        {
+            for (const IP_ADAPTER_ADDRESSES* adapter = adapters; adapter; adapter = adapter->Next)
+            {
+                if (adapter->OperStatus != IfOperStatusUp || adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK)
+                {
+                    continue;
+                }
+
+                for (const IP_ADAPTER_UNICAST_ADDRESS* unicast = adapter->FirstUnicastAddress; unicast;
+                     unicast = unicast->Next)
+                {
+                    const sockaddr* sa = unicast->Address.lpSockaddr;
+                    if (!sa || sa->sa_family != AF_INET || unicast->OnLinkPrefixLength > 32)
+                    {
+                        continue;
+                    }
+
+                    const u32 hostAddr = ntohl(reinterpret_cast<const sockaddr_in*>(sa)->sin_addr.s_addr);
+                    pushUnique(htonl(NetworkLobby::DirectedBroadcast(hostAddr, static_cast<u8>(unicast->OnLinkPrefixLength))));
+                }
+            }
+        }
+#else
+        struct ifaddrs* ifaddr = nullptr;
+        if (getifaddrs(&ifaddr) == 0)
+        {
+            for (const struct ifaddrs* ifa = ifaddr; ifa; ifa = ifa->ifa_next)
+            {
+                if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET)
+                {
+                    continue;
+                }
+                if (!(ifa->ifa_flags & IFF_UP) || (ifa->ifa_flags & IFF_LOOPBACK) ||
+                    !(ifa->ifa_flags & IFF_BROADCAST) || !ifa->ifa_broadaddr)
+                {
+                    continue;
+                }
+
+                pushUnique(reinterpret_cast<const sockaddr_in*>(ifa->ifa_broadaddr)->sin_addr.s_addr);
+            }
+            freeifaddrs(ifaddr);
+        }
+#endif
+
+        // Limited broadcast fallback — guarantees at least one target even if
+        // interface enumeration failed or yielded nothing.
+        pushUnique(htonl(INADDR_BROADCAST));
+        return targets;
+    }
+
     // ── Lifecycle ────────────────────────────────────────────────────
+
+    u32 NetworkLobby::DirectedBroadcast(u32 hostOrderAddr, u8 prefixLen)
+    {
+        // Clamp defensively — a prefix > 32 is meaningless; treat it as /32
+        // (the host itself). Shifting a 32-bit value by 32 is UB, so prefix 0
+        // is special-cased to an all-ones host mask (limited broadcast).
+        const u8 prefix = prefixLen > 32 ? 32 : prefixLen;
+        const u32 mask = prefix == 0 ? 0u : (0xFFFFFFFFu << (32 - prefix));
+        return hostOrderAddr | ~mask;
+    }
 
     NetworkLobby::NetworkLobby() = default;
 
@@ -203,7 +357,7 @@ namespace OloEngine
 
         u32 responseMagic = kDiscoveryMagic;
         u8 responseType = kProbeResponse;
-        u32 playerCount = 0; // Caller should set this via future API if needed
+        u32 playerCount = m_PlayerCountProvider ? m_PlayerCountProvider() : 0u;
         u8 nameLen = static_cast<u8>(std::min<size_t>(m_LobbyName.size(), 255));
 
         writer << responseMagic;
@@ -224,6 +378,11 @@ namespace OloEngine
         {
             OLO_CORE_WARN("[NetworkLobby] PollDiscovery: sendto failed (error {})", GetLastSocketError());
         }
+    }
+
+    void NetworkLobby::SetPlayerCountProvider(std::function<u32()> provider)
+    {
+        m_PlayerCountProvider = std::move(provider);
     }
 
     void NetworkLobby::FindLobbies(std::function<void(const std::vector<LobbyInfo>&)> callback) const
@@ -261,18 +420,23 @@ namespace OloEngine
             return;
         }
 
-        // Send broadcast probe
-        sockaddr_in broadcastAddr{};
-        broadcastAddr.sin_family = AF_INET;
-        broadcastAddr.sin_addr.s_addr = INADDR_BROADCAST;
-        broadcastAddr.sin_port = htons(kDiscoveryPort);
-
+        // Send the probe to the directed broadcast of every local subnet (plus
+        // limited broadcast as a fallback) so hosts on any attached interface
+        // can answer — not just the default route.
         u8 probe[5];
         std::memcpy(probe, &kDiscoveryMagic, sizeof(u32));
         probe[4] = kProbeRequest;
 
-        sendto(sock, reinterpret_cast<const char*>(probe), sizeof(probe), 0,
-               reinterpret_cast<sockaddr*>(&broadcastAddr), sizeof(broadcastAddr));
+        for (const in_addr& target : CollectBroadcastTargets())
+        {
+            sockaddr_in broadcastAddr{};
+            broadcastAddr.sin_family = AF_INET;
+            broadcastAddr.sin_addr = target;
+            broadcastAddr.sin_port = htons(kDiscoveryPort);
+
+            sendto(sock, reinterpret_cast<const char*>(probe), sizeof(probe), 0,
+                   reinterpret_cast<sockaddr*>(&broadcastAddr), sizeof(broadcastAddr));
+        }
 
         // Collect responses with a deadline-based timeout using select()
         std::vector<LobbyInfo> results;

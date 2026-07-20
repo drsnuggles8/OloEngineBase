@@ -112,6 +112,22 @@ namespace OloEngine
         ComponentReplicator::RegisterDefaults();
         ComponentInterpolationRegistry::RegisterDefaults();
 
+        // Wire LAN-discovery responses to the live player count. The provider is
+        // invoked from NetworkLobby::PollDiscovery when a host answers a probe;
+        // it reads the same server connection count / session player count the
+        // server console (CmdPlayers) and debug panel already read from the game
+        // thread. Prefer the transport truth (a running dedicated server), and
+        // fall back to the session roster (e.g. a P2P/lobby host with no server).
+        s_Lobby.SetPlayerCountProvider(
+            []() -> u32
+            {
+                if (s_Server)
+                {
+                    return s_Server->GetConnectionCount();
+                }
+                return s_Session.GetPlayerCount();
+            });
+
         s_Initialized = true;
         OLO_CORE_INFO("NetworkManager initialized (GameNetworkingSockets)");
         return true;
