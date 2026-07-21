@@ -243,9 +243,12 @@ namespace OloEngine
                 auto& slot = slots[i];
                 slot.Alive = false;
                 slot.Name.clear();
+                // Increment first, then repair a wrap to 0: Generation 0 is
+                // the "never allocated" sentinel (IsValid() requires > 0), so
+                // an overflow must land on 1, not 0.
+                ++slot.Generation;
                 if (slot.Generation == 0)
                     slot.Generation = 1;
-                ++slot.Generation;
                 freeIndices.push_back(i);
             }
         };
