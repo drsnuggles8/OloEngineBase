@@ -4,6 +4,10 @@
 #include <glm/glm.hpp>
 
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <string>
 
 // =============================================================================
 // GTAO — CPU contract tests.
@@ -250,4 +254,103 @@ TEST(GTAOMath, OffCentreViewVecDivergesFromFixedAxis)
     EXPECT_TRUE(foundDivergence)
         << "per-pixel viewVec produced the same basis as a fixed screen axis for an off-centre pixel -- the "
            "perspective-tracking fix has no effect";
+}
+
+// =============================================================================
+// Sky / far-plane classification robustness (GTAO black-background artifact).
+//
+// GTAO's per-pixel early-out classifies "sky" from the HZB mip-0 depth. Two
+// contracts guard the fix for the maximize-then-rotate artifact where the
+// whole background rendered as dark AO garbage:
+//
+//   1. The HZB first pass must copy scene depth into mip 0 with texelFetch
+//      (exact integer addressing). Sampling the D24S8 depth attachment via
+//      textureLod routes through the hardware's FIXED-POINT depth-filter
+//      path, which can return 1.0 - 1 D24 ULP (0.99999994) for a texel that
+//      is exactly 1.0 — in large, viewport-size-dependent regions.
+//   2. GTAO's sky early-out must never compare that depth against 1.0
+//      exactly; it uses a ULP-tolerant threshold so a filtered/truncated
+//      far-plane depth still classifies as sky.
+//
+// The classification test mirrors the shader logic on the CPU; the two
+// shader-source contract tests pin the load-bearing lines of GLSL the same
+// way the serializer coverage tests pin generated code, so a refactor that
+// silently reintroduces a filtered copy or an exact compare fails headless CI.
+// =============================================================================
+
+namespace
+{
+    // CPU mirror of GTAO.comp's sky early-out. Keep in sync with
+    // XE_GTAO_FAR_DEPTH_THRESHOLD in assets/shaders/compute/GTAO.comp.
+    constexpr float kGtaoFarDepthThreshold = 1.0f - 1e-6f;
+
+    bool ClassifiesAsSky(float deviceZ)
+    {
+        return deviceZ <= 0.0f || deviceZ >= kGtaoFarDepthThreshold;
+    }
+
+    std::string ReadRepoFile(const std::filesystem::path& relative)
+    {
+        const auto path = std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / relative;
+        std::ifstream f(path, std::ios::binary);
+        EXPECT_TRUE(f.is_open()) << "cannot open " << path.string();
+        std::ostringstream buf;
+        buf << f.rdbuf();
+        return buf.str();
+    }
+} // namespace
+
+TEST(GTAOMath, FarPlaneClassificationToleratesFilteredDepthUlps)
+{
+    // Exact far-plane clear value.
+    EXPECT_TRUE(ClassifiesAsSky(1.0f));
+    // One float32 ULP below 1.0 — what a float round-trip can produce.
+    EXPECT_TRUE(ClassifiesAsSky(std::nextafter(1.0f, 0.0f)));
+    // One D24 ULP below 1.0 — what the fixed-point depth filter produced in
+    // the observed artifact (0.99999994).
+    EXPECT_TRUE(ClassifiesAsSky(1.0f - 1.0f / 16777215.0f));
+    // A few D24 ULPs of accumulated error must still classify as sky.
+    EXPECT_TRUE(ClassifiesAsSky(1.0f - 5.0f / 16777215.0f));
+    // Depth zero / negative garbage is also the early-out.
+    EXPECT_TRUE(ClassifiesAsSky(0.0f));
+    // Real geometry meaningfully in front of the far plane must NOT be sky.
+    EXPECT_FALSE(ClassifiesAsSky(0.9999f));
+    EXPECT_FALSE(ClassifiesAsSky(0.5f));
+}
+
+TEST(GTAOMath, GtaoShaderSkyEarlyOutIsUlpTolerant)
+{
+    const std::string src = ReadRepoFile(std::filesystem::path{ "assets" } / "shaders" / "compute" / "GTAO.comp");
+    ASSERT_FALSE(src.empty());
+    // The threshold must exist and be used by the early-out.
+    EXPECT_NE(src.find("XE_GTAO_FAR_DEPTH_THRESHOLD"), std::string::npos)
+        << "GTAO.comp lost its ULP-tolerant far-depth threshold";
+    EXPECT_NE(src.find("deviceZ >= XE_GTAO_FAR_DEPTH_THRESHOLD"), std::string::npos)
+        << "GTAO.comp's sky early-out no longer uses the tolerant threshold";
+    // The exact-compare regression this guards against.
+    EXPECT_EQ(src.find("deviceZ >= 1.0)"), std::string::npos)
+        << "GTAO.comp compares sampled depth against 1.0 exactly again — filtered far-plane "
+           "depth (1.0 - 1 D24 ULP) will classify as geometry and blacken the sky";
+}
+
+TEST(GTAOMath, HzbShaderFirstPassCopiesDepthWithTexelFetch)
+{
+    const std::string src = ReadRepoFile(std::filesystem::path{ "assets" } / "shaders" / "compute" / "HZB.comp");
+    ASSERT_FALSE(src.empty());
+
+    // Isolate the first-pass branch (mip-0 1:1 copy of scene depth).
+    const auto firstPassBegin = src.find("if (u_IsFirstPass != 0)");
+    ASSERT_NE(firstPassBegin, std::string::npos);
+    const auto firstPassEnd = src.find("else", firstPassBegin);
+    ASSERT_NE(firstPassEnd, std::string::npos);
+    const std::string firstPass = src.substr(firstPassBegin, firstPassEnd - firstPassBegin);
+
+    EXPECT_NE(firstPass.find("texelFetch("), std::string::npos)
+        << "HZB.comp's first pass no longer copies scene depth with texelFetch — a filtered "
+           "textureLod read of the D24S8 depth can truncate exact-1.0 far-plane depth by one "
+           "D24 ULP and downstream sky classification breaks";
+    // Match the call syntax specifically -- the explanatory comment in the
+    // shader legitimately mentions textureLod in prose.
+    EXPECT_EQ(firstPass.find("textureLod("), std::string::npos)
+        << "HZB.comp's first pass samples scene depth through the filtering path again";
 }

@@ -94,6 +94,14 @@ namespace OloEngine::RenderGraphHandleAllocator
             auto& slot = slots[index];
             slot.Alive = true;
             slot.Name = name;
+            // A slot leaving the free list is being handed to a DIFFERENT
+            // resource than whatever it last named, so its generation must be
+            // fresh here, locally — not merely trusted to have been bumped by
+            // whichever free path retired it. Without this, a single free
+            // site that forgets to bump lets a stale cached handle resolve
+            // silently to the new occupant's physical resource instead of
+            // failing its generation check.
+            ++slot.Generation;
             if (slot.Generation == 0)
                 slot.Generation = 1;
 

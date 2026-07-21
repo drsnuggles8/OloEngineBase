@@ -140,16 +140,22 @@ void main()
     // Mip 0 of this batch: first pass copies scene depth directly, subsequent reduce
     if (u_IsFirstPass != 0)
     {
-        // Scene depth is at viewport size, but bufferUV is computed for
-        // HZB-texel-to-viewport-uv mapping (HZBGenerator.cpp uses
-        // 1 / viewport_size for first-pass DispatchThreadIdToBufferUV).
-        // For HZB texels outside the viewport sub-rect, bufferUV exceeds
-        // 1.0; clamp to u_InputViewportMaxBound = (viewport - 0.5) /
-        // viewport so we read scene depth's edge pixel rather than
-        // sampling outside [0,1] (which would still be CLAMP_TO_EDGE
-        // behaviour but is left explicit for safety).
-        vec2 sampleUV = min(bufferUV, u_InputViewportMaxBound);
-        WriteMip(0, dispatchThreadId, textureLod(u_InputDepth, sampleUV, 0.0).r);
+        // Exact 1:1 copy of scene depth into HZB mip 0 via texelFetch
+        // (integer addressing, no filtering). This MUST NOT be a filtered
+        // textureLod sample: the scene depth is a D24S8 texture whose
+        // sampler is GL_LINEAR, and the hardware's fixed-point depth
+        // filtering can return 1.0 - 1 D24 ULP (0.99999994) for an
+        // exactly-1.0 far-plane texel whenever the computed float UV does
+        // not hit the single-texel fast path. Downstream consumers that
+        // classify sky as depth >= far (GTAO's early-out) then treat the
+        // whole sky as geometry at the far plane, producing black/noisy
+        // AO over the background (viewport-size dependent, appeared after
+        // window maximize). HZB texels beyond the viewport sub-rect clamp
+        // to the depth image's edge texel (matches the previous
+        // u_InputViewportMaxBound clamp semantics).
+        ivec2 srcSize = textureSize(u_InputDepth, 0);
+        ivec2 srcCoord = min(dispatchThreadId, srcSize - ivec2(1));
+        WriteMip(0, dispatchThreadId, texelFetch(u_InputDepth, srcCoord, 0).r);
     }
     else
     {

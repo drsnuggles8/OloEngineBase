@@ -4,7 +4,7 @@ EditorPreferences:
   TranslateSnap: 0.5
   RotateSnap: 45
   ScaleSnap: 0.5
-  CameraFlySpeed: 17.5
+  CameraFlySpeed: 18
   ShowPhysicsColliders: false
   ShowLightGizmos: false
   ShowBoundingBoxes: false
@@ -16,7 +16,7 @@ EditorPreferences:
   FrameRateCap: 0
   FrameTimeSmoothing: 1
   RenderInterpolation: true
-  EnableAutoSave: true
+  EnableAutoSave: false
   AutoSaveIntervalSeconds: 300
   McpAutoStart: false
   McpPort: 7345
