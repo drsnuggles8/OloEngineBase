@@ -143,6 +143,28 @@ namespace OloEngine::MCP
                     return ToolResult::Error(error);
             }
 
+            // In Play mode the frame is rendered from the runtime's primary
+            // CameraComponent — the editor camera the pose machinery moves is
+            // not consulted at all, so a posed capture would silently return
+            // the runtime view while claiming the requested pose (issue #607,
+            // the grey-frame confusion). Refuse honestly instead. The
+            // sceneState is also reported alongside every capture below so an
+            // un-posed Play capture is never mistaken for an Edit-mode one.
+            bool isPlaying = false;
+            if (server.Context().IsPlaying)
+            {
+                isPlaying = server.MarshalRead([&server]() -> Json
+                                               { return Json{ { "playing", server.Context().IsPlaying() } }; })
+                                .value("playing", false);
+            }
+            if (isPlaying && (hasCamera || hasOrbit))
+                return ToolResult::Error(
+                    "A 'camera'/'orbit' pose cannot be applied in Play mode: the frame is rendered from the "
+                    "runtime scene's primary CameraComponent, not the editor camera, so the posed capture would "
+                    "silently show the runtime view from the runtime camera instead of the requested pose. "
+                    "Capture without a pose to see what is playing, or olo_scene_stop first for editor-camera "
+                    "captures.");
+
             int settleFrames = 2;
             if (args.contains("settleFrames") && args["settleFrames"].is_number_integer())
                 settleFrames = static_cast<int>(std::clamp<long long>(args["settleFrames"].get<long long>(), 1, 30));
@@ -218,13 +240,18 @@ namespace OloEngine::MCP
 
                 // 3. Capture — and restore the user's camera in the same main-thread
                 // job, so the restore happens exactly once whatever the capture did.
+                // The play state is RE-SAMPLED here, in the same job as the capture,
+                // so the sceneState meta below describes the frame actually captured
+                // even if Play/Stop flipped between the early guard and this job.
                 marshaled = server.MarshalRead([&server, maxWidth, restorePriorPose]() -> Json
                                                {
                     const std::vector<u8> png = server.Context().CaptureViewportPng(maxWidth);
                     restorePriorPose();
                     if (png.empty())
                         return Json{ { "__error", "Viewport capture failed (no framebuffer or empty viewport)." } };
-                    return Json{ { "b64", Base64Encode(png) }, { "bytes", static_cast<u64>(png.size()) } }; });
+                    return Json{ { "b64", Base64Encode(png) },
+                                 { "bytes", static_cast<u64>(png.size()) },
+                                 { "playing", server.Context().IsPlaying ? server.Context().IsPlaying() : false } }; });
             }
             catch (...)
             {
@@ -260,6 +287,17 @@ namespace OloEngine::MCP
                 result.Content.push_back(Json{ { "type", "text" },
                                                { "text", "Warning: timed out waiting for the new camera pose to render; "
                                                          "the image may show a stale frame." } });
+            // Which state (and so whose camera) produced this frame — Play
+            // renders from the runtime's primary CameraComponent, Edit /
+            // Simulate from the editor camera (issue #607: a Play-mode frame
+            // must never be misread as an editor-camera one). Read from the
+            // capture job's own sample, not the earlier guard's — Play/Stop
+            // could have flipped between the two.
+            const bool capturedWhilePlaying = marshaled.value("playing", isPlaying);
+            Json meta;
+            meta["sceneState"] = capturedWhilePlaying ? "play" : "edit-or-simulate";
+            meta["camera"] = capturedWhilePlaying ? "runtime primary CameraComponent" : "editor camera";
+            result.Content.push_back(Json{ { "type", "text" }, { "text", meta.dump(2) } });
             result.Content.push_back(Json{ { "type", "image" },
                                            { "data", marshaled["b64"] },
                                            { "mimeType", "image/png" } });
@@ -289,7 +327,10 @@ namespace OloEngine::MCP
                 "'orbit' (target + yaw/pitch/distance): the prior camera is saved, the new pose is "
                 "rendered ('settleFrames' frames, default 2, for TAA/temporal effects to settle), the "
                 "frame is captured, and the user's camera is restored — so multiple angles can be "
-                "captured without disturbing the viewport.";
+                "captured without disturbing the viewport. In PLAY mode the frame is rendered from the "
+                "runtime scene's primary CameraComponent, so 'camera'/'orbit' poses are refused there "
+                "(the editor camera does not drive Play rendering); the reply's sceneState/camera meta "
+                "says which camera produced the frame.";
             tool.InputSchema = Schema::Object()
                                    .Prop("maxWidth", Schema::Int().Min(16).Max(4096).Desc("Max output width in pixels (default 1024); aspect ratio preserved."))
                                    .Prop("camera", Schema::Object().Desc("Capture from this pose, then restore the prior camera. Same shape as olo_camera_set_pose: position [x,y,z] plus target [x,y,z] or yaw/pitch (degrees); optional fov."))

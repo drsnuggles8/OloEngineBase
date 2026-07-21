@@ -494,9 +494,19 @@ add_executable(OloEngine-Tests
 		# no extra editor TU pulled in.
 		MCP/McpRenderGraphTopologyTest.cpp
 		# Pure octahedral-normal decode / depth linearization / per-channel shaping
-		# behind olo_render_probe_pixel (#607: the per-pixel numeric G-Buffer readout).
-		# Header-only (MCP/McpRenderProbePixel.h), no extra editor TU pulled in.
+		# behind olo_render_probe_pixel (#607: the per-pixel numeric G-Buffer readout),
+		# plus the space:"viewport"/"texel" coordinate mapping + mappedCoord echo
+		# (#607 GTAO-hunt slice). Header-only (MCP/McpRenderProbePixel.h), no extra
+		# editor TU pulled in.
 		MCP/McpRenderProbePixelTest.cpp
+		# Pure bit-exact unique-value histogram / finite min-max-mean math behind
+		# olo_render_target_stats (#607: 1-ULP corruption an 8-bit PNG hides).
+		# Header-only (MCP/McpRenderTargetStats.h), no extra editor TU pulled in.
+		MCP/McpRenderTargetStatsTest.cpp
+		# Pure version-group / consumed-but-unbacked shaping + the bit-exact
+		# float-buffer compare behind olo_render_validate (#607). Header-only
+		# (MCP/McpRenderValidate.h), no extra editor TU pulled in.
+		MCP/McpRenderValidateTest.cpp
 		# Pure light-grid aggregation (per-slice / per-cluster histogram, overflow +
 		# empty cluster counts) behind olo_cluster_grid_stats (#607). Header-only
 		# (MCP/McpClusterGridStats.h), no extra editor TU pulled in.

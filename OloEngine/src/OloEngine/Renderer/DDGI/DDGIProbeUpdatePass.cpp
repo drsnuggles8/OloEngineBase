@@ -206,11 +206,60 @@ namespace OloEngine
             [[maybe_unused]] const auto atlasRead = builder.Read(blackboard.Shadows.ShadowMapAtlas, RGReadUsage::ShaderSample);
         }
 
-        // The atlases themselves are NOT declared as graph resources: the
-        // render graph has no cheap import path for externally-owned pass
-        // textures (VolumetricFogPass / PlanarReflectionRenderPass publish
-        // through Renderer3D accessors for the same reason), so MCP capture of
-        // the DDGI atlases goes through the pass accessors instead.
+        // Publish the pass-owned atlases into the graph so they appear in
+        // RenderGraph::GetRegisteredResources() — without this, both
+        // olo_render_list_targets and olo_render_capture_target were blind to
+        // them and black/leaking probes could not be diagnosed from an agent
+        // session without a full visual repro (issue #607). Import-only, the
+        // FluidIntermediatesPass pattern: the pass renders into them through
+        // its own FBOs and consumers sample them at engine slots 56/57/58, so
+        // there is deliberately no Read/Write declaration to change ordering
+        // or culling.
+        //
+        // EnsureResources() runs here as well as in Execute so the atlases
+        // exist by Setup time on the very rebuild a volume submission
+        // triggers (the VirtualGeometryPass "id 0 on first rebuild" lesson).
+        // Both ping-pong atlases are imported under stable per-ping names —
+        // "current" flips every blended frame and must not churn the
+        // fingerprint (see the header comment on GetIrradianceAtlasID(ping)).
+        // The raw ids are hashed into ComputeBlackboardFingerprint so a
+        // Resolution/HitCacheTexels recreate re-imports instead of keeping a
+        // dangling id.
+        if (m_VolumeSubmitted)
+            EnsureResources();
+
+        const auto importAtlas = [&builder](const char* name, u32 textureID, RGResourceFormat format,
+                                            u32 width, u32 height)
+        {
+            if (textureID == 0)
+                return;
+            RGResourceDesc desc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, name);
+            desc.Format = format;
+            desc.Width = width;
+            desc.Height = height;
+            [[maybe_unused]] const RGTextureHandle handle = builder.ImportTexture(name, textureID, desc);
+        };
+        for (u32 ping = 0; ping < 2u; ++ping)
+        {
+            if (m_IrradianceFB[ping])
+            {
+                const auto& spec = m_IrradianceFB[ping]->GetSpecification();
+                importAtlas(ping == 0 ? "DDGIIrradianceAtlas0" : "DDGIIrradianceAtlas1",
+                            GetIrradianceAtlasID(ping), RGResourceFormat::RGBA16Float, spec.Width, spec.Height);
+            }
+            if (m_VisibilityFB[ping])
+            {
+                const auto& spec = m_VisibilityFB[ping]->GetSpecification();
+                importAtlas(ping == 0 ? "DDGIVisibilityAtlas0" : "DDGIVisibilityAtlas1",
+                            GetVisibilityAtlasID(ping), RGResourceFormat::RG16Float, spec.Width, spec.Height);
+            }
+        }
+        if (m_ProbeDataTexture != 0)
+        {
+            const glm::ivec2 tileDims = DDGI::AtlasTileDimensions(m_ResourceResolution);
+            importAtlas("DDGIProbeData", m_ProbeDataTexture, RGResourceFormat::RGBA16Float,
+                        static_cast<u32>(std::max(tileDims.x, 1)), static_cast<u32>(std::max(tileDims.y, 1)));
+        }
     }
 
     bool DDGIProbeUpdatePass::IsReadyForExecution() const noexcept
@@ -253,6 +302,20 @@ namespace OloEngine
         return m_IrradianceFB[m_IrradianceCurrent]
                    ? m_IrradianceFB[m_IrradianceCurrent]->GetColorAttachmentRendererID(0)
                    : 0;
+    }
+
+    u32 DDGIProbeUpdatePass::GetIrradianceAtlasID(const u32 pingIndex) const
+    {
+        if (pingIndex >= 2u || !m_IrradianceFB[pingIndex])
+            return 0;
+        return m_IrradianceFB[pingIndex]->GetColorAttachmentRendererID(0);
+    }
+
+    u32 DDGIProbeUpdatePass::GetVisibilityAtlasID(const u32 pingIndex) const
+    {
+        if (pingIndex >= 2u || !m_VisibilityFB[pingIndex])
+            return 0;
+        return m_VisibilityFB[pingIndex]->GetColorAttachmentRendererID(0);
     }
 
     u32 DDGIProbeUpdatePass::GetVisibilityAtlasID() const

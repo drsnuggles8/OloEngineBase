@@ -1034,6 +1034,7 @@ namespace OloEngine
         {
             return kind == ResourceHandle::Kind::Texture2D ||
                    kind == ResourceHandle::Kind::Texture2DArray ||
+                   kind == ResourceHandle::Kind::Texture3D ||
                    kind == ResourceHandle::Kind::TextureCube ||
                    kind == ResourceHandle::Kind::TextureCubeArray;
         };
@@ -1242,6 +1243,7 @@ namespace OloEngine
         {
             return kind == ResourceHandle::Kind::Texture2D ||
                    kind == ResourceHandle::Kind::Texture2DArray ||
+                   kind == ResourceHandle::Kind::Texture3D ||
                    kind == ResourceHandle::Kind::TextureCube ||
                    kind == ResourceHandle::Kind::TextureCubeArray;
         };
@@ -2557,6 +2559,28 @@ namespace OloEngine
         m_DependencyGraphDirty = true;
     }
 
+    void RenderGraph::AddPostPassHook(const std::string_view key, PostPassHook hook)
+    {
+        if (key.empty() || !hook)
+            return;
+        for (auto& [existingKey, existingHook] : m_PostPassHooks)
+        {
+            if (existingKey == key)
+            {
+                existingHook = std::move(hook);
+                return;
+            }
+        }
+        m_PostPassHooks.emplace_back(std::string(key), std::move(hook));
+    }
+
+    void RenderGraph::RemovePostPassHook(const std::string_view key)
+    {
+        std::erase_if(m_PostPassHooks,
+                      [key](const auto& entry)
+                      { return entry.first == key; });
+    }
+
     void RenderGraph::Execute()
     {
         OLO_PROFILE_FUNCTION();
@@ -2611,6 +2635,22 @@ namespace OloEngine
         // OpenGLRendererAPI.
         RGCommandContext commandContext;
         commandContext.SetRenderGraph(this);
+        // Compose the keyed post-pass listeners (issue #607) into the single
+        // callable the plan executor expects. Empty when no listener is
+        // registered, so the executor's per-pass hook check stays a cheap
+        // bool test in the common case.
+        PostPassHook composedPostPassHook;
+        if (!m_PostPassHooks.empty())
+        {
+            composedPostPassHook = [this](const std::string& passName, RenderGraph& graph)
+            {
+                for (const auto& [key, hook] : m_PostPassHooks)
+                {
+                    if (hook)
+                        hook(passName, graph);
+                }
+            };
+        }
         m_LastExecutionTimings = RenderGraphPlanExecutor::ExecutePlan({
             .SubmissionPlan = m_CachedSubmissionPlan,
             .Context = commandContext,
@@ -2618,7 +2658,7 @@ namespace OloEngine
             .IsPassReachable = [this](const std::string& passName)
             { return IsPassReachable(passName); },
             .BatchEventHook = m_BatchEventHook,
-            .PostPassHook = m_PostPassHook,
+            .PostPassHook = composedPostPassHook,
             .GraphForPostPassHook = this,
         });
         commandContext.SetRenderGraph(nullptr);
@@ -4048,6 +4088,7 @@ namespace OloEngine
         {
             return kind == ResourceHandle::Kind::Texture2D ||
                    kind == ResourceHandle::Kind::Texture2DArray ||
+                   kind == ResourceHandle::Kind::Texture3D ||
                    kind == ResourceHandle::Kind::TextureCube ||
                    kind == ResourceHandle::Kind::TextureCubeArray;
         };

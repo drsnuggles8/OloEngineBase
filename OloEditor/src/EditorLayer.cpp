@@ -3282,6 +3282,19 @@ namespace OloEngine
         // olo_scene_open, and the auto-save pre-answered paths that share this finalizer.
         ApplyRendererSettingsToGraph();
 
+        // A direct scene load supersedes any ARMED auto-save recovery (issue
+        // #607): an olo_scene_open (or File > Open) while the recovery modal
+        // is up would otherwise leave m_PendingRecovery* pointing at the
+        // previous scene, and a later modal button click would silently swap
+        // the just-opened scene back out — the "scene randomly reverted" race.
+        // Clearing m_ShowAutoSaveRecovery alone is not enough once the popup
+        // has opened; the cancel flag makes UI_AutoSaveRecoveryModal close it
+        // without loading.
+        m_ShowAutoSaveRecovery = false;
+        m_CancelAutoSaveRecovery = true;
+        m_PendingRecoveryScenePath.clear();
+        m_PendingRecoveryAutoPath.clear();
+
         m_TimeSinceLastAutoSave = 0.0f;
         return true;
     }
@@ -3485,11 +3498,25 @@ namespace OloEngine
         {
             ImGui::OpenPopup("Recover Auto-Save?");
             m_ShowAutoSaveRecovery = false; // Only open once; the popup stays open until user picks
+            // A fresh modal must not be closed by a cancel raised against an
+            // EARLIER recovery (issue #607) — consume any stale flag now.
+            m_CancelAutoSaveRecovery = false;
         }
 
         ImGui::SetNextWindowSize(ImVec2(480, 0), ImGuiCond_FirstUseEver);
         if (ImGui::BeginPopupModal("Recover Auto-Save?", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse))
         {
+            // A direct scene load (olo_scene_open / File > Open) superseded
+            // this recovery while the modal was up: close WITHOUT loading —
+            // the pending paths now reference a scene the user already
+            // navigated away from (issue #607).
+            if (m_CancelAutoSaveRecovery)
+            {
+                m_CancelAutoSaveRecovery = false;
+                ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+                return;
+            }
             ImGui::TextWrapped("An auto-save file was found that is newer than the saved scene:");
             ImGui::Spacing();
             ImGui::TextWrapped("%s", m_PendingRecoveryAutoPath.filename().string().c_str());

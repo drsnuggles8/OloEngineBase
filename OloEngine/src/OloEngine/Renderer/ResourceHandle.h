@@ -30,6 +30,10 @@ namespace OloEngine
             Unknown = 0,
             Texture2D,
             Texture2DArray,
+            // A genuine 3D (volume) texture — e.g. the froxel-fog scatter /
+            // integrated volumes (issue #607). DepthOrLayers carries the
+            // volume depth; capture tools address one z-slice via 'layer'.
+            Texture3D,
             TextureCube,
             TextureCubeArray,
             Framebuffer,
@@ -165,6 +169,8 @@ namespace OloEngine
                 return "Texture2D";
             case ResourceHandle::Kind::Texture2DArray:
                 return "Texture2DArray";
+            case ResourceHandle::Kind::Texture3D:
+                return "Texture3D";
             case ResourceHandle::Kind::TextureCube:
                 return "TextureCube";
             case ResourceHandle::Kind::TextureCubeArray:

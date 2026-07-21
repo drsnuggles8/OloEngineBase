@@ -121,6 +121,14 @@ namespace OloEngine
         // Pass nullptr to uninstall. Safe to call multiple times.
         void InstallHook(RenderGraph* graph);
 
+        // Whether THIS tool's hook is installed on `graph`. The graph's own
+        // HasPostPassHook() reports ANY listener (the MCP afterPass snapshot
+        // registers one too, issue #607), so the debugger must ask here.
+        [[nodiscard]] bool IsHookInstalled(const RenderGraph* graph) const
+        {
+            return graph != nullptr && m_InstalledGraph == graph;
+        }
+
         // Hook entry-point — invoked from RenderGraph::Execute once per pass
         // after that pass returns. Public because the hook itself is a
         // std::function captured by InstallHook().
@@ -198,5 +206,9 @@ namespace OloEngine
         std::unordered_set<std::string> m_PassesSeenThisCapture;
 
         RenderGraph* m_InstalledGraph = nullptr;
+
+        // Key under which the hook registers on the graph's keyed post-pass
+        // listener list (issue #607).
+        static constexpr const char* kPostPassHookKey = "framecapture";
     };
 } // namespace OloEngine

@@ -167,14 +167,18 @@ namespace OloEngine
 
         if (m_InstalledGraph)
         {
-            m_InstalledGraph->SetPostPassHook({});
+            m_InstalledGraph->RemovePostPassHook(kPostPassHookKey);
         }
 
         m_InstalledGraph = graph;
 
         if (graph)
         {
-            graph->SetPostPassHook([this](const std::string& passName, RenderGraph& g)
+            // Keyed registration (issue #607): the MCP afterPass snapshot can
+            // hold its own post-pass hook on the same graph without either
+            // tool clobbering the other.
+            graph->AddPostPassHook(kPostPassHookKey,
+                                   [this](const std::string& passName, RenderGraph& g)
                                    { this->OnPassExecuted(passName, g); });
         }
     }

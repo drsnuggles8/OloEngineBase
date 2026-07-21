@@ -296,4 +296,122 @@ namespace
         EXPECT_FALSE(j.at("available").get<bool>());
         EXPECT_EQ(j.at("reason").get<std::string>(), "AO is disabled");
     }
+
+    // ---- Coordinate mapping: space:"texel" + mappedCoord (issue #607) ------
+    // The GTAO hunt's exact failure: probing the HZB pow2 pyramid with
+    // viewport coordinates silently read the wrong texel. These pin the two
+    // explicit spaces and the echoed mapping.
+
+    TEST(McpRenderProbePixel, TexelSpaceAddressesTheExactTexel)
+    {
+        // A 2048x1024 pow2 target behind a 1600x900 viewport: texel space
+        // ignores the viewport entirely.
+        const CoordMapping m = MapProbeCoord(ProbeSpace::Texel, 1700, 1000, 1600, 900, 2048, 1024, 0);
+        ASSERT_TRUE(m.Valid);
+        EXPECT_EQ(1700u, m.TexelX);
+        EXPECT_EQ(1000u, m.TexelY);
+        EXPECT_EQ(1024u - 1u - 1000u, m.GLRowBottomUp);
+    }
+
+    TEST(McpRenderProbePixel, TexelSpaceBoundsCheckAgainstTheMip)
+    {
+        const CoordMapping m = MapProbeCoord(ProbeSpace::Texel, 2048, 0, 0, 0, 2048, 1024, 0);
+        EXPECT_FALSE(m.Valid);
+        EXPECT_NE(std::string::npos, m.Error.find("outside mip 0"));
+    }
+
+    TEST(McpRenderProbePixel, TexelSpaceAddressesTheMipsOwnGrid)
+    {
+        // Mip 3 of 2048x1024 is 256x128; texel (255, 127) is its last texel.
+        const CoordMapping ok = MapProbeCoord(ProbeSpace::Texel, 255, 127, 0, 0, 256, 128, 3);
+        ASSERT_TRUE(ok.Valid);
+        EXPECT_EQ(0u, ok.GLRowBottomUp);
+        const CoordMapping out = MapProbeCoord(ProbeSpace::Texel, 256, 0, 0, 0, 256, 128, 3);
+        EXPECT_FALSE(out.Valid);
+    }
+
+    TEST(McpRenderProbePixel, ViewportSpaceIsIdentityForFullResTargets)
+    {
+        // Same-size target: every viewport pixel maps to its own texel — the
+        // G-Buffer case, which must keep behaving exactly as before.
+        const std::pair<u32, u32> cases[] = { { 0u, 0u }, { 799u, 449u }, { 1599u, 899u } };
+        for (const auto& [x, y] : cases)
+        {
+            const CoordMapping m = MapProbeCoord(ProbeSpace::Viewport, x, y, 1600, 900, 1600, 900, 0);
+            ASSERT_TRUE(m.Valid);
+            EXPECT_EQ(x, m.TexelX);
+            EXPECT_EQ(y, m.TexelY);
+            EXPECT_EQ(900u - 1u - y, m.GLRowBottomUp);
+        }
+    }
+
+    TEST(McpRenderProbePixel, ViewportSpaceMapsProportionallyOntoHalfRes)
+    {
+        // A half-res AO buffer: viewport pixel (100, 200) lands on texel (50, 100).
+        const CoordMapping m = MapProbeCoord(ProbeSpace::Viewport, 100, 200, 1600, 900, 800, 450, 0);
+        ASSERT_TRUE(m.Valid);
+        EXPECT_EQ(50u, m.TexelX);
+        EXPECT_EQ(100u, m.TexelY);
+    }
+
+    TEST(McpRenderProbePixel, ViewportSpaceClampsTheLastRowToTheMipEdge)
+    {
+        // The last viewport pixel must never round past the mip edge.
+        const CoordMapping m = MapProbeCoord(ProbeSpace::Viewport, 1599, 899, 1600, 900, 800, 450, 0);
+        ASSERT_TRUE(m.Valid);
+        EXPECT_LT(m.TexelX, 800u);
+        EXPECT_LT(m.TexelY, 450u);
+    }
+
+    TEST(McpRenderProbePixel, ViewportSpaceRejectsOutOfViewportPixels)
+    {
+        const CoordMapping m = MapProbeCoord(ProbeSpace::Viewport, 1600, 0, 1600, 900, 2048, 1024, 0);
+        EXPECT_FALSE(m.Valid);
+        EXPECT_NE(std::string::npos, m.Error.find("outside the viewport"));
+    }
+
+    TEST(McpRenderProbePixel, CoordMappingJsonEchoesTheExactTexel)
+    {
+        const CoordMapping m = MapProbeCoord(ProbeSpace::Texel, 12, 34, 0, 0, 256, 128, 2);
+        const Json j = CoordMappingJson(m);
+        EXPECT_EQ("texel", j.at("space").get<std::string>());
+        EXPECT_EQ(12u, j.at("requested")[0].get<u32>());
+        EXPECT_EQ(34u, j.at("requested")[1].get<u32>());
+        EXPECT_EQ(12u, j.at("texel")[0].get<u32>());
+        EXPECT_EQ(34u, j.at("texel")[1].get<u32>());
+        EXPECT_EQ(2u, j.at("mip").get<u32>());
+        EXPECT_EQ("top-left", j.at("origin").get<std::string>());
+    }
+
+    TEST(McpRenderProbePixel, RawSampleJsonCarriesMappedCoord)
+    {
+        TexelSample sample;
+        sample.Available = true;
+        sample.Target = "HZB";
+        sample.Format = "R32F";
+        sample.Kind = SampleKind::Float;
+        sample.Channels = 1;
+        sample.F = { 0.5f, 0.0f, 0.0f, 0.0f };
+        sample.SourceWidth = 2048;
+        sample.SourceHeight = 1024;
+        sample.Mapped = MapProbeCoord(ProbeSpace::Texel, 7, 9, 0, 0, 2048, 1024, 0);
+        sample.Layer = 3;
+
+        const Json j = RawSampleJson(sample);
+        ASSERT_TRUE(j.contains("mappedCoord"));
+        EXPECT_EQ(7u, j.at("mappedCoord").at("texel")[0].get<u32>());
+        EXPECT_EQ(3u, j.at("mappedCoord").at("layer").get<u32>());
+    }
+
+    TEST(McpRenderProbePixel, ParseProbeSpaceAcceptsOnlyTheTwoTokens)
+    {
+        ProbeSpace space{};
+        EXPECT_TRUE(ParseProbeSpace("viewport", space));
+        EXPECT_EQ(ProbeSpace::Viewport, space);
+        EXPECT_TRUE(ParseProbeSpace("texel", space));
+        EXPECT_EQ(ProbeSpace::Texel, space);
+        EXPECT_FALSE(ParseProbeSpace("texels", space));
+        EXPECT_FALSE(ParseProbeSpace("", space));
+    }
+
 } // namespace

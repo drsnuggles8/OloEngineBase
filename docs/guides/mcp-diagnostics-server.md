@@ -176,8 +176,8 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_log_tail` | recent engine log lines, filterable by `minLevel` and `tag` |
 | `olo_events_tail` | unified "what just happened?" timeline — scene load, play/stop, entity spawn/destroy, asset reload, script error — newest last with a monotonic `id`; incremental polling via `sinceId`, plus a `categories` filter |
 | `olo_scene_summary` | active scene name, play state, entity count |
-| `olo_scene_open` | **(consented write)** open / switch the active scene by `path` (a `.olo`/`.scene` file, relative paths resolve against the project asset directory) — the scriptable scene switch. Loads directly, bypassing the auto-save recovery modal a remote agent can't click; stops Play mode first. Reports the loaded scene name + entity count. Gated behind **Agent writes** |
-| `olo_scene_play` / `olo_scene_stop` | **(consented write)** enter / leave Play mode — the same as the editor's Play/Stop buttons, so an agent can verify anything that only runs in Play (physics, cloth, scripts). Transient + fully reversible (stop restores the authored scene); idempotent (`changed:false` when already in that state); `olo_scene_summary` reports `isPlaying` to confirm. Gated behind **Agent writes** |
+| `olo_scene_open` | **(consented write)** open / switch the active scene by `path` (a `.olo`/`.scene` file, relative paths resolve against the project asset directory) — the scriptable scene switch. Loads directly, bypassing the auto-save recovery modal a remote agent can't click; stops Play mode first; **cancels any pending auto-save recovery** (an armed recovery modal used to be able to swap the freshly opened scene back out when its button was clicked later, issue #607). Reports the loaded scene name + entity count and settles rendered frames before returning. Gated behind **Agent writes** |
+| `olo_scene_play` / `olo_scene_stop` | **(consented write)** enter / leave Play mode — the same as the editor's Play/Stop buttons, so an agent can verify anything that only runs in Play (physics, cloth, scripts). Transient + fully reversible (stop restores the authored scene); idempotent (`changed:false` when already in that state); **settles rendered frames after a real transition** so an immediately following `olo_screenshot` shows the new state, not the last pre-transition frame (the uniform-grey trap, issue #607); `olo_scene_summary` reports `isPlaying` to confirm. Gated behind **Agent writes** |
 | `olo_editor_select_entity` | **(consented write)** select (or `clear`) the entity in the editor's Scene Hierarchy / Properties panels — the only way to drive the Properties inspector onto a given entity over MCP, unblocking screenshot verification of its rendered component UI. `olo_input_inject` cannot reliably land a Scene Hierarchy row click (the OS cursor reasserts over the synthetic position between injected frames). An unknown `entity` UUID leaves the current selection untouched (`ok:false`), never silently clearing it. Not undoable (selection isn't project data). Gated behind **Agent writes** |
 | `olo_scene_list_entities` | paginated entity list (id, name, parent, child count) + name filter |
 | `olo_scene_get_entity` | one entity's full component data (YAML) by UUID |
@@ -201,14 +201,17 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_script_get_last_errors` | recent C# (Mono) / Lua (Sol2) script exceptions |
 | `olo_reload_script` | **(consented write)** reload the C# script assembly — the editor's *Script ▸ Reload assembly* (Ctrl+R) path — so a rebuilt game assembly is picked up without restarting the editor; reports whether scripting is available, whether the reload ran, and the post-reload script-class count. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
 | `olo_crash_list` / `olo_crash_get` | crash reports under `CrashReports/` |
-| `olo_screenshot` | the viewport rendered to a PNG image block; optional one-shot camera pose (`camera`/`orbit` + `settleFrames`) with automatic save/restore of the user's camera |
+| `olo_screenshot` | the viewport rendered to a PNG image block; optional one-shot camera pose (`camera`/`orbit` + `settleFrames`) with automatic save/restore of the user's camera. In **Play mode** the frame comes from the runtime's primary `CameraComponent`, so poses are refused there (they could only move the unused editor camera) and the reply's `sceneState`/`camera` meta says which camera produced the frame |
 | `olo_camera_get` | the editor camera's pose (position, focal point, yaw/pitch, FOV, clips, viewport size) |
 | `olo_camera_set_pose` | move the editor camera: `position` + (`target` \| `yaw`/`pitch`), optional `fov` |
 | `olo_camera_orbit` | orbit-frame the camera around a world point: `target`, `yaw`, `pitch`, `distance` |
 | `olo_camera_frame_entity` | point the camera at an entity (by UUID) and fit it in view |
 | `olo_viewport_set_size` | override the viewport's logical render size for deterministic captures (`reset` to clear). The override wins over window/panel resizes (the editor reasserts it after any OS window-resize event); verify with `olo_perf_snapshot`'s `renderWidth`/`renderHeight` before perf measurements |
 | `olo_render_list_targets` | the render graph's live texture/framebuffer resources (name, kind, format, size, producers) |
-| `olo_render_capture_target` | read back one intermediate render target (depth, normals, G-buffer, shadow map, AO, post-process stages, …) as a PNG image block; depth is min-max normalised by default. `layer` picks one slice of an **array** target (CSM cascade 0–3, `ShadowCSMRaw` / `ShadowAtlasRaw`); out-of-range is an error, never a silent layer-0 capture |
+| `olo_render_capture_target` | read back one intermediate render target (depth, normals, G-buffer, shadow map, AO, the DDGI atlases, the froxel-fog volumes, post-process stages, …) as a PNG image block; depth is min-max normalised by default. `layer` picks one slice of an **array / cube / 3D** target (CSM cascade 0–3, cubemap faces, froxel z-slices); out-of-range is an error, never a silent layer-0 capture. `afterPass` captures the resource **as of that pass's execution** (mid-frame snapshot) instead of end-of-frame — see [Mid-frame state & exact texels](#mid-frame-state--exact-texels-afterpass-texel-space-stats-validate) |
+| `olo_render_probe_pixel` | the exact NUMBERS under one pixel: every decoded G-Buffer channel (albedo, metallic, decoded world normal, roughness, AO, emissive, velocity, integer entityID, raw + linearized depth) plus the final presented colour — or, with `target`, the raw channels of ONE named resource. Every reply echoes `mappedCoord` (the exact texel read); `space`:"texel" + `mip` address an exact texel of a padded resource (the HZB pyramid), `layer` picks an array slice, `afterPass` probes mid-frame state |
+| `olo_render_target_stats` | exact float min/max/mean + a **bit-exact unique-value histogram** over a `rect` of one target at a `mip` — the 1-ULP instrument an 8-bit PNG cannot be (1.0 and 0.99999994 both encode as 255). Per channel: finite/NaN/Inf counts, distinct-bit-pattern count, most frequent values with exact counts. Supports `layer` and `afterPass` |
+| `olo_render_validate` | on-demand render-graph frame validation: the compiled resource-hazard sweep, barrier/build diagnostics, execute-path resolve failures, consumed-but-unbacked resources, and versioned-name physical-id groups; optional `compare` checks two targets **bit-exactly** (channel 0), e.g. `compare:{a:"SceneDepth", b:"HZB", afterPass:"GTAOPass"}` — both sides snapshotted in the SAME frame |
 | `olo_froxel_fog_probe` | sample the volumetric-fog **froxel volume** at one cell (`froxel`:[x,y,z] or `worldPos`:[x,y,z]) — returns the RAW scatter (in-scatter + extinction) **and** the INTEGRATED values (accumulated in-scatter + transmittance) plus the cell's world bounds, so "scatter pass wrong" and "composite tap wrong" separate without a PNG round trip |
 | `olo_render_compare_golden` | capture the viewport (optional `camera`/`orbit` pose) and diff it against a golden PNG (`goldenPath`): returns a numeric `similarity`/`rmse`/`ssim` + `pass` verdict; missing golden or `rebase`:true writes the capture as the new baseline (the `OLOENGINE_GOLDEN_REBASE` workflow) |
 | `olo_render_toggle_pass` | flip a post-process / fog feature on/off (`name` + optional `enabled`) — the ephemeral A/B loop: toggle off → `olo_screenshot` → toggle on → `olo_screenshot`. No `name` lists every pass + its live state |
@@ -375,7 +378,7 @@ round-trip rather than looking like a write that quietly did nothing.
 
 ### Toolsets & on-demand tool discovery (`tools/search`)
 
-The tool surface is large enough (52 built-in tools; the full `tools/list` measures
+The tool surface is large enough (~64 built-in tools; the full `tools/list` measures
 ~60 KB ≈ 15k tokens) that paging the whole flat list to find the right one is
 wasteful. Every tool is tagged with a **toolset** (grouping category), and a custom
 `tools/search` JSON-RPC method lets an agent discover tools by keyword and/or
@@ -387,7 +390,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_crash_list`, `olo_crash_get` |
 | `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_stop`, `olo_editor_select_entity` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
-| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe` |
+| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_material_get` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
 | `assets` | `olo_assets_list`, `olo_assets_problems` |
 | `scripting` | `olo_script_get_api`, `olo_script_get_last_errors`, `olo_reload_script` |
@@ -911,6 +914,62 @@ to remove. Two related rules the capture path now honours:
   defaults to **its own** layer, and reports it in the capture meta.
 - Depth targets are min-max **normalised** by default (`normalize` overrides), so a
   cascade is legible rather than a flat white field.
+
+### Mid-frame state & exact texels (`afterPass`, texel space, stats, validate)
+
+Four instruments added after the GTAO black-sky hunt (issue #607), where each missing one
+cost hours:
+
+**`afterPass:"<PassName>"`** (on `olo_render_capture_target`, `olo_render_probe_pixel`,
+`olo_render_target_stats`, and `olo_render_validate`'s `compare`) snapshots a resource
+**as of that pass's execution**, not end-of-frame. The motivating case: ParticlePass
+re-exports `SceneDepth` *after* GTAOPass, so an end-of-frame read of `SceneDepth` can
+never show what GTAO actually sampled mid-frame. Mechanics: the tool arms a one-shot
+post-pass hook, renders a frame, and the hook clones the resolved texture bitwise
+(`glCopyImageSubData`, every mip and layer) the moment the named pass finishes — so
+transient-pool aliasing can't swap the contents before the readback. Pass names come from
+`olo_render_graph_topology_export`'s `executionOrder`; a culled or unknown pass is an
+error, never an empty image.
+
+**`space:"texel"`** (on `olo_render_probe_pixel`, with `mip`) addresses an **exact texel**
+of the target's own mip grid, top-left origin — required for padded resources like the
+HZB pow2 pyramid, where the default proportional viewport mapping reads the wrong texel.
+Every probe reply now carries `mappedCoord` — requested coords, the texel actually read,
+the GL row, and the mip dims — so the mapping is never guesswork in either space.
+
+**`olo_render_target_stats {name, rect?, mip?, layer?, afterPass?}`** answers the 1-ULP
+questions a PNG cannot: exact min/max/mean over finite values, NaN/Inf counts, and a
+**bit-exact unique-value histogram** (distinct bit patterns + the most frequent values
+with counts). "Is this HZB region exactly 1.0f?" is one call:
+
+```jsonc
+// olo_render_target_stats { "name": "HZB", "mip": 0, "rect": { "x": 0, "y": 0, "w": 256, "h": 256 } }
+{ "channels": [ { "channel": "r", "finiteCount": 65536, "min": 1.0, "max": 1.0, "mean": 1.0,
+                  "uniqueValues": 1, "topValues": [ { "value": 1.0, "bits": 1065353216, "count": 65536 } ] } ] }
+```
+
+**`olo_render_validate`** is the on-demand frame-validation sweep: compiled resource
+hazards, barrier/build diagnostics, resolve failures, resources that are *consumed but
+resolve to no physical backing*, and versioned-name groups (`SceneColor@ParticlePass`)
+with their resolved GL ids. The optional `compare` block is the bitwise instrument:
+
+```jsonc
+// olo_render_validate { "compare": { "a": "SceneDepth", "b": "HZB", "afterPass": "GTAOPass" } }
+// -> "compare": { "bitwiseEqual": false, "differingTexels": 3,
+//                 "firstDiffs": [ { "x": 511, "y": 12, "a": 1.0, "b": 0.99999994, ... } ] }
+```
+
+With `compare.afterPass`, BOTH sides are cloned by the *same* hook firing, so the verdict
+describes one consistent frame. Note the format caveat: a D24 depth source quantizes on
+float readback, so only same-conversion pairs (D32F/R32F) compare bit-exactly.
+
+The **DDGI probe atlases** (`DDGIIrradianceAtlas0/1`, `DDGIVisibilityAtlas0/1`,
+`DDGIProbeData`) and the **froxel-fog volumes** (`FroxelFogScatter0/1`,
+`FroxelFogIntegrated`, 3D — pick a z-slice with `layer`) are registered render-graph
+resources now (Setup-time imports, the FluidIntermediates pattern), so all of the above —
+plus plain `olo_render_capture_target` — works on them. The atlases ping-pong: which ping
+is "current" flips every blended frame, so both are listed under stable names; either
+shows a black/leaking probe.
 
 ### Probing the froxel fog volume (`olo_froxel_fog_probe`)
 

@@ -83,6 +83,34 @@ namespace OloEngine
         {
             [[maybe_unused]] const auto atlasRead = builder.Read(blackboard.Shadows.ShadowMapAtlas, RGReadUsage::ShaderSample);
         }
+
+        // Publish the pass-owned froxel volumes into the graph so they appear
+        // in RenderGraph::GetRegisteredResources() (issue #607) — previously
+        // only the dedicated olo_froxel_fog_probe tool could see them, so a
+        // scatter-vs-integrate defect could not be bisected with slice
+        // captures. Import-only, the FluidIntermediatesPass pattern: the
+        // compute chain writes them as images and FogRenderPass samples the
+        // integrated volume at engine slot 53, so no Read/Write declaration
+        // changes ordering or culling. The volumes are genuine 3D textures
+        // (Kind::Texture3D, DepthOrLayers = depth); capture tools address one
+        // z-slice via 'layer'. Both scatter pings are imported under stable
+        // names — "current" flips every frame (temporal history), the same
+        // reason the DDGI atlases import per-ping. Ids are created once in
+        // Init and never change, so no fingerprint hashing is needed.
+        const auto importVolume = [&builder](const char* name, const Ref<Texture3D>& volume)
+        {
+            if (!volume)
+                return;
+            RGResourceDesc desc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture3D, name);
+            desc.Format = RGResourceFormat::RGBA16Float;
+            desc.Width = kVolumeWidth;
+            desc.Height = kVolumeHeight;
+            desc.DepthOrLayers = kVolumeDepth;
+            [[maybe_unused]] const RGTextureHandle handle = builder.ImportTexture(name, volume->GetRendererID(), desc);
+        };
+        importVolume("FroxelFogScatter0", m_ScatterVolume[0]);
+        importVolume("FroxelFogScatter1", m_ScatterVolume[1]);
+        importVolume("FroxelFogIntegrated", m_IntegratedVolume);
     }
 
     void VolumetricFogPass::Execute(RGCommandContext& context)
