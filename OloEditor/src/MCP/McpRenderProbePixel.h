@@ -50,6 +50,140 @@ namespace OloEngine::MCP::ProbePixel
         Int = 1
     };
 
+    // ---- Coordinate mapping (issue #607: space:"texel" + mappedCoord) -----
+    //
+    // The GTAO hunt's motivating failure: probing the HZB pow2 pyramid with
+    // viewport coordinates silently read the wrong texel, because the tool
+    // applied the requested x/y RAW to a resource whose size differs from the
+    // viewport. Two explicit spaces replace that guesswork, and every probe
+    // reply now echoes the exact texel it read (mappedCoord).
+    enum class ProbeSpace : u8
+    {
+        // x/y are viewport pixels (top-left origin, the screenshot
+        // convention), mapped PROPORTIONALLY onto the target mip:
+        // texel = floor((coord + 0.5) / refSize * mipSize). Identity for a
+        // full-res mip-0 target (the G-Buffer), "same visual location" for a
+        // half-res AO buffer. WRONG for padded resources (the HZB pyramid,
+        // where content sits 1:1 in a pow2-padded extent) — use Texel there.
+        Viewport = 0,
+        // x/y are EXACT texel coordinates of the target at the requested mip,
+        // top-left origin — the same orientation as a capture PNG of that
+        // resource+mip, so a pixel picked off a capture image addresses the
+        // texel the agent actually pointed at. No scaling of any kind.
+        Texel = 1,
+    };
+
+    [[nodiscard]] inline const char* ProbeSpaceToken(ProbeSpace space) noexcept
+    {
+        return space == ProbeSpace::Texel ? "texel" : "viewport";
+    }
+
+    [[nodiscard]] inline bool ParseProbeSpace(std::string_view token, ProbeSpace& out) noexcept
+    {
+        if (token == "viewport")
+            out = ProbeSpace::Viewport;
+        else if (token == "texel")
+            out = ProbeSpace::Texel;
+        else
+            return false;
+        return true;
+    }
+
+    // The resolved texel a probe actually read — echoed in every reply so the
+    // requested-coordinate -> texel mapping is never guesswork.
+    struct CoordMapping
+    {
+        bool Valid = false;
+        std::string Error; // set when !Valid (out of bounds / bad mip / degenerate reference)
+        ProbeSpace Space = ProbeSpace::Viewport;
+        u32 RequestedX = 0; // the caller's x/y, in `Space`
+        u32 RequestedY = 0;
+        u32 TexelX = 0;        // texel column at `Mip`, top-left origin
+        u32 TexelY = 0;        // texel row at `Mip`, top-left origin
+        u32 GLRowBottomUp = 0; // the GL row actually read (GL rows run bottom-up)
+        u32 Mip = 0;
+        u32 MipWidth = 0;
+        u32 MipHeight = 0;
+    };
+
+    // Map a requested (x, y) in `space` onto an exact texel of a `mipWidth` x
+    // `mipHeight` mip level. `refWidth`/`refHeight` are the viewport-space
+    // reference dimensions (the render size the screenshot shows); unused in
+    // texel space. Pure math — unit-tested headlessly.
+    [[nodiscard]] inline CoordMapping MapProbeCoord(ProbeSpace space, u32 x, u32 y,
+                                                    u32 refWidth, u32 refHeight,
+                                                    u32 mipWidth, u32 mipHeight, u32 mip) noexcept
+    {
+        CoordMapping m;
+        m.Space = space;
+        m.RequestedX = x;
+        m.RequestedY = y;
+        m.Mip = mip;
+        m.MipWidth = mipWidth;
+        m.MipHeight = mipHeight;
+
+        if (mipWidth == 0 || mipHeight == 0)
+        {
+            m.Error = "The target has no storage at mip " + std::to_string(mip) + ".";
+            return m;
+        }
+
+        if (space == ProbeSpace::Texel)
+        {
+            if (x >= mipWidth || y >= mipHeight)
+            {
+                m.Error = "Texel (" + std::to_string(x) + ", " + std::to_string(y) + ") is outside mip " +
+                          std::to_string(mip) + " (" + std::to_string(mipWidth) + "x" + std::to_string(mipHeight) +
+                          ").";
+                return m;
+            }
+            m.TexelX = x;
+            m.TexelY = y;
+        }
+        else
+        {
+            if (refWidth == 0 || refHeight == 0)
+            {
+                m.Error = "The viewport reference size is unknown; probe with space:\"texel\" instead.";
+                return m;
+            }
+            if (x >= refWidth || y >= refHeight)
+            {
+                m.Error = "Viewport pixel (" + std::to_string(x) + ", " + std::to_string(y) +
+                          ") is outside the viewport (" + std::to_string(refWidth) + "x" +
+                          std::to_string(refHeight) + ").";
+                return m;
+            }
+            // Pixel-centre proportional mapping; clamped so the last viewport
+            // row/column never rounds past the mip edge.
+            const f64 u = (static_cast<f64>(x) + 0.5) / static_cast<f64>(refWidth);
+            const f64 v = (static_cast<f64>(y) + 0.5) / static_cast<f64>(refHeight);
+            m.TexelX = std::min(static_cast<u32>(u * static_cast<f64>(mipWidth)), mipWidth - 1u);
+            m.TexelY = std::min(static_cast<u32>(v * static_cast<f64>(mipHeight)), mipHeight - 1u);
+        }
+
+        m.GLRowBottomUp = mipHeight - 1u - m.TexelY;
+        m.Valid = true;
+        return m;
+    }
+
+    [[nodiscard]] inline Json CoordMappingJson(const CoordMapping& m)
+    {
+        Json j;
+        j["space"] = ProbeSpaceToken(m.Space);
+        j["requested"] = Json::array({ m.RequestedX, m.RequestedY });
+        if (m.Valid)
+        {
+            j["texel"] = Json::array({ m.TexelX, m.TexelY });
+            j["glRowBottomUp"] = m.GLRowBottomUp;
+        }
+        j["mip"] = m.Mip;
+        j["mipWidth"] = m.MipWidth;
+        j["mipHeight"] = m.MipHeight;
+        j["origin"] = "top-left";
+        return j;
+    }
+
     // One 1x1 readback of one render-graph target. `Available` false means the
     // target did not exist this frame (wrong rendering path, effect disabled,
     // no frame rendered yet) — `Unavailable` then carries the reason and the
@@ -64,8 +198,14 @@ namespace OloEngine::MCP::ProbePixel
         i32 Channels = 0;
         std::array<f32, 4> F{ 0.0f, 0.0f, 0.0f, 0.0f };
         std::array<i32, 4> I{ 0, 0, 0, 0 };
-        u32 SourceWidth = 0;
+        u32 SourceWidth = 0; // dims of the mip actually probed
         u32 SourceHeight = 0;
+        // The exact texel this sample read (issue #607) — echoed in the reply
+        // as "mappedCoord" so the requested-coord -> texel mapping is never
+        // guesswork. Layer is the GL z-offset applied (a CSM cascade view's
+        // own layer, or the caller's layer selector).
+        CoordMapping Mapped;
+        u32 Layer = 0;
     };
 
     // Octahedral decode — the EXACT inverse of octEncodeGB() in PBR_GBuffer.glsl
@@ -162,6 +302,16 @@ namespace OloEngine::MCP::ProbePixel
         Json j;
         j["available"] = sample.Available;
         j["target"] = sample.Target;
+        // The exact texel read (or the mapping failure) — issue #607. Present
+        // even for unavailable samples whenever a mapping was attempted, so
+        // an out-of-bounds probe shows WHERE it would have read.
+        if (sample.Mapped.MipWidth > 0 || sample.Mapped.MipHeight > 0 || sample.Mapped.Valid)
+        {
+            Json mapped = CoordMappingJson(sample.Mapped);
+            if (sample.Layer != 0)
+                mapped["layer"] = sample.Layer;
+            j["mappedCoord"] = std::move(mapped);
+        }
         if (!sample.Available)
         {
             j["reason"] = sample.Unavailable;

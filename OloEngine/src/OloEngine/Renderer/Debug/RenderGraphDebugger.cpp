@@ -949,7 +949,7 @@ namespace OloEngine
     void RenderGraphDebugger::DrawCapturePanel(const Ref<RenderGraph>& graph)
     {
         ImGui::SameLine();
-        if (const bool hookInstalled = graph && graph->HasPostPassHook(); ImGui::Button(hookInstalled ? "Recapture Frame" : "Capture Frame"))
+        if (const bool hookInstalled = m_FrameCapture.IsHookInstalled(graph.get()); ImGui::Button(hookInstalled ? "Recapture Frame" : "Capture Frame"))
         {
             // Debug instrumentation: installing a post-pass hook on the live
             // graph is a logical mutation, but RenderDebugView() takes the
@@ -971,7 +971,10 @@ namespace OloEngine
         // reflects the latest pipeline output without manual button presses.
         if (m_AutoCaptureEachFrame && graph)
         {
-            if (!graph->HasPostPassHook())
+            // IsHookInstalled (not the graph's HasPostPassHook) — another tool's
+            // post-pass listener (the MCP afterPass snapshot, issue #607) must
+            // not suppress re-arming the frame capture's own hook.
+            if (!m_FrameCapture.IsHookInstalled(graph.get()))
                 m_FrameCapture.InstallHook(const_cast<RenderGraph*>(graph.get()));
             m_FrameCapture.RequestCapture();
         }

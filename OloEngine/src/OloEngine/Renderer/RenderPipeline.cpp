@@ -1557,6 +1557,21 @@ namespace OloEngine
         HashPassState(h, FrameCorePasses.Shadow);
         HashPassState(h, FrameCorePasses.Scene);
         HashPassState(h, FrameCorePasses.DDGIProbeUpdate);
+        // DDGI atlas imports (issue #607): DDGIProbeUpdatePass::Setup imports
+        // the ping-pong atlases + probe-data texture, which are created lazily
+        // (first submitted volume) and recreated on a Resolution /
+        // HitCacheTexels edit — the ids change with NO pass-enable change.
+        // Hash the raw ids so the rebuild that (re)imports them actually
+        // happens — the exact VirtualGeometryDebug rule below.
+        if (FrameCorePasses.DDGIProbeUpdate)
+        {
+            const auto& ddgiPass = *FrameCorePasses.DDGIProbeUpdate;
+            HashU32(h, ddgiPass.GetIrradianceAtlasID(0u));
+            HashU32(h, ddgiPass.GetIrradianceAtlasID(1u));
+            HashU32(h, ddgiPass.GetVisibilityAtlasID(0u));
+            HashU32(h, ddgiPass.GetVisibilityAtlasID(1u));
+            HashU32(h, ddgiPass.GetProbeDataTextureID());
+        }
         HashPassState(h, SceneCompositePasses.DeferredLighting);
         HashPassState(h, SceneCompositePasses.DeferredOpaqueDecal);
         HashPassState(h, SceneCompositePasses.DeferredGPUOcclusion);

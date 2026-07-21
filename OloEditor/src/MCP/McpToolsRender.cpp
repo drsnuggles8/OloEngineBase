@@ -9,6 +9,8 @@
 #include "MCP/McpRenderGraphTopology.h"
 #include "MCP/McpRenderOverrides.h"
 #include "MCP/McpRenderProbePixel.h"
+#include "MCP/McpRenderTargetStats.h"
+#include "MCP/McpRenderValidate.h"
 #include "MCP/McpRendererSettings.h"
 #include "MCP/McpShadowCapture.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -83,6 +85,15 @@ namespace OloEngine::MCP
         // forward-declared so the frame-breakdown handler can reuse the same
         // enum -> string mapping the topology export uses.
         const char* PassWorkTypeName(RenderGraphPassWorkType type);
+
+        // Defined in the issue-#607 probe/snapshot section further down;
+        // forward-declared so the capture handler (earlier in the TU) can share
+        // the afterPass snapshot machinery with probe/stats/validate.
+        std::string ArmAfterPassSnapshot(McpServer& server, const std::string& passName,
+                                         const std::vector<std::string>& resources,
+                                         bool& outFrameRendered);
+        std::string CollectAfterPassSnapshot(const std::string& passName, const std::string& name,
+                                             bool frameRendered, RenderGraphPassSnapshot::Result& outResult);
 
         // Defined further down in the virtual-geometry section. Forward-declared so
         // olo_render_set_debug_view's vg* modes read and write the SAME
@@ -391,6 +402,46 @@ namespace OloEngine::MCP
                     info.HasExternalBacking = resource.HasExternalBacking;
                     info.Producers = resource.Producers;
                     info.Consumers = resource.Consumers;
+
+                    // Resolved physical GL object ids (issue #607) — the
+                    // one-call answer to "do these two passes touch the same
+                    // physical texture this frame". Resolved inside this same
+                    // main-thread job as the enumeration so the snapshot is
+                    // internally consistent; the ids are the LAST EXECUTED
+                    // frame's (transients can re-alias next frame).
+                    if (resource.TextureHandle.IsValid())
+                    {
+                        info.GLTextureId = graph->ResolveTexture(resource.TextureHandle);
+                        info.ViewOfParentLayer = graph->GetTextureViewLayerIndex(resource.Name);
+                    }
+                    if (resource.FramebufferHandle.IsValid())
+                    {
+                        if (const Ref<Framebuffer> framebuffer = graph->ResolveFramebuffer(resource.FramebufferHandle))
+                        {
+                            info.GLFramebufferId = framebuffer->GetRendererID();
+                            const auto& attachments = framebuffer->GetSpecification().Attachments.Attachments;
+                            u32 colorIndex = 0;
+                            for (const auto& attachment : attachments)
+                            {
+                                if (attachment.TextureFormat == FramebufferTextureFormat::None)
+                                    continue;
+                                if (attachment.TextureFormat == FramebufferTextureFormat::DEPTH24STENCIL8 ||
+                                    attachment.TextureFormat == FramebufferTextureFormat::DEPTH_COMPONENT32F)
+                                {
+                                    info.GLDepthAttachmentId = framebuffer->GetDepthAttachmentRendererID();
+                                }
+                                else
+                                {
+                                    info.GLColorAttachmentIds.push_back(
+                                        framebuffer->GetColorAttachmentRendererID(colorIndex));
+                                    ++colorIndex;
+                                }
+                            }
+                        }
+                    }
+                    if (resource.BufferHandle.IsValid())
+                        info.GLBufferId = graph->ResolveBuffer(resource.BufferHandle);
+
                     snap.Resources.push_back(std::move(info));
                 }
 
@@ -506,25 +557,55 @@ namespace OloEngine::MCP
                 normalizeMode = args["normalize"].get<bool>() ? GPUResourceInspector::CaptureNormalizeMode::On
                                                               : GPUResourceInspector::CaptureNormalizeMode::Off;
 
+            // afterPass (issue #607): snapshot the resource AS OF that pass's
+            // execution and capture the snapshot clone — end-of-frame contents
+            // can differ (ParticlePass re-exports SceneDepth after GTAOPass).
+            std::string afterPass;
+            if (args.contains("afterPass") && args["afterPass"].is_string())
+                afterPass = args["afterPass"].get<std::string>();
+
             // Staleness (issue #607). A render-graph texture holds whatever was
             // last drawn into it: right after an olo_scene_open the new scene has
             // not been rendered yet, so a capture silently returns the PREVIOUS
             // scene's pixels — byte-identical, no error, no clue. 'forceFrame'
             // renders + settles fresh frames first; the meta always reports the
             // frame index the capture came from so the hazard is at least visible.
+            // (afterPass always renders a fresh frame — the snapshot fires
+            // during it — so forceFrame is implied there.)
             const bool forceFrame = args.value("forceFrame", false);
             bool freshFrameTimedOut = false;
-            if (forceFrame)
+            if (forceFrame && afterPass.empty())
                 freshFrameTimedOut = !ForceFreshFrame(server, /*settleFrames*/ 2);
 
+            bool afterPassFrameRendered = true;
+            if (!afterPass.empty())
+            {
+                if (const std::string error = ArmAfterPassSnapshot(server, afterPass, { name }, afterPassFrameRendered);
+                    !error.empty())
+                    return ToolResult::Error(error);
+            }
+
             Json result = server.MarshalRead([&server, name, mipLevel, hasLayerSelector, requestedLayer,
-                                              normalizeMode, maxWidth]() -> Json
+                                              normalizeMode, maxWidth, afterPass, afterPassFrameRendered]() -> Json
                                              {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
                     return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
 
-                const u32 textureId = ResolveTargetTexture(name);
+                u32 textureId = 0;
+                RenderGraphPassSnapshot::Result snapshotResult;
+                if (!afterPass.empty())
+                {
+                    if (const std::string error =
+                            CollectAfterPassSnapshot(afterPass, name, afterPassFrameRendered, snapshotResult);
+                        !error.empty())
+                        return Json{ { "__error", error } };
+                    textureId = snapshotResult.TextureID;
+                }
+                else
+                {
+                    textureId = ResolveTargetTexture(name);
+                }
                 if (textureId == 0)
                     return Json{ { "__error", "Unknown render-graph resource '" + name +
                                                   "' (or it has no GPU backing this frame). Call olo_render_list_targets for the live list." } };
@@ -532,7 +613,8 @@ namespace OloEngine::MCP
                 // Which GL layer to read. The default is NOT unconditionally 0: a
                 // per-cascade layer view resolves to the whole parent array, so
                 // capturing "ShadowMapCSMCascade3" without applying the view's own
-                // layer would silently return cascade 0's pixels.
+                // layer would silently return cascade 0's pixels. (The snapshot
+                // clone preserves every layer, so the same selection applies.)
                 const CaptureLayer::TargetLayers layers = ResolveTargetLayers(*graph, name);
                 const CaptureLayer::Selection selection =
                     CaptureLayer::SelectLayer(layers, name, hasLayerSelector, requestedLayer);
@@ -546,6 +628,13 @@ namespace OloEngine::MCP
 
                 Json meta = CaptureStampJson(server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0);
                 meta["name"] = name;
+                if (!afterPass.empty())
+                {
+                    meta["afterPass"] = afterPass;
+                    meta["snapshotSourceTextureId"] = snapshotResult.SourceTextureID;
+                    meta["frameIndexNote"] = "frameIndex is the collect-time frame; the snapshot was cloned "
+                                             "mid-frame during the immediately preceding rendered frame.";
+                }
                 meta["layer"] = selection.Layer;
                 if (CaptureLayer::IsArrayTarget(layers))
                     meta["layers"] = layers.LayerCount;
@@ -2255,21 +2344,46 @@ namespace OloEngine::MCP
             }
         }
 
+        // Options for one texel probe (issue #607). Defaults reproduce the
+        // simple "viewport pixel at mip 0" probe; the G-Buffer mode fills the
+        // viewport reference dims, the single-target mode adds space / mip /
+        // layer / afterPass control.
+        struct ProbeRequest
+        {
+            ProbePixel::ProbeSpace Space = ProbePixel::ProbeSpace::Viewport;
+            u32 Mip = 0;
+            // Viewport-space reference dims (the render size a screenshot
+            // shows). 0 = use the target mip's own dims (identity mapping).
+            u32 RefWidth = 0;
+            u32 RefHeight = 0;
+            // Read THIS texture instead of resolving `name` — the afterPass
+            // snapshot scratch clone.
+            u32 OverrideTextureId = 0;
+            // Explicit array-layer / cube-face / 3D-slice selector; when
+            // absent the target's own view layer applies (a CSM cascade view
+            // must not silently read cascade 0).
+            bool HasLayer = false;
+            long long Layer = 0;
+        };
+
         // (main thread) Read back a SINGLE texel of one named render-graph target.
         // Uses glGetTextureSubImage (DSA, GL 4.5+) with a 1x1 region — never a
         // whole-texture readback, so probing a 4K G-Buffer costs a handful of
         // bytes, not 64 MB.
         //
-        // `yTopLeft` is in screenshot coordinates (top-left origin); GL texture
-        // rows run bottom-up, so it is flipped here — exactly the flip
-        // CaptureTexturePng applies when it writes a PNG, so a pixel picked off an
-        // olo_screenshot image probes the pixel the agent actually pointed at.
-        ProbePixel::TexelSample ProbeTexel(const std::string& name, u32 x, u32 yTopLeft)
+        // Coordinates go through ProbePixel::MapProbeCoord (issue #607):
+        // viewport space maps proportionally onto the target mip, texel space
+        // addresses the exact texel; both are top-left-origin (the screenshot
+        // convention — GL's bottom-up flip happens here) and the mapping is
+        // echoed in the sample so it is never guesswork.
+        ProbePixel::TexelSample ProbeTexel(const RenderGraph& graph, const std::string& name,
+                                           u32 x, u32 yTopLeft, const ProbeRequest& request = {})
         {
             ProbePixel::TexelSample sample;
             sample.Target = name;
 
-            const u32 textureId = ResolveTargetTexture(name);
+            const u32 textureId = request.OverrideTextureId != 0 ? request.OverrideTextureId
+                                                                 : ResolveTargetTexture(name);
             if (textureId == 0 || glIsTexture(textureId) == GL_FALSE)
             {
                 sample.Unavailable = "Render-graph resource '" + name +
@@ -2277,15 +2391,30 @@ namespace OloEngine::MCP
                 return sample;
             }
 
+            // Which GL layer (z offset) to read: an explicit selector, or the
+            // target's own view layer — a per-cascade view resolves to the
+            // whole parent array, so reading z=0 unconditionally would
+            // silently answer from cascade 0 (the capture tool's exact rule).
+            const CaptureLayer::TargetLayers layers = ResolveTargetLayers(graph, name);
+            const CaptureLayer::Selection selection =
+                CaptureLayer::SelectLayer(layers, name, request.HasLayer, request.Layer);
+            if (!selection.Error.empty())
+            {
+                sample.Unavailable = selection.Error;
+                return sample;
+            }
+            sample.Layer = selection.Layer;
+
             GLint width = 0;
             GLint height = 0;
             GLint internalFormat = 0;
-            glGetTextureLevelParameteriv(textureId, 0, GL_TEXTURE_WIDTH, &width);
-            glGetTextureLevelParameteriv(textureId, 0, GL_TEXTURE_HEIGHT, &height);
-            glGetTextureLevelParameteriv(textureId, 0, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
+            const auto mipLevel = static_cast<GLint>(request.Mip);
+            glGetTextureLevelParameteriv(textureId, mipLevel, GL_TEXTURE_WIDTH, &width);
+            glGetTextureLevelParameteriv(textureId, mipLevel, GL_TEXTURE_HEIGHT, &height);
+            glGetTextureLevelParameteriv(textureId, mipLevel, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
             if (width <= 0 || height <= 0)
             {
-                sample.Unavailable = "'" + name + "' has no storage at mip 0.";
+                sample.Unavailable = "'" + name + "' has no storage at mip " + std::to_string(request.Mip) + ".";
                 return sample;
             }
             sample.SourceWidth = static_cast<u32>(width);
@@ -2300,15 +2429,15 @@ namespace OloEngine::MCP
             }
             sample.Format = format.Token;
 
-            if (x >= sample.SourceWidth || yTopLeft >= sample.SourceHeight)
+            const u32 refWidth = request.RefWidth != 0 ? request.RefWidth : sample.SourceWidth;
+            const u32 refHeight = request.RefHeight != 0 ? request.RefHeight : sample.SourceHeight;
+            sample.Mapped = ProbePixel::MapProbeCoord(request.Space, x, yTopLeft, refWidth, refHeight,
+                                                      sample.SourceWidth, sample.SourceHeight, request.Mip);
+            if (!sample.Mapped.Valid)
             {
-                sample.Unavailable = "Pixel (" + std::to_string(x) + ", " + std::to_string(yTopLeft) +
-                                     ") is outside '" + name + "' (" + std::to_string(sample.SourceWidth) + "x" +
-                                     std::to_string(sample.SourceHeight) + ").";
+                sample.Unavailable = sample.Mapped.Error;
                 return sample;
             }
-
-            const GLint glY = static_cast<GLint>(sample.SourceHeight - 1u - yTopLeft);
 
             // Tight packing + PBO unbind guard, same rationale as
             // GPUResourceInspector::CaptureTexturePng: a bound pixel-pack buffer
@@ -2329,8 +2458,10 @@ namespace OloEngine::MCP
                                                  : static_cast<void*>(floats.data());
             const auto bytes = static_cast<GLsizei>(4 * sizeof(f32));
 
-            glGetTextureSubImage(textureId, 0,
-                                 static_cast<GLint>(x), glY, 0,
+            glGetTextureSubImage(textureId, mipLevel,
+                                 static_cast<GLint>(sample.Mapped.TexelX),
+                                 static_cast<GLint>(sample.Mapped.GLRowBottomUp),
+                                 static_cast<GLint>(selection.Layer),
                                  1, 1, 1,
                                  format.ReadFormat, format.ReadType,
                                  bytes, destination);
@@ -2354,11 +2485,120 @@ namespace OloEngine::MCP
             return sample;
         }
 
+        // ---- afterPass snapshots (issue #607) ---------------------------------
+        // Arm the shared RenderGraphPassSnapshot for `passName` over the named
+        // resources, then force a frame so the post-pass hook fires. Returns an
+        // empty string on success; `outFrameRendered` reports whether a frame
+        // actually rendered inside the wait (false = throttle/stall/cancel —
+        // the collect side uses it to diagnose an unfired hook honestly). The
+        // CALLER's next MarshalRead job must read
+        // RenderGraphDebugRuntime::GetPassSnapshot() (checking IsPending() for
+        // "the pass never executed") and Disarm() when done — reading and
+        // disarming in the same main-thread job keeps the scratch textures from
+        // being re-armed under a concurrent tool call.
+        std::string ArmAfterPassSnapshot(McpServer& server, const std::string& passName,
+                                         const std::vector<std::string>& resources,
+                                         bool& outFrameRendered)
+        {
+            const Json armed = server.MarshalRead([passName, resources]() -> Json
+                                                  {
+                const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
+                if (!graph)
+                    return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
+
+                const auto& order = graph->GetExecutionOrder();
+                if (std::find(order.begin(), order.end(), passName) == order.end())
+                {
+                    std::string valid;
+                    for (const auto& pass : order)
+                    {
+                        if (!valid.empty())
+                            valid += ", ";
+                        valid += pass;
+                    }
+                    return Json{ { "__error", "Unknown pass '" + passName +
+                                                  "' for afterPass. Passes in this frame's execution order: " + valid + "." } };
+                }
+
+                std::vector<RenderGraphPassSnapshot::Request> requests;
+                requests.reserve(resources.size());
+                for (const auto& resourceName : resources)
+                {
+                    requests.push_back(RenderGraphPassSnapshot::Request{
+                        resourceName,
+                        [resourceName]() -> u32
+                        { return ResolveTargetTexture(resourceName); } });
+                }
+                // Installing a post-pass hook is a logical mutation of the
+                // live graph behind a read-only accessor — the same confined
+                // const_cast RenderGraphDebugger uses for its frame capture.
+                RenderGraphDebugRuntime::GetPassSnapshot().Arm(const_cast<RenderGraph*>(graph.Raw()),
+                                                               passName, std::move(requests));
+                return Json::object(); });
+
+            if (armed.is_object() && armed.contains("__error"))
+                return armed["__error"].get<std::string>();
+
+            // Render a frame so the armed hook actually fires. A false return
+            // (throttle / main-thread stall / cancellation) is threaded to the
+            // caller's collect job so an unfired hook is diagnosed honestly
+            // instead of as "culled".
+            outFrameRendered = ForceFreshFrame(server, /*settleFrames*/ 1);
+            return {};
+        }
+
+        // (main thread) The collect half: fetch the snapshot result for `name`
+        // after ArmAfterPassSnapshot + a rendered frame, or an error message.
+        // Leaves the snapshot disarmed. `outResult` is only valid when the
+        // returned string is empty. `frameRendered` is ArmAfterPassSnapshot's
+        // out-flag — it picks the honest diagnosis when the hook never fired.
+        std::string CollectAfterPassSnapshot(const std::string& passName, const std::string& name,
+                                             bool frameRendered, RenderGraphPassSnapshot::Result& outResult)
+        {
+            auto& snapshot = RenderGraphDebugRuntime::GetPassSnapshot();
+            // A concurrent afterPass tool call could have re-armed the shared
+            // snapshot between this call's arm and collect jobs — matching by
+            // resource name alone would then silently hand back the OTHER
+            // call's clone. The armed pass name is the discriminator.
+            if (snapshot.GetPassName() != passName)
+            {
+                return "Another tool call re-armed the afterPass snapshot concurrently (now armed for pass '" +
+                       snapshot.GetPassName() + "', expected '" + passName +
+                       "'). afterPass requests are one-at-a-time; retry.";
+            }
+            if (snapshot.IsPending())
+            {
+                snapshot.Disarm();
+                if (!frameRendered)
+                    return "Timed out waiting for a frame to render after arming the afterPass snapshot (viewport "
+                           "render-throttled, the editor stalled, or the call was cancelled) — nothing was "
+                           "snapshotted. Retry, or make sure the viewport is rendering.";
+                return "Pass '" + passName + "' did not execute this frame (culled or disabled) — nothing was "
+                                             "snapshotted. Check olo_render_graph_topology_export for the culled list.";
+            }
+            for (const auto& result : snapshot.GetResults())
+            {
+                if (result.ResourceName != name)
+                    continue;
+                if (!result.Captured)
+                {
+                    const std::string error = result.Error;
+                    snapshot.Disarm();
+                    return error;
+                }
+                outResult = result;
+                snapshot.Disarm();
+                return {};
+            }
+            snapshot.Disarm();
+            return "Internal error: no snapshot result recorded for '" + name + "'.";
+        }
+
         ToolResult Handle_RenderProbePixel(McpServer& server, const Json& args)
         {
             if (!args.contains("x") || !args["x"].is_number_integer() ||
                 !args.contains("y") || !args["y"].is_number_integer())
-                return ToolResult::Error("Missing required arguments 'x' and 'y' (viewport pixel, top-left origin).");
+                return ToolResult::Error("Missing required arguments 'x' and 'y' (pixel, top-left origin).");
             const auto x = static_cast<u32>(std::max<long long>(0, args["x"].get<long long>()));
             const auto y = static_cast<u32>(std::max<long long>(0, args["y"].get<long long>()));
 
@@ -2366,10 +2606,44 @@ namespace OloEngine::MCP
             if (args.contains("target") && args["target"].is_string())
                 target = args["target"].get<std::string>();
 
-            if (args.value("forceFrame", false))
+            // space:"texel" + mip + layer + afterPass (issue #607). All four
+            // address ONE specific resource, so they require 'target' — the
+            // G-Buffer multi-target mode probes seven differently-sized
+            // resources for which a single texel coordinate is ambiguous.
+            auto space = ProbePixel::ProbeSpace::Viewport;
+            if (args.contains("space") && args["space"].is_string())
+            {
+                if (!ProbePixel::ParseProbeSpace(args["space"].get<std::string>(), space))
+                    return ToolResult::Error("Invalid 'space': expected \"viewport\" or \"texel\".");
+            }
+            u32 mip = 0;
+            if (args.contains("mip") && args["mip"].is_number_integer())
+                mip = static_cast<u32>(std::clamp<long long>(args["mip"].get<long long>(), 0, 16));
+            const bool hasLayer = args.contains("layer") && args["layer"].is_number_integer();
+            const long long layer = hasLayer ? args["layer"].get<long long>() : 0;
+            std::string afterPass;
+            if (args.contains("afterPass") && args["afterPass"].is_string())
+                afterPass = args["afterPass"].get<std::string>();
+            if (target.empty() && (space == ProbePixel::ProbeSpace::Texel || mip != 0 || hasLayer || !afterPass.empty()))
+                return ToolResult::Error("'space':\"texel\", 'mip', 'layer' and 'afterPass' require 'target' — the "
+                                         "G-Buffer multi-target probe spans several differently-sized resources.");
+
+            if (args.value("forceFrame", false) && afterPass.empty())
                 (void)ForceFreshFrame(server, /*settleFrames*/ 2);
 
-            const Json result = server.MarshalRead([&server, x, y, target]() -> Json
+            // afterPass: snapshot the target as of that pass's execution, then
+            // probe the snapshot clone instead of the (later-overwritten) live
+            // resource.
+            bool afterPassFrameRendered = true;
+            if (!afterPass.empty())
+            {
+                if (const std::string error = ArmAfterPassSnapshot(server, afterPass, { target }, afterPassFrameRendered);
+                    !error.empty())
+                    return ToolResult::Error(error);
+            }
+
+            const Json result = server.MarshalRead([&server, x, y, target, space, mip, hasLayer, layer,
+                                                    afterPass, afterPassFrameRendered]() -> Json
                                                    {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
@@ -2377,16 +2651,46 @@ namespace OloEngine::MCP
 
                 const u64 frameIndex = server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0;
 
+                // Viewport-space reference: the physical (display) render size —
+                // the frame olo_screenshot shows, so a pixel picked off a
+                // screenshot maps to the same visual location on any target.
+                const u32 refWidth = graph->GetPhysicalWidth();
+                const u32 refHeight = graph->GetPhysicalHeight();
+
                 // Single-target mode: raw channels of whatever was asked for, so
                 // the tool works for ANY capturable target (AOBuffer, BloomColor,
                 // VirtualGeometryDebug, ...), not just the G-Buffer.
                 if (!target.empty())
                 {
-                    const ProbePixel::TexelSample sample = ProbeTexel(target, x, y);
+                    ProbeRequest request;
+                    request.Space = space;
+                    request.Mip = mip;
+                    request.RefWidth = refWidth;
+                    request.RefHeight = refHeight;
+                    request.HasLayer = hasLayer;
+                    request.Layer = layer;
+
+                    if (!afterPass.empty())
+                    {
+                        RenderGraphPassSnapshot::Result snapshotResult;
+                        if (const std::string error =
+                                CollectAfterPassSnapshot(afterPass, target, afterPassFrameRendered, snapshotResult);
+                            !error.empty())
+                            return Json{ { "__error", error } };
+                        request.OverrideTextureId = snapshotResult.TextureID;
+                    }
+
+                    const ProbePixel::TexelSample sample = ProbeTexel(*graph, target, x, y, request);
                     if (!sample.Available && sample.SourceWidth == 0)
                         return Json{ { "__error", sample.Unavailable +
                                                       " Call olo_render_list_targets for the live list." } };
                     Json j = ProbePixel::BuildRawProbe(sample, x, y);
+                    if (!afterPass.empty())
+                    {
+                        j["afterPass"] = afterPass;
+                        j["afterPassNote"] = "meta.frameIndex is the collect-time frame; the snapshot was cloned "
+                                             "mid-frame during the immediately preceding rendered frame.";
+                    }
                     j["meta"] = CaptureStampJson(frameIndex);
                     return j;
                 }
@@ -2404,12 +2708,16 @@ namespace OloEngine::MCP
                     in.FarClip = pose.FarClip;
                 }
 
-                in.Albedo = ProbeTexel(std::string(ResourceNames::GBufferAlbedo), x, y);
-                in.Normal = ProbeTexel(std::string(ResourceNames::GBufferNormal), x, y);
-                in.Emissive = ProbeTexel(std::string(ResourceNames::GBufferEmissive), x, y);
-                in.Velocity = ProbeTexel(std::string(ResourceNames::Velocity), x, y);
-                in.EntityId = ProbeTexel(std::string(ResourceNames::SceneEntityID), x, y);
-                in.Depth = ProbeTexel(std::string(ResourceNames::SceneDepth), x, y);
+                ProbeRequest gbufferRequest;
+                gbufferRequest.RefWidth = refWidth;
+                gbufferRequest.RefHeight = refHeight;
+
+                in.Albedo = ProbeTexel(*graph, std::string(ResourceNames::GBufferAlbedo), x, y, gbufferRequest);
+                in.Normal = ProbeTexel(*graph, std::string(ResourceNames::GBufferNormal), x, y, gbufferRequest);
+                in.Emissive = ProbeTexel(*graph, std::string(ResourceNames::GBufferEmissive), x, y, gbufferRequest);
+                in.Velocity = ProbeTexel(*graph, std::string(ResourceNames::Velocity), x, y, gbufferRequest);
+                in.EntityId = ProbeTexel(*graph, std::string(ResourceNames::SceneEntityID), x, y, gbufferRequest);
+                in.Depth = ProbeTexel(*graph, std::string(ResourceNames::SceneDepth), x, y, gbufferRequest);
 
                 // The presented colour is whatever the LAST enabled post stage
                 // wrote, and which stage that is depends on the live toggles — so
@@ -2424,7 +2732,7 @@ namespace OloEngine::MCP
                 };
                 for (const std::string_view candidate : kFinalColorChain)
                 {
-                    ProbePixel::TexelSample sample = ProbeTexel(std::string(candidate), x, y);
+                    ProbePixel::TexelSample sample = ProbeTexel(*graph, std::string(candidate), x, y, gbufferRequest);
                     if (sample.Available)
                     {
                         in.FinalColor = std::move(sample);
@@ -2436,6 +2744,623 @@ namespace OloEngine::MCP
 
                 Json j = ProbePixel::BuildGBufferProbe(in);
                 j["meta"] = CaptureStampJson(frameIndex);
+                return j; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
+        // ---- olo_render_target_stats (main-marshaled; GL readback) -------------
+        // Exact float min/max/mean + bit-exact unique-value histogram over a
+        // rect of one target (issue #607). An 8-bit PNG capture hides 1-ULP
+        // corruption (1.0 and 0.99999994 both encode as 255), so mapping a
+        // corrupt region by single-texel probes took hundreds of round-trips
+        // during the GTAO hunt; this answers "is this region EXACTLY 1.0f,
+        // and if not what distinct values does it hold" in one call.
+
+        // Rect readback ceiling: 4M texels * 4 channels * 4 bytes = 64 MB —
+        // roomy for any full-HD mip while keeping a stray 8K request from
+        // stalling the main thread for seconds.
+        constexpr u64 kMaxStatsRectTexels = 4ull * 1024ull * 1024ull;
+
+        // (main thread) Read a rect of one mip as channel-interleaved floats.
+        // Integer formats are converted (exact below 2^24 — entity ids and
+        // counters qualify); the caller notes the conversion in the reply.
+        std::vector<f32> ReadRectFloats(const u32 textureId, const u32 mip, const u32 layer,
+                                        const u32 rectX, const u32 glRectY, const u32 rectW, const u32 rectH,
+                                        const ProbeFormat& format, std::string& outError)
+        {
+            std::vector<f32> interleaved;
+            const sizet texels = static_cast<sizet>(rectW) * rectH;
+            const sizet valueCount = texels * static_cast<sizet>(format.Channels);
+
+            // Drain any stale error left by earlier rendering so the check
+            // below attributes failures to THIS readback — a lingering error
+            // would otherwise discard a perfectly valid read.
+            while (glGetError() != GL_NO_ERROR)
+            {
+            }
+
+            GLint prevPackAlignment = 4;
+            glGetIntegerv(GL_PACK_ALIGNMENT, &prevPackAlignment);
+            glPixelStorei(GL_PACK_ALIGNMENT, 1);
+            GLint prevPackPBO = 0;
+            glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &prevPackPBO);
+            if (prevPackPBO != 0)
+                glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
+            if (format.IsInteger)
+            {
+                std::vector<i32> ints(valueCount, 0);
+                glGetTextureSubImage(textureId, static_cast<GLint>(mip),
+                                     static_cast<GLint>(rectX), static_cast<GLint>(glRectY),
+                                     static_cast<GLint>(layer),
+                                     static_cast<GLsizei>(rectW), static_cast<GLsizei>(rectH), 1,
+                                     format.ReadFormat, format.ReadType,
+                                     static_cast<GLsizei>(ints.size() * sizeof(i32)), ints.data());
+                interleaved.reserve(valueCount);
+                for (const i32 v : ints)
+                    interleaved.push_back(static_cast<f32>(v));
+            }
+            else
+            {
+                interleaved.assign(valueCount, 0.0f);
+                glGetTextureSubImage(textureId, static_cast<GLint>(mip),
+                                     static_cast<GLint>(rectX), static_cast<GLint>(glRectY),
+                                     static_cast<GLint>(layer),
+                                     static_cast<GLsizei>(rectW), static_cast<GLsizei>(rectH), 1,
+                                     format.ReadFormat, format.ReadType,
+                                     static_cast<GLsizei>(interleaved.size() * sizeof(f32)), interleaved.data());
+            }
+
+            if (prevPackPBO != 0)
+                glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(prevPackPBO));
+            glPixelStorei(GL_PACK_ALIGNMENT, prevPackAlignment);
+
+            if (const GLenum error = glGetError(); error != GL_NO_ERROR)
+            {
+                outError = "glGetTextureSubImage failed (GL 0x" +
+                           std::format("{:X}", static_cast<u32>(error)) + ").";
+                interleaved.clear();
+            }
+            return interleaved;
+        }
+
+        ToolResult Handle_RenderTargetStats(McpServer& server, const Json& args)
+        {
+            if (!args.contains("name") || !args["name"].is_string())
+                return ToolResult::Error("Missing required argument 'name' (render-graph resource name; see olo_render_list_targets).");
+            const std::string name = args["name"].get<std::string>();
+
+            u32 mip = 0;
+            if (args.contains("mip") && args["mip"].is_number_integer())
+                mip = static_cast<u32>(std::clamp<long long>(args["mip"].get<long long>(), 0, 16));
+
+            const bool hasLayer = args.contains("layer") && args["layer"].is_number_integer();
+            const long long requestedLayer = hasLayer ? args["layer"].get<long long>() : 0;
+
+            // rect {x, y, w, h} in texel coordinates of the mip, top-left
+            // origin (a capture PNG's orientation). Omitted = the whole mip.
+            bool hasRect = false;
+            u32 rectX = 0;
+            u32 rectY = 0;
+            u32 rectW = 0;
+            u32 rectH = 0;
+            if (args.contains("rect"))
+            {
+                const Json& rect = args["rect"];
+                if (!rect.is_object() || !rect.contains("x") || !rect.contains("y") ||
+                    !rect.contains("w") || !rect.contains("h") ||
+                    !rect["x"].is_number_integer() || !rect["y"].is_number_integer() ||
+                    !rect["w"].is_number_integer() || !rect["h"].is_number_integer())
+                    return ToolResult::Error("Invalid 'rect': expected { x, y, w, h } integers (texel coords of the mip, top-left origin).");
+                const long long rx = rect["x"].get<long long>();
+                const long long ry = rect["y"].get<long long>();
+                const long long rw = rect["w"].get<long long>();
+                const long long rh = rect["h"].get<long long>();
+                if (rx < 0 || ry < 0 || rw <= 0 || rh <= 0)
+                    return ToolResult::Error("Invalid 'rect': x/y must be >= 0 and w/h > 0.");
+                hasRect = true;
+                rectX = static_cast<u32>(rx);
+                rectY = static_cast<u32>(ry);
+                rectW = static_cast<u32>(rw);
+                rectH = static_cast<u32>(rh);
+            }
+
+            std::string afterPass;
+            if (args.contains("afterPass") && args["afterPass"].is_string())
+                afterPass = args["afterPass"].get<std::string>();
+
+            if (args.value("forceFrame", false) && afterPass.empty())
+                (void)ForceFreshFrame(server, /*settleFrames*/ 2);
+            bool afterPassFrameRendered = true;
+            if (!afterPass.empty())
+            {
+                if (const std::string error = ArmAfterPassSnapshot(server, afterPass, { name }, afterPassFrameRendered);
+                    !error.empty())
+                    return ToolResult::Error(error);
+            }
+
+            const Json result = server.MarshalRead([&server, name, mip, hasLayer, requestedLayer, hasRect,
+                                                    rectX, rectY, rectW, rectH, afterPass,
+                                                    afterPassFrameRendered]() -> Json
+                                                   {
+                const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
+                if (!graph)
+                    return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
+
+                u32 textureId = 0;
+                RenderGraphPassSnapshot::Result snapshotResult;
+                if (!afterPass.empty())
+                {
+                    if (const std::string error =
+                            CollectAfterPassSnapshot(afterPass, name, afterPassFrameRendered, snapshotResult);
+                        !error.empty())
+                        return Json{ { "__error", error } };
+                    textureId = snapshotResult.TextureID;
+                }
+                else
+                {
+                    textureId = ResolveTargetTexture(name);
+                }
+                if (textureId == 0 || glIsTexture(textureId) == GL_FALSE)
+                    return Json{ { "__error", "Unknown render-graph resource '" + name +
+                                                  "' (or it has no GPU backing this frame). Call olo_render_list_targets for the live list." } };
+
+                const CaptureLayer::TargetLayers layers = ResolveTargetLayers(*graph, name);
+                const CaptureLayer::Selection selection =
+                    CaptureLayer::SelectLayer(layers, name, hasLayer, requestedLayer);
+                if (!selection.Error.empty())
+                    return Json{ { "__error", selection.Error } };
+
+                GLint mipWidth = 0;
+                GLint mipHeight = 0;
+                GLint internalFormat = 0;
+                glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mip), GL_TEXTURE_WIDTH, &mipWidth);
+                glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mip), GL_TEXTURE_HEIGHT, &mipHeight);
+                glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mip), GL_TEXTURE_INTERNAL_FORMAT,
+                                             &internalFormat);
+                if (mipWidth <= 0 || mipHeight <= 0)
+                    return Json{ { "__error", "'" + name + "' has no storage at mip " + std::to_string(mip) + "." } };
+
+                ProbeFormat format;
+                if (!DescribeProbeFormat(internalFormat, format))
+                    return Json{ { "__error", "'" + name + "' has an internal format stats cannot decode (0x" +
+                                                  std::format("{:X}", static_cast<u32>(internalFormat)) + ")." } };
+
+                const auto fullW = static_cast<u32>(mipWidth);
+                const auto fullH = static_cast<u32>(mipHeight);
+                u32 x = hasRect ? rectX : 0u;
+                u32 y = hasRect ? rectY : 0u;
+                u32 w = hasRect ? rectW : fullW;
+                u32 h = hasRect ? rectH : fullH;
+                if (x >= fullW || y >= fullH || x + w > fullW || y + h > fullH)
+                    return Json{ { "__error", "rect (" + std::to_string(x) + ", " + std::to_string(y) + ", " +
+                                                  std::to_string(w) + "x" + std::to_string(h) + ") exceeds mip " +
+                                                  std::to_string(mip) + " (" + std::to_string(fullW) + "x" +
+                                                  std::to_string(fullH) + ")." } };
+                if (static_cast<u64>(w) * h > kMaxStatsRectTexels)
+                    return Json{ { "__error", "rect covers " + std::to_string(static_cast<u64>(w) * h) +
+                                                  " texels; the ceiling is " + std::to_string(kMaxStatsRectTexels) +
+                                                  ". Shrink the rect or use a higher mip." } };
+
+                // Stats aggregate per channel, so GL row order is irrelevant —
+                // only the rect's PLACEMENT must be flipped to GL's bottom-up
+                // rows: top-left rect row y..y+h maps to GL rows
+                // [mipH - y - h, mipH - y).
+                const u32 glRectY = fullH - y - h;
+                std::string readError;
+                const std::vector<f32> interleaved =
+                    ReadRectFloats(textureId, mip, selection.Layer, x, glRectY, w, h, format, readError);
+                if (!readError.empty())
+                    return Json{ { "__error", "Stats readback of '" + name + "' failed: " + readError } };
+
+                Json j = RenderTargetStats::BuildStatsJson(name, format.Token, x, y, w, h, mip, fullW, fullH,
+                                                           selection.Layer, interleaved, format.Channels);
+                if (format.IsInteger)
+                    j["integerNote"] = "Integer target: values converted to float for stats (bit-exact below 2^24).";
+                if (!afterPass.empty())
+                {
+                    j["afterPass"] = afterPass;
+                    j["afterPassNote"] = "meta.frameIndex is the collect-time frame; the snapshot was cloned "
+                                         "mid-frame during the immediately preceding rendered frame.";
+                }
+                if (!selection.Note.empty())
+                    j["layerNote"] = selection.Note;
+                j["meta"] = CaptureStampJson(server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0);
+                return j; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
+        // ---- olo_render_validate (main-marshaled; GL readback for compare) -----
+        // On-demand render-graph frame validation (issue #607): the compiled
+        // hazard sweep + barrier/build diagnostics + resolve failures +
+        // physical-identity report, plus an optional bit-exact texture compare
+        // ("assert HZB mip0 == scene depth bitwise after GTAOPass").
+
+        const char* HazardKindName(RenderGraph::HazardKind kind)
+        {
+            using HK = RenderGraph::HazardKind;
+            switch (kind)
+            {
+                case HK::ReadAfterWrite:
+                    return "ReadAfterWrite";
+                case HK::WriteAfterWrite:
+                    return "WriteAfterWrite";
+                case HK::WriteAfterRead:
+                    return "WriteAfterRead";
+                case HK::ResourceKindMismatch:
+                    return "ResourceKindMismatch";
+                case HK::FeedbackWithoutDeclaration:
+                    return "FeedbackWithoutDeclaration";
+                case HK::ImportedResourceLifetimeMisuse:
+                    return "ImportedResourceLifetimeMisuse";
+                case HK::Cycle:
+                    return "Cycle";
+            }
+            return "Unknown";
+        }
+
+        const char* BarrierDiagnosticKindName(RenderGraph::BarrierDiagnosticKind kind)
+        {
+            using BK = RenderGraph::BarrierDiagnosticKind;
+            switch (kind)
+            {
+                case BK::MissingProducer:
+                    return "MissingProducer";
+                case BK::CulledProducer:
+                    return "CulledProducer";
+                case BK::UnmappedTransition:
+                    return "UnmappedTransition";
+                case BK::StaleExtractionHandle:
+                    return "StaleExtractionHandle";
+                case BK::ExtractionOfCulledResource:
+                    return "ExtractionOfCulledResource";
+                case BK::InvalidHistoryContract:
+                    return "InvalidHistoryContract";
+            }
+            return "Unknown";
+        }
+
+        // (main thread) Channel 0 of one mip/layer as row-major floats with
+        // rows flipped to TOP-LEFT order, so diff coordinates match the
+        // capture/probe convention. Depth formats read the depth plane.
+        std::vector<f32> ReadChannel0TopLeft(const u32 textureId, const u32 mip, const u32 layer,
+                                             u32& outWidth, u32& outHeight, std::string& outFormat,
+                                             std::string& outError)
+        {
+            outWidth = 0;
+            outHeight = 0;
+            GLint mipWidth = 0;
+            GLint mipHeight = 0;
+            GLint internalFormat = 0;
+            glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mip), GL_TEXTURE_WIDTH, &mipWidth);
+            glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mip), GL_TEXTURE_HEIGHT, &mipHeight);
+            glGetTextureLevelParameteriv(textureId, static_cast<GLint>(mip), GL_TEXTURE_INTERNAL_FORMAT,
+                                         &internalFormat);
+            if (mipWidth <= 0 || mipHeight <= 0)
+            {
+                outError = "no storage at mip " + std::to_string(mip);
+                return {};
+            }
+            ProbeFormat format;
+            if (!DescribeProbeFormat(internalFormat, format))
+            {
+                outError = "undecodable internal format (0x" +
+                           std::format("{:X}", static_cast<u32>(internalFormat)) + ")";
+                return {};
+            }
+            outFormat = format.Token;
+            const auto w = static_cast<u32>(mipWidth);
+            const auto h = static_cast<u32>(mipHeight);
+            if (static_cast<u64>(w) * h > kMaxStatsRectTexels * 4ull)
+            {
+                outError = "mip is larger than the compare ceiling (" + std::to_string(w) + "x" +
+                           std::to_string(h) + "); compare a higher mip";
+                return {};
+            }
+
+            // Same stale-error drain rationale as ReadRectFloats.
+            while (glGetError() != GL_NO_ERROR)
+            {
+            }
+
+            const bool isDepth = format.ReadFormat == GL_DEPTH_COMPONENT;
+            const GLenum readFormat = isDepth ? GL_DEPTH_COMPONENT
+                                              : (format.IsInteger ? GL_RED_INTEGER : GL_RED);
+
+            GLint prevPackAlignment = 4;
+            glGetIntegerv(GL_PACK_ALIGNMENT, &prevPackAlignment);
+            glPixelStorei(GL_PACK_ALIGNMENT, 1);
+            GLint prevPackPBO = 0;
+            glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &prevPackPBO);
+            if (prevPackPBO != 0)
+                glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
+            std::vector<f32> bottomUp;
+            if (format.IsInteger)
+            {
+                std::vector<i32> ints(static_cast<sizet>(w) * h, 0);
+                glGetTextureSubImage(textureId, static_cast<GLint>(mip), 0, 0, static_cast<GLint>(layer),
+                                     static_cast<GLsizei>(w), static_cast<GLsizei>(h), 1,
+                                     readFormat, GL_INT,
+                                     static_cast<GLsizei>(ints.size() * sizeof(i32)), ints.data());
+                bottomUp.reserve(ints.size());
+                for (const i32 v : ints)
+                    bottomUp.push_back(static_cast<f32>(v));
+            }
+            else
+            {
+                bottomUp.assign(static_cast<sizet>(w) * h, 0.0f);
+                glGetTextureSubImage(textureId, static_cast<GLint>(mip), 0, 0, static_cast<GLint>(layer),
+                                     static_cast<GLsizei>(w), static_cast<GLsizei>(h), 1,
+                                     readFormat, GL_FLOAT,
+                                     static_cast<GLsizei>(bottomUp.size() * sizeof(f32)), bottomUp.data());
+            }
+
+            if (prevPackPBO != 0)
+                glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(prevPackPBO));
+            glPixelStorei(GL_PACK_ALIGNMENT, prevPackAlignment);
+
+            if (const GLenum error = glGetError(); error != GL_NO_ERROR)
+            {
+                outError = "glGetTextureSubImage failed (GL 0x" +
+                           std::format("{:X}", static_cast<u32>(error)) + ")";
+                return {};
+            }
+
+            // Flip rows to top-left order.
+            std::vector<f32> topLeft(bottomUp.size());
+            for (u32 row = 0; row < h; ++row)
+            {
+                const f32* src = bottomUp.data() + static_cast<sizet>(h - 1u - row) * w;
+                f32* dst = topLeft.data() + static_cast<sizet>(row) * w;
+                std::copy(src, src + w, dst);
+            }
+            outWidth = w;
+            outHeight = h;
+            return topLeft;
+        }
+
+        ToolResult Handle_RenderValidate(McpServer& server, const Json& args)
+        {
+            // Optional bit-exact compare of two targets.
+            RenderValidate::CompareRequest compare;
+            bool hasCompare = false;
+            if (args.contains("compare"))
+            {
+                const Json& c = args["compare"];
+                if (!c.is_object() || !c.contains("a") || !c.contains("b") ||
+                    !c["a"].is_string() || !c["b"].is_string())
+                    return ToolResult::Error("Invalid 'compare': expected { a, b, mipA?, mipB?, layerA?, layerB?, afterPass? } with 'a'/'b' target names.");
+                hasCompare = true;
+                compare.A = c["a"].get<std::string>();
+                compare.B = c["b"].get<std::string>();
+                if (c.contains("mipA") && c["mipA"].is_number_integer())
+                    compare.MipA = static_cast<u32>(std::clamp<long long>(c["mipA"].get<long long>(), 0, 16));
+                if (c.contains("mipB") && c["mipB"].is_number_integer())
+                    compare.MipB = static_cast<u32>(std::clamp<long long>(c["mipB"].get<long long>(), 0, 16));
+                if (c.contains("layerA") && c["layerA"].is_number_integer())
+                {
+                    compare.LayerA = static_cast<u32>(std::max<long long>(0, c["layerA"].get<long long>()));
+                    compare.HasLayerA = true;
+                }
+                if (c.contains("layerB") && c["layerB"].is_number_integer())
+                {
+                    compare.LayerB = static_cast<u32>(std::max<long long>(0, c["layerB"].get<long long>()));
+                    compare.HasLayerB = true;
+                }
+                if (c.contains("afterPass") && c["afterPass"].is_string())
+                    compare.AfterPass = c["afterPass"].get<std::string>();
+            }
+
+            if (args.value("forceFrame", false) && compare.AfterPass.empty())
+                (void)ForceFreshFrame(server, /*settleFrames*/ 2);
+
+            // Both compare sides are snapshotted by the SAME hook firing, so
+            // the bitwise verdict describes one consistent frame.
+            bool afterPassFrameRendered = true;
+            if (hasCompare && !compare.AfterPass.empty())
+            {
+                if (const std::string error =
+                        ArmAfterPassSnapshot(server, compare.AfterPass, { compare.A, compare.B },
+                                             afterPassFrameRendered);
+                    !error.empty())
+                    return ToolResult::Error(error);
+            }
+
+            const Json result = server.MarshalRead([&server, hasCompare, compare, afterPassFrameRendered]() -> Json
+                                                   {
+                const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
+                if (!graph)
+                    return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
+
+                // The graph getters below are const but ValidateCompiledResourceHazards
+                // is not — the same confined const_cast the debugger's capture uses.
+                auto& mutableGraph = *const_cast<RenderGraph*>(graph.Raw());
+
+                std::vector<RenderValidate::HazardInfo> hazards;
+                for (const auto& hazard : mutableGraph.ValidateCompiledResourceHazards())
+                {
+                    hazards.push_back(RenderValidate::HazardInfo{ HazardKindName(hazard.Kind), hazard.Resource,
+                                                                  hazard.Producer, hazard.Consumer, hazard.Message });
+                }
+
+                std::vector<RenderValidate::DiagnosticInfo> barrierDiagnostics;
+                for (const auto& diagnostic : graph->GetBarrierDiagnostics())
+                {
+                    barrierDiagnostics.push_back(RenderValidate::DiagnosticInfo{
+                        BarrierDiagnosticKindName(diagnostic.Kind), diagnostic.PassName, diagnostic.Resource,
+                        diagnostic.Message });
+                }
+
+                std::vector<RenderValidate::DiagnosticInfo> buildDiagnostics;
+                for (const auto& diagnostic : graph->GetBuildDiagnostics())
+                {
+                    buildDiagnostics.push_back(RenderValidate::DiagnosticInfo{
+                        "RegistrationOrderSensitivity", std::string{}, diagnostic.Resource, diagnostic.Message });
+                }
+
+                std::vector<RenderValidate::ResolveFailureInfo> resolveFailures;
+                for (const auto& failure : graph->GetResolveFailures())
+                {
+                    resolveFailures.push_back(
+                        RenderValidate::ResolveFailureInfo{ failure.PassName, failure.Reason, failure.Count });
+                }
+
+                std::vector<RenderValidate::ResourceIdentity> identities;
+                for (const auto& resource : graph->GetRegisteredResources())
+                {
+                    RenderValidate::ResourceIdentity identity;
+                    identity.Name = resource.Name;
+                    if (resource.TextureHandle.IsValid())
+                        identity.GLTextureId = graph->ResolveTexture(resource.TextureHandle);
+                    else if (resource.FramebufferHandle.IsValid())
+                        identity.GLTextureId = ResolveTargetTexture(resource.Name);
+                    if (resource.BufferHandle.IsValid())
+                        identity.GLBufferId = graph->ResolveBuffer(resource.BufferHandle);
+                    identity.HasProducers = !resource.Producers.empty();
+                    identity.HasConsumers = !resource.Consumers.empty();
+                    identity.LastWriter = graph->GetLastWriterPassName(resource.Name);
+                    identities.push_back(std::move(identity));
+                }
+
+                Json j = RenderValidate::BuildValidateJson(hazards, barrierDiagnostics, buildDiagnostics,
+                                                           resolveFailures, identities);
+
+                if (hasCompare)
+                {
+                    RenderValidate::CompareResult compareResult;
+                    u32 textureA = 0;
+                    u32 textureB = 0;
+                    if (!compare.AfterPass.empty())
+                    {
+                        // Both results come from the one armed snapshot; read
+                        // them here and disarm exactly once.
+                        auto& snapshot = RenderGraphDebugRuntime::GetPassSnapshot();
+                        if (snapshot.GetPassName() != compare.AfterPass)
+                        {
+                            compareResult.Error = "Another tool call re-armed the afterPass snapshot concurrently "
+                                                  "(now armed for pass '" + snapshot.GetPassName() +
+                                                  "'). afterPass requests are one-at-a-time; retry.";
+                        }
+                        else if (snapshot.IsPending())
+                        {
+                            snapshot.Disarm();
+                            compareResult.Error =
+                                !afterPassFrameRendered
+                                    ? "Timed out waiting for a frame to render after arming the afterPass "
+                                      "snapshot (viewport render-throttled, editor stalled, or cancelled)."
+                                    : "Pass '" + compare.AfterPass +
+                                          "' did not execute this frame (culled or disabled).";
+                        }
+                        else
+                        {
+                            for (const auto& snapshotResult : snapshot.GetResults())
+                            {
+                                if (!snapshotResult.Captured)
+                                {
+                                    compareResult.Error = snapshotResult.Error;
+                                    continue;
+                                }
+                                if (snapshotResult.ResourceName == compare.A)
+                                    textureA = snapshotResult.TextureID;
+                                if (snapshotResult.ResourceName == compare.B)
+                                    textureB = snapshotResult.TextureID;
+                            }
+                            snapshot.Disarm();
+                        }
+                    }
+                    else
+                    {
+                        textureA = ResolveTargetTexture(compare.A);
+                        textureB = ResolveTargetTexture(compare.B);
+                    }
+
+                    // Per-side layer selection, same rule as capture/probe/
+                    // stats: an explicit layerA/layerB is validated, and a
+                    // layer-VIEW resource (ShadowMapCSMCascade3) defaults to
+                    // ITS OWN layer — reading z=0 unconditionally would
+                    // silently compare cascade 0 vs cascade 0. The snapshot
+                    // clone preserves every layer, so the same selection
+                    // applies on the afterPass path.
+                    u32 layerA = compare.LayerA;
+                    u32 layerB = compare.LayerB;
+                    if (compareResult.Error.empty())
+                    {
+                        const auto selectLayer = [&graph](const std::string& targetName, bool hasLayer,
+                                                          u32 requestedLayer, u32& outLayer) -> std::string
+                        {
+                            const CaptureLayer::TargetLayers layers = ResolveTargetLayers(*graph, targetName);
+                            const CaptureLayer::Selection selection = CaptureLayer::SelectLayer(
+                                layers, targetName, hasLayer, static_cast<long long>(requestedLayer));
+                            if (!selection.Error.empty())
+                                return selection.Error;
+                            outLayer = selection.Layer;
+                            return {};
+                        };
+                        if (const std::string error = selectLayer(compare.A, compare.HasLayerA, compare.LayerA, layerA);
+                            !error.empty())
+                            compareResult.Error = error;
+                        else if (const std::string error =
+                                     selectLayer(compare.B, compare.HasLayerB, compare.LayerB, layerB);
+                                 !error.empty())
+                            compareResult.Error = error;
+                    }
+
+                    if (compareResult.Error.empty())
+                    {
+                        if (textureA == 0 || textureB == 0)
+                        {
+                            compareResult.Error = std::string("Unknown compare target '") +
+                                                  (textureA == 0 ? compare.A : compare.B) +
+                                                  "' (or it has no GPU backing). Call olo_render_list_targets.";
+                        }
+                        else
+                        {
+                            u32 widthA = 0;
+                            u32 heightA = 0;
+                            u32 widthB = 0;
+                            u32 heightB = 0;
+                            std::string errorA;
+                            std::string errorB;
+                            const std::vector<f32> a = ReadChannel0TopLeft(textureA, compare.MipA, layerA,
+                                                                           widthA, heightA, compareResult.FormatA,
+                                                                           errorA);
+                            const std::vector<f32> b = ReadChannel0TopLeft(textureB, compare.MipB, layerB,
+                                                                           widthB, heightB, compareResult.FormatB,
+                                                                           errorB);
+                            if (!errorA.empty())
+                                compareResult.Error = "'" + compare.A + "': " + errorA;
+                            else if (!errorB.empty())
+                                compareResult.Error = "'" + compare.B + "': " + errorB;
+                            else
+                            {
+                                const std::string formatA = compareResult.FormatA;
+                                const std::string formatB = compareResult.FormatB;
+                                compareResult = RenderValidate::CompareFloatBuffers(a, widthA, heightA,
+                                                                                    b, widthB, heightB);
+                                compareResult.FormatA = formatA;
+                                compareResult.FormatB = formatB;
+                            }
+                        }
+                    }
+                    // Echo the RESOLVED layers (a view's own layer may have
+                    // been applied) so the reply states which layers were
+                    // actually compared.
+                    RenderValidate::CompareRequest compareEcho = compare;
+                    compareEcho.LayerA = layerA;
+                    compareEcho.LayerB = layerB;
+                    j["compare"] = RenderValidate::CompareResultJson(compareEcho, compareResult);
+                    if (!compareResult.Error.empty())
+                        j["ok"] = false;
+                }
+
+                j["meta"] = CaptureStampJson(server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0);
                 return j; });
 
             if (result.is_object() && result.contains("__error"))
@@ -3332,9 +4257,13 @@ namespace OloEngine::MCP
                 "dependency edges, and every registered resource (texture/framebuffer/buffer) with the passes "
                 "that produce and consume it. Each pass reports its work type (Graphics/Compute/Copy), whether "
                 "it declares resources, whether it is an async-compute candidate, whether it was culled "
-                "(unreachable from the final pass this frame), and whether it is the final/output pass. Use "
-                "format:\"mermaid\" for a flowchart DAG of the pass graph instead of JSON. Read-only; requires "
-                "the editor to be rendering in 3D mode.";
+                "(unreachable from the final pass this frame), whether it is the final/output pass, and its "
+                "'accesses' — every resource it reads/writes WITH the resolved physical GL object id, so 'do "
+                "these two passes touch the same physical texture this frame' is a single lookup (each "
+                "resource also carries a 'gl' block: texture/framebuffer/attachment/buffer ids as of the last "
+                "executed frame; texture views resolve to their parent object). Use format:\"mermaid\" for a "
+                "flowchart DAG of the pass graph instead of JSON. Read-only; requires the editor to be "
+                "rendering in 3D mode.";
             tool.InputSchema = Schema::Object()
                                    .Prop("format", Schema::String()
                                                        .Enum({ "json", "mermaid" })
@@ -3368,15 +4297,20 @@ namespace OloEngine::MCP
                 "under one pixel rather than a picture, use olo_render_probe_pixel. ARRAY TARGETS (the CSM "
                 "cascade array 'ShadowMapCSM', the raw-depth views 'ShadowCSMRaw' / 'ShadowAtlasRaw'): pass "
                 "'layer' to pick one cascade — olo_render_list_targets reports each array target's 'layers' "
-                "count, and an out-of-range layer is an error, never a silent layer-0 capture.";
+                "count, and an out-of-range layer is an error, never a silent layer-0 capture. MID-FRAME "
+                "STATE: pass 'afterPass' to capture the resource AS OF that pass's execution instead of "
+                "end-of-frame — decisive when a later pass overwrites it (ParticlePass re-exports "
+                "SceneDepth after GTAOPass, so an end-of-frame SceneDepth can never show what GTAO "
+                "sampled). Pass names come from olo_render_graph_topology_export's executionOrder.";
             tool.InputSchema = Schema::Object()
                                    .Prop("name", Schema::String().Desc("Render-graph resource name (see olo_render_list_targets)."))
                                    .Prop("mip", Schema::Int().Min(0).Max(16).Desc("Mip level to capture (default 0)."))
-                                   .Prop("layer", Schema::Int().Min(0).Max(64).Desc("Texture-array layer (e.g. CSM cascade 0..3) or cubemap face (0..5 = +X,-X,+Y,-Y,+Z,-Z). Default 0, or the resource's own layer when it is a per-layer view. Out of range is an error."))
+                                   .Prop("layer", Schema::Int().Min(0).Max(64).Desc("Texture-array layer (e.g. CSM cascade 0..3), cubemap face (0..5 = +X,-X,+Y,-Y,+Z,-Z), or 3D-volume z-slice (e.g. the froxel fog volumes). Default 0, or the resource's own layer when it is a per-layer view. Out of range is an error."))
                                    .Prop("face", Schema::Int().Min(0).Max(64).Desc("Alias of 'layer' (the original spelling); give only one."))
                                    .Prop("normalize", Schema::Bool().Desc("Min-max normalise float values to [0,1] before encoding (default: true for depth, false otherwise)."))
                                    .Prop("maxWidth", Schema::Int().Min(16).Max(4096).Desc("Max output width in pixels (default 1024); aspect ratio preserved."))
-                                   .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame before capturing (default false). Use after any change (scene open, setting flip) so you cannot read a stale target."))
+                                   .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame before capturing (default false). Use after any change (scene open, setting flip) so you cannot read a stale target. Implied by 'afterPass'."))
+                                   .Prop("afterPass", Schema::String().Desc("Capture the resource AS OF this pass's execution (mid-frame snapshot), not end-of-frame. A pass name from olo_render_graph_topology_export's executionOrder; a culled/unknown pass is an error."))
                                    .Required({ "name" })
                                    .NoAdditional();
             tool.MainMarshaled = true;
@@ -3696,16 +4630,104 @@ namespace OloEngine::MCP
                 "G-Buffer is Deferred-only) are reported as unavailable with a reason, never as a "
                 "failed call. Pass 'target' to probe ONE named render-graph resource instead and get "
                 "its raw channel values (works for any capturable target: AOBuffer, BloomColor, "
-                "VirtualGeometryDebug, ...). Only a 1x1 region is read back, so it is cheap.";
+                "VirtualGeometryDebug, ...). Only a 1x1 region is read back, so it is cheap. "
+                "COORDINATES: every reply echoes 'mappedCoord' — the exact texel read — so the mapping "
+                "is never guesswork. Default space \"viewport\" maps the pixel proportionally onto the "
+                "target; space \"texel\" (with optional 'mip') addresses an EXACT texel of the target — "
+                "required for padded resources like the HZB pow2 pyramid, where proportional mapping "
+                "reads the wrong texel. 'afterPass' probes the target AS OF that pass's execution "
+                "(mid-frame snapshot) instead of end-of-frame. space/mip/layer/afterPass require "
+                "'target'.";
             tool.InputSchema = Schema::Object()
-                                   .Prop("x", Schema::Int().Min(0).Desc("Pixel column, 0 = left edge."))
+                                   .Prop("x", Schema::Int().Min(0).Desc("Pixel column, 0 = left edge (in 'space' units)."))
                                    .Prop("y", Schema::Int().Min(0).Desc("Pixel row, 0 = TOP edge (screenshot convention; the GL bottom-up flip is handled for you)."))
                                    .Prop("target", Schema::String().Desc("Optional: probe only this render-graph resource (see olo_render_list_targets) and return its raw channels instead of the decoded G-Buffer."))
-                                   .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame before probing (default false). Use after a scene open / setting change so you cannot read a stale target."))
+                                   .Prop("space", Schema::String().Enum({ "viewport", "texel" }).Desc("How x/y address the target (requires 'target'). \"viewport\" (default): viewport pixels mapped proportionally onto the target mip. \"texel\": exact texel coordinates of the target at 'mip' — use for padded resources (HZB pyramid). Both top-left origin; the reply's mappedCoord shows the texel actually read."))
+                                   .Prop("mip", Schema::Int().Min(0).Max(16).Desc("Mip level to probe (default 0; requires 'target'). Texel coordinates address this mip's own grid."))
+                                   .Prop("layer", Schema::Int().Min(0).Max(64).Desc("Texture-array layer / cubemap face / 3D z-slice to probe (requires 'target'). Default: the resource's own view layer (a CSM cascade view probes ITS cascade, never silently cascade 0)."))
+                                   .Prop("afterPass", Schema::String().Desc("Probe the target AS OF this pass's execution (mid-frame snapshot), not end-of-frame (requires 'target'). A pass name from olo_render_graph_topology_export's executionOrder."))
+                                   .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame before probing (default false). Use after a scene open / setting change so you cannot read a stale target. Implied by 'afterPass'."))
                                    .Required({ "x", "y" })
                                    .NoAdditional();
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderProbePixel;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_render_target_stats";
+            tool.Toolset = "render";
+            tool.Title = "Exact stats over a render-target region";
+            // A bounded rect readback; changes no camera / setting / scene state.
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Exact float min/max/mean and a BIT-EXACT unique-value histogram over a rect of one "
+                "render-graph target — the tool for 1-ULP questions an 8-bit PNG capture cannot answer "
+                "(1.0 and 0.99999994 both encode as 255). Per channel it reports finite/NaN/Inf counts, "
+                "min/max/mean over finite values, the number of DISTINCT bit patterns, and the most "
+                "frequent values with their exact counts — so 'is this HZB region exactly 1.0f' or 'what "
+                "garbage values leaked into this buffer' is one call, not hundreds of probes. 'rect' is "
+                "in texel coordinates of the chosen 'mip' (top-left origin, a capture PNG's orientation); "
+                "omit it for the whole mip (ceiling 4M texels — shrink the rect or raise the mip above "
+                "that). 'afterPass' computes the stats over the resource AS OF that pass's execution. "
+                "Use olo_render_capture_target to SEE the region, this to know its numbers.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("name", Schema::String().Desc("Render-graph resource name (see olo_render_list_targets)."))
+                                   .Prop("rect", Schema::Object()
+                                                     .Prop("x", Schema::Int().Min(0).Desc("Left texel column of the region."))
+                                                     .Prop("y", Schema::Int().Min(0).Desc("Top texel row of the region."))
+                                                     .Prop("w", Schema::Int().Min(1).Desc("Region width in texels."))
+                                                     .Prop("h", Schema::Int().Min(1).Desc("Region height in texels."))
+                                                     .Required({ "x", "y", "w", "h" })
+                                                     .NoAdditional()
+                                                     .Desc("Region in texel coords of the mip, top-left origin. Omit for the whole mip."))
+                                   .Prop("mip", Schema::Int().Min(0).Max(16).Desc("Mip level (default 0). rect addresses this mip's texel grid."))
+                                   .Prop("layer", Schema::Int().Min(0).Max(64).Desc("Texture-array layer / cubemap face / 3D z-slice. Default: the resource's own view layer."))
+                                   .Prop("afterPass", Schema::String().Desc("Compute stats over the resource AS OF this pass's execution (mid-frame snapshot). A pass name from olo_render_graph_topology_export's executionOrder."))
+                                   .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame first (default false). Implied by 'afterPass'."))
+                                   .Required({ "name" })
+                                   .NoAdditional();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RenderTargetStats;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_render_validate";
+            tool.Toolset = "render";
+            tool.Title = "Validate the render-graph frame";
+            // Read-only diagnostics sweep (+ an optional readback compare).
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "On-demand render-graph frame validation: runs the compiled resource-hazard sweep "
+                "(read-after-write / write-after-write / cycle / imported-lifetime misuse), reports the "
+                "graph's barrier and build diagnostics and any execute-path resolve failures, and maps "
+                "every resource's RESOLVED physical GL id — flagging resources that are consumed but "
+                "resolve to no backing, and grouping versioned names (SceneColor@PassB) with their "
+                "physical ids so copy-on-write aliasing is visible. 'ok': true means the sweep found "
+                "nothing. Optionally pass 'compare' to check two targets BIT-EXACTLY (channel 0, "
+                "overlapping top-left region): e.g. compare:{a:\"SceneDepth\", b:\"HZB\", mipB:0, "
+                "afterPass:\"GTAOPass\"} answers 'is HZB mip0 identical to the depth GTAO sampled' with "
+                "the first differing texels listed. With compare.afterPass BOTH sides are snapshotted in "
+                "the SAME frame by the same post-pass hook.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("compare", Schema::Object()
+                                                        .Prop("a", Schema::String().Desc("First target name."))
+                                                        .Prop("b", Schema::String().Desc("Second target name."))
+                                                        .Prop("mipA", Schema::Int().Min(0).Max(16).Desc("Mip of 'a' to compare (default 0)."))
+                                                        .Prop("mipB", Schema::Int().Min(0).Max(16).Desc("Mip of 'b' to compare (default 0)."))
+                                                        .Prop("layerA", Schema::Int().Min(0).Max(64).Desc("Layer / face / z-slice of 'a' (default 0)."))
+                                                        .Prop("layerB", Schema::Int().Min(0).Max(64).Desc("Layer / face / z-slice of 'b' (default 0)."))
+                                                        .Prop("afterPass", Schema::String().Desc("Snapshot BOTH targets as of this pass's execution (same frame, same hook) before comparing."))
+                                                        .Required({ "a", "b" })
+                                                        .NoAdditional()
+                                                        .Desc("Optional bit-exact channel-0 compare of two targets over their overlapping top-left region."))
+                                   .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame first (default false). Implied by compare.afterPass."))
+                                   .NoAdditional();
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RenderValidate;
             server.RegisterTool(std::move(tool));
         }
 

@@ -387,6 +387,37 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
+
+            // Settle rendered frames before returning (issue #607 — the
+            // uniform-grey olo_screenshot case). MarshalRead jobs drain BEFORE
+            // the frame's OnUpdate, so the state transition above has not been
+            // RENDERED yet when this tool returns; an immediate follow-up
+            // olo_screenshot captured the last pre-transition frame (an
+            // Edit-mode frame — for a 2D-sprite scene in the 3D editor, a
+            // uniform-grey clear, since sprites only draw through the Play
+            // overlay callback). Waiting until the new state has produced
+            // frames makes "olo_scene_play then olo_screenshot" show what is
+            // actually playing.
+            // Best-effort: the transition above already SUCCEEDED, and these
+            // settle marshals run on the 5s default timeout right after a
+            // transition that legitimately gets 120s — a heavy scene's first
+            // post-transition frame can outlive 5s, and that must degrade to
+            // "returned before settling", never to a reported tool failure.
+            if (result.value("changed", false) && server.Context().GetFrameIndex)
+            {
+                try
+                {
+                    constexpr int kPostTransitionSettleFrames = 2;
+                    const u64 baseFrame = server.MarshalRead([&server]() -> Json
+                                                             { return Json{ { "frame", server.Context().GetFrameIndex() } }; })
+                                              .value("frame", static_cast<u64>(0));
+                    AwaitRenderedFrames(server, baseFrame, kPostTransitionSettleFrames);
+                }
+                catch (...)
+                {
+                    // Settle timed out — the transition result stands.
+                }
+            }
             return ToolResult::Text(result.dump(2));
         }
 

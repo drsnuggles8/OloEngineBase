@@ -67,6 +67,20 @@ namespace OloEngine::MCP::RenderGraphTopology
         bool HasExternalBacking = false; // resolves to caller-supplied frame-local backing
         std::vector<std::string> Producers;
         std::vector<std::string> Consumers;
+
+        // Resolved physical GL object ids, as of the last executed frame
+        // (issue #607) — the one-call answer to "do these two passes touch
+        // the same physical texture this frame". 0 = unbacked / not that
+        // kind. Texture VIEWS resolve to their PARENT texture object;
+        // ViewOfParentLayer carries the layer a layer/face view addresses.
+        // Transient ids are only meaningful within the frame they were
+        // resolved in (the transient pool memory-aliases across frames).
+        u32 GLTextureId = 0;
+        u32 GLFramebufferId = 0;
+        u32 GLBufferId = 0;
+        u32 GLDepthAttachmentId = 0;
+        std::vector<u32> GLColorAttachmentIds;
+        u32 ViewOfParentLayer = 0;
     };
 
     // The whole-graph snapshot the handler gathers off the live RenderGraph.
@@ -83,17 +97,78 @@ namespace OloEngine::MCP::RenderGraphTopology
     // default. Counts are reported alongside each array so a truncating client can
     // tell the full size, and a trailing `note` documents the edge / culled / final
     // semantics for the reader.
+    // The "gl" sub-object of one resource: every resolved id that is set.
+    // Returns an empty (null) Json when the resource has no resolved backing.
+    [[nodiscard]] inline Json ResourceGLJson(const ResourceInfo& r)
+    {
+        Json gl;
+        if (r.GLTextureId != 0)
+            gl["textureId"] = r.GLTextureId;
+        if (r.GLFramebufferId != 0)
+            gl["framebufferId"] = r.GLFramebufferId;
+        if (!r.GLColorAttachmentIds.empty())
+            gl["colorAttachmentIds"] = r.GLColorAttachmentIds;
+        if (r.GLDepthAttachmentId != 0)
+            gl["depthAttachmentId"] = r.GLDepthAttachmentId;
+        if (r.GLBufferId != 0)
+            gl["bufferId"] = r.GLBufferId;
+        if (r.ViewOfParentLayer != 0)
+            gl["viewOfParentLayer"] = r.ViewOfParentLayer;
+        return gl;
+    }
+
+    // The physical texture id a pass ACCESSES through this resource: the
+    // resolved texture for texture kinds, otherwise the framebuffer's first
+    // colour attachment (or depth attachment for depth-only targets) — the
+    // same physical-identity rule the capture tools use. 0 when unbacked.
+    [[nodiscard]] inline u32 AccessedPhysicalTextureId(const ResourceInfo& r)
+    {
+        if (r.GLTextureId != 0)
+            return r.GLTextureId;
+        if (!r.GLColorAttachmentIds.empty() && r.GLColorAttachmentIds.front() != 0)
+            return r.GLColorAttachmentIds.front();
+        return r.GLDepthAttachmentId;
+    }
+
     [[nodiscard]] inline Json BuildJson(const Snapshot& snap)
     {
+        // Per-pass access lists (issue #607): invert each resource's
+        // producers/consumers so a pass entry lists every resource it writes
+        // or reads WITH the resolved physical id — "do these two passes touch
+        // the same physical texture this frame" becomes a single lookup.
+        std::unordered_map<std::string, Json> accessesByPass;
+        const auto appendAccess = [&accessesByPass](const std::string& pass, const ResourceInfo& r, const char* mode)
+        {
+            Json access;
+            access["resource"] = r.Name;
+            access["mode"] = mode;
+            if (const u32 physicalId = AccessedPhysicalTextureId(r); physicalId != 0)
+                access["glTextureId"] = physicalId;
+            if (r.GLBufferId != 0)
+                access["glBufferId"] = r.GLBufferId;
+            auto [it, inserted] = accessesByPass.try_emplace(pass, Json::array());
+            it->second.push_back(std::move(access));
+        };
+        for (const auto& r : snap.Resources)
+        {
+            for (const auto& producer : r.Producers)
+                appendAccess(producer, r, "write");
+            for (const auto& consumer : r.Consumers)
+                appendAccess(consumer, r, "read");
+        }
+
         Json passes = Json::array();
         for (const auto& p : snap.Passes)
         {
-            passes.push_back(Json{ { "name", p.Name },
-                                   { "workType", p.WorkType },
-                                   { "declaresResources", p.DeclaresResources },
-                                   { "asyncComputeCandidate", p.AsyncComputeCandidate },
-                                   { "culled", p.Culled },
-                                   { "isFinalPass", p.IsFinalPass } });
+            Json pass = Json{ { "name", p.Name },
+                              { "workType", p.WorkType },
+                              { "declaresResources", p.DeclaresResources },
+                              { "asyncComputeCandidate", p.AsyncComputeCandidate },
+                              { "culled", p.Culled },
+                              { "isFinalPass", p.IsFinalPass } };
+            if (const auto it = accessesByPass.find(p.Name); it != accessesByPass.end())
+                pass["accesses"] = it->second;
+            passes.push_back(std::move(pass));
         }
 
         Json edges = Json::array();
@@ -119,6 +194,8 @@ namespace OloEngine::MCP::RenderGraphTopology
             e["hasExternalBacking"] = r.HasExternalBacking;
             e["producers"] = r.Producers;
             e["consumers"] = r.Consumers;
+            if (Json gl = ResourceGLJson(r); !gl.is_null() && !gl.empty())
+                e["gl"] = std::move(gl);
             resources.push_back(std::move(e));
         }
 
@@ -135,7 +212,11 @@ namespace OloEngine::MCP::RenderGraphTopology
                       "execution-ordering dependencies (from must run before to). 'executionOrder' is the "
                       "topologically-sorted run order. 'culled' passes were unreachable from the final pass "
                       "this frame and are skipped. Each resource's 'producers' write it and 'consumers' read "
-                      "it. Use format:\"mermaid\" for a flowchart DAG of the pass graph.";
+                      "it. Each resource's 'gl' (and each pass access's glTextureId) is the RESOLVED physical "
+                      "GL object id as of the last executed frame — two passes whose accesses share an id "
+                      "touch the same physical texture; texture views resolve to their parent object "
+                      "(see viewOfParentLayer); transient ids are only meaningful within one frame. "
+                      "Use format:\"mermaid\" for a flowchart DAG of the pass graph.";
         return out;
     }
 

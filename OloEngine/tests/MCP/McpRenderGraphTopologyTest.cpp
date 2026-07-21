@@ -214,3 +214,94 @@ TEST(McpRenderGraphTopology, MermaidEscapesQuotesAndUsesSyntheticIds)
     // The literal double quote must not leak into the label unescaped.
     EXPECT_EQ(std::string::npos, mermaid.find("\"Post\"Process"));
 }
+
+// ---- Resolved GL ids + per-pass access lists (issue #607) -------------------
+
+TEST(McpRenderGraphTopology, ResourceEmitsResolvedGlIdsWhenSet)
+{
+    Snapshot snap;
+    ResourceInfo tex;
+    tex.Name = "SceneDepth";
+    tex.Kind = "Texture2D";
+    tex.GLTextureId = 42;
+    tex.ViewOfParentLayer = 3;
+    snap.Resources.push_back(std::move(tex));
+
+    ResourceInfo fb;
+    fb.Name = "SceneColor";
+    fb.Kind = "Framebuffer";
+    fb.GLFramebufferId = 7;
+    fb.GLColorAttachmentIds = { 10, 11 };
+    fb.GLDepthAttachmentId = 12;
+    snap.Resources.push_back(std::move(fb));
+
+    ResourceInfo unbacked;
+    unbacked.Name = "OptionalVelocity";
+    unbacked.Kind = "Texture2D"; // no ids resolved
+    snap.Resources.push_back(std::move(unbacked));
+
+    const Json j = BuildJson(snap);
+    const Json& texJson = j["resources"][0];
+    ASSERT_TRUE(texJson.contains("gl"));
+    EXPECT_EQ(42u, texJson["gl"]["textureId"].get<u32>());
+    EXPECT_EQ(3u, texJson["gl"]["viewOfParentLayer"].get<u32>());
+
+    const Json& fbJson = j["resources"][1];
+    ASSERT_TRUE(fbJson.contains("gl"));
+    EXPECT_EQ(7u, fbJson["gl"]["framebufferId"].get<u32>());
+    ASSERT_EQ(2u, fbJson["gl"]["colorAttachmentIds"].size());
+    EXPECT_EQ(10u, fbJson["gl"]["colorAttachmentIds"][0].get<u32>());
+    EXPECT_EQ(12u, fbJson["gl"]["depthAttachmentId"].get<u32>());
+
+    // No resolved backing -> no "gl" block at all (absence is the signal).
+    EXPECT_FALSE(j["resources"][2].contains("gl"));
+}
+
+TEST(McpRenderGraphTopology, PassAccessesInvertProducersConsumersWithPhysicalIds)
+{
+    Snapshot snap;
+    snap.Passes.push_back(PassInfo{ "GTAOPass", "Compute", true, false, false, false });
+    snap.Passes.push_back(PassInfo{ "ParticlePass", "Graphics", true, false, false, false });
+
+    ResourceInfo depth;
+    depth.Name = "SceneDepth";
+    depth.Kind = "Texture2D";
+    depth.GLTextureId = 99;
+    depth.Producers = { "ParticlePass" };
+    depth.Consumers = { "GTAOPass" };
+    snap.Resources.push_back(std::move(depth));
+
+    const Json j = BuildJson(snap);
+    // GTAOPass reads SceneDepth; ParticlePass writes it — both accesses carry
+    // the SAME resolved physical id, the one-call aliasing answer.
+    const Json& gtao = j["passes"][0];
+    ASSERT_TRUE(gtao.contains("accesses"));
+    ASSERT_EQ(1u, gtao["accesses"].size());
+    EXPECT_EQ("SceneDepth", gtao["accesses"][0]["resource"].get<std::string>());
+    EXPECT_EQ("read", gtao["accesses"][0]["mode"].get<std::string>());
+    EXPECT_EQ(99u, gtao["accesses"][0]["glTextureId"].get<u32>());
+
+    const Json& particle = j["passes"][1];
+    ASSERT_TRUE(particle.contains("accesses"));
+    EXPECT_EQ("write", particle["accesses"][0]["mode"].get<std::string>());
+    EXPECT_EQ(99u, particle["accesses"][0]["glTextureId"].get<u32>());
+}
+
+TEST(McpRenderGraphTopology, AccessPhysicalIdFallsBackToFramebufferAttachments)
+{
+    using OloEngine::MCP::RenderGraphTopology::AccessedPhysicalTextureId;
+
+    ResourceInfo colorFb;
+    colorFb.GLColorAttachmentIds = { 21 };
+    colorFb.GLDepthAttachmentId = 22;
+    EXPECT_EQ(21u, AccessedPhysicalTextureId(colorFb));
+
+    ResourceInfo depthOnlyFb;
+    depthOnlyFb.GLDepthAttachmentId = 22;
+    EXPECT_EQ(22u, AccessedPhysicalTextureId(depthOnlyFb));
+
+    ResourceInfo tex;
+    tex.GLTextureId = 5;
+    tex.GLColorAttachmentIds = { 21 }; // texture id wins when both set
+    EXPECT_EQ(5u, AccessedPhysicalTextureId(tex));
+}

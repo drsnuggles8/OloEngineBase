@@ -12,6 +12,8 @@
 		"MCP/McpToolsCommon.h"
 		"MCP/McpClusterGridStats.h"
 		"MCP/McpRenderProbePixel.h"
+		"MCP/McpRenderTargetStats.h"
+		"MCP/McpRenderValidate.h"
 		"MCP/McpFroxelFogProbe.h"
 		"MCP/McpShadowCapture.h"
 		"MCP/McpInputInject.h"

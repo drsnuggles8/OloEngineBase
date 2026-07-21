@@ -885,20 +885,34 @@ namespace OloEngine
         }
 
         // -------------------------------------------------------------------
-        // Debug — Post-pass execution hook
+        // Debug — Post-pass execution hooks
         // -------------------------------------------------------------------
         // Fired after each pass->Execute() returns inside RenderGraph::Execute(),
         // BEFORE the post-pass extraction phase. Used by debug tooling
-        // (e.g. RenderGraphFrameCapture) to snapshot intermediate state.
-        // Pass the empty function (or assign {}) to disable.
+        // (e.g. RenderGraphFrameCapture, the MCP afterPass snapshot) to snapshot
+        // intermediate state. Multiple listeners can coexist, each registered
+        // under a distinct key (issue #607 — the debugger's frame capture and
+        // the MCP snapshot must not clobber each other's hook). Listeners fire
+        // in registration order; a listener must not add/remove hooks from
+        // inside its own callback.
         using PostPassHook = std::function<void(const std::string& passName, RenderGraph& graph)>;
+        void AddPostPassHook(std::string_view key, PostPassHook hook);
+        void RemovePostPassHook(std::string_view key);
+        // Legacy single-slot form: equivalent to Add/Remove under a reserved
+        // key. Pass the empty function (or assign {}) to disable.
         void SetPostPassHook(PostPassHook hook)
         {
-            m_PostPassHook = std::move(hook);
+            if (hook)
+                AddPostPassHook("__default", std::move(hook));
+            else
+                RemovePostPassHook("__default");
         }
+        // True when ANY post-pass listener is registered (not just the legacy
+        // slot). A tool that needs to know whether ITS hook is installed must
+        // track that itself (see RenderGraphFrameCapture::IsHookInstalled).
         [[nodiscard]] bool HasPostPassHook() const
         {
-            return static_cast<bool>(m_PostPassHook);
+            return !m_PostPassHooks.empty();
         }
 
         // -------------------------------------------------------------------
@@ -1280,7 +1294,9 @@ namespace OloEngine
         bool m_RuntimeTransientMaterializationEnabled = false;
         u32 m_TransientPoolMaxBucketSize = 2u;
 
-        PostPassHook m_PostPassHook;
+        // Keyed post-pass listeners, fired in registration order (see
+        // AddPostPassHook). A small vector — at most a couple of debug tools.
+        std::vector<std::pair<std::string, PostPassHook>> m_PostPassHooks;
         BatchEventCallback m_BatchEventHook;
 
         // Execution-ready cache — rebuilt when m_DependencyGraphDirty is set.

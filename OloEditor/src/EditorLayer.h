@@ -392,6 +392,11 @@ namespace OloEngine
         // Auto-save
         f32 m_TimeSinceLastAutoSave = 0.0f;
         bool m_ShowAutoSaveRecovery = false;
+        // Set when a direct scene load supersedes an armed recovery (issue
+        // #607): the already-open modal must close WITHOUT loading, or its
+        // deferred load would swap the just-opened scene back out. Cleared
+        // whenever a fresh modal opens.
+        bool m_CancelAutoSaveRecovery = false;
         std::filesystem::path m_PendingRecoveryScenePath;
         std::filesystem::path m_PendingRecoveryAutoPath;
 

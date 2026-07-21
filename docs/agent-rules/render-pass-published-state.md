@@ -61,3 +61,35 @@ LightProbesTest sandbox scene shipped three such "spheres" that had never
 rendered; Sphere is 2.) When a mesh entity mysteriously contributes
 nothing — no draw, no shadow, no GI — check the primitive enum value
 before suspecting the renderer.
+
+## 5. Pass-owned textures: import from Setup, hash the ids, stable ping names
+
+To make a pass-owned raw GL texture visible to the render graph (and so to
+`olo_render_list_targets` / `olo_render_capture_target`), `ImportTexture` it
+from the pass's **`Setup()`** (never Execute — the resource must be resolvable
+the same rebuild that registers it) and hash **both the gate and the raw
+texture ids** into `ComputeBlackboardFingerprint`, because imports are wiped by
+every non-cached `PopulateBlackboard` and Setup only reruns on a fingerprint
+miss. Two refinements learned in the #607 batch (DDGI atlases, froxel-fog
+volumes; precedents: VirtualGeometryDebug, FluidIntermediates):
+
+- **Ping-pong resources import BOTH pings under stable per-ping names**
+  (`DDGIIrradianceAtlas0/1`). Importing "the current ping" would flip the
+  fingerprint every blended frame and defeat the BuildFrameGraph cache.
+- A genuine 3D volume imports as `ResourceHandle::Kind::Texture3D` with
+  `DepthOrLayers = depth`; the capture path already reads one z-slice via its
+  `layer` selector.
+
+## 6. Post-pass hooks are keyed and multi-listener; snapshots must copy at hook time
+
+`RenderGraph::AddPostPassHook(key, fn)` / `RemovePostPassHook(key)` replaced
+the single-slot `SetPostPassHook` (#607): the debugger's frame capture
+(`"framecapture"`) and the MCP afterPass snapshot (`"mcp-afterpass-snapshot"`)
+coexist on the same graph. Never re-introduce a single-slot install, and never
+use the graph's `HasPostPassHook()` to test whether *your* hook is installed —
+it reports ANY listener (`RenderGraphFrameCapture::IsHookInstalled` exists for
+that). A mid-frame snapshot must `glCopyImageSubData` the resolved texture
+INSIDE the hook, not remember the GL id: the transient pool memory-aliases
+same-descriptor resources, so a mid-frame id can be recycled for a different
+logical resource later in the same frame. `glCopyImageSubData` binds nothing,
+so the publish-last rules of §1 are unaffected.
