@@ -133,26 +133,41 @@ void main()
     // UV of center of this texel in the destination mip
     vec2 bufferUV = (vec2(dispatchThreadId) + vec2(0.5)) * u_DispatchThreadIdToBufferUV;
 
-    // Sample 2x2 from parent mip (or scene depth on first pass)
-    vec4 deviceZ = Gather4(u_InputDepth, bufferUV, float(u_FirstLod - 1));
-    float reducedDepth = Reduce4(deviceZ);
-
     // Mip 0 of this batch: first pass copies scene depth directly, subsequent reduce
+    float reducedDepth;
     if (u_IsFirstPass != 0)
     {
-        // Scene depth is at viewport size, but bufferUV is computed for
-        // HZB-texel-to-viewport-uv mapping (HZBGenerator.cpp uses
-        // 1 / viewport_size for first-pass DispatchThreadIdToBufferUV).
-        // For HZB texels outside the viewport sub-rect, bufferUV exceeds
-        // 1.0; clamp to u_InputViewportMaxBound = (viewport - 0.5) /
-        // viewport so we read scene depth's edge pixel rather than
-        // sampling outside [0,1] (which would still be CLAMP_TO_EDGE
-        // behaviour but is left explicit for safety).
-        vec2 sampleUV = min(bufferUV, u_InputViewportMaxBound);
-        WriteMip(0, dispatchThreadId, textureLod(u_InputDepth, sampleUV, 0.0).r);
+        // Exact 1:1 copy of scene depth into HZB mip 0 via texelFetch
+        // (integer addressing, no filtering). This MUST NOT be a filtered
+        // textureLod sample: the scene depth is a D24S8 texture whose
+        // sampler is GL_LINEAR, and the hardware's fixed-point depth
+        // filtering can return 1.0 - 1 D24 ULP (0.99999994) for an
+        // exactly-1.0 far-plane texel whenever the computed float UV does
+        // not hit the single-texel fast path. Downstream consumers that
+        // classify sky as depth >= far (GTAO's early-out) then treat the
+        // whole sky as geometry at the far plane, producing black/noisy
+        // AO over the background (viewport-size dependent, appeared after
+        // window maximize). HZB texels beyond the viewport sub-rect clamp
+        // to the depth image's edge texel (matches the previous
+        // u_InputViewportMaxBound clamp semantics).
+        //
+        // The exact fetch is also this thread's contribution to the shared-
+        // memory reduction below: the first pass writes mip 0 at 1:1 scale,
+        // so thread t covers exactly source texel t and mips 1-3 become the
+        // true reduce of mip 0's quads. Feeding the filtered Gather4 value
+        // instead would make mips 1-3 disagree with mip 0 and reintroduce
+        // the same filter truncation one level up (and, in MIN-reduce mode,
+        // corner averages can exceed the true quad minimum).
+        ivec2 srcSize = textureSize(u_InputDepth, 0);
+        ivec2 srcCoord = min(dispatchThreadId, srcSize - ivec2(1));
+        reducedDepth = texelFetch(u_InputDepth, srcCoord, 0).r;
+        WriteMip(0, dispatchThreadId, reducedDepth);
     }
     else
     {
+        // Subsequent batches: each thread covers a 2x2 block of the parent
+        // mip (u_DispatchThreadIdToBufferUV = 2 / parentSize), reduced here.
+        reducedDepth = Reduce4(Gather4(u_InputDepth, bufferUV, float(u_FirstLod - 1)));
         WriteMip(0, dispatchThreadId, reducedDepth);
     }
 

@@ -71,6 +71,14 @@ layout(binding = 5) uniform usampler2D u_HilbertLUT;     // 64x64 R16UI Hilbert 
 #define XE_GTAO_PI                  3.14159265358979
 #define XE_GTAO_HALF_PI             1.57079632679490
 
+// Far-plane (sky) classification tolerance. Never compare a sampled depth
+// against 1.0 exactly: any filtered read of a D24 depth source can
+// legitimately come back a few ULPs below 1.0 (1 D24 ULP ~= 5.96e-8), and an
+// exact >= 1.0 test then treats the entire sky as geometry sitting at the
+// far plane. 1e-6 (~17 ULPs) of slack is far below any depth separation real
+// geometry can have this close to the far plane.
+#define XE_GTAO_FAR_DEPTH_THRESHOLD (1.0 - 1e-6)
+
 // ---------------------------------------------------------------------------
 // Octahedral decode (must match the encoder in forward shaders)
 // Normals are stored in RG16F with range [-1,1] — no remapping needed.
@@ -152,7 +160,7 @@ void main()
     // Sample depth from HZB mip 0 (HZB maps scene UV [0,1] to full texture)
     float deviceZ = SampleHZBDepth(normalizedScreenPos, 0.0);
 
-    if (deviceZ <= 0.0 || deviceZ >= 1.0)
+    if (deviceZ <= 0.0 || deviceZ >= XE_GTAO_FAR_DEPTH_THRESHOLD)
     {
         imageStore(o_AOTerm, pixCoord, vec4(1.0));
         imageStore(o_Edges, pixCoord, vec4(0.0));

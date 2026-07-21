@@ -243,9 +243,12 @@ namespace OloEngine
                 auto& slot = slots[i];
                 slot.Alive = false;
                 slot.Name.clear();
+                // Increment first, then repair a wrap to 0: Generation 0 is
+                // the "never allocated" sentinel (IsValid() requires > 0), so
+                // an overflow must land on 1, not 0.
+                ++slot.Generation;
                 if (slot.Generation == 0)
                     slot.Generation = 1;
-                ++slot.Generation;
                 freeIndices.push_back(i);
             }
         };
@@ -409,6 +412,14 @@ namespace OloEngine
             slot.IsPlaceholder = isPlaceholder;
             slot.PlaceholderReason = std::string(placeholderReason);
             slot.PlaceholderWarnedThisFrame = false;
+            // Free-list reuse hands this slot to a DIFFERENT resource, so the
+            // generation must be bumped here, locally — not merely trusted to
+            // have been bumped by whichever free path retired the slot. A
+            // stale cached handle would otherwise resolve silently to the new
+            // occupant's texture instead of failing its generation check.
+            ++slot.Generation;
+            if (slot.Generation == 0)
+                slot.Generation = 1;
             handle.Generation = slot.Generation;
 
             if (handle.Index >= m_PhysicalTextures.size())
@@ -535,6 +546,13 @@ namespace OloEngine
             slot.IsPlaceholder = isPlaceholder;
             slot.PlaceholderReason = std::string(placeholderReason);
             slot.PlaceholderWarnedThisFrame = false;
+            // Free-list reuse hands this slot to a DIFFERENT resource — bump
+            // the generation locally so stale cached handles fail their
+            // generation check instead of silently resolving to the new
+            // occupant's framebuffer (see the texture allocator's twin).
+            ++slot.Generation;
+            if (slot.Generation == 0)
+                slot.Generation = 1;
             handle.Generation = slot.Generation;
 
             if (handle.Index >= m_PhysicalFramebuffers.size())
@@ -728,6 +746,13 @@ namespace OloEngine
             slot.IsPlaceholder = isPlaceholder;
             slot.PlaceholderReason = std::string(placeholderReason);
             slot.PlaceholderWarnedThisFrame = false;
+            // Free-list reuse hands this slot to a DIFFERENT resource — bump
+            // the generation locally so stale cached handles fail their
+            // generation check instead of silently resolving to the new
+            // occupant (see the texture allocator's twin).
+            ++slot.Generation;
+            if (slot.Generation == 0)
+                slot.Generation = 1;
             handle.Generation = slot.Generation;
 
             if (handle.Index >= m_PhysicalBuffers.size())
@@ -1998,6 +2023,10 @@ namespace OloEngine
         u32 index = m_FreeTextureHandleIndices.back();
         m_FreeTextureHandleIndices.pop_back();
         auto& slot = m_TextureHandleSlots[index];
+        // Free-list reuse hands this slot to a DIFFERENT resource — bump the
+        // generation locally so stale cached handles fail their generation
+        // check instead of silently resolving to the new occupant.
+        ++slot.Generation;
         if (slot.Generation == 0)
             slot.Generation = 1;
         slot.Alive = true;
@@ -2110,6 +2139,10 @@ namespace OloEngine
         u32 index = m_FreeFramebufferHandleIndices.back();
         m_FreeFramebufferHandleIndices.pop_back();
         auto& slot = m_FramebufferHandleSlots[index];
+        // Free-list reuse hands this slot to a DIFFERENT resource — bump the
+        // generation locally so stale cached handles fail their generation
+        // check instead of silently resolving to the new occupant.
+        ++slot.Generation;
         if (slot.Generation == 0)
             slot.Generation = 1;
         slot.Alive = true;
@@ -2218,6 +2251,10 @@ namespace OloEngine
         u32 index = m_FreeBufferHandleIndices.back();
         m_FreeBufferHandleIndices.pop_back();
         auto& slot = m_BufferHandleSlots[index];
+        // Free-list reuse hands this slot to a DIFFERENT resource — bump the
+        // generation locally so stale cached handles fail their generation
+        // check instead of silently resolving to the new occupant.
+        ++slot.Generation;
         if (slot.Generation == 0)
             slot.Generation = 1;
         slot.Alive = true;
