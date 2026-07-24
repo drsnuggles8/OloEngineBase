@@ -481,6 +481,10 @@ namespace OloEngine
         static GLuint s_UnpackStagingPBO = 0;
         if (s_UnpackStagingPBO == 0)
             glCreateBuffers(1, &s_UnpackStagingPBO);
+        // Save + restore whatever was bound to GL_PIXEL_UNPACK_BUFFER rather than assume 0,
+        // so this upload never clobbers a caller's unpack-buffer binding.
+        GLint prevUnpackPBO = 0;
+        glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &prevUnpackPBO);
         glNamedBufferData(s_UnpackStagingPBO, static_cast<GLsizeiptr>(size), data, GL_STREAM_DRAW);
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER, s_UnpackStagingPBO);
         glTextureSubImage3D(
@@ -494,7 +498,7 @@ namespace OloEngine
             m_DataFormat,
             formatInfo.DataType,
             static_cast<const void*>(nullptr));
-        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(prevUnpackPBO));
 
         if (rowBytes % 4 != 0)
         {

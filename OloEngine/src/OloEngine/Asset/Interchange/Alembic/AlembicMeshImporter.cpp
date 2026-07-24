@@ -98,13 +98,30 @@ namespace OloEngine
                     continue;
                 }
 
+                // The face's corner range must fit inside the face-index array; a malformed
+                // sample whose counts run past the indices ends processing here (faceVertex only
+                // grows, so no later face can fit either). Mirrors the USD importer's guard.
+                if (faceVertex + static_cast<sizet>(vertsInFace) > faceIndices->size())
+                    break;
+
                 std::vector<u32> ring(static_cast<sizet>(vertsInFace));
                 std::vector<glm::vec3> ringPositions(static_cast<sizet>(vertsInFace));
                 const sizet ringStart = out.Vertices.size();
 
+                bool faceValid = true;
                 for (int k = 0; k < vertsInFace; ++k, ++faceVertex)
                 {
                     const int pointIndex = (*faceIndices)[faceVertex];
+                    if (pointIndex < 0 || static_cast<sizet>(pointIndex) >= P->size())
+                    {
+                        // Invalid point index — abandon the whole face (a partial ring would
+                        // triangulate against zero-initialized entries). Advance faceVertex past
+                        // the remaining corners; the vertex rollback + skip happen after the loop.
+                        faceVertex += static_cast<sizet>(vertsInFace - k);
+                        faceValid = false;
+                        break;
+                    }
+
                     Vertex vertex;
 
                     const Imath::V3f& p = (*P)[static_cast<sizet>(pointIndex)];
@@ -118,7 +135,7 @@ namespace OloEngine
                         // vertex/varying: index by the P point index.
                         sizet ni;
                         if (normalScope == AbcG::kFacevaryingScope)
-                            ni = normalIndices ? (*normalIndices)[faceVertex] : faceVertex;
+                            ni = (normalIndices && faceVertex < normalIndices->size()) ? (*normalIndices)[faceVertex] : faceVertex;
                         else
                             ni = static_cast<sizet>(pointIndex);
                         if (ni < normalVals->size())
@@ -135,7 +152,7 @@ namespace OloEngine
                     {
                         sizet ui;
                         if (uvScope == AbcG::kFacevaryingScope)
-                            ui = uvIndices ? (*uvIndices)[faceVertex] : faceVertex;
+                            ui = (uvIndices && faceVertex < uvIndices->size()) ? (*uvIndices)[faceVertex] : faceVertex;
                         else
                             ui = static_cast<sizet>(pointIndex);
                         if (ui < uvVals->size())
@@ -147,6 +164,14 @@ namespace OloEngine
 
                     ring[static_cast<sizet>(k)] = static_cast<u32>(out.Vertices.size());
                     out.Vertices.push_back(vertex);
+                }
+
+                if (!faceValid)
+                {
+                    // Roll back the vertices pushed for this abandoned face; skip normal
+                    // generation + triangulation.
+                    out.Vertices.resize(ringStart);
+                    continue;
                 }
 
                 // Fill in geometric normals when the mesh carried none.
@@ -260,8 +285,10 @@ namespace OloEngine
             {
                 AbcG::IXform xform(obj, Abc::kWrapExisting);
                 const AbcG::XformSample xformSample = xform.getSchema().getValue(Abc::ISampleSelector(Abc::index_t(0)));
-                // Alembic composes child-times-parent in the row-vector convention.
-                worldXf = xformSample.getMatrix() * parentXf;
+                // Alembic composes child-times-parent in the row-vector convention — but only when
+                // the xform inherits its parent's transform. A non-inheriting xform is world-space
+                // on its own, so use its matrix directly (do not fold in parentXf).
+                worldXf = xformSample.getInheritsXforms() ? (xformSample.getMatrix() * parentXf) : xformSample.getMatrix();
             }
 
             if (AbcG::IPolyMesh::matches(obj.getHeader()))
@@ -297,9 +324,12 @@ namespace OloEngine
             return MeshImportResult::Failure("AlembicMeshImporter: not a readable Alembic (Ogawa) archive: " + path.string());
 
         MeshAccumulator accumulator;
-        // flipV so the bottom-left Alembic UV origin matches the engine's glTF-tuned convention;
-        // MeshImportOptions::FlipUV inverts that when a caller knows the source differs.
-        const bool flipV = !options.FlipUV;
+        // Alembic 'st' has a bottom-left UV origin; the engine's convention is top-left, so a
+        // V-flip is this format's default. MeshImportOptions::FlipUV means "invert relative to the
+        // format's default origin" (see MeshImporter.h), so XOR the option with the origin
+        // constant rather than negating it outright.
+        constexpr bool kAlembicUVOriginBottomLeft = true;
+        const bool flipV = kAlembicUVOriginBottomLeft != options.FlipUV;
 
         try
         {

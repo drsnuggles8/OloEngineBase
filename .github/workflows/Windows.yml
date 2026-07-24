@@ -147,6 +147,7 @@ jobs:
           -DOLO_ENABLE_COMPILER_CACHE=ON \
           -DOLO_ENABLE_LTO=OFF \
           -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" \
+          -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
           $PREFIX_ARG
 
     - name: Build with CMake

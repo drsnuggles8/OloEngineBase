@@ -44,7 +44,7 @@ namespace OloEngine
                            for (std::string_view ext : kGltfExtensions)
                            {
                                if (!self->m_Exporters.contains(std::string(ext)))
-                                   self->m_Exporters.emplace(std::string(ext), CreateScope<AssimpMeshExporter>());
+                                   self->m_Exporters.emplace(std::string(ext), std::make_shared<AssimpMeshExporter>());
                            }
                        });
     }
@@ -56,14 +56,19 @@ namespace OloEngine
             OLO_CORE_ERROR("MeshExporterRegistry::Register - null exporter for extension '{}'", extension);
             return;
         }
-        m_Exporters.insert_or_assign(NormalizeExtension(extension), std::move(exporter));
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        // unique_ptr -> shared_ptr; replacing an existing slot drops the registry's reference but
+        // any Find()-held handle keeps that exporter alive until its caller finishes.
+        m_Exporters.insert_or_assign(NormalizeExtension(extension),
+                                     std::shared_ptr<MeshExporter>(std::move(exporter)));
     }
 
-    MeshExporter* MeshExporterRegistry::Find(std::string_view extension) const
+    std::shared_ptr<MeshExporter> MeshExporterRegistry::Find(std::string_view extension) const
     {
+        std::lock_guard<std::mutex> lock(m_Mutex);
         EnsureBuiltinsRegistered();
         if (auto it = m_Exporters.find(NormalizeExtension(extension)); it != m_Exporters.end())
-            return it->second.get();
+            return it->second;
         return nullptr;
     }
 
@@ -72,23 +77,28 @@ namespace OloEngine
                                                   const MeshExportOptions& options) const
     {
         const std::string extension = path.has_extension() ? path.extension().string() : std::string{};
-        MeshExporter* exporter = Find(extension);
+        // Find() locks/unlocks internally and returns an ownership-retaining handle.
+        std::shared_ptr<MeshExporter> exporter = Find(extension);
         if (!exporter)
         {
             return MeshExportResult::Failure(
                 "No mesh exporter registered for extension '" + extension + "' (path: " + path.string() + ")");
         }
+        // Invoke OUTSIDE the registry lock; the retained handle keeps the exporter alive even if a
+        // concurrent Register() replaces its slot mid-export.
         return exporter->Export(source, path, options);
     }
 
     bool MeshExporterRegistry::IsSupported(std::string_view extension) const
     {
+        std::lock_guard<std::mutex> lock(m_Mutex);
         EnsureBuiltinsRegistered();
         return m_Exporters.contains(NormalizeExtension(extension));
     }
 
     std::vector<std::string> MeshExporterRegistry::GetRegisteredExtensions() const
     {
+        std::lock_guard<std::mutex> lock(m_Mutex);
         EnsureBuiltinsRegistered();
         std::vector<std::string> extensions;
         extensions.reserve(m_Exporters.size());

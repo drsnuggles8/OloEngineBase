@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace OloEngine
 {
@@ -15,9 +16,12 @@ namespace OloEngine
     // when a knob is meaningful across formats (winding/scale/UV origin are candidates).
     struct MeshImportOptions
     {
-        // Flip the V texture coordinate (some DCC exporters use a top-left UV origin).
-        // Mirrors the pre-existing Model(path, override, flipUV) parameter so the Assimp
-        // path stays behaviour-identical when routed through this interface.
+        // Invert the V texture coordinate RELATIVE TO THE FORMAT'S DEFAULT UV origin — not an
+        // absolute "always flip". The engine's target convention is top-left. Each importer knows
+        // its format's native origin and XORs this flag against it: USD/Alembic 'st' is bottom-left
+        // so they flip V by default (this flag inverts that); the Assimp path already normalizes
+        // the origin, so it passes the flag straight through. Default false = each format's normal
+        // origin handling. Mirrors the pre-existing Model(path, override, flipUV) parameter.
         bool FlipUV = false;
     };
 

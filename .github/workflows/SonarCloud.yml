@@ -81,7 +81,7 @@ jobs:
         # rule-excluded — see sonar-project.properties tst_* ignores.)
         run: |
           New-Item -ItemType directory -Path build
-          cmake -S . -B build -G "Ninja Multi-Config" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DOLO_VIDEO_FFMPEG=OFF -DBUILD_TESTS=OFF
+          cmake -S . -B build -G "Ninja Multi-Config" -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DPython_EXECUTABLE="${{ env.pythonLocation }}/python.exe" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DOLO_VIDEO_FFMPEG=OFF -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF -DBUILD_TESTS=OFF
           build-wrapper-win-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} cmake --build build/ --config Release --parallel
 
       - name: SonarQube Scan

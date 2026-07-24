@@ -24,11 +24,19 @@ include(ExternalProject)
 set(_OLO_USD_TAG "363a7c8da8d1937072a5f0989e91faf72eb1fa76")  # OpenUSD v25.11
 set(_OLO_TBB_TAG "06ce6212da6710f4bb2d20a1904b018aa44069bf")  # oneTBB v2022.2.0
 
+# Platform-appropriate static-library filenames for the monolithic USD lib (usd_m) and the
+# oneTBB import libs. Both are built static (PXR_BUILD_MONOLITHIC / BUILD_SHARED_LIBS=OFF), so
+# CMAKE_STATIC_LIBRARY_PREFIX/SUFFIX resolves them to usd_m.lib / tbb12.lib on Windows and
+# libusd_m.a / libtbb12.a on Unix. Used by both the prebuilt-install and from-source branches.
+set(_olo_usd_libfile     "${CMAKE_STATIC_LIBRARY_PREFIX}usd_m${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(_olo_tbb_rel_libfile "${CMAKE_STATIC_LIBRARY_PREFIX}tbb12${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(_olo_tbb_dbg_libfile "${CMAKE_STATIC_LIBRARY_PREFIX}tbb12_debug${CMAKE_STATIC_LIBRARY_SUFFIX}")
+
 if(OLO_USD_INSTALL_DIR AND EXISTS "${OLO_USD_INSTALL_DIR}/include/pxr")
     set(OloEngine_USD_INCLUDE_DIR "${OLO_USD_INSTALL_DIR}/include"          CACHE INTERNAL "")
     set(OloEngine_USD_LIB_DIR     "${OLO_USD_INSTALL_DIR}/lib"              CACHE INTERNAL "")
-    set(OloEngine_USD_LIB         "${OLO_USD_INSTALL_DIR}/lib/usd_m.lib"    CACHE INTERNAL "")
-    set(OloEngine_USD_TBB_LIB     "${OLO_USD_INSTALL_DIR}/lib/tbb12.lib"    CACHE INTERNAL "")
+    set(OloEngine_USD_LIB         "${OLO_USD_INSTALL_DIR}/lib/${_olo_usd_libfile}"     CACHE INTERNAL "")
+    set(OloEngine_USD_TBB_LIB     "${OLO_USD_INSTALL_DIR}/lib/${_olo_tbb_rel_libfile}" CACHE INTERNAL "")
     set(OloEngine_USD_PLUGIN_TREE "${OLO_USD_INSTALL_DIR}/lib/usd"          CACHE INTERNAL "")
     add_custom_target(olo_usd_ext)  # no-op; keeps the engine's add_dependencies() uniform
     message(STATUS "OLO_WITH_USD: using prebuilt OpenUSD install at ${OLO_USD_INSTALL_DIR} "
@@ -55,19 +63,19 @@ file(MAKE_DIRECTORY
 
 set(OloEngine_USD_INCLUDE_DIR "${_olo_usd_install}/${_olo_usd_cfg}/include" CACHE INTERNAL "")
 set(OloEngine_USD_LIB_DIR     "${_olo_usd_install}/${_olo_usd_cfg}/lib"     CACHE INTERNAL "")
-set(OloEngine_USD_LIB         "${_olo_usd_install}/${_olo_usd_cfg}/lib/usd_m.lib" CACHE INTERNAL "")
-# oneTBB names its Debug import lib tbb12_debug.lib; Release is tbb12.lib.
+set(OloEngine_USD_LIB         "${_olo_usd_install}/${_olo_usd_cfg}/lib/${_olo_usd_libfile}" CACHE INTERNAL "")
+# oneTBB names its Debug import lib tbb12_debug; Release is tbb12 (platform prefix/suffix above).
 set(OloEngine_USD_TBB_LIB
-    "$<IF:$<CONFIG:Debug>,${_olo_usd_install}/Debug/lib/tbb12_debug.lib,${_olo_usd_install}/Release/lib/tbb12.lib>"
+    "$<IF:$<CONFIG:Debug>,${_olo_usd_install}/Debug/lib/${_olo_tbb_dbg_libfile},${_olo_usd_install}/Release/lib/${_olo_tbb_rel_libfile}>"
     CACHE INTERNAL "")
 set(OloEngine_USD_PLUGIN_TREE "${_olo_usd_install}/${_olo_usd_cfg}/lib/usd" CACHE INTERNAL "")
 
 # Build+install BOTH configs. The VS generator is multi-config, so one configured tree compiles
 # either config; the Release compile is reused incrementally across the two build steps.
 set(_olo_tbb_byproducts
-    "${_olo_usd_install}/Release/lib/tbb12.lib" "${_olo_usd_install}/Debug/lib/tbb12_debug.lib")
+    "${_olo_usd_install}/Release/lib/${_olo_tbb_rel_libfile}" "${_olo_usd_install}/Debug/lib/${_olo_tbb_dbg_libfile}")
 set(_olo_usd_byproducts
-    "${_olo_usd_install}/Release/lib/usd_m.lib" "${_olo_usd_install}/Debug/lib/usd_m.lib")
+    "${_olo_usd_install}/Release/lib/${_olo_usd_libfile}" "${_olo_usd_install}/Debug/lib/${_olo_usd_libfile}")
 
 ExternalProject_Add(olo_onetbb
     GIT_REPOSITORY  https://github.com/uxlfoundation/oneTBB.git

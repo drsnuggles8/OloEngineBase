@@ -4,6 +4,8 @@
 #include "OloEngine/Asset/Interchange/MeshExporter.h"
 
 #include <filesystem>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -22,7 +24,10 @@ namespace OloEngine
 
         void Register(std::string_view extension, Scope<MeshExporter> exporter);
 
-        [[nodiscard]] MeshExporter* Find(std::string_view extension) const;
+        // Returns an OWNERSHIP-RETAINING handle (not a raw pointer): the caller holds a shared
+        // reference for as long as it uses the exporter, so a concurrent Register() replacing the
+        // slot cannot free the exporter out from under an in-flight Export().
+        [[nodiscard]] std::shared_ptr<MeshExporter> Find(std::string_view extension) const;
 
         // Resolve the exporter from the path's extension and run it.
         [[nodiscard]] MeshExportResult Export(const MeshSource& source,
@@ -36,8 +41,12 @@ namespace OloEngine
       private:
         MeshExporterRegistry() = default;
 
+        // Registers the built-in exporters exactly once. MUST be called with m_Mutex held.
         void EnsureBuiltinsRegistered() const;
 
-        mutable std::unordered_map<std::string, Scope<MeshExporter>> m_Exporters;
+        mutable std::mutex m_Mutex;
+        // shared_ptr (not Scope) so Find() can hand out an ownership-retaining handle; guarded by
+        // m_Mutex on every access.
+        mutable std::unordered_map<std::string, std::shared_ptr<MeshExporter>> m_Exporters;
     };
 } // namespace OloEngine
