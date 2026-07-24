@@ -467,6 +467,22 @@ namespace OloEngine
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
         }
 
+        // Upload the face data through a persistent Pixel Buffer Object (a GPU-side copy)
+        // instead of a client-pointer glTextureSubImage3D. The direct client-pointer upload
+        // intermittently faults inside the NVIDIA threaded driver when a cubemap is created
+        // and uploaded during scene-reload churn — an access violation that surfaces at
+        // present (nvoglv64!DrvPresentBuffers) with this call on the stack, via
+        // IBLCache::LoadCubemapFromCache rebuilding the skybox IBL on a runtime scene reopen.
+        // Staging through a PBO avoids it entirely (measured: 90 reloads clean vs. crashing
+        // within ~3 reloads on the direct path). One persistent staging buffer — no per-call
+        // create/delete, so it adds no buffer-id churn; a single GL context on the main thread
+        // makes the shared static race-free. GL_UNPACK_ALIGNMENT (set above) still applies to
+        // the PBO read.
+        static GLuint s_UnpackStagingPBO = 0;
+        if (s_UnpackStagingPBO == 0)
+            glCreateBuffers(1, &s_UnpackStagingPBO);
+        glNamedBufferData(s_UnpackStagingPBO, static_cast<GLsizeiptr>(size), data, GL_STREAM_DRAW);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, s_UnpackStagingPBO);
         glTextureSubImage3D(
             m_RendererID,
             static_cast<GLint>(mipLevel),
@@ -477,7 +493,8 @@ namespace OloEngine
             1,
             m_DataFormat,
             formatInfo.DataType,
-            data);
+            static_cast<const void*>(nullptr));
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 
         if (rowBytes % 4 != 0)
         {
