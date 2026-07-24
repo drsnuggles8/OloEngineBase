@@ -171,6 +171,13 @@ the server, so update the config (or re-copy from the panel) accordingly.
 
 ### Tools
 
+Since the #673 Tier 1 schema sweep, tools whose result is a JSON document declare a real
+`outputSchema` in `tools/list` and return it as typed `structuredContent` alongside the
+spec-required text mirror — parse that instead of scraping the text blob. The exceptions are
+deliberate: `olo_log_tail` returns raw log lines (free text an `outputSchema` cannot
+constrain), and the `format:"markdown"`/`"mermaid"` paths of the dual-format tools stay
+text-only (their schemas describe the json format).
+
 | Tool | What it returns |
 |---|---|
 | `olo_log_tail` | recent engine log lines, filterable by `minLevel` and `tag` |
@@ -201,7 +208,7 @@ the server, so update the config (or re-copy from the panel) accordingly.
 | `olo_script_get_last_errors` | recent C# (Mono) / Lua (Sol2) script exceptions |
 | `olo_reload_script` | **(consented write)** reload the C# script assembly — the editor's *Script ▸ Reload assembly* (Ctrl+R) path — so a rebuilt game assembly is picked up without restarting the editor; reports whether scripting is available, whether the reload ran, and the post-reload script-class count. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
 | `olo_crash_list` / `olo_crash_get` | crash reports under `CrashReports/` |
-| `olo_screenshot` | the viewport rendered to a PNG image block; optional one-shot camera pose (`camera`/`orbit` + `settleFrames`) with automatic save/restore of the user's camera. In **Play mode** the frame comes from the runtime's primary `CameraComponent`, so poses are refused there (they could only move the unused editor camera) and the reply's `sceneState`/`camera` meta says which camera produced the frame |
+| `olo_screenshot` | the viewport rendered to a PNG image block; optional one-shot camera pose (`camera`/`orbit` + `settleFrames`) with automatic save/restore of the user's camera. In **Play mode** the frame comes from the runtime's primary `CameraComponent`, so poses are refused there (they could only move the unused editor camera) and the reply's `sceneState`/`camera` meta says which camera produced the frame. `delivery:"resource_link"` publishes the PNG as an ephemeral `olo://capture/...` resource + `resource_link` block instead of inline base64 (see [Resources](#resources)) |
 | `olo_camera_get` | the editor camera's pose (position, focal point, yaw/pitch, FOV, clips, viewport size) |
 | `olo_camera_set_pose` | move the editor camera: `position` + (`target` \| `yaw`/`pitch`), optional `fov` |
 | `olo_camera_orbit` | orbit-frame the camera around a world point: `target`, `yaw`, `pitch`, `distance` |
@@ -1467,6 +1474,40 @@ so keep a write-tier tool's description honest about what it changes.
 
 - `olo://scene/current` — the whole active scene serialized to YAML.
 - `olo://logs/recent` — the recent engine log lines.
+- `olo://capture/<seq>/<kind>.png` — **ephemeral capture resources** (issue #673 Tier 1):
+  when a capture tool is called with `delivery: "resource_link"` (`olo_screenshot`,
+  `olo_render_capture_target`, `olo_render_compare_golden`), the PNG is published here
+  instead of being inlined as base64, and the tool result carries a `resource_link`
+  content block referencing it. `resources/read` returns the bytes as base64 `blob`
+  contents. The registry is bounded (16 captures / 128 MB, oldest evicted first — an
+  in-flight read keeps serving the bytes it started with) and cleared on server stop;
+  `capabilities.resources.listChanged` is `true`, and every publish/eviction emits
+  `notifications/resources/list_changed` on the live SSE stream, so re-list after it.
+  Inline base64 stays the default — opt into links for high-res captures.
+
+### Outbound MCP servers (stdio) — composing external tools in (issue #673 Tier 1)
+
+The editor can also *consume* MCP tools: the MCP panel's **"Outbound MCP servers (stdio)"**
+section spawns a local MCP server process (e.g. `npx -y @modelcontextprotocol/server-filesystem
+E:\data`), speaks newline-delimited JSON-RPC over its stdin/stdout, and folds its tools into
+this server's surface under the reserved **`ext.<alias>.*`** namespace (toolset `ext.<alias>`),
+so your agent sees them in the same `tools/list` as the native ones.
+
+Trust posture (ADR 0005 applies — foreign definitions are runtime network data):
+
+- Every bridged tool is **forced to `ProjectWrite`** with `readOnlyHint:false` +
+  `openWorldHint:true`, regardless of what the external server claims: its behaviour lives
+  in another process, so read-only can never be a guarantee. Every call faces the full
+  write-consent gate, and the consent modal says explicitly that the call goes to an
+  **external server and is NOT undoable with Ctrl-Z**.
+- Script tools can never reach a bridged tool through `olo.call_tool` — not even a
+  write-tier script under Allow-all. The macro-consent bargain covers local, undoable
+  editor mutations only.
+- Malformed/namespace-violating tool definitions are dropped with a logged warning, never
+  asserted on. If the child process dies, its tools unpublish immediately
+  (`notifications/tools/list_changed`) and the panel shows the connection as DISCONNECTED.
+- v1 is deliberately stdio-only and does not live-re-merge on the child's
+  `tools/list_changed` (disconnect + reconnect picks up the new list).
 
 ### Prompts (canned workflows)
 

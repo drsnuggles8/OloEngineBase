@@ -29,7 +29,7 @@ namespace OloEngine::MCP
             Json digest = BuildScriptApiDigest(language, typeFilter);
             if (digest.contains("error"))
                 return ToolResult::Error(digest["error"].get<std::string>());
-            return ToolResult::Text(digest.dump(2));
+            return ToolResult::Structured(digest);
         }
 
         // ---- olo_script_get_last_errors (lock-safe; script error ring buffer) --
@@ -58,7 +58,7 @@ namespace OloEngine::MCP
             Json out;
             out["count"] = static_cast<int>(arr.size());
             out["errors"] = std::move(arr);
-            return ToolResult::Text(out.dump(2));
+            return ToolResult::Structured(out);
         }
 
         // ---- olo_reload_script (main-marshaled; PROJECT WRITE) -----------------
@@ -86,7 +86,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
     } // namespace
@@ -108,6 +108,22 @@ namespace OloEngine::MCP
                                    .Prop("language", Schema::String().Enum({ "csharp", "lua" }).Desc("Scripting language (default csharp)."))
                                    .Prop("typeFilter", Schema::String().Desc("Case-insensitive substring; matching types are returned with their members."))
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("language", Schema::String().Enum({ "csharp", "lua" }))
+                                    .Prop("engineVersion", Schema::String())
+                                    .Prop("typeCount", Schema::Int().Min(0).Desc("Total types discovered, before typeFilter matching."))
+                                    .Prop("types", Schema::Array(Schema::Object()
+                                                                     .Prop("name", Schema::String())
+                                                                     .Prop("kind", Schema::String().Desc("csharp only: class/struct/enum/interface."))
+                                                                     .Prop("file", Schema::String().Desc("csharp only: declaring .cs file name."))
+                                                                     .Prop("members", Schema::Array(Schema::String()).Desc("csharp filter mode only: public member declaration lines."))
+                                                                     .Prop("registration", Schema::String().Desc("lua filter mode only: raw Sol2 registration block (capped)."))
+                                                                     .Prop("truncated", Schema::Bool().Desc("lua filter mode only: true when the registration block hit the cap."))
+                                                                     .Required({ "name" }))
+                                                       .Desc("Element shape varies by language and typeFilter mode; only 'name' is always present."))
+                                    .Prop("note", Schema::String().Desc("Index mode only (no typeFilter): hint to pass typeFilter."))
+                                    .Prop("matched", Schema::Int().Min(0).Desc("Filter mode only: number of matching types."))
+                                    .Required({ "language", "engineVersion", "typeCount", "types" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_ScriptGetApi;
             server.RegisterTool(std::move(tool));
@@ -126,6 +142,17 @@ namespace OloEngine::MCP
             tool.InputSchema = Schema::Object()
                                    .Prop("count", Schema::Int().Min(1).Max(64).Desc("How many of the most recent errors to return (default 20)."))
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("count", Schema::Int().Min(0).Desc("Number of entries in 'errors'."))
+                                    .Prop("errors", Schema::Array(Schema::Object()
+                                                                      .Prop("language", Schema::String().Enum({ "csharp", "lua" }))
+                                                                      .Prop("scriptName", Schema::String())
+                                                                      .Prop("entityId", Schema::String().Desc("Entity UUID (decimal); omitted when unknown."))
+                                                                      .Prop("message", Schema::String())
+                                                                      .Prop("stackTrace", Schema::String().Desc("Omitted when empty or folded into message."))
+                                                                      .Prop("timestamp", Schema::Number().Desc("Unix epoch seconds.")))
+                                                        .Desc("Oldest-first."))
+                                    .Required({ "count", "errors" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_ScriptGetLastErrors;
             server.RegisterTool(std::move(tool));
@@ -156,6 +183,13 @@ namespace OloEngine::MCP
                 "reloading executes the freshly-built assembly. If C# scripting is disabled or uninitialized "
                 "the call still succeeds but reports available:false.";
             tool.InputSchema = ReloadScript::InputSchema();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("language", Schema::String().Desc("Always \"csharp\" today."))
+                                    .Prop("available", Schema::Bool().Desc("C# scripting initialized in this build; false is a clean result, not an error."))
+                                    .Prop("ok", Schema::Bool().Desc("Whether the assembly reload succeeded."))
+                                    .Prop("scriptClassCount", Schema::Int().Min(0).Desc("Entity-script classes registered after the reload; non-zero signals the app assembly loaded."))
+                                    .Prop("message", Schema::String())
+                                    .Required({ "language", "available", "ok", "scriptClassCount", "message" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ReloadScript;
             server.RegisterTool(std::move(tool));

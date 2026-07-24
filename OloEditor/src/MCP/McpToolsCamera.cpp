@@ -22,7 +22,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error("Camera control is not available in this editor build.");
             const Json pose = server.MarshalRead([&server]() -> Json
                                                  { return PoseToJson(server.Context().GetCameraPose()); });
-            return ToolResult::Text(pose.dump(2));
+            return ToolResult::Structured(pose);
         }
 
         // ---- olo_camera_set_pose (main-marshaled; mutates editor camera) -------
@@ -38,7 +38,7 @@ namespace OloEngine::MCP
                                                  {
                 ApplyCameraRequest(server.Context(), request);
                 return PoseToJson(server.Context().GetCameraPose()); });
-            return ToolResult::Text(pose.dump(2));
+            return ToolResult::Structured(pose);
         }
 
         // ---- olo_camera_orbit (main-marshaled; mutates editor camera) ----------
@@ -54,7 +54,7 @@ namespace OloEngine::MCP
                                                  {
                 ApplyCameraRequest(server.Context(), request);
                 return PoseToJson(server.Context().GetCameraPose()); });
-            return ToolResult::Text(pose.dump(2));
+            return ToolResult::Structured(pose);
         }
 
         // ---- olo_camera_frame_entity (main-marshaled; mutates editor camera) ---
@@ -77,7 +77,7 @@ namespace OloEngine::MCP
                 return j; });
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_viewport_set_size (main-marshaled; mutates viewport override) -
@@ -109,7 +109,7 @@ namespace OloEngine::MCP
                     j["height"] = height;
                 }
                 return j; });
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_screenshot (main-marshaled; GL readback) ----------------------
@@ -123,6 +123,12 @@ namespace OloEngine::MCP
             int maxWidth = 1024;
             if (args.contains("maxWidth") && args["maxWidth"].is_number_integer())
                 maxWidth = static_cast<int>(std::clamp<long long>(args["maxWidth"].get<long long>(), 16, 4096));
+
+            // Opt-in resource-link delivery (issue #673 Tier 1): publish the PNG
+            // as an ephemeral olo://capture resource and return a resource_link
+            // block instead of inlining base64 — for high-res captures. Inline
+            // stays the default so existing clients see an unchanged shape.
+            const bool deliverLink = args.value("delivery", std::string{ "inline" }) == "resource_link";
 
             if (!server.Context().CaptureViewportPng)
                 return ToolResult::Error("Screenshot capture is not available in this editor build.");
@@ -243,15 +249,21 @@ namespace OloEngine::MCP
                 // The play state is RE-SAMPLED here, in the same job as the capture,
                 // so the sceneState meta below describes the frame actually captured
                 // even if Play/Stop flipped between the early guard and this job.
-                marshaled = server.MarshalRead([&server, maxWidth, restorePriorPose]() -> Json
+                marshaled = server.MarshalRead([&server, maxWidth, restorePriorPose, deliverLink]() -> Json
                                                {
-                    const std::vector<u8> png = server.Context().CaptureViewportPng(maxWidth);
+                    std::vector<u8> png = server.Context().CaptureViewportPng(maxWidth);
                     restorePriorPose();
                     if (png.empty())
                         return Json{ { "__error", "Viewport capture failed (no framebuffer or empty viewport)." } };
-                    return Json{ { "b64", Base64Encode(png) },
-                                 { "bytes", static_cast<u64>(png.size()) },
-                                 { "playing", server.Context().IsPlaying ? server.Context().IsPlaying() : false } }; });
+                    Json j{ { "bytes", static_cast<u64>(png.size()) },
+                            { "playing", server.Context().IsPlaying ? server.Context().IsPlaying() : false } };
+                    // Link mode hands the RAW bytes out (base64 happens lazily at
+                    // resources/read); inline keeps encoding here, unchanged.
+                    if (deliverLink)
+                        j["png"] = Json::binary(std::move(png));
+                    else
+                        j["b64"] = Base64Encode(png);
+                    return j; });
             }
             catch (...)
             {
@@ -297,12 +309,67 @@ namespace OloEngine::MCP
             Json meta;
             meta["sceneState"] = capturedWhilePlaying ? "play" : "edit-or-simulate";
             meta["camera"] = capturedWhilePlaying ? "runtime primary CameraComponent" : "editor camera";
-            result.Content.push_back(Json{ { "type", "text" }, { "text", meta.dump(2) } });
-            result.Content.push_back(Json{ { "type", "image" },
-                                           { "data", marshaled["b64"] },
-                                           { "mimeType", "image/png" } });
+            if (deliverLink)
+            {
+                // Publish the capture as an ephemeral resource and hand back a
+                // resource_link instead of inline base64 (issue #673 Tier 1).
+                const Json::binary_t& png = marshaled["png"].get_binary();
+                std::vector<u8> bytes(png.begin(), png.end());
+                const u64 sizeBytes = static_cast<u64>(bytes.size());
+                const u64 sequence = NextCaptureSequence();
+                const std::string uri = "olo://capture/" + std::to_string(sequence) + "/screenshot.png";
+                const std::string name = "screenshot-" + std::to_string(sequence) + ".png";
+
+                ResourceDef capture;
+                capture.Uri = uri;
+                capture.Name = name;
+                capture.Description = "Editor viewport PNG capture (scene-state meta in the olo_screenshot result).";
+                capture.MimeType = "image/png";
+                capture.SizeBytes = sizeBytes;
+                capture.BlobReader = [bytes = std::move(bytes)](McpServer&)
+                { return bytes; };
+                server.RegisterEphemeralResource(std::move(capture));
+
+                meta["resourceUri"] = uri;
+                result.Content.push_back(Json{ { "type", "text" }, { "text", meta.dump(2) } });
+                result.Content.push_back(ToolResult::ResourceLinkBlock(
+                    uri, name, "Editor viewport capture (PNG); fetch via resources/read.", "image/png",
+                    sizeBytes));
+            }
+            else
+            {
+                result.Content.push_back(Json{ { "type", "text" }, { "text", meta.dump(2) } });
+                result.Content.push_back(Json{ { "type", "image" },
+                                               { "data", marshaled["b64"] },
+                                               { "mimeType", "image/png" } });
+            }
+            // The same meta object, typed (structuredContent is JSON-only — the PNG
+            // stays an image content block / linked resource above).
+            result.StructuredContent = meta;
             result.IsError = false;
             return result;
+        }
+
+        // ---- shared pose output schema -----------------------------------------
+        // The 11-key pose object PoseToJson (McpToolsCommon.h) emits — the result
+        // shape of olo_camera_get/set_pose/orbit, extended by frame_entity.
+        Schema::Node PoseOutputSchema()
+        {
+            return Schema::Object()
+                .Prop("position", Schema::Vec3("Camera eye position [x, y, z] (world units)."))
+                .Prop("focalPoint", Schema::Vec3("Orbit focal point [x, y, z]."))
+                .Prop("forward", Schema::Vec3("Camera forward unit vector [x, y, z]."))
+                .Prop("yawDegrees", Schema::Number())
+                .Prop("pitchDegrees", Schema::Number())
+                .Prop("distance", Schema::Number())
+                .Prop("fovDegrees", Schema::Number())
+                .Prop("nearClip", Schema::Number())
+                .Prop("farClip", Schema::Number())
+                .Prop("viewportWidth", Schema::Int().Min(0))
+                .Prop("viewportHeight", Schema::Int().Min(0))
+                .Required({ "position", "focalPoint", "forward", "yawDegrees", "pitchDegrees",
+                            "distance", "fovDegrees", "nearClip", "farClip", "viewportWidth",
+                            "viewportHeight" });
         }
 
     } // namespace
@@ -330,14 +397,25 @@ namespace OloEngine::MCP
                 "captured without disturbing the viewport. In PLAY mode the frame is rendered from the "
                 "runtime scene's primary CameraComponent, so 'camera'/'orbit' poses are refused there "
                 "(the editor camera does not drive Play rendering); the reply's sceneState/camera meta "
-                "says which camera produced the frame.";
+                "says which camera produced the frame. With delivery:'resource_link' the PNG is published "
+                "as an ephemeral olo://capture resource and referenced by a resource_link content block "
+                "(fetch it via resources/read) instead of inlining base64 — prefer it for high-res captures.";
             tool.InputSchema = Schema::Object()
                                    .Prop("maxWidth", Schema::Int().Min(16).Max(4096).Desc("Max output width in pixels (default 1024); aspect ratio preserved."))
                                    .Prop("camera", Schema::Object().Desc("Capture from this pose, then restore the prior camera. Same shape as olo_camera_set_pose: position [x,y,z] plus target [x,y,z] or yaw/pitch (degrees); optional fov."))
                                    .Prop("orbit", Schema::Object().Desc("Capture from this orbit pose, then restore. Same shape as olo_camera_orbit: target [x,y,z], yaw/pitch (degrees), distance; optional fov."))
                                    .Prop("settleFrames", Schema::Int().Min(1).Max(30).Desc("Frames to render at the new pose before capturing (default 2). Raise for temporal effects (TAA, fog history) to settle."))
                                    .Prop("forceFrame", Schema::Bool().Desc("Without a 'camera'/'orbit' pose, render and settle fresh frames before capturing (default false). Use right after a scene open / setting change so the image cannot be a stale frame."))
+                                   .Prop("delivery", Schema::String().Enum({ "inline", "resource_link" }).Desc("How to return the PNG: 'inline' (default) embeds a base64 image block; 'resource_link' publishes an ephemeral olo://capture resource and returns a link to fetch via resources/read — for large captures."))
                                    .NoAdditional();
+            // Describes the sceneState/camera meta sidecar (also mirrored as a text
+            // block); the PNG itself stays an image content block / linked
+            // resource, which an outputSchema cannot describe.
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("sceneState", Schema::String().Enum({ "play", "edit-or-simulate" }).Desc("Which mode rendered the captured frame."))
+                                    .Prop("camera", Schema::String().Enum({ "runtime primary CameraComponent", "editor camera" }).Desc("Which camera produced the frame."))
+                                    .Prop("resourceUri", Schema::String().Desc("Present only with delivery:'resource_link' — the olo://capture/... resource holding the PNG (resources/read returns it as base64 blob contents)."))
+                                    .Required({ "sceneState", "camera" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_Screenshot;
             server.RegisterTool(std::move(tool));
@@ -355,6 +433,7 @@ namespace OloEngine::MCP
                 "Read this before moving the camera so you can put it back, or to reason about what the "
                 "viewport is looking at.";
             tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = PoseOutputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_CameraGet;
             server.RegisterTool(std::move(tool));
@@ -380,6 +459,7 @@ namespace OloEngine::MCP
                                    .Prop("fov", Schema::Number().Min(1).Max(170).Desc("Vertical field of view in degrees (omit to keep current)."))
                                    .Required({ "position" })
                                    .NoAdditional();
+            tool.OutputSchema = PoseOutputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_CameraSetPose;
             server.RegisterTool(std::move(tool));
@@ -404,6 +484,7 @@ namespace OloEngine::MCP
                                    .Prop("fov", Schema::Number().Min(1).Max(170).Desc("Vertical field of view in degrees (omit to keep current)."))
                                    .Required({ "target" })
                                    .NoAdditional();
+            tool.OutputSchema = PoseOutputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_CameraOrbit;
             server.RegisterTool(std::move(tool));
@@ -424,6 +505,13 @@ namespace OloEngine::MCP
                                    .Prop("id", Schema::EntityId())
                                    .Required({ "id" })
                                    .NoAdditional();
+            // The shared pose plus the entity echo; Required is re-listed to add
+            // 'framedEntity' on top of the helper's 11 pose keys.
+            tool.OutputSchema = PoseOutputSchema()
+                                    .Prop("framedEntity", Schema::String().Desc("The framed entity's UUID as a decimal string."))
+                                    .Required({ "position", "focalPoint", "forward", "yawDegrees", "pitchDegrees",
+                                                "distance", "fovDegrees", "nearClip", "farClip", "viewportWidth",
+                                                "viewportHeight", "framedEntity" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_CameraFrameEntity;
             server.RegisterTool(std::move(tool));
@@ -445,6 +533,11 @@ namespace OloEngine::MCP
                                    .Prop("height", Schema::Int().Min(64).Max(8192).Desc("Viewport height in logical pixels."))
                                    .Prop("reset", Schema::Bool().Desc("true = clear the override and use the panel size again."))
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("override", Schema::Bool().Desc("true = a size override is now active; false = reset to the panel size."))
+                                    .Prop("width", Schema::Int().Min(64).Max(8192).Desc("Applied (clamped) width in logical pixels; omitted when 'override' is false."))
+                                    .Prop("height", Schema::Int().Min(64).Max(8192).Desc("Applied (clamped) height in logical pixels; omitted when 'override' is false."))
+                                    .Required({ "override" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ViewportSetSize;
             server.RegisterTool(std::move(tool));

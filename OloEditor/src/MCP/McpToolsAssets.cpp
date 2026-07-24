@@ -87,7 +87,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_assets_problems (main-marshaled; failed/missing/invalid assets) -
@@ -121,7 +121,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
     } // namespace
@@ -141,6 +141,18 @@ namespace OloEngine::MCP
                                    .Prop("typeFilter", Schema::String().Desc("Asset type name to filter by (e.g. 'Texture2D'). Omit for all types."))
                                    .Pagination("Assets per page (default 50, max 200).")
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("total", Schema::Int().Min(0).Desc("Total registered assets after the type filter."))
+                                    .Prop("page", Schema::Int().Min(0))
+                                    .Prop("pageSize", Schema::Int().Min(1))
+                                    .Prop("returned", Schema::Int().Min(0).Desc("Number of entries in 'assets'."))
+                                    .Prop("nextPage", Schema::Int().Min(1).Desc("Next zero-based page index; omitted on the last page."))
+                                    .Prop("assets", Schema::Array(Schema::Object()
+                                                                      .Prop("handle", Schema::String().Desc("Asset handle (decimal u64)."))
+                                                                      .Prop("type", Schema::String())
+                                                                      .Prop("path", Schema::String().Desc("Project-relative path."))
+                                                                      .Prop("name", Schema::String())))
+                                    .Required({ "total", "page", "pageSize", "returned", "assets" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_AssetsList;
             server.RegisterTool(std::move(tool));
@@ -156,6 +168,14 @@ namespace OloEngine::MCP
                 "List assets that failed to load or are missing/invalid (handle, type, path, status). The "
                 "first thing to check when something references an asset that isn't showing up.";
             tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("count", Schema::Int().Min(0).Desc("Number of problem assets; 0 with an empty list means all assets are healthy."))
+                                    .Prop("problems", Schema::Array(Schema::Object()
+                                                                        .Prop("handle", Schema::String().Desc("Asset handle (decimal u64)."))
+                                                                        .Prop("type", Schema::String())
+                                                                        .Prop("path", Schema::String())
+                                                                        .Prop("status", Schema::String().Desc("Error status name from the asset registry."))))
+                                    .Required({ "count", "problems" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_AssetsProblems;
             server.RegisterTool(std::move(tool));

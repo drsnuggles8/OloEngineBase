@@ -509,24 +509,46 @@ namespace OloEngine::MCP
         // Scrub absolute filesystem paths from text (Windows drive-letter paths and
         // POSIX /home//Users paths) so project layout / usernames don't leak when
         // redaction is enabled. Heuristic, best-effort.
+        //
+        // The drive-path match requires a non-scheme character (or start of
+        // string) BEFORE the drive letter: without that guard, the trailing
+        // "o://..." of a URI like "olo://capture/1/shot.png" (#673 resource
+        // links) parses as drive "o:" + path and redaction corrupts the URI to
+        // "ol<path>". std::regex has no lookbehind, so the guard is a captured
+        // prefix restored via $1.
         std::string RedactPathsInText(const std::string& text)
         {
-            static const std::regex winPath(R"([A-Za-z]:[\\/][^\s"'<>|]*)");
+            static const std::regex winPath(R"((^|[^A-Za-z0-9+.\-])([A-Za-z]:[\\/][^\s"'<>|]*))");
             static const std::regex posixHome(R"(/(?:home|Users)/[^\s"'<>|]*)");
-            std::string out = std::regex_replace(text, winPath, "<path>");
+            std::string out = std::regex_replace(text, winPath, "$1<path>");
             out = std::regex_replace(out, posixHome, "<path>");
             return out;
         }
 
-        // Apply redaction in place to every text content block of an MCP content array.
+        // Apply redaction in place to every text content block of an MCP content
+        // array — plus the human-readable fields of resource_link blocks (#673
+        // Tier 1), whose name/description could carry a path (e.g. a golden's
+        // relative location); the olo:// uri never does, but scrubbing it too
+        // keeps the guarantee unconditional.
         void RedactContentArray(Json& content)
         {
             if (!content.is_array())
                 return;
             for (auto& block : content)
             {
-                if (block.is_object() && block.value("type", std::string{}) == "text" && block.contains("text") && block["text"].is_string())
+                if (!block.is_object())
+                    continue;
+                const std::string type = block.value("type", std::string{});
+                if (type == "text" && block.contains("text") && block["text"].is_string())
                     block["text"] = RedactPathsInText(block["text"].get<std::string>());
+                else if (type == "resource_link")
+                {
+                    for (const char* field : { "name", "description", "uri" })
+                    {
+                        if (block.contains(field) && block[field].is_string())
+                            block[field] = RedactPathsInText(block[field].get<std::string>());
+                    }
+                }
             }
         }
 
@@ -622,6 +644,21 @@ namespace OloEngine::MCP
         r.StructuredContent = data;
         r.IsError = false;
         return r;
+    }
+
+    Json ToolResult::ResourceLinkBlock(const std::string& uri, const std::string& name,
+                                       const std::string& description, const std::string& mimeType,
+                                       u64 sizeBytes)
+    {
+        Json block{ { "type", "resource_link" },
+                    { "uri", uri },
+                    { "name", name },
+                    { "description", description },
+                    { "mimeType", mimeType } };
+        // `size` is optional per spec; 0 means "unknown", so omit it then.
+        if (sizeBytes > 0)
+            block["size"] = sizeBytes;
+        return block;
     }
 
     // ---- McpServer -------------------------------------------------------------
@@ -748,6 +785,114 @@ namespace OloEngine::MCP
         ReplaceScriptTools({});
     }
 
+    bool McpServer::IsValidClientAlias(std::string_view alias)
+    {
+        if (alias.empty() || alias.size() > 32)
+            return false;
+        for (std::size_t i = 0; i < alias.size(); ++i)
+        {
+            const char c = alias[i];
+            const bool alnum = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+            if (!(alnum || (c == '-' && i > 0)))
+                return false;
+        }
+        return true;
+    }
+
+    std::string McpServer::ClientToolPrefix(const std::string& alias)
+    {
+        return "ext." + alias + ".";
+    }
+
+    sizet McpServer::ReplaceClientTools(const std::string& alias, std::vector<ToolDef> clientTools)
+    {
+        // Foreign definitions are runtime network data — validate-and-reject,
+        // never OLO_CORE_VERIFY (ADR 0005: asserts must not police data another
+        // process controls). An invalid alias rejects the whole batch: without a
+        // valid reserved prefix nothing below can be namespaced safely.
+        if (!IsValidClientAlias(alias))
+        {
+            OLO_CORE_WARN("[MCP] ReplaceClientTools: invalid client alias '{}' — batch rejected.", alias);
+            return 0;
+        }
+
+        const std::string prefix = ClientToolPrefix(alias);
+        std::vector<ToolDef> accepted;
+        accepted.reserve(clientTools.size());
+        for (ToolDef& tool : clientTools)
+        {
+            if (!IsValidToolName(tool.Name))
+            {
+                OLO_CORE_WARN("[MCP] ReplaceClientTools('{}'): dropping tool with invalid name '{}'.", alias,
+                              tool.Name);
+                continue;
+            }
+            if (tool.Name.size() <= prefix.size() || tool.Name.compare(0, prefix.size(), prefix) != 0)
+            {
+                OLO_CORE_WARN("[MCP] ReplaceClientTools('{}'): dropping tool '{}' — bridged names must live in "
+                              "the reserved '{}' namespace.",
+                              alias, tool.Name, prefix);
+                continue;
+            }
+            if (std::any_of(accepted.begin(), accepted.end(),
+                            [&tool](const ToolDef& existing)
+                            { return existing.Name == tool.Name; }))
+            {
+                OLO_CORE_WARN("[MCP] ReplaceClientTools('{}'): dropping duplicate tool '{}'.", alias, tool.Name);
+                continue;
+            }
+            if (!tool.Handler)
+            {
+                OLO_CORE_WARN("[MCP] ReplaceClientTools('{}'): dropping tool '{}' with no bridge handler.", alias,
+                              tool.Name);
+                continue;
+            }
+            if (!IsValidIcons(tool.Icons))
+            {
+                OLO_CORE_WARN("[MCP] ReplaceClientTools('{}'): dropping malformed icons on '{}'.", alias,
+                              tool.Name);
+                tool.Icons = Json();
+            }
+
+            // FORCE the authority posture — never trust the child's claims
+            // (ADR 0005: "a tool's write authority is its OWN declared tier...
+            // never inherited, never ambient, and never laundered"). A foreign
+            // tool always faces the full write-consent gate, is annotated as an
+            // open-world mutation (the first genuinely open-world tools in the
+            // surface — everything native acts on the local editor session), and
+            // keeps the spec's conservative destructiveHint default of true.
+            tool.ProjectWrite = true;
+            tool.ScriptOwned = false;
+            tool.ClientAlias = alias;
+            tool.Toolset = "ext." + alias;
+            tool.Annotations = Json{ { "readOnlyHint", false }, { "openWorldHint", true } };
+            accepted.push_back(std::move(tool));
+        }
+
+        {
+            std::lock_guard writeLock(m_ToolsWriteMutex);
+            const ToolSnapshot current = ToolsSnapshot();
+
+            auto next = std::make_shared<ToolList>();
+            next->reserve(current->size() + accepted.size());
+            for (const ToolDef& tool : *current)
+            {
+                if (tool.ClientAlias != alias)
+                    next->push_back(tool);
+            }
+            for (ToolDef& tool : accepted)
+                next->push_back(std::move(tool));
+
+            // Same linearization contract as ReplaceScriptTools: an in-flight
+            // call keeps executing against the snapshot (and any per-connection
+            // runtime its handler strongly captures) it started with.
+            m_Tools.store(std::shared_ptr<const ToolList>(std::move(next)), std::memory_order_release);
+        }
+
+        NotifyToolsListChanged();
+        return accepted.size();
+    }
+
     void McpServer::NotifyToolsListChanged()
     {
         // Bump FIRST: an SSE stream that polls the generation must never observe a
@@ -796,7 +941,112 @@ namespace OloEngine::MCP
 
     void McpServer::RegisterResource(ResourceDef resource)
     {
-        m_Resources.push_back(std::move(resource));
+        // Copy-on-write publish, mirroring RegisterTool: build the new vector,
+        // swap it in atomically. A duplicate URI REPLACES the existing entry
+        // instead of silently shadowing it (FindResource returns the first match).
+        std::shared_ptr<ResourceList> next;
+        {
+            std::lock_guard writeLock(m_ResourcesWriteMutex);
+            next = std::make_shared<ResourceList>(*ResourcesSnapshot());
+            std::erase_if(*next, [&resource](const ResourceDef& existing)
+                          { return existing.Uri == resource.Uri; });
+            next->push_back(std::move(resource));
+            m_Resources.store(std::shared_ptr<const ResourceList>(next), std::memory_order_release);
+        }
+        NotifyResourcesListChanged();
+    }
+
+    void McpServer::RegisterEphemeralResource(ResourceDef resource)
+    {
+        resource.Ephemeral = true;
+        {
+            std::lock_guard writeLock(m_ResourcesWriteMutex);
+            auto next = std::make_shared<ResourceList>(*ResourcesSnapshot());
+            std::erase_if(*next, [&resource](const ResourceDef& existing)
+                          { return existing.Uri == resource.Uri; });
+            next->push_back(std::move(resource));
+
+            // Evict OLDEST ephemerals (registration order) until both bounds
+            // hold. The just-published entry is only evicted if it alone busts a
+            // bound (an oversized capture with maxCount >= 1 still displaces
+            // everything older first).
+            const auto ephemeralCount = [&next]
+            {
+                sizet count = 0;
+                for (const ResourceDef& entry : *next)
+                    count += entry.Ephemeral ? 1 : 0;
+                return count;
+            };
+            const auto ephemeralBytes = [&next]
+            {
+                u64 bytes = 0;
+                for (const ResourceDef& entry : *next)
+                    bytes += entry.Ephemeral ? entry.SizeBytes : 0;
+                return bytes;
+            };
+            while (ephemeralCount() > m_EphemeralMaxCount ||
+                   (ephemeralBytes() > m_EphemeralMaxBytes && ephemeralCount() > 1))
+            {
+                const auto oldest = std::find_if(next->begin(), next->end(),
+                                                 [](const ResourceDef& entry)
+                                                 { return entry.Ephemeral; });
+                if (oldest == next->end())
+                    break;
+                next->erase(oldest);
+            }
+            m_Resources.store(std::shared_ptr<const ResourceList>(std::move(next)), std::memory_order_release);
+        }
+        NotifyResourcesListChanged();
+    }
+
+    void McpServer::ClearEphemeralResources()
+    {
+        bool changed = false;
+        {
+            std::lock_guard writeLock(m_ResourcesWriteMutex);
+            const ResourceSnapshot current = ResourcesSnapshot();
+            auto next = std::make_shared<ResourceList>();
+            next->reserve(current->size());
+            for (const ResourceDef& entry : *current)
+            {
+                if (!entry.Ephemeral)
+                    next->push_back(entry);
+            }
+            changed = next->size() != current->size();
+            if (changed)
+                m_Resources.store(std::shared_ptr<const ResourceList>(std::move(next)), std::memory_order_release);
+        }
+        if (changed)
+            NotifyResourcesListChanged();
+    }
+
+    void McpServer::SetEphemeralResourceLimits(sizet maxCount, u64 maxBytes)
+    {
+        std::lock_guard writeLock(m_ResourcesWriteMutex);
+        m_EphemeralMaxCount = maxCount;
+        m_EphemeralMaxBytes = maxBytes;
+    }
+
+    void McpServer::NotifyResourcesListChanged()
+    {
+        // Bump FIRST — same ordering contract as NotifyToolsListChanged: an SSE
+        // stream that polls the generation must never observe a stale generation
+        // alongside a fresh resource list.
+        m_ResourcesGeneration.fetch_add(1, std::memory_order_release);
+
+        std::vector<NotificationSink> sinks;
+        {
+            std::lock_guard lock(m_ListenerMutex);
+            sinks.reserve(m_Listeners.size());
+            for (const auto& [token, sink] : m_Listeners)
+                sinks.push_back(sink);
+        }
+        const Json notification{ { "jsonrpc", "2.0" }, { "method", "notifications/resources/list_changed" } };
+        for (const NotificationSink& sink : sinks)
+        {
+            if (sink)
+                sink(notification);
+        }
     }
 
     void McpServer::RegisterPrompt(PromptDef prompt)
@@ -903,7 +1153,13 @@ namespace OloEngine::MCP
     void McpServer::Stop()
     {
         if (!m_Http)
+        {
+            // Never started (or already stopped) — but outbound client
+            // connections can exist without a running HTTP server (tests, a
+            // panel connect before Start): tear those down regardless.
+            ShutdownClients();
             return;
+        }
 
         // Signal first so any handler blocked in MarshalRead aborts promptly
         // instead of deadlocking against this thread (Stop runs on the game thread).
@@ -917,6 +1173,11 @@ namespace OloEngine::MCP
             m_ConsentAborting = true;
         }
         m_ConsentCv.notify_all();
+
+        // Same reasoning for workers blocked on an outbound child's response
+        // (issue #673 Tier 1): fail every pending bridged call and join the
+        // client reader threads BEFORE the pool join below.
+        ShutdownClients();
 
         m_Http->stop();
         if (m_ListenThread.joinable())
@@ -932,6 +1193,12 @@ namespace OloEngine::MCP
             m_Sessions.clear();
         }
         m_Token.clear();
+
+        // Drop the session's ephemeral capture resources so a later Start()
+        // begins with a clean registry (their URIs would otherwise be stale
+        // advertisements to a newly attached agent). After m_Http.reset() no
+        // worker is left mid-read; any listener sink still fires harmlessly.
+        ClearEphemeralResources();
 
         // (The ephemeral sun-direction override clear that used to live here was
         // retired by issue #633 — olo_scene_set_time_of_day now edits the
@@ -1059,7 +1326,7 @@ namespace OloEngine::MCP
         {
             if (entry.Decision != ConsentDecision::Pending)
                 continue; // already resolved, waiting to be reaped by its handler thread
-            pending.push_back(PendingConsent{ entry.Id, entry.ToolName, entry.ToolTitle, entry.Summary });
+            pending.push_back(PendingConsent{ entry.Id, entry.ToolName, entry.ToolTitle, entry.Summary, entry.External });
         }
         return pending;
     }
@@ -1133,6 +1400,7 @@ namespace OloEngine::MCP
             entry.ToolName = tool.Name;
             entry.ToolTitle = tool.Title.empty() ? tool.Name : tool.Title;
             entry.Summary = BuildConsentSummary(arguments);
+            entry.External = !tool.ClientAlias.empty();
             m_ConsentQueue.push_back(std::move(entry));
 
             const bool resolved = m_ConsentCv.wait_for(lock, timeout, [this, myId, &cancelled]
@@ -1310,7 +1578,8 @@ namespace OloEngine::MCP
         res.set_chunked_content_provider(
             "text/event-stream",
             [this, cursor = startCursor, lastWrite = std::chrono::steady_clock::now(), greeted = false,
-             toolsGeneration = ToolsGeneration()](std::size_t /*offset*/, httplib::DataSink& sink) mutable -> bool
+             toolsGeneration = ToolsGeneration(),
+             resourcesGeneration = ResourcesGeneration()](std::size_t /*offset*/, httplib::DataSink& sink) mutable -> bool
             {
                 // Server tearing down: end the stream gracefully so the worker thread
                 // is free to be joined by Stop().
@@ -1346,6 +1615,20 @@ namespace OloEngine::MCP
                     if (!sink.write(frame.data(), frame.size()))
                         return false;
                     toolsGeneration = generation;
+                    lastWrite = std::chrono::steady_clock::now();
+                }
+
+                // Resource-list changes (ephemeral capture publishes/evictions,
+                // #673 Tier 1) — same polled-generation delivery as the tools
+                // block above, same single-writer-thread constraint. Advertised
+                // via capabilities.resources.listChanged.
+                if (const u64 generation = ResourcesGeneration(); generation != resourcesGeneration)
+                {
+                    const std::string frame = FormatSseData(
+                        Json{ { "jsonrpc", "2.0" }, { "method", "notifications/resources/list_changed" } });
+                    if (!sink.write(frame.data(), frame.size()))
+                        return false;
+                    resourcesGeneration = generation;
                     lastWrite = std::chrono::steady_clock::now();
                 }
 
@@ -1635,9 +1918,13 @@ namespace OloEngine::MCP
         // olo_script_tools_reload (and the MCP panel's "Reload script tools" button)
         // rescan <project assets>/McpTools while the server is serving and swap the
         // registry, then emit `notifications/tools/list_changed` on every live SSE
-        // stream. Resources and prompts are still fixed for a server run.
+        // stream. `resources.listChanged` is TRUE since the resource-link work
+        // (#673 Tier 1): capture tools publish ephemeral resources while serving
+        // (RegisterEphemeralResource), announced the same generation-polled way.
+        // Prompts are still fixed for a server run; per-URI `subscribe` stays
+        // unimplemented (nothing needs a subscription registry yet).
         result["capabilities"] = Json{ { "tools", { { "listChanged", true } } },
-                                       { "resources", { { "subscribe", false }, { "listChanged", false } } },
+                                       { "resources", { { "subscribe", false }, { "listChanged", true } } },
                                        { "prompts", { { "listChanged", false } } },
                                        { "logging", Json::object() } };
         // `description` on Implementation is a 2025-11-25 addition (aligns with
@@ -1945,13 +2232,19 @@ namespace OloEngine::MCP
 
     Json McpServer::HandleResourcesList(const Json& id) const
     {
+        const ResourceSnapshot snapshot = ResourcesSnapshot();
         Json resources = Json::array();
-        for (const auto& resource : m_Resources)
+        for (const auto& resource : *snapshot)
         {
-            resources.push_back(Json{ { "uri", resource.Uri },
-                                      { "name", resource.Name },
-                                      { "description", resource.Description },
-                                      { "mimeType", resource.MimeType } });
+            Json entry{ { "uri", resource.Uri },
+                        { "name", resource.Name },
+                        { "description", resource.Description },
+                        { "mimeType", resource.MimeType } };
+            // `size` (spec 2025-06-18) lets a client budget a read up front;
+            // 0 means unknown, so omit it then.
+            if (resource.SizeBytes > 0)
+                entry["size"] = resource.SizeBytes;
+            resources.push_back(std::move(entry));
         }
         return MakeResult(id, Json{ { "resources", std::move(resources) } });
     }
@@ -1962,9 +2255,32 @@ namespace OloEngine::MCP
             return MakeError(id, kInvalidParams, "Invalid params: 'uri' is required");
 
         const std::string uri = params["uri"].get<std::string>();
-        const ResourceDef* resource = FindResource(uri);
+        // Pin the snapshot for the WHOLE read — the Reader may block on a
+        // MarshalRead for seconds, and a concurrent publish/eviction must not
+        // dangle the ResourceDef (or free a capture's bytes) under it.
+        const ResourceSnapshot snapshot = ResourcesSnapshot();
+        const ResourceDef* resource = FindResource(*snapshot, uri);
         if (resource == nullptr)
             return MakeError(id, kInvalidParams, "Unknown resource: " + uri);
+
+        // Binary resource: emit the spec's base64 `blob` contents variant.
+        // (No path redaction — the payload is binary, not prose.)
+        if (resource->BlobReader)
+        {
+            std::vector<u8> bytes;
+            try
+            {
+                bytes = resource->BlobReader(*this);
+            }
+            catch (const std::exception& e)
+            {
+                return MakeError(id, kInvalidRequest, std::string("Failed to read resource: ") + e.what());
+            }
+            return MakeResult(id, Json{ { "contents",
+                                          Json::array({ Json{ { "uri", uri },
+                                                              { "mimeType", resource->MimeType },
+                                                              { "blob", Base64Encode(bytes) } } }) } });
+        }
 
         std::string text;
         try
@@ -1985,9 +2301,9 @@ namespace OloEngine::MCP
                                                           { "text", std::move(text) } } }) } });
     }
 
-    const ResourceDef* McpServer::FindResource(const std::string& uri) const
+    const ResourceDef* McpServer::FindResource(const ResourceList& resources, const std::string& uri)
     {
-        for (const auto& resource : m_Resources)
+        for (const auto& resource : resources)
         {
             if (resource.Uri == uri)
                 return &resource;

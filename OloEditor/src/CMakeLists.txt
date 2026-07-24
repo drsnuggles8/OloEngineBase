@@ -7,6 +7,8 @@
 
 		"MCP/McpServer.cpp"
 		"MCP/McpServer.h"
+		"MCP/McpClient.cpp"
+		"MCP/McpClient.h"
 		"MCP/McpTools.cpp"
 		"MCP/McpTools.h"
 		"MCP/McpToolsCommon.h"

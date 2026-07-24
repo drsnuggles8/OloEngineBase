@@ -15,6 +15,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <string>
@@ -78,32 +79,17 @@ namespace OloEngine::MCP
         return std::round(v * 100.0) / 100.0;
     }
 
-    inline std::string Base64Encode(const std::vector<u8>& data)
+    // (Base64Encode moved to McpServer.h — resources/read's binary `blob`
+    // contents variant needs it in the dispatch core, issue #673 Tier 1. Call
+    // sites here are unchanged: this header includes McpServer.h.)
+
+    // Monotonic per-process sequence for olo://capture/... resource URIs
+    // (issue #673 Tier 1, resource-link delivery). Uniqueness is what matters —
+    // RegisterEphemeralResource REPLACES a duplicate URI — ordering is cosmetic.
+    inline u64 NextCaptureSequence()
     {
-        static constexpr char kTable[] =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        std::string out;
-        out.reserve(((data.size() + 2) / 3) * 4);
-        std::size_t i = 0;
-        for (; i + 3 <= data.size(); i += 3)
-        {
-            const u32 n = (static_cast<u32>(data[i]) << 16) | (static_cast<u32>(data[i + 1]) << 8) | data[i + 2];
-            out.push_back(kTable[(n >> 18) & 0x3F]);
-            out.push_back(kTable[(n >> 12) & 0x3F]);
-            out.push_back(kTable[(n >> 6) & 0x3F]);
-            out.push_back(kTable[n & 0x3F]);
-        }
-        if (const std::size_t rem = data.size() - i; rem > 0)
-        {
-            u32 n = static_cast<u32>(data[i]) << 16;
-            if (rem == 2)
-                n |= static_cast<u32>(data[i + 1]) << 8;
-            out.push_back(kTable[(n >> 18) & 0x3F]);
-            out.push_back(kTable[(n >> 12) & 0x3F]);
-            out.push_back(rem == 2 ? kTable[(n >> 6) & 0x3F] : '=');
-            out.push_back('=');
-        }
-        return out;
+        static std::atomic<u64> s_Next{ 1 };
+        return s_Next.fetch_add(1, std::memory_order_relaxed);
     }
 
     // ---- Camera tool helpers (Tier 0, #316) --------------------------------

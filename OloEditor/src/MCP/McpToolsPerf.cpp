@@ -152,7 +152,7 @@ namespace OloEngine::MCP
                 o["detail"] = b.m_Description;
                 o["recommendations"] = b.m_Recommendations;
                 return o; });
-            return ToolResult::Text(j.dump(2));
+            return ToolResult::Structured(j);
         }
 
         // ---- olo_perf_frame_history (main-marshaled; server downsamples) -------
@@ -184,7 +184,7 @@ namespace OloEngine::MCP
                 return Json{ { "totalFrames", static_cast<u64>(n) },
                              { "returned", static_cast<int>(series.size()) },
                              { "series", std::move(series) } }; });
-            return ToolResult::Text(j.dump(2));
+            return ToolResult::Structured(j);
         }
 
         // ---- olo_perf_capture_frame (main-marshaled) ---------------------------
@@ -269,7 +269,7 @@ namespace OloEngine::MCP
             o["note"] = "Captured from the scene render command bucket (post-batch). GPU times come from the "
                         "renderer's timer-query pool. For the per-command / per-stage structural breakdown "
                         "(command list, draw keys, sort/batch analysis), use olo_render_frame_breakdown.";
-            return ToolResult::Text(o.dump(2));
+            return ToolResult::Structured(o);
         }
 
         // McpPassTimings.h duplicates the pool's slot count as a Jolt/engine-free
@@ -433,6 +433,12 @@ namespace OloEngine::MCP
                 "The engine's automatic bottleneck analysis: which of CPU/GPU/Memory/IO is limiting the "
                 "frame, a confidence score, a human description, and concrete recommendations.";
             tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("bottleneck", Schema::String().Enum({ "CPU", "GPU", "Memory", "IO", "Balanced", "Unknown" }))
+                                    .Prop("confidence", Schema::Number().Desc("Diagnosis confidence, 0-1."))
+                                    .Prop("detail", Schema::String())
+                                    .Prop("recommendations", Schema::Array(Schema::String()))
+                                    .Required({ "bottleneck", "confidence", "detail", "recommendations" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfBottlenecks;
             server.RegisterTool(std::move(tool));
@@ -450,6 +456,15 @@ namespace OloEngine::MCP
             tool.InputSchema = Schema::Object()
                                    .Prop("points", Schema::Int().Min(1).Max(300).Desc("Number of downsampled points to return (default 60)."))
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("totalFrames", Schema::Int().Min(0).Desc("Frames in the profiler ring buffer, before downsampling."))
+                                    .Prop("returned", Schema::Int().Min(0).Desc("Samples actually emitted after downsampling."))
+                                    .Prop("series", Schema::Array(Schema::Object()
+                                                                      .Prop("frameTimeMs", Schema::Number())
+                                                                      .Prop("fps", Schema::Number())
+                                                                      .Prop("drawCalls", Schema::Int().Min(0)))
+                                                        .Desc("Downsampled samples, oldest first; empty when no frame history exists yet."))
+                                    .Required({ "totalFrames", "returned", "series" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfFrameHistory;
             server.RegisterTool(std::move(tool));
@@ -470,6 +485,26 @@ namespace OloEngine::MCP
             tool.InputSchema = Schema::Object()
                                    .Prop("topK", Schema::Int().Min(1).Max(50).Desc("How many of the most expensive draw calls to return (default 10)."))
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("frameNumber", Schema::Int().Min(0))
+                                    .Prop("stats", Schema::Object()
+                                                       .Prop("drawCalls", Schema::Int().Min(0))
+                                                       .Prop("totalCommands", Schema::Int().Min(0))
+                                                       .Prop("batchedCommands", Schema::Int().Min(0))
+                                                       .Prop("stateChanges", Schema::Int().Min(0))
+                                                       .Prop("shaderBinds", Schema::Int().Min(0))
+                                                       .Prop("textureBinds", Schema::Int().Min(0))
+                                                       .Prop("sortMs", Schema::Number())
+                                                       .Prop("batchMs", Schema::Number())
+                                                       .Prop("executeMs", Schema::Number())
+                                                       .Prop("totalMs", Schema::Number()))
+                                    .Prop("topDrawCalls", Schema::Array(Schema::Object()
+                                                                            .Prop("name", Schema::String())
+                                                                            .Prop("type", Schema::String())
+                                                                            .Prop("gpuMs", Schema::Number()))
+                                                              .Desc("At most topK post-batch draw commands, sorted by GPU time descending."))
+                                    .Prop("note", Schema::String().Desc("Fixed provenance note pointing at olo_render_frame_breakdown for the per-command breakdown."))
+                                    .Required({ "frameNumber", "stats", "topDrawCalls", "note" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfCaptureFrame;
             server.RegisterTool(std::move(tool));
