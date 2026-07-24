@@ -12,6 +12,7 @@ add_executable(OloEngine-Tests
 		CoreUtilitiesTest.cpp
 		MathTest.cpp
 		ModelImporterTest.cpp
+		MeshInterchangeTest.cpp
 		SceneMeshRaycastTest.cpp
 		SlugFontRenderingTest.cpp
 		AssetCreationTest.cpp

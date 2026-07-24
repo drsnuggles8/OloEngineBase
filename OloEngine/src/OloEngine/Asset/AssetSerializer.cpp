@@ -47,6 +47,8 @@
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Asset/Interchange/MeshImporterRegistry.h"
+#include "OloEngine/Asset/Interchange/MaterialX/MaterialXMaterialReader.h"
 #include "OloEngine/Serialization/ImportedMaterialCodec.h"
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
@@ -704,6 +706,31 @@ namespace OloEngine
 
     bool MaterialAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
+#if defined(OLO_WITH_MATERIALX)
+        // A MaterialX document (.mtlx) is XML, not the engine's YAML material format — route it
+        // through the MaterialX reader (issue #655 Tier 3). Any other extension uses the YAML
+        // path below.
+        std::string materialExt = metadata.FilePath.extension().string();
+        std::ranges::transform(materialExt, materialExt.begin(),
+                               [](unsigned char c)
+                               { return static_cast<char>(std::tolower(c)); });
+        if (materialExt == ".mtlx")
+        {
+            std::filesystem::path fullPath = Project::GetProjectDirectory() / metadata.FilePath;
+            auto material = Material::CreatePBR("MaterialX", glm::vec3(0.8f), 0.0f, 0.5f);
+            std::string error;
+            if (!MaterialXImport::ReadMaterialXMaterial(fullPath, *material, error))
+            {
+                OLO_CORE_ERROR("MaterialAssetSerializer::TryLoadData - {}", error);
+                return false;
+            }
+            auto mtlxAsset = Ref<MaterialAsset>::Create(material);
+            mtlxAsset->SetHandle(metadata.Handle);
+            asset = mtlxAsset;
+            return true;
+        }
+#endif
+
         Ref<MaterialAsset> materialAsset;
         if (!DeserializeFromYAML(GetYAML(metadata), materialAsset, metadata.Handle))
         {
@@ -2407,32 +2434,39 @@ namespace OloEngine
             return false;
         }
 
-        // Always load through Model, warm cache or cold.
+        // Dispatch through the interchange registry (issue #655): the importer is resolved
+        // from the file extension. FBX/glTF/OBJ/DAE/VRM/PLY fall to AssimpMeshImporter (the
+        // registry fallback), which reproduces exactly what this function did inline before —
+        // build a Model (warm .omesh geometry cache or cold), then CreateCombinedMeshSource.
+        // USD/Alembic route to their own importers when those formats are compiled in.
         //
-        // There used to be a MeshCache-only fast path here that returned the cached
-        // MeshSource directly. It skipped Model entirely — and therefore skipped the
-        // materials, which only Model knows how to import. A MeshSource asset loaded on
-        // the second run (warm cache) thus had NO materials, so every consumer that
-        // resolves materials through the MeshSource rendered flat grey, while the very
-        // same mesh under a ModelComponent rendered textured. Model::LoadModel already
-        // reads geometry from the same cache and only re-imports the source file for its
-        // materials, so this costs the material import and nothing else; it is exactly the
-        // cost ModelComponent has always paid.
-        Model model(path.string());
-        auto meshSource = model.CreateCombinedMeshSource();
-        if (!meshSource || meshSource->GetVertices().IsEmpty())
+        // NB on the old Assimp warm-cache note kept for context: there used to be a
+        // MeshCache-only fast path here that returned the cached MeshSource directly. It
+        // skipped Model entirely — and therefore skipped the materials, which only Model
+        // knows how to import — so a warm-cache MeshSource rendered flat grey. Model::LoadModel
+        // reads geometry from the same cache and only re-imports the source for its materials,
+        // so routing through AssimpMeshImporter keeps that fix intact.
+        MeshImportResult importResult = MeshImporterRegistry::Get().Import(path);
+        if (!importResult.Succeeded())
         {
-            OLO_CORE_ERROR("MeshSourceSerializer::TryLoadData - Assimp import failed: {}", path.string());
+            OLO_CORE_ERROR("MeshSourceSerializer::TryLoadData - import failed: {}", importResult.Error);
+            return false;
+        }
+        auto meshSource = importResult.Source;
+        if (meshSource->GetVertices().IsEmpty())
+        {
+            OLO_CORE_ERROR("MeshSourceSerializer::TryLoadData - import produced no vertices: {}", path.string());
             return false;
         }
 
-        // CreateCombinedMeshSource does not call Build() (it's also used for cache-only
-        // serialization). Build GPU buffers here so the asset is renderable.
+        // Importers deliberately do NOT call Build() (the source is also used for cache-only
+        // serialization on the headless/asset-pack path). Build GPU buffers here so the asset
+        // is renderable.
         meshSource->Build();
 
         meshSource->SetHandle(metadata.Handle);
         asset = meshSource;
-        OLO_CORE_TRACE("MeshSourceSerializer::TryLoadData - Loaded via Assimp: {} ({} verts, {} submeshes)",
+        OLO_CORE_TRACE("MeshSourceSerializer::TryLoadData - Loaded: {} ({} verts, {} submeshes)",
                        path.string(), meshSource->GetVertices().Num(), meshSource->GetSubmeshes().Num());
         return true;
     }

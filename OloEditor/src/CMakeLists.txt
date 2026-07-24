@@ -141,3 +141,14 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}
 # olo_copy_ffmpeg_runtime in cmake/CommonProperties.cmake.
 olo_copy_ffmpeg_runtime(OloEditor)
 
+# Stage OpenUSD's plugInfo resource tree next to the editor exe so PlugRegistry can map
+# .usda/.usdc/.usdz -> file-format plugin at runtime (#655). OLO_USD_PLUGIN_TREE is set by
+# OloEngine's OLO_WITH_USD block; the tree exists after the USD build (OloEditor depends on it
+# transitively via OloEngine), so the POST_BUILD copy is correctly ordered. Must live in this
+# scope (where OloEditor is created), same as the ffmpeg copy above.
+if(OLO_WITH_USD AND OLO_USD_PLUGIN_TREE)
+    add_custom_command(TARGET OloEditor POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${OLO_USD_PLUGIN_TREE}" "$<TARGET_FILE_DIR:OloEditor>/usd"
+        COMMENT "Staging USD plugInfo tree next to OloEditor")
+endif()
+

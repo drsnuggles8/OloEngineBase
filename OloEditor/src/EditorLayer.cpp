@@ -47,6 +47,7 @@
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/Interchange/MeshExporterRegistry.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Core/Events/EditorEvents.h"
 #include "OloEngine/Core/InputActionManager.h"
@@ -1463,6 +1464,32 @@ namespace OloEngine
             if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S", false, m_ActiveScene != nullptr))
             {
                 SaveSceneAs();
+            }
+
+            ImGui::Separator();
+
+            // Export the selected entity's mesh to glTF/glb (issue #655 Tier 3). Enabled only
+            // when the selection carries a MeshComponent with a built MeshSource.
+            {
+                Entity meshSel = m_SceneHierarchyPanel.GetSelectedEntity();
+                const bool canExportMesh = meshSel && meshSel.HasComponent<MeshComponent>() &&
+                                           meshSel.GetComponent<MeshComponent>().m_MeshSource != nullptr;
+                if (ImGui::MenuItem("Export Mesh to glTF...", nullptr, false, canExportMesh))
+                {
+                    if (std::string chosen = FileDialogs::SaveFile("glTF (*.gltf)\0*.gltf\0glTF Binary (*.glb)\0*.glb\0");
+                        !chosen.empty())
+                    {
+                        std::filesystem::path outPath(chosen);
+                        if (!outPath.has_extension())
+                            outPath.replace_extension(".gltf");
+                        const Ref<MeshSource>& meshSource = meshSel.GetComponent<MeshComponent>().m_MeshSource;
+                        if (MeshExportResult exportResult = MeshExporterRegistry::Get().Export(*meshSource, outPath);
+                            exportResult.Success)
+                            OLO_INFO("Exported mesh to {}", outPath.string());
+                        else
+                            OLO_ERROR("Mesh export failed: {}", exportResult.Error);
+                    }
+                }
             }
 
             ImGui::Separator();
