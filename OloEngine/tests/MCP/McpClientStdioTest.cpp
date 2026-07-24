@@ -77,16 +77,6 @@ namespace
                 OnClosedSink();
         }
 
-        [[nodiscard]] bool WroteMethod(const std::string& method) const
-        {
-            for (const Json& message : Written)
-            {
-                if (message.is_object() && message.value("method", std::string{}) == method)
-                    return true;
-            }
-            return false;
-        }
-
       private:
         std::atomic<bool> m_Closed{ false };
     };

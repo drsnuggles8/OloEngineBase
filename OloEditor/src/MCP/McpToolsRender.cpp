@@ -686,29 +686,12 @@ namespace OloEngine::MCP
                 // resource_link instead of inline base64 (issue #673 Tier 1).
                 const Json::binary_t& png = result["png"].get_binary();
                 std::vector<u8> bytes(png.begin(), png.end());
-                const u64 sizeBytes = static_cast<u64>(bytes.size());
-                const u64 sequence = NextCaptureSequence();
-                const std::string uri = "olo://capture/" + std::to_string(sequence) + "/target.png";
-                const std::string linkName = "target-" + std::to_string(sequence) + ".png";
-
-                ResourceDef captureResource;
-                captureResource.Uri = uri;
-                captureResource.Name = linkName;
-                captureResource.Description =
-                    "Render-target PNG capture of '" + name + "' (capture meta in the tool result).";
-                captureResource.MimeType = "image/png";
-                captureResource.SizeBytes = sizeBytes;
-                captureResource.BlobReader = [bytes = std::move(bytes)](McpServer&)
-                { return bytes; };
-                server.RegisterEphemeralResource(std::move(captureResource));
-
-                meta["resourceUri"] = uri;
+                Json linkBlock = PublishCaptureResourceLink(
+                    server, std::move(bytes), "target",
+                    "Render-target PNG capture of '" + name + "' (capture meta in the tool result).",
+                    "Render-target capture of '" + name + "' (PNG); fetch via resources/read.", meta);
                 toolResult.Content = Json::array(
-                    { Json{ { "type", "text" }, { "text", meta.dump(2) } },
-                      ToolResult::ResourceLinkBlock(uri, linkName,
-                                                    "Render-target capture of '" + name +
-                                                        "' (PNG); fetch via resources/read.",
-                                                    "image/png", sizeBytes) });
+                    { Json{ { "type", "text" }, { "text", meta.dump(2) } }, std::move(linkBlock) });
             }
             else
             {
@@ -1773,32 +1756,19 @@ namespace OloEngine::MCP
             // image, or a published olo://capture resource + resource_link block
             // (which also stamps resourceUri into the verdict object BEFORE it
             // is mirrored into the text block).
+            // attachCapture runs exactly once per handler execution (the rebase
+            // branch and the compare branch are mutually exclusive and each is the
+            // last use of capturedPng), so the link branch may MOVE the buffer.
             const auto attachCapture = [&server, &capturedPng, deliverLink](Json& verdict) -> Json
             {
                 if (!deliverLink)
                     return Json{ { "type", "image" },
                                  { "data", Base64Encode(capturedPng) },
                                  { "mimeType", "image/png" } };
-                const u64 sizeBytes = static_cast<u64>(capturedPng.size());
-                const u64 sequence = NextCaptureSequence();
-                const std::string uri = "olo://capture/" + std::to_string(sequence) + "/golden-capture.png";
-                const std::string linkName = "golden-capture-" + std::to_string(sequence) + ".png";
-
-                ResourceDef captureResource;
-                captureResource.Uri = uri;
-                captureResource.Name = linkName;
-                captureResource.Description =
-                    "Viewport capture from olo_render_compare_golden (verdict in the tool result).";
-                captureResource.MimeType = "image/png";
-                captureResource.SizeBytes = sizeBytes;
-                captureResource.BlobReader = [bytes = capturedPng](McpServer&)
-                { return bytes; };
-                server.RegisterEphemeralResource(std::move(captureResource));
-
-                verdict["resourceUri"] = uri;
-                return ToolResult::ResourceLinkBlock(uri, linkName,
-                                                     "Captured viewport frame (PNG); fetch via resources/read.",
-                                                     "image/png", sizeBytes);
+                return PublishCaptureResourceLink(
+                    server, std::move(capturedPng), "golden-capture",
+                    "Viewport capture from olo_render_compare_golden (verdict in the tool result).",
+                    "Captured viewport frame (PNG); fetch via resources/read.", verdict);
             };
 
             // Golden-missing / rebase: write the capture as the new golden and

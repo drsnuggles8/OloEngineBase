@@ -315,26 +315,12 @@ namespace OloEngine::MCP
                 // resource_link instead of inline base64 (issue #673 Tier 1).
                 const Json::binary_t& png = marshaled["png"].get_binary();
                 std::vector<u8> bytes(png.begin(), png.end());
-                const u64 sizeBytes = static_cast<u64>(bytes.size());
-                const u64 sequence = NextCaptureSequence();
-                const std::string uri = "olo://capture/" + std::to_string(sequence) + "/screenshot.png";
-                const std::string name = "screenshot-" + std::to_string(sequence) + ".png";
-
-                ResourceDef capture;
-                capture.Uri = uri;
-                capture.Name = name;
-                capture.Description = "Editor viewport PNG capture (scene-state meta in the olo_screenshot result).";
-                capture.MimeType = "image/png";
-                capture.SizeBytes = sizeBytes;
-                capture.BlobReader = [bytes = std::move(bytes)](McpServer&)
-                { return bytes; };
-                server.RegisterEphemeralResource(std::move(capture));
-
-                meta["resourceUri"] = uri;
+                Json linkBlock = PublishCaptureResourceLink(
+                    server, std::move(bytes), "screenshot",
+                    "Editor viewport PNG capture (scene-state meta in the olo_screenshot result).",
+                    "Editor viewport capture (PNG); fetch via resources/read.", meta);
                 result.Content.push_back(Json{ { "type", "text" }, { "text", meta.dump(2) } });
-                result.Content.push_back(ToolResult::ResourceLinkBlock(
-                    uri, name, "Editor viewport capture (PNG); fetch via resources/read.", "image/png",
-                    sizeBytes));
+                result.Content.push_back(std::move(linkBlock));
             }
             else
             {
