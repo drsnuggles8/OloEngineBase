@@ -256,7 +256,7 @@ namespace OloEngine::MCP
                       "Built-in object layers and their collide rules are fixed (NON_MOVING vs NON_MOVING never "
                       "collide; MOVING collides with all; TRIGGER/CHARACTER/DEBRIS have specific rules). "
                       "User-defined layers are authored in the editor's Physics settings." } };
-            return ToolResult::Text(j.dump(2));
+            return ToolResult::Structured(j);
         }
 
         // ---- olo_physics_list_colliders (main-marshaled) -----------------------
@@ -350,7 +350,7 @@ namespace OloEngine::MCP
 
             if (result.contains("error"))
                 return ToolResult::Error(result["error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_physics_contacts (main-marshaled) -----------------------------
@@ -409,7 +409,7 @@ namespace OloEngine::MCP
 
             if (result.contains("error"))
                 return ToolResult::Error(result["error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_physics_raycast (main-marshaled) ------------------------------
@@ -584,7 +584,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_physics_why_no_collision (main-marshaled) ---------------------
@@ -714,7 +714,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // Keep the schema's layer cap aligned with the engine's object-layer budget.
@@ -766,7 +766,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
     } // namespace
@@ -785,6 +785,25 @@ namespace OloEngine::MCP
                 "physics layer, with the pairwise collide/no-collide result from the real layer filter. Use "
                 "this to confirm whether two layers are even allowed to collide. Works in Edit mode too.";
             tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("objectLayers", Schema::Array(Schema::Object()
+                                                                            .Prop("objectLayer", Schema::Int().Min(0))
+                                                                            .Prop("name", Schema::String())
+                                                                            .Prop("kind", Schema::String().Enum({ "builtin", "user" }))
+                                                                            .Prop("userLayerId", Schema::Int().Min(0).Desc("Present only for user-defined layers."))))
+                                    .Prop("collisionMatrix", Schema::Array(Schema::Object()
+                                                                               .Prop("a", Schema::String())
+                                                                               .Prop("b", Schema::String())
+                                                                               .Prop("collides", Schema::Bool()))
+                                                                 .Desc("Pairwise layer-name results, upper triangle including self-pairs (the matrix is symmetric)."))
+                                    .Prop("userDefinedLayers", Schema::Array(Schema::Object()
+                                                                                 .Prop("id", Schema::Int().Min(0))
+                                                                                 .Prop("name", Schema::String())
+                                                                                 .Prop("bitValue", Schema::Int().Min(0))
+                                                                                 .Prop("collidesWithSelf", Schema::Bool())
+                                                                                 .Prop("collidesWith", Schema::Array(Schema::String()).Desc("Names of the user layers this layer collides with."))))
+                                    .Prop("note", Schema::String().Desc("Fixed explanation of the built-in layer rules."))
+                                    .Required({ "objectLayers", "collisionMatrix", "userDefinedLayers", "note" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_PhysicsLayerMatrix;
             server.RegisterTool(std::move(tool));
@@ -804,6 +823,25 @@ namespace OloEngine::MCP
             tool.InputSchema = Schema::Object()
                                    .Pagination("Entities per page (default 50, max 200).")
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("physicsRunning", Schema::Bool())
+                                    .Prop("total", Schema::Int().Min(0).Desc("Total entities with a Rigidbody3DComponent."))
+                                    .Prop("page", Schema::Int().Min(0))
+                                    .Prop("pageSize", Schema::Int().Min(1))
+                                    .Prop("returned", Schema::Int().Min(0).Desc("Entries in this page."))
+                                    .Prop("nextPage", Schema::Int().Min(1).Desc("Present only when more pages exist."))
+                                    .Prop("colliders", Schema::Array(Schema::Object()
+                                                                         .Prop("id", Schema::String())
+                                                                         .Prop("name", Schema::String())
+                                                                         .Prop("bodyType", Schema::String().Enum({ "Static", "Dynamic", "Kinematic" }))
+                                                                         .Prop("layerId", Schema::Int().Min(0))
+                                                                         .Prop("isTrigger", Schema::Bool())
+                                                                         .Prop("disableGravity", Schema::Bool())
+                                                                         .Prop("colliders", Schema::Array(Schema::Object().Desc("Shape descriptor: 'type' (Box/Sphere/Capsule/Mesh/ConvexMesh/TriangleMesh) plus shape-specific keys (halfExtents/radius/halfHeight/offset/colliderAsset).")))
+                                                                         .Prop("hasCollider", Schema::Bool())
+                                                                         .Prop("live", Schema::Raw(Json{ { "type", Json::array({ "object", "null" }) } })
+                                                                                           .Desc("Live body state (bodyType, objectLayer, objectLayerName, isTrigger, position, active, sleeping); null when the authored body has no live counterpart; omitted in Edit mode."))))
+                                    .Required({ "physicsRunning", "total", "page", "pageSize", "returned", "colliders" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsListColliders;
             server.RegisterTool(std::move(tool));
@@ -822,6 +860,20 @@ namespace OloEngine::MCP
             tool.InputSchema = Schema::Object()
                                    .Prop("maxResults", Schema::Int().Min(1).Max(2000).Desc("Max contact pairs to return (default 200)."))
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("physicsRunning", Schema::Bool())
+                                    .Prop("activeContactCount", Schema::Int().Min(0).Desc("Total live contact pairs; may exceed 'returned' when truncated."))
+                                    .Prop("contacts", Schema::Array(Schema::Object()
+                                                                        .Prop("a", Schema::Object()
+                                                                                       .Prop("id", Schema::String())
+                                                                                       .Prop("name", Schema::String()))
+                                                                        .Prop("b", Schema::Object()
+                                                                                       .Prop("id", Schema::String())
+                                                                                       .Prop("name", Schema::String()))))
+                                    .Prop("returned", Schema::Int().Min(0).Desc("Pairs emitted; omitted on the physics-not-running early return."))
+                                    .Prop("truncated", Schema::Bool().Desc("Present (true) only when the live pair count exceeds maxResults."))
+                                    .Prop("note", Schema::String().Desc("Present only when physics is not running."))
+                                    .Required({ "physicsRunning", "activeContactCount", "contacts" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsContacts;
             server.RegisterTool(std::move(tool));
@@ -882,12 +934,35 @@ namespace OloEngine::MCP
                                    .Prop("maxHits", Schema::Int().Min(1).Max(256).Desc("Max overlapping bodies to return (default 32)."))
                                    .Required({ "origin" })
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("shape", Schema::String().Enum({ "box", "sphere" }))
+                                    .Prop("origin", Schema::Array(Schema::Number()).Desc("Query centre [x, y, z]."))
+                                    .Prop("halfExtents", Schema::Array(Schema::Number()).Desc("Present only for a box query."))
+                                    .Prop("radius", Schema::Number().Desc("Present only for a sphere query."))
+                                    .Prop("overlapCount", Schema::Int().Min(0).Desc("Overlapping bodies returned."))
+                                    .Prop("truncated", Schema::Bool().Desc("Present (true) when the hit buffer filled (maxHits reached)."))
+                                    .Prop("overlaps", Schema::Array(Schema::Object()
+                                                                        .Prop("id", Schema::String())
+                                                                        .Prop("name", Schema::String())
+                                                                        .Prop("position", Schema::Array(Schema::Number()))))
+                                    .Required({ "shape", "origin", "overlapCount", "overlaps" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsOverlap;
             server.RegisterTool(std::move(tool));
         }
 
         {
+            // Per-entity fact block, identical for sides 'a' and 'b' under "facts".
+            const Schema::Node entityFacts = Schema::Object()
+                                                 .Prop("entityExists", Schema::Bool())
+                                                 .Prop("hasRigidbody", Schema::Bool())
+                                                 .Prop("hasCollider", Schema::Bool())
+                                                 .Prop("hasLiveBody", Schema::Bool())
+                                                 .Prop("bodyType", Schema::String().Enum({ "Static", "Dynamic", "Kinematic" }))
+                                                 .Prop("isTrigger", Schema::Bool())
+                                                 .Prop("layerId", Schema::Int().Min(0))
+                                                 .Prop("layerName", Schema::String());
+
             ToolDef tool;
             tool.Name = "olo_physics_why_no_collision";
             tool.Toolset = "physics";
@@ -904,6 +979,23 @@ namespace OloEngine::MCP
                                    .Prop("b", Schema::String().Desc("Second entity UUID (string; also accepts a number)."))
                                    .Required({ "a", "b" })
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("a", Schema::String().Desc("Echoed UUID of entity A."))
+                                    .Prop("b", Schema::String().Desc("Echoed UUID of entity B."))
+                                    .Prop("reasonCode", Schema::String().Enum({ "same_entity", "physics_not_running", "entity_a_missing",
+                                                                                "entity_b_missing", "entity_a_no_rigidbody", "entity_b_no_rigidbody",
+                                                                                "entity_a_no_collider", "entity_b_no_collider", "entity_a_no_body",
+                                                                                "entity_b_no_body", "both_static", "layers_dont_collide",
+                                                                                "trigger_no_solid_response", "not_overlapping", "would_collide" }))
+                                    .Prop("summary", Schema::String().Desc("One-line human explanation of the root cause."))
+                                    .Prop("canCollide", Schema::Bool().Desc("True only for not_overlapping / would_collide."))
+                                    .Prop("checks", Schema::Array(Schema::String()).Desc("Ordered [ok]/[fail]/[warn] trace of every check performed."))
+                                    .Prop("facts", Schema::Object()
+                                                       .Prop("a", entityFacts)
+                                                       .Prop("b", entityFacts)
+                                                       .Prop("layersCollide", Schema::Bool().Desc("Meaningful only when both sides have live bodies; false otherwise."))
+                                                       .Prop("boundsOverlap", Schema::Bool()))
+                                    .Required({ "a", "b", "reasonCode", "summary", "canCollide", "checks", "facts" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsWhyNoCollision;
             server.RegisterTool(std::move(tool));
@@ -929,6 +1021,14 @@ namespace OloEngine::MCP
                 "editor's MCP Server panel (off by default). Discover valid layer ids with "
                 "olo_physics_layer_matrix.";
             tool.InputSchema = SetCollisionLayer::InputSchema();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("entity", Schema::String().Desc("Target entity UUID (decimal string)."))
+                                    .Prop("component", Schema::String().Enum({ "Rigidbody3DComponent", "CharacterController3DComponent" }).Desc("Which component carried the layer id."))
+                                    .Prop("previousLayer", Schema::Int().Min(0).Desc("Layer id before the write."))
+                                    .Prop("layer", Schema::Int().Min(0).Desc("Layer id now applied."))
+                                    .Prop("changed", Schema::Bool().Desc("False when the body was already on that layer (nothing pushed to the undo stack)."))
+                                    .Prop("undoable", Schema::Bool().Desc("Whether a single undo reverts this call (equals 'changed')."))
+                                    .Required({ "entity", "component", "previousLayer", "layer", "changed", "undoable" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SetCollisionLayer;
             server.RegisterTool(std::move(tool));

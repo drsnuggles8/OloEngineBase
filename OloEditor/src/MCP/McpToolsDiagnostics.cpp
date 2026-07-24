@@ -145,7 +145,7 @@ namespace OloEngine::MCP
             out["count"] = static_cast<int>(arr.size());
             out["directory"] = dir.generic_string();
             out["crashes"] = std::move(arr);
-            return ToolResult::Text(out.dump(2));
+            return ToolResult::Structured(out);
         }
 
         ToolResult Handle_CrashGet(McpServer& /*server*/, const Json& args)
@@ -185,7 +185,7 @@ namespace OloEngine::MCP
             out["id"] = id;
             out["truncated"] = truncated;
             out["content"] = std::move(content);
-            return ToolResult::Text(out.dump(2));
+            return ToolResult::Structured(out);
         }
 
         // ---- olo_events_tail (lock-safe; unified diagnostics event ring buffer) -
@@ -250,7 +250,7 @@ namespace OloEngine::MCP
             // above (same lock), and stable even when no events matched the filter.
             out["lastId"] = result.LastId;
             out["events"] = std::move(arr);
-            return ToolResult::Text(out.dump(2));
+            return ToolResult::Structured(out);
         }
 
     } // namespace
@@ -272,6 +272,7 @@ namespace OloEngine::MCP
                                    .Prop("minLevel", Schema::String().Enum({ "trace", "debug", "info", "warn", "error", "critical" }).Desc("Only return lines at this severity or higher."))
                                    .Prop("tag", Schema::String().Desc("Only return lines whose [Tag] matches exactly (e.g. Physics, Scene, Script)."))
                                    .NoAdditional();
+            // No outputSchema: raw spdlog lines are free text, which an outputSchema cannot constrain.
             tool.MainMarshaled = false;
             tool.Handler = Handle_LogTail;
             server.RegisterTool(std::move(tool));
@@ -287,6 +288,13 @@ namespace OloEngine::MCP
                 "List crash reports written by the engine (crash_<timestamp>.txt under CrashReports/). Each "
                 "entry has an id and size. Use olo_crash_get to read one.";
             tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("count", Schema::Int().Min(0))
+                                    .Prop("directory", Schema::String().Desc("Absolute path of the CrashReports directory scanned."))
+                                    .Prop("crashes", Schema::Array(Schema::Object()
+                                                                       .Prop("id", Schema::String().Desc("Filename — the id olo_crash_get takes."))
+                                                                       .Prop("sizeBytes", Schema::Int().Min(0).Desc("File size in bytes (0 when the size could not be read)."))))
+                                    .Required({ "count", "directory", "crashes" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_CrashList;
             server.RegisterTool(std::move(tool));
@@ -305,6 +313,11 @@ namespace OloEngine::MCP
                                    .Prop("id", Schema::String().Desc("Crash report filename (e.g. crash_20260606_143025_123.txt) from olo_crash_list."))
                                    .Required({ "id" })
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("id", Schema::String().Desc("The crash report filename that was read (echoes the request)."))
+                                    .Prop("truncated", Schema::Bool().Desc("True when the file exceeded the 200 KiB read cap and content is a prefix."))
+                                    .Prop("content", Schema::String().Desc("Raw crash-report text (exception, system info, last 200 log lines), at most 200 KiB."))
+                                    .Required({ "id", "truncated", "content" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_CrashGet;
             server.RegisterTool(std::move(tool));
@@ -331,6 +344,18 @@ namespace OloEngine::MCP
                                    .Prop("categories", Schema::Array(Schema::String().Enum({ "scene_load", "play", "stop", "entity_spawn", "entity_destroy", "asset_reload", "script_error" }))
                                                            .Desc("Only return events whose category is in this list. Omit for all categories."))
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("count", Schema::Int().Min(0))
+                                    .Prop("lastId", Schema::Int().Min(0).Desc("Highest event id in the buffer at snapshot time (0 when nothing was ever recorded) — pass back as the next call's sinceId; valid even when no events matched."))
+                                    .Prop("events", Schema::Array(Schema::Object()
+                                                                      .Prop("id", Schema::Int().Min(0))
+                                                                      .Prop("category", Schema::String().Enum({ "scene_load", "play", "stop", "entity_spawn", "entity_destroy", "asset_reload", "script_error" }))
+                                                                      .Prop("time", Schema::String().Desc("UTC wall-clock HH:MM:SS.mmm; omitted when the event carries no timestamp."))
+                                                                      .Prop("message", Schema::String())
+                                                                      .Prop("entity", Schema::String().Desc("Entity UUID as a decimal string (u64 — beyond JSON integer precision); omitted when the event has no entity."))
+                                                                      .Prop("context", Schema::String().Desc("Scene name / asset path / script name; omitted when empty.")))
+                                                        .Desc("Matching events, oldest first, newest last."))
+                                    .Required({ "count", "lastId", "events" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_EventsTail;
             server.RegisterTool(std::move(tool));

@@ -53,7 +53,7 @@ namespace OloEngine::MCP
                                         { "errorMessage", info.m_LastCompilation.m_ErrorMessage } });
                 }
                 return Json{ { "count", static_cast<int>(arr.size()) }, { "errors", std::move(arr) } }; });
-            return ToolResult::Text(j.dump(2));
+            return ToolResult::Structured(j);
         }
 
         // ---- olo_shader_get (main-marshaled) -----------------------------------
@@ -128,7 +128,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_shader_list (main-marshaled; GetAllShaders is unguarded) ------
@@ -154,7 +154,7 @@ namespace OloEngine::MCP
                                         { "instructionCount", info.m_LastCompilation.m_InstructionCount } });
                 }
                 return Json{ { "count", static_cast<int>(arr.size()) }, { "shaders", std::move(arr) } }; });
-            return ToolResult::Text(j.dump(2));
+            return ToolResult::Structured(j);
         }
 
         // Best-effort compile/link log via the same read path as
@@ -318,7 +318,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
     } // namespace
@@ -335,6 +335,12 @@ namespace OloEngine::MCP
                 "Shaders that currently have compile/link errors, with the error message. Empty when all "
                 "shaders compiled cleanly.";
             tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("count", Schema::Int().Min(0).Desc("Number of shaders currently in error (size of errors)."))
+                                    .Prop("errors", Schema::Array(Schema::Object()
+                                                                      .Prop("name", Schema::String())
+                                                                      .Prop("errorMessage", Schema::String())))
+                                    .Required({ "count", "errors" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderErrors;
             server.RegisterTool(std::move(tool));
@@ -354,6 +360,28 @@ namespace OloEngine::MCP
                                    .Prop("id", Schema::Int().Desc("GL program id (alternative to name)."))
                                    .Prop("includeGlsl", Schema::Bool().Desc("Include the cross-compiled GLSL source per stage (default false)."))
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("name", Schema::String())
+                                    .Prop("filePath", Schema::String())
+                                    .Prop("hasErrors", Schema::Bool())
+                                    .Prop("instructionCount", Schema::Int().Min(0).Desc("Estimated from the SPIR-V binary."))
+                                    .Prop("compileTimeMs", Schema::Number().Desc("Rounded to 2 decimals."))
+                                    .Prop("reloadCount", Schema::Int().Min(0))
+                                    .Prop("uniformBuffers", Schema::Array(Schema::Object()
+                                                                              .Prop("name", Schema::String())
+                                                                              .Prop("binding", Schema::Int())
+                                                                              .Prop("size", Schema::Int())
+                                                                              .Prop("members", Schema::Array(Schema::String()))))
+                                    .Prop("samplers", Schema::Array(Schema::Object()
+                                                                        .Prop("name", Schema::String())
+                                                                        .Prop("binding", Schema::Int())
+                                                                        .Prop("type", Schema::String())))
+                                    .Prop("uniforms", Schema::Array(Schema::Object()
+                                                                        .Prop("name", Schema::String())
+                                                                        .Prop("location", Schema::Int())
+                                                                        .Prop("size", Schema::Int())))
+                                    .Prop("generatedGlsl", Schema::Object().Desc("Stage token (vertex/fragment/geometry/compute) -> cross-compiled GLSL source string. Only present when includeGlsl=true."))
+                                    .Required({ "name", "filePath", "hasErrors", "instructionCount", "compileTimeMs", "reloadCount", "uniformBuffers", "samplers", "uniforms" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderGet;
             server.RegisterTool(std::move(tool));
@@ -371,6 +399,15 @@ namespace OloEngine::MCP
                 "true when the shader is backed by a file on disk (library- AND pass-owned shaders, including "
                 "compute); it is false only for source-string shaders (boot / fallback / shader-graph).";
             tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("count", Schema::Int().Min(0).Desc("Number of registered shaders (size of shaders)."))
+                                    .Prop("shaders", Schema::Array(Schema::Object()
+                                                                       .Prop("id", Schema::Int().Min(0).Desc("GL program id."))
+                                                                       .Prop("name", Schema::String())
+                                                                       .Prop("hasErrors", Schema::Bool())
+                                                                       .Prop("reloadable", Schema::Bool().Desc("Backed by a file on disk; feed to olo_shader_reload."))
+                                                                       .Prop("instructionCount", Schema::Int().Min(0))))
+                                    .Required({ "count", "shaders" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderList;
             server.RegisterTool(std::move(tool));
@@ -406,6 +443,17 @@ namespace OloEngine::MCP
                                    .Prop("name", Schema::String().Desc("Shader name to reload (as shown by olo_shader_list)."))
                                    .Required({ "name" })
                                    .NoAdditional();
+            // Contract shaped by ShaderReload::ToJson (McpShaderReload.h), pinned by McpShaderReloadTest.
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("name", Schema::String().Desc("The requested shader name (echoed)."))
+                                    .Prop("found", Schema::Bool().Desc("Always true on a success response (a non-reloadable name is returned as isError instead)."))
+                                    .Prop("libraries", Schema::Array(Schema::String()).Desc("Owners that held it: Renderer3D / Renderer2D / PassOwned."))
+                                    .Prop("kind", Schema::String().Enum({ "graphics", "compute" }))
+                                    .Prop("status", Schema::String().Enum({ "pending", "compiling", "ready", "failed", "unknown" }).Desc("Post-reload status of the primary copy."))
+                                    .Prop("ok", Schema::Bool().Desc("True only when every reloaded copy is ready/valid."))
+                                    .Prop("rendererId", Schema::Int().Min(0).Desc("Current GL program id of the primary copy; 0 when a link failed."))
+                                    .Prop("log", Schema::String().Desc("Compile/link error log; empty on a clean reload (best-effort, debug builds)."))
+                                    .Required({ "name", "found", "libraries", "kind", "status", "ok", "rendererId", "log" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderReload;
             server.RegisterTool(std::move(tool));

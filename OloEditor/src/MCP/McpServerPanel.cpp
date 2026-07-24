@@ -201,8 +201,61 @@ namespace OloEngine::MCP
         ImGui::Text("Exposed (%s): %d tools, %d resources, %d prompts",
                     server.AllowWrites() ? "writes ON" : "read-only",
                     static_cast<int>(server.ToolCount()),
-                    static_cast<int>(server.Resources().size()),
+                    static_cast<int>(server.ResourcesSnapshot()->size()),
                     static_cast<int>(server.Prompts().size()));
+
+        // ---- outbound stdio MCP clients (issue #673 Tier 1) --------------------
+        ImGui::Separator();
+        if (ImGui::CollapsingHeader("Outbound MCP servers (stdio)"))
+        {
+            ImGui::TextWrapped(
+                "Spawn a local MCP server process and fold its tools into this editor's surface as "
+                "ext.<alias>.* entries. Bridged tools are ALWAYS treated as consent-gated writes — "
+                "their effects happen outside the editor and cannot be undone with Ctrl-Z.");
+
+            for (const McpClientStatus& status : server.ClientStatuses())
+            {
+                if (status.Connected)
+                    ImGui::TextColored(ImVec4(0.30f, 0.85f, 0.30f, 1.0f), "%s: connected, %d tool(s)",
+                                       status.Alias.c_str(), static_cast<int>(status.ToolCount));
+                else
+                    ImGui::TextColored(ImVec4(0.90f, 0.45f, 0.30f, 1.0f), "%s: DISCONNECTED (child ended)",
+                                       status.Alias.c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton(std::format("Disconnect##{}", status.Alias).c_str()))
+                    server.DisconnectClient(status.Alias);
+                ImGui::TextDisabled("  %s", status.Command.c_str());
+            }
+
+            static char s_ClientAlias[64] = "";
+            static char s_ClientCommand[512] = "";
+            static std::string s_ClientError;
+            ImGui::PushItemWidth(120.0f);
+            ImGui::InputTextWithHint("##client_alias", "alias (a-z0-9-)", s_ClientAlias, sizeof(s_ClientAlias));
+            ImGui::PopItemWidth();
+            ImGui::SameLine();
+            ImGui::PushItemWidth(-90.0f);
+            ImGui::InputTextWithHint("##client_command", "command (e.g. npx -y @modelcontextprotocol/server-filesystem E:\\data)",
+                                     s_ClientCommand, sizeof(s_ClientCommand));
+            ImGui::PopItemWidth();
+            ImGui::SameLine();
+            if (ImGui::Button("Connect"))
+            {
+                McpClientConfig config;
+                config.Alias = s_ClientAlias;
+                config.Command = s_ClientCommand;
+                // Blocks up to the handshake timeout — acceptable for an
+                // explicit operator action; failures land in the error line.
+                s_ClientError = server.ConnectStdioClient(config);
+                if (s_ClientError.empty())
+                {
+                    s_ClientAlias[0] = '\0';
+                    s_ClientCommand[0] = '\0';
+                }
+            }
+            if (!s_ClientError.empty())
+                ImGui::TextColored(ImVec4(0.90f, 0.35f, 0.30f, 1.0f), "%s", s_ClientError.c_str());
+        }
 
         ImGui::End();
     }
@@ -228,8 +281,15 @@ namespace OloEngine::MCP
 
         if (ImGui::BeginPopupModal(kPopupId, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
         {
-            ImGui::TextColored(ImVec4(0.90f, 0.45f, 0.30f, 1.0f),
-                               "An MCP agent wants to MODIFY your scene.");
+            // An EXTERNAL (outbound-client-bridged) tool acts in another process:
+            // the undo-stack promise below would be a lie for it, so the banner
+            // says what actually happens instead (issue #673 Tier 1).
+            if (request.External)
+                ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.25f, 1.0f),
+                                   "An MCP agent wants to call an EXTERNAL tool on another server.");
+            else
+                ImGui::TextColored(ImVec4(0.90f, 0.45f, 0.30f, 1.0f),
+                                   "An MCP agent wants to MODIFY your scene.");
             ImGui::Separator();
 
             ImGui::Text("Tool: %s", request.ToolTitle.c_str());
@@ -254,7 +314,10 @@ namespace OloEngine::MCP
             ImGui::EndChild();
 
             ImGui::Spacing();
-            ImGui::TextDisabled("Approving applies the change through the undo stack (Ctrl-Z to revert).");
+            if (request.External)
+                ImGui::TextDisabled("Approving sends the call to the external server. NOT undoable with Ctrl-Z.");
+            else
+                ImGui::TextDisabled("Approving applies the change through the undo stack (Ctrl-Z to revert).");
             if (const int extra = static_cast<int>(pending.size()) - 1; extra > 0)
                 ImGui::TextDisabled("(%d more request%s waiting)", extra, extra == 1 ? "" : "s");
             ImGui::Separator();

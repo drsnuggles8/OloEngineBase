@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpInputInject.h"
+#include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpToolsCommon.h"
 
 #include <string>
@@ -162,7 +163,7 @@ namespace OloEngine::MCP
             end.ViewportPixelY = accepted.value("endPixelY", 0.0f);
             end.InsideViewport = accepted.value("endInside", false);
 
-            return ToolResult::Text(Inject::ToJson(result, state, info, request, start, end, timedOut).dump(2));
+            return ToolResult::Structured(Inject::ToJson(result, state, info, request, start, end, timedOut));
         }
     } // namespace
 
@@ -199,6 +200,26 @@ namespace OloEngine::MCP
             "olo_screenshot / olo_scene_summary and see the result. The response's 'after' block already "
             "reports the resulting selected/hovered entity and cursor position.";
         tool.InputSchema = Inject::InputSchema();
+        tool.OutputSchema = Schema::Object()
+                                .Prop("available", Schema::Bool())
+                                .Prop("ok", Schema::Bool().Desc("Injection accepted AND every planned frame rendered before the settle timeout; false with a timeout warning in 'message' means the 'after' state may be stale."))
+                                .Prop("framesInjected", Schema::Int().Min(0))
+                                .Prop("message", Schema::String())
+                                .Prop("resolved", Schema::Object().Desc("Mouse actions (click/move/drag) only; omitted for key/text. A resolved point {windowX, windowY, viewportPixelX, viewportPixelY, insideViewport} for click/move, or {from, to} of two such points for drag."))
+                                .Prop("viewport", Schema::Object()
+                                                      .Prop("pixelWidth", Schema::Number())
+                                                      .Prop("pixelHeight", Schema::Number())
+                                                      .Prop("dpiScale", Schema::Number())
+                                                      .Desc("Viewport geometry the coordinates were resolved against; mouse actions only."))
+                                .Prop("after", Schema::Object()
+                                                   .Prop("pending", Schema::Bool().Desc("True when injected events are still queued (only after a settle timeout)."))
+                                                   .Prop("viewportHovered", Schema::Bool())
+                                                   .Prop("mouseX", Schema::Number())
+                                                   .Prop("mouseY", Schema::Number())
+                                                   .Prop("selectedEntity", Schema::Raw(Json{ { "type", Json::array({ "object", "null" }) } }).Desc("{id, name} of the selected entity, or null when none."))
+                                                   .Prop("hoveredEntity", Schema::Raw(Json{ { "type", Json::array({ "object", "null" }) } }).Desc("{id, name} of the entity under the cursor, or null when none."))
+                                                   .Desc("Post-injection editor state — the state change the injection caused."))
+                                .Required({ "available", "ok", "framesInjected", "message", "after" });
         tool.MainMarshaled = true;
         tool.Handler = Handle_InputInject;
         server.RegisterTool(std::move(tool));

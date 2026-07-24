@@ -432,6 +432,11 @@ add_executable(OloEngine-Tests
 		# below). McpServerPanel.* (ImGui) is NOT needed.
 		MCP/McpDispatchTest.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpServer.cpp
+		# The outbound stdio MCP client (#673 Tier 1): McpServer's connection-
+		# ownership members + the McpClientConnection protocol layer live here.
+		# The Win32 pipe transport is compiled but never spawned by unit tests —
+		# they inject in-memory fake transports (McpClientStdioTest.cpp).
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpClient.cpp
 		# Headless-attach stretch (issue #316): McpHeadlessAttachTest hosts the
 		# REAL tool surface (RegisterBuiltinTools) against the offscreen FB, so it
 		# needs the actual tool TUs too. These are editor-decoupled — they include
@@ -545,6 +550,19 @@ add_executable(OloEngine-Tests
 		# HandleToolsList / HandleToolsCall / ToolResult::Structured in the McpServer.cpp
 		# TU already pulled in above; no extra editor TU is needed.
 		MCP/McpStructuredOutputTest.cpp
+		# Resource links + the dynamic (copy-on-write) resource registry (#673
+		# Tier 1): the binary `blob` contents variant of resources/read, ephemeral
+		# capture publish/eviction + notifications/resources/list_changed, the
+		# held-snapshot-survives-eviction property, and the resource_link content
+		# block incl. redaction. Exercises the McpServer.cpp TU already pulled in
+		# above; no extra editor TU is needed.
+		MCP/McpResourceLinkTest.cpp
+		# OutputSchema adoption guard over the REAL builtin tool surface (#673
+		# Tier 1 sweep): registration-only (no tools/call, so no handler runs and
+		# no game thread / GL is needed) — asserts every declared outputSchema is
+		# a well-formed open object and pins the set of schema-declaring tools.
+		# Uses the McpTools*.cpp TUs already pulled in above.
+		MCP/McpOutputSchemaCoverageTest.cpp
 		# JSON-Schema builder DSL + byte-identical equivalence with the migrated tool
 		# schema literals (#357 Tier 2 P4). Header-only (MCP/McpSchemaBuilder.h,
 		# nlohmann::json + stdlib only), so no extra editor TU is pulled in.
@@ -567,6 +585,18 @@ add_executable(OloEngine-Tests
 		# Pulls the editor-decoupled McpScriptTools.cpp TU (sol2 + engine only).
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpScriptTools.cpp
 		MCP/McpScriptToolsTest.cpp
+		# The registry-merge trust seam for tools bridged from an OUTBOUND MCP
+		# client connection (#673 Tier 1): ReplaceClientTools validate-and-reject,
+		# the reserved ext.<alias>.* namespace, the forced authority posture
+		# (ProjectWrite + open-world annotations), per-alias replace semantics
+		# coexisting with native/script tools, and External-marked consent
+		# prompts. Exercises the McpServer.cpp TU already pulled in above.
+		MCP/McpClientToolsTest.cpp
+		# The outbound stdio client's protocol + lifecycle layer (#673 Tier 1):
+		# handshake, bridged round-trip, timeouts, child death, disconnect, and
+		# the polite -32601 to child-initiated requests — all through in-memory
+		# fake transports (McpClient.cpp TU pulled in above; no process spawn).
+		MCP/McpClientStdioTest.cpp
 		# MCP protocol surface from #607: tool + serverInfo `icons` (SEP-973), the
 		# now-true capabilities.tools.listChanged, and the copy-on-write tool-registry
 		# snapshot the live script-tool reload rests on. Exercises the McpServer.cpp TU

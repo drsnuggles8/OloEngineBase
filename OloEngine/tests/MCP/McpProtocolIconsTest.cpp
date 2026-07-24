@@ -168,8 +168,11 @@ namespace
                                      { "params", Json::object() } });
         ASSERT_TRUE(response.contains("result")) << response.dump(2);
         EXPECT_EQ(response["result"]["capabilities"]["tools"]["listChanged"], true);
-        // Resources / prompts are still fixed for a server run.
-        EXPECT_EQ(response["result"]["capabilities"]["resources"]["listChanged"], false);
+        // The resource registry is republishable at runtime too since the
+        // resource-link work (#673 Tier 1: ephemeral capture resources); only
+        // prompts are still fixed for a server run.
+        EXPECT_EQ(response["result"]["capabilities"]["resources"]["listChanged"], true);
+        EXPECT_EQ(response["result"]["capabilities"]["resources"]["subscribe"], false);
         EXPECT_EQ(response["result"]["capabilities"]["prompts"]["listChanged"], false);
     }
 

@@ -80,6 +80,38 @@ namespace OloEngine::MCP
     // body) carries, and clients ignore any response to a cancelled request.
     inline constexpr int kRequestCancelledCode = -32800;
 
+    // Standard base64 (RFC 4648, with padding). Shared by the capture tools'
+    // inline `image` content blocks (McpTools*.cpp) and resources/read's binary
+    // `blob` contents variant (issue #673 Tier 1) — which is why it lives here
+    // rather than in the editor-internal McpToolsCommon.h.
+    inline std::string Base64Encode(const std::vector<u8>& data)
+    {
+        static constexpr char kTable[] =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        std::string out;
+        out.reserve(((data.size() + 2) / 3) * 4);
+        std::size_t i = 0;
+        for (; i + 3 <= data.size(); i += 3)
+        {
+            const u32 n = (static_cast<u32>(data[i]) << 16) | (static_cast<u32>(data[i + 1]) << 8) | data[i + 2];
+            out.push_back(kTable[(n >> 18) & 0x3F]);
+            out.push_back(kTable[(n >> 12) & 0x3F]);
+            out.push_back(kTable[(n >> 6) & 0x3F]);
+            out.push_back(kTable[n & 0x3F]);
+        }
+        if (const std::size_t rem = data.size() - i; rem > 0)
+        {
+            u32 n = static_cast<u32>(data[i]) << 16;
+            if (rem == 2)
+                n |= static_cast<u32>(data[i + 1]) << 8;
+            out.push_back(kTable[(n >> 18) & 0x3F]);
+            out.push_back(kTable[(n >> 12) & 0x3F]);
+            out.push_back(rem == 2 ? kTable[(n >> 6) & 0x3F] : '=');
+            out.push_back('=');
+        }
+        return out;
+    }
+
     // How a project-mutating (ToolDef::ProjectWrite) tool call is authorized at
     // dispatch (issue #306 item C). Supersedes the old binary "Allow writes" gate,
     // which maps onto the two extremes (Disabled / AllowSession); the middle mode
@@ -127,6 +159,15 @@ namespace OloEngine::MCP
         // object) and mirrors it into `content` as pretty-printed text for clients
         // that don't read structured output. `IsError` stays false.
         [[nodiscard]] static ToolResult Structured(const Json& data);
+        // Build one `resource_link` content block (MCP spec 2025-06-18): a URI
+        // reference to a server resource the client fetches on demand via
+        // resources/read, instead of an inline base64 `image`/`blob` payload.
+        // Append it to `Content` by hand — capture tools offer this as an opt-in
+        // delivery mode for large captures (issue #673 Tier 1). `sizeBytes` is
+        // emitted as `size` only when non-zero.
+        [[nodiscard]] static Json ResourceLinkBlock(const std::string& uri, const std::string& name,
+                                                    const std::string& description, const std::string& mimeType,
+                                                    u64 sizeBytes = 0);
     };
 
     class McpServer;
@@ -135,6 +176,41 @@ namespace OloEngine::MCP
     // guarded diagnostics directly; main-marshaled tools wrap their registry/Scene
     // reads in server.MarshalRead(...).
     using ToolHandler = std::function<ToolResult(McpServer& server, const Json& arguments)>;
+
+    // ---- outbound MCP client (issue #673 Tier 1; see McpClient.h) --------------
+
+    class IMcpClientTransport;
+
+    // Creates the byte transport for one outbound connection: spawn `command`,
+    // deliver each incoming NDJSON line via `onLine`, signal `onClosed` exactly
+    // once when the stream ends. Returns nullptr with `outError` set on failure.
+    // The production factory is MakeStdioTransportFactory() (McpClient.h);
+    // tests substitute in-memory fakes.
+    using McpClientTransportFactory = std::function<std::unique_ptr<IMcpClientTransport>(
+        const std::string& command, std::function<void(std::string line)> onLine,
+        std::function<void()> onClosed, std::string& outError)>;
+
+    // Configuration for one outbound stdio connection.
+    struct McpClientConfig
+    {
+        std::string Alias;   // must satisfy McpServer::IsValidClientAlias
+        std::string Command; // full child-process command line
+        std::chrono::milliseconds HandshakeTimeout{ 10000 };
+        // Per bridged tools/call wait. Deliberately finite: a hung child must
+        // never pin an httplib worker forever (the MarshalRead-timeout lesson).
+        std::chrono::milliseconds CallTimeout{ 30000 };
+    };
+
+    // Panel-facing snapshot of one connection.
+    struct McpClientStatus
+    {
+        std::string Alias;
+        std::string Command;
+        bool Connected = false;
+        sizet ToolCount = 0;
+    };
+
+    class McpClientConnection;
 
     // A registered MCP tool. `MainMarshaled` is informational (documents that the
     // handler reads main-thread-only state); it does not change dispatch.
@@ -179,6 +255,15 @@ namespace OloEngine::MCP
         // server is RUNNING, via the copy-on-write tool snapshot (issue #607
         // live-reload item); see ReplaceScriptTools / UnregisterScriptTools.
         bool ScriptOwned = false;
+        // Non-empty for a tool BRIDGED from an outbound MCP client connection
+        // (issue #673 Tier 1): the alias of the external server it proxies to.
+        // Foreign provenance is deliberately a separate discriminator from
+        // ScriptOwned — ReplaceScriptTools wipes every ScriptOwned tool on a
+        // script rescan, and the two trust tiers are different (ADR 0005: a
+        // script tool's read-only hint is a sandbox-backed GUARANTEE; a foreign
+        // tool's behaviour lives in another process, so it is ALWAYS treated as
+        // an open-world write — ReplaceClientTools forces ProjectWrite=true).
+        std::string ClientAlias;
         // Optional MCP `icons` array (SEP-973, spec 2025-11-25): display icons a
         // client may show next to the tool. Each element is an object with a
         // required string `src` (an http(s) or data: URI) plus optional
@@ -494,6 +579,10 @@ namespace OloEngine::MCP
     // An MCP resource: a passive, addressable blob (vs. an active tool). The reader
     // returns the resource's text; it may marshal/throw exactly like a tool handler.
     using ResourceReader = std::function<std::string(McpServer& server)>;
+    // Binary sibling of ResourceReader (issue #673 Tier 1, resource links): returns
+    // raw bytes that resources/read emits as the spec's base64 `blob` contents
+    // variant. Same threading/throw contract as ResourceReader.
+    using ResourceBlobReader = std::function<std::vector<u8>(McpServer& server)>;
 
     struct ResourceDef
     {
@@ -502,6 +591,21 @@ namespace OloEngine::MCP
         std::string Description;
         std::string MimeType;
         ResourceReader Reader;
+        // When set, this is a BINARY resource: resources/read invokes BlobReader
+        // and returns `{ blob: <base64> }` contents instead of `{ text: ... }`
+        // (Reader is then ignored). Used by the capture tools' resource_link
+        // delivery mode, where the bytes are stashed at publish time and the
+        // reader is a trivial capture-by-value closure.
+        ResourceBlobReader BlobReader;
+        // Advertised as `size` in resources/list when non-zero (spec 2025-06-18),
+        // and charged against the ephemeral byte budget (RegisterEphemeralResource).
+        u64 SizeBytes = 0;
+        // True for a resource published at RUNTIME by a tool call (a capture handed
+        // out via a resource_link content block) rather than registered once at
+        // startup. Ephemeral resources are bounded — count + total bytes, evicted
+        // oldest-first — and cleared on server Stop(); startup resources are never
+        // evicted.
+        bool Ephemeral = false;
     };
 
     // An MCP prompt: a canned workflow shipped for non-expert users. prompts/get
@@ -605,6 +709,11 @@ namespace OloEngine::MCP
             std::string ToolName;  // e.g. "olo_entity_set_field"
             std::string ToolTitle; // display title (falls back to ToolName)
             std::string Summary;   // human-readable arguments (one "key = value" per line)
+            // True when the tool is bridged from an outbound MCP client
+            // (ToolDef::ClientAlias non-empty). The panel modal must NOT promise
+            // Ctrl-Z for these — the effects happen in another process, outside
+            // the editor's undo stack.
+            bool External = false;
         };
 
         // Snapshot of every prompt currently awaiting a decision, oldest first.
@@ -663,10 +772,30 @@ namespace OloEngine::MCP
             return m_ToolsGeneration.load(std::memory_order_acquire);
         }
 
-        [[nodiscard]] const std::vector<ResourceDef>& Resources() const
+        // ---- the resource registry: same copy-on-write contract as the tools ----
+        //
+        // Startup resources (RegisterResource) were once a fixed-for-a-run plain
+        // vector; the resource-link work (issue #673 Tier 1) made the registry
+        // MUTABLE while serving — capture tools publish ephemeral resources from
+        // httplib worker threads — so it now mirrors the m_Tools snapshot exactly:
+        // writers serialize on m_ResourcesWriteMutex and publish a fresh immutable
+        // vector; readers take a snapshot and hold it for as long as they use any
+        // ResourceDef* into it (a whole resources/read, including the Reader call).
+        using ResourceList = std::vector<ResourceDef>;
+        using ResourceSnapshot = std::shared_ptr<const ResourceList>;
+
+        [[nodiscard]] ResourceSnapshot ResourcesSnapshot() const
         {
-            return m_Resources;
+            return m_Resources.load(std::memory_order_acquire);
         }
+        // Monotonic counter bumped on every resource-list swap; the GET /mcp SSE
+        // stream polls it and emits `notifications/resources/list_changed` when it
+        // moves — the exact ToolsGeneration() pattern.
+        [[nodiscard]] u64 ResourcesGeneration() const
+        {
+            return m_ResourcesGeneration.load(std::memory_order_acquire);
+        }
+
         [[nodiscard]] const std::vector<PromptDef>& Prompts() const
         {
             return m_Prompts;
@@ -690,6 +819,26 @@ namespace OloEngine::MCP
         void RegisterResource(ResourceDef resource);
         void RegisterPrompt(PromptDef prompt);
 
+        // Publish a RUNTIME resource (issue #673 Tier 1, resource links) — the
+        // capture a tool just handed out as a resource_link block. Marks it
+        // Ephemeral, replaces any existing resource with the same URI, then
+        // evicts the OLDEST ephemeral resources until both bounds hold (count
+        // and total SizeBytes; startup resources are never evicted and don't
+        // count). Bumps ResourcesGeneration() and broadcasts
+        // `notifications/resources/list_changed`. Safe from any thread; an
+        // in-flight resources/read keeps serving the snapshot (and bytes) it
+        // started with, so eviction never frees data under a reader.
+        void RegisterEphemeralResource(ResourceDef resource);
+        // Drop every ephemeral resource (no-op when there are none). Called by
+        // Stop() so a later Start() begins with a clean capture registry.
+        void ClearEphemeralResources();
+        // Ephemeral bounds (defaults kDefaultEphemeralMaxCount/MaxBytes below).
+        // Exposed for tests and future panel configuration.
+        void SetEphemeralResourceLimits(sizet maxCount, u64 maxBytes);
+
+        static constexpr sizet kDefaultEphemeralMaxCount = 16;
+        static constexpr u64 kDefaultEphemeralMaxBytes = 128ull * 1024 * 1024;
+
         // Swap every ScriptOwned tool for `scriptTools` in one atomic publish
         // (issue #357 / ADR 0005 + the #607 live-reload item): the new vector is
         // (every non-ScriptOwned tool, in order) + (scriptTools). Safe while the
@@ -701,6 +850,56 @@ namespace OloEngine::MCP
 
         // Drop every ScriptOwned tool. Thin wrapper over ReplaceScriptTools({}).
         void UnregisterScriptTools();
+
+        // Swap every tool bridged from the outbound client connection `alias` for
+        // `clientTools` in one atomic publish (issue #673 Tier 1) — the foreign
+        // sibling of ReplaceScriptTools, with a per-alias filter so multiple
+        // connections coexist. Pass {} on disconnect / child death.
+        //
+        // Foreign tool definitions are RUNTIME NETWORK DATA (ADR 0005 forbids
+        // trusting them), so unlike RegisterTool this validates-and-rejects
+        // instead of asserting, and it FORCES the authority posture on every
+        // accepted tool regardless of what the child claimed:
+        //   * Name must be exactly ClientToolPrefix(alias) + <suffix> and pass
+        //     IsValidToolName — the reserved `ext.<alias>.` namespace means a
+        //     foreign server can never spoof an olo_* / script_* name (in the
+        //     consent modal or anywhere else), and two aliases can never collide.
+        //   * ProjectWrite = true — a foreign call always faces the full write
+        //     consent gate. Its behaviour lives in another process; read-only
+        //     can never be a guarantee, so it is never assumed.
+        //   * Annotations = { readOnlyHint:false, openWorldHint:true } (and no
+        //     destructiveHint, leaving the spec's conservative default of true).
+        //   * ScriptOwned = false, ClientAlias = alias, Toolset = "ext." + alias.
+        // Invalid tools are dropped with a logged warning; the valid remainder
+        // still publishes. Returns the number of tools accepted. An invalid
+        // `alias` rejects the whole batch (returns 0, registry untouched).
+        sizet ReplaceClientTools(const std::string& alias, std::vector<ToolDef> clientTools);
+
+        // Alias rules: 1..32 chars of [a-z0-9-], starting with a letter or digit.
+        [[nodiscard]] static bool IsValidClientAlias(std::string_view alias);
+        // The reserved tool-name namespace for one connection: "ext.<alias>.".
+        [[nodiscard]] static std::string ClientToolPrefix(const std::string& alias);
+
+        // ---- outbound stdio client connections (issue #673 Tier 1) ------------
+        // Defined in McpClient.cpp (the client module), not McpServer.cpp — the
+        // dispatch core stays transport-agnostic. The server OWNS the
+        // connections so Stop() can fail their pending calls BEFORE joining the
+        // httplib worker pool (a handler blocked on a child response would
+        // otherwise deadlock the join — the consent-abort lesson).
+
+        // Spawn `config.Command`, handshake, and merge its tools as
+        // `ext.<alias>.*` via ReplaceClientTools. BLOCKS the calling thread up
+        // to the handshake timeout. Returns an empty string on success, else a
+        // human-readable error (nothing merged). Fails on a duplicate alias.
+        [[nodiscard]] std::string ConnectStdioClient(const McpClientConfig& config);
+        // Test seam: identical merge/ownership path with a caller-supplied
+        // transport factory instead of the real process spawn.
+        [[nodiscard]] std::string ConnectClientWithTransport(const McpClientConfig& config,
+                                                             const McpClientTransportFactory& factory);
+        // Shut the connection down (fails in-flight bridged calls promptly) and
+        // unpublish its tools. Returns false when no such alias is connected.
+        bool DisconnectClient(const std::string& alias);
+        [[nodiscard]] std::vector<McpClientStatus> ClientStatuses() const;
 
         // Optional `icons` for the server itself (SEP-973): emitted under
         // `initialize`'s `serverInfo.icons` only when non-empty. Set before Start()
@@ -909,13 +1108,19 @@ namespace OloEngine::MCP
         // Locate a tool inside a snapshot the CALLER holds alive for as long as it
         // uses the returned pointer (see the ToolsSnapshot contract above).
         [[nodiscard]] static const ToolDef* FindTool(const ToolList& tools, const std::string& name);
-        [[nodiscard]] const ResourceDef* FindResource(const std::string& uri) const;
+        // Locate a resource inside a snapshot the CALLER holds alive for as long
+        // as it uses the returned pointer (same contract as FindTool).
+        [[nodiscard]] static const ResourceDef* FindResource(const ResourceList& resources, const std::string& uri);
         [[nodiscard]] const PromptDef* FindPrompt(const std::string& name) const;
         [[nodiscard]] bool CheckAuth(const httplib::Request& req) const;
 
         // Bump ToolsGeneration() and fan the tools/list_changed notification out to
         // the registered listeners. Called by ReplaceScriptTools.
         void NotifyToolsListChanged();
+        // Resource sibling of NotifyToolsListChanged: bump ResourcesGeneration()
+        // FIRST, then fan `notifications/resources/list_changed` to the listeners
+        // (the SSE streams pick it up by polling the generation).
+        void NotifyResourcesListChanged();
 
         EditorMcpContext m_Context;
         // Copy-on-write, atomically published (see ToolsSnapshot). Writers serialize
@@ -923,7 +1128,23 @@ namespace OloEngine::MCP
         std::atomic<ToolSnapshot> m_Tools{ std::make_shared<const ToolList>() };
         std::mutex m_ToolsWriteMutex;
         std::atomic<u64> m_ToolsGeneration{ 0 };
-        std::vector<ResourceDef> m_Resources;
+        // Copy-on-write, atomically published (see ResourcesSnapshot). Writers
+        // serialize on m_ResourcesWriteMutex; readers are lock-free.
+        std::atomic<ResourceSnapshot> m_Resources{ std::make_shared<const ResourceList>() };
+        std::mutex m_ResourcesWriteMutex;
+        std::atomic<u64> m_ResourcesGeneration{ 0 };
+        // Ephemeral-resource bounds (SetEphemeralResourceLimits). Guarded by
+        // m_ResourcesWriteMutex — only the writers consult them.
+        sizet m_EphemeralMaxCount = kDefaultEphemeralMaxCount;
+        u64 m_EphemeralMaxBytes = kDefaultEphemeralMaxBytes;
+
+        // Outbound client connections (ConnectStdioClient; McpClient.cpp).
+        // Dead connections stay listed (Connected=false) until DisconnectClient
+        // so the panel can show what fell over. Shutdown/join happens in
+        // ShutdownClients(), called from Stop() and the destructor.
+        void ShutdownClients();
+        mutable std::mutex m_ClientsMutex;
+        std::vector<std::shared_ptr<McpClientConnection>> m_Clients;
         std::vector<PromptDef> m_Prompts;
 
         // Server-initiated notification listeners (AddNotificationListener).
@@ -961,6 +1182,7 @@ namespace OloEngine::MCP
             std::string ToolName;
             std::string ToolTitle;
             std::string Summary;
+            bool External = false; // bridged from an outbound client (see PendingConsent)
             ConsentDecision Decision = ConsentDecision::Pending;
         };
         std::vector<ConsentEntry> m_ConsentQueue;      // guarded by m_ConsentMutex

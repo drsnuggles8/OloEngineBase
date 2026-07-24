@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpScriptTools.h"
+#include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpServer.h"
 #include "MCP/McpToolsCommon.h"
 
@@ -460,6 +461,20 @@ namespace OloEngine::MCP
                 }
                 if (target == nullptr)
                     return fail("unknown tool: " + name);
+                // A tool bridged from an OUTBOUND client connection (issue #673
+                // Tier 1) is out of reach for script tools ALTOGETHER — even for a
+                // write-tier script under AllowSession. The macro-consent bargain
+                // below ("the human consented to the macro; its inner writes are
+                // the macro's body") is justified by inner calls being local,
+                // undoable editor mutations the caller could have made itself;
+                // an external call leaves the editor's undo/revert envelope
+                // entirely, so routing one through a consented macro would
+                // launder the human's LOCAL-write consent into an outbound
+                // action (ADR 0005: authority is "never inherited, never
+                // ambient, and never laundered").
+                if (!target->ClientAlias.empty())
+                    return fail("tool '" + name + "' is bridged from an external MCP server ('" +
+                                target->ClientAlias + "'); script tools cannot invoke external tools");
                 if (target->ProjectWrite)
                 {
                     if (!runtime->CallMayWrite)
@@ -833,6 +848,14 @@ namespace OloEngine::MCP
             "loaded, failures with their messages). The server then emits notifications/tools/list_changed, so "
             "call tools/list again afterwards.";
         tool.InputSchema = Json{ { "type", "object" }, { "properties", Json::object() }, { "additionalProperties", false } };
+        tool.OutputSchema = Schema::Object()
+                                .Prop("directory", Schema::String().Desc("The scanned script-tools directory."))
+                                .Prop("toolsRegistered", Schema::Int().Min(0))
+                                .Prop("filesLoaded", Schema::Int().Min(0))
+                                .Prop("failures", Schema::Int().Min(0).Desc("Files that failed to run plus registrations rejected."))
+                                .Prop("messages", Schema::Array(Schema::String()).Desc("One line per failure/rejection."))
+                                .Prop("toolsGeneration", Schema::Int().Min(0).Desc("Tool-list generation after the swap."))
+                                .Required({ "directory", "toolsRegistered", "filesLoaded", "failures", "messages", "toolsGeneration" });
         // NOT ProjectWrite: it mutates no project data. It re-executes the project's
         // own Lua inside the capability-stripped sandbox, and a write-tier tool it
         // (re)registers still faces the write-consent gate on its own dispatch — so

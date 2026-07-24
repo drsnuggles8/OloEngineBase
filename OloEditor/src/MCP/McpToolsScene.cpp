@@ -174,7 +174,7 @@ namespace OloEngine::MCP
 
             if (result.contains("error"))
                 return ToolResult::Error(result["error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_entity_set_field (main-marshaled; PROJECT WRITE) --------------
@@ -242,7 +242,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_entity_list_fields (main-marshaled; read-only) ----------------
@@ -271,7 +271,7 @@ namespace OloEngine::MCP
                 bool entityFound = false;
                 return GenericFieldWrite::ListFields(scene, entityUuid, componentFilter, entityFound); });
 
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // MarshalRead's default 5s watchdog is sized for the typical read-only tool
@@ -356,7 +356,7 @@ namespace OloEngine::MCP
                 AwaitRenderedFrames(server, baseFrame, kPostLoadSettleFrames);
             }
 
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_scene_play / olo_scene_stop (main-marshaled; PROJECT WRITE) ---
@@ -418,7 +418,7 @@ namespace OloEngine::MCP
                     // Settle timed out — the transition result stands.
                 }
             }
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         ToolResult Handle_ScenePlay(McpServer& server, const Json&)
@@ -464,7 +464,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
     } // namespace
@@ -508,6 +508,18 @@ namespace OloEngine::MCP
                                    .Prop("namePattern", Schema::String().Desc("Case-sensitive substring to match against entity names."))
                                    .Pagination("Entities per page (default 50, max 200).")
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("total", Schema::Int().Min(0).Desc("Total matching entities before pagination."))
+                                    .Prop("page", Schema::Int().Min(0))
+                                    .Prop("pageSize", Schema::Int().Min(1).Desc("Effective page size after clamping (1..200)."))
+                                    .Prop("returned", Schema::Int().Min(0).Desc("Entities in this page."))
+                                    .Prop("nextPage", Schema::Int().Min(1).Desc("Next zero-based page; omitted on the last page."))
+                                    .Prop("entities", Schema::Array(Schema::Object()
+                                                                        .Prop("id", Schema::String().Desc("Entity UUID."))
+                                                                        .Prop("name", Schema::String())
+                                                                        .Prop("parent", Schema::String().Desc("Parent entity UUID; omitted when the entity has no parent."))
+                                                                        .Prop("childCount", Schema::Int().Min(0))))
+                                    .Required({ "total", "page", "pageSize", "returned", "entities" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneListEntities;
             server.RegisterTool(std::move(tool));
@@ -553,6 +565,19 @@ namespace OloEngine::MCP
                 "fields) are returned, so the result is exactly what you can write right now. Pass an optional "
                 "'component' to restrict the listing. Field names match the keys shown in olo_scene_get_entity's YAML.";
             tool.InputSchema = GenericFieldWrite::ListInputSchema();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("entity", Schema::String().Desc("Requested entity UUID echoed back."))
+                                    .Prop("found", Schema::Bool().Desc("Whether the UUID resolved in the active scene. A miss is a SUCCESS result with found:false and empty components, not isError."))
+                                    .Prop("components", Schema::Array(Schema::Object()
+                                                                          .Prop("component", Schema::String())
+                                                                          .Prop("fields", Schema::Array(Schema::Object()
+                                                                                                            .Prop("field", Schema::String().Desc("Field name; a map-typed field expands to one dotted entry per current key, e.g. 'Weights.Smile'."))
+                                                                                                            .Prop("type", Schema::String())
+                                                                                                            .Prop("value", Schema::Raw(Json{ { "type", Json::array({ "boolean", "number", "string", "array" }) } })
+                                                                                                                               .Desc("Current value, typed to match the field."))
+                                                                                                            .Prop("min", Schema::Number().Desc("Serializer-enforced lower bound; omitted when the field has none."))
+                                                                                                            .Prop("max", Schema::Number().Desc("Serializer-enforced upper bound; omitted when the field has none."))))))
+                                    .Required({ "entity", "found", "components" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_EntityListFields;
             server.RegisterTool(std::move(tool));
@@ -587,6 +612,22 @@ namespace OloEngine::MCP
                 "are only discoverable per-entity, not ahead of time. Discover the exact writable (component, field) "
                 "names, value shapes and ranges for an entity with olo_entity_list_fields.";
             tool.InputSchema = GenericFieldWrite::InputSchema();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("entity", Schema::String().Desc("Target entity UUID."))
+                                    .Prop("component", Schema::String())
+                                    .Prop("field", Schema::String().Desc("Field written; the dotted 'Weights.<key>' form for a map-keyed write."))
+                                    .Prop("type", Schema::String().Desc("The field's type name (e.g. float, vec3, bool)."))
+                                    .Prop("previousValue", Schema::Raw(Json{ { "type", Json::array({ "boolean", "number", "string", "array" }) } })
+                                                               .Desc("Value before the write, typed to match the field."))
+                                    .Prop("value", Schema::Raw(Json{ { "type", Json::array({ "boolean", "number", "string", "array" }) } })
+                                                       .Desc("Value read back from the live component AFTER the write."))
+                                    .Prop("changed", Schema::Bool().Desc("Whether the write actually changed the field."))
+                                    .Prop("undoable", Schema::Bool().Desc("Whether an undo command was pushed (a no-op pushes nothing); always false for Play-mode direct writes."))
+                                    .Prop("clamped", Schema::Bool().Desc("True when the requested value was clamped into the field's serializer-enforced range."))
+                                    .Prop("requestedValue", Schema::Raw(Json{ { "type", Json::array({ "boolean", "number", "string", "array" }) } })
+                                                                .Desc("Original pre-clamp value; present only when clamped:true."))
+                                    .Prop("key", Schema::String().Desc("Map key; present only for a map-keyed (dotted-field) write."))
+                                    .Required({ "entity", "component", "field", "type", "previousValue", "value", "changed", "undoable", "clamped" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_EntitySetField;
             server.RegisterTool(std::move(tool));
@@ -614,6 +655,14 @@ namespace OloEngine::MCP
                 "entity count. This is a WRITE tool: it is refused unless 'Allow writes' is enabled in the editor's "
                 "MCP Server panel (off by default).";
             tool.InputSchema = SceneControl::OpenInputSchema();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("available", Schema::Bool().Desc("False when this editor build has no scene-open hook."))
+                                    .Prop("ok", Schema::Bool().Desc("Whether the scene loaded."))
+                                    .Prop("path", Schema::String().Desc("Resolved scene path."))
+                                    .Prop("sceneName", Schema::String().Desc("Name of the newly active scene."))
+                                    .Prop("entityCount", Schema::Int().Min(0))
+                                    .Prop("message", Schema::String().Desc("Human-readable outcome detail."))
+                                    .Required({ "available", "ok", "path", "sceneName", "entityCount", "message" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneOpen;
             server.RegisterTool(std::move(tool));
@@ -640,6 +689,14 @@ namespace OloEngine::MCP
                 "WRITE tool: it is refused unless 'Allow writes' is enabled in the editor's MCP Server panel (off by "
                 "default).";
             tool.InputSchema = SceneControl::PlayStopInputSchema();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("available", Schema::Bool().Desc("False when this editor build has no play-mode hook."))
+                                    .Prop("ok", Schema::Bool().Desc("Editor is in the requested mode afterwards; entering Play can fail (e.g. no primary camera), then ok:false."))
+                                    .Prop("playing", Schema::Bool().Desc("Play state after the call."))
+                                    .Prop("changed", Schema::Bool().Desc("True only when this call actually transitioned (a no-op is changed:false)."))
+                                    .Prop("sceneName", Schema::String())
+                                    .Prop("message", Schema::String().Desc("Human-readable outcome detail."))
+                                    .Required({ "available", "ok", "playing", "changed", "sceneName", "message" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ScenePlay;
             server.RegisterTool(std::move(tool));
@@ -662,6 +719,16 @@ namespace OloEngine::MCP
                 "olo_scene_summary's isPlaying. This is a WRITE tool: it is refused unless 'Allow writes' is enabled "
                 "in the editor's MCP Server panel (off by default).";
             tool.InputSchema = SceneControl::PlayStopInputSchema();
+            // Same shape as olo_scene_play — both registrations mirror the shared
+            // Handle_ScenePlayState / SceneControl::ToJson(McpScenePlayResult) payload.
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("available", Schema::Bool().Desc("False when this editor build has no play-mode hook."))
+                                    .Prop("ok", Schema::Bool().Desc("Editor is in the requested mode afterwards."))
+                                    .Prop("playing", Schema::Bool().Desc("Play state after the call."))
+                                    .Prop("changed", Schema::Bool().Desc("True only when this call actually transitioned (a no-op is changed:false)."))
+                                    .Prop("sceneName", Schema::String())
+                                    .Prop("message", Schema::String().Desc("Human-readable outcome detail."))
+                                    .Required({ "available", "ok", "playing", "changed", "sceneName", "message" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneStop;
             server.RegisterTool(std::move(tool));
@@ -695,6 +762,15 @@ namespace OloEngine::MCP
                 "the Properties panel outside the 3D viewport) to see the result. This is a WRITE tool: it is "
                 "refused unless 'Allow writes' is enabled in the editor's MCP Server panel (off by default).";
             tool.InputSchema = SelectEntity::InputSchema();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("available", Schema::Bool().Desc("False when this editor build has no selection hook."))
+                                    .Prop("ok", Schema::Bool().Desc("Requested transition applied; an unknown UUID is ok:false with the current selection untouched."))
+                                    .Prop("changed", Schema::Bool().Desc("Real transition vs. no-op (re-selecting the already-selected entity, or clearing an already-empty selection)."))
+                                    .Prop("selected", Schema::Bool().Desc("Whether an entity is selected after the call."))
+                                    .Prop("message", Schema::String().Desc("Human-readable outcome detail."))
+                                    .Prop("entity", Schema::String().Desc("Selected entity UUID; present only when selected:true."))
+                                    .Prop("name", Schema::String().Desc("Selected entity name; present only when selected:true."))
+                                    .Required({ "available", "ok", "changed", "selected", "message" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SelectEntity;
             server.RegisterTool(std::move(tool));

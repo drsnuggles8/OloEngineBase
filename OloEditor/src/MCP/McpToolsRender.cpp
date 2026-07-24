@@ -222,7 +222,7 @@ namespace OloEngine::MCP
             const bool haveGraph = gathered.is_object() && gathered.value("haveGraph", false);
             const Json o = FrameBreakdown::BuildBreakdown(cap, requested, maxCommands,
                                                           haveGraph ? &attribution : nullptr);
-            return ToolResult::Text(o.dump(2));
+            return ToolResult::Structured(o);
         }
 
         // ---- Render-target capture (Part 4 of #316) ----------------------------
@@ -339,7 +339,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_render_graph_topology_export (main-marshaled) -----------------
@@ -456,7 +456,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error(transport["__error"].get<std::string>());
             if (transport.is_object() && transport.contains("__text"))
                 return ToolResult::Text(transport["__text"].get<std::string>());
-            return ToolResult::Text(transport.dump(2));
+            return ToolResult::Structured(transport);
         }
 
         // (main thread) Resolve a render-graph resource name to a physical GL
@@ -552,6 +552,10 @@ namespace OloEngine::MCP
             if (args.contains("maxWidth") && args["maxWidth"].is_number_integer())
                 maxWidth = static_cast<int>(std::clamp<long long>(args["maxWidth"].get<long long>(), 16, 4096));
 
+            // Opt-in resource-link delivery (issue #673 Tier 1): publish the PNG
+            // as an ephemeral olo://capture resource instead of inlining base64.
+            const bool deliverLink = args.value("delivery", std::string{ "inline" }) == "resource_link";
+
             auto normalizeMode = GPUResourceInspector::CaptureNormalizeMode::Auto;
             if (args.contains("normalize") && args["normalize"].is_boolean())
                 normalizeMode = args["normalize"].get<bool>() ? GPUResourceInspector::CaptureNormalizeMode::On
@@ -586,7 +590,8 @@ namespace OloEngine::MCP
             }
 
             Json result = server.MarshalRead([&server, name, mipLevel, hasLayerSelector, requestedLayer,
-                                              normalizeMode, maxWidth, afterPass, afterPassFrameRendered]() -> Json
+                                              normalizeMode, maxWidth, afterPass, afterPassFrameRendered,
+                                              deliverLink]() -> Json
                                              {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
@@ -652,8 +657,14 @@ namespace OloEngine::MCP
                     meta["minValue"] = capture.MinValue;
                     meta["maxValue"] = capture.MaxValue;
                 }
-                return Json{ { "meta", std::move(meta) },
-                             { "b64", Base64Encode(capture.PngBytes) } }; });
+                Json out{ { "meta", std::move(meta) } };
+                // Link mode hands the RAW bytes out (base64 happens lazily at
+                // resources/read); inline keeps encoding here, unchanged.
+                if (deliverLink)
+                    out["png"] = Json::binary(std::move(capture.PngBytes));
+                else
+                    out["b64"] = Base64Encode(capture.PngBytes);
+                return out; });
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
@@ -669,10 +680,29 @@ namespace OloEngine::MCP
                                "fresh frame first, or compare 'frameIndex' between calls.";
 
             ToolResult toolResult;
-            toolResult.Content = Json::array({ Json{ { "type", "text" }, { "text", meta.dump(2) } },
-                                               Json{ { "type", "image" },
-                                                     { "data", result["b64"] },
-                                                     { "mimeType", "image/png" } } });
+            if (deliverLink)
+            {
+                // Publish the capture as an ephemeral resource and hand back a
+                // resource_link instead of inline base64 (issue #673 Tier 1).
+                const Json::binary_t& png = result["png"].get_binary();
+                std::vector<u8> bytes(png.begin(), png.end());
+                Json linkBlock = PublishCaptureResourceLink(
+                    server, std::move(bytes), "target",
+                    "Render-target PNG capture of '" + name + "' (capture meta in the tool result).",
+                    "Render-target capture of '" + name + "' (PNG); fetch via resources/read.", meta);
+                toolResult.Content = Json::array(
+                    { Json{ { "type", "text" }, { "text", meta.dump(2) } }, std::move(linkBlock) });
+            }
+            else
+            {
+                toolResult.Content = Json::array({ Json{ { "type", "text" }, { "text", meta.dump(2) } },
+                                                   Json{ { "type", "image" },
+                                                         { "data", result["b64"] },
+                                                         { "mimeType", "image/png" } } });
+            }
+            // structuredContent must be a JSON object, so it mirrors the text meta
+            // block only; the PNG stays an image content block / linked resource.
+            toolResult.StructuredContent = std::move(meta);
             toolResult.IsError = false;
             return toolResult;
         }
@@ -795,7 +825,7 @@ namespace OloEngine::MCP
                     j["passes"] = std::move(passes);
                     j["activeAOTechnique"] = AOTechniqueToken(pp.ActiveAOTechnique);
                     return j; });
-                return ToolResult::Text(result.dump(2));
+                return ToolResult::Structured(result);
             }
 
             const std::string name = args["name"].get<std::string>();
@@ -884,7 +914,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // The virtual-geometry debug mode a vg* debug-view token selects. Returns
@@ -1040,7 +1070,7 @@ namespace OloEngine::MCP
                     j["modes"] = DescribeDebugViews();
                     j["current"] = ToJson(BuildDebugViewResult(pp, ActiveDebugView(pp)));
                     return j; });
-                return ToolResult::Text(result.dump(2));
+                return ToolResult::Structured(result);
             }
 
             // enabled:false takes precedence over mode: it is the explicit
@@ -1094,7 +1124,7 @@ namespace OloEngine::MCP
                 result = server.MarshalRead([view]() -> Json
                                             { return ToJson(BuildDebugViewResult(Renderer3D::GetPostProcessSettings(), view)); });
             }
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_scene_set_time_of_day / olo_scene_set_sun_angle (#633) --------
@@ -1176,7 +1206,7 @@ namespace OloEngine::MCP
                             "scene's TimeOfDayComponent is authoritative. Set 'hours' (or the other fields) "
                             "to move the sun instead.";
                 return j; });
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         ToolResult Handle_SceneSetTimeOfDay(McpServer& server, const Json& args)
@@ -1283,7 +1313,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         ToolResult Handle_SceneSetSunAngle(McpServer& server, const Json& args)
@@ -1345,7 +1375,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_scene_set_weather / olo_scene_get_atmosphere (#633) -----------
@@ -1463,7 +1493,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // Read-only one-call report over the three atmosphere components (#633):
@@ -1528,7 +1558,7 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // ---- olo_render_compare_golden (Part 4 of #316) ------------------------
@@ -1641,6 +1671,10 @@ namespace OloEngine::MCP
             if (args.contains("maxWidth") && args["maxWidth"].is_number_integer())
                 maxWidth = static_cast<int>(std::clamp<long long>(args["maxWidth"].get<long long>(), 16, 4096));
 
+            // Opt-in resource-link delivery for the returned capture (issue #673
+            // Tier 1); the golden FILE write below is unaffected either way.
+            const bool deliverLink = args.value("delivery", std::string{ "inline" }) == "resource_link";
+
             // Save the user's pose and apply the requested one (identical machinery
             // to Handle_Screenshot — the restore happens in the capture job / the
             // error path so it runs exactly once).
@@ -1718,6 +1752,25 @@ namespace OloEngine::MCP
             const std::string goldenPathStr = goldenPath.generic_string();
             const bool goldenExists = fs::exists(goldenPath);
 
+            // The second content block for either result shape: an inline base64
+            // image, or a published olo://capture resource + resource_link block
+            // (which also stamps resourceUri into the verdict object BEFORE it
+            // is mirrored into the text block).
+            // attachCapture runs exactly once per handler execution (the rebase
+            // branch and the compare branch are mutually exclusive and each is the
+            // last use of capturedPng), so the link branch may MOVE the buffer.
+            const auto attachCapture = [&server, &capturedPng, deliverLink](Json& verdict) -> Json
+            {
+                if (!deliverLink)
+                    return Json{ { "type", "image" },
+                                 { "data", Base64Encode(capturedPng) },
+                                 { "mimeType", "image/png" } };
+                return PublishCaptureResourceLink(
+                    server, std::move(capturedPng), "golden-capture",
+                    "Viewport capture from olo_render_compare_golden (verdict in the tool result).",
+                    "Captured viewport frame (PNG); fetch via resources/read.", verdict);
+            };
+
             // Golden-missing / rebase: write the capture as the new golden and
             // report it (a test-artifact write under assets/tests/visual/, never
             // the user's scene/assets — see #316 Tier-0 framing).
@@ -1744,8 +1797,12 @@ namespace OloEngine::MCP
                     j["warning"] = "Timed out waiting for the new camera pose to render; the golden may be a stale frame.";
 
                 ToolResult result;
-                result.Content = Json::array({ Json{ { "type", "text" }, { "text", j.dump(2) } },
-                                               Json{ { "type", "image" }, { "data", Base64Encode(capturedPng) }, { "mimeType", "image/png" } } });
+                const Json captureBlock = attachCapture(j);
+                result.Content = Json::array({ Json{ { "type", "text" }, { "text", j.dump(2) } }, captureBlock });
+                // The verdict JSON also goes out as structuredContent; the image
+                // stays a content block / linked resource (structuredContent
+                // cannot carry images).
+                result.StructuredContent = std::move(j);
                 result.IsError = false;
                 return result;
             }
@@ -1807,8 +1864,12 @@ namespace OloEngine::MCP
                 j["warning"] = "Timed out waiting for the new camera pose to render; the comparison may use a stale frame.";
 
             ToolResult result;
-            result.Content = Json::array({ Json{ { "type", "text" }, { "text", j.dump(2) } },
-                                           Json{ { "type", "image" }, { "data", Base64Encode(capturedPng) }, { "mimeType", "image/png" } } });
+            const Json captureBlock = attachCapture(j);
+            result.Content = Json::array({ Json{ { "type", "text" }, { "text", j.dump(2) } }, captureBlock });
+            // The verdict JSON also goes out as structuredContent; the image
+            // stays a content block / linked resource (structuredContent cannot
+            // carry images).
+            result.StructuredContent = std::move(j);
             result.IsError = false;
             return result;
         }
@@ -1856,7 +1917,7 @@ namespace OloEngine::MCP
             {
                 const Json result = server.MarshalRead([&snapshotLever]() -> Json
                                                        { return Describe(Renderer3D::GetPostProcessSettings(), Renderer3D::GetRendererSettings(), snapshotLever()); });
-                return ToolResult::Text(result.dump(2));
+                return ToolResult::Structured(result);
             }
 
             const Json result = server.MarshalRead([setting, value, &snapshotLever]() -> Json
@@ -1921,7 +1982,7 @@ namespace OloEngine::MCP
                 AwaitRenderedFrames(server, baseFrame, kSettingsSettleFrames);
             }
 
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
         // ---- olo_render_why_not_visible (main-marshaled) -----------------------
         // The rendering counterpart of olo_physics_why_no_collision: explain why an
@@ -2229,7 +2290,7 @@ namespace OloEngine::MCP
                 j["shaderErrorCount"] = in.ShaderErrorCount;
                 return j; });
 
-            return ToolResult::Text(result.dump(2));
+            return ToolResult::Structured(result);
         }
 
         // =====================================================================
@@ -3458,6 +3519,20 @@ namespace OloEngine::MCP
             return j;
         }
 
+        // The outputSchema sub-shape matching VirtualGeometrySettingsJson above,
+        // shared by both virtual-geometry tools (previous/current/settings).
+        Schema::Node VirtualGeometrySettingsSchema()
+        {
+            return Schema::Object()
+                .Prop("enabled", Schema::Bool())
+                .Prop("debugToViewport", Schema::Bool())
+                .Prop("debugMode", Schema::String().Enum({ "off", "clusterid", "lod", "overdraw" }))
+                .Prop("swRasterMode", Schema::String().Enum({ "auto", "forcesoftware", "disabled" }))
+                .Prop("swRasterThresholdPixels", Schema::Number())
+                .Prop("forcePortableSwRaster", Schema::Bool())
+                .Prop("debugTargetAvailable", Schema::Bool().Desc("True when the 'VirtualGeometryDebug' target has GPU backing this frame."));
+        }
+
         ToolResult Handle_VirtualGeometrySet(McpServer& server, const Json& args)
         {
             const bool hasDebugMode = args.contains("debugMode") && args["debugMode"].is_string();
@@ -4240,6 +4315,18 @@ namespace OloEngine::MCP
                 "olo_render_capture_target), kind, format, size, and producing passes. Requires the "
                 "editor to be rendering in 3D mode.";
             tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("count", Schema::Int().Min(0).Desc("Number of capturable targets listed."))
+                                    .Prop("targets", Schema::Array(Schema::Object()
+                                                                       .Prop("name", Schema::String().Desc("Canonical resource name (pass to olo_render_capture_target)."))
+                                                                       .Prop("kind", Schema::String())
+                                                                       .Prop("format", Schema::String().Desc("Omitted when the format is unknown."))
+                                                                       .Prop("width", Schema::Int().Desc("Omitted when the size is unknown."))
+                                                                       .Prop("height", Schema::Int().Desc("Omitted when the size is unknown."))
+                                                                       .Prop("layers", Schema::Int().Desc("Layer count; array/cube/3D targets only."))
+                                                                       .Prop("viewOfParentLayer", Schema::Int().Desc("Parent-array layer this view resolves to; per-layer views only."))
+                                                                       .Prop("producers", Schema::Array(Schema::String()).Desc("Passes that write the target; omitted when empty."))))
+                                    .Required({ "count", "targets" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderListTargets;
             server.RegisterTool(std::move(tool));
@@ -4270,6 +4357,45 @@ namespace OloEngine::MCP
                                                        .Desc("'json' (default): full structured topology (passes, executionOrder, edges, resources). "
                                                              "'mermaid': a flowchart-LR DAG of the pass dependency graph."))
                                    .NoAdditional();
+            // outputSchema describes the json format only; mermaid returns
+            // free text, which an outputSchema cannot constrain.
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("finalPass", Schema::String().Desc("The graph's designated final/output pass."))
+                                    .Prop("passCount", Schema::Int().Min(0))
+                                    .Prop("passes", Schema::Array(Schema::Object()
+                                                                      .Prop("name", Schema::String())
+                                                                      .Prop("workType", Schema::String())
+                                                                      .Prop("declaresResources", Schema::Bool())
+                                                                      .Prop("asyncComputeCandidate", Schema::Bool())
+                                                                      .Prop("culled", Schema::Bool())
+                                                                      .Prop("isFinalPass", Schema::Bool())
+                                                                      .Prop("accesses", Schema::Array(Schema::Object()
+                                                                                                          .Prop("resource", Schema::String())
+                                                                                                          .Prop("mode", Schema::String().Enum({ "write", "read" }))
+                                                                                                          .Prop("glTextureId", Schema::Int().Desc("Resolved physical texture id; omitted when unbacked."))
+                                                                                                          .Prop("glBufferId", Schema::Int().Desc("Omitted when not buffer-backed.")))
+                                                                                            .Desc("Resources the pass reads/writes; omitted when it accesses none."))))
+                                    .Prop("executionOrder", Schema::Array(Schema::String()).Desc("Topologically-sorted run order."))
+                                    .Prop("edgeCount", Schema::Int().Min(0))
+                                    .Prop("edges", Schema::Array(Schema::Object()
+                                                                     .Prop("from", Schema::String())
+                                                                     .Prop("to", Schema::String()))
+                                                       .Desc("Execution-ordering dependencies (from must run before to)."))
+                                    .Prop("resourceCount", Schema::Int().Min(0))
+                                    .Prop("resources", Schema::Array(Schema::Object()
+                                                                         .Prop("name", Schema::String())
+                                                                         .Prop("kind", Schema::String())
+                                                                         .Prop("format", Schema::String().Desc("Omitted when the format is unknown."))
+                                                                         .Prop("width", Schema::Int().Desc("Omitted when the size is unknown."))
+                                                                         .Prop("height", Schema::Int().Desc("Omitted when the size is unknown."))
+                                                                         .Prop("samples", Schema::Int().Desc("Omitted when single-sampled."))
+                                                                         .Prop("imported", Schema::Bool())
+                                                                         .Prop("hasExternalBacking", Schema::Bool())
+                                                                         .Prop("producers", Schema::Array(Schema::String()))
+                                                                         .Prop("consumers", Schema::Array(Schema::String()))
+                                                                         .Prop("gl", Schema::Object().Desc("Resolved physical GL object ids as of the last executed frame (textureId, framebufferId, colorAttachmentIds, depthAttachmentId, bufferId, viewOfParentLayer); omitted when unbacked."))))
+                                    .Prop("note", Schema::String())
+                                    .Required({ "finalPass", "passCount", "passes", "executionOrder", "edgeCount", "edges", "resourceCount", "resources", "note" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderGraphTopologyExport;
             server.RegisterTool(std::move(tool));
@@ -4311,8 +4437,37 @@ namespace OloEngine::MCP
                                    .Prop("maxWidth", Schema::Int().Min(16).Max(4096).Desc("Max output width in pixels (default 1024); aspect ratio preserved."))
                                    .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame before capturing (default false). Use after any change (scene open, setting flip) so you cannot read a stale target. Implied by 'afterPass'."))
                                    .Prop("afterPass", Schema::String().Desc("Capture the resource AS OF this pass's execution (mid-frame snapshot), not end-of-frame. A pass name from olo_render_graph_topology_export's executionOrder; a culled/unknown pass is an error."))
+                                   .Prop("delivery", Schema::String().Enum({ "inline", "resource_link" }).Desc("How to return the PNG: 'inline' (default) embeds a base64 image block; 'resource_link' publishes an ephemeral olo://capture resource and returns a link to fetch via resources/read — for large captures."))
                                    .Required({ "name" })
                                    .NoAdditional();
+            // outputSchema describes the capture-meta object (the text block); the
+            // PNG stays an image content block, which structuredContent cannot carry.
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("frameIndex", Schema::Int().Min(0).Desc("Frame the pixels came from (compare between calls to detect a stale read)."))
+                                    .Prop("timestampMs", Schema::Int().Min(0).Desc("Wall-clock capture stamp, ms since epoch."))
+                                    .Prop("name", Schema::String().Desc("Captured render-graph resource name."))
+                                    .Prop("afterPass", Schema::String().Desc("Mid-frame snapshot pass; omitted unless 'afterPass' was given."))
+                                    .Prop("snapshotSourceTextureId", Schema::Int().Desc("Source texture of the afterPass snapshot clone; omitted without 'afterPass'."))
+                                    .Prop("frameIndexNote", Schema::String().Desc("afterPass frameIndex semantics; omitted without 'afterPass'."))
+                                    .Prop("layer", Schema::Int().Min(0).Desc("GL array layer / cube face / z-slice actually read."))
+                                    .Prop("layers", Schema::Int().Desc("Layer count; array/cube/3D targets only."))
+                                    .Prop("layerNote", Schema::String().Desc("Layer-selection note; omitted when there is nothing to flag."))
+                                    .Prop("width", Schema::Int().Desc("Output PNG width."))
+                                    .Prop("height", Schema::Int().Desc("Output PNG height."))
+                                    .Prop("sourceWidth", Schema::Int())
+                                    .Prop("sourceHeight", Schema::Int())
+                                    .Prop("format", Schema::String())
+                                    .Prop("isDepth", Schema::Bool())
+                                    .Prop("normalized", Schema::Bool().Desc("Min-max normalisation was applied."))
+                                    .Prop("minValue", Schema::Number().Desc("Pre-normalisation minimum; present only when max > min."))
+                                    .Prop("maxValue", Schema::Number().Desc("Pre-normalisation maximum; present only when max > min."))
+                                    .Prop("forcedFreshFrame", Schema::Bool())
+                                    .Prop("warning", Schema::String().Desc("Fresh-frame timeout warning; omitted otherwise."))
+                                    .Prop("note", Schema::String().Desc("Staleness guidance; omitted when forceFrame was used."))
+                                    .Prop("resourceUri", Schema::String().Desc("Present only with delivery:'resource_link' — the olo://capture/... resource holding the PNG."))
+                                    .Required({ "frameIndex", "timestampMs", "name", "layer", "width", "height",
+                                                "sourceWidth", "sourceHeight", "format", "isDepth", "normalized",
+                                                "forcedFreshFrame" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderCaptureTarget;
             server.RegisterTool(std::move(tool));
@@ -4341,6 +4496,20 @@ namespace OloEngine::MCP
                                    .Prop("name", Schema::String().Desc("Pass token (e.g. 'bloom', 'ssao', 'ssr', 'fog', 'godrays'). Omit to list all passes + state."))
                                    .Prop("enabled", Schema::Bool().Desc("Desired state. Omit to toggle (flip the current value)."))
                                    .NoAdditional();
+            // Two result shapes (toggle vs introspection), so no field is
+            // unconditionally present and nothing is required.
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("pass", Schema::String().Desc("Canonical token of the affected pass (toggle form only)."))
+                                    .Prop("enabled", Schema::Bool().Desc("State after the flip (toggle form only)."))
+                                    .Prop("previous", Schema::Bool().Desc("State before the flip (toggle form only)."))
+                                    .Prop("changed", Schema::Bool().Desc("enabled != previous (toggle form only)."))
+                                    .Prop("note", Schema::String().Desc("Precondition hint (AO technique switched, Deferred-only, fog disabled); omitted when none applies."))
+                                    .Prop("passes", Schema::Array(Schema::Object()
+                                                                      .Prop("name", Schema::String())
+                                                                      .Prop("description", Schema::String())
+                                                                      .Prop("enabled", Schema::Bool()))
+                                                        .Desc("Introspection form (no 'name' argument) only: every toggleable pass with its live state."))
+                                    .Prop("activeAOTechnique", Schema::String().Desc("Introspection form only: 'none', 'ssao', or 'gtao'."));
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderTogglePass;
             server.RegisterTool(std::move(tool));
@@ -4375,6 +4544,24 @@ namespace OloEngine::MCP
                                    .Prop("mode", Schema::String().Enum({ "none", "ssao", "gtao", "ssr", "ssgi", "overdraw", "vgclusterid", "vglod", "vgoverdraw" }).Desc("Debug view to show. 'none' clears all. The vg* modes write to the 'VirtualGeometryDebug' capture target. Omit to list modes + state."))
                                    .Prop("enabled", Schema::Bool().Desc("Set false as an alias for mode:'none' (clear all debug views)."))
                                    .NoAdditional();
+            // Two result shapes (set vs introspection), so no field is
+            // unconditionally present and nothing is required.
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("mode", Schema::String().Desc("Active debug view token (set form only)."))
+                                    .Prop("ssaoDebugView", Schema::Bool())
+                                    .Prop("gtaoDebugView", Schema::Bool())
+                                    .Prop("ssrDebugView", Schema::Bool())
+                                    .Prop("ssgiDebugView", Schema::Bool())
+                                    .Prop("overdrawDebugView", Schema::Bool())
+                                    .Prop("virtualGeometryDebugMode", Schema::String().Desc("'off', 'clusterid', 'lod', or 'overdraw' — mirrors olo_virtual_geometry_set."))
+                                    .Prop("passEnabled", Schema::Bool().Desc("The pass producing the chosen buffer is running this frame."))
+                                    .Prop("captureTarget", Schema::String().Desc("Render-graph target to capture for this view; omitted when none applies."))
+                                    .Prop("note", Schema::String().Desc("Actionable hint when passEnabled is false; omitted otherwise."))
+                                    .Prop("modes", Schema::Array(Schema::Object()
+                                                                     .Prop("name", Schema::String())
+                                                                     .Prop("description", Schema::String()))
+                                                       .Desc("Introspection form (no arguments) only: every debug-view mode."))
+                                    .Prop("current", Schema::Object().Desc("Introspection form only: the live state in the set-form shape."));
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderSetDebugView;
             server.RegisterTool(std::move(tool));
@@ -4415,6 +4602,20 @@ namespace OloEngine::MCP
                                    .Prop("enabled", Schema::Bool().Desc("Enable/disable the component (disabled = TimeOfDaySystem stops driving the sun)."))
                                    .Prop("clear", Schema::Bool().Desc("Legacy no-op from the retired override interface: returns the current state + a note (the component is authoritative; there is nothing to clear)."))
                                    .NoAdditional();
+            // The legacy 'clear':true path succeeds with ONLY 'note' when no
+            // TimeOfDayComponent exists, so no field is unconditionally present.
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("enabled", Schema::Bool())
+                                    .Prop("hours", Schema::Number().Desc("24-hour clock time in [0, 24)."))
+                                    .Prop("dayOfYear", Schema::Int())
+                                    .Prop("latitudeDegrees", Schema::Number())
+                                    .Prop("timeScale", Schema::Number())
+                                    .Prop("paused", Schema::Bool())
+                                    .Prop("sunElevationDegrees", Schema::Number().Desc("Derived sun elevation in degrees."))
+                                    .Prop("isNight", Schema::Bool().Desc("Derived night flag."))
+                                    .Prop("sunDirection", Schema::Vec3("Derived [x, y, z] sun direction."))
+                                    .Prop("moonDirection", Schema::Vec3("Derived [x, y, z] moon direction."))
+                                    .Prop("note", Schema::String().Desc("Disabled-component warning or legacy-clear explanation; omitted otherwise."));
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneSetTimeOfDay;
             server.RegisterTool(std::move(tool));
@@ -4450,6 +4651,22 @@ namespace OloEngine::MCP
                                    .Prop("pitch", Schema::Number().Min(-90).Max(90).Desc("Elevation in degrees above the horizon (90=up, 0=horizon, negative=below). Matched exactly when achievable, else clamped."))
                                    .Prop("clear", Schema::Bool().Desc("Legacy no-op from the retired override interface: returns the current state + a note (the component is authoritative; there is nothing to clear)."))
                                    .NoAdditional();
+            // The legacy 'clear':true path succeeds with ONLY 'note' when no
+            // TimeOfDayComponent exists, so no field is unconditionally present.
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("enabled", Schema::Bool())
+                                    .Prop("hours", Schema::Number().Desc("Solved 24-hour clock time written to the component."))
+                                    .Prop("dayOfYear", Schema::Int())
+                                    .Prop("latitudeDegrees", Schema::Number())
+                                    .Prop("timeScale", Schema::Number())
+                                    .Prop("paused", Schema::Bool())
+                                    .Prop("sunElevationDegrees", Schema::Number().Desc("Derived sun elevation at the solved time."))
+                                    .Prop("isNight", Schema::Bool().Desc("Derived night flag."))
+                                    .Prop("sunDirection", Schema::Vec3("Derived [x, y, z] sun direction."))
+                                    .Prop("moonDirection", Schema::Vec3("Derived [x, y, z] moon direction."))
+                                    .Prop("achievedElevationDeg", Schema::Number().Desc("Elevation the solved time actually yields."))
+                                    .Prop("clamped", Schema::Bool().Desc("True when the requested elevation was outside the day's range."))
+                                    .Prop("note", Schema::String().Desc("Clamp explanation, disabled-component warning, or legacy-clear explanation; omitted otherwise."));
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneSetSunAngle;
             server.RegisterTool(std::move(tool));
@@ -4485,6 +4702,14 @@ namespace OloEngine::MCP
                                    .Prop("immediate", Schema::Bool().Desc("true = snap to 'state' with no transition (current = target, progress settled)."))
                                    .Required({ "state" })
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("currentState", Schema::String().Enum({ "Clear", "Overcast", "Rain", "Storm", "Snow", "FogBank" }))
+                                    .Prop("targetState", Schema::String().Enum({ "Clear", "Overcast", "Rain", "Storm", "Snow", "FogBank" }))
+                                    .Prop("transitionDuration", Schema::Number().Desc("Cross-blend duration in seconds."))
+                                    .Prop("transitionProgress", Schema::Number().Desc("Blend progress (1.0 when settled/immediate)."))
+                                    .Prop("wetness", Schema::Number())
+                                    .Prop("note", Schema::String().Desc("Disabled-component warning; omitted when the component is enabled."))
+                                    .Required({ "currentState", "targetState", "transitionDuration", "transitionProgress", "wetness" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneSetWeather;
             server.RegisterTool(std::move(tool));
@@ -4507,6 +4732,37 @@ namespace OloEngine::MCP
                 "omitted when its component is absent from the scene; the 'note' lists which components "
                 "were found. Read-only.";
             tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("timeOfDay", Schema::Object()
+                                                           .Prop("enabled", Schema::Bool())
+                                                           .Prop("hours", Schema::Number().Desc("24-hour clock time in [0, 24)."))
+                                                           .Prop("dayOfYear", Schema::Int())
+                                                           .Prop("latitudeDegrees", Schema::Number())
+                                                           .Prop("timeScale", Schema::Number())
+                                                           .Prop("paused", Schema::Bool())
+                                                           .Prop("sunElevationDegrees", Schema::Number().Desc("Derived sun elevation in degrees."))
+                                                           .Prop("isNight", Schema::Bool().Desc("Derived night flag."))
+                                                           .Prop("sunDirection", Schema::Vec3("Derived [x, y, z] sun direction."))
+                                                           .Prop("moonDirection", Schema::Vec3("Derived [x, y, z] moon direction."))
+                                                           .Desc("Omitted when the scene has no TimeOfDayComponent."))
+                                    .Prop("weather", Schema::Object()
+                                                         .Prop("enabled", Schema::Bool())
+                                                         .Prop("currentState", Schema::String())
+                                                         .Prop("targetState", Schema::String())
+                                                         .Prop("transitionDuration", Schema::Number())
+                                                         .Prop("transitionProgress", Schema::Number())
+                                                         .Prop("wetness", Schema::Number())
+                                                         .Prop("blendedCloudCoverage", Schema::Number())
+                                                         .Desc("Omitted when the scene has no WeatherStateComponent."))
+                                    .Prop("cloudscape", Schema::Object()
+                                                            .Prop("enabled", Schema::Bool())
+                                                            .Prop("coverage", Schema::Number())
+                                                            .Prop("layerBottom", Schema::Number())
+                                                            .Prop("layerTop", Schema::Number())
+                                                            .Prop("castCloudShadows", Schema::Bool())
+                                                            .Desc("Omitted when the scene has no CloudscapeComponent."))
+                                    .Prop("note", Schema::String().Desc("Which atmosphere components were found."))
+                                    .Required({ "note" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneGetAtmosphere;
             server.RegisterTool(std::move(tool));
@@ -4543,8 +4799,36 @@ namespace OloEngine::MCP
                                    .Prop("orbit", Schema::Object().Desc("Capture from this orbit pose, then restore. Same shape as olo_camera_orbit: target [x,y,z], yaw/pitch (degrees), distance; optional fov."))
                                    .Prop("settleFrames", Schema::Int().Min(1).Max(30).Desc("Frames to render at the new pose before capturing (default 2). Raise for temporal effects (TAA, fog history) to settle."))
                                    .Prop("maxWidth", Schema::Int().Min(16).Max(4096).Desc("Max capture width in pixels (default 1024); aspect ratio preserved. Must match between create and compare."))
+                                   .Prop("delivery", Schema::String().Enum({ "inline", "resource_link" }).Desc("How to return the captured frame: 'inline' (default) embeds a base64 image block; 'resource_link' publishes an ephemeral olo://capture resource and returns a link to fetch via resources/read. The golden FILE write is unaffected."))
                                    .Required({ "goldenPath" })
                                    .NoAdditional();
+            // outputSchema describes the verdict JSON (mirrored into
+            // structuredContent); the captured frame is a separate image content
+            // block outside the structured result. Two shapes: created/rebased
+            // vs compared — only the envelope is unconditional.
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("goldenPath", Schema::String().Desc("Resolved golden PNG path."))
+                                    .Prop("created", Schema::Bool().Desc("True when the capture was WRITTEN as the (new/rebased) golden instead of compared."))
+                                    .Prop("rebased", Schema::Bool().Desc("Created path only: the golden existed and was overwritten."))
+                                    .Prop("bytes", Schema::Int().Min(0).Desc("Created path only: PNG bytes written."))
+                                    .Prop("pass", Schema::Bool().Desc("Compare path only: the verdict."))
+                                    .Prop("dimensionsMatch", Schema::Bool().Desc("Compare path only; the metric fields below need matching dimensions."))
+                                    .Prop("actual", Schema::Object().Prop("width", Schema::Int()).Prop("height", Schema::Int()).Desc("Compare path only: capture dimensions."))
+                                    .Prop("golden", Schema::Object().Prop("width", Schema::Int()).Prop("height", Schema::Int()).Desc("Compare path only: golden dimensions."))
+                                    .Prop("similarity", Schema::Number())
+                                    .Prop("ssim", Schema::Number())
+                                    .Prop("rmse", Schema::Number())
+                                    .Prop("mse", Schema::Number())
+                                    .Prop("threshold", Schema::Number().Desc("Effective minimum-SSIM pass threshold."))
+                                    .Prop("thresholdMode", Schema::String().Enum({ "suite-cascade", "explicit" }))
+                                    .Prop("mismatchPixels", Schema::Int().Min(0))
+                                    .Prop("totalPixels", Schema::Int().Min(0))
+                                    .Prop("maxChannelDelta", Schema::Int().Min(0))
+                                    .Prop("worstPixel", Schema::Object().Prop("x", Schema::Int()).Prop("y", Schema::Int()))
+                                    .Prop("message", Schema::String().Desc("Human-readable verdict / creation message."))
+                                    .Prop("warning", Schema::String().Desc("Settle-timeout stale-frame warning; omitted otherwise."))
+                                    .Prop("resourceUri", Schema::String().Desc("Present only with delivery:'resource_link' — the olo://capture/... resource holding the captured frame."))
+                                    .Required({ "goldenPath", "created", "message" });
             tool.MainMarshaled = true; // reads main-thread-only camera/viewport state (like olo_screenshot)
             tool.Handler = Handle_RenderCompareGolden;
             server.RegisterTool(std::move(tool));
@@ -4578,6 +4862,25 @@ namespace OloEngine::MCP
                 "This is a WRITE tool: it is refused unless 'Allow writes' is enabled in the editor's MCP Server panel "
                 "(off by default).";
             tool.InputSchema = RendererSettings::InputSchema();
+            // Two disjoint shapes — introspection (no arguments) returns only
+            // 'settings'; an apply returns the ack fields — so no field is
+            // unconditionally present and the required list stays empty.
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("settings", Schema::Array(Schema::Object()
+                                                                        .Prop("setting", Schema::String())
+                                                                        .Prop("description", Schema::String())
+                                                                        .Prop("currentValue", Schema::String())
+                                                                        .Prop("values", Schema::Array(Schema::Object()
+                                                                                                          .Prop("token", Schema::String())
+                                                                                                          .Prop("description", Schema::String()))
+                                                                                            .Desc("Allowed-value catalogue.")))
+                                                          .Desc("Introspection shape only (called with no arguments): every setting with its live value."))
+                                    .Prop("setting", Schema::String().Desc("Apply shape only: the setting written."))
+                                    .Prop("previousValue", Schema::String().Desc("Apply shape only: the prior value token — set it back to revert."))
+                                    .Prop("value", Schema::String().Desc("Apply shape only: the resulting value token ('auto' already resolved)."))
+                                    .Prop("changed", Schema::Bool().Desc("Apply shape only."))
+                                    .Prop("restoreWith", Schema::String().Desc("Apply shape only: same as previousValue, the explicit restore hint."))
+                                    .Prop("requested", Schema::String().Desc("Apply shape only: 'auto' when depthprepass auto was requested; omitted otherwise."));
             tool.MainMarshaled = true;
             tool.Handler = Handle_RendererSettingsSet;
             server.RegisterTool(std::move(tool));
@@ -4602,6 +4905,41 @@ namespace OloEngine::MCP
                                    .Prop("entity", Schema::String().Desc("Entity UUID (string; also accepts a number)."))
                                    .Required({ "entity" })
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("entity", Schema::String().Desc("Echoed entity UUID."))
+                                    .Prop("reasonCode", Schema::String()
+                                                            .Enum({ "no_scene", "entity_missing", "not_renderable", "geometry_missing",
+                                                                    "component_hidden", "degenerate_scale", "shader_compile_error",
+                                                                    "behind_camera", "outside_frustum", "should_be_visible" })
+                                                            .Desc("Machine-readable root cause."))
+                                    .Prop("summary", Schema::String())
+                                    .Prop("renderableConfigOk", Schema::Bool())
+                                    .Prop("visible", Schema::Bool())
+                                    .Prop("checks", Schema::Array(Schema::String()).Desc("Ordered '[ok]'/'[fail]'/'[warn]'-prefixed check trace."))
+                                    .Prop("facts", Schema::Object()
+                                                       .Prop("entityExists", Schema::Bool())
+                                                       .Prop("hasRenderable", Schema::Bool())
+                                                       .Prop("renderableKind", Schema::String())
+                                                       .Prop("geometryRequired", Schema::Bool())
+                                                       .Prop("geometryPresent", Schema::Bool())
+                                                       .Prop("geometryDetail", Schema::String())
+                                                       .Prop("hasVisibilityFlag", Schema::Bool())
+                                                       .Prop("visibilityFlagName", Schema::String())
+                                                       .Prop("visibilityFlagOn", Schema::Bool())
+                                                       .Prop("scaleDegenerate", Schema::Bool())
+                                                       .Prop("hasMaterialShader", Schema::Bool())
+                                                       .Prop("materialShaderName", Schema::String())
+                                                       .Prop("materialShaderHasErrors", Schema::Bool())
+                                                       .Prop("boundsKnown", Schema::Bool())
+                                                       .Prop("behindCamera", Schema::Bool())
+                                                       .Prop("inFrustum", Schema::Bool())
+                                                       .Desc("The raw gathered facts the verdict cascade ran on."))
+                                    .Prop("sceneLoaded", Schema::Bool())
+                                    .Prop("cameraKnown", Schema::Bool())
+                                    .Prop("anyShaderHasErrors", Schema::Bool())
+                                    .Prop("shaderErrorCount", Schema::Int().Min(0))
+                                    .Required({ "entity", "reasonCode", "summary", "renderableConfigOk", "visible", "checks",
+                                                "facts", "sceneLoaded", "cameraKnown", "anyShaderHasErrors", "shaderErrorCount" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderWhyNotVisible;
             server.RegisterTool(std::move(tool));
@@ -4649,6 +4987,33 @@ namespace OloEngine::MCP
                                    .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame before probing (default false). Use after a scene open / setting change so you cannot read a stale target. Implied by 'afterPass'."))
                                    .Required({ "x", "y" })
                                    .NoAdditional();
+            // Two modes share only the envelope: single-target ('target' given)
+            // returns the raw-channel fields, G-Buffer mode the decoded channels —
+            // every mode-dependent field stays optional.
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("x", Schema::Int().Min(0))
+                                    .Prop("y", Schema::Int().Min(0))
+                                    .Prop("origin", Schema::String().Desc("Coordinate-convention note (top-left)."))
+                                    .Prop("meta", Schema::Object()
+                                                      .Prop("frameIndex", Schema::Int().Min(0))
+                                                      .Prop("timestampMs", Schema::Int().Min(0))
+                                                      .Desc("Staleness stamp: the frame/time the values were read."))
+                                    .Prop("renderingPath", Schema::String().Desc("G-Buffer mode only."))
+                                    .Prop("channels", Schema::Object().Desc("G-Buffer mode only: decoded per-channel objects (albedo/metallic/normal/roughness/ao/emissive/flags?/velocity/entityID/depth/finalColor), each { available, source?, format?, value?, reason? }; depth adds device/linearViewDepth (null when the camera is unknown)/nearClip/farClip, normal adds encoded/space."))
+                                    .Prop("raw", Schema::Object().Desc("G-Buffer mode only: the undecoded texels per RT (GBufferAlbedo/GBufferNormal/GBufferEmissive/Velocity/EntityID/Depth/FinalColor)."))
+                                    .Prop("unavailableChannels", Schema::Array(Schema::String()).Desc("G-Buffer mode only."))
+                                    .Prop("note", Schema::String().Desc("G-Buffer mode: non-Deferred-path caveat; omitted otherwise."))
+                                    .Prop("available", Schema::Bool().Desc("Single-target mode only."))
+                                    .Prop("target", Schema::String().Desc("Single-target mode only: the probed resource."))
+                                    .Prop("mappedCoord", Schema::Object().Desc("Single-target mode: the exact texel read (space/requested/texel/glRowBottomUp/mip/mipWidth/mipHeight/origin/layer?); omitted when no mapping was attempted."))
+                                    .Prop("format", Schema::String().Desc("Single-target mode, when available."))
+                                    .Prop("width", Schema::Int().Desc("Single-target mode, when available."))
+                                    .Prop("height", Schema::Int().Desc("Single-target mode, when available."))
+                                    .Prop("value", Schema::Array(Schema::Number()).Desc("Single-target mode, when available: raw channel values (int-exact for integer formats)."))
+                                    .Prop("reason", Schema::String().Desc("Single-target mode: unavailability reason."))
+                                    .Prop("afterPass", Schema::String().Desc("Echoed when an afterPass snapshot was probed."))
+                                    .Prop("afterPassNote", Schema::String())
+                                    .Required({ "x", "y", "origin", "meta" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderProbePixel;
             server.RegisterTool(std::move(tool));
@@ -4688,6 +5053,45 @@ namespace OloEngine::MCP
                                    .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame first (default false). Implied by 'afterPass'."))
                                    .Required({ "name" })
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("name", Schema::String())
+                                    .Prop("format", Schema::String().Desc("Internal-format token (RGBA16F, R32I, ...)."))
+                                    .Prop("mip", Schema::Int().Min(0))
+                                    .Prop("mipWidth", Schema::Int().Min(0))
+                                    .Prop("mipHeight", Schema::Int().Min(0))
+                                    .Prop("layer", Schema::Int().Desc("Omitted when the resolved layer is 0."))
+                                    .Prop("rect", Schema::Object()
+                                                      .Prop("x", Schema::Int())
+                                                      .Prop("y", Schema::Int())
+                                                      .Prop("w", Schema::Int())
+                                                      .Prop("h", Schema::Int())
+                                                      .Desc("Texel region actually read (top-left origin)."))
+                                    .Prop("origin", Schema::String())
+                                    .Prop("texelCount", Schema::Int().Min(0))
+                                    .Prop("channels", Schema::Array(Schema::Object()
+                                                                        .Prop("channel", Schema::String())
+                                                                        .Prop("finiteCount", Schema::Int().Min(0))
+                                                                        .Prop("nanCount", Schema::Int().Desc("Omitted when 0."))
+                                                                        .Prop("infCount", Schema::Int().Desc("Omitted when 0."))
+                                                                        .Prop("min", Schema::Number().Desc("Over finite values; omitted when none."))
+                                                                        .Prop("max", Schema::Number().Desc("Over finite values; omitted when none."))
+                                                                        .Prop("mean", Schema::Number().Desc("Over finite values; omitted when none."))
+                                                                        .Prop("uniqueValues", Schema::Int().Min(0))
+                                                                        .Prop("uniqueTruncated", Schema::Bool().Desc("Present (true) only when the unique-value scan was capped."))
+                                                                        .Prop("uniqueNote", Schema::String())
+                                                                        .Prop("topValues", Schema::Array(Schema::Object()
+                                                                                                             .Prop("value", Schema::Raw(Json{ { "type", Json::array({ "number", "string" }) } }).Desc("Non-finite values encode as the strings 'NaN'/'+Inf'/'-Inf'."))
+                                                                                                             .Prop("bits", Schema::Int().Min(0).Desc("The exact bit pattern."))
+                                                                                                             .Prop("count", Schema::Int().Min(0)))
+                                                                                               .Desc("Most frequent bit-exact values."))))
+                                    .Prop("integerNote", Schema::String().Desc("Integer targets only."))
+                                    .Prop("afterPass", Schema::String().Desc("Echoed when an afterPass snapshot was read."))
+                                    .Prop("afterPassNote", Schema::String())
+                                    .Prop("layerNote", Schema::String().Desc("Omitted unless the layer selection has a caveat."))
+                                    .Prop("meta", Schema::Object()
+                                                      .Prop("frameIndex", Schema::Int().Min(0))
+                                                      .Prop("timestampMs", Schema::Int().Min(0)))
+                                    .Required({ "name", "format", "mip", "mipWidth", "mipHeight", "rect", "origin", "texelCount", "channels", "meta" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderTargetStats;
             server.RegisterTool(std::move(tool));
@@ -4726,6 +5130,45 @@ namespace OloEngine::MCP
                                                         .Desc("Optional bit-exact channel-0 compare of two targets over their overlapping top-left region."))
                                    .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame first (default false). Implied by compare.afterPass."))
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("ok", Schema::Bool().Desc("True iff hazards, resolveFailures and consumedButUnbacked are all empty (and 'compare', when given, did not error)."))
+                                    .Prop("hazardCount", Schema::Int().Min(0))
+                                    .Prop("hazards", Schema::Array(Schema::Object()
+                                                                       .Prop("kind", Schema::String())
+                                                                       .Prop("resource", Schema::String())
+                                                                       .Prop("producer", Schema::String().Desc("Omitted when unknown."))
+                                                                       .Prop("consumer", Schema::String().Desc("Omitted when unknown."))
+                                                                       .Prop("message", Schema::String())))
+                                    .Prop("barrierDiagnostics", Schema::Array(Schema::Object()
+                                                                                  .Prop("kind", Schema::String())
+                                                                                  .Prop("pass", Schema::String().Desc("Omitted when not pass-specific."))
+                                                                                  .Prop("resource", Schema::String().Desc("Omitted when not resource-specific."))
+                                                                                  .Prop("message", Schema::String())))
+                                    .Prop("buildDiagnostics", Schema::Array(Schema::Object()
+                                                                                .Prop("kind", Schema::String())
+                                                                                .Prop("pass", Schema::String().Desc("Omitted when not pass-specific."))
+                                                                                .Prop("resource", Schema::String().Desc("Omitted when not resource-specific."))
+                                                                                .Prop("message", Schema::String())))
+                                    .Prop("resolveFailures", Schema::Array(Schema::Object()
+                                                                               .Prop("pass", Schema::String())
+                                                                               .Prop("reason", Schema::String())
+                                                                               .Prop("count", Schema::Int().Min(0))))
+                                    .Prop("consumedButUnbacked", Schema::Array(Schema::String()).Desc("Resources consumed but resolving to no GL backing."))
+                                    .Prop("versionGroups", Schema::Array(Schema::Object()
+                                                                             .Prop("baseName", Schema::String())
+                                                                             .Prop("versions", Schema::Array(Schema::Object()
+                                                                                                                 .Prop("name", Schema::String())
+                                                                                                                 .Prop("glTextureId", Schema::Int().Desc("Omitted when unbacked."))
+                                                                                                                 .Prop("glBufferId", Schema::Int().Desc("Omitted when not buffer-backed."))
+                                                                                                                 .Prop("lastWriter", Schema::String().Desc("Omitted when unknown."))))
+                                                                             .Prop("multiplePhysicalIds", Schema::Bool()))
+                                                               .Desc("Versioned names (Base@Pass) grouped with their physical ids; single-version groups are dropped."))
+                                    .Prop("compare", Schema::Object().Desc("Only when 'compare' was requested: 'a'/'b' echoes plus either 'error' or the bit-exact result (comparedRegion/comparedTexels/bitwiseEqual/differingTexels/maxAbsDiff?/firstDiffs/note; firstDiffs a/b encode non-finite floats as the strings 'NaN'/'Inf')."))
+                                    .Prop("meta", Schema::Object()
+                                                      .Prop("frameIndex", Schema::Int().Min(0))
+                                                      .Prop("timestampMs", Schema::Int().Min(0)))
+                                    .Required({ "ok", "hazardCount", "hazards", "barrierDiagnostics", "buildDiagnostics",
+                                                "resolveFailures", "consumedButUnbacked", "versionGroups", "meta" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderValidate;
             server.RegisterTool(std::move(tool));
@@ -4769,6 +5212,13 @@ namespace OloEngine::MCP
                                    .Prop("swRasterThresholdPixels", Schema::Number().Min(0).Max(4096).Desc("Auto-mode cutoff: a cluster whose projected screen radius is below this many pixels is software-rasterized (default 24)."))
                                    .Prop("forcePortableSwRaster", Schema::Bool().Desc("Force the portable two-pass 2x32 SW visibility path even where 64-bit atomics exist (exercises both rasterizers on capable hardware)."))
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("changed", Schema::Bool().Desc("True when any knob argument was present."))
+                                    .Prop("previous", VirtualGeometrySettingsSchema().Desc("Knob state before the write."))
+                                    .Prop("current", VirtualGeometrySettingsSchema().Desc("Knob state after the write + settle (equals 'previous' on a no-arg read)."))
+                                    .Prop("captureTarget", Schema::String().Desc("'VirtualGeometryDebug' — only when a non-off debugMode was set."))
+                                    .Prop("message", Schema::String().Desc("Capture hint / target-not-backed guidance; only when a non-off debugMode was set."))
+                                    .Required({ "changed", "previous", "current" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_VirtualGeometrySet;
             server.RegisterTool(std::move(tool));
@@ -4793,6 +5243,28 @@ namespace OloEngine::MCP
                 "evictions climbing every frame under a tight budget). Zero everywhere means no "
                 "VirtualMeshComponent was submitted — virtual geometry renders on the DEFERRED path only.";
             tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("renderingPath", Schema::String())
+                                    .Prop("frameInstances", Schema::Int().Min(0))
+                                    .Prop("frameClusters", Schema::Int().Min(0))
+                                    .Prop("cull", Schema::Object()
+                                                      .Prop("instances", Schema::Int().Min(0))
+                                                      .Prop("testedClusters", Schema::Int().Min(0))
+                                                      .Prop("cutSelected", Schema::Int().Min(0))
+                                                      .Prop("hardwareDraws", Schema::Int().Min(0))
+                                                      .Prop("softwareRasterized", Schema::Int().Min(0))
+                                                      .Prop("drawnClusters", Schema::Int().Min(0)))
+                                    .Prop("residency", Schema::Object()
+                                                           .Prop("totalPages", Schema::Int().Min(0))
+                                                           .Prop("residentPages", Schema::Int().Min(0))
+                                                           .Prop("pinnedPages", Schema::Int().Min(0))
+                                                           .Prop("budgetSlots", Schema::Int().Min(0))
+                                                           .Prop("budget", Schema::String().Enum({ "unbounded (eager)", "budgeted" }))
+                                                           .Prop("pageUploads", Schema::Int().Min(0))
+                                                           .Prop("pageEvictions", Schema::Int().Min(0)))
+                                    .Prop("settings", VirtualGeometrySettingsSchema().Desc("Live knob state (same shape as olo_virtual_geometry_set's previous/current)."))
+                                    .Prop("note", Schema::String().Desc("Non-Deferred-path / no-instances caveat; omitted otherwise."))
+                                    .Required({ "renderingPath", "frameInstances", "frameClusters", "cull", "residency", "settings" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_VirtualGeometryStats;
             server.RegisterTool(std::move(tool));
@@ -4823,6 +5295,30 @@ namespace OloEngine::MCP
                                    .Prop("submesh", Schema::Int().Min(0).Desc("Submesh index. Omit for an array covering every submesh."))
                                    .Required({ "entity" })
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("entity", Schema::String())
+                                    .Prop("renderableKind", Schema::String().Enum({ "MeshComponent", "VirtualMeshComponent" }))
+                                    .Prop("submeshCount", Schema::Int().Min(0))
+                                    .Prop("hasMaterialComponentOverride", Schema::Bool())
+                                    .Prop("submeshes", Schema::Array(Schema::Object()
+                                                                         .Prop("submesh", Schema::Int().Min(0))
+                                                                         .Prop("source", Schema::String().Desc("Which material won: the MaterialComponent override, the submesh's imported material, or the engine default."))
+                                                                         .Prop("name", Schema::String())
+                                                                         .Prop("pbr", Schema::Bool())
+                                                                         .Prop("alphaMode", Schema::String().Enum({ "Opaque", "Mask", "Blend" }))
+                                                                         .Prop("alphaCutoff", Schema::Number())
+                                                                         .Prop("twoSided", Schema::Bool())
+                                                                         .Prop("baseColorFactor", Schema::Array(Schema::Number()).Desc("RGBA."))
+                                                                         .Prop("metallicFactor", Schema::Number())
+                                                                         .Prop("roughnessFactor", Schema::Number())
+                                                                         .Prop("normalScale", Schema::Number())
+                                                                         .Prop("occlusionStrength", Schema::Number())
+                                                                         .Prop("emissiveFactor", Schema::Array(Schema::Number()).Desc("RGB."))
+                                                                         .Prop("enableIBL", Schema::Bool())
+                                                                         .Prop("iblIntensity", Schema::Number())
+                                                                         .Prop("useMaps", Schema::Object().Desc("Booleans per slot: useAlbedoMap/useMetallicRoughnessMap/useNormalMap/useAOMap/useEmissiveMap."))
+                                                                         .Prop("textureIds", Schema::Object().Desc("Bound GL texture id per slot (albedo/metallicRoughness/normal/ao/emissive; 0 = none)."))))
+                                    .Required({ "entity", "renderableKind", "submeshCount", "hasMaterialComponentOverride", "submeshes" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_MaterialGet;
             server.RegisterTool(std::move(tool));
@@ -4849,6 +5345,53 @@ namespace OloEngine::MCP
                 "all, to find the depth slices that are hot, and to catch a scene that has quietly "
                 "exceeded the per-cluster budget. The plain Forward path does not run the cull.";
             tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("grid", Schema::Object()
+                                                      .Prop("countX", Schema::Int().Min(0))
+                                                      .Prop("countY", Schema::Int().Min(0))
+                                                      .Prop("countZ", Schema::Int().Min(0))
+                                                      .Prop("totalClusters", Schema::Int().Min(0))
+                                                      .Prop("maxLightsPerCluster", Schema::Int().Min(0)))
+                                    .Prop("clustersSampled", Schema::Int().Min(0))
+                                    .Prop("totalAssignedIndices", Schema::Int().Min(0))
+                                    .Prop("emptyClusters", Schema::Int().Min(0))
+                                    .Prop("overflowClusters", Schema::Int().Min(0).Desc("Clusters at the light cap — lights beyond it are DROPPED there."))
+                                    .Prop("maxLightsInAnyCluster", Schema::Int().Min(0))
+                                    .Prop("meanLightsPerCluster", Schema::Number())
+                                    .Prop("meanLightsPerNonEmptyCluster", Schema::Number())
+                                    .Prop("busiestCluster", Schema::Object()
+                                                                .Prop("index", Schema::Int().Min(0))
+                                                                .Prop("x", Schema::Int().Min(0))
+                                                                .Prop("y", Schema::Int().Min(0))
+                                                                .Prop("z", Schema::Int().Min(0))
+                                                                .Prop("lights", Schema::Int().Min(0)))
+                                    .Prop("perSlice", Schema::Array(Schema::Object()
+                                                                        .Prop("slice", Schema::Int().Min(0))
+                                                                        .Prop("clusters", Schema::Int().Min(0))
+                                                                        .Prop("assignedIndices", Schema::Int().Min(0))
+                                                                        .Prop("emptyClusters", Schema::Int().Min(0))
+                                                                        .Prop("overflowClusters", Schema::Int().Min(0))
+                                                                        .Prop("maxLights", Schema::Int().Min(0))
+                                                                        .Prop("meanLights", Schema::Number()))
+                                                          .Desc("Per-z-slice breakdown."))
+                                    .Prop("histogram", Schema::Array(Schema::Object()
+                                                                         .Prop("low", Schema::Int().Min(0))
+                                                                         .Prop("high", Schema::Int().Min(0))
+                                                                         .Prop("clusters", Schema::Int().Min(0)))
+                                                           .Desc("Light-count buckets over every cluster."))
+                                    .Prop("lightIndexList", Schema::Object()
+                                                                .Prop("usedSlots", Schema::Int().Min(0))
+                                                                .Prop("capacity", Schema::Int().Min(0))
+                                                                .Prop("utilization", Schema::Number()))
+                                    .Prop("warning", Schema::String().Desc("Per-cluster light-cap overflow warning; omitted when no cluster overflowed."))
+                                    .Prop("renderingPath", Schema::String())
+                                    .Prop("screen", Schema::Object()
+                                                        .Prop("width", Schema::Int().Min(0))
+                                                        .Prop("height", Schema::Int().Min(0)))
+                                    .Prop("note", Schema::String().Desc("Plain-Forward staleness caveat; omitted otherwise."))
+                                    .Required({ "grid", "clustersSampled", "totalAssignedIndices", "emptyClusters", "overflowClusters",
+                                                "maxLightsInAnyCluster", "meanLightsPerCluster", "meanLightsPerNonEmptyCluster",
+                                                "busiestCluster", "perSlice", "histogram", "lightIndexList", "renderingPath", "screen" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ClusterGridStats;
             server.RegisterTool(std::move(tool));
@@ -4883,6 +5426,49 @@ namespace OloEngine::MCP
                                    .Prop("worldPos", Schema::Vec3("World-space position [x, y, z], projected into froxel space with the shader's exact mapping."))
                                    .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame before probing (default false). Use after a scene open / fog toggle so you cannot read a stale volume."))
                                    .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("volume", Schema::Object()
+                                                        .Prop("dims", Schema::Array(Schema::Int()).Desc("[x, y, z] froxel counts."))
+                                                        .Prop("near", Schema::Number())
+                                                        .Prop("far", Schema::Number())
+                                                        .Prop("depthDistribution", Schema::String())
+                                                        .Prop("renderOrigin", Schema::Vec3("Camera-relative rendering origin.")))
+                                    .Prop("froxel", Schema::Object()
+                                                        .Prop("coords", Schema::Array(Schema::Int()).Desc("The integer cell actually sampled."))
+                                                        .Prop("continuous", Schema::Array(Schema::Number()))
+                                                        .Prop("centerWorld", Schema::Vec3("World-space centre of the cell."))
+                                                        .Prop("viewDepth", Schema::Number())
+                                                        .Prop("clamped", Schema::Bool())
+                                                        .Prop("inFrustum", Schema::Bool())
+                                                        .Prop("inDepthRange", Schema::Bool())
+                                                        .Prop("cellBounds", Schema::Object()
+                                                                                .Prop("min", Schema::Vec3("World-space min corner."))
+                                                                                .Prop("max", Schema::Vec3("World-space max corner."))
+                                                                                .Prop("nearViewDepth", Schema::Number())
+                                                                                .Prop("farViewDepth", Schema::Number())))
+                                    .Prop("requestedWorldPos", Schema::Vec3("worldPos-mode echo; omitted in froxel mode."))
+                                    .Prop("scatter", Schema::Object()
+                                                         .Prop("available", Schema::Bool())
+                                                         .Prop("inScatter", Schema::Vec3("Per-froxel in-scattered radiance; only when available."))
+                                                         .Prop("extinction", Schema::Number().Desc("Only when available."))
+                                                         .Prop("reason", Schema::String().Desc("Unavailability reason."))
+                                                         .Desc("FroxelFogScatter.comp's output at the cell."))
+                                    .Prop("integrated", Schema::Object()
+                                                            .Prop("available", Schema::Bool())
+                                                            .Prop("inScatter", Schema::Vec3("Accumulated in-scatter camera->slice; only when available."))
+                                                            .Prop("transmittance", Schema::Number().Desc("Only when available."))
+                                                            .Prop("reason", Schema::String().Desc("Unavailability reason."))
+                                                            .Desc("FroxelFogIntegrate.comp's output — what the fog composite taps."))
+                                    .Prop("note", Schema::String().Desc("Out-of-frustum / out-of-depth-range / clamped-cell caveat; omitted otherwise."))
+                                    .Prop("fog", Schema::Object()
+                                                     .Prop("enabled", Schema::Bool())
+                                                     .Prop("volumetric", Schema::Bool())
+                                                     .Prop("ranThisFrame", Schema::Bool()))
+                                    .Prop("meta", Schema::Object()
+                                                      .Prop("frameIndex", Schema::Int().Min(0))
+                                                      .Prop("timestampMs", Schema::Int().Min(0)))
+                                    .Prop("staleness", Schema::String().Desc("Present only when the froxel chain did not run last frame."))
+                                    .Required({ "volume", "froxel", "scatter", "integrated", "fog", "meta" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_FroxelFogProbe;
             server.RegisterTool(std::move(tool));
@@ -4906,6 +5492,44 @@ namespace OloEngine::MCP
                 "light packed into a tiny 256px tile (blocky shadow) is obvious. Read-only; the "
                 "directional CSM is separate and is not packed into this atlas.";
             tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("enabled", Schema::Bool())
+                                    .Prop("atlasResolution", Schema::Int().Min(0))
+                                    .Prop("maxEntries", Schema::Int().Min(0))
+                                    .Prop("maxShadowedLights", Schema::Int().Min(0))
+                                    .Prop("entriesUsed", Schema::Int().Min(0))
+                                    .Prop("candidateCount", Schema::Int().Min(0))
+                                    .Prop("allocatedCasters", Schema::Int().Min(0))
+                                    .Prop("starvedCasters", Schema::Int().Min(0))
+                                    .Prop("atlasAreaUsed", Schema::Number().Desc("Fraction of atlas pixels used [0, 1]."))
+                                    .Prop("casters", Schema::Array(Schema::Object()
+                                                                       .Prop("lightEntity", Schema::String())
+                                                                       .Prop("casterType", Schema::String().Enum({ "Spot", "Point" }))
+                                                                       .Prop("sourceKind", Schema::String())
+                                                                       .Prop("score", Schema::Number())
+                                                                       .Prop("allocated", Schema::Bool())
+                                                                       .Prop("rank", Schema::Int().Desc("Allocated casters only."))
+                                                                       .Prop("baseEntry", Schema::Int().Desc("Allocated casters only."))
+                                                                       .Prop("entryCount", Schema::Int().Desc("Allocated casters only."))
+                                                                       .Prop("tiles", Schema::Array(Schema::Object()
+                                                                                                        .Prop("entry", Schema::Int())
+                                                                                                        .Prop("face", Schema::Int().Desc("0..5 = +X,-X,+Y,-Y,+Z,-Z for a point caster."))
+                                                                                                        .Prop("x", Schema::Int())
+                                                                                                        .Prop("y", Schema::Int())
+                                                                                                        .Prop("width", Schema::Int())
+                                                                                                        .Prop("height", Schema::Int())
+                                                                                                        .Prop("resolution", Schema::Int()))
+                                                                                          .Desc("Allocated casters only."))
+                                                                       .Prop("starvedReason", Schema::String().Desc("Starved casters only."))))
+                                    .Prop("entries", Schema::Array(Schema::Object().Desc("The same tiles flattened: the tile keys plus lightEntity/casterType/sourceKind/rank/score.")))
+                                    .Prop("directionalShadow", Schema::Object()
+                                                                   .Prop("csmCascades", Schema::Int().Min(0))
+                                                                   .Prop("resolution", Schema::Int().Min(0))
+                                                                   .Desc("The separate directional CSM (not packed into this atlas)."))
+                                    .Prop("note", Schema::String().Desc("Disabled / empty-atlas / starvation summary; omitted otherwise."))
+                                    .Required({ "enabled", "atlasResolution", "maxEntries", "maxShadowedLights", "entriesUsed",
+                                                "candidateCount", "allocatedCasters", "starvedCasters", "atlasAreaUsed",
+                                                "casters", "entries", "directionalShadow" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShadowAtlasLayout;
             server.RegisterTool(std::move(tool));

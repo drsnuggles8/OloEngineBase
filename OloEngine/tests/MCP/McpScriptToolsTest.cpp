@@ -621,4 +621,46 @@ RegisterMcpTool{ name = "script_bad_icon", description = "malformed icons",
         ASSERT_NE(withoutIcon, tools.end());
         EXPECT_FALSE((*withoutIcon).contains("icons"));
     }
+
+    // ---- outbound-client tools are unreachable from scripts (#673 Tier 1) -----
+
+    // The strongest possible caller — a WRITE-tier script tool under
+    // AllowSession — still cannot reach a tool bridged from an outbound MCP
+    // client through olo.call_tool. The macro-consent bargain covers local,
+    // undoable editor mutations only; an external call leaves the editor's
+    // undo/revert envelope, so routing one through a consented macro would
+    // launder local-write consent into an outbound action (ADR 0005).
+    TEST_F(McpScriptToolsTest, BridgeRefusesExternalClientToolsEvenForWriteTierUnderAllowSession)
+    {
+        ToolDef external;
+        external.Name = "ext.files.read_file";
+        external.Description = "Bridged from a fake external server.";
+        external.InputSchema = Json{ { "type", "object" } };
+        external.Handler = [](McpServer&, const Json&)
+        { return ToolResult::Text("external ran"); };
+        ASSERT_EQ(m_Server.ReplaceClientTools("files", { std::move(external) }), 1u);
+
+        WriteScript("call_ext.lua", R"lua(
+RegisterMcpTool{
+    name = "script_call_ext",
+    description = "Tries to reach an external bridged tool.",
+    writes = true,
+    handler = function(args)
+        local result, err = olo.call_tool("ext.files.read_file", {})
+        if err then return { refused = err } end
+        return { leaked = result }
+    end,
+}
+)lua");
+        ASSERT_EQ(Load().ToolsRegistered, 1);
+        m_Server.SetAllowWrites(true); // maximum authority for the caller
+
+        const Json response = CallTool("script_call_ext");
+        ASSERT_TRUE(response.contains("result")) << response.dump(2);
+        ASSERT_TRUE(response["result"].contains("structuredContent")) << response.dump(2);
+        const Json& payload = response["result"]["structuredContent"];
+        ASSERT_TRUE(payload.contains("refused"))
+            << "the bridge let a script tool reach an external client tool: " << payload.dump(2);
+        EXPECT_NE(payload["refused"].get<std::string>().find("external"), std::string::npos);
+    }
 } // namespace
