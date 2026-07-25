@@ -116,6 +116,22 @@ namespace OloEngine
         // assets, and the reason virtualized geometry exists) could not be imported at all.
         s_ExtensionMap["ply"] = AssetType::MeshSource;
 
+        // Interchange formats (#655), each registered only when its translator is compiled in
+        // (OLO_WITH_* PUBLIC compile definitions), so an extension never maps to a type the
+        // build can't actually import.
+#if defined(OLO_WITH_ALEMBIC)
+        s_ExtensionMap["abc"] = AssetType::MeshSource; // Alembic geometry cache
+#endif
+#if defined(OLO_WITH_USD)
+        s_ExtensionMap["usd"] = AssetType::MeshSource;  // OpenUSD (auto-detect crate/ascii)
+        s_ExtensionMap["usda"] = AssetType::MeshSource; // USD ASCII
+        s_ExtensionMap["usdc"] = AssetType::MeshSource; // USD crate (binary)
+        s_ExtensionMap["usdz"] = AssetType::MeshSource; // USD package (zip)
+#endif
+#if defined(OLO_WITH_MATERIALX)
+        s_ExtensionMap["mtlx"] = AssetType::Material; // MaterialX material document
+#endif
+
         // Textures
         s_ExtensionMap["png"] = AssetType::Texture2D;
         s_ExtensionMap["jpg"] = AssetType::Texture2D;

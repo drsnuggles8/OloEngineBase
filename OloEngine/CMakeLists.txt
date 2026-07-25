@@ -186,6 +186,61 @@ if(TARGET ffmpeg)
 	target_compile_definitions(OloEngine PUBLIC OLO_VIDEO_FFMPEG=1)
 endif()
 
+# Asset-import format dependencies (#655), gated on the OLO_WITH_* options (root CMakeLists).
+# The OLO_WITH_* compile definitions are PUBLIC so both the engine TUs AND the test target's
+# conditional coverage see them; the translators' .cpp self-guard on these macros.
+if(OLO_WITH_ALEMBIC)
+	target_link_libraries(OloEngine Alembic::Alembic)  # propagates Imath::Imath + includes
+	target_compile_definitions(OloEngine PUBLIC OLO_WITH_ALEMBIC=1)
+endif()
+if(OLO_WITH_MATERIALX)
+	target_link_libraries(OloEngine MaterialXCore MaterialXFormat)
+	target_compile_definitions(OloEngine PUBLIC OLO_WITH_MATERIALX=1)
+	# assimp and MaterialXFormat each STATICALLY bundle their own pugixml (assimp v1.16 vs
+	# MaterialX v1.9), both exporting global pugi:: symbols -> LNK2005 at every exe that links
+	# OloEngine. /FORCE:MULTIPLE makes the linker keep the FIRST definition; assimp is linked
+	# earlier (see the assimp entry in the main target_link_libraries above), so assimp's pugixml
+	# wins and assimp's own .dae/XML importers keep their matching copy. MaterialX's .mtlx parsing
+	# then runs against assimp's pugixml — pugixml's public class ABI (xml_document/xml_node handle
+	# structs) is stable across these versions, and MeshInterchangeTest.MaterialXReadsStandardSurface
+	# Factors verifies .mtlx parsing produces correct values at runtime (the real proof the merge is
+	# safe). /IGNORE:4006 silences the resulting "symbol already defined" warnings. PUBLIC so it
+	# reaches every consuming exe (editor/tests/runtime/server).
+	if(MSVC)
+		target_link_options(OloEngine PUBLIC "/FORCE:MULTIPLE" "/IGNORE:4006")
+	endif()
+endif()
+if(OLO_WITH_USD)
+	# Resolve OpenUSD: reuse a prebuilt install (OLO_USD_INSTALL_DIR) or build oneTBB + static-
+	# monolithic USD from source via ExternalProject into a per-user cache. Sets OloEngine_USD_PREFIX
+	# + the olo_usd_ext target. USD's CMake is install-centric (its runtime plugInfo tree is produced
+	# by the install step), so it is NOT FetchContent'd. See docs/agent-rules/asset-import-usd-alembic.md.
+	include(${CMAKE_SOURCE_DIR}/cmake/vendor/OpenUSD.cmake)
+	add_dependencies(OloEngine olo_usd_ext)   # build USD before the engine (and downstream exe) link
+	# The USD paths carry a $<CONFIG> genexpr (config-matched build) so a Debug engine links Debug
+	# USD and a Release/RelWithDebInfo engine links Release USD — no CRT mismatch.
+	target_include_directories(OloEngine PUBLIC "${OloEngine_USD_INCLUDE_DIR}")
+	# oneTBB auto-links tbb12(.|_debug.)lib via #pragma comment(lib) inside usd_m, so the config's
+	# lib dir must be on the linker search path. Shlwapi (Path*) + Dbghelp (Sym*) + Ws2_32 are the
+	# Windows system libs USD's Arch/Tf need (verified via the USD smoke test).
+	target_link_directories(OloEngine PUBLIC "${OloEngine_USD_LIB_DIR}")
+	target_link_libraries(OloEngine "${OloEngine_USD_LIB}" "${OloEngine_USD_TBB_LIB}")
+	if(MSVC)
+		target_link_libraries(OloEngine Shlwapi Dbghelp Ws2_32)
+	endif()
+	target_compile_definitions(OloEngine PUBLIC OLO_WITH_USD=1)
+	# USD registers Sdf file formats + schemas via static-init side effects; without a
+	# whole-archive force-link the linker discards those objects and UsdStage::Open fails.
+	if(MSVC)
+		target_link_options(OloEngine PUBLIC "/WHOLEARCHIVE:usd_m")
+	endif()
+	# Ship USD's plugInfo resource tree next to every consuming executable — PlugRegistry needs
+	# it at runtime to map .usda/.usdc/.usdz -> file-format plugin (see UsdMeshImporter). The exe
+	# CMake (OloEditor/OloRuntime) POST_BUILD-copies OLO_USD_PLUGIN_TREE to <exe dir>/usd.
+	set(OLO_USD_PLUGIN_TREE "${OloEngine_USD_PLUGIN_TREE}" CACHE INTERNAL "USD plugInfo tree to stage next to exes")
+	message(STATUS "OLO_WITH_USD: OpenUSD (.usd/.usda/.usdc/.usdz) import enabled")
+endif()
+
 # Tracy — only link the client library when profiling is on. Tracy's TracyClient.cpp
 # contains file-scope globals (Profiler, _memory_span_cache) whose constructors fire
 # unconditionally if the lib is linked, regardless of the TRACY_ENABLE compile def.

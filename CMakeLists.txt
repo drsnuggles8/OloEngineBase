@@ -29,6 +29,17 @@ option(OLO_ENABLE_LTO "Enable Link Time Optimization" ON)
 option(OLO_ENABLE_PCH "Enable Precompiled Headers" ON)
 option(OLO_ENABLE_UNITY_BUILD "Enable Unity (Jumbo) Builds for faster compilation" OFF)
 
+# Asset-import format options (#655). All default ON — importing USD / Alembic / MaterialX works
+# out of the box, matching UE5's USD-by-default posture. Alembic + MaterialX are small static
+# FetchContent builds. OpenUSD is large + install-centric: it is built from source once via
+# ExternalProject (oneTBB + static-monolithic USD, ~10-15 min + ~2 GB on the FIRST build, then
+# cached), OR reused from a prebuilt install via -DOLO_USD_INSTALL_DIR=<prefix> (CI cache / a
+# shared build). CI that doesn't need USD should pass -DOLO_WITH_USD=OFF to skip the heavy build.
+# See docs/agent-rules/asset-import-usd-alembic.md.
+option(OLO_WITH_ALEMBIC "Import Alembic (.abc) geometry caches (vendors Imath + Alembic)" ON)
+option(OLO_WITH_MATERIALX "Import MaterialX (.mtlx) materials (vendors MaterialX)" ON)
+option(OLO_WITH_USD "Import OpenUSD stages (.usd/.usda/.usdc/.usdz); builds USD from source unless OLO_USD_INSTALL_DIR is set" ON)
+
 # Includes
 include(cmake/SetupConfigurations.cmake)
 include(cmake/CommonProperties.cmake)

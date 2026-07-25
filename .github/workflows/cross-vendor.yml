@@ -64,7 +64,7 @@ jobs:
         # dominated by the llvmpipe TEST run, not the build — caching the minority
         # build slice on a nightly cadence (where the shared GHA cache is often
         # cold) is a marginal win for a real complexity cost. Left as a cold build.
-        run: cmake -S . -B build -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" -DOLO_VIDEO_FFMPEG=OFF
+        run: cmake -S . -B build -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" -DOLO_VIDEO_FFMPEG=OFF -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
 
       - name: Build tests
         run: cmake --build build --target OloEngine-Tests --config ${{env.BUILD_TYPE}} --parallel

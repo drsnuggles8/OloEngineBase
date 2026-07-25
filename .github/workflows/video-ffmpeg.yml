@@ -88,6 +88,7 @@ jobs:
             PREFIX_ARG="-DOLO_FFMPEG_PREFIX=${GITHUB_WORKSPACE}/OloEngine/vendor/ffmpeg-install"
           fi
           cmake -S . -B build -DOLO_VIDEO_FFMPEG=ON $PREFIX_ARG \
+            -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
             -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
 
       - name: Build tests (builds FFmpeg on cache miss)

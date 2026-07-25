@@ -731,11 +731,130 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 #======================================
+# Asset-import format dependencies (#655). Gated on OLO_WITH_* options (root CMakeLists).
+#======================================
+
+# --- Alembic (.abc geometry caches) + its Imath math dependency ---
+# Imath is declared/made-available FIRST so Alembic's top-level `IF(TARGET Imath::Imath)`
+# short-circuits its find_package(Imath) — no install step / ImathConfig.cmake needed, exactly
+# how this repo already satisfies assimp's find_package(ZLIB) with the fetched zlibstatic target.
+if(OLO_WITH_ALEMBIC)
+	FetchContent_Declare(Imath
+		GIT_REPOSITORY	https://github.com/AcademySoftwareFoundation/Imath.git
+		GIT_TAG			c0396a055a01bc537d32f435aee11a9b7ed6f0b5  # v3.1.12
+		GIT_SHALLOW		FALSE)
+	# IMATH_INSTALL must be ON: Alembic's lib CMakeLists does an unconditional
+	# export(TARGETS Alembic) + install(EXPORT AlembicTargets), both of which reference
+	# Imath::Imath and fail generation ("requires target Imath that is not in any export set")
+	# unless Imath registers itself in an export set. Export sets are only VALIDATED at
+	# generate and only EXECUTED on `cmake --install` (which this repo never runs), so turning
+	# Imath's install ON is validation-only here — no files are installed by a normal build.
+	set(IMATH_INSTALL ON CACHE BOOL "" FORCE)
+	set(IMATH_INSTALL_PKG_CONFIG OFF CACHE BOOL "" FORCE)
+	set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+	set(PYTHON OFF CACHE BOOL "" FORCE)
+	set(PYBIND11 OFF CACHE BOOL "" FORCE)
+	set(BUILD_WEBSITE OFF CACHE BOOL "" FORCE)
+
+	FetchContent_Declare(alembic
+		GIT_REPOSITORY	https://github.com/alembic/alembic.git
+		GIT_TAG			00bca1fc6e2e5a077ba76a2fb29f533b3098274d  # 1.8.9
+		GIT_SHALLOW		FALSE)
+	set(ALEMBIC_BUILD_LIBS ON CACHE BOOL "" FORCE)
+	set(ALEMBIC_SHARED_LIBS OFF CACHE BOOL "" FORCE)   # -> static libAlembic
+	set(USE_HDF5 OFF CACHE BOOL "" FORCE)              # Ogawa only; no HDF5 chain
+	set(USE_STATIC_HDF5 OFF CACHE BOOL "" FORCE)
+	set(USE_TESTS OFF CACHE BOOL "" FORCE)
+	set(USE_BINARIES OFF CACHE BOOL "" FORCE)
+	set(USE_EXAMPLES OFF CACHE BOOL "" FORCE)
+	set(USE_PYALEMBIC OFF CACHE BOOL "" FORCE)
+	set(USE_ARNOLD OFF CACHE BOOL "" FORCE)
+	set(USE_MAYA OFF CACHE BOOL "" FORCE)
+	set(USE_PRMAN OFF CACHE BOOL "" FORCE)
+	set(USE_STATIC_BOOST OFF CACHE BOOL "" FORCE)      # core needs no Boost in 1.7+
+	set(ALEMBIC_DEBUG_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+
+	# ORDER MATTERS: Imath before alembic. Split so Imath_INCLUDE_DIRS can be set between them:
+	# Alembic's lib CMake includes <Imath/half.h> and bakes ${Imath_INCLUDE_DIRS} into its PUBLIC
+	# include dirs, but the FetchContent'd Imath target only exposes src/Imath on the path (so a
+	# flat <half.h> resolves, not <Imath/half.h>). Point Imath_INCLUDE_DIRS at src/ so both
+	# Alembic's own compile AND OloEngine (which links Alembic::Alembic) resolve <Imath/...>.
+	FetchContent_MakeAvailable(Imath)
+	# Wrap in $<BUILD_INTERFACE:> — Alembic bakes ${Imath_INCLUDE_DIRS} into its PUBLIC
+	# INTERFACE_INCLUDE_DIRECTORIES, and CMake rejects a bare absolute source-tree path there
+	# (it would leak to install consumers); the generator expression scopes it to the build tree.
+	set(Imath_INCLUDE_DIRS "$<BUILD_INTERFACE:${imath_SOURCE_DIR}/src>" CACHE STRING "" FORCE)
+	FetchContent_MakeAvailable(alembic)
+
+	foreach(_abc_target Alembic Imath)
+		if(TARGET ${_abc_target})
+			set_target_properties(${_abc_target} PROPERTIES FOLDER "Utilities/alembic")
+		endif()
+	endforeach()
+	if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+		foreach(_abc_target Alembic Imath)
+			if(TARGET ${_abc_target})
+				target_compile_options(${_abc_target} PRIVATE -Wno-error -Wno-everything)
+			endif()
+		endforeach()
+	endif()
+	message(STATUS "OLO_WITH_ALEMBIC: Alembic (.abc) import enabled")
+endif()
+
+# --- MaterialX (.mtlx materials): read-only MaterialXCore + MaterialXFormat only ---
+# RENDER + all GEN_* backends default ON in MaterialX; turning them OFF is what keeps this a
+# tiny two-lib build (PugiXML is bundled straight into MaterialXFormat, so no extra dep).
+if(OLO_WITH_MATERIALX)
+	FetchContent_Declare(materialx
+		GIT_REPOSITORY	https://github.com/AcademySoftwareFoundation/MaterialX.git
+		GIT_TAG			7b64921ef1d42f2d57871e9d2c43dc11f041f26b  # v1.39.5
+		GIT_SHALLOW		FALSE)
+	set(MATERIALX_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_BUILD_MONOLITHIC OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_BUILD_BENCHMARK_TESTS OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_BUILD_PYTHON OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_BUILD_JS OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_BUILD_VIEWER OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_BUILD_GRAPH_EDITOR OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_BUILD_RENDER OFF CACHE BOOL "" FORCE)   # DEFAULT ON -> OFF
+	set(MATERIALX_BUILD_GEN_GLSL OFF CACHE BOOL "" FORCE) # DEFAULT ON -> OFF
+	set(MATERIALX_BUILD_GEN_MSL OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_BUILD_GEN_OSL OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_BUILD_GEN_MDL OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_BUILD_GEN_SLANG OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_BUILD_OIIO OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_BUILD_OCIO OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_INSTALL_RESOURCES OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_INSTALL_PYTHON OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_BUILD_USE_CCACHE OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_TEST_RENDER OFF CACHE BOOL "" FORCE)
+	set(MATERIALX_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+
+	FetchContent_MakeAvailable(materialx)
+
+	foreach(_mtlx MaterialXCore MaterialXFormat MaterialXGenShader MaterialXRender MaterialXTrace)
+		if(TARGET ${_mtlx})
+			set_target_properties(${_mtlx} PROPERTIES FOLDER "Utilities/MaterialX")
+		endif()
+	endforeach()
+	if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+		foreach(_mtlx MaterialXCore MaterialXFormat)
+			if(TARGET ${_mtlx})
+				target_compile_options(${_mtlx} PRIVATE -Wno-error -Wno-everything)
+			endif()
+		endforeach()
+	endif()
+	message(STATUS "OLO_WITH_MATERIALX: MaterialX (.mtlx) import enabled")
+endif()
+
+#======================================
 # Propagate FetchContent _SOURCE_DIR / _BINARY_DIR variables to parent scope
 # so OloEngine/CMakeLists.txt can use them in target_include_directories.
 foreach(_dep assimp atomic_queue box2d entt filewatch glad glfw glm googletest
              joltphysics meshoptimizer miniaudio pl_mpeg recastnavigation spdlog tracy yaml-cpp
-             zlib stb_image imgui imguizmo lua GameNetworkingSockets)
+             zlib stb_image imgui imguizmo lua GameNetworkingSockets Imath alembic materialx)
 	if(DEFINED ${_dep}_SOURCE_DIR)
 		set(${_dep}_SOURCE_DIR "${${_dep}_SOURCE_DIR}" PARENT_SCOPE)
 	endif()

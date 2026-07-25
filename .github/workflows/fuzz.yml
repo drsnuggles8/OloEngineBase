@@ -144,6 +144,7 @@ jobs:
                 -DOLO_ENABLE_FUZZING=ON `
                 -DOLO_FUZZ_SANITIZER=${{ matrix.sanitizer }} `
                 -DOLO_VIDEO_FFMPEG=OFF `
+                -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF `
                 -DOLO_ENABLE_LTO=OFF
           # OLO_ENABLE_COMPILER_CACHE is intentionally OMITTED here — see the
           #   note above the (removed) sccache step: the Windows sccache server

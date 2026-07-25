@@ -172,6 +172,27 @@
 		"OloEngine/Asset/SoundGraphAsset.cpp"
 		"OloEngine/Asset/MeshCache.h"
 		"OloEngine/Asset/MeshCache.cpp"
+		# Interchange abstraction (#655): pluggable mesh import/export behind a registry.
+		# The Assimp translators are always built; USD/Alembic/MaterialX translators are
+		# appended conditionally further below, gated on OLO_WITH_* options.
+		"OloEngine/Asset/Interchange/MeshImporter.h"
+		"OloEngine/Asset/Interchange/MeshImporterRegistry.h"
+		"OloEngine/Asset/Interchange/MeshImporterRegistry.cpp"
+		"OloEngine/Asset/Interchange/AssimpMeshImporter.h"
+		"OloEngine/Asset/Interchange/AssimpMeshImporter.cpp"
+		"OloEngine/Asset/Interchange/MeshExporter.h"
+		"OloEngine/Asset/Interchange/MeshExporterRegistry.h"
+		"OloEngine/Asset/Interchange/MeshExporterRegistry.cpp"
+		"OloEngine/Asset/Interchange/AssimpMeshExporter.h"
+		"OloEngine/Asset/Interchange/AssimpMeshExporter.cpp"
+		# Optional-format translators — each .cpp self-guards on its OLO_WITH_* macro, so it is
+		# always in the source list and compiles to an empty TU when its dependency is off.
+		"OloEngine/Asset/Interchange/Alembic/AlembicMeshImporter.h"
+		"OloEngine/Asset/Interchange/Alembic/AlembicMeshImporter.cpp"
+		"OloEngine/Asset/Interchange/MaterialX/MaterialXMaterialReader.h"
+		"OloEngine/Asset/Interchange/MaterialX/MaterialXMaterialReader.cpp"
+		"OloEngine/Asset/Interchange/USD/UsdMeshImporter.h"
+		"OloEngine/Asset/Interchange/USD/UsdMeshImporter.cpp"
 		"OloEngine/Asset/Serializers/LightProbeVolumeSerializer.cpp"
 		# Build pipeline
 		"OloEngine/Build/GameBuildSettings.h"

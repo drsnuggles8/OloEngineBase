@@ -170,6 +170,7 @@ jobs:
         -G "Ninja Multi-Config"
         --toolchain "${{ github.workspace }}/cmake/ClangCLToolchain.cmake"
         -DOLO_VIDEO_FFMPEG=OFF
+        -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
         -DOLO_ENABLE_LTO=OFF
         -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
         -DOLO_ENABLE_ASAN=ON
@@ -375,6 +376,7 @@ jobs:
       run: >
         cmake -S . -B build
         -DOLO_VIDEO_FFMPEG=OFF
+        -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
         -DCMAKE_CXX_COMPILER=clang++-19
         -DCMAKE_C_COMPILER=clang-19
         -DCMAKE_BUILD_TYPE=Debug
@@ -529,6 +531,7 @@ jobs:
       run: >
         cmake -S . -B build
         -DOLO_VIDEO_FFMPEG=OFF
+        -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
         -DCMAKE_CXX_COMPILER=clang++-19
         -DCMAKE_C_COMPILER=clang-19
         -DCMAKE_BUILD_TYPE=Debug
@@ -675,6 +678,7 @@ jobs:
       run: >
         cmake -S . -B build
         -DOLO_VIDEO_FFMPEG=OFF
+        -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
         -DCMAKE_CXX_COMPILER=clang++-19
         -DCMAKE_C_COMPILER=clang-19
         -DCMAKE_BUILD_TYPE=Debug
