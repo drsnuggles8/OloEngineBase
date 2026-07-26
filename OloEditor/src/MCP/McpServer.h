@@ -168,6 +168,53 @@ namespace OloEngine::MCP
         [[nodiscard]] static Json ResourceLinkBlock(const std::string& uri, const std::string& name,
                                                     const std::string& description, const std::string& mimeType,
                                                     u64 sizeBytes = 0);
+
+        // ---- audience-tagged content blocks (#673 Tier 2) ---------------------
+        //
+        // Which side of the session one CONTENT BLOCK is meant for (MCP spec
+        // 2025-06-18 `Annotations.audience`). This is a different spec field on a
+        // different object from ToolDef::Annotations, which carries the tool-level
+        // readOnlyHint / openWorldHint hints — don't conflate the two.
+        //
+        // Absent annotations already mean "no preference", so there is deliberately
+        // no `Both`: a block for everyone is simply left unannotated.
+        enum class Audience : u8
+        {
+            Assistant, // the model driving the session: compact and parseable.
+            User,      // the human watching it: formatted and glanceable.
+        };
+
+        // Spec priority is an importance hint in [0,1] — 1 is "effectively
+        // required", 0 "entirely optional". The machine block IS the result, so it
+        // is required; the human rendering is presentation over the same data, so a
+        // client under pressure may drop it first.
+        static constexpr f64 kAssistantBlockPriority = 1.0;
+        static constexpr f64 kUserBlockPriority = 0.3;
+
+        // Stamp `annotations` onto one content block in place and return it, so it
+        // composes with the block factories (e.g. AnnotateBlock(ResourceLinkBlock(...),
+        // Audience::User)). A negative `priority` omits the field rather than
+        // emitting a meaningless 0 (the same omit-when-unset rule as `size` on a
+        // resource link). `audience` is always written, so `annotations` is never
+        // emitted as an empty object.
+        static Json& AnnotateBlock(Json& block, Audience audience, f64 priority = -1.0);
+
+        // Typed success result that renders its payload TWICE, each block tagged
+        // for one audience: a compact `data.dump()` for the assistant and a
+        // Markdown report (McpAudienceReport.h) for the human. `StructuredContent`
+        // is `data`, exactly as with Structured(), so the outputSchema contract is
+        // unchanged and only the `content` array differs. The assistant block stays
+        // at index 0 — content[0] remains the machine-readable JSON mirror.
+        //
+        // WHEN TO ADOPT THIS OVER Structured(): only when a human watching the
+        // session would genuinely read the payload differently from how the model
+        // parses it — i.e. it is multi-field or tabular AND is something you'd stare
+        // at while debugging (a per-pass timing table, a per-channel stats table, an
+        // explainer's check list). For a one-scalar result, a status echo, or a
+        // payload that is already a sentence, a second rendering is noise: keep
+        // Structured(). Blanket adoption across the whole tool surface would be
+        // bloat, not spec parity.
+        [[nodiscard]] static ToolResult StructuredDualAudience(const Json& data, std::string_view title);
     };
 
     class McpServer;
@@ -271,6 +318,26 @@ namespace OloEngine::MCP
         // empty => omitted from tools/list entirely (never emit an empty
         // `icons` key). Validated by McpServer::IsValidIcons at registration.
         Json Icons;
+        // Opt in to AUDIENCE-TAGGED content blocks for this tool's typed results
+        // (#673 Tier 2). When true, HandleToolsCall re-shapes a successful
+        // ToolResult::Structured() into the dual-audience pair via
+        // ToolResult::StructuredDualAudience — a compact JSON block tagged
+        // audience ["assistant"] plus a Markdown report tagged ["user"], headed by
+        // `Title` (falling back to `Name`). The handler stays a plain
+        // `ToolResult::Structured(...)`; adoption is declared HERE, next to
+        // OutputSchema and Annotations, so the adopter set is inspectable from
+        // registration alone — which is what McpAudienceBlocksTest ratchets
+        // without ever issuing a tools/call.
+        //
+        // THE INCLUSION RULE — set this only when a human watching the session
+        // would genuinely read the payload differently from how the model parses
+        // it: the result is multi-field or tabular AND is something you'd stare at
+        // while debugging (a per-pass timing table, per-channel target stats, an
+        // explainer's check list). For a one-scalar result, a status echo, or a
+        // payload that is already a sentence, the second rendering is pure noise —
+        // leave this false. Blanket adoption across the tool surface would be
+        // bloat, not spec parity.
+        bool DualAudienceContent = false;
     };
 
     // Snapshot of the editor camera's full pose, returned by GetCameraPose and

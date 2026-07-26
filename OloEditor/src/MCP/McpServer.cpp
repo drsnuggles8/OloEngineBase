@@ -6,6 +6,7 @@
 #include <httplib.h>
 
 #include "MCP/McpServer.h"
+#include "MCP/McpAudienceReport.h"
 #include "MCP/McpEventStream.h"
 
 #include "OloEngine/Core/Log.h"
@@ -659,6 +660,38 @@ namespace OloEngine::MCP
         if (sizeBytes > 0)
             block["size"] = sizeBytes;
         return block;
+    }
+
+    Json& ToolResult::AnnotateBlock(Json& block, Audience audience, f64 priority)
+    {
+        Json annotations{ { "audience",
+                            Json::array({ audience == Audience::User ? "user" : "assistant" }) } };
+        // Clamp rather than trust the caller: an out-of-range priority is not a
+        // spec-legal hint, and a tool author passing 100 "for emphasis" would
+        // otherwise ship an invalid annotation to every client.
+        if (priority >= 0.0)
+            annotations["priority"] = std::clamp(priority, 0.0, 1.0);
+        block["annotations"] = std::move(annotations);
+        return block;
+    }
+
+    ToolResult ToolResult::StructuredDualAudience(const Json& data, std::string_view title)
+    {
+        ToolResult r;
+        // dump() compact, not dump(2): the model also receives the identical
+        // `structuredContent`, and a client that ignores audience annotations
+        // renders BOTH blocks — emitting the machine mirror compact keeps that
+        // pair costing about what Structured()'s single pretty-printed block did.
+        Json machine{ { "type", "text" }, { "text", data.dump() } };
+        AnnotateBlock(machine, Audience::Assistant, kAssistantBlockPriority);
+
+        Json human{ { "type", "text" }, { "text", AudienceReport::Render(data, title) } };
+        AnnotateBlock(human, Audience::User, kUserBlockPriority);
+
+        r.Content = Json::array({ std::move(machine), std::move(human) });
+        r.StructuredContent = data;
+        r.IsError = false;
+        return r;
     }
 
     // ---- McpServer -------------------------------------------------------------
@@ -2204,6 +2237,20 @@ namespace OloEngine::MCP
         // cancellation arrived — the client has already stopped listening.
         if (scope.CancelFlag->load(std::memory_order_acquire))
             return MakeError(id, kRequestCancelledCode, "Request cancelled");
+
+        // Audience-tagged content blocks for a tool that declared them (#673 Tier
+        // 2). Rebuilding from StructuredContent — rather than annotating what the
+        // handler returned — is what makes the machine block compact; the
+        // single-block guard means a handler that appended its own extra block (a
+        // resource_link) or already emitted the pair itself is left alone, so this
+        // is idempotent and never drops content. Runs BEFORE redaction so the
+        // human report is scrubbed on exactly the same terms as the JSON mirror.
+        if (tool->DualAudienceContent && !result.IsError && !result.StructuredContent.is_null() &&
+            result.Content.is_array() && result.Content.size() == 1)
+        {
+            result = ToolResult::StructuredDualAudience(result.StructuredContent,
+                                                        tool->Title.empty() ? tool->Name : tool->Title);
+        }
 
         if (RedactPaths())
         {

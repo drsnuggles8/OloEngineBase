@@ -564,6 +564,13 @@ add_executable(OloEngine-Tests
 		# a well-formed open object and pins the set of schema-declaring tools.
 		# Uses the McpTools*.cpp TUs already pulled in above.
 		MCP/McpOutputSchemaCoverageTest.cpp
+		# Audience-tagged content blocks (#673 Tier 2): the ToolResult::AnnotateBlock /
+		# StructuredDualAudience mechanism + the ToolDef::DualAudienceContent
+		# re-shaping in HandleToolsCall (fake tools over the dispatch seam), the pure
+		# Markdown renderer (MCP/McpAudienceReport.h), and the adoption ratchet over
+		# the REAL builtin surface — registration-only like the outputSchema guard
+		# above, so no handler runs and no game thread / GL is needed.
+		MCP/McpAudienceBlocksTest.cpp
 		# JSON-Schema builder DSL + byte-identical equivalence with the migrated tool
 		# schema literals (#357 Tier 2 P4). Header-only (MCP/McpSchemaBuilder.h,
 		# nlohmann::json + stdlib only), so no extra editor TU is pulled in.
