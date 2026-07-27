@@ -51,7 +51,7 @@ of date, and re-run configure+build *inside the first worktree's* `usd-build` â€
 idempotent, because `BUILD_COMMAND` is `--config Release` **then** `--config Debug` in one binary dir.
 Re-entering a finished tree fails across USD's `arch` target with:
 
-```
+```text
 error C2859: ...\arch.dir\Release\arch.pdb is not the pdb file that was used when this
              precompiled header was created, recreate the precompiled header.
 ```

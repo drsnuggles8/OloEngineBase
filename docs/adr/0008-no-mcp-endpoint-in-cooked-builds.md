@@ -70,12 +70,12 @@ out to protect the wrong thing.
 
 Two risks are entirely new in the cooked case and have no editor analogue:
 
-6. **The binary is distributed, so every copy is an attack sample.** An attacker
+1. **The binary is distributed, so every copy is an attack sample.** An attacker
    can reverse the handshake, the token derivation, and the dispatch code
    offline, at leisure, before ever touching a live instance. Nothing about the
    editor deployment model has this property.
 
-7. **The request path can stall the game.** `MarshalRead` deliberately parks an
+2. **The request path can stall the game.** `MarshalRead` deliberately parks an
    HTTP worker until the game thread reaches a frame boundary; capture tools
    allocate megabytes and do GL readbacks. In the editor a hitch is an
    annoyance. In a shipped multiplayer client, an unauthenticated pre-token

@@ -4340,8 +4340,8 @@ namespace OloEngine::MCP
             tool.Toolset = "render";
             tool.Title = "Export render graph topology";
             // passes / edges / resources are three tables a human scans to see the
-            // graph's shape. The `format: "dot"` variant returns free text with no
-            // structuredContent, so the dispatcher's guard leaves it untouched.
+            // graph's shape. The `format: "mermaid"` variant returns free text with
+            // no structuredContent, so the dispatcher's guard leaves it untouched.
             tool.DualAudienceContent = true;
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =

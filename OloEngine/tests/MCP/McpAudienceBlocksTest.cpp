@@ -226,7 +226,7 @@ TEST(McpAudienceBlocks, ReshapingSkipsErrorsTextResultsAndExtraBlocks)
     textual.Description = "Text only.";
     textual.DualAudienceContent = true;
     textual.Handler = [](McpServer&, const Json&)
-    { return ToolResult::Text("digraph {}"); };
+    { return ToolResult::Text("flowchart LR"); };
     server.RegisterTool(std::move(textual));
 
     ToolDef withLink;
@@ -248,8 +248,8 @@ TEST(McpAudienceBlocks, ReshapingSkipsErrorsTextResultsAndExtraBlocks)
 
     const Json textResp = CallTool(server, 4, "olo_fake_dual_text");
     ASSERT_EQ(textResp["result"]["content"].size(), 1u)
-        << "no structuredContent (e.g. the topology tool's dot format) => nothing to render";
-    EXPECT_EQ(textResp["result"]["content"][0]["text"], "digraph {}");
+        << "no structuredContent (e.g. the topology tool's mermaid format) => nothing to render";
+    EXPECT_EQ(textResp["result"]["content"][0]["text"], "flowchart LR");
 
     const Json linkResp = CallTool(server, 5, "olo_fake_dual_link");
     ASSERT_EQ(linkResp["result"]["content"].size(), 2u)
@@ -313,6 +313,29 @@ TEST(McpAudienceReport, NeutralisesPipesAndNewlinesThatWouldBreakTheTable)
     EXPECT_NE(report.find("a\\|b"), std::string::npos) << "a literal pipe would open a phantom column";
     EXPECT_EQ(report.find("one\ntwo"), std::string::npos) << "a newline would end the row early";
     EXPECT_NE(report.find("one two"), std::string::npos);
+}
+
+// KEYS are escaped too, not just values: a payload keyed by data (a
+// std::unordered_map<std::string, V> field — entity names, asset paths) renders
+// its keys as column headers and section titles, where one stray '|' would
+// corrupt the whole table.
+TEST(McpAudienceReport, EscapesDataDerivedKeysInHeadersAndSectionTitles)
+{
+    const Json data{ { "a|b", 1 },                                             // field key
+                     { "sec|tion", Json{ { "x", 1 } } },                       // section title
+                     { "tbl|e", Json::array({ Json{ { "col|umn", 1 } } }) } }; // table title + header
+
+    const std::string report = AudienceReport::Render(data, "Keys");
+    EXPECT_NE(report.find("a\\|b"), std::string::npos) << report;
+    EXPECT_NE(report.find("**sec\\|tion**"), std::string::npos) << report;
+    EXPECT_NE(report.find("**tbl\\|e**"), std::string::npos) << report;
+    EXPECT_NE(report.find("col\\|umn"), std::string::npos) << report;
+
+    // An escaped column header must still resolve its cells — the lookup uses the
+    // RAW key while only the printed header is escaped.
+    const auto rowLine = report.find("\n| 1 ");
+    EXPECT_NE(rowLine, std::string::npos) << "escaped header lost its row value:\n"
+                                          << report;
 }
 
 TEST(McpAudienceReport, ElidesLongTablesAndListsRatherThanLosingThem)

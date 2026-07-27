@@ -86,15 +86,18 @@ namespace OloEngine::MCP::AudienceReport
             return text;
         }
 
-        // One table/field cell: strings raw (no JSON quoting — this is prose,
-        // not a payload), everything else via dump(). Newlines would end the
-        // Markdown row early and a literal '|' would open a phantom column, so
-        // both are neutralised.
-        [[nodiscard]] inline std::string Cell(const Json& value)
+        // Make one piece of text safe to drop into a Markdown table: a newline
+        // would end the row early and a literal '|' would open a phantom column,
+        // so both are neutralised, then the result is bounded.
+        //
+        // Applied to KEYS as well as values. Today's payload keys are all
+        // code-controlled field names, but a JSON object keyed by data (a
+        // `std::unordered_map<std::string, V>` field — entity/morph-target names,
+        // asset paths) renders its keys as column headers or section titles, and
+        // one stray '|' there would corrupt the whole table. Cheap insurance on a
+        // renderer that is deliberately generic over any tool's payload.
+        [[nodiscard]] inline std::string SanitizeText(const std::string& source)
         {
-            const std::string source = value.is_string() ? value.get<std::string>()
-                                       : value.is_null() ? std::string("-")
-                                                         : value.dump();
             std::string out;
             out.reserve(source.size());
             for (const char c : source)
@@ -107,6 +110,15 @@ namespace OloEngine::MCP::AudienceReport
                     out.push_back(c);
             }
             return TruncateUtf8(std::move(out), kMaxCellChars);
+        }
+
+        // One table/field cell: strings raw (no JSON quoting — this is prose, not
+        // a payload), everything else via dump().
+        [[nodiscard]] inline std::string Cell(const Json& value)
+        {
+            return SanitizeText(value.is_string() ? value.get<std::string>()
+                                : value.is_null() ? std::string("-")
+                                                  : value.dump());
         }
 
         [[nodiscard]] inline std::string Pad(std::string text, sizet width)
@@ -161,6 +173,15 @@ namespace OloEngine::MCP::AudienceReport
                 return;
             }
 
+            // `columns` stays RAW for row.find(); `headers` is the escaped form
+            // that is actually printed and sized. Keeping them parallel (rather
+            // than escaping in place) is what lets a key containing '|' still
+            // resolve its cells.
+            std::vector<std::string> headers;
+            headers.reserve(columns.size());
+            for (const std::string& column : columns)
+                headers.push_back(SanitizeText(column));
+
             const sizet shown = std::min<sizet>(rows.size(), kMaxTableRows);
             std::vector<std::vector<std::string>> cells;
             cells.reserve(shown);
@@ -177,16 +198,16 @@ namespace OloEngine::MCP::AudienceReport
             }
 
             std::vector<sizet> widths;
-            widths.reserve(columns.size());
-            for (const std::string& column : columns)
-                widths.push_back(column.size());
+            widths.reserve(headers.size());
+            for (const std::string& header : headers)
+                widths.push_back(header.size());
             for (const auto& line : cells)
             {
-                for (sizet c = 0; c < columns.size(); ++c)
+                for (sizet c = 0; c < headers.size(); ++c)
                     widths[c] = std::max(widths[c], line[c].size());
             }
 
-            EmitRow(columns, widths, out);
+            EmitRow(headers, widths, out);
             EmitSeparator(widths, out);
             for (const auto& line : cells)
                 EmitRow(line, widths, out);
@@ -210,27 +231,30 @@ namespace OloEngine::MCP::AudienceReport
             for (auto it = object.begin(); it != object.end(); ++it)
             {
                 const Json& value = it.value();
+                // Escape once, here: every bucket below prints the key — as a
+                // table cell, or inside a bold section/table title.
+                const std::string key = SanitizeText(it.key());
                 if (value.is_object())
                 {
                     if (value.empty())
-                        fields.emplace_back(it.key(), "(empty)");
+                        fields.emplace_back(key, "(empty)");
                     else if (depth >= kMaxDepth)
-                        fields.emplace_back(it.key(), Cell(value));
+                        fields.emplace_back(key, Cell(value));
                     else
-                        sections.emplace_back(it.key(), &value);
+                        sections.emplace_back(key, &value);
                 }
                 else if (IsObjectArray(value))
                 {
                     if (depth >= kMaxDepth)
-                        fields.emplace_back(it.key(), Cell(value));
+                        fields.emplace_back(key, Cell(value));
                     else
-                        tables.emplace_back(it.key(), &value);
+                        tables.emplace_back(key, &value);
                 }
                 else if (value.is_array())
                 {
                     if (value.empty())
                     {
-                        fields.emplace_back(it.key(), "(none)");
+                        fields.emplace_back(key, "(none)");
                     }
                     else
                     {
@@ -248,19 +272,19 @@ namespace OloEngine::MCP::AudienceReport
                             joined += Cell(element);
                             ++emitted;
                         }
-                        fields.emplace_back(it.key(), TruncateUtf8(std::move(joined), kMaxParagraphChars));
+                        fields.emplace_back(key, TruncateUtf8(std::move(joined), kMaxParagraphChars));
                     }
                 }
                 else if (value.is_string() && value.get<std::string>().size() > kMaxCellChars)
                 {
                     // A `note` / `warning` / explainer sentence: a table cell
                     // would elide the part that matters, so give it a paragraph.
-                    paragraphs.emplace_back(it.key(),
+                    paragraphs.emplace_back(key,
                                             TruncateUtf8(value.get<std::string>(), kMaxParagraphChars));
                 }
                 else
                 {
-                    fields.emplace_back(it.key(), Cell(value));
+                    fields.emplace_back(key, Cell(value));
                 }
             }
 

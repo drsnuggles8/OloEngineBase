@@ -1532,7 +1532,7 @@ payload that is already a sentence, the second rendering is pure noise — leave
 Blanket adoption across the surface would be bloat, not spec parity.
 
 The re-shaping is guarded, so opting in never loses content: it fires only on a successful
-single-block typed result. A handler that returns free text (the `format:"dot"` path of
+single-block typed result. A handler that returns free text (the `format:"mermaid"` path of
 `olo_render_graph_topology_export`), errors, or appends its own extra block (a
 `resource_link`) is passed through untouched.
 
