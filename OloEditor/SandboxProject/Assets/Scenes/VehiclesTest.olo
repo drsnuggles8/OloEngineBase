@@ -237,7 +237,7 @@ Entities:
     TagComponent:
       Tag: Car RWD (red)
     TransformComponent:
-      Translation: [31, 4.3, -190]
+      Translation: [31, 3.4, -190]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     Rigidbody3DComponent:
@@ -262,7 +262,7 @@ Entities:
     TagComponent:
       Tag: Car FWD (blue)
     TransformComponent:
-      Translation: [36, 4.3, -190]
+      Translation: [36, 3.4, -190]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     Rigidbody3DComponent:
@@ -287,7 +287,7 @@ Entities:
     TagComponent:
       Tag: Car AWD (green)
     TransformComponent:
-      Translation: [41, 4.3, -190]
+      Translation: [41, 3.4, -190]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     Rigidbody3DComponent:
@@ -416,7 +416,7 @@ Entities:
     TagComponent:
       Tag: Aircraft
     TransformComponent:
-      Translation: [48, 4.6, -190]
+      Translation: [48, 3.5, -190]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     Rigidbody3DComponent:
