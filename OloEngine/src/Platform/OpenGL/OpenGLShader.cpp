@@ -1252,8 +1252,29 @@ namespace OloEngine
                 infoLog.resize(static_cast<sizet>(logLength));
                 glGetProgramInfoLog(program, logLength, nullptr, infoLog.data());
             }
-            OLO_CORE_WARN("Cached program binary failed to link, recompiling: {0}{1}",
-                          shaderFilePath.string(), infoLog.empty() ? std::string{} : " (" + infoLog + ")");
+            // A rejected binary is a LEGAL cache miss, not an engine bug: the
+            // GL spec allows the driver to reject a stored binary at any time,
+            // and NVIDIA does so for inputs beyond the driver build we stamp
+            // against (observed: some — not all — first launches after an
+            // engine rebuild reject every startup binary with "not compatible
+            // with current driver/hardware combination", then the very next
+            // launch loads the rewritten set cleanly). The recompile-and-resave
+            // below self-heals it, so one launch-level WARN carries all the
+            // signal; per-shader WARNs turned an expected miss into a ~105-line
+            // flood. Individual rejections stay visible at trace.
+            static std::atomic<bool> s_RejectionWarned{ false };
+            if (!s_RejectionWarned.exchange(true))
+            {
+                OLO_CORE_WARN("Cached program binary rejected by the driver, recompiling from SPIR-V: {0}{1}. "
+                              "This is an expected cache miss (drivers may reject stored binaries after driver, "
+                              "hardware, or application changes; the cache rewrites itself this launch). "
+                              "Further rejections this session log at trace.",
+                              shaderFilePath.string(), infoLog.empty() ? std::string{} : " (" + infoLog + ")");
+            }
+            else
+            {
+                OLO_CORE_TRACE("Cached program binary rejected, recompiling: {0}", shaderFilePath.string());
+            }
             return false;
         }
 
