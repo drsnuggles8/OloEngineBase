@@ -534,29 +534,39 @@ namespace OloEngine
         if (!uuid)
             uuid = UUID();
 
-        // Check for UUID collision and resolve if necessary
-        if (m_EntityMap.Contains(uuid))
-        {
-            UUID originalUuid = uuid;
-#ifdef OLO_DEBUG
-            OLO_CORE_ASSERT(false, "Scene::InstantiateWithUUID - UUID collision detected! UUID {} already exists in scene", static_cast<u64>(uuid));
-#else
-            OLO_CORE_WARN("Scene::InstantiateWithUUID - UUID collision detected! UUID {} already exists, generating new UUID", static_cast<u64>(uuid));
-
-            // Generate new unique UUID
-            do
-            {
-                uuid = UUID();
-            } while (m_EntityMap.Contains(uuid));
-
-            OLO_CORE_WARN("Scene::InstantiateWithUUID - Resolved collision: original UUID {} replaced with new UUID {}", static_cast<u64>(originalUuid), static_cast<u64>(uuid));
-#endif
-        }
+        uuid = ResolveUUIDCollision(uuid, "Scene::InstantiateWithUUID");
 
         // Create a new entity from the prefab
         Entity entity = prefab->Instantiate(*this, uuid);
 
         return entity;
+    }
+
+    UUID Scene::ResolveUUIDCollision(UUID uuid, const char* context)
+    {
+        // CreateEntityWithUUID does no collision check of its own — it just
+        // m_EntityMap.Add()s, which OVERWRITES, silently making the previous
+        // occupant unreachable by UUID. Every caller that supplies a UUID must
+        // therefore screen it here first.
+        if (!m_EntityMap.Contains(uuid))
+            return uuid;
+
+        const UUID originalUuid = uuid;
+#ifdef OLO_DEBUG
+        OLO_CORE_ASSERT(false, "{} - UUID collision detected! UUID {} already exists in scene", context, static_cast<u64>(uuid));
+#else
+        OLO_CORE_WARN("{} - UUID collision detected! UUID {} already exists, generating new UUID", context, static_cast<u64>(uuid));
+
+        do
+        {
+            uuid = UUID();
+        } while (m_EntityMap.Contains(uuid));
+
+        OLO_CORE_WARN("{} - Resolved collision: original UUID {} replaced with new UUID {}", context, static_cast<u64>(originalUuid), static_cast<u64>(uuid));
+#endif
+        (void)originalUuid;
+        (void)context;
+        return uuid;
     }
 
     void Scene::UpdateAllPrefabInstances()
@@ -959,10 +969,23 @@ namespace OloEngine
         {
             case PendingEntityCommand::Kind::CreateEntity:
             {
-                Entity entity = CreateEntityWithUUID(cmd.m_EntityID, cmd.m_Name);
+                // Screen the pre-allocated UUID exactly as InstantiateWithUUID
+                // does: CreateEntityWithUUID would otherwise Add() over an
+                // existing mapping and silently strand the previous occupant.
+                const UUID spawnID = ResolveUUIDCollision(cmd.m_EntityID, "Scene::ScriptCreateEntity");
+                if (spawnID != cmd.m_EntityID)
+                {
+                    OLO_CORE_WARN("[Scene] Script entity spawn was assigned UUID {} instead of the requested "
+                                  "{} (collision resolved by regeneration) — the handle already returned to "
+                                  "the script will not resolve.",
+                                  static_cast<u64>(spawnID), static_cast<u64>(cmd.m_EntityID));
+                }
+
+                Entity entity = CreateEntityWithUUID(spawnID, cmd.m_Name);
                 {
                     std::scoped_lock lock(m_EntityCommandMutex);
                     m_PendingSpawnIDs.erase(cmd.m_EntityID);
+                    m_PendingSpawnIDs.erase(spawnID);
                 }
                 if (!entity)
                     return;

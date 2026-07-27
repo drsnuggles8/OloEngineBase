@@ -1154,6 +1154,16 @@ namespace OloEngine
             glm::vec3 m_Scale{ 1.0f };
         };
 
+        // Screen a caller-supplied entity UUID against the live entity map,
+        // returning either it or a freshly generated replacement. Mandatory
+        // before CreateEntityWithUUID: that function Add()s unconditionally,
+        // which OVERWRITES an existing mapping and strands the previous
+        // occupant. Asserts in Debug (a collision means a real id-source bug);
+        // regenerates and warns in Release. `context` names the caller in the
+        // log.
+        [[nodiscard("The screened UUID is the one you must create with")]] UUID
+        ResolveUUIDCollision(UUID uuid, const char* context);
+
         // Apply one queued command. Game-thread only, and only ever called from
         // inside FlushPendingEntityCommands' drain loop.
         void ApplyPendingEntityCommand(const PendingEntityCommand& cmd);

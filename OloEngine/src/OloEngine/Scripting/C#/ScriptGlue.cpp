@@ -264,9 +264,13 @@ namespace OloEngine
             Project::HasAssetManager() ? Project::GetAssetManager().As<EditorAssetManager>() : nullptr;
         if (!editorManager)
         {
-            OLO_CORE_WARN("[ScriptGlue] Prefab.FindByPath('{}') requires the editor asset manager — a packed "
-                          "runtime has no path index. Pass the AssetHandle instead.",
-                          pathStr);
+            // De-duplicated like the miss warnings below, and for a stronger
+            // reason: in a packed runtime EVERY call lands here, so a script
+            // that polls this per tick would repeat the warning every frame for
+            // the life of the process.
+            WarnPrefabPathMissOnce(pathStr,
+                                   "requires the editor asset manager — a packed runtime has no path "
+                                   "index, so pass the AssetHandle instead");
             return 0;
         }
 

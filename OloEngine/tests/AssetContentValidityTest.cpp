@@ -47,6 +47,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <optional>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -77,28 +78,56 @@ namespace OloEngine::Tests
         // the rebase helper must not delete them (doing so silently unregisters
         // the Nanite stress scene's Stanford dragon on any machine that hasn't
         // fetched it, issue #629).
-        std::set<std::string> CollectFetchOnDemandAssetPaths()
+        //
+        // Returns nullopt — never a partial or empty set — when the manifest is
+        // missing, unparseable, or not the shape we expect. An empty allowlist
+        // is indistinguishable from "there are no fetch-on-demand assets", and
+        // that ambiguity is dangerous in opposite directions for the two
+        // callers: the validity check would report every unfetched asset as
+        // missing, and the rebase helper would DELETE their registry entries.
+        // Both must decide for themselves how to fail, so hand them the status
+        // rather than a silently-degraded answer.
+        std::optional<std::set<std::string>> CollectFetchOnDemandAssetPaths(std::string& outFailureReason)
         {
-            std::set<std::string> fetchOnDemand;
             const fs::path repoRoot = fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
             const fs::path manifestPath = repoRoot / "scripts" / "assets" / "asset-manifest.json";
-            if (std::ifstream in(manifestPath); in)
+
+            std::ifstream in(manifestPath);
+            if (!in)
             {
-                try
+                outFailureReason = "cannot open " + manifestPath.generic_string();
+                return std::nullopt;
+            }
+
+            nlohmann::json manifest;
+            try
+            {
+                in >> manifest;
+            }
+            catch (const std::exception& e)
+            {
+                outFailureReason = "failed to parse " + manifestPath.generic_string() + ": " + e.what();
+                return std::nullopt;
+            }
+
+            const auto assetsIt = manifest.find("assets");
+            if (assetsIt == manifest.end() || !assetsIt->is_array())
+            {
+                outFailureReason = manifestPath.generic_string() + " has no top-level 'assets' array";
+                return std::nullopt;
+            }
+
+            std::set<std::string> fetchOnDemand;
+            for (const auto& asset : *assetsIt)
+            {
+                const auto destIt = asset.find("dest");
+                if (destIt == asset.end() || !destIt->is_string() || destIt->get<std::string>().empty())
                 {
-                    nlohmann::json manifest;
-                    in >> manifest;
-                    for (const auto& asset : manifest.value("assets", nlohmann::json::array()))
-                    {
-                        if (const std::string dest = asset.value("dest", std::string{}); !dest.empty())
-                            fetchOnDemand.insert((repoRoot / dest).lexically_normal().generic_string());
-                    }
+                    outFailureReason = manifestPath.generic_string() + " has an asset entry with no usable 'dest' — the allowlist would be "
+                                                                       "incomplete and that asset's registry entry could be deleted";
+                    return std::nullopt;
                 }
-                catch (const std::exception&)
-                {
-                    // A malformed manifest must not silently disable the check — leave the set
-                    // empty so every registered path is validated as before.
-                }
+                fetchOnDemand.insert((repoRoot / destIt->get<std::string>()).lexically_normal().generic_string());
             }
             return fetchOnDemand;
         }
@@ -854,7 +883,16 @@ namespace OloEngine::Tests
         // Nanite stress scene uses, issue #629) must be TOLERATED here, not reported missing.
         // Collect their resolved paths from the manifest so those are skipped below; every other
         // registered path is still required to exist.
-        const std::set<std::string> fetchOnDemand = CollectFetchOnDemandAssetPaths();
+        // Fail closed: without a trustworthy allowlist we cannot tell a genuinely
+        // missing asset from an unfetched optional one, and guessing either way
+        // makes this check meaningless.
+        std::string manifestFailure;
+        const auto fetchOnDemandOpt = CollectFetchOnDemandAssetPaths(manifestFailure);
+        ASSERT_TRUE(fetchOnDemandOpt.has_value())
+            << "Could not build the fetch-on-demand allowlist: " << manifestFailure
+            << "\nWithout it, a registered-but-unfetched asset is indistinguishable from a genuinely "
+               "missing one.";
+        const std::set<std::string>& fetchOnDemand = *fetchOnDemandOpt;
 
         // Each registry entry's FilePath should point at a real file
         // under the project root. (Engine convention: AssetMetadata
@@ -1659,7 +1697,20 @@ namespace OloEngine::Tests
         // hasn't run the fetch — which is exactly what happened when this
         // helper was run during issue #643. Mirrors the tolerance in
         // SandboxAssetRegistryDeserialisesAndPathsResolve; keep the two in step.
-        const std::set<std::string> fetchOnDemand = CollectFetchOnDemandAssetPaths();
+        //
+        // Abort BEFORE Pass 1 if the allowlist can't be built. This helper's
+        // whole job is to rewrite the committed registry, so an empty-because-
+        // unreadable allowlist would delete every fetch-on-demand entry and
+        // serialize that loss to disk — the same data loss this guard exists to
+        // prevent, just triggered by a broken manifest instead of a missing one.
+        // Refusing to run is always recoverable; a silent deletion is not.
+        std::string manifestFailure;
+        const auto fetchOnDemandOpt = CollectFetchOnDemandAssetPaths(manifestFailure);
+        ASSERT_TRUE(fetchOnDemandOpt.has_value())
+            << "Refusing to rebase AssetRegistry.oar: " << manifestFailure
+            << "\nWithout the fetch-on-demand allowlist this helper would delete the registry entries "
+               "of every optional asset you have not fetched. Fix the manifest and re-run.";
+        const std::set<std::string>& fetchOnDemand = *fetchOnDemandOpt;
 
         const auto allAssets = registry.GetAllAssets();
         u32 removedCount = 0;

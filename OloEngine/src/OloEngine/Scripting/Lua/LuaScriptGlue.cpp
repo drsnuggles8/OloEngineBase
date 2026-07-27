@@ -4302,16 +4302,6 @@ namespace OloEngine
         // PrefabComponent.prefabID off an authored template entity).
         sceneTable["FindPrefabByPath"] = [](const std::string& path) -> u64
         {
-            // HasAssetManager first — GetAssetManager asserts when unset.
-            Ref<EditorAssetManager> editorManager =
-                Project::HasAssetManager() ? Project::GetAssetManager().As<EditorAssetManager>() : nullptr;
-            if (!editorManager)
-            {
-                OLO_CORE_WARN("[Lua] Scene.FindPrefabByPath('{}') requires the editor asset manager — a packed "
-                              "runtime has no path index. Pass the AssetHandle instead.",
-                              path);
-                return 0;
-            }
             // Warn once per distinct path: the natural way to write this
             // mistake is a per-tick poll, which would otherwise repeat the same
             // warning every frame and bury the log.
@@ -4328,6 +4318,19 @@ namespace OloEngine
                               "(Further misses on this path are suppressed.)",
                               path, reason);
             };
+
+            // HasAssetManager first — GetAssetManager asserts when unset.
+            Ref<EditorAssetManager> editorManager =
+                Project::HasAssetManager() ? Project::GetAssetManager().As<EditorAssetManager>() : nullptr;
+            if (!editorManager)
+            {
+                // Also de-duplicated, and for a stronger reason than a miss: in
+                // a packed runtime EVERY call lands here, so a per-tick poll
+                // would warn every frame for the life of the process.
+                warnOnce("requires the editor asset manager — a packed runtime has no path index, so pass "
+                         "the AssetHandle instead");
+                return 0;
+            }
 
             AssetHandle handle = editorManager->GetAssetHandleFromFilePath(path);
             // A path resolving to some OTHER asset type must not come back as a
