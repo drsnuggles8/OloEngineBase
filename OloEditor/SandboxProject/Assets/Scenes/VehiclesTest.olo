@@ -568,7 +568,11 @@ Entities:
       Tag: Aircraft mesh
     TransformComponent:
       Translation: [0, -1.1, 0]
-      Rotation: [0, 0, 0]
+      # craft_speederA noses toward -Z (its hull tapers from a 0.20 half-width at
+      # -Z out to 1.00 at +Z, where the engines sit), but AircraftSystem thrusts
+      # along +Z like the boat and Jolt vehicle systems. Without this yaw the
+      # plane flies tail-first. The car/boat meshes already nose +Z.
+      Rotation: [0, 3.1415927, 0]
       Scale: [3.0, 3.0, 3.0]
     ModelComponent:
       FilePath: SandboxProject/Assets/Models/KenneyVehicles/craft_speederA.glb
