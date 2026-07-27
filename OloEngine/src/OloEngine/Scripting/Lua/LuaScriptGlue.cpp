@@ -4312,9 +4312,34 @@ namespace OloEngine
                               path);
                 return 0;
             }
+            // Warn once per distinct path: the natural way to write this
+            // mistake is a per-tick poll, which would otherwise repeat the same
+            // warning every frame and bury the log.
+            static std::mutex s_WarnedMutex;
+            static std::unordered_set<std::string> s_WarnedPaths;
+            auto warnOnce = [&path](const char* reason)
+            {
+                {
+                    std::scoped_lock lock(s_WarnedMutex);
+                    if (!s_WarnedPaths.insert(path).second)
+                        return;
+                }
+                OLO_CORE_WARN("[Lua] Scene.FindPrefabByPath('{}') {} — returning 0. "
+                              "(Further misses on this path are suppressed.)",
+                              path, reason);
+            };
+
             AssetHandle handle = editorManager->GetAssetHandleFromFilePath(path);
+            // A path resolving to some OTHER asset type must not come back as a
+            // prefab handle: Scene.Instantiate would take it and fail a tick
+            // later inside the drain, where the offending path is long gone.
+            if (handle && editorManager->GetAssetType(handle) != AssetType::Prefab)
+            {
+                warnOnce("resolves to a non-Prefab asset");
+                return 0;
+            }
             if (!handle)
-                OLO_CORE_WARN("[Lua] Scene.FindPrefabByPath('{}') found no asset at that path.", path);
+                warnOnce("found no asset at that path");
             return static_cast<u64>(handle);
         };
 

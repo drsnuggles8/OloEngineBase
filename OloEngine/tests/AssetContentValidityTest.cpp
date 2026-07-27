@@ -65,6 +65,44 @@ namespace OloEngine::Tests
     {
         namespace fs = std::filesystem;
 
+        // Resolved absolute paths of every fetch-on-demand asset declared in
+        // scripts/assets/asset-manifest.json.
+        //
+        // These are deliberately NOT committed (too large for git history, or
+        // licence-restricted) and are absent until the user runs
+        // Fetch-Assets.ps1, yet they ARE registered in AssetRegistry.oar so the
+        // editor resolves their handles once fetched. Anything that reasons
+        // about "registry entry with no file on disk" must treat these as
+        // legitimate rather than stale — the validity check tolerates them, and
+        // the rebase helper must not delete them (doing so silently unregisters
+        // the Nanite stress scene's Stanford dragon on any machine that hasn't
+        // fetched it, issue #629).
+        std::set<std::string> CollectFetchOnDemandAssetPaths()
+        {
+            std::set<std::string> fetchOnDemand;
+            const fs::path repoRoot = fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
+            const fs::path manifestPath = repoRoot / "scripts" / "assets" / "asset-manifest.json";
+            if (std::ifstream in(manifestPath); in)
+            {
+                try
+                {
+                    nlohmann::json manifest;
+                    in >> manifest;
+                    for (const auto& asset : manifest.value("assets", nlohmann::json::array()))
+                    {
+                        if (const std::string dest = asset.value("dest", std::string{}); !dest.empty())
+                            fetchOnDemand.insert((repoRoot / dest).lexically_normal().generic_string());
+                    }
+                }
+                catch (const std::exception&)
+                {
+                    // A malformed manifest must not silently disable the check — leave the set
+                    // empty so every registered path is validated as before.
+                }
+            }
+            return fetchOnDemand;
+        }
+
         std::vector<fs::path> EnumerateFilesByExtension(const fs::path& dir, std::string_view extension)
         {
             std::vector<fs::path> out;
@@ -816,29 +854,7 @@ namespace OloEngine::Tests
         // Nanite stress scene uses, issue #629) must be TOLERATED here, not reported missing.
         // Collect their resolved paths from the manifest so those are skipped below; every other
         // registered path is still required to exist.
-        std::set<std::string> fetchOnDemand;
-        {
-            const fs::path repoRoot = fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
-            const fs::path manifestPath = repoRoot / "scripts" / "assets" / "asset-manifest.json";
-            if (std::ifstream in(manifestPath); in)
-            {
-                try
-                {
-                    nlohmann::json manifest;
-                    in >> manifest;
-                    for (const auto& asset : manifest.value("assets", nlohmann::json::array()))
-                    {
-                        if (const std::string dest = asset.value("dest", std::string{}); !dest.empty())
-                            fetchOnDemand.insert((repoRoot / dest).lexically_normal().generic_string());
-                    }
-                }
-                catch (const std::exception&)
-                {
-                    // A malformed manifest must not silently disable the check — leave the set
-                    // empty so every registered path is validated as before.
-                }
-            }
-        }
+        const std::set<std::string> fetchOnDemand = CollectFetchOnDemandAssetPaths();
 
         // Each registry entry's FilePath should point at a real file
         // under the project root. (Engine convention: AssetMetadata
@@ -1633,14 +1649,32 @@ namespace OloEngine::Tests
         ASSERT_TRUE(registry.Deserialize(registryPath));
 
         // Pass 1 — drop stale entries whose file no longer resolves.
+        //
+        // A fetch-on-demand asset is NOT stale just because it is absent: it is
+        // deliberately uncommitted and only materialises after
+        // Fetch-Assets.ps1, while its registry entry (and handle) must survive
+        // so scenes referencing it keep resolving on machines that have fetched
+        // it. Deleting those here silently unregisters e.g. the Nanite stress
+        // scene's Stanford dragon for everyone, on any machine that simply
+        // hasn't run the fetch — which is exactly what happened when this
+        // helper was run during issue #643. Mirrors the tolerance in
+        // SandboxAssetRegistryDeserialisesAndPathsResolve; keep the two in step.
+        const std::set<std::string> fetchOnDemand = CollectFetchOnDemandAssetPaths();
+
         const auto allAssets = registry.GetAllAssets();
         u32 removedCount = 0;
+        u32 keptFetchOnDemand = 0;
         for (const auto& metadata : allAssets)
         {
             const fs::path resolved = projectRoot / metadata.FilePath;
             std::error_code ec;
             if (!fs::exists(resolved, ec))
             {
+                if (fetchOnDemand.contains(resolved.lexically_normal().generic_string()))
+                {
+                    ++keptFetchOnDemand;
+                    continue;
+                }
                 registry.RemoveAsset(metadata.Handle);
                 ++removedCount;
             }
@@ -1712,7 +1746,8 @@ namespace OloEngine::Tests
         ASSERT_TRUE(registry.Serialize(registryPath));
         std::cout << "Rebased AssetRegistry.oar: removed " << removedCount
                   << " stale entries, added " << addedCount << " new on-disk asset(s), recased "
-                  << recasedCount << " path(s); " << registry.GetAssetCount() << " total.\n";
+                  << recasedCount << " path(s), kept " << keptFetchOnDemand
+                  << " unfetched fetch-on-demand asset(s); " << registry.GetAssetCount() << " total.\n";
     }
 
     // -------------------------------------------------------------------------

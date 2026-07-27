@@ -108,7 +108,12 @@ bindings to null-check, which is a separate change.
   drain runs *rounds* (swap the queue, apply the batch, repeat) with a
   re-entrancy flag so a nested `Flush` is a no-op, and a round cap
   (`kMaxEntityCommandDrainRounds`) so a script that unconditionally spawns from
-  `OnCreate` throttles to one round-budget per tick instead of hanging the frame.
+  `OnCreate` cannot hang the frame. The cap is **per `Flush` invocation, not per
+  tick** — `UpdateScripts` flushes twice (before and after the script loops), so
+  a runaway spawner gets up to two round-budgets per tick. Still bounded, still
+  making progress, leftovers deferred to the next flush. The re-entrancy flag is
+  read and written under the same mutex as the queue, so the two cannot disagree
+  about whether a drain is in progress.
 - **Order within a batch is request order.** A spawn-then-destroy of the same
   entity in one tick therefore runs `OnCreate` on a live entity and then
   `OnDestroy` on it — never `OnCreate` on something already gone.

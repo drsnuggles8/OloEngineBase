@@ -114,8 +114,13 @@ namespace OloEngine
         // transform is part of the request rather than something the caller
         // pokes in afterwards.
         //
-        // Thread-safety: the queue is mutex-guarded so a future Parallelizable
-        // Scripts node cannot corrupt it. The APPLY side is always game-thread.
+        // Thread-safety: the REQUEST side (these three calls) is mutex-guarded,
+        // so concurrent callers cannot corrupt the queue. That alone does NOT
+        // make the surface worker-safe: the APPLY side performs EnTT structural
+        // changes and is game-thread-only, and IsEntityLiveForScripts falls
+        // through to an unlocked m_EntityMap read. Marking the Scripts node
+        // .Parallelizable() therefore needs more than this mutex — see the
+        // drain-placement note in Scene::UpdateScripts.
         [[nodiscard("The spawned entity's UUID is the only handle to it")]] UUID
         ScriptCreateEntity(const std::string& name, const glm::vec3& translation);
         [[nodiscard("The spawned entity's UUID is the only handle to it")]] UUID
@@ -1161,9 +1166,10 @@ namespace OloEngine
         // scripts too).
         void FireSpawnScriptLifecycleRecursive(Entity entity);
 
-        // Guards the queue and both pending sets. Uncontended today (scripts
-        // run on the game thread) but present so marking the Scripts node
-        // Parallelizable can never silently corrupt the queue.
+        // Guards the queue, both pending sets, and the drain flag below.
+        // Uncontended today (scripts run on the game thread) but present so
+        // marking the Scripts node Parallelizable can never silently corrupt
+        // the queue.
         mutable std::mutex m_EntityCommandMutex;
         std::vector<PendingEntityCommand> m_PendingEntityCommands;
         std::unordered_set<UUID> m_PendingSpawnIDs;
@@ -1171,12 +1177,15 @@ namespace OloEngine
         // Re-entrancy guard for FlushPendingEntityCommands: a spawned entity's
         // OnCreate can queue more commands, and those must be applied by the
         // outer drain's next round, never by a nested drain running inside the
-        // outer one's batch.
+        // outer one's batch. Read and written under m_EntityCommandMutex, so it
+        // cannot disagree with the queue it guards.
         bool m_DrainingEntityCommands = false;
-        // Bound on drain rounds per flush, so a script that unconditionally
-        // spawns from OnCreate cannot hang the tick. Leftovers stay queued and
-        // are applied by the next flush, which self-throttles the spawn storm
-        // to one round-budget per tick instead of deadlocking the frame.
+        // Bound on drain rounds per FLUSH INVOCATION, so a script that
+        // unconditionally spawns from OnCreate cannot hang the tick. Leftovers
+        // stay queued for the next flush. Note UpdateScripts flushes twice per
+        // tick (before and after the script loops), so a runaway spawner gets
+        // up to two round-budgets per tick — still bounded, still progressing,
+        // never blocking the frame.
         static constexpr u32 kMaxEntityCommandDrainRounds = 8;
 
         std::string m_Name = "Untitled";

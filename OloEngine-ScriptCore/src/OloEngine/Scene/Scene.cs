@@ -75,5 +75,19 @@ namespace OloEngine
 		{
 			return InternalCalls.Prefab_FindByPath(path);
 		}
+
+		/// <summary>
+		/// Destroy an entity by raw id, for code that holds an id rather than an
+		/// <see cref="Entity"/> — the mirror of Lua's <c>Scene.DestroyEntity</c>.
+		/// Prefer <see cref="Entity.Destroy()"/> when you have the entity.
+		///
+		/// <para>Deferred and idempotent, exactly like the other spawn/destroy
+		/// calls: the entity and its children go away once the engine drains its
+		/// command queue this tick.</para>
+		/// </summary>
+		public static void DestroyEntity(ulong entityID)
+		{
+			InternalCalls.Entity_Destroy(entityID);
+		}
 	}
 }

@@ -226,6 +226,25 @@ namespace OloEngine
                                               scale ? *scale : glm::vec3(1.0f));
     }
 
+    // A lookup miss is a script-authoring mistake, and the natural way to write
+    // that mistake is a per-tick poll — which would emit the same warning every
+    // frame forever and bury the log. Warn once per distinct path instead; the
+    // first occurrence is the one that carries information.
+    static void WarnPrefabPathMissOnce(const std::string& path, const char* reason)
+    {
+        static std::mutex s_WarnedMutex;
+        static std::unordered_set<std::string> s_WarnedPaths;
+
+        {
+            std::scoped_lock lock(s_WarnedMutex);
+            if (!s_WarnedPaths.insert(path).second)
+                return;
+        }
+        OLO_CORE_WARN("[ScriptGlue] Prefab.FindByPath('{}') {} — returning 0. "
+                      "(Further misses on this path are suppressed.)",
+                      path, reason);
+    }
+
     // Resolve a project-relative prefab path (e.g. "Prefabs/Projectile.oprefab")
     // to its asset handle. EDITOR-ONLY: the runtime asset manager serves an
     // asset pack keyed by handle and has no path index, so a shipped build
@@ -252,8 +271,19 @@ namespace OloEngine
         }
 
         AssetHandle handle = editorManager->GetAssetHandleFromFilePath(pathStr);
+
+        // A path that resolves to some OTHER asset type must not come back as a
+        // prefab handle: Scene.Instantiate would accept it, fail deep inside the
+        // drain a tick later, and report only "the asset is missing, is not a
+        // Prefab, or has no root entity" — with no clue which path produced it.
+        // Reject here, where the caller's own path string is still in hand.
+        if (handle && editorManager->GetAssetType(handle) != AssetType::Prefab)
+        {
+            WarnPrefabPathMissOnce(pathStr, "resolves to a non-Prefab asset");
+            return 0;
+        }
         if (!handle)
-            OLO_CORE_WARN("[ScriptGlue] Prefab.FindByPath('{}') found no asset at that path.", pathStr);
+            WarnPrefabPathMissOnce(pathStr, "found no asset at that path");
         return handle;
     }
 

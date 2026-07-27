@@ -907,17 +907,17 @@ namespace OloEngine
         // Cheap early-out for the overwhelmingly common empty case, and the
         // re-entrancy guard: a spawned entity's OnCreate may queue more work,
         // which the loop below picks up in its next round rather than nesting.
-        if (m_DrainingEntityCommands)
-            return;
+        // The flag is read/set under the same lock as the queue it guards, so
+        // the two can never disagree about whether a drain is in progress.
         {
             std::scoped_lock lock(m_EntityCommandMutex);
-            if (m_PendingEntityCommands.empty())
+            if (m_DrainingEntityCommands || m_PendingEntityCommands.empty())
                 return;
+            m_DrainingEntityCommands = true;
         }
 
         OLO_PROFILE_FUNCTION();
 
-        m_DrainingEntityCommands = true;
         // Reused across rounds: swapping an already-cleared vector back in
         // keeps the queue's capacity instead of reallocating each round.
         std::vector<PendingEntityCommand> batch;
@@ -939,7 +939,10 @@ namespace OloEngine
                 ApplyPendingEntityCommand(cmd);
             batch.clear();
         }
-        m_DrainingEntityCommands = false;
+        {
+            std::scoped_lock lock(m_EntityCommandMutex);
+            m_DrainingEntityCommands = false;
+        }
 
         if (GetPendingEntityCommandCount() != 0)
         {
@@ -981,6 +984,22 @@ namespace OloEngine
                                   "missing, is not a Prefab, or has no root entity.",
                                   static_cast<u64>(cmd.m_PrefabHandle));
                     return;
+                }
+
+                // InstantiateWithUUID resolves a UUID collision by minting a new
+                // one, so the root can come back under an id the script was
+                // never told about — its stored handle would then resolve to
+                // nothing forever. Astronomically unlikely with random UUIDs,
+                // but silent if it ever happens, so say so and reconcile the
+                // bookkeeping against the id the entity ACTUALLY has.
+                if (const UUID actualID = root.GetUUID(); actualID != cmd.m_EntityID)
+                {
+                    OLO_CORE_WARN("[Scene] Script prefab spawn was assigned UUID {} instead of the requested "
+                                  "{} (collision resolved by regeneration) — the handle already returned to "
+                                  "the script will not resolve.",
+                                  static_cast<u64>(actualID), static_cast<u64>(cmd.m_EntityID));
+                    std::scoped_lock lock(m_EntityCommandMutex);
+                    m_PendingSpawnIDs.erase(actualID);
                 }
 
                 // The prefab's own authored transform is the fallback; the
