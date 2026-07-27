@@ -1776,6 +1776,10 @@ namespace OloEngine
                 normalsDesc.Height = sceneSpec.Height;
                 normalsDesc.DebugName = std::string(ResourceNames::SceneNormals);
                 board.Scene.SceneNormals = graph.AllocateTransientTextureHandle(ResourceNames::SceneNormals, normalsDesc);
+                // Forward fills this from the scene FB's RT2, which the PBR shader
+                // writes in VIEW space — unlike the deferred G-Buffer's world-space
+                // normal. Flag it so AO doesn't transform it a second time.
+                board.Scene.SceneNormalsAreViewSpace = true;
             }
         }
 
@@ -1876,6 +1880,10 @@ namespace OloEngine
                 board.Scene.SceneNormals = graph.CreateTextureMultisampleResolveView(ResourceNames::SceneNormals,
                                                                                      board.GBuffer.GBufferNormalMS,
                                                                                      sceneNormalsResolvedBacking);
+                // Deferred G-Buffer normals are WORLD space — set explicitly rather
+                // than relying on the default, so a forward frame's `true` can never
+                // leak into a deferred frame through a reused blackboard.
+                board.Scene.SceneNormalsAreViewSpace = false;
                 board.GBuffer.GBufferAlbedo = graph.CreateTextureMultisampleResolveView(ResourceNames::GBufferAlbedo,
                                                                                         board.GBuffer.GBufferAlbedoMS,
                                                                                         gbufferAlbedoResolvedBacking);
@@ -1893,6 +1901,7 @@ namespace OloEngine
             {
                 board.Scene.SceneDepth = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepth, resolvedGBuffer);
                 board.Scene.SceneNormals = graph.CreateFramebufferAttachmentView(ResourceNames::SceneNormals, resolvedGBuffer, 1u);
+                board.Scene.SceneNormalsAreViewSpace = false; // world-space G-Buffer normals
                 board.GBuffer.GBufferAlbedo = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferAlbedo, resolvedGBuffer, 0u);
                 board.GBuffer.GBufferNormal = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferNormal, resolvedGBuffer, 1u);
                 board.GBuffer.GBufferEmissive = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferEmissive, resolvedGBuffer, 2u);

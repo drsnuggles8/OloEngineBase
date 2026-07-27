@@ -53,6 +53,7 @@ namespace OloEngine
         RenderGraphNode::Setup(builder, blackboard);
         m_SelectedSceneDepthTexture = {};
         m_SelectedSceneNormalsTexture = {};
+        m_SceneNormalsAreViewSpace = false;
         m_SelectedAOOutputTexture = {};
         m_SelectedEdgeTexture = {};
         m_SelectedHZBDepthTexture = {};
@@ -72,6 +73,12 @@ namespace OloEngine
         if (blackboard.Scene.SceneNormals.IsValid())
         {
             m_SelectedSceneNormalsTexture = blackboard.Scene.SceneNormals;
+            // GTAO.comp converts its input to view space with u_ViewMatrix. The
+            // deferred G-Buffer stores world-space normals, so that conversion is
+            // correct there — but the forward path hands us normals the PBR shader
+            // already put in view space, and transforming those again produced
+            // garbage that read as full occlusion on every surface.
+            m_SceneNormalsAreViewSpace = blackboard.Scene.SceneNormalsAreViewSpace;
             [[maybe_unused]] const auto sceneNormalsRead = builder.Read(blackboard.Scene.SceneNormals, RGReadUsage::ShaderSample);
         }
         if (blackboard.AO.AOBuffer.IsValid())
@@ -370,8 +377,13 @@ namespace OloEngine
         m_GPUData->DenoisePasses = m_Settings.GTAODenoisePasses;
         m_GPUData->DebugView = m_Settings.GTAODebugView ? 1 : 0;
 
-        // View matrix: transforms world-space GBuffer normals to view-space
-        m_GPUData->ViewMatrix = m_ViewMatrix;
+        // Transforms world-space G-Buffer normals to view space. When the source is
+        // ALREADY view space (the forward path's scene-colour RT2, written as
+        // octEncode(mat3(u_View) * N) by PBR_MultiLight.glsl) this must be identity
+        // instead — applying the view matrix a second time rotates every normal out
+        // of the hemisphere the horizon search assumes and drives AO to zero
+        // everywhere, swimming as the camera turns.
+        m_GPUData->ViewMatrix = m_SceneNormalsAreViewSpace ? glm::mat4(1.0f) : m_ViewMatrix;
 
         m_GTAOUBO->SetData(m_GPUData, UBOStructures::GTAOUBO::GetSize());
         m_GTAOUBO->Bind();
@@ -490,6 +502,7 @@ namespace OloEngine
         }
         m_SelectedSceneDepthTexture = {};
         m_SelectedSceneNormalsTexture = {};
+        m_SceneNormalsAreViewSpace = false;
         m_SelectedAOOutputTexture = {};
         m_SelectedEdgeTexture = {};
         m_SelectedHZBDepthTexture = {};

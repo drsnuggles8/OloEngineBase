@@ -150,6 +150,14 @@ namespace OloEngine
         // water / overlay / post passes that follow.
         GLStateGuard guard("PlanarReflectionRenderPass", GLStateGuard::Policy::Restore);
 
+        // The guard is a safety net, not the cleanup: its Restore policy logs every
+        // field the pass failed to put back before rolling it back itself. This pass
+        // reconfigures depth/blend/cull/polygon-mode below for the mirror replay, so
+        // without an explicit restore it leaked DepthMask and DepthFunc every single
+        // frame and the guard traced all of them — per-frame log spam that buries
+        // real leaks. Snapshot here, roll back at the end, and the guard stays quiet.
+        const GLStateSnapshot entryState = GLStateSnapshot::Capture();
+
         // Swap the shared camera to the mirror camera. The mesh path rebinds the
         // shared CameraUBO buffer (uploaded here); terrain/voxel paths re-derive
         // from the CommandDispatch matrices — set both so every draw type in the
@@ -184,6 +192,12 @@ namespace OloEngine
 
         ::glFrontFace(GL_CCW);
         m_ReflectionFB->Unbind();
+
+        // Put back everything the mirror replay reconfigured (depth test/func/mask,
+        // blend, cull, polygon mode) so the guard's exit snapshot matches its entry
+        // one. InvalidateRenderStateCache below re-syncs the cached RendererAPI
+        // state with the GL state this just rolled back.
+        entryState.ApplyCore();
 
         // Restore the real camera for every downstream pass this frame.
         CommandDispatch::SetViewMatrix(realView);
