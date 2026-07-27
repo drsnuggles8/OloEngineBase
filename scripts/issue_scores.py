@@ -40,7 +40,8 @@ for _stream in (sys.stdout, sys.stderr):
 # substantial work while having no remaining actionable content). Issues whose
 # CoD falls below this floor are still listed and still scored, but sort BELOW
 # every normal-value unblocked issue and are flagged `low-value`. See
-# issue-scoring.md §3. Pass --no-low-value-floor to rank on raw score alone.
+# issue-scoring.md §3. Pass --no-low-value-floor to rank without low-value
+# demotion (blocked-handling, the Pull-override and the tie-break still apply).
 LOW_VALUE_COD = 6
 
 # --freeze (rank): during a feature freeze, only issues carrying one of these
@@ -164,6 +165,13 @@ def cmd_rank(args):
     # Sort order, outermost first (§3): Pull-override, then unblocked-before-blocked,
     # then normal-value-before-low-value, then score desc, then the documented
     # Learning/Fun tie-break, then issue number as a stable final key.
+    #
+    # Pull is deliberately OUTSIDE the low-value floor: scoring Fun >= 8 is an explicit
+    # human "I want this", whereas the floor exists to catch work that floated up on
+    # arithmetic alone. A cheap *and* fun task is exactly the case §3 says stays
+    # pickable, so Pull is the documented exception to the floor's guarantee (§3.5) --
+    # not an oversight. `next:` therefore just takes the first unblocked row, so the
+    # recommendation can never disagree with the printed order.
     rows.sort(key=lambda r: (not (r[3].get("fun", 0) >= 8 and not is_blocked(r[3])),
                              is_blocked(r[3]),
                              floor and is_low_value(r[3]),
@@ -183,8 +191,7 @@ def cmd_rank(args):
         if floor and is_low_value(d):
             flags.append(f"low-value:{cod(d)}")
         print(f"{num:>5} {s:>5} {' '.join(flags):<20} {title[:64]}")
-    nxt = next((r for r in rows if not is_blocked(r[3])
-                and not (floor and is_low_value(r[3]))), None)
+    nxt = next((r for r in rows if not is_blocked(r[3])), None)
     if nxt:
         why = " (Pull-override: fun>=8)" if nxt[3].get("fun", 0) >= 8 else ""
         print(f"\nnext: #{nxt[0]} — {nxt[1]}{why}")
@@ -230,7 +237,8 @@ def main():
     rp.add_argument("--freeze", action="store_true",
                      help="feature-freeze lens: only performance/robustness/architecture/bug/tooling-labeled issues")
     rp.add_argument("--no-low-value-floor", action="store_true",
-                     help=f"rank on raw score alone; do not demote issues with CoD < {LOW_VALUE_COD}")
+                     help=f"rank without low-value demotion (issues with CoD < {LOW_VALUE_COD} "
+                          f"keep their score position; Pull and the tie-break are unaffected)")
     rp.set_defaults(func=cmd_rank)
     sub.add_parser("lint").set_defaults(func=cmd_lint)
     ap = sub.add_parser("apply")
