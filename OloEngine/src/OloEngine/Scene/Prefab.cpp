@@ -85,10 +85,24 @@ namespace OloEngine
     // ─────────────────────────────────────────────────────────────────────────
     // NOTE: IDComponent, TagComponent, PrefabComponent, and RelationshipComponent
     // are handled specially and excluded from the generic copy list.
+    //
+    // LuaScriptComponent was missing here until issue #643: a prefab could carry
+    // a C# script but silently dropped a Lua one, so a spawned prefab fired
+    // OnCreate in one language and not the other — breaking the C#/Lua parity the
+    // sandbox demos exist to show. Keep the two script components together.
+    //
+    // ORDER IS LOAD-BEARING for the physics components: colliders must be copied
+    // BEFORE their rigidbody. Scene::OnComponentAdded<Rigidbody3DComponent>
+    // creates the Jolt body on the spot when physics is already running, and it
+    // resolves the body's shape from the colliders present at that moment — so
+    // rigidbody-first would give every runtime-spawned prefab a default shape.
+    // Latent until issue #643: before script-driven spawning, prefabs were only
+    // instantiated in edit mode, where the hook never fires.
 #define FOR_EACH_COPYABLE_COMPONENT(MACRO)                                    \
     MACRO(TransformComponent, "TransformComponent")                           \
     MACRO(CameraComponent, "CameraComponent")                                 \
     MACRO(ScriptComponent, "ScriptComponent")                                 \
+    MACRO(LuaScriptComponent, "LuaScriptComponent")                           \
     MACRO(SpriteRendererComponent, "SpriteRendererComponent")                 \
     MACRO(CircleRendererComponent, "CircleRendererComponent")                 \
     MACRO(MeshComponent, "MeshComponent")                                     \
@@ -97,16 +111,16 @@ namespace OloEngine
     MACRO(SkeletonComponent, "SkeletonComponent")                             \
     MACRO(AnimationStateComponent, "AnimationStateComponent")                 \
     MACRO(MaterialComponent, "MaterialComponent")                             \
-    MACRO(Rigidbody2DComponent, "Rigidbody2DComponent")                       \
     MACRO(BoxCollider2DComponent, "BoxCollider2DComponent")                   \
     MACRO(CircleCollider2DComponent, "CircleCollider2DComponent")             \
-    MACRO(Rigidbody3DComponent, "Rigidbody3DComponent")                       \
+    MACRO(Rigidbody2DComponent, "Rigidbody2DComponent")                       \
     MACRO(BoxCollider3DComponent, "BoxCollider3DComponent")                   \
     MACRO(SphereCollider3DComponent, "SphereCollider3DComponent")             \
     MACRO(CapsuleCollider3DComponent, "CapsuleCollider3DComponent")           \
     MACRO(MeshCollider3DComponent, "MeshCollider3DComponent")                 \
     MACRO(ConvexMeshCollider3DComponent, "ConvexMeshCollider3DComponent")     \
     MACRO(TriangleMeshCollider3DComponent, "TriangleMeshCollider3DComponent") \
+    MACRO(Rigidbody3DComponent, "Rigidbody3DComponent")                       \
     MACRO(CharacterController3DComponent, "CharacterController3DComponent")   \
     MACRO(TextComponent, "TextComponent")                                     \
     MACRO(AudioSourceComponent, "AudioSourceComponent")                       \

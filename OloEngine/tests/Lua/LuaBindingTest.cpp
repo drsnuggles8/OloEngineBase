@@ -2512,3 +2512,164 @@ TEST_F(LuaBindingTest, Damage_HasExpectedFunctions)
     EXPECT_EQ(r.get<std::string>(0), "function");
     EXPECT_EQ(r.get<std::string>(1), "function");
 }
+
+// =============================================================================
+// Runtime spawning bindings (issue #643)
+// =============================================================================
+// The Lua half of the C#/Lua parity surface. These exercise the bindings
+// against a real Scene, but stop at the command QUEUE — the drain runs inside
+// Scene::UpdateScripts, which needs a full tick. The end-to-end behaviour
+// (deferred-then-applied, OnCreate firing, hierarchy destroy, executor parity)
+// is pinned by Functional/Scripting/LuaSpawnsAndDestroysEntitiesTest.cpp.
+
+TEST_F(LuaBindingTest, Scene_HasSpawningFunctions)
+{
+    auto r = lua.script(R"(
+        return type(Scene.CreateEntity),
+               type(Scene.Instantiate),
+               type(Scene.DestroyEntity),
+               type(Scene.FindPrefabByPath)
+    )");
+    EXPECT_EQ(r.get<std::string>(0), "function");
+    EXPECT_EQ(r.get<std::string>(1), "function");
+    EXPECT_EQ(r.get<std::string>(2), "function");
+    EXPECT_EQ(r.get<std::string>(3), "function");
+}
+
+TEST_F(LuaBindingTest, EntityUtils_HasDestroy)
+{
+    auto r = lua.script("return type(entity_utils.destroy)");
+    EXPECT_EQ(r.get<std::string>(), "function");
+}
+
+TEST_F(LuaSceneTest, CreateEntity_QueuesAndReturnsAStableUUID)
+{
+    auto r = lua.script("return Scene.CreateEntity('Spawned', vec3.new(1, 2, 3))");
+    ASSERT_TRUE(r.valid());
+
+    const u64 id = r.get<u64>();
+    EXPECT_NE(id, 0ULL) << "Scene.CreateEntity returned a null handle.";
+    EXPECT_EQ(scene->GetPendingEntityCommandCount(), 1u)
+        << "the spawn was not queued — an inline create would corrupt a live script iteration.";
+
+    // Deferred: nothing in the registry yet, but the handle already reads live
+    // so a script can hold on to it.
+    EXPECT_FALSE(scene->TryGetEntityWithUUID(UUID(id)).has_value());
+    EXPECT_TRUE(scene->IsEntitySpawnPending(UUID(id)));
+    EXPECT_TRUE(scene->IsEntityLiveForScripts(UUID(id)));
+
+    // Applying the queue materialises exactly that UUID, with the transform
+    // that was part of the request.
+    scene->FlushPendingEntityCommands();
+    EXPECT_EQ(scene->GetPendingEntityCommandCount(), 0u);
+
+    auto spawned = scene->TryGetEntityWithUUID(UUID(id));
+    ASSERT_TRUE(spawned.has_value())
+        << "the queued spawn did not produce the UUID that was handed to the script.";
+    EXPECT_EQ(spawned->GetComponent<TagComponent>().Tag, "Spawned");
+    const auto& t = spawned->GetComponent<TransformComponent>().Translation;
+    EXPECT_FLOAT_EQ(t.x, 1.0f);
+    EXPECT_FLOAT_EQ(t.y, 2.0f);
+    EXPECT_FLOAT_EQ(t.z, 3.0f);
+}
+
+TEST_F(LuaSceneTest, CreateEntity_PositionArgumentIsOptional)
+{
+    auto r = lua.script("return Scene.CreateEntity('AtOrigin')");
+    ASSERT_TRUE(r.valid());
+    scene->FlushPendingEntityCommands();
+
+    auto spawned = scene->TryGetEntityWithUUID(UUID(r.get<u64>()));
+    ASSERT_TRUE(spawned.has_value());
+    const auto& t = spawned->GetComponent<TransformComponent>().Translation;
+    EXPECT_FLOAT_EQ(t.x, 0.0f);
+    EXPECT_FLOAT_EQ(t.y, 0.0f);
+    EXPECT_FLOAT_EQ(t.z, 0.0f);
+}
+
+TEST_F(LuaSceneTest, CreateEntity_RejectsNonFiniteSpawnPosition)
+{
+    // A NaN/Inf spawn position would poison physics and culling several systems
+    // later, where the offending script is no longer attributable. It must be
+    // rejected at the request site, not carried into the scene.
+    auto r = lua.script("return Scene.CreateEntity('Broken', vec3.new(0.0/0.0, 1.0/0.0, 0))");
+    ASSERT_TRUE(r.valid());
+    scene->FlushPendingEntityCommands();
+
+    auto spawned = scene->TryGetEntityWithUUID(UUID(r.get<u64>()));
+    ASSERT_TRUE(spawned.has_value()) << "the entity should still spawn, just at a sane position.";
+    const auto& t = spawned->GetComponent<TransformComponent>().Translation;
+    EXPECT_TRUE(std::isfinite(t.x) && std::isfinite(t.y) && std::isfinite(t.z))
+        << "a non-finite spawn position reached the scene.";
+}
+
+TEST_F(LuaSceneTest, DestroyEntity_IsDeferredAndIdempotent)
+{
+    Entity target = scene->CreateEntityWithUUID(UUID(4242), "Target");
+    (void)target;
+    lua["eid"] = static_cast<u64>(4242);
+
+    lua.script("Scene.DestroyEntity(eid)");
+    EXPECT_TRUE(scene->TryGetEntityWithUUID(UUID(4242)).has_value())
+        << "the destroy was applied inline — a script destroying an entity mid-iteration is exactly "
+           "the use-after-free the queue exists to prevent.";
+    EXPECT_TRUE(scene->IsEntityDestroyPending(UUID(4242)));
+    EXPECT_FALSE(scene->IsEntityLiveForScripts(UUID(4242)))
+        << "the script should see its own destroy request reflected immediately.";
+
+    // A second request must not queue a second command.
+    lua.script("Scene.DestroyEntity(eid)");
+    EXPECT_EQ(scene->GetPendingEntityCommandCount(), 1u)
+        << "a repeated destroy queued a duplicate command.";
+
+    scene->FlushPendingEntityCommands();
+    EXPECT_FALSE(scene->TryGetEntityWithUUID(UUID(4242)).has_value());
+    EXPECT_FALSE(scene->IsEntityDestroyPending(UUID(4242)));
+
+    // And once more after the fact — a destroy of an already-gone entity is a
+    // no-op, not a crash.
+    lua.script("Scene.DestroyEntity(eid)");
+    scene->FlushPendingEntityCommands();
+    EXPECT_EQ(scene->GetPendingEntityCommandCount(), 0u);
+}
+
+TEST_F(LuaSceneTest, EntityUtils_DestroyMirrorsSceneDestroyEntity)
+{
+    Entity target = scene->CreateEntityWithUUID(UUID(4343), "Mirror");
+    (void)target;
+    lua["eid"] = static_cast<u64>(4343);
+
+    lua.script("entity_utils.destroy(eid)");
+    EXPECT_TRUE(scene->IsEntityDestroyPending(UUID(4343)))
+        << "entity_utils.destroy did not route through the same deferred queue as "
+           "Scene.DestroyEntity — the two script-facing spellings must not diverge.";
+
+    scene->FlushPendingEntityCommands();
+    EXPECT_FALSE(scene->TryGetEntityWithUUID(UUID(4343)).has_value());
+}
+
+TEST_F(LuaSceneTest, EntityUtils_IsValidAcceptsARawEntityID)
+{
+    Entity target = scene->CreateEntityWithUUID(UUID(4444), "Live");
+    (void)target;
+    lua["eid"] = static_cast<u64>(4444);
+
+    auto alive = lua.script("return entity_utils.is_valid(eid)");
+    ASSERT_TRUE(alive.valid());
+    EXPECT_TRUE(alive.get<bool>());
+
+    auto missing = lua.script("return entity_utils.is_valid(999999)");
+    ASSERT_TRUE(missing.valid());
+    EXPECT_FALSE(missing.get<bool>());
+}
+
+TEST_F(LuaSceneTest, Instantiate_WithAnInvalidPrefabHandleQueuesNothing)
+{
+    // A null handle can't produce an entity, so there is nothing to hand back
+    // and nothing to queue — the script gets 0 rather than a handle that will
+    // never resolve.
+    auto r = lua.script("return Scene.Instantiate(0, vec3.new(0, 0, 0))");
+    ASSERT_TRUE(r.valid());
+    EXPECT_EQ(r.get<u64>(), 0ULL);
+    EXPECT_EQ(scene->GetPendingEntityCommandCount(), 0u);
+}

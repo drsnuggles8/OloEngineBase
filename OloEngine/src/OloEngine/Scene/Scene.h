@@ -17,7 +17,9 @@
 #include "OloEngine/Navigation/CrowdManager.h"
 
 #include <limits>
+#include <mutex>
 #include <optional>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -77,9 +79,74 @@ namespace OloEngine
         [[nodiscard("Store this!")]] Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
         void DestroyEntity(Entity entity);
 
+        // Destroy `entity` together with its whole descendant subtree (children
+        // first, root last) and unlink it from its parent's child list. Plain
+        // DestroyEntity leaves children behind as orphans — correct for the
+        // editor's delete-one-node semantics, wrong for gameplay, where a
+        // destroyed prefab instance must take its hierarchy with it. This is
+        // what the deferred script destroy applies (issue #643).
+        void DestroyEntityAndChildren(Entity entity);
+
         // Prefab instantiation
         [[nodiscard("Store this!")]] Entity Instantiate(AssetHandle prefabHandle);
         [[nodiscard("Store this!")]] Entity InstantiateWithUUID(AssetHandle prefabHandle, UUID uuid);
+
+        // ── Script-driven runtime spawning (issue #643) ──────────────────────
+        // The three structural operations gameplay scripts (C# + Lua) may ask
+        // for. All three are DEFERRED: the request is appended to a command
+        // queue and applied by FlushPendingEntityCommands at a drain point that
+        // is guaranteed to sit outside every EnTT view/group iteration.
+        //
+        // Why deferral is mandatory, not defensive: Scene::UpdateScripts walks
+        // `m_Registry.view<ScriptComponent>()` and `view<LuaScriptComponent>()`
+        // while dispatching OnUpdate. A prefab whose root carries a
+        // ScriptComponent pushes into the very pool being iterated, and a
+        // destroy swap-and-pops out of it — both invalidate the live iterator.
+        // The same hazard exists for a script callback invoked from any other
+        // system's iteration (dialogue actions, UI button handlers, gameplay
+        // event subscribers), which is why the rule is "always defer" rather
+        // than "defer only inside UpdateScripts": one uniform contract cannot
+        // be broken by adding a new script-invoking call site.
+        //
+        // Spawn calls pre-allocate and return the new entity's UUID
+        // immediately, so a script can store the handle in the same call; the
+        // entity itself materialises at the next drain. That is why the spawn
+        // transform is part of the request rather than something the caller
+        // pokes in afterwards.
+        //
+        // Thread-safety: the queue is mutex-guarded so a future Parallelizable
+        // Scripts node cannot corrupt it. The APPLY side is always game-thread.
+        [[nodiscard("The spawned entity's UUID is the only handle to it")]] UUID
+        ScriptCreateEntity(const std::string& name, const glm::vec3& translation);
+        [[nodiscard("The spawned entity's UUID is the only handle to it")]] UUID
+        ScriptInstantiatePrefab(AssetHandle prefabHandle, const glm::vec3& translation,
+                                const glm::vec3& rotationEuler, const glm::vec3& scale);
+        void ScriptDestroyEntity(UUID entityID);
+
+        // Apply every queued command, in request order. Safe to call with an
+        // empty queue (the common case — one cheap flag read). Re-entrant calls
+        // are ignored: a spawned entity's OnCreate may queue further commands,
+        // which the drain picks up in a following round rather than nesting.
+        void FlushPendingEntityCommands();
+
+        // Discard every queued command without applying it. Called at runtime
+        // stop so commands from the last tick of a session cannot leak into the
+        // next one.
+        void ClearPendingEntityCommands();
+
+        [[nodiscard("Store this!")]] sizet GetPendingEntityCommandCount() const;
+
+        // A UUID handed out by ScriptCreateEntity / ScriptInstantiatePrefab
+        // whose entity has not been materialised yet.
+        [[nodiscard("Store this!")]] bool IsEntitySpawnPending(UUID entityID) const;
+        // A live entity that a script has already asked to destroy.
+        [[nodiscard("Store this!")]] bool IsEntityDestroyPending(UUID entityID) const;
+        // The script-facing liveness answer: true while the handle refers to an
+        // entity that exists or is about to, false once it has been destroyed
+        // or asked to be. This is what Entity.IsValid reports so a script sees
+        // its own spawn/destroy requests reflected immediately rather than one
+        // drain later.
+        [[nodiscard("Store this!")]] bool IsEntityLiveForScripts(UUID entityID) const;
 
         // Prefab override management
         void UpdateAllPrefabInstances();
@@ -1058,6 +1125,59 @@ namespace OloEngine
         // Uses multimap to handle duplicate entity names correctly.
         // Maintained by CreateEntityWithUUID, DestroyEntity, and UpdateEntityName.
         std::unordered_multimap<std::string, entt::entity> m_EntityNameMap;
+
+        // ── Deferred script spawn/destroy queue (issue #643) ─────────────────
+        // See the ScriptCreateEntity / FlushPendingEntityCommands block in the
+        // public section for the contract.
+        struct PendingEntityCommand
+        {
+            enum class Kind : u8
+            {
+                CreateEntity,
+                InstantiatePrefab,
+                DestroyEntity
+            };
+
+            Kind m_Kind = Kind::CreateEntity;
+            // Spawns: the UUID handed back to the script at request time.
+            // Destroys: the target.
+            UUID m_EntityID{ 0 };
+            AssetHandle m_PrefabHandle{ 0 };
+            std::string m_Name;
+            glm::vec3 m_Translation{ 0.0f };
+            glm::vec3 m_RotationEuler{ 0.0f };
+            glm::vec3 m_Scale{ 1.0f };
+        };
+
+        // Apply one queued command. Game-thread only, and only ever called from
+        // inside FlushPendingEntityCommands' drain loop.
+        void ApplyPendingEntityCommand(const PendingEntityCommand& cmd);
+        // Fire C# OnCreate / Lua OnCreate for a freshly spawned entity. The
+        // OnRuntimeStart sweep only covers entities that existed when the
+        // session started, so without this a script-spawned scripted entity
+        // would receive OnUpdate having never received OnCreate.
+        void FireSpawnScriptLifecycle(Entity entity);
+        // Same, for a spawned prefab's whole subtree (children can carry
+        // scripts too).
+        void FireSpawnScriptLifecycleRecursive(Entity entity);
+
+        // Guards the queue and both pending sets. Uncontended today (scripts
+        // run on the game thread) but present so marking the Scripts node
+        // Parallelizable can never silently corrupt the queue.
+        mutable std::mutex m_EntityCommandMutex;
+        std::vector<PendingEntityCommand> m_PendingEntityCommands;
+        std::unordered_set<UUID> m_PendingSpawnIDs;
+        std::unordered_set<UUID> m_PendingDestroyIDs;
+        // Re-entrancy guard for FlushPendingEntityCommands: a spawned entity's
+        // OnCreate can queue more commands, and those must be applied by the
+        // outer drain's next round, never by a nested drain running inside the
+        // outer one's batch.
+        bool m_DrainingEntityCommands = false;
+        // Bound on drain rounds per flush, so a script that unconditionally
+        // spawns from OnCreate cannot hang the tick. Leftovers stay queued and
+        // are applied by the next flush, which self-throttles the spawn storm
+        // to one round-budget per tick instead of deadlocking the frame.
+        static constexpr u32 kMaxEntityCommandDrainRounds = 8;
 
         std::string m_Name = "Untitled";
 

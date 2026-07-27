@@ -16,6 +16,7 @@
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
 #include "OloEngine/Video/VideoSystem.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
@@ -135,19 +136,31 @@ namespace OloEngine
     {
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
-        Entity entity = scene->GetEntityByUUID(entityID);
-        OLO_CORE_ASSERT(entity);
+
+        // Resolve tolerantly rather than through GetEntityByUUID, which asserts
+        // (and in Release reads through a FindChecked) on an unknown UUID. A
+        // script legitimately holds handles that no longer resolve — one
+        // another script destroyed, or one from a spawn this tick that has not
+        // been drained yet (issue #643). "Does this entity have component T?"
+        // has a correct answer for those: no.
+        auto entityOpt = scene->TryGetEntityWithUUID(entityID);
+        if (!entityOpt)
+            return false;
 
         MonoType* managedType = ::mono_reflection_type_get_type(componentType);
         OLO_CORE_ASSERT(s_EntityHasComponentFuncs.contains(managedType));
-        return s_EntityHasComponentFuncs.at(managedType)(entity);
+        return s_EntityHasComponentFuncs.at(managedType)(*entityOpt);
     }
 
     static bool Entity_IsValid(UUID entityID)
     {
         const Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
-        return scene->TryGetEntityWithUUID(entityID).has_value();
+        // The script-facing (logical) answer, not the raw registry one: a
+        // handle from a same-tick Instantiate is already valid even though the
+        // entity materialises at the next drain, and a handle a script has
+        // already asked to destroy is already invalid (issue #643).
+        return scene->IsEntityLiveForScripts(entityID);
     }
 
     static u64 Entity_FindEntityByName(MonoString* name)
@@ -169,6 +182,91 @@ namespace OloEngine
         }
 
         return entity.GetUUID();
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Runtime spawning (issue #643) //////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    //
+    // All three are DEFERRED — see the ScriptCreateEntity block in Scene.h. The
+    // spawn calls return the new entity's UUID synchronously (pre-allocated),
+    // but the entity itself materialises at the next drain inside the Scripts
+    // scheduler node. That is why the spawn transform is an argument rather
+    // than something the caller pokes in afterwards: there is no entity to poke
+    // until the drain, so a `Instantiate(...)` followed by `e.Translation = x`
+    // would silently write to nothing.
+
+    static u64 Scene_CreateEntity(MonoString* name, glm::vec3 const* translation)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        if (!scene)
+        {
+            OLO_CORE_WARN("[ScriptGlue] Scene_CreateEntity called with no active scene context.");
+            return 0;
+        }
+
+        std::string nameStr = name ? Utils::MonoStringToString(name) : std::string{};
+        const glm::vec3 pos = translation ? *translation : glm::vec3(0.0f);
+        return scene->ScriptCreateEntity(nameStr, pos);
+    }
+
+    static u64 Scene_InstantiatePrefab(u64 prefabHandle, glm::vec3 const* translation,
+                                       glm::vec3 const* rotation, glm::vec3 const* scale)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        if (!scene)
+        {
+            OLO_CORE_WARN("[ScriptGlue] Scene_InstantiatePrefab called with no active scene context.");
+            return 0;
+        }
+
+        return scene->ScriptInstantiatePrefab(AssetHandle(prefabHandle),
+                                              translation ? *translation : glm::vec3(0.0f),
+                                              rotation ? *rotation : glm::vec3(0.0f),
+                                              scale ? *scale : glm::vec3(1.0f));
+    }
+
+    // Resolve a project-relative prefab path (e.g. "Prefabs/Projectile.oprefab")
+    // to its asset handle. EDITOR-ONLY: the runtime asset manager serves an
+    // asset pack keyed by handle and has no path index, so a shipped build
+    // returns 0 here. Scripts that must work in both should carry the handle
+    // (an authored `ulong` script field, or PrefabComponent.PrefabID) instead.
+    static u64 Prefab_FindByPath(MonoString* path)
+    {
+        if (!path)
+            return 0;
+
+        std::string pathStr = Utils::MonoStringToString(path);
+        // HasAssetManager first — GetAssetManager asserts when unset. Owning
+        // Ref, not a raw pointer: Project::s_AssetManager owns the manager, and
+        // As<>() is a dynamic_cast, so a runtime manager yields null here
+        // rather than a bad cast.
+        Ref<EditorAssetManager> editorManager =
+            Project::HasAssetManager() ? Project::GetAssetManager().As<EditorAssetManager>() : nullptr;
+        if (!editorManager)
+        {
+            OLO_CORE_WARN("[ScriptGlue] Prefab.FindByPath('{}') requires the editor asset manager — a packed "
+                          "runtime has no path index. Pass the AssetHandle instead.",
+                          pathStr);
+            return 0;
+        }
+
+        AssetHandle handle = editorManager->GetAssetHandleFromFilePath(pathStr);
+        if (!handle)
+            OLO_CORE_WARN("[ScriptGlue] Prefab.FindByPath('{}') found no asset at that path.", pathStr);
+        return handle;
+    }
+
+    static void Entity_Destroy(u64 entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        if (!scene)
+        {
+            OLO_CORE_WARN("[ScriptGlue] Entity_Destroy called with no active scene context.");
+            return;
+        }
+
+        scene->ScriptDestroyEntity(UUID(entityID));
     }
 
     // Auto-generated property bindings from OLO_PROPERTY() annotations
@@ -3463,6 +3561,12 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Entity_HasComponent);
         OLO_ADD_INTERNAL_CALL(Entity_IsValid);
         OLO_ADD_INTERNAL_CALL(Entity_FindEntityByName);
+
+        // Runtime spawning (issue #643)
+        OLO_ADD_INTERNAL_CALL(Scene_CreateEntity);
+        OLO_ADD_INTERNAL_CALL(Scene_InstantiatePrefab);
+        OLO_ADD_INTERNAL_CALL(Prefab_FindByPath);
+        OLO_ADD_INTERNAL_CALL(Entity_Destroy);
 
         // Auto-generated property binding registrations from OLO_PROPERTY() annotations
 #include "Generated/ScriptGlueRegistrations.inl"

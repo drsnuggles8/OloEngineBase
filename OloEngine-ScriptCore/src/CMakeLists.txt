@@ -19,6 +19,7 @@
 		"OloEngine/Scene/Components.cs"
 		"OloEngine/Scene/Components.Generated.cs"
 		"OloEngine/Scene/Entity.cs"
+		"OloEngine/Scene/Scene.cs"
 )
 
 add_library(OloEngine-ScriptCore SHARED
