@@ -25,6 +25,24 @@ ALL_AXES = VALUE_AXES + ("effort", "confidence", "learning", "fun")
 KANO = ("table-stakes", "performance", "delighter")
 DOC_URL = f"https://github.com/{REPO}/blob/master/docs/process/issue-scoring.md"
 
+# Issue titles/bodies routinely carry non-cp1252 characters (em dashes, arrows).
+# On a Windows console the default encoding is cp1252, so printing one raises
+# UnicodeEncodeError *mid-report* — `lint` used to die partway through its list,
+# silently under-reporting the unscored backlog. Force UTF-8 on our own streams.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
+# A ratio model rewards cheap work, which is correct — but it cannot distinguish
+# "cheap and worth doing" from "cheap and not worth a slot": a near-valueless
+# issue with a small effort denominator floats into the top of the list (the
+# real case that motivated this: #411, CoD 5 / effort 2 = 1.25, out-ranking
+# substantial work while having no remaining actionable content). Issues whose
+# CoD falls below this floor are still listed and still scored, but sort BELOW
+# every normal-value unblocked issue and are flagged `low-value`. See
+# issue-scoring.md §3. Pass --no-low-value-floor to rank on raw score alone.
+LOW_VALUE_COD = 6
+
 # --freeze (rank): during a feature freeze, only issues carrying one of these
 # labels are eligible — perf/robustness/architecture/bug work, plus "tooling"
 # (the standing MCP-server / dev-tooling / codegen exception). A pure "feature"
@@ -109,16 +127,24 @@ def splice(body, section):
 
 
 # ---- scoring ----------------------------------------------------------------
+def cod(d):
+    """Cost of Delay — the value-axis numerator."""
+    return sum(d.get(a, 0) for a in VALUE_AXES)
+
+
 def score(d):
     eff = d.get("effort", 0) or 0
     if not eff:
         return 0.0
-    cod = sum(d.get(a, 0) for a in VALUE_AXES)
-    return round(d.get("confidence", 1.0) * cod / eff, 2)
+    return round(d.get("confidence", 1.0) * cod(d) / eff, 2)
 
 
 def is_blocked(d):
     return bool(d.get("blocked_by"))
+
+
+def is_low_value(d):
+    return cod(d) < LOW_VALUE_COD
 
 
 # ---- commands ---------------------------------------------------------------
@@ -133,20 +159,32 @@ def cmd_rank(args):
             excluded += 1
             continue
         rows.append((it["number"], it["title"], score(d), d))
+    floor = not args.no_low_value_floor
+
+    # Sort order, outermost first (§3): Pull-override, then unblocked-before-blocked,
+    # then normal-value-before-low-value, then score desc, then the documented
+    # Learning/Fun tie-break, then issue number as a stable final key.
     rows.sort(key=lambda r: (not (r[3].get("fun", 0) >= 8 and not is_blocked(r[3])),
-                             is_blocked(r[3]), -r[2], r[0]))
+                             is_blocked(r[3]),
+                             floor and is_low_value(r[3]),
+                             -r[2],
+                             -r[3].get("learning", 0), -r[3].get("fun", 0),
+                             r[0]))
     if args.freeze:
         print(f"[--freeze active: only {'/'.join(sorted(FREEZE_LABELS))} labels eligible; "
               f"{excluded} feature-only issue(s) excluded]\n")
-    print(f"{'#':>5} {'score':>5} {'flags':<14} title")
+    print(f"{'#':>5} {'score':>5} {'flags':<20} title")
     for num, title, s, d in rows:
         flags = []
         if d.get("fun", 0) >= 8 and not is_blocked(d):
             flags.append("PULL")
         if is_blocked(d):
             flags.append("blocked:" + ",".join(map(str, d["blocked_by"])))
-        print(f"{num:>5} {s:>5} {' '.join(flags):<14} {title[:64]}")
-    nxt = next((r for r in rows if not is_blocked(r[3])), None)
+        if floor and is_low_value(d):
+            flags.append(f"low-value:{cod(d)}")
+        print(f"{num:>5} {s:>5} {' '.join(flags):<20} {title[:64]}")
+    nxt = next((r for r in rows if not is_blocked(r[3])
+                and not (floor and is_low_value(r[3]))), None)
     if nxt:
         why = " (Pull-override: fun>=8)" if nxt[3].get("fun", 0) >= 8 else ""
         print(f"\nnext: #{nxt[0]} — {nxt[1]}{why}")
@@ -191,6 +229,8 @@ def main():
     rp = sub.add_parser("rank")
     rp.add_argument("--freeze", action="store_true",
                      help="feature-freeze lens: only performance/robustness/architecture/bug/tooling-labeled issues")
+    rp.add_argument("--no-low-value-floor", action="store_true",
+                     help=f"rank on raw score alone; do not demote issues with CoD < {LOW_VALUE_COD}")
     rp.set_defaults(func=cmd_rank)
     sub.add_parser("lint").set_defaults(func=cmd_lint)
     ap = sub.add_parser("apply")
