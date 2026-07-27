@@ -148,6 +148,43 @@ Score = Confidence × CoD / Effort          # computed only over UNBLOCKED issue
    regardless of `Score` — but the override is *logged* (a note in the pick).
    Motivation is a first-class, deliberate input, not a guilty deviation from
    "the correct task."
+5. **Low-value floor:** an issue whose `CoD < 6` sorts **below every
+   normal-value unblocked issue** and is flagged `low-value:<CoD>` — **except
+   when rule 4 applies.** The Pull-override outranks the floor: `Fun ≥ 8` is an
+   explicit "I want this", while the floor exists to catch work that floated up
+   on arithmetic alone, and a cheap *and* fun task is precisely the case the
+   floor is not meant to bury. So the exact guarantee is: *a low-value issue
+   never outranks normal-value unblocked work **unless it carries the
+   Pull-override**, in which case it is flagged `PULL low-value:<CoD>` and the
+   deviation is visible on the row.*
+
+The printed order is authoritative, and `next:` is simply the first unblocked
+row — so the recommendation can never disagree with what is printed at the top.
+
+### Why the floor exists
+
+A ratio model rewards cheap work, and that is usually right — a cheap enabler
+*should* out-rank an expensive feature. But `value / effort` cannot tell
+"cheap and worth doing" from "cheap and not worth a slot": shrink the
+denominator far enough and a near-valueless issue floats to the top on
+arithmetic alone.
+
+The motivating case was **#411** (`capability 1, craft 1, stability 2, decay 1`
+→ CoD 5, effort 2 → **1.25**), which ranked 5th of 13 while having no remaining
+actionable content at all. Nothing was mis-scored — every axis was honest. The
+formula was simply being asked a question it can't answer: *is this worth doing
+at all?* CoD answers that; the ratio doesn't.
+
+The floor **demotes, never hides** — a low-value issue still appears with its
+real score and a `low-value:<CoD>` flag, because a cheap chore you actually want
+on a Friday afternoon is a legitimate pick; it just shouldn't displace real work
+in the default lens — and, per rule 4 above, an explicit `Fun ≥ 8` still lets it
+through. `rank --no-low-value-floor` drops the demotion step only; blocked-handling,
+the Pull-override and the Learning/Fun tie-break all still apply.
+
+> Per §6.3, prefer fixing the inputs first: if an issue looks low-value but
+> isn't, the axes are wrong — raise them. Reach for the floor only when the
+> axes are honest and the *ranking* is still wrong.
 
 Because the raw axes are stored, the formula is just the default. Re-sorting by
 `Stability` desc (cleanup day), `Learning` desc (study day), or `Craft / Effort`
@@ -204,7 +241,9 @@ trade for a single self-contained source of truth.
 Tooling lives in [`scripts/issue_scores.py`](../../scripts/issue_scores.py):
 
 - `rank` — pull every open issue, parse its block, print the ranked list (with
-  the Pull-override applied). This is what `/start-work` calls.
+  the Pull-override and the §3 low-value floor applied). This is what
+  `/start-work` calls. `--no-low-value-floor` ranks without low-value demotion
+  (blocked-handling, the Pull-override and the tie-break are unaffected).
 - `lint` — list open issues with **no** `olo-score` block (the "needs-score"
   nudge).
 - `apply` — one-time / migration helper: write blocks into issue bodies from a
