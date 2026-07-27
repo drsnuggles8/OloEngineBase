@@ -207,7 +207,15 @@ if(OLO_WITH_MATERIALX)
 	# safe). /IGNORE:4006 silences the resulting "symbol already defined" warnings. PUBLIC so it
 	# reaches every consuming exe (editor/tests/runtime/server).
 	if(MSVC)
-		target_link_options(OloEngine PUBLIC "/FORCE:MULTIPLE" "/IGNORE:4006")
+		# /IGNORE:4217 silences the LNK4217 flood from the static-monolithic OpenUSD
+		# build: usd_m.lib's headers declare its symbols __declspec(dllimport) (the
+		# upstream default targets a shared build), so every one of the hundreds of
+		# pxr symbols UsdMeshImporter references is reported as "locally defined
+		# symbol imported". It is a linkage-style mismatch, not a correctness one —
+		# the symbols resolve to the static definitions and MeshInterchangeTest's USD
+		# cases verify importing works at runtime. Nothing actionable, hundreds of
+		# lines per link, so it buries real warnings.
+		target_link_options(OloEngine PUBLIC "/FORCE:MULTIPLE" "/IGNORE:4006" "/IGNORE:4217")
 	endif()
 endif()
 if(OLO_WITH_USD)

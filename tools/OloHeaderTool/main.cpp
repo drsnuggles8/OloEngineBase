@@ -625,6 +625,13 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
         if (auto ext = entry.path().extension().string(); ext != ".h" && ext != ".hpp")
             continue;
 
+        // Skip the header that DEFINES the marker macros. It mentions
+        // OLO_PROPERTY in its #define and in its doc comments, none of which sit
+        // inside a component struct, so scanning it only ever produces a bogus
+        // "OLO_PROPERTY found outside struct" warning.
+        if (entry.path().filename() == "ComponentReflection.h")
+            continue;
+
         std::ifstream file(entry.path());
         if (!file.is_open())
             continue;
