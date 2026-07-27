@@ -113,7 +113,13 @@ Entities:
     DirectionalLightComponent:
       Direction: [-0.4, -0.82, -0.4]
       Color: [1, 0.96, 0.9]
-      Intensity: 15
+      # 4.0, not 15. A Lambertian surface returns (albedo/PI) * I * NdotL, so the
+      # quay deck (albedo 0.55, NdotL ~0.84 against this direction) rendered at
+      # (0.55/PI) * 15 * 0.84 = 2.2 in linear HDR -- measured 2.29 -- i.e. clipped
+      # to pure white well before tonemapping. The sea hid it by being mostly
+      # specular. A white deck swallowed the white-ish car bodies, so at distance
+      # only their dark undersides read and the silhouettes became unidentifiable.
+      Intensity: 4
       CastShadows: true
       ShadowBias: 0.005
       ShadowNormalBias: 0.01
