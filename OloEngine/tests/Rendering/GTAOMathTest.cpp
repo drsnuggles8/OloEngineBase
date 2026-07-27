@@ -300,6 +300,59 @@ namespace
     }
 } // namespace
 
+// An UNOCCLUDED surface must integrate to full visibility at every tilt.
+//
+// GTAO.comp seeds each slice's two horizon cosines, then recovers the horizon
+// angles with acos() and evaluates the arc integral. acos() returns a magnitude,
+// so it cannot distinguish (n - HALF_PI) from (HALF_PI - n): seeding the pair
+// with cos(n +/- HALF_PI) therefore made BOTH horizons converge to the same
+// angle as |n| grew, and the arc integral -- which measures the span between
+// them -- fell to zero. A surface with no occluders at all reported FULL
+// occlusion, with the error scaling continuously from none at n == 0 to total
+// at n == HALF_PI. That is invisible looking dead-on at a surface and worst on
+// a large flat expanse seen edge-on, which is why it survived every existing
+// GPU evidence test (all shot at modest tilt on a small floor).
+//
+// Seeding both horizons at -1 ("no occluder on either side") reconstructs
+// symmetrically for every n, since acos(-1) = PI on both sides.
+TEST(GTAOMath, UnoccludedSurfaceIntegratesToFullVisibilityAtEveryTilt)
+{
+    // Mirrors the shader's arc integral for one slice, given the two seeded
+    // horizon cosines and the tilt n.
+    const auto sliceVisibility = [](float n, float horizonCos0, float horizonCos1)
+    {
+        const float h0 = n + std::max(-std::acos(horizonCos0) - n, -kPi * 0.5f);
+        const float h1 = n + std::min(std::acos(horizonCos1) - n, kPi * 0.5f);
+        const float iarc0 = -std::cos(2.0f * h0 - n) + std::cos(n) + 2.0f * h0 * std::sin(n);
+        const float iarc1 = -std::cos(2.0f * h1 - n) + std::cos(n) + 2.0f * h1 * std::sin(n);
+        return 0.25f * (iarc0 + iarc1); // projectedNormalLen == 1 for this check
+    };
+
+    // Sweep tilt from dead-on to fully grazing.
+    for (int i = 0; i <= 10; ++i)
+    {
+        const float n = (kPi * 0.5f) * (static_cast<float>(i) / 10.0f);
+
+        // The fix: both horizons seeded at -1. The raw arc integral is not
+        // normalised to exactly 1 -- it grows past 1 with tilt, and the shader
+        // scales it by projectedNormalLen (which shrinks with tilt) and clamps
+        // to [0,1]. The property that matters, and the one the defect broke, is
+        // that an unoccluded slice never integrates to LESS than full visibility.
+        const float fixed = sliceVisibility(n, -1.0f, -1.0f);
+        EXPECT_GE(fixed, 1.0f - 1e-4f)
+            << "An unoccluded slice must never integrate to less than full visibility, but at n = "
+            << n << " rad it gave " << fixed << ". The horizon seeding regressed.";
+
+        // The old seeding, kept as an executable record of the defect: correct
+        // dead-on, collapsing to zero as the surface tilts away.
+        const float old = sliceVisibility(n, std::cos(n + kPi * 0.5f), std::cos(n - kPi * 0.5f));
+        if (i == 0)
+            EXPECT_NEAR(old, 1.0f, 1e-4f) << "the old seeding was correct only at n == 0";
+        if (i == 10)
+            EXPECT_NEAR(old, 0.0f, 1e-4f) << "the old seeding collapsed to zero when fully grazing";
+    }
+}
+
 TEST(GTAOMath, FarPlaneClassificationToleratesFilteredDepthUlps)
 {
     // Exact far-plane clear value.
@@ -316,6 +369,26 @@ TEST(GTAOMath, FarPlaneClassificationToleratesFilteredDepthUlps)
     // Real geometry meaningfully in front of the far plane must NOT be sky.
     EXPECT_FALSE(ClassifiesAsSky(0.9999f));
     EXPECT_FALSE(ClassifiesAsSky(0.5f));
+}
+
+// Source guard for the seeding above: the maths test proves WHY -1 is required,
+// this proves GTAO.comp still does it. Without this the pair could silently
+// regress -- the arc-integral test mirrors the formula, it does not read the
+// shader.
+TEST(GTAOMath, GtaoShaderSeedsHorizonsFullyBehindSurface)
+{
+    const std::string src = ReadRepoFile(std::filesystem::path{ "assets" } / "shaders" / "compute" / "GTAO.comp");
+    ASSERT_FALSE(src.empty());
+    EXPECT_NE(src.find("float horizonCos0 = -1.0;"), std::string::npos)
+        << "GTAO.comp no longer seeds horizonCos0 at -1";
+    EXPECT_NE(src.find("float horizonCos1 = -1.0;"), std::string::npos)
+        << "GTAO.comp no longer seeds horizonCos1 at -1";
+    // The exact regression this guards: acos() drops the sign of (n -/+ HALF_PI),
+    // so seeding from it collapses both horizons together as the surface tilts
+    // and an unoccluded grazing surface reports full occlusion.
+    EXPECT_EQ(src.find("horizonCos0 = cos(n + XE_GTAO_HALF_PI)"), std::string::npos)
+        << "GTAO.comp seeds its horizons from cos(n +/- HALF_PI) again — a flat surface viewed "
+           "edge-on will integrate to zero visibility and the frame will go black";
 }
 
 TEST(GTAOMath, GtaoShaderSkyEarlyOutIsUlpTolerant)
