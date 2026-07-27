@@ -31,7 +31,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	atomic_queue
 	GIT_REPOSITORY	https://github.com/max0x7ba/atomic_queue.git
-	GIT_TAG			094d87a56a2b20a856a5687844e2d253eb35a64d  # master @ 2026-06-05
+	GIT_TAG			97ddb62f989a6532830d78be8ac1573efca97dd8  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
@@ -43,7 +43,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	entt
 	GIT_REPOSITORY	https://github.com/skypjack/entt.git
-	GIT_TAG			1333fa53129e7cfded5a9640c4336a254049917b  # main @ 2026-06-05
+	GIT_TAG			85c6bba014049b5de8fad49d25424df2f1f6a8c1  # main @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
@@ -75,7 +75,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	googletest
 	GIT_REPOSITORY https://github.com/google/googletest.git
-	GIT_TAG fa005b296f90faec4f352d7ab382287bf6548c8d  # main @ 2026-06-05
+	GIT_TAG b78aa5ee64be299ae50932e7b4d7e5d7b89a72f6  # main @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 # Pin Jolt to a fixed commit (not a floating branch). A floating `GIT_TAG master`
@@ -318,7 +318,7 @@ set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
-	GIT_TAG 81c008f90d488d18370dbe6741115e126d67f539  # docking @ 2026-06-05
+	GIT_TAG b334d19b667958ed970000073644d911fae17e57  # docking @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if(imgui_ADDED)
@@ -385,7 +385,7 @@ endif()
 # Pinned to a fixed tag SHA for reproducible builds (#294 convention).
 CPMAddPackage(NAME cpp_httplib
   GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-  GIT_TAG 62d899feac3cf9215a55f2b43da250fdd98d2156  # v0.50.1
+  GIT_TAG d66d9a95997d51a8ba9822a611d1267757741535  # v0.51.0
   GIT_SHALLOW FALSE
   DOWNLOAD_ONLY YES)
 if(cpp_httplib_ADDED)
@@ -741,7 +741,7 @@ endif()
 if(OLO_WITH_ALEMBIC)
 	FetchContent_Declare(Imath
 		GIT_REPOSITORY	https://github.com/AcademySoftwareFoundation/Imath.git
-		GIT_TAG			c0396a055a01bc537d32f435aee11a9b7ed6f0b5  # v3.1.12
+		GIT_TAG			1e480d11cb98b032a2dece9b9a8730512effc7f6  # v3.2.2
 		GIT_SHALLOW		FALSE)
 	# IMATH_INSTALL must be ON: Alembic's lib CMakeLists does an unconditional
 	# export(TARGETS Alembic) + install(EXPORT AlembicTargets), both of which reference
@@ -758,7 +758,7 @@ if(OLO_WITH_ALEMBIC)
 
 	FetchContent_Declare(alembic
 		GIT_REPOSITORY	https://github.com/alembic/alembic.git
-		GIT_TAG			00bca1fc6e2e5a077ba76a2fb29f533b3098274d  # 1.8.9
+		GIT_TAG			6f59e4d0c9012c67e242da510b31d96504db8e01  # 1.8.12
 		GIT_SHALLOW		FALSE)
 	set(ALEMBIC_BUILD_LIBS ON CACHE BOOL "" FORCE)
 	set(ALEMBIC_SHARED_LIBS OFF CACHE BOOL "" FORCE)   # -> static libAlembic
