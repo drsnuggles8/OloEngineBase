@@ -262,6 +262,8 @@ namespace OloEngine
             REGISTER_COMPONENT(TriangleMeshCollider3DComponent),
             REGISTER_COMPONENT(PhysicsJoint3DComponent),
             REGISTER_COMPONENT(VehicleComponent),
+            REGISTER_COMPONENT(BoatComponent),
+            REGISTER_COMPONENT(AircraftComponent),
             REGISTER_COMPONENT(RagdollComponent),
             REGISTER_COMPONENT(ClothComponent),
             // UI
@@ -1433,6 +1435,27 @@ namespace OloEngine
                                            "maxBrakeTorque", sol::property([](const VehicleComponent& v)
                                                                            { return v.m_MaxBrakeTorque; }, [](VehicleComponent& v, f32 x)
                                                                            { if (std::isfinite(x) && x >= 0.0f) v.m_MaxBrakeTorque = x; }),
+                                           // Differentials (issue #438): driveMode is an int matching
+                                           // VehicleDriveMode (0 = RWD, 1 = FWD, 2 = AWD); an out-of-range
+                                           // write is ignored rather than producing an invalid enum.
+                                           "driveMode", sol::property([](const VehicleComponent& v)
+                                                                      { return static_cast<int>(v.m_DriveMode); }, [](VehicleComponent& v, int x)
+                                                                      { if (x >= 0 && x <= 2) v.m_DriveMode = static_cast<VehicleDriveMode>(x); }),
+                                           "frontTorqueSplit", sol::property([](const VehicleComponent& v)
+                                                                             { return v.m_FrontTorqueSplit; }, [](VehicleComponent& v, f32 x)
+                                                                             { if (std::isfinite(x)) v.m_FrontTorqueSplit = std::clamp(x, 0.0f, 1.0f); }),
+                                           "leftRightSplit", sol::property([](const VehicleComponent& v)
+                                                                           { return v.m_LeftRightSplit; }, [](VehicleComponent& v, f32 x)
+                                                                           { if (std::isfinite(x)) v.m_LeftRightSplit = std::clamp(x, 0.0f, 1.0f); }),
+                                           "limitedSlipRatio", sol::property([](const VehicleComponent& v)
+                                                                             { return v.m_LimitedSlipRatio; }, [](VehicleComponent& v, f32 x)
+                                                                             { if (std::isfinite(x)) v.m_LimitedSlipRatio = std::clamp(x, 1.001f, 1.0e6f); }),
+                                           "centerLimitedSlipRatio", sol::property([](const VehicleComponent& v)
+                                                                                   { return v.m_CenterLimitedSlipRatio; }, [](VehicleComponent& v, f32 x)
+                                                                                   { if (std::isfinite(x)) v.m_CenterLimitedSlipRatio = std::clamp(x, 1.001f, 1.0e6f); }),
+                                           "differentialRatio", sol::property([](const VehicleComponent& v)
+                                                                              { return v.m_DifferentialRatio; }, [](VehicleComponent& v, f32 x)
+                                                                              { if (std::isfinite(x) && x > 0.0f) v.m_DifferentialRatio = x; }),
                                            "throttleInput", sol::property([](const VehicleComponent& v)
                                                                           { return v.m_ThrottleInput; }, [](VehicleComponent& v, f32 x)
                                                                           { if (std::isfinite(x)) v.m_ThrottleInput = std::clamp(x, -1.0f, 1.0f); }),
@@ -1442,6 +1465,144 @@ namespace OloEngine
                                            "brakeInput", sol::property([](const VehicleComponent& v)
                                                                        { return v.m_BrakeInput; }, [](VehicleComponent& v, f32 x)
                                                                        { if (std::isfinite(x)) v.m_BrakeInput = std::clamp(x, 0.0f, 1.0f); }));
+
+        // --- BoatComponent (issue #438) ---
+        // The live driver inputs (throttle/steer) are what gameplay scripts drive
+        // each frame and clamp to their valid ranges; the authored hull tuning
+        // validates finiteness + sign so a scripted garbage value can't NaN the
+        // force model. BoatSystem re-sanitizes as a last line of defence.
+        lua.new_usertype<BoatComponent>("BoatComponent",
+                                        "enabled", sol::property([](const BoatComponent& b)
+                                                                 { return b.m_Enabled; }, [](BoatComponent& b, bool x)
+                                                                 { b.m_Enabled = x; }),
+                                        "maxThrust", sol::property([](const BoatComponent& b)
+                                                                   { return b.m_MaxThrust; }, [](BoatComponent& b, f32 x)
+                                                                   { if (std::isfinite(x) && x >= 0.0f) b.m_MaxThrust = x; }),
+                                        "thrustOffsetZ", sol::property([](const BoatComponent& b)
+                                                                       { return b.m_ThrustOffsetZ; }, [](BoatComponent& b, f32 x)
+                                                                       { if (std::isfinite(x)) b.m_ThrustOffsetZ = std::clamp(x, -1000.0f, 1000.0f); }),
+                                        "thrustOffsetY", sol::property([](const BoatComponent& b)
+                                                                       { return b.m_ThrustOffsetY; }, [](BoatComponent& b, f32 x)
+                                                                       { if (std::isfinite(x)) b.m_ThrustOffsetY = std::clamp(x, -1000.0f, 1000.0f); }),
+                                        "maxRudderTorque", sol::property([](const BoatComponent& b)
+                                                                         { return b.m_MaxRudderTorque; }, [](BoatComponent& b, f32 x)
+                                                                         { if (std::isfinite(x) && x >= 0.0f) b.m_MaxRudderTorque = x; }),
+                                        "rudderAuthoritySpeed", sol::property([](const BoatComponent& b)
+                                                                              { return b.m_RudderAuthoritySpeed; }, [](BoatComponent& b, f32 x)
+                                                                              { if (std::isfinite(x) && x > 0.0f) b.m_RudderAuthoritySpeed = x; }),
+                                        "lateralDrag", sol::property([](const BoatComponent& b)
+                                                                     { return b.m_LateralDrag; }, [](BoatComponent& b, f32 x)
+                                                                     { if (std::isfinite(x) && x >= 0.0f) b.m_LateralDrag = x; }),
+                                        "forwardDrag", sol::property([](const BoatComponent& b)
+                                                                     { return b.m_ForwardDrag; }, [](BoatComponent& b, f32 x)
+                                                                     { if (std::isfinite(x) && x >= 0.0f) b.m_ForwardDrag = x; }),
+                                        "yawDrag", sol::property([](const BoatComponent& b)
+                                                                 { return b.m_YawDrag; }, [](BoatComponent& b, f32 x)
+                                                                 { if (std::isfinite(x) && x >= 0.0f) b.m_YawDrag = x; }),
+                                        "immersionDepth", sol::property([](const BoatComponent& b)
+                                                                        { return b.m_ImmersionDepth; }, [](BoatComponent& b, f32 x)
+                                                                        { if (std::isfinite(x) && x > 0.0f) b.m_ImmersionDepth = x; }),
+                                        "throttleInput", sol::property([](const BoatComponent& b)
+                                                                       { return b.m_ThrottleInput; }, [](BoatComponent& b, f32 x)
+                                                                       { if (std::isfinite(x)) b.m_ThrottleInput = std::clamp(x, -1.0f, 1.0f); }),
+                                        "steerInput", sol::property([](const BoatComponent& b)
+                                                                    { return b.m_SteerInput; }, [](BoatComponent& b, f32 x)
+                                                                    { if (std::isfinite(x)) b.m_SteerInput = std::clamp(x, -1.0f, 1.0f); }));
+
+        // --- AircraftComponent (issue #438) ---
+        // Same split as the boat: pilot inputs clamp, airframe tuning validates.
+        lua.new_usertype<AircraftComponent>("AircraftComponent",
+                                            "enabled", sol::property([](const AircraftComponent& a)
+                                                                     { return a.m_Enabled; }, [](AircraftComponent& a, bool x)
+                                                                     { a.m_Enabled = x; }),
+                                            "maxThrust", sol::property([](const AircraftComponent& a)
+                                                                       { return a.m_MaxThrust; }, [](AircraftComponent& a, f32 x)
+                                                                       { if (std::isfinite(x) && x >= 0.0f) a.m_MaxThrust = x; }),
+                                            "wingArea", sol::property([](const AircraftComponent& a)
+                                                                      { return a.m_WingArea; }, [](AircraftComponent& a, f32 x)
+                                                                      { if (std::isfinite(x) && x > 0.0f) a.m_WingArea = x; }),
+                                            "airDensity", sol::property([](const AircraftComponent& a)
+                                                                        { return a.m_AirDensity; }, [](AircraftComponent& a, f32 x)
+                                                                        { if (std::isfinite(x) && x >= 0.0f) a.m_AirDensity = x; }),
+                                            "liftSlope", sol::property([](const AircraftComponent& a)
+                                                                       { return a.m_LiftSlope; }, [](AircraftComponent& a, f32 x)
+                                                                       { if (std::isfinite(x) && x >= 0.0f) a.m_LiftSlope = x; }),
+                                            "zeroLiftCoefficient", sol::property([](const AircraftComponent& a)
+                                                                                 { return a.m_ZeroLiftCoefficient; }, [](AircraftComponent& a, f32 x)
+                                                                                 { if (std::isfinite(x)) a.m_ZeroLiftCoefficient = std::clamp(x, -10.0f, 10.0f); }),
+                                            "stallAngleDeg", sol::property([](const AircraftComponent& a)
+                                                                           { return a.m_StallAngleDeg; }, [](AircraftComponent& a, f32 x)
+                                                                           { if (std::isfinite(x)) a.m_StallAngleDeg = std::clamp(x, 0.1f, 90.0f); }),
+                                            "dragCoefficient", sol::property([](const AircraftComponent& a)
+                                                                             { return a.m_DragCoefficient; }, [](AircraftComponent& a, f32 x)
+                                                                             { if (std::isfinite(x) && x >= 0.0f) a.m_DragCoefficient = x; }),
+                                            "inducedDragFactor", sol::property([](const AircraftComponent& a)
+                                                                               { return a.m_InducedDragFactor; }, [](AircraftComponent& a, f32 x)
+                                                                               { if (std::isfinite(x) && x >= 0.0f) a.m_InducedDragFactor = x; }),
+                                            "pitchTorque", sol::property([](const AircraftComponent& a)
+                                                                         { return a.m_PitchTorque; }, [](AircraftComponent& a, f32 x)
+                                                                         { if (std::isfinite(x) && x >= 0.0f) a.m_PitchTorque = x; }),
+                                            "rollTorque", sol::property([](const AircraftComponent& a)
+                                                                        { return a.m_RollTorque; }, [](AircraftComponent& a, f32 x)
+                                                                        { if (std::isfinite(x) && x >= 0.0f) a.m_RollTorque = x; }),
+                                            "yawTorque", sol::property([](const AircraftComponent& a)
+                                                                       { return a.m_YawTorque; }, [](AircraftComponent& a, f32 x)
+                                                                       { if (std::isfinite(x) && x >= 0.0f) a.m_YawTorque = x; }),
+                                            "controlAuthoritySpeed", sol::property([](const AircraftComponent& a)
+                                                                                   { return a.m_ControlAuthoritySpeed; }, [](AircraftComponent& a, f32 x)
+                                                                                   { if (std::isfinite(x) && x > 0.0f) a.m_ControlAuthoritySpeed = x; }),
+                                            "pitchDamping", sol::property([](const AircraftComponent& a)
+                                                                          { return a.m_PitchDamping; }, [](AircraftComponent& a, f32 x)
+                                                                          { if (std::isfinite(x) && x >= 0.0f) a.m_PitchDamping = x; }),
+                                            "rollDamping", sol::property([](const AircraftComponent& a)
+                                                                         { return a.m_RollDamping; }, [](AircraftComponent& a, f32 x)
+                                                                         { if (std::isfinite(x) && x >= 0.0f) a.m_RollDamping = x; }),
+                                            "yawDamping", sol::property([](const AircraftComponent& a)
+                                                                        { return a.m_YawDamping; }, [](AircraftComponent& a, f32 x)
+                                                                        { if (std::isfinite(x) && x >= 0.0f) a.m_YawDamping = x; }),
+                                            "weathervaneStrength", sol::property([](const AircraftComponent& a)
+                                                                                 { return a.m_WeathervaneStrength; }, [](AircraftComponent& a, f32 x)
+                                                                                 { if (std::isfinite(x) && x >= 0.0f) a.m_WeathervaneStrength = x; }),
+                                            // Landing gear (issue #438 follow-up).
+                                            "hasLandingGear", sol::property([](const AircraftComponent& a)
+                                                                            { return a.m_HasLandingGear; }, [](AircraftComponent& a, bool x)
+                                                                            { a.m_HasLandingGear = x; }),
+                                            "mainGearOffsetZ", sol::property([](const AircraftComponent& a)
+                                                                             { return a.m_MainGearOffsetZ; }, [](AircraftComponent& a, f32 x)
+                                                                             { if (std::isfinite(x)) a.m_MainGearOffsetZ = std::clamp(x, -1000.0f, 1000.0f); }),
+                                            "mainGearHalfTrack", sol::property([](const AircraftComponent& a)
+                                                                               { return a.m_MainGearHalfTrack; }, [](AircraftComponent& a, f32 x)
+                                                                               { if (std::isfinite(x) && x > 0.0f) a.m_MainGearHalfTrack = x; }),
+                                            "noseGearOffsetZ", sol::property([](const AircraftComponent& a)
+                                                                             { return a.m_NoseGearOffsetZ; }, [](AircraftComponent& a, f32 x)
+                                                                             { if (std::isfinite(x)) a.m_NoseGearOffsetZ = std::clamp(x, -1000.0f, 1000.0f); }),
+                                            "gearLength", sol::property([](const AircraftComponent& a)
+                                                                        { return a.m_GearLength; }, [](AircraftComponent& a, f32 x)
+                                                                        { if (std::isfinite(x) && x > 0.0f) a.m_GearLength = x; }),
+                                            "gearStiffness", sol::property([](const AircraftComponent& a)
+                                                                           { return a.m_GearStiffness; }, [](AircraftComponent& a, f32 x)
+                                                                           { if (std::isfinite(x) && x >= 0.0f) a.m_GearStiffness = x; }),
+                                            "gearDamping", sol::property([](const AircraftComponent& a)
+                                                                         { return a.m_GearDamping; }, [](AircraftComponent& a, f32 x)
+                                                                         { if (std::isfinite(x)) a.m_GearDamping = std::clamp(x, 0.0f, 1.0f); }),
+                                            "gearRollingResistance", sol::property([](const AircraftComponent& a)
+                                                                                   { return a.m_GearRollingResistance; }, [](AircraftComponent& a, f32 x)
+                                                                                   { if (std::isfinite(x) && x >= 0.0f) a.m_GearRollingResistance = x; }),
+                                            "gearLateralGrip", sol::property([](const AircraftComponent& a)
+                                                                             { return a.m_GearLateralGrip; }, [](AircraftComponent& a, f32 x)
+                                                                             { if (std::isfinite(x) && x >= 0.0f) a.m_GearLateralGrip = x; }),
+                                            "throttleInput", sol::property([](const AircraftComponent& a)
+                                                                           { return a.m_ThrottleInput; }, [](AircraftComponent& a, f32 x)
+                                                                           { if (std::isfinite(x)) a.m_ThrottleInput = std::clamp(x, 0.0f, 1.0f); }),
+                                            "pitchInput", sol::property([](const AircraftComponent& a)
+                                                                        { return a.m_PitchInput; }, [](AircraftComponent& a, f32 x)
+                                                                        { if (std::isfinite(x)) a.m_PitchInput = std::clamp(x, -1.0f, 1.0f); }),
+                                            "rollInput", sol::property([](const AircraftComponent& a)
+                                                                       { return a.m_RollInput; }, [](AircraftComponent& a, f32 x)
+                                                                       { if (std::isfinite(x)) a.m_RollInput = std::clamp(x, -1.0f, 1.0f); }),
+                                            "yawInput", sol::property([](const AircraftComponent& a)
+                                                                      { return a.m_YawInput; }, [](AircraftComponent& a, f32 x)
+                                                                      { if (std::isfinite(x)) a.m_YawInput = std::clamp(x, -1.0f, 1.0f); }));
 
         // --- RagdollComponent ---
         // Authored ragdoll tuning. m_Skeleton (a runtime Ref), m_SkeletonEntity,

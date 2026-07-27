@@ -6,6 +6,129 @@ namespace OloEngine
 {
 	public static partial class InternalCalls
 	{
+		#region AircraftComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool AircraftComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetMaxThrust(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetMaxThrust(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetWingArea(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetWingArea(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetAirDensity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetAirDensity(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetLiftSlope(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetLiftSlope(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetZeroLiftCoefficient(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetZeroLiftCoefficient(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetStallAngleDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetStallAngleDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetDragCoefficient(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetDragCoefficient(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetInducedDragFactor(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetInducedDragFactor(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetPitchTorque(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetPitchTorque(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetRollTorque(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetRollTorque(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetYawTorque(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetYawTorque(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetControlAuthoritySpeed(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetControlAuthoritySpeed(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetPitchDamping(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetPitchDamping(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetRollDamping(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetRollDamping(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetYawDamping(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetYawDamping(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetWeathervaneStrength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetWeathervaneStrength(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool AircraftComponent_GetHasLandingGear(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetHasLandingGear(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetMainGearOffsetZ(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetMainGearOffsetZ(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetMainGearHalfTrack(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetMainGearHalfTrack(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetNoseGearOffsetZ(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetNoseGearOffsetZ(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetGearLength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetGearLength(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetGearStiffness(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetGearStiffness(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetGearDamping(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetGearDamping(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetGearRollingResistance(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetGearRollingResistance(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetGearLateralGrip(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetGearLateralGrip(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetThrottleInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetThrottleInput(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetPitchInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetPitchInput(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetRollInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetRollInput(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AircraftComponent_GetYawInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AircraftComponent_SetYawInput(ulong entityID, float value);
+		#endregion
+
 		#region AudioSoundGraphComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float AudioSoundGraphComponent_GetVolume(ulong entityID);
@@ -94,6 +217,57 @@ namespace OloEngine
 		internal static extern ulong AudioSourceComponent_GetSoundConfigHandle(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void AudioSourceComponent_SetSoundConfigHandle(ulong entityID, ulong value);
+		#endregion
+
+		#region BoatComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool BoatComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoatComponent_SetEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoatComponent_GetMaxThrust(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoatComponent_SetMaxThrust(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoatComponent_GetThrustOffsetZ(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoatComponent_SetThrustOffsetZ(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoatComponent_GetThrustOffsetY(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoatComponent_SetThrustOffsetY(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoatComponent_GetMaxRudderTorque(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoatComponent_SetMaxRudderTorque(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoatComponent_GetRudderAuthoritySpeed(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoatComponent_SetRudderAuthoritySpeed(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoatComponent_GetLateralDrag(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoatComponent_SetLateralDrag(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoatComponent_GetForwardDrag(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoatComponent_SetForwardDrag(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoatComponent_GetYawDrag(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoatComponent_SetYawDrag(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoatComponent_GetImmersionDepth(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoatComponent_SetImmersionDepth(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoatComponent_GetThrottleInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoatComponent_SetThrottleInput(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoatComponent_GetSteerInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoatComponent_SetSteerInput(ulong entityID, float value);
 		#endregion
 
 		#region BoxCollider2DComponent
@@ -1742,6 +1916,30 @@ namespace OloEngine
 		internal static extern float VehicleComponent_GetMaxBrakeTorque(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void VehicleComponent_SetMaxBrakeTorque(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern int VehicleComponent_GetDriveMode(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetDriveMode(ulong entityID, int value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetFrontTorqueSplit(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetFrontTorqueSplit(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetLeftRightSplit(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetLeftRightSplit(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetLimitedSlipRatio(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetLimitedSlipRatio(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetCenterLimitedSlipRatio(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetCenterLimitedSlipRatio(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float VehicleComponent_GetDifferentialRatio(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void VehicleComponent_SetDifferentialRatio(ulong entityID, float value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float VehicleComponent_GetThrottleInput(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]

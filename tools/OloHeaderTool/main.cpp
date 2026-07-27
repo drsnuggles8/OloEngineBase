@@ -1048,13 +1048,20 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 //     OLO_SERIALIZE(Clamp, Min=…, Max=…) annotations on the glm::vec3 members).
 //   * ScriptComponent — serializes the C# ScriptField map owned by ScriptEngine,
 //     not just its ClassName member (the parser only sees ClassName).
-//   * VehicleComponent — has a runtime-only RuntimeVehicleToken field the
-//     hand-written serializer deliberately omits (auto-gen would persist it).
+//   * VehicleComponent — MIGRATED off this set by issue #438 (the FWD/AWD
+//     differential slice), the textbook Skip+Clamp migration: its runtime-only
+//     m_RuntimeVehicleToken now carries OLO_SERIALIZE(Skip) and each authored
+//     float carries the OLO_SERIALIZE(Clamp, Min=…, Max=…) range its SanitizeFloat
+//     call used to enforce, so the generated block emits byte-identical YAML.
 //   * Rigidbody3DComponent — (a) its enum is keyed "BodyType" not "Type" (the
 //     m_-stripped default), so on-disk compatibility needs the hand-written key;
 //     (b) the hand-written serializer deliberately omits m_LayerID, m_LockedAxes,
-//     the initial/max velocities, and the runtime-only m_RuntimeBodyToken — auto-
-//     gen would persist all of them (the runtime token included).
+//     the MAX velocities, and the runtime-only m_RuntimeBodyToken — auto-gen would
+//     persist all of them (the runtime token included). The INITIAL velocities are
+//     no longer omitted: a scene that cannot author a moving body cannot express
+//     "a vehicle already under way", so m_InitialLinearVelocity /
+//     m_InitialAngularVelocity are now written and read (issue #438 follow-up).
+//     Both default to zero, so pre-existing scenes are unaffected.
 //   * StreamingVolumeComponent — (a) the runtime-only `IsLoaded` bool is omitted by
 //     the hand-written serializer (auto-gen would persist it); (b) deserialize range-
 //     clamps ActivationMode and the load/unload radii.
@@ -1216,7 +1223,6 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "UIPanelComponent",
     "UIResolvedRectComponent",
     "UITextComponent",
-    "VehicleComponent",
     "WorldTransformComponent",
 };
 

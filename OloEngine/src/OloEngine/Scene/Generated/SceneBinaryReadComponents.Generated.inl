@@ -8,6 +8,139 @@
     //
     // #include'd where `reader` (SceneBinIO::Reader&) and `deserializedEntity` (Entity&) are in scope.
 
+case 436629486u: // AircraftComponent
+{
+    auto& comp = deserializedEntity.AddComponent<AircraftComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Enabled))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.m_MaxThrust))
+        return false;
+    comp.m_MaxThrust = std::clamp(comp.m_MaxThrust, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (!SceneBinIO::Read(reader, comp.m_WingArea))
+        return false;
+    comp.m_WingArea = std::clamp(comp.m_WingArea, static_cast<f32>(0.01f), static_cast<f32>(10000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_AirDensity))
+        return false;
+    comp.m_AirDensity = std::clamp(comp.m_AirDensity, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_LiftSlope))
+        return false;
+    comp.m_LiftSlope = std::clamp(comp.m_LiftSlope, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ZeroLiftCoefficient))
+        return false;
+    comp.m_ZeroLiftCoefficient = std::clamp(comp.m_ZeroLiftCoefficient, static_cast<f32>(-10.0f), static_cast<f32>(10.0f));
+    if (!SceneBinIO::Read(reader, comp.m_StallAngleDeg))
+        return false;
+    comp.m_StallAngleDeg = std::clamp(comp.m_StallAngleDeg, static_cast<f32>(0.1f), static_cast<f32>(90.0f));
+    if (!SceneBinIO::Read(reader, comp.m_DragCoefficient))
+        return false;
+    comp.m_DragCoefficient = std::clamp(comp.m_DragCoefficient, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_InducedDragFactor))
+        return false;
+    comp.m_InducedDragFactor = std::clamp(comp.m_InducedDragFactor, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_PitchTorque))
+        return false;
+    comp.m_PitchTorque = std::clamp(comp.m_PitchTorque, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (!SceneBinIO::Read(reader, comp.m_RollTorque))
+        return false;
+    comp.m_RollTorque = std::clamp(comp.m_RollTorque, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (!SceneBinIO::Read(reader, comp.m_YawTorque))
+        return false;
+    comp.m_YawTorque = std::clamp(comp.m_YawTorque, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (!SceneBinIO::Read(reader, comp.m_ControlAuthoritySpeed))
+        return false;
+    comp.m_ControlAuthoritySpeed = std::clamp(comp.m_ControlAuthoritySpeed, static_cast<f32>(0.01f), static_cast<f32>(10000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_PitchDamping))
+        return false;
+    comp.m_PitchDamping = std::clamp(comp.m_PitchDamping, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_RollDamping))
+        return false;
+    comp.m_RollDamping = std::clamp(comp.m_RollDamping, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_YawDamping))
+        return false;
+    comp.m_YawDamping = std::clamp(comp.m_YawDamping, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_WeathervaneStrength))
+        return false;
+    comp.m_WeathervaneStrength = std::clamp(comp.m_WeathervaneStrength, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_HasLandingGear))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.m_MainGearOffsetZ))
+        return false;
+    comp.m_MainGearOffsetZ = std::clamp(comp.m_MainGearOffsetZ, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MainGearHalfTrack))
+        return false;
+    comp.m_MainGearHalfTrack = std::clamp(comp.m_MainGearHalfTrack, static_cast<f32>(0.01f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_NoseGearOffsetZ))
+        return false;
+    comp.m_NoseGearOffsetZ = std::clamp(comp.m_NoseGearOffsetZ, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_GearLength))
+        return false;
+    comp.m_GearLength = std::clamp(comp.m_GearLength, static_cast<f32>(0.01f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_GearStiffness))
+        return false;
+    comp.m_GearStiffness = std::clamp(comp.m_GearStiffness, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_GearDamping))
+        return false;
+    comp.m_GearDamping = std::clamp(comp.m_GearDamping, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_GearRollingResistance))
+        return false;
+    comp.m_GearRollingResistance = std::clamp(comp.m_GearRollingResistance, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_GearLateralGrip))
+        return false;
+    comp.m_GearLateralGrip = std::clamp(comp.m_GearLateralGrip, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ThrottleInput))
+        return false;
+    comp.m_ThrottleInput = std::clamp(comp.m_ThrottleInput, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_PitchInput))
+        return false;
+    comp.m_PitchInput = std::clamp(comp.m_PitchInput, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_RollInput))
+        return false;
+    comp.m_RollInput = std::clamp(comp.m_RollInput, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_YawInput))
+        return false;
+    comp.m_YawInput = std::clamp(comp.m_YawInput, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+    break;
+}
+case 2678681430u: // BoatComponent
+{
+    auto& comp = deserializedEntity.AddComponent<BoatComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Enabled))
+        return false;
+    if (!SceneBinIO::Read(reader, comp.m_MaxThrust))
+        return false;
+    comp.m_MaxThrust = std::clamp(comp.m_MaxThrust, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (!SceneBinIO::Read(reader, comp.m_ThrustOffsetZ))
+        return false;
+    comp.m_ThrustOffsetZ = std::clamp(comp.m_ThrustOffsetZ, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ThrustOffsetY))
+        return false;
+    comp.m_ThrustOffsetY = std::clamp(comp.m_ThrustOffsetY, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxRudderTorque))
+        return false;
+    comp.m_MaxRudderTorque = std::clamp(comp.m_MaxRudderTorque, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (!SceneBinIO::Read(reader, comp.m_RudderAuthoritySpeed))
+        return false;
+    comp.m_RudderAuthoritySpeed = std::clamp(comp.m_RudderAuthoritySpeed, static_cast<f32>(0.01f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_LateralDrag))
+        return false;
+    comp.m_LateralDrag = std::clamp(comp.m_LateralDrag, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ForwardDrag))
+        return false;
+    comp.m_ForwardDrag = std::clamp(comp.m_ForwardDrag, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_YawDrag))
+        return false;
+    comp.m_YawDrag = std::clamp(comp.m_YawDrag, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ImmersionDepth))
+        return false;
+    comp.m_ImmersionDepth = std::clamp(comp.m_ImmersionDepth, static_cast<f32>(0.001f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ThrottleInput))
+        return false;
+    comp.m_ThrottleInput = std::clamp(comp.m_ThrottleInput, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_SteerInput))
+        return false;
+    comp.m_SteerInput = std::clamp(comp.m_SteerInput, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+    break;
+}
 case 4273541646u: // BuoyancyComponent
 {
     auto& comp = deserializedEntity.AddComponent<BuoyancyComponent>();
@@ -1035,6 +1168,77 @@ case 632812143u: // UIWorldAnchorComponent
         return false;
     if (!SceneBinIO::Read(reader, comp.m_WorldOffset))
         return false;
+    break;
+}
+case 371155434u: // VehicleComponent
+{
+    auto& comp = deserializedEntity.AddComponent<VehicleComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_HalfTrackWidth))
+        return false;
+    comp.m_HalfTrackWidth = std::clamp(comp.m_HalfTrackWidth, static_cast<f32>(1.0e-3f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_FrontAxleOffset))
+        return false;
+    comp.m_FrontAxleOffset = std::clamp(comp.m_FrontAxleOffset, static_cast<f32>(1.0e-3f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_RearAxleOffset))
+        return false;
+    comp.m_RearAxleOffset = std::clamp(comp.m_RearAxleOffset, static_cast<f32>(1.0e-3f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_WheelAttachmentHeight))
+        return false;
+    comp.m_WheelAttachmentHeight = std::clamp(comp.m_WheelAttachmentHeight, static_cast<f32>(-100.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_WheelRadius))
+        return false;
+    comp.m_WheelRadius = std::clamp(comp.m_WheelRadius, static_cast<f32>(1.0e-3f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_WheelWidth))
+        return false;
+    comp.m_WheelWidth = std::clamp(comp.m_WheelWidth, static_cast<f32>(1.0e-3f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_SuspensionMinLength))
+        return false;
+    comp.m_SuspensionMinLength = std::clamp(comp.m_SuspensionMinLength, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_SuspensionMaxLength))
+        return false;
+    comp.m_SuspensionMaxLength = std::clamp(comp.m_SuspensionMaxLength, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_SuspensionFrequency))
+        return false;
+    comp.m_SuspensionFrequency = std::clamp(comp.m_SuspensionFrequency, static_cast<f32>(1.0e-3f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_SuspensionDamping))
+        return false;
+    comp.m_SuspensionDamping = std::clamp(comp.m_SuspensionDamping, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxEngineTorque))
+        return false;
+    comp.m_MaxEngineTorque = std::clamp(comp.m_MaxEngineTorque, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxSteerAngleDeg))
+        return false;
+    comp.m_MaxSteerAngleDeg = std::clamp(comp.m_MaxSteerAngleDeg, static_cast<f32>(0.0f), static_cast<f32>(180.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxBrakeTorque))
+        return false;
+    comp.m_MaxBrakeTorque = std::clamp(comp.m_MaxBrakeTorque, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (!SceneBinIO::Read(reader, comp.m_DriveMode))
+        return false;
+    comp.m_DriveMode = static_cast<decltype(comp.m_DriveMode)>(std::clamp(static_cast<int>(comp.m_DriveMode), static_cast<int>(0), static_cast<int>(2)));
+    if (!SceneBinIO::Read(reader, comp.m_FrontTorqueSplit))
+        return false;
+    comp.m_FrontTorqueSplit = std::clamp(comp.m_FrontTorqueSplit, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_LeftRightSplit))
+        return false;
+    comp.m_LeftRightSplit = std::clamp(comp.m_LeftRightSplit, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_LimitedSlipRatio))
+        return false;
+    comp.m_LimitedSlipRatio = std::clamp(comp.m_LimitedSlipRatio, static_cast<f32>(1.001f), static_cast<f32>(1.0e6f));
+    if (!SceneBinIO::Read(reader, comp.m_CenterLimitedSlipRatio))
+        return false;
+    comp.m_CenterLimitedSlipRatio = std::clamp(comp.m_CenterLimitedSlipRatio, static_cast<f32>(1.001f), static_cast<f32>(1.0e6f));
+    if (!SceneBinIO::Read(reader, comp.m_DifferentialRatio))
+        return false;
+    comp.m_DifferentialRatio = std::clamp(comp.m_DifferentialRatio, static_cast<f32>(0.01f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ThrottleInput))
+        return false;
+    comp.m_ThrottleInput = std::clamp(comp.m_ThrottleInput, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_SteerInput))
+        return false;
+    comp.m_SteerInput = std::clamp(comp.m_SteerInput, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_BrakeInput))
+        return false;
+    comp.m_BrakeInput = std::clamp(comp.m_BrakeInput, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
     break;
 }
 case 2502968764u: // VirtualMeshComponent

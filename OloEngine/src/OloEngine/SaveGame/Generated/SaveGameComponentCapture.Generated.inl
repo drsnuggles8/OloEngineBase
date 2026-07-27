@@ -15,11 +15,13 @@
 // save-games). Guarded by SaveGameComponentSerializerCoverageTest.
 
 SAVE_COMPONENT(AbilityComponent, entity, writer);
+SAVE_COMPONENT(AircraftComponent, entity, writer);
 SAVE_COMPONENT(AnimationGraphComponent, entity, writer);
 SAVE_COMPONENT(AnimationStateComponent, entity, writer);
 SAVE_COMPONENT(AudioListenerComponent, entity, writer);
 SAVE_COMPONENT(AudioSourceComponent, entity, writer);
 SAVE_COMPONENT(BehaviorTreeComponent, entity, writer);
+SAVE_COMPONENT(BoatComponent, entity, writer);
 SAVE_COMPONENT(BoxCollider2DComponent, entity, writer);
 SAVE_COMPONENT(BoxCollider3DComponent, entity, writer);
 SAVE_COMPONENT(BuoyancyComponent, entity, writer);

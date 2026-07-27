@@ -149,6 +149,67 @@ pinned edge, unaffected by the same wind field.
 into the Play-mode scene copy); the orange cloth doesn't move at all; NaN/
 degenerate geometry.
 
+### [VehiclesTest.olo](VehiclesTest.olo)
+
+**Purpose**: Validate all three vehicle families from issue #438 in one shot —
+the FWD/RWD/AWD differential modes on the wheeled `VehicleComponent`,
+`BoatComponent` propulsion + rudder on top of buoyancy, and the
+`AircraftComponent` flight model.
+**Contents**: A 600 m sea (Gerstner, no FFT) with a seafloor, a 400 m concrete
+quay whose deck sits 3 m above the water, three otherwise-identical cars
+differing only in `DriveMode` (red = rear, blue = front, green = all), two
+floating boats (white runs straight, orange holds right rudder), and one
+aircraft that **takes off from the quay on its landing gear**. Every driver
+input is **authored in the scene**, so the whole thing animates on
+Play/Simulate with no scripting.
+**Important**: press **Play** or **Simulate** — nothing moves in edit mode.
+**Camera**: the scene camera has `RuntimeControl` on, so in **Play** you can fly
+around with **WASD** (Q/E for down/up) while holding the **right mouse button**
+to look. `FlySpeed` is 45 m/s — the quay alone is 800 m long.
+**Pass**:
+- All three cars pull away down the quay and stay on their wheels (chassis
+  around y = 4.1, i.e. held above the 3 m deck by the suspension). They separate
+  over distance — different driven axles, different traction — but none of them
+  may sit still; that means a differential wired to the wrong axle. They
+  eventually run off the far end into the sea, which is fine.
+- Both boats float with the hull **half-immersed** — deck clear of the water,
+  origin at the waterline — and drive forward. The orange one carves a steady
+  circle; it must **turn**, not slide broadside (broadside = the hull's lateral
+  drag isn't biting).
+- The aircraft rides on its gear with the **belly clear of the deck**, rolls,
+  rotates under back-pressure, unsticks around 33 m/s and climbs away over the
+  sea — wings level throughout (nothing applies a roll input, so any roll is a
+  bug).
+**Fail**: a car that never moves; a boat that pivots on the spot while
+stationary (rudder authority not speed-scaled), planes into the sky, or is
+driven under; an aircraft that never rotates (it will run off the end of the
+quay), leaves the ground without rolling forward, porpoises, or rolls/yaws;
+any NaN pose. Check `OloEngine.log` for physics warnings.
+
+**On the lighting.** The scene uses the same cubemap `EnvironmentMapComponent` as
+`WaterTest.olo` rather than a procedural sky. That is not decoration: water is
+largely a mirror, so with only a flat procedural gradient to reflect it falls back
+to its dark base colour and reads as a huge shadow over the whole scene. If the sea
+ever looks like a black void again, check that the environment map is present and
+loading before suspecting the shadow cascades — disabling `CastShadows` entirely
+changes nothing here, which is the quickest way to rule shadows out.
+
+*Known, pre-existing:* the sea still renders dark when viewed steeply from above,
+and `PlanarReflectionRenderPass` emits a per-frame `[trace]` GLStateGuard message
+about depth state escaping the pass. Both reproduce in `WaterTest.olo` on an
+unmodified tree, so they are water/renderer issues rather than anything this scene
+introduced.
+
+**On the aircraft's landing gear.** `m_HasLandingGear` puts the aircraft on
+three sprung ray-cast legs instead of its fuselage collider. That is what makes
+the takeoff rotation possible at all: a box resting on the ground pivots about
+its **rear edge**, where the weight moment (≈ 9810 N × 3 m ≈ 29 kN·m) is an
+order of magnitude past what the elevator (≈ 3.5 kN·m) can beat, whereas the
+main gear sits just aft of the centre of mass and cuts that arm to centimetres.
+Turn `HasLandingGear` off in the inspector and you can watch the aircraft
+accelerate the length of the quay without ever lifting its nose — the direct
+before/after, and what `AircraftGearTest` pins as a pair.
+
 ---
 
 ## Suggested test order

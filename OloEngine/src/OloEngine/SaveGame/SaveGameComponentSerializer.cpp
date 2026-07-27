@@ -1012,6 +1012,18 @@ namespace OloEngine
         ar << c.m_MaxEngineTorque << c.m_MaxSteerAngleDeg << c.m_MaxBrakeTorque;
         ar << c.m_ThrottleInput << c.m_SteerInput << c.m_BrakeInput;
 
+        // Appended when kSaveGameFormatVersion was bumped 11→12 (issue #438's
+        // FWD/AWD differential slice). A v11-or-older save omits these bytes, so
+        // gate the read: the fields then keep their constructor defaults, which
+        // are exactly the pre-#438 rear-wheel-drive jeep — an old save reloads
+        // with unchanged handling.
+        if (HasFieldsSince(ar, 12))
+        {
+            ar << c.m_DriveMode;
+            ar << c.m_FrontTorqueSplit << c.m_LeftRightSplit;
+            ar << c.m_LimitedSlipRatio << c.m_CenterLimitedSlipRatio << c.m_DifferentialRatio;
+        }
+
         // Sanitize untrusted on-disk values (mirrors SceneSerializer): dimensions
         // are strictly positive, the attachment height is signed, damping is a
         // [0,1] ratio, and the live inputs clamp to their driver-input ranges.
@@ -1044,8 +1056,116 @@ namespace OloEngine
             c.m_ThrottleInput = std::isfinite(c.m_ThrottleInput) ? std::clamp(c.m_ThrottleInput, -1.0f, 1.0f) : 0.0f;
             c.m_SteerInput = std::isfinite(c.m_SteerInput) ? std::clamp(c.m_SteerInput, -1.0f, 1.0f) : 0.0f;
             c.m_BrakeInput = std::isfinite(c.m_BrakeInput) ? std::clamp(c.m_BrakeInput, 0.0f, 1.0f) : 0.0f;
+
+            // Differential config (v12+). An out-of-range drive mode falls back to
+            // rear-wheel drive; the limited-slip ratios must be >= 1 or Jolt
+            // asserts. Values from a v11 save were never read and are already at
+            // their constructor defaults, so this is a no-op for them.
+            if (c.m_DriveMode != VehicleDriveMode::FrontWheelDrive && c.m_DriveMode != VehicleDriveMode::AllWheelDrive)
+                c.m_DriveMode = VehicleDriveMode::RearWheelDrive;
+            c.m_FrontTorqueSplit = std::isfinite(c.m_FrontTorqueSplit) ? std::clamp(c.m_FrontTorqueSplit, 0.0f, 1.0f) : 0.5f;
+            c.m_LeftRightSplit = std::isfinite(c.m_LeftRightSplit) ? std::clamp(c.m_LeftRightSplit, 0.0f, 1.0f) : 0.5f;
+            // Jolt asserts the limited-slip ratios are > 1 STRICTLY, so the floor
+            // is a hair above 1 (see JoltScene::CreateVehicle's kMinLimitedSlipRatio).
+            c.m_LimitedSlipRatio = std::isfinite(c.m_LimitedSlipRatio) ? std::clamp(c.m_LimitedSlipRatio, 1.001f, 1.0e6f) : 1.4f;
+            c.m_CenterLimitedSlipRatio = std::isfinite(c.m_CenterLimitedSlipRatio) ? std::clamp(c.m_CenterLimitedSlipRatio, 1.001f, 1.0e6f) : 1.4f;
+            positive(c.m_DifferentialRatio, 3.42f);
         }
         // m_RuntimeVehicleToken is a runtime Jolt handle — not serialized.
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, BoatComponent& c)
+    {
+        ar << c.m_Enabled;
+        ar << c.m_MaxThrust << c.m_ThrustOffsetZ << c.m_ThrustOffsetY;
+        ar << c.m_MaxRudderTorque << c.m_RudderAuthoritySpeed;
+        ar << c.m_LateralDrag << c.m_ForwardDrag << c.m_YawDrag;
+        ar << c.m_ImmersionDepth;
+        ar << c.m_ThrottleInput << c.m_SteerInput;
+
+        // Sanitize untrusted on-disk values (mirrors the OLO_SERIALIZE(Clamp)
+        // ranges the scene serializer generates). BoatSystem re-sanitizes before
+        // touching Jolt, but a garbage value must not survive a save round-trip.
+        if (ar.IsLoading())
+        {
+            const auto ranged = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                v = std::isfinite(v) ? std::clamp(v, lo, hi) : fallback;
+            };
+            ranged(c.m_MaxThrust, 0.0f, 1.0e9f, 6000.0f);
+            ranged(c.m_ThrustOffsetZ, -1000.0f, 1000.0f, -2.0f);
+            ranged(c.m_ThrustOffsetY, -1000.0f, 1000.0f, -0.3f);
+            ranged(c.m_MaxRudderTorque, 0.0f, 1.0e9f, 4000.0f);
+            ranged(c.m_RudderAuthoritySpeed, 0.01f, 1000.0f, 4.0f);
+            ranged(c.m_LateralDrag, 0.0f, 1000.0f, 3.0f);
+            ranged(c.m_ForwardDrag, 0.0f, 1000.0f, 0.3f);
+            ranged(c.m_YawDrag, 0.0f, 1000.0f, 2.0f);
+            ranged(c.m_ImmersionDepth, 0.001f, 100.0f, 0.3f);
+            ranged(c.m_ThrottleInput, -1.0f, 1.0f, 0.0f);
+            ranged(c.m_SteerInput, -1.0f, 1.0f, 0.0f);
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, AircraftComponent& c)
+    {
+        ar << c.m_Enabled;
+        ar << c.m_MaxThrust;
+        ar << c.m_WingArea << c.m_AirDensity << c.m_LiftSlope << c.m_ZeroLiftCoefficient << c.m_StallAngleDeg;
+        ar << c.m_DragCoefficient << c.m_InducedDragFactor;
+        ar << c.m_PitchTorque << c.m_RollTorque << c.m_YawTorque << c.m_ControlAuthoritySpeed;
+        ar << c.m_PitchDamping << c.m_RollDamping << c.m_YawDamping << c.m_WeathervaneStrength;
+        ar << c.m_ThrottleInput << c.m_PitchInput << c.m_RollInput << c.m_YawInput;
+
+        // Appended when kSaveGameFormatVersion was bumped 12->13 (the landing-gear
+        // slice). A v12-or-older save omits these bytes, so gate the read: the gear
+        // fields then keep their constructor defaults, which means gear OFF — the
+        // exact behaviour those saves were written with.
+        if (HasFieldsSince(ar, 13))
+        {
+            ar << c.m_HasLandingGear;
+            ar << c.m_MainGearOffsetZ << c.m_MainGearHalfTrack << c.m_NoseGearOffsetZ;
+            ar << c.m_GearLength << c.m_GearStiffness << c.m_GearDamping;
+            ar << c.m_GearRollingResistance << c.m_GearLateralGrip;
+        }
+
+        // Sanitize untrusted on-disk values (mirrors the OLO_SERIALIZE(Clamp)
+        // ranges the scene serializer generates). A non-finite aerodynamic
+        // coefficient would NaN the whole flight model on the first tick.
+        if (ar.IsLoading())
+        {
+            const auto ranged = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                v = std::isfinite(v) ? std::clamp(v, lo, hi) : fallback;
+            };
+            ranged(c.m_MaxThrust, 0.0f, 1.0e9f, 4000.0f);
+            ranged(c.m_WingArea, 0.01f, 10000.0f, 16.0f);
+            ranged(c.m_AirDensity, 0.0f, 100.0f, 1.225f);
+            ranged(c.m_LiftSlope, 0.0f, 100.0f, 5.0f);
+            ranged(c.m_ZeroLiftCoefficient, -10.0f, 10.0f, 0.2f);
+            ranged(c.m_StallAngleDeg, 0.1f, 90.0f, 15.0f);
+            ranged(c.m_DragCoefficient, 0.0f, 100.0f, 0.03f);
+            ranged(c.m_InducedDragFactor, 0.0f, 100.0f, 0.05f);
+            ranged(c.m_PitchTorque, 0.0f, 1.0e9f, 10000.0f);
+            ranged(c.m_RollTorque, 0.0f, 1.0e9f, 6000.0f);
+            ranged(c.m_YawTorque, 0.0f, 1.0e9f, 4000.0f);
+            ranged(c.m_ControlAuthoritySpeed, 0.01f, 10000.0f, 40.0f);
+            ranged(c.m_PitchDamping, 0.0f, 1000.0f, 4.0f);
+            ranged(c.m_RollDamping, 0.0f, 1000.0f, 3.0f);
+            ranged(c.m_YawDamping, 0.0f, 1000.0f, 4.0f);
+            ranged(c.m_WeathervaneStrength, 0.0f, 1000.0f, 1.5f);
+            ranged(c.m_ThrottleInput, 0.0f, 1.0f, 0.0f);
+            ranged(c.m_PitchInput, -1.0f, 1.0f, 0.0f);
+            ranged(c.m_RollInput, -1.0f, 1.0f, 0.0f);
+            ranged(c.m_YawInput, -1.0f, 1.0f, 0.0f);
+            ranged(c.m_MainGearOffsetZ, -1000.0f, 1000.0f, -0.6f);
+            ranged(c.m_MainGearHalfTrack, 0.01f, 1000.0f, 2.0f);
+            ranged(c.m_NoseGearOffsetZ, -1000.0f, 1000.0f, 2.5f);
+            ranged(c.m_GearLength, 0.01f, 100.0f, 1.2f);
+            ranged(c.m_GearStiffness, 0.0f, 1000.0f, 12.0f);
+            ranged(c.m_GearDamping, 0.0f, 1.0f, 0.5f);
+            ranged(c.m_GearRollingResistance, 0.0f, 100.0f, 0.03f);
+            ranged(c.m_GearLateralGrip, 0.0f, 100.0f, 1.5f);
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, RagdollComponent& c)
@@ -3897,6 +4017,8 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(CharacterController3DComponent);
         REGISTER_SAVE_COMPONENT(PhysicsJoint3DComponent);
         REGISTER_SAVE_COMPONENT(VehicleComponent);
+        REGISTER_SAVE_COMPONENT(BoatComponent);
+        REGISTER_SAVE_COMPONENT(AircraftComponent);
         REGISTER_SAVE_COMPONENT(RagdollComponent);
         REGISTER_SAVE_COMPONENT(ClothComponent);
         REGISTER_SAVE_COMPONENT(TextComponent);

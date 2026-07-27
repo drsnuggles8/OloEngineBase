@@ -8,6 +8,60 @@
 //
 // #include'd where `out` (std::ostream&) and `entity` (Entity) are in scope.
 
+if (entity.HasComponent<AircraftComponent>())
+{
+    SceneBinIO::WriteU32(out, 436629486u); // AircraftComponent
+    auto const& comp = entity.GetComponent<AircraftComponent>();
+    SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_MaxThrust);
+    SceneBinIO::Write(out, comp.m_WingArea);
+    SceneBinIO::Write(out, comp.m_AirDensity);
+    SceneBinIO::Write(out, comp.m_LiftSlope);
+    SceneBinIO::Write(out, comp.m_ZeroLiftCoefficient);
+    SceneBinIO::Write(out, comp.m_StallAngleDeg);
+    SceneBinIO::Write(out, comp.m_DragCoefficient);
+    SceneBinIO::Write(out, comp.m_InducedDragFactor);
+    SceneBinIO::Write(out, comp.m_PitchTorque);
+    SceneBinIO::Write(out, comp.m_RollTorque);
+    SceneBinIO::Write(out, comp.m_YawTorque);
+    SceneBinIO::Write(out, comp.m_ControlAuthoritySpeed);
+    SceneBinIO::Write(out, comp.m_PitchDamping);
+    SceneBinIO::Write(out, comp.m_RollDamping);
+    SceneBinIO::Write(out, comp.m_YawDamping);
+    SceneBinIO::Write(out, comp.m_WeathervaneStrength);
+    SceneBinIO::Write(out, comp.m_HasLandingGear);
+    SceneBinIO::Write(out, comp.m_MainGearOffsetZ);
+    SceneBinIO::Write(out, comp.m_MainGearHalfTrack);
+    SceneBinIO::Write(out, comp.m_NoseGearOffsetZ);
+    SceneBinIO::Write(out, comp.m_GearLength);
+    SceneBinIO::Write(out, comp.m_GearStiffness);
+    SceneBinIO::Write(out, comp.m_GearDamping);
+    SceneBinIO::Write(out, comp.m_GearRollingResistance);
+    SceneBinIO::Write(out, comp.m_GearLateralGrip);
+    SceneBinIO::Write(out, comp.m_ThrottleInput);
+    SceneBinIO::Write(out, comp.m_PitchInput);
+    SceneBinIO::Write(out, comp.m_RollInput);
+    SceneBinIO::Write(out, comp.m_YawInput);
+}
+
+if (entity.HasComponent<BoatComponent>())
+{
+    SceneBinIO::WriteU32(out, 2678681430u); // BoatComponent
+    auto const& comp = entity.GetComponent<BoatComponent>();
+    SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_MaxThrust);
+    SceneBinIO::Write(out, comp.m_ThrustOffsetZ);
+    SceneBinIO::Write(out, comp.m_ThrustOffsetY);
+    SceneBinIO::Write(out, comp.m_MaxRudderTorque);
+    SceneBinIO::Write(out, comp.m_RudderAuthoritySpeed);
+    SceneBinIO::Write(out, comp.m_LateralDrag);
+    SceneBinIO::Write(out, comp.m_ForwardDrag);
+    SceneBinIO::Write(out, comp.m_YawDrag);
+    SceneBinIO::Write(out, comp.m_ImmersionDepth);
+    SceneBinIO::Write(out, comp.m_ThrottleInput);
+    SceneBinIO::Write(out, comp.m_SteerInput);
+}
+
 if (entity.HasComponent<BuoyancyComponent>())
 {
     SceneBinIO::WriteU32(out, 4273541646u); // BuoyancyComponent
@@ -618,6 +672,34 @@ if (entity.HasComponent<UIWorldAnchorComponent>())
     auto const& comp = entity.GetComponent<UIWorldAnchorComponent>();
     SceneBinIO::Write(out, comp.m_TargetEntity);
     SceneBinIO::Write(out, comp.m_WorldOffset);
+}
+
+if (entity.HasComponent<VehicleComponent>())
+{
+    SceneBinIO::WriteU32(out, 371155434u); // VehicleComponent
+    auto const& comp = entity.GetComponent<VehicleComponent>();
+    SceneBinIO::Write(out, comp.m_HalfTrackWidth);
+    SceneBinIO::Write(out, comp.m_FrontAxleOffset);
+    SceneBinIO::Write(out, comp.m_RearAxleOffset);
+    SceneBinIO::Write(out, comp.m_WheelAttachmentHeight);
+    SceneBinIO::Write(out, comp.m_WheelRadius);
+    SceneBinIO::Write(out, comp.m_WheelWidth);
+    SceneBinIO::Write(out, comp.m_SuspensionMinLength);
+    SceneBinIO::Write(out, comp.m_SuspensionMaxLength);
+    SceneBinIO::Write(out, comp.m_SuspensionFrequency);
+    SceneBinIO::Write(out, comp.m_SuspensionDamping);
+    SceneBinIO::Write(out, comp.m_MaxEngineTorque);
+    SceneBinIO::Write(out, comp.m_MaxSteerAngleDeg);
+    SceneBinIO::Write(out, comp.m_MaxBrakeTorque);
+    SceneBinIO::Write(out, comp.m_DriveMode);
+    SceneBinIO::Write(out, comp.m_FrontTorqueSplit);
+    SceneBinIO::Write(out, comp.m_LeftRightSplit);
+    SceneBinIO::Write(out, comp.m_LimitedSlipRatio);
+    SceneBinIO::Write(out, comp.m_CenterLimitedSlipRatio);
+    SceneBinIO::Write(out, comp.m_DifferentialRatio);
+    SceneBinIO::Write(out, comp.m_ThrottleInput);
+    SceneBinIO::Write(out, comp.m_SteerInput);
+    SceneBinIO::Write(out, comp.m_BrakeInput);
 }
 
 if (entity.HasComponent<VirtualMeshComponent>())

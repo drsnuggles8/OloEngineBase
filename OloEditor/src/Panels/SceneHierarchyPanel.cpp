@@ -1852,6 +1852,10 @@ namespace OloEngine
             DisplayAddComponentEntry<PhysicsJoint3DComponent>("Physics Joint 3D");
             DisplayAddComponentEntry<RagdollComponent>("Ragdoll");
             DisplayAddComponentEntry<ClothComponent>("Cloth");
+            // Force-model vehicles (issue #438). Both need a dynamic Rigidbody 3D;
+            // Boat additionally wants a Buoyancy component and a Water surface.
+            DisplayAddComponentEntry<BoatComponent>("Boat");
+            DisplayAddComponentEntry<AircraftComponent>("Aircraft");
 
             ImGui::Separator();
 
@@ -3787,7 +3791,17 @@ namespace OloEngine
             ImGui::DragFloat("Linear Drag##Rigidbody3D", &component.m_LinearDrag, 0.001f, 0.0f, 1.0f);
             ImGui::DragFloat("Angular Drag##Rigidbody3D", &component.m_AngularDrag, 0.001f, 0.0f, 1.0f);
             ImGui::Checkbox("Disable Gravity##Rigidbody3D", &component.m_DisableGravity);
-            ImGui::Checkbox("Is Trigger##Rigidbody3D", &component.m_IsTrigger); });
+            ImGui::Checkbox("Is Trigger##Rigidbody3D", &component.m_IsTrigger);
+
+            // Applied once, at body creation (JoltBody::SetupCreatedBody), so these
+            // are how a SCENE authors a body that is already moving when Play starts
+            // — an aircraft in cruise, a car rolling into a test section. Now
+            // serialized (issue #438 follow-up); they used to be runtime-only.
+            ImGui::SeparatorText("Initial State (applied on Play)");
+            DrawVec3Control("Initial Linear Velocity##Rigidbody3D", component.m_InitialLinearVelocity);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("World-space m/s given to the body the moment it is created. Leave at zero for a body that starts at rest.");
+            DrawVec3Control("Initial Angular Velocity##Rigidbody3D", component.m_InitialAngularVelocity); });
 
         DrawComponent<BoxCollider3DComponent>("Box Collider 3D", entity, [](auto& component)
                                               {
@@ -6220,6 +6234,121 @@ namespace OloEngine
                 ImGui::DragFloat("Angular Drag", &component.m_AngularDrag, 0.01f, 0.0f, 1000.0f, "%.2f");
 
                 ImGui::TextDisabled("Needs a dynamic Rigidbody 3D over a Water surface."); });
+
+        // Boat (issue #438) — the horizontal half of a boat; Buoyancy owns the
+        // vertical one, hence the "pair me with Buoyancy" hint at the bottom.
+        DrawComponent<BoatComponent>("Boat", entity, [](auto& component)
+                                     {
+                ImGui::Checkbox("Enabled", &component.m_Enabled);
+
+                ImGui::SeparatorText("Propulsion");
+                ImGui::DragFloat("Max Thrust", &component.m_MaxThrust, 50.0f, 0.0f, 1.0e9f, "%.0f N");
+                ImGui::DragFloat("Drive Offset Z", &component.m_ThrustOffsetZ, 0.05f, -1000.0f, 1000.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Where the propeller pushes, along the hull's local Z. Negative = astern (a stern drive).");
+                ImGui::DragFloat("Drive Offset Y", &component.m_ThrustOffsetY, 0.05f, -1000.0f, 1000.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Drive depth below the hull origin. Also the fallback keel depth when there is no Buoyancy component.");
+
+                ImGui::SeparatorText("Rudder");
+                ImGui::DragFloat("Max Rudder Torque", &component.m_MaxRudderTorque, 100.0f, 0.0f, 1.0e9f, "%.0f N.m");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Absolute torque, so the turn rate falls off with hull inertia - scale it with the boat.");
+                ImGui::DragFloat("Rudder Authority Speed", &component.m_RudderAuthoritySpeed, 0.1f, 0.01f, 1000.0f, "%.2f m/s");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Forward speed for full rudder authority. Below it the rudder is proportionally weaker; astern it reverses.");
+
+                ImGui::SeparatorText("Hull");
+                ImGui::DragFloat("Lateral Drag", &component.m_LateralDrag, 0.05f, 0.0f, 1000.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Keel resistance to sideways slip - this is what makes the hull TRACK through a turn.");
+                ImGui::DragFloat("Forward Drag", &component.m_ForwardDrag, 0.01f, 0.0f, 1000.0f, "%.2f");
+                ImGui::DragFloat("Yaw Drag", &component.m_YawDrag, 0.05f, 0.0f, 1000.0f, "%.2f");
+                ImGui::DragFloat("Immersion Depth", &component.m_ImmersionDepth, 0.01f, 0.001f, 100.0f, "%.3f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Metres of water over a point before it counts as fully immersed. Smooths thrust/drag across wave crests.");
+
+                ImGui::SeparatorText("Driver Input");
+                ImGui::SliderFloat("Throttle", &component.m_ThrottleInput, -1.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Steer", &component.m_SteerInput, -1.0f, 1.0f, "%.2f");
+
+                ImGui::TextDisabled("Needs a dynamic Rigidbody 3D over a Water surface.");
+                ImGui::TextDisabled("Pair with Buoyancy - that owns floating; this owns driving."); });
+
+        // Aircraft (issue #438) — a force-based fixed-wing flight model.
+        DrawComponent<AircraftComponent>("Aircraft", entity, [](auto& component)
+                                         {
+                ImGui::Checkbox("Enabled", &component.m_Enabled);
+
+                ImGui::SeparatorText("Propulsion");
+                ImGui::DragFloat("Max Thrust", &component.m_MaxThrust, 50.0f, 0.0f, 1.0e9f, "%.0f N");
+
+                ImGui::SeparatorText("Wing");
+                ImGui::DragFloat("Wing Area", &component.m_WingArea, 0.1f, 0.01f, 10000.0f, "%.2f m2");
+                ImGui::DragFloat("Air Density", &component.m_AirDensity, 0.01f, 0.0f, 100.0f, "%.3f kg/m3");
+                ImGui::DragFloat("Lift Slope", &component.m_LiftSlope, 0.05f, 0.0f, 100.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("dCl/dAlpha per RADIAN. Thin-airfoil theory gives 2*pi (~6.28); real finite wings sit below it.");
+                ImGui::DragFloat("Zero-Lift Cl", &component.m_ZeroLiftCoefficient, 0.01f, -10.0f, 10.0f, "%.3f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Lift coefficient at zero angle of attack (camber). Sets the hands-off trim speed: v = sqrt(2*m*g / (rho*A*Cl0)).");
+                ImGui::DragFloat("Stall Angle", &component.m_StallAngleDeg, 0.5f, 0.1f, 90.0f, "%.1f deg");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Past this, lift falls off linearly to zero over the same angle again.");
+
+                ImGui::SeparatorText("Drag");
+                ImGui::DragFloat("Parasitic Cd0", &component.m_DragCoefficient, 0.001f, 0.0f, 100.0f, "%.4f");
+                ImGui::DragFloat("Induced Drag k", &component.m_InducedDragFactor, 0.001f, 0.0f, 100.0f, "%.4f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Cd = Cd0 + k * Cl^2 - the price of lift, and why a hard turn bleeds speed.");
+
+                ImGui::SeparatorText("Control Surfaces");
+                ImGui::DragFloat("Pitch Torque", &component.m_PitchTorque, 100.0f, 0.0f, 1.0e9f, "%.0f N.m");
+                ImGui::DragFloat("Roll Torque", &component.m_RollTorque, 100.0f, 0.0f, 1.0e9f, "%.0f N.m");
+                ImGui::DragFloat("Yaw Torque", &component.m_YawTorque, 100.0f, 0.0f, 1.0e9f, "%.0f N.m");
+                ImGui::DragFloat("Control Authority Speed", &component.m_ControlAuthoritySpeed, 1.0f, 0.01f, 10000.0f, "%.1f m/s");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Airspeed for full control authority. Below it the controls go slack, as they do in reality.");
+
+                ImGui::SeparatorText("Stability");
+                ImGui::DragFloat("Pitch Damping", &component.m_PitchDamping, 0.1f, 0.0f, 1000.0f, "%.2f");
+                ImGui::DragFloat("Roll Damping", &component.m_RollDamping, 0.1f, 0.0f, 1000.0f, "%.2f");
+                ImGui::DragFloat("Yaw Damping", &component.m_YawDamping, 0.1f, 0.0f, 1000.0f, "%.2f");
+                ImGui::DragFloat("Weathervane", &component.m_WeathervaneStrength, 0.05f, 0.0f, 1000.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Static stability: the tail pulling the nose onto the relative wind. Damping alone only SLOWS a divergence - this is what returns the aircraft to trim. 0 = must be flown continuously.");
+
+                ImGui::SeparatorText("Landing Gear");
+                ImGui::Checkbox("Has Landing Gear", &component.m_HasLandingGear);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Off = an air-only airframe (the fuselage collider is what touches the ground, and it cannot rotate for takeoff). On = three sprung ray-cast legs the aircraft pivots about.");
+                if (component.m_HasLandingGear)
+                {
+                    ImGui::DragFloat("Main Gear Z", &component.m_MainGearOffsetZ, 0.05f, -1000.0f, 1000.0f, "%.2f");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Local Z of the main gear - keep it just BEHIND the centre of mass (a small negative). This is the pivot the elevator rotates the aircraft about, so the shorter the arm the easier it rotates.");
+                    ImGui::DragFloat("Main Gear Half-Track", &component.m_MainGearHalfTrack, 0.05f, 0.01f, 1000.0f, "%.2f");
+                    ImGui::DragFloat("Nose Gear Z", &component.m_NoseGearOffsetZ, 0.05f, -1000.0f, 1000.0f, "%.2f");
+                    ImGui::DragFloat("Gear Length", &component.m_GearLength, 0.05f, 0.01f, 100.0f, "%.2f");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("How far below the origin the wheels reach. Must exceed the fuselage collider's half-height or the belly grounds out and the gear never takes the load.");
+                    ImGui::DragFloat("Gear Stiffness", &component.m_GearStiffness, 0.2f, 0.0f, 1000.0f, "%.2f");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Spring rate as a multiple of the aircraft's own weight per metre of compression - airframe-independent, so it does not need re-tuning per mass.");
+                    ImGui::SliderFloat("Gear Damping", &component.m_GearDamping, 0.0f, 1.0f, "%.2f");
+                    ImGui::DragFloat("Rolling Resistance", &component.m_GearRollingResistance, 0.01f, 0.0f, 1000.0f, "%.3f");
+                    ImGui::DragFloat("Lateral Grip", &component.m_GearLateralGrip, 0.1f, 0.0f, 1000.0f, "%.2f");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Tyre sideways grip - what keeps the aircraft tracking down the runway centreline instead of sliding off it.");
+                }
+
+                ImGui::SeparatorText("Pilot Input");
+                ImGui::SliderFloat("Throttle", &component.m_ThrottleInput, 0.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Pitch", &component.m_PitchInput, -1.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Roll", &component.m_RollInput, -1.0f, 1.0f, "%.2f");
+                ImGui::SliderFloat("Yaw", &component.m_YawInput, -1.0f, 1.0f, "%.2f");
+
+                ImGui::TextDisabled("Needs a dynamic Rigidbody 3D. Local +Z is the nose, +Y up."); });
 
         DrawComponent<SnowDeformerComponent>("Snow Deformer", entity, [](auto& component)
                                              {

@@ -2849,6 +2849,301 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // VehicleComponent — issue #438 both ADDED the drive-mode/differential
+    // fields and MIGRATED the whole component off its hand-written serializer
+    // onto the generated one (OLO_SERIALIZE(Skip) for the runtime token, a
+    // per-field OLO_SERIALIZE(Clamp, ...) for each authored float). This
+    // round-trip is what pins that migration: an emitted key the generator
+    // spells differently, or a Clamp range narrower than the value being
+    // authored, would silently rewrite a designer's tuning on the next load.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, VehicleComponentSurvivesYAMLRoundTrip)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& v = entity.AddComponent<VehicleComponent>();
+            v.m_HalfTrackWidth = 1.15f;
+            v.m_FrontAxleOffset = 1.45f;
+            v.m_RearAxleOffset = 1.65f;
+            v.m_WheelAttachmentHeight = -0.55f;
+            v.m_WheelRadius = 0.42f;
+            v.m_WheelWidth = 0.31f;
+            v.m_SuspensionMinLength = 0.22f;
+            v.m_SuspensionMaxLength = 0.62f;
+            v.m_SuspensionFrequency = 2.1f;
+            v.m_SuspensionDamping = 0.72f;
+            v.m_MaxEngineTorque = 655.0f;
+            v.m_MaxSteerAngleDeg = 35.0f;
+            v.m_MaxBrakeTorque = 1850.0f;
+            v.m_DriveMode = VehicleDriveMode::AllWheelDrive;
+            v.m_FrontTorqueSplit = 0.35f;
+            v.m_LeftRightSplit = 0.45f;
+            v.m_LimitedSlipRatio = 2.2f;
+            v.m_CenterLimitedSlipRatio = 3.1f;
+            v.m_DifferentialRatio = 4.11f;
+            v.m_ThrottleInput = 0.5f;
+            v.m_SteerInput = -0.25f;
+            v.m_BrakeInput = 0.1f;
+            // Runtime-only: OLO_SERIALIZE(Skip) must keep this OFF disk, so it
+            // has to come back as 0 no matter what it held at save time.
+            v.m_RuntimeVehicleToken = 12345u;
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty());
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<VehicleComponent>());
+
+        const auto& v = restored.GetComponent<VehicleComponent>();
+        EXPECT_NEAR(v.m_HalfTrackWidth, 1.15f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_FrontAxleOffset, 1.45f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_RearAxleOffset, 1.65f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_WheelAttachmentHeight, -0.55f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_WheelRadius, 0.42f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_WheelWidth, 0.31f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_SuspensionMinLength, 0.22f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_SuspensionMaxLength, 0.62f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_SuspensionFrequency, 2.1f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_SuspensionDamping, 0.72f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_MaxEngineTorque, 655.0f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_MaxSteerAngleDeg, 35.0f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_MaxBrakeTorque, 1850.0f, kFloatEpsilon);
+        EXPECT_EQ(v.m_DriveMode, VehicleDriveMode::AllWheelDrive);
+        EXPECT_NEAR(v.m_FrontTorqueSplit, 0.35f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_LeftRightSplit, 0.45f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_LimitedSlipRatio, 2.2f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_CenterLimitedSlipRatio, 3.1f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_DifferentialRatio, 4.11f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_ThrottleInput, 0.5f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_SteerInput, -0.25f, kFloatEpsilon);
+        EXPECT_NEAR(v.m_BrakeInput, 0.1f, kFloatEpsilon);
+        EXPECT_EQ(v.m_RuntimeVehicleToken, 0u)
+            << "the runtime Jolt token was persisted despite OLO_SERIALIZE(Skip)";
+    }
+
+    // -------------------------------------------------------------------------
+    // Rigidbody3DComponent's INITIAL velocities (issue #438 follow-up). These are
+    // applied once, at body creation, and were previously runtime-only — so a
+    // scene could not author a body that is already moving when Play starts, and
+    // "an aircraft in cruise" was simply unexpressible. They are now serialized.
+    //
+    // The round-trip matters more than usual here because the field is write-once:
+    // if it silently reverted to zero on load, everything would still simulate
+    // perfectly well — the vehicle would just start from a standstill, which reads
+    // as a design choice rather than a dropped field.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, Rigidbody3DInitialVelocitiesSurviveYAMLRoundTrip)
+    {
+        const glm::vec3 expectedLinear{ 12.5f, -3.25f, 71.0f };
+        const glm::vec3 expectedAngular{ 0.25f, -1.5f, 0.75f };
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& rb = entity.AddComponent<Rigidbody3DComponent>();
+            rb.m_Type = BodyType3D::Dynamic;
+            rb.m_InitialLinearVelocity = expectedLinear;
+            rb.m_InitialAngularVelocity = expectedAngular;
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty());
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<Rigidbody3DComponent>());
+
+        const auto& rb = restored.GetComponent<Rigidbody3DComponent>();
+        EXPECT_NEAR(rb.m_InitialLinearVelocity.x, expectedLinear.x, kFloatEpsilon);
+        EXPECT_NEAR(rb.m_InitialLinearVelocity.y, expectedLinear.y, kFloatEpsilon);
+        EXPECT_NEAR(rb.m_InitialLinearVelocity.z, expectedLinear.z, kFloatEpsilon);
+        EXPECT_NEAR(rb.m_InitialAngularVelocity.x, expectedAngular.x, kFloatEpsilon);
+        EXPECT_NEAR(rb.m_InitialAngularVelocity.y, expectedAngular.y, kFloatEpsilon);
+        EXPECT_NEAR(rb.m_InitialAngularVelocity.z, expectedAngular.z, kFloatEpsilon);
+    }
+
+    // -------------------------------------------------------------------------
+    // A scene written BEFORE the initial-velocity keys existed must still load,
+    // with the body simply starting at rest. This is the backward-compatibility
+    // half of the change above, and it is what makes adding the keys safe for
+    // every scene already on disk.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, Rigidbody3DWithoutInitialVelocityKeysLoadsAtRest)
+    {
+        // Hand-written YAML with the pre-#438 Rigidbody3DComponent key set only.
+        const std::string legacyYaml = R"(Scene: Legacy
+Entities:
+  - Entity: 1234567890123456789
+    TagComponent:
+      Tag: )" + std::string(kTestTag) + R"(
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 5
+      LinearDrag: 0.02
+      AngularDrag: 0.04
+      DisableGravity: false
+      IsTrigger: false
+)";
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(legacyYaml))
+            << "a scene predating the initial-velocity keys failed to load";
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<Rigidbody3DComponent>());
+
+        const auto& rb = restored.GetComponent<Rigidbody3DComponent>();
+        EXPECT_NEAR(rb.m_Mass, 5.0f, kFloatEpsilon) << "the rest of the block did not survive";
+        EXPECT_NEAR(glm::length(rb.m_InitialLinearVelocity), 0.0f, kFloatEpsilon)
+            << "a legacy scene picked up a non-zero initial velocity";
+        EXPECT_NEAR(glm::length(rb.m_InitialAngularVelocity), 0.0f, kFloatEpsilon);
+    }
+
+    // -------------------------------------------------------------------------
+    // BoatComponent (issue #438) — fully generated, so this round-trip is the
+    // guard that its authored hull tuning reaches disk and comes back. A boat
+    // whose thrust offsets or drag coefficients silently reverted to defaults
+    // on load would still float and still drive; only the handling would be
+    // wrong, which is exactly the kind of drift a round-trip test catches and
+    // a behavioural one does not.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, BoatComponentSurvivesYAMLRoundTrip)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& b = entity.AddComponent<BoatComponent>();
+            b.m_Enabled = false; // default is true
+            b.m_MaxThrust = 7500.0f;
+            b.m_ThrustOffsetZ = -3.25f;
+            b.m_ThrustOffsetY = -0.65f;
+            b.m_MaxRudderTorque = 12000.0f;
+            b.m_RudderAuthoritySpeed = 6.5f;
+            b.m_LateralDrag = 4.25f;
+            b.m_ForwardDrag = 0.45f;
+            b.m_YawDrag = 2.75f;
+            b.m_ImmersionDepth = 0.85f;
+            b.m_ThrottleInput = 0.5f;
+            b.m_SteerInput = -0.25f;
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty());
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<BoatComponent>());
+
+        const auto& b = restored.GetComponent<BoatComponent>();
+        EXPECT_FALSE(b.m_Enabled);
+        EXPECT_NEAR(b.m_MaxThrust, 7500.0f, kFloatEpsilon);
+        EXPECT_NEAR(b.m_ThrustOffsetZ, -3.25f, kFloatEpsilon);
+        EXPECT_NEAR(b.m_ThrustOffsetY, -0.65f, kFloatEpsilon);
+        EXPECT_NEAR(b.m_MaxRudderTorque, 12000.0f, kFloatEpsilon);
+        EXPECT_NEAR(b.m_RudderAuthoritySpeed, 6.5f, kFloatEpsilon);
+        EXPECT_NEAR(b.m_LateralDrag, 4.25f, kFloatEpsilon);
+        EXPECT_NEAR(b.m_ForwardDrag, 0.45f, kFloatEpsilon);
+        EXPECT_NEAR(b.m_YawDrag, 2.75f, kFloatEpsilon);
+        EXPECT_NEAR(b.m_ImmersionDepth, 0.85f, kFloatEpsilon);
+        EXPECT_NEAR(b.m_ThrottleInput, 0.5f, kFloatEpsilon);
+        EXPECT_NEAR(b.m_SteerInput, -0.25f, kFloatEpsilon);
+    }
+
+    // -------------------------------------------------------------------------
+    // AircraftComponent (issue #438) — same reasoning as the boat, with more at
+    // stake: the aerodynamic coefficients ARE the flight model, so a field that
+    // quietly reverted to its default on load would change how the aircraft
+    // flies without changing whether it flies.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, AircraftComponentSurvivesYAMLRoundTrip)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& a = entity.AddComponent<AircraftComponent>();
+            a.m_Enabled = false; // default is true
+            a.m_MaxThrust = 8200.0f;
+            a.m_WingArea = 22.5f;
+            a.m_AirDensity = 0.9f;
+            a.m_LiftSlope = 6.1f;
+            a.m_ZeroLiftCoefficient = 0.15f;
+            a.m_StallAngleDeg = 18.0f;
+            a.m_DragCoefficient = 0.045f;
+            a.m_InducedDragFactor = 0.07f;
+            a.m_PitchTorque = 26000.0f;
+            a.m_RollTorque = 31000.0f;
+            a.m_YawTorque = 13000.0f;
+            a.m_ControlAuthoritySpeed = 55.0f;
+            a.m_PitchDamping = 5.5f;
+            a.m_RollDamping = 3.5f;
+            a.m_YawDamping = 4.5f;
+            a.m_WeathervaneStrength = 2.25f;
+            a.m_ThrottleInput = 0.75f;
+            a.m_PitchInput = -0.4f;
+            a.m_RollInput = 0.6f;
+            a.m_YawInput = -0.2f;
+
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty());
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<AircraftComponent>());
+
+        const auto& a = restored.GetComponent<AircraftComponent>();
+        EXPECT_FALSE(a.m_Enabled);
+        EXPECT_NEAR(a.m_MaxThrust, 8200.0f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_WingArea, 22.5f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_AirDensity, 0.9f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_LiftSlope, 6.1f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_ZeroLiftCoefficient, 0.15f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_StallAngleDeg, 18.0f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_DragCoefficient, 0.045f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_InducedDragFactor, 0.07f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_PitchTorque, 26000.0f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_RollTorque, 31000.0f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_YawTorque, 13000.0f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_ControlAuthoritySpeed, 55.0f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_PitchDamping, 5.5f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_RollDamping, 3.5f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_YawDamping, 4.5f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_WeathervaneStrength, 2.25f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_ThrottleInput, 0.75f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_PitchInput, -0.4f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_RollInput, 0.6f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_YawInput, -0.2f, kFloatEpsilon);
+    }
+
+    // -------------------------------------------------------------------------
     // InstancedMeshComponent — each instance's Transform (16 floats) and Color
     // (4 floats) are serialized as flat float sequences. This flat-array path
     // was the only authored round-trip data with no direct coverage. A

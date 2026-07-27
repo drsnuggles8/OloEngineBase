@@ -4,8 +4,7 @@
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Physics3D/JoltBody.h"
 #include "OloEngine/Physics3D/Physics3DTypes.h"
-#include "OloEngine/Renderer/Ocean/OceanFFTField.h"
-#include "OloEngine/Renderer/WaterSurface.h"
+#include "OloEngine/Physics3D/WaterProbe.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
@@ -22,41 +21,6 @@ namespace OloEngine
     namespace
     {
         constexpr f32 kGravity = 9.81f; // matches WaterSurface / Water.glsl
-
-        // A pre-resolved water tile: wave params + the flat-plane footprint test
-        // (an XZ axis-aligned rectangle, mirroring Scene::GetWaterCameraFootprintGap).
-        struct WaterVolume
-        {
-            WaterSurface::Params m_Params;
-            glm::mat4 m_InvModel{ 1.0f };
-            f32 m_HalfX = 0.0f;
-            f32 m_HalfZ = 0.0f;
-            // When the tile renders the Tessendorf FFT ocean and its CPU proxy has
-            // been evaluated, sample that surface (the one actually rendered)
-            // instead of the analytic Gerstner field above. Null ⇒ Gerstner.
-            Ref<Ocean::OceanFFTField> m_OceanField;
-            f32 m_FFTHeightScale = 1.0f; ///< artist multiplier (WaterComponent::m_FFTHeightScale, u_FFTParams.z)
-        };
-
-        [[nodiscard("footprint test result must be used")]] bool IsOverFootprint(const WaterVolume& w, const glm::vec3& worldPos)
-        {
-            const glm::vec4 local = w.m_InvModel * glm::vec4(worldPos, 1.0f);
-            if (!std::isfinite(local.x) || !std::isfinite(local.z))
-                return false;
-            return local.x >= -w.m_HalfX && local.x <= w.m_HalfX && local.z >= -w.m_HalfZ && local.z <= w.m_HalfZ;
-        }
-
-        [[nodiscard("constructed water-surface params must be used")]] WaterSurface::Params MakeParams(const WaterComponent& wc, f32 planeHeight)
-        {
-            WaterSurface::Params p;
-            p.m_WaveDir0 = wc.PackWaveDir0();
-            p.m_WaveDir1 = wc.PackWaveDir1();
-            p.m_WaveFrequency = wc.m_WaveFrequency;
-            p.m_WaveAmplitude = wc.m_WaveAmplitude;
-            p.m_WaveSpeed = wc.m_WaveSpeed;
-            p.m_PlaneHeight = planeHeight;
-            return p;
-        }
 
         // The 8 corners of the buoyancy box (sign of each local half-extent axis).
         constexpr std::array<glm::vec3, 8> kCornerSigns = { {
@@ -83,51 +47,9 @@ namespace OloEngine
             return;
 
         // --- Resolve enabled water tiles up front (typically 0 or 1) ---
-        std::vector<WaterVolume> waters;
-        {
-            auto waterView = scene->GetAllEntitiesWith<TransformComponent, WaterComponent>();
-            for (auto e : waterView)
-            {
-                Entity waterEntity{ e, scene };
-                const auto& wc = waterEntity.GetComponent<WaterComponent>();
-                if (!wc.m_Enabled)
-                    continue;
-
-                const glm::mat4 model = waterEntity.GetComponent<TransformComponent>().GetTransform();
-                // The water grid is a horizontal XZ plane at local y = 0; its world
-                // height is the y of the tile origin (same assumption as the
-                // underwater-fog footprint test).
-                const glm::vec4 originWorld = model * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-                if (!std::isfinite(originWorld.y))
-                    continue;
-
-                const f32 safeSizeX = std::isfinite(wc.m_WorldSizeX) ? wc.m_WorldSizeX : 0.1f;
-                const f32 safeSizeZ = std::isfinite(wc.m_WorldSizeZ) ? wc.m_WorldSizeZ : 0.1f;
-
-                WaterVolume w;
-                w.m_Params = MakeParams(wc, originWorld.y);
-                w.m_InvModel = glm::inverse(model);
-                w.m_HalfX = std::clamp(safeSizeX, 0.1f, 10000.0f) * 0.5f;
-                w.m_HalfZ = std::clamp(safeSizeZ, 0.1f, 10000.0f) * 0.5f;
-
-                // FFT ocean (WATER §5.1): when the entity renders the Tessendorf
-                // spectral surface and its CPU proxy has been evaluated, the
-                // buoyant body should track *that* surface, not the Gerstner
-                // approximation. The proxy is produced by the renderer's water
-                // pass (Scene.cpp); fall back to Gerstner if it hasn't been built
-                // yet (e.g. headless physics with no render pass), so non-rendered
-                // scenes stay backward-compatible. Clamp the height scale through
-                // the shared helper the render path uses so buoyancy and the
-                // shader agree (single source of truth, can't drift).
-                if (wc.m_UseFFT && wc.m_OceanField && wc.m_OceanField->GetField().IsValid())
-                {
-                    w.m_OceanField = wc.m_OceanField;
-                    w.m_FFTHeightScale = WaterSurface::ClampFFTHeightScale(wc.m_FFTHeightScale);
-                }
-
-                waters.push_back(w);
-            }
-        }
+        // Shared with BoatSystem (WaterProbe, issue #438) so a hull floats on and
+        // a propeller pushes against the same surface.
+        const std::vector<WaterProbe::Volume> waters = WaterProbe::CollectEnabledVolumes(scene);
         if (waters.empty())
             return;
 
@@ -152,15 +74,7 @@ namespace OloEngine
                 continue;
 
             // Pick the first enabled water tile whose footprint the body sits over.
-            const WaterVolume* water = nullptr;
-            for (const auto& w : waters)
-            {
-                if (IsOverFootprint(w, bodyPos))
-                {
-                    water = &w;
-                    break;
-                }
-            }
+            const WaterProbe::Volume* water = WaterProbe::FindVolumeAt(waters, bodyPos);
             if (!water)
                 continue;
 
@@ -195,12 +109,7 @@ namespace OloEngine
                 // otherwise the analytic Gerstner field. Both read the column
                 // height above the probe's world XZ (the FFT path mirrors the
                 // shader's planeHeight + disp.y * heightScale).
-                const glm::vec2 probeXZ(probeWorld.x, probeWorld.z);
-                const f32 surfaceY =
-                    water->m_OceanField
-                        ? WaterSurface::SampleHeightFFT(*water->m_OceanField, probeXZ,
-                                                        water->m_Params.m_PlaneHeight, water->m_FFTHeightScale)
-                        : WaterSurface::SampleHeight(water->m_Params, probeXZ, rawTime);
+                const f32 surfaceY = WaterProbe::SampleSurfaceY(*water, glm::vec2(probeWorld.x, probeWorld.z), rawTime);
                 const f32 depth = surfaceY - probeWorld.y;
                 if (!(depth > 0.0f)) // dry (the negation also rejects NaN)
                     continue;

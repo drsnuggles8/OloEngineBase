@@ -15,11 +15,13 @@
 // save-games). Guarded by SaveGameComponentSerializerCoverageTest.
 
 TRY_LOAD_COMPONENT(AbilityComponent);
+TRY_LOAD_COMPONENT(AircraftComponent);
 TRY_LOAD_COMPONENT(AnimationGraphComponent);
 TRY_LOAD_COMPONENT(AnimationStateComponent);
 TRY_LOAD_COMPONENT(AudioListenerComponent);
 TRY_LOAD_COMPONENT(AudioSourceComponent);
 TRY_LOAD_COMPONENT(BehaviorTreeComponent);
+TRY_LOAD_COMPONENT(BoatComponent);
 TRY_LOAD_COMPONENT(BoxCollider2DComponent);
 TRY_LOAD_COMPONENT(BoxCollider3DComponent);
 TRY_LOAD_COMPONENT(BuoyancyComponent);

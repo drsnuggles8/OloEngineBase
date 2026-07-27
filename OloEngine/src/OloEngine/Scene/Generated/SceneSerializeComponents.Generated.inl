@@ -25,6 +25,64 @@
 // double-emit, so a new trivial component is auto-serialized and a new complex
 // one fails the coverage test until hand-written.
 
+if (entity.HasComponent<AircraftComponent>())
+{
+    out << YAML::Key << "AircraftComponent";
+    out << YAML::BeginMap; // AircraftComponent
+    auto const& comp = entity.GetComponent<AircraftComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::Key << "MaxThrust" << YAML::Value << comp.m_MaxThrust;
+    out << YAML::Key << "WingArea" << YAML::Value << comp.m_WingArea;
+    out << YAML::Key << "AirDensity" << YAML::Value << comp.m_AirDensity;
+    out << YAML::Key << "LiftSlope" << YAML::Value << comp.m_LiftSlope;
+    out << YAML::Key << "ZeroLiftCoefficient" << YAML::Value << comp.m_ZeroLiftCoefficient;
+    out << YAML::Key << "StallAngleDeg" << YAML::Value << comp.m_StallAngleDeg;
+    out << YAML::Key << "DragCoefficient" << YAML::Value << comp.m_DragCoefficient;
+    out << YAML::Key << "InducedDragFactor" << YAML::Value << comp.m_InducedDragFactor;
+    out << YAML::Key << "PitchTorque" << YAML::Value << comp.m_PitchTorque;
+    out << YAML::Key << "RollTorque" << YAML::Value << comp.m_RollTorque;
+    out << YAML::Key << "YawTorque" << YAML::Value << comp.m_YawTorque;
+    out << YAML::Key << "ControlAuthoritySpeed" << YAML::Value << comp.m_ControlAuthoritySpeed;
+    out << YAML::Key << "PitchDamping" << YAML::Value << comp.m_PitchDamping;
+    out << YAML::Key << "RollDamping" << YAML::Value << comp.m_RollDamping;
+    out << YAML::Key << "YawDamping" << YAML::Value << comp.m_YawDamping;
+    out << YAML::Key << "WeathervaneStrength" << YAML::Value << comp.m_WeathervaneStrength;
+    out << YAML::Key << "HasLandingGear" << YAML::Value << comp.m_HasLandingGear;
+    out << YAML::Key << "MainGearOffsetZ" << YAML::Value << comp.m_MainGearOffsetZ;
+    out << YAML::Key << "MainGearHalfTrack" << YAML::Value << comp.m_MainGearHalfTrack;
+    out << YAML::Key << "NoseGearOffsetZ" << YAML::Value << comp.m_NoseGearOffsetZ;
+    out << YAML::Key << "GearLength" << YAML::Value << comp.m_GearLength;
+    out << YAML::Key << "GearStiffness" << YAML::Value << comp.m_GearStiffness;
+    out << YAML::Key << "GearDamping" << YAML::Value << comp.m_GearDamping;
+    out << YAML::Key << "GearRollingResistance" << YAML::Value << comp.m_GearRollingResistance;
+    out << YAML::Key << "GearLateralGrip" << YAML::Value << comp.m_GearLateralGrip;
+    out << YAML::Key << "ThrottleInput" << YAML::Value << comp.m_ThrottleInput;
+    out << YAML::Key << "PitchInput" << YAML::Value << comp.m_PitchInput;
+    out << YAML::Key << "RollInput" << YAML::Value << comp.m_RollInput;
+    out << YAML::Key << "YawInput" << YAML::Value << comp.m_YawInput;
+    out << YAML::EndMap; // AircraftComponent
+}
+
+if (entity.HasComponent<BoatComponent>())
+{
+    out << YAML::Key << "BoatComponent";
+    out << YAML::BeginMap; // BoatComponent
+    auto const& comp = entity.GetComponent<BoatComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::Key << "MaxThrust" << YAML::Value << comp.m_MaxThrust;
+    out << YAML::Key << "ThrustOffsetZ" << YAML::Value << comp.m_ThrustOffsetZ;
+    out << YAML::Key << "ThrustOffsetY" << YAML::Value << comp.m_ThrustOffsetY;
+    out << YAML::Key << "MaxRudderTorque" << YAML::Value << comp.m_MaxRudderTorque;
+    out << YAML::Key << "RudderAuthoritySpeed" << YAML::Value << comp.m_RudderAuthoritySpeed;
+    out << YAML::Key << "LateralDrag" << YAML::Value << comp.m_LateralDrag;
+    out << YAML::Key << "ForwardDrag" << YAML::Value << comp.m_ForwardDrag;
+    out << YAML::Key << "YawDrag" << YAML::Value << comp.m_YawDrag;
+    out << YAML::Key << "ImmersionDepth" << YAML::Value << comp.m_ImmersionDepth;
+    out << YAML::Key << "ThrottleInput" << YAML::Value << comp.m_ThrottleInput;
+    out << YAML::Key << "SteerInput" << YAML::Value << comp.m_SteerInput;
+    out << YAML::EndMap; // BoatComponent
+}
+
 if (entity.HasComponent<BuoyancyComponent>())
 {
     out << YAML::Key << "BuoyancyComponent";
@@ -718,6 +776,36 @@ if (entity.HasComponent<UIWorldAnchorComponent>())
     out << YAML::Key << "TargetEntity" << YAML::Value << static_cast<u64>(comp.m_TargetEntity);
     out << YAML::Key << "WorldOffset" << YAML::Value << comp.m_WorldOffset;
     out << YAML::EndMap; // UIWorldAnchorComponent
+}
+
+if (entity.HasComponent<VehicleComponent>())
+{
+    out << YAML::Key << "VehicleComponent";
+    out << YAML::BeginMap; // VehicleComponent
+    auto const& comp = entity.GetComponent<VehicleComponent>();
+    out << YAML::Key << "HalfTrackWidth" << YAML::Value << comp.m_HalfTrackWidth;
+    out << YAML::Key << "FrontAxleOffset" << YAML::Value << comp.m_FrontAxleOffset;
+    out << YAML::Key << "RearAxleOffset" << YAML::Value << comp.m_RearAxleOffset;
+    out << YAML::Key << "WheelAttachmentHeight" << YAML::Value << comp.m_WheelAttachmentHeight;
+    out << YAML::Key << "WheelRadius" << YAML::Value << comp.m_WheelRadius;
+    out << YAML::Key << "WheelWidth" << YAML::Value << comp.m_WheelWidth;
+    out << YAML::Key << "SuspensionMinLength" << YAML::Value << comp.m_SuspensionMinLength;
+    out << YAML::Key << "SuspensionMaxLength" << YAML::Value << comp.m_SuspensionMaxLength;
+    out << YAML::Key << "SuspensionFrequency" << YAML::Value << comp.m_SuspensionFrequency;
+    out << YAML::Key << "SuspensionDamping" << YAML::Value << comp.m_SuspensionDamping;
+    out << YAML::Key << "MaxEngineTorque" << YAML::Value << comp.m_MaxEngineTorque;
+    out << YAML::Key << "MaxSteerAngleDeg" << YAML::Value << comp.m_MaxSteerAngleDeg;
+    out << YAML::Key << "MaxBrakeTorque" << YAML::Value << comp.m_MaxBrakeTorque;
+    out << YAML::Key << "DriveMode" << YAML::Value << static_cast<int>(comp.m_DriveMode);
+    out << YAML::Key << "FrontTorqueSplit" << YAML::Value << comp.m_FrontTorqueSplit;
+    out << YAML::Key << "LeftRightSplit" << YAML::Value << comp.m_LeftRightSplit;
+    out << YAML::Key << "LimitedSlipRatio" << YAML::Value << comp.m_LimitedSlipRatio;
+    out << YAML::Key << "CenterLimitedSlipRatio" << YAML::Value << comp.m_CenterLimitedSlipRatio;
+    out << YAML::Key << "DifferentialRatio" << YAML::Value << comp.m_DifferentialRatio;
+    out << YAML::Key << "ThrottleInput" << YAML::Value << comp.m_ThrottleInput;
+    out << YAML::Key << "SteerInput" << YAML::Value << comp.m_SteerInput;
+    out << YAML::Key << "BrakeInput" << YAML::Value << comp.m_BrakeInput;
+    out << YAML::EndMap; // VehicleComponent
 }
 
 if (entity.HasComponent<VirtualMeshComponent>())

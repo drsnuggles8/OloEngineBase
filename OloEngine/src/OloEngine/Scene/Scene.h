@@ -118,6 +118,17 @@ namespace OloEngine
             return m_SimulationTick;
         }
 
+        // Deterministic simulation clock (seconds since OnRuntimeStart), advanced
+        // by exactly one timestep per gameplay tick. This — NOT wall-clock
+        // Time::GetTime — is the phase every time-driven physics system samples
+        // the water surface with, so floating/driven bodies are reproducible
+        // across frame pacings and rollback re-sim (issue #452). Exposed for the
+        // scheduler-registered force systems (Boat) that need the wave clock.
+        [[nodiscard("Store this!")]] f32 GetSimulationTime() const
+        {
+            return m_SimulationTime;
+        }
+
         // ── Render interpolation (issue #502) ───────────────────────────────
         // Decouples the display rate from the fixed simulation tick. When
         // enabled, OnUpdateRuntimeFixed keeps the two most recent fixed-tick
