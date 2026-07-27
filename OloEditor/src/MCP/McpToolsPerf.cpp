@@ -362,6 +362,9 @@ namespace OloEngine::MCP
             tool.Name = "olo_memory_report";
             tool.Toolset = "perf";
             tool.Title = "Renderer memory report";
+            // The per-resource-type breakdown is the editor's own memory table —
+            // a human reads it as rows, not as JSON.
+            tool.DualAudienceContent = true;
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Renderer GPU/CPU memory usage: total bytes/MB, a per-resource-type breakdown (vertex/index/"
@@ -389,6 +392,9 @@ namespace OloEngine::MCP
             tool.Name = "olo_perf_snapshot";
             tool.Toolset = "perf";
             tool.Title = "Performance snapshot";
+            // ~18 frame counters: a human scans them as an aligned table, the
+            // model wants the object.
+            tool.DualAudienceContent = true;
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Current-frame renderer performance: fps, frame/CPU/GPU time (ms), draw calls, instanced "
@@ -515,6 +521,8 @@ namespace OloEngine::MCP
             tool.Name = "olo_perf_pass_timings";
             tool.Toolset = "perf";
             tool.Title = "Per-pass GPU timings";
+            // A per-pass gpuMs/cpuMs table is THE "where did the frame go" read.
+            tool.DualAudienceContent = true;
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Whole-frame GPU time split by render-graph pass (Shadow vs Scene vs GTAO vs Bloom vs "
@@ -558,6 +566,9 @@ namespace OloEngine::MCP
             tool.Name = "olo_perf_cpu_scopes";
             tool.Toolset = "perf";
             tool.Title = "Per-scope CPU timings";
+            // Literally the editor's PerformanceLayer CPU Scopes table — the
+            // strongest possible evidence a human wants it back as a table.
+            tool.DualAudienceContent = true;
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Per-scope CPU time from PerformanceProfiler — every system in Scene.cpp (and other "

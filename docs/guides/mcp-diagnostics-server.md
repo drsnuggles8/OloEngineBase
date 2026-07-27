@@ -178,6 +178,10 @@ deliberate: `olo_log_tail` returns raw log lines (free text an `outputSchema` ca
 constrain), and the `format:"markdown"`/`"mermaid"` paths of the dual-format tools stay
 text-only (their schemas describe the json format).
 
+Eleven table-shaped tools additionally return **audience-tagged content blocks** — see
+[Audience-tagged content blocks](#audience-tagged-content-blocks-673-tier-2) for the list
+and for what to do when adding a tool.
+
 | Tool | What it returns |
 |---|---|
 | `olo_log_tail` | recent engine log lines, filterable by `minLevel` and `tag` |
@@ -1484,6 +1488,61 @@ so keep a write-tier tool's description honest about what it changes.
   `capabilities.resources.listChanged` is `true`, and every publish/eviction emits
   `notifications/resources/list_changed` on the live SSE stream, so re-list after it.
   Inline base64 stays the default — opt into links for high-res captures.
+
+### Audience-tagged content blocks (#673 Tier 2)
+
+MCP 2025-06-18 lets each **content block** carry
+`annotations: { audience: ["user"|"assistant"], priority: <0..1> }`. A client that honours
+them shows each side only what it asked for; one that ignores them shows every block.
+
+For a table-shaped diagnostic that split is real, so those tools return their payload
+**twice** in one result:
+
+| block | `audience` | `priority` | content |
+|---|---|---|---|
+| `content[0]` | `["assistant"]` | 1.0 | the payload as **compact** JSON — same data as `structuredContent` |
+| `content[1]` | `["user"]` | 0.3 | a **Markdown report**: scalars as a `field`/`value` table, each array of objects as its own table |
+
+`structuredContent` is unchanged, so the `outputSchema` contract is identical — only the
+`content` array differs. `content[0]` is still the machine-readable JSON mirror, so a client
+that only reads the first block sees exactly what it used to. The mirror is emitted compact
+precisely because an annotation-blind client renders both: the pair then costs about what
+the single pretty-printed block did.
+
+The report is a **glanceable summary, not the archive** — tables cap at 24 rows, cells at 64
+characters, inline lists at 12 items, each stating what it elided. The full payload is always
+in the assistant block and in `structuredContent`. Path redaction, when enabled, scrubs both
+blocks identically.
+
+**Current adopters (11):** `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_pass_timings`,
+`olo_perf_cpu_scopes`, `olo_render_frame_breakdown`, `olo_render_graph_topology_export`,
+`olo_render_why_not_visible`, `olo_render_target_stats`, `olo_cluster_grid_stats`,
+`olo_shadow_atlas_layout`, `olo_physics_why_no_collision`.
+
+#### Adding a tool — which side of the line are you on?
+
+Set `tool.DualAudienceContent = true` at registration, next to `Title` / `OutputSchema` /
+`Annotations`; the handler stays a plain `ToolResult::Structured(...)` and the dispatcher does
+the re-shaping, headed by `Title`. That is the whole change.
+
+Opt in **only** when a human watching the session would genuinely read the payload
+differently from how the model parses it: the result is multi-field or tabular **and** it's
+something you'd stare at while debugging. For a one-scalar result, a status echo, or a
+payload that is already a sentence, the second rendering is pure noise — leave it false.
+Blanket adoption across the surface would be bloat, not spec parity.
+
+The re-shaping is guarded, so opting in never loses content: it fires only on a successful
+single-block typed result. A handler that returns free text (the `format:"mermaid"` path of
+`olo_render_graph_topology_export`), errors, or appends its own extra block (a
+`resource_link`) is passed through untouched.
+
+`McpAudienceBlocksTest.cpp` ratchets the adopter set **in both directions** — a new tool that
+opts in without being considered fails it, and an adopter that silently loses the flag fails
+it too. Update the expected list there deliberately, not to make the test pass.
+
+> Not to be confused with **tool-level** `ToolDef::Annotations` (`readOnlyHint`,
+> `openWorldHint`, …). Those annotate the tool *declaration* in `tools/list`; these annotate
+> content blocks inside a tool *result*. Different spec field, different object.
 
 ### Outbound MCP servers (stdio) — composing external tools in (issue #673 Tier 1)
 

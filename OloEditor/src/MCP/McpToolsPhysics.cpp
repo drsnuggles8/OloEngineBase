@@ -967,6 +967,9 @@ namespace OloEngine::MCP
             tool.Name = "olo_physics_why_no_collision";
             tool.Toolset = "physics";
             tool.Title = "Explain missing collision";
+            // An explainer's ordered check list is the one result a human reads
+            // end-to-end rather than greps.
+            tool.DualAudienceContent = true;
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Explain why two entities are NOT colliding — the 'player falls through the floor' debugger. "

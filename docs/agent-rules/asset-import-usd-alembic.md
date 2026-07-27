@@ -43,6 +43,44 @@ resolves USD one of two ways:
   `tbb12.lib`). First build ≈ 30–45 min + ~10 GB; later builds are machine-wide cache hits.
   **CI that doesn't need USD sets `-DOLO_WITH_USD=OFF`.**
 
+### The cache is shared across worktrees — the stamps are not (fixed; know the failure it caused)
+
+The cache holds the source/binary/install trees, but `ExternalProject`'s `STAMP_DIR` defaults to the
+**consuming** build tree. So a **second worktree** used to see no stamps, conclude every step was out
+of date, and re-run configure+build *inside the first worktree's* `usd-build` — which is not
+idempotent, because `BUILD_COMMAND` is `--config Release` **then** `--config Debug` in one binary dir.
+Re-entering a finished tree fails across USD's `arch` target with:
+
+```text
+error C2859: ...\arch.dir\Release\arch.pdb is not the pdb file that was used when this
+             precompiled header was created, recreate the precompiled header.
+```
+
+The artifacts were shared; the "already done" record was not. **Symptom to recognise:** a *fresh
+worktree* failing in `olo_openusd` while `install/{Debug,Release}` is demonstrably complete
+(`usd_m.lib` ≈ 2.4 GB Debug / 2.1 GB Release).
+
+`OpenUSD.cmake` now **short-circuits on a complete cache**: if `usd_m` + the config's oneTBB lib +
+`include/pxr` + the `lib/usd` plugInfo tree all exist for **both** configs, it skips
+`ExternalProject_Add` entirely (`olo_usd_ext` becomes a no-op) and consumes the cache as a prebuilt
+install — so no worktree after the first ever writes to the shared tree. A *partial* cache (an
+interrupted first build) fails the check and resumes the real build. Bumping `_OLO_USD_TAG` changes
+the cache key; to force a genuine rebuild, delete `$LOCALAPPDATA/OloEngine/usd-<sha8>`.
+
+Two things that follow:
+
+- **Moving `STAMP_DIR` into the cache would NOT have fixed this** — it only relocates the race to two
+  worktrees configuring for the first time simultaneously.
+- **Still unsafe: two worktrees running their FIRST USD build concurrently** (one shared binary dir).
+  Same rule as the msvc/clangcl trees in
+  [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) — sequence the first build; every
+  tree after it is a lock-free cache hit.
+
+`-DOLO_USD_INSTALL_DIR` expects a **flat** prefix and now **probes** for `tbb12` vs `tbb12_debug`
+rather than assuming release. It previously hardcoded `tbb12.lib`, so pointing it at a Debug prefix
+(e.g. one config of the cache above) configured cleanly and then failed at link on a missing lib —
+which made the documented escape hatch useless for exactly the Debug build that hit the C2859 above.
+
 **Do NOT vendor OpenUSD via FetchContent `add_subdirectory`.** USD's CMake is install-centric: the
 runtime `plugInfo.json` resource tree it needs to open *even a plain `.usda`* is produced by the
 **install step**, and its `pxr_*` macros pollute the parent project — hence ExternalProject

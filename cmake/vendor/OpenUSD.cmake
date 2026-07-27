@@ -33,14 +33,30 @@ set(_olo_tbb_rel_libfile "${CMAKE_STATIC_LIBRARY_PREFIX}tbb12${CMAKE_STATIC_LIBR
 set(_olo_tbb_dbg_libfile "${CMAKE_STATIC_LIBRARY_PREFIX}tbb12_debug${CMAKE_STATIC_LIBRARY_SUFFIX}")
 
 if(OLO_USD_INSTALL_DIR AND EXISTS "${OLO_USD_INSTALL_DIR}/include/pxr")
+    # A flat prefix carries exactly ONE oneTBB variant, and its name says which CRT it was
+    # built against: tbb12 (release) vs tbb12_debug. Probe rather than assume release — a
+    # Debug prefix (e.g. one config of the per-config cache below, handed in directly) has
+    # only tbb12_debug, so hardcoding tbb12 made the documented fast path unusable for a
+    # Debug build: it configured cleanly and then failed at link on a missing lib.
+    if(EXISTS "${OLO_USD_INSTALL_DIR}/lib/${_olo_tbb_rel_libfile}")
+        set(_olo_usd_prebuilt_tbb "${_olo_tbb_rel_libfile}")
+    elseif(EXISTS "${OLO_USD_INSTALL_DIR}/lib/${_olo_tbb_dbg_libfile}")
+        set(_olo_usd_prebuilt_tbb "${_olo_tbb_dbg_libfile}")
+    else()
+        message(FATAL_ERROR
+            "OLO_USD_INSTALL_DIR=${OLO_USD_INSTALL_DIR} has include/pxr but neither "
+            "lib/${_olo_tbb_rel_libfile} nor lib/${_olo_tbb_dbg_libfile} — it is not a complete "
+            "static USD + oneTBB prefix. Point at a full install or unset it to build from source.")
+    endif()
     set(OloEngine_USD_INCLUDE_DIR "${OLO_USD_INSTALL_DIR}/include"          CACHE INTERNAL "")
     set(OloEngine_USD_LIB_DIR     "${OLO_USD_INSTALL_DIR}/lib"              CACHE INTERNAL "")
-    set(OloEngine_USD_LIB         "${OLO_USD_INSTALL_DIR}/lib/${_olo_usd_libfile}"     CACHE INTERNAL "")
-    set(OloEngine_USD_TBB_LIB     "${OLO_USD_INSTALL_DIR}/lib/${_olo_tbb_rel_libfile}" CACHE INTERNAL "")
+    set(OloEngine_USD_LIB         "${OLO_USD_INSTALL_DIR}/lib/${_olo_usd_libfile}"      CACHE INTERNAL "")
+    set(OloEngine_USD_TBB_LIB     "${OLO_USD_INSTALL_DIR}/lib/${_olo_usd_prebuilt_tbb}" CACHE INTERNAL "")
     set(OloEngine_USD_PLUGIN_TREE "${OLO_USD_INSTALL_DIR}/lib/usd"          CACHE INTERNAL "")
     add_custom_target(olo_usd_ext)  # no-op; keeps the engine's add_dependencies() uniform
     message(STATUS "OLO_WITH_USD: using prebuilt OpenUSD install at ${OLO_USD_INSTALL_DIR} "
-                   "(flat single-config — ensure it matches your engine build's CRT/config)")
+                   "(flat single-config, oneTBB=${_olo_usd_prebuilt_tbb} — ensure it matches "
+                   "your engine build's CRT/config)")
     return()
 endif()
 
@@ -69,6 +85,50 @@ set(OloEngine_USD_TBB_LIB
     "$<IF:$<CONFIG:Debug>,${_olo_usd_install}/Debug/lib/${_olo_tbb_dbg_libfile},${_olo_usd_install}/Release/lib/${_olo_tbb_rel_libfile}>"
     CACHE INTERNAL "")
 set(OloEngine_USD_PLUGIN_TREE "${_olo_usd_install}/${_olo_usd_cfg}/lib/usd" CACHE INTERNAL "")
+
+# --- Cache hit: a COMPLETE install is already in the shared cache, so don't re-enter the build ---
+#
+# The cache holds the source/binary/install trees, but ExternalProject's STAMP_DIR defaults to
+# the CONSUMING build tree. A second worktree therefore has no stamps, concludes every step is
+# out of date, and re-runs configure+build inside the FIRST worktree's usd-build — which is not
+# idempotent: BUILD_COMMAND is `--config Release` then `--config Debug` in one binary dir, so
+# re-entering a finished tree hits `error C2859: ...arch.pdb is not the pdb file that was used
+# when this precompiled header was created` across USD's arch target. The artifacts were shared
+# but the "already done" record was not.
+#
+# Fixing it by moving STAMP_DIR into the cache would only relocate the problem (two worktrees
+# configuring for the first time would then race on the stamps). Instead: if every artifact the
+# engine actually consumes is present for BOTH configs, skip ExternalProject entirely and treat
+# the cache as a prebuilt install — the second and every later worktree then never writes to the
+# shared tree at all. Deliberately requires both configs and the plugInfo trees: a partial cache
+# (interrupted first build) falls through and resumes the real build.
+#
+# Bumping _OLO_USD_TAG changes the cache key, so a version bump invalidates this automatically;
+# to force a genuine rebuild, delete ${_olo_usd_cache}.
+#
+# Still NOT safe: two worktrees running their FIRST USD build concurrently — they share one
+# binary dir. Same rule as the msvc/clangcl trees (docs/agent-rules/build-trees-and-windows-asan.md):
+# sequence the first build, then every tree after it is a lock-free cache hit.
+set(_olo_usd_cache_complete TRUE)
+foreach(_olo_cfg Debug Release)
+    if(_olo_cfg STREQUAL "Debug")
+        set(_olo_cfg_tbb "${_olo_tbb_dbg_libfile}")
+    else()
+        set(_olo_cfg_tbb "${_olo_tbb_rel_libfile}")
+    endif()
+    if(NOT EXISTS "${_olo_usd_install}/${_olo_cfg}/lib/${_olo_usd_libfile}"
+       OR NOT EXISTS "${_olo_usd_install}/${_olo_cfg}/lib/${_olo_cfg_tbb}"
+       OR NOT EXISTS "${_olo_usd_install}/${_olo_cfg}/include/pxr"
+       OR NOT IS_DIRECTORY "${_olo_usd_install}/${_olo_cfg}/lib/usd")
+        set(_olo_usd_cache_complete FALSE)
+    endif()
+endforeach()
+if(_olo_usd_cache_complete)
+    add_custom_target(olo_usd_ext)  # no-op; keeps the engine's add_dependencies() uniform
+    message(STATUS "OLO_WITH_USD: reusing the complete OpenUSD cache at ${_olo_usd_install} "
+                   "(Debug + Release) — no build step. Delete ${_olo_usd_cache} to force a rebuild.")
+    return()
+endif()
 
 # Build+install BOTH configs. The VS generator is multi-config, so one configured tree compiles
 # either config; the Release compile is reused incrementally across the two build steps.

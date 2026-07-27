@@ -4229,6 +4229,8 @@ namespace OloEngine::MCP
             tool.Name = "olo_render_frame_breakdown";
             tool.Toolset = "render";
             tool.Title = "Frame command breakdown";
+            // The command list + per-pass breakdown are tables a human reads down.
+            tool.DualAudienceContent = true;
             // Same transient one-frame capture as olo_perf_capture_frame — read-only.
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -4337,6 +4339,10 @@ namespace OloEngine::MCP
             tool.Name = "olo_render_graph_topology_export";
             tool.Toolset = "render";
             tool.Title = "Export render graph topology";
+            // passes / edges / resources are three tables a human scans to see the
+            // graph's shape. The `format: "mermaid"` variant returns free text with
+            // no structuredContent, so the dispatcher's guard leaves it untouched.
+            tool.DualAudienceContent = true;
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Export the live render graph's topology as structured data for reasoning about the render "
@@ -4891,6 +4897,9 @@ namespace OloEngine::MCP
             tool.Name = "olo_render_why_not_visible";
             tool.Toolset = "render";
             tool.Title = "Explain entity not visible";
+            // An explainer's ordered check list is the one result a human reads
+            // end-to-end rather than greps.
+            tool.DualAudienceContent = true;
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Explain why an entity is NOT visible on screen — the rendering counterpart of "
@@ -5024,6 +5033,9 @@ namespace OloEngine::MCP
             tool.Name = "olo_render_target_stats";
             tool.Toolset = "render";
             tool.Title = "Exact stats over a render-target region";
+            // Per-channel min/max/mean/NaN is a table — the numeric read that
+            // replaces squinting at a capture PNG.
+            tool.DualAudienceContent = true;
             // A bounded rect readback; changes no camera / setting / scene state.
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
@@ -5329,6 +5341,9 @@ namespace OloEngine::MCP
             tool.Name = "olo_cluster_grid_stats";
             tool.Toolset = "render";
             tool.Title = "Clustered light-grid stats";
+            // The per-slice + histogram tables are how a human sees WHERE the cull
+            // is hot, not merely that it is.
+            tool.DualAudienceContent = true;
             // Stages the light-grid SSBOs through a temporary read buffer; no
             // observable state changes.
             tool.Annotations = ReadOnlyAnnotations();
@@ -5479,6 +5494,8 @@ namespace OloEngine::MCP
             tool.Name = "olo_shadow_atlas_layout";
             tool.Toolset = "render";
             tool.Title = "Shadow atlas layout";
+            // Who won a tile vs who was STARVED is a two-table read at a glance.
+            tool.DualAudienceContent = true;
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
                 "Report this frame's local-light shadow-atlas allocation — every shadow-casting spot / "
