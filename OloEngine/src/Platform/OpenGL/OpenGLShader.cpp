@@ -22,6 +22,7 @@
 #include <spirv_cross/spirv_glsl.hpp>
 
 #include <fstream>
+#include <mutex>
 #include <optional>
 #include <utility>
 #include <filesystem>
@@ -1169,12 +1170,45 @@ namespace OloEngine
     // Async link helpers
     // ========================================================================
 
+    // A driver update invalidates every previously saved GL program binary at
+    // once — see SyncProgramBinaryCacheDriverStamp (OpenGLProgramBinaryCache.h)
+    // for the full rationale; the wipe/stamp logic lives there, GL-free, so it
+    // is unit-tested (ShaderBinaryCacheRoundTripTest). This wrapper only builds
+    // the driver identity string, which needs a current GL context (both call
+    // sites are shader compile/link paths, which guarantee that).
+    static void EnsureProgramBinaryCacheMatchesDriver()
+    {
+        static std::once_flag s_Once;
+        std::call_once(s_Once, []()
+                       {
+            const auto* vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
+            const auto* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+            const auto* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+            const std::string stamp = std::string(vendor ? vendor : "?") + "|" +
+                                      (renderer ? renderer : "?") + "|" +
+                                      (version ? version : "?");
+
+            const DriverStampSyncResult sync =
+                SyncProgramBinaryCacheDriverStamp(Utils::GetCacheDirectory(), stamp);
+
+            // First run ever (no stamp, no binaries) is not worth a log line.
+            if (sync.Mismatched && (!sync.PreviousStamp.empty() || sync.RemovedBinaries > 0))
+            {
+                OLO_CORE_INFO("Program-binary cache invalidated by driver change ({0} stale binaries dropped; '{1}' -> '{2}'). "
+                              "Shaders recompile once this launch and re-cache.",
+                              sync.RemovedBinaries,
+                              sync.PreviousStamp.empty() ? "<no stamp>" : sync.PreviousStamp, stamp);
+            } });
+    }
+
     bool OpenGLShader::LoadProgramBinaryCache(GLenum program) const
     {
         OLO_PROFILE_FUNCTION();
 
         if (Utils::IsShaderCacheDisabled())
             return false;
+
+        EnsureProgramBinaryCacheMatchesDriver();
 
         const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
         const std::filesystem::path shaderFilePath = m_FilePath;
@@ -1232,6 +1266,8 @@ namespace OloEngine
 
         if (Utils::IsShaderCacheDisabled() || m_RendererID == 0)
             return;
+
+        EnsureProgramBinaryCacheMatchesDriver();
 
         // Mesa radeonsi crashes in glGetProgramiv(GL_PROGRAM_BINARY_LENGTH) for
         // programs compiled from SPIR-V binary (glShaderBinary + glSpecializeShader).

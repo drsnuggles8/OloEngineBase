@@ -204,4 +204,93 @@ namespace OloEngine::Tests
 
         std::filesystem::remove(path);
     }
+    // =========================================================================
+    // Driver-identity stamp (SyncProgramBinaryCacheDriverStamp)
+    //
+    // A GL program binary is only loadable by the driver build that produced
+    // it, so a driver update invalidates the whole .pgr cache at once — which
+    // used to surface as one glProgramBinary rejection WARN per shader (~105
+    // lines) on every launch. The sync helper must: leave a matching cache
+    // untouched, wipe exactly the .pgr files (nothing else) on a stamp change,
+    // and persist the new stamp so the next sync is quiet.
+    // =========================================================================
+
+    namespace
+    {
+        // Unique temp cache dir per test to keep them hermetic + parallel-safe.
+        [[nodiscard]] std::filesystem::path MakeStampTestDir(const char* name)
+        {
+            const auto dir = std::filesystem::temp_directory_path() /
+                             (std::string("olo_pgr_stamp_") + name);
+            std::filesystem::remove_all(dir);
+            std::filesystem::create_directories(dir);
+            return dir;
+        }
+
+        void Touch(const std::filesystem::path& path)
+        {
+            std::ofstream out(path, std::ios::binary);
+            out << "x";
+        }
+    } // namespace
+
+    TEST(ShaderBinaryDriverStamp, FreshCacheStampsQuietlyAndSecondSyncMatches)
+    {
+        const auto dir = MakeStampTestDir("fresh");
+
+        const auto first = SyncProgramBinaryCacheDriverStamp(dir, "NVIDIA|4090|610.74");
+        EXPECT_TRUE(first.Mismatched) << "no stamp yet -> mismatch by definition";
+        EXPECT_EQ(first.RemovedBinaries, 0u) << "fresh cache has nothing to remove";
+        EXPECT_TRUE(first.PreviousStamp.empty());
+
+        const auto second = SyncProgramBinaryCacheDriverStamp(dir, "NVIDIA|4090|610.74");
+        EXPECT_FALSE(second.Mismatched) << "stamp persisted -> steady state is a no-op";
+        EXPECT_EQ(second.RemovedBinaries, 0u);
+        EXPECT_EQ(second.PreviousStamp, "NVIDIA|4090|610.74");
+
+        std::filesystem::remove_all(dir);
+    }
+
+    TEST(ShaderBinaryDriverStamp, DriverChangeWipesOnlyProgramBinaries)
+    {
+        const auto dir = MakeStampTestDir("wipe");
+        [[maybe_unused]] const auto seed = SyncProgramBinaryCacheDriverStamp(dir, "old-driver");
+
+        // Two program binaries (must go), one SPIR-V stage blob and one alien
+        // file (must both survive — SPIR-V caches are driver-independent).
+        Touch(dir / "PBR_MultiLight.glsl.cached_opengl.pgr");
+        Touch(dir / "Water.glsl.cached_opengl.pgr");
+        Touch(dir / "PBR_MultiLight.glsl.cached_opengl.frag");
+        Touch(dir / "unrelated.txt");
+
+        const auto sync = SyncProgramBinaryCacheDriverStamp(dir, "new-driver");
+        EXPECT_TRUE(sync.Mismatched);
+        EXPECT_EQ(sync.RemovedBinaries, 2u) << "exactly the .pgr files";
+        EXPECT_EQ(sync.PreviousStamp, "old-driver");
+
+        EXPECT_FALSE(std::filesystem::exists(dir / "PBR_MultiLight.glsl.cached_opengl.pgr"));
+        EXPECT_FALSE(std::filesystem::exists(dir / "Water.glsl.cached_opengl.pgr"));
+        EXPECT_TRUE(std::filesystem::exists(dir / "PBR_MultiLight.glsl.cached_opengl.frag"))
+            << "SPIR-V stage blobs are driver-independent and must survive";
+        EXPECT_TRUE(std::filesystem::exists(dir / "unrelated.txt"));
+
+        // And the wipe re-stamped: same driver again is a no-op.
+        const auto steady = SyncProgramBinaryCacheDriverStamp(dir, "new-driver");
+        EXPECT_FALSE(steady.Mismatched);
+
+        std::filesystem::remove_all(dir);
+    }
+
+    TEST(ShaderBinaryDriverStamp, MissingCacheDirectoryIsCreatedNotFatal)
+    {
+        const auto dir = MakeStampTestDir("nodir") / "sub" / "never_created";
+
+        const auto sync = SyncProgramBinaryCacheDriverStamp(dir, "driver");
+        EXPECT_TRUE(sync.Mismatched);
+        EXPECT_EQ(sync.RemovedBinaries, 0u);
+        EXPECT_TRUE(std::filesystem::exists(dir / kProgramBinaryDriverStampFileName))
+            << "the sync must create the directory and stamp it";
+
+        std::filesystem::remove_all(dir.parent_path().parent_path());
+    }
 } // namespace OloEngine::Tests

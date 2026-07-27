@@ -77,6 +77,25 @@ namespace OloEngine
             return " [program " + std::to_string(programID) + " = '" + label + "']";
         }
 
+        // NVIDIA id 131218 fires once per program the first time the driver
+        // specializes a SPIR-V-built vertex shader against the FBO/vertex
+        // state actually bound at its first draw — expected, unavoidable
+        // without a per-program warmup draw against the exact target, and
+        // previously reported as a WARN + captured call stack for each of the
+        // three affected programs on every editor launch. Count recompiles
+        // PER PROGRAM: the first is the expected one-time JIT (log as INFO,
+        // no stack); a SECOND recompile of the same program means its state
+        // is thrashing (the glClear-against-new-FBO class of bug — see
+        // docs/agent-rules/gl-clear-program-revalidation.md) and keeps the
+        // full WARN + stack treatment.
+        [[nodiscard]] u64 CountShaderRecompileForProgram(u32 programID)
+        {
+            static std::mutex s_Mutex;
+            static std::unordered_map<u32, u64> s_Counts;
+            std::lock_guard lock(s_Mutex);
+            return ++s_Counts[programID];
+        }
+
         // GL_DEBUG_TYPE_PERFORMANCE notifications can repeat the same message ID
         // every single frame (issue #551 - e.g. NVIDIA id 131186 "buffer migrated
         // VIDEO->HOST" on a per-frame GPU->CPU readback), flooding OloEngine.log at
@@ -127,6 +146,25 @@ namespace OloEngine
         std::lock_guard lock(registry.Mutex);
         auto it = registry.Labels.find(programID);
         return it != registry.Labels.end() ? it->second : std::string{};
+    }
+
+    u32 ParseProgramIDFromMessage(const char* message)
+    {
+        if (message == nullptr)
+            return 0;
+        const char* found = std::strstr(message, "program ");
+        if (found == nullptr)
+            return 0;
+        const char* digits = found + std::strlen("program ");
+        if (*digits < '0' || *digits > '9')
+            return 0;
+        u32 programID = 0;
+        while (*digits >= '0' && *digits <= '9')
+        {
+            programID = programID * 10 + static_cast<u32>(*digits - '0');
+            ++digits;
+        }
+        return programID;
     }
 
     u32 GetGLErrorCount()
@@ -297,12 +335,24 @@ namespace OloEngine
                 case GL_DEBUG_SEVERITY_LOW:
                     if (shouldLog)
                     {
-                        OLO_CORE_WARN("OpenGL performance warning (source: {0}, id: {1}, occurrence: {2}): {3}{4}", sourceStr, id, occurrence, message, ResolveProgramLabelSuffix(message));
                         // NVIDIA 131218: a driver-side shader JIT recompile.
-                        // The GL call it happened under is the actionable
-                        // datum — log it.
+                        // First recompile of a program = the expected one-time
+                        // specialization at its first draw -> INFO, no stack.
+                        // A repeat for the SAME program = state thrash -> keep
+                        // the WARN + the call stack (the actionable datum).
                         if (id == 131218)
+                        {
+                            const u64 perProgram = CountShaderRecompileForProgram(ParseProgramIDFromMessage(message));
+                            if (perProgram <= 1)
+                            {
+                                OLO_CORE_INFO("OpenGL one-time shader specialization (id: {0}): {1}{2}", id, message, ResolveProgramLabelSuffix(message));
+                                return;
+                            }
+                            OLO_CORE_WARN("OpenGL performance warning (source: {0}, id: {1}, occurrence: {2}, recompile #{3} of this program): {4}{5}", sourceStr, id, occurrence, perProgram, message, ResolveProgramLabelSuffix(message));
                             LogShaderRecompileCallStack(occurrence);
+                            return;
+                        }
+                        OLO_CORE_WARN("OpenGL performance warning (source: {0}, id: {1}, occurrence: {2}): {3}{4}", sourceStr, id, occurrence, message, ResolveProgramLabelSuffix(message));
                     }
                     return;
                 case GL_DEBUG_SEVERITY_NOTIFICATION:
