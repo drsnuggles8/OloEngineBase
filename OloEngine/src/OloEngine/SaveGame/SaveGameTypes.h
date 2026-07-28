@@ -54,7 +54,9 @@ namespace OloEngine
     // v9:  LightProbeVolumeComponent gained the realtime DDGI fields (m_Mode, m_RaysPerProbe, m_Hysteresis, m_ProbeCaptureBudget, m_RelightBudget, m_SelfShadowBias — issue #632)
     // v10: ProceduralSkyComponent retired m_LinkSunToDirectionalLight (issue #633 — v9 and older saves read-and-discard the legacy bool)
     // v11: FoliageLayer gained the octahedral impostor fields (UseImpostor + impostor params — issue #433; v10 and older saves omit them and keep the constructor defaults)
-    static constexpr u32 kSaveGameFormatVersion = 11;
+    // v12: VehicleComponent gained the FWD/AWD differential config (m_DriveMode + the 5 differential knobs — issue #438; v11 and older saves omit them and keep the RWD constructor defaults, which reproduce the pre-#438 jeep exactly)
+    // v13: AircraftComponent gained the landing-gear block (m_HasLandingGear + the 8 gear knobs — issue #438 follow-up; v12 and older saves omit them and keep the gear-off constructor defaults)
+    static constexpr u32 kSaveGameFormatVersion = 13;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

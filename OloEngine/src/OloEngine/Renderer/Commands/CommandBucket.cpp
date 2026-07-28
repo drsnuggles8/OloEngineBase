@@ -404,6 +404,7 @@ namespace OloEngine
         instancedCmd->meshHandle = meshCmd->meshHandle;
         instancedCmd->vertexArrayID = meshCmd->vertexArrayID;
         instancedCmd->indexCount = meshCmd->indexCount;
+        instancedCmd->baseIndex = meshCmd->baseIndex; // submesh index range, was dropped (drew from 0)
 
         // Initial instance count is 1
         instancedCmd->instanceCount = 1;
@@ -598,7 +599,8 @@ namespace OloEngine
             // Skip animated/skinned meshes — they have per-instance bone data
             if (cmd->isAnimatedMesh)
                 continue;
-            InstanceGroupKey key{ cmd->meshHandle, cmd->materialDataIndex, cmd->renderStateIndex };
+            InstanceGroupKey key{ cmd->vertexArrayID, cmd->indexCount, cmd->baseIndex,
+                                  cmd->materialDataIndex, cmd->renderStateIndex };
             groups[key].push_back(i);
         }
 
@@ -753,6 +755,10 @@ namespace OloEngine
             icmd->meshHandle = firstCmd->meshHandle;
             icmd->vertexArrayID = firstCmd->vertexArrayID;
             icmd->indexCount = firstCmd->indexCount;
+            // baseIndex was never copied here, so a batched submesh with a
+            // non-zero base drew the wrong index range. Safe now that the
+            // group key includes it (all group members share the same value).
+            icmd->baseIndex = firstCmd->baseIndex;
             icmd->instanceCount = totalInstances;
             icmd->transformBufferOffset = transformOffset;
             icmd->transformCount = totalInstances;

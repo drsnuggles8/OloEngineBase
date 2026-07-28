@@ -1144,6 +1144,24 @@ namespace OloEngine
         }
     };
 
+    // Which axle(s) the engine drives (issue #438). Selects how
+    // JoltScene::CreateVehicle builds the WheeledVehicleController's differential
+    // list from the standard 0=FL, 1=FR, 2=RL, 3=RR wheel layout:
+    //   RearWheelDrive  — ONE differential across the rear axle (wheels 2/3) at
+    //                     full engine torque. The original jeep, and the default.
+    //   FrontWheelDrive — ONE differential across the front axle (wheels 0/1);
+    //                     those wheels then both steer AND drive, which Jolt
+    //                     supports directly.
+    //   AllWheelDrive   — TWO differentials (front then rear) splitting the
+    //                     engine torque by VehicleComponent::m_FrontTorqueSplit,
+    //                     with m_CenterLimitedSlipRatio acting as the centre diff.
+    enum class VehicleDriveMode : i32
+    {
+        RearWheelDrive = 0,
+        FrontWheelDrive = 1,
+        AllWheelDrive = 2
+    };
+
     // A wheeled vehicle (issue #308 item 5) backed by Jolt's VehicleConstraint +
     // WheeledVehicleController. MVP slice: the chassis IS this entity's
     // Rigidbody3DComponent (which must be Dynamic to be driven). JoltScene builds
@@ -1163,47 +1181,109 @@ namespace OloEngine
         // --- Wheel layout, in the chassis body's local space (meters) ---
         // Half the track width: the left/right wheels sit at -/+ this on local X.
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 1.0e-3f, Max = 100.0f)
         f32 m_HalfTrackWidth = 0.9f;
         // Forward offset of the front axle and backward offset of the rear axle
         // along local Z (Jolt's vehicle forward). Both authored positive.
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 1.0e-3f, Max = 100.0f)
         f32 m_FrontAxleOffset = 1.25f;
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 1.0e-3f, Max = 100.0f)
         f32 m_RearAxleOffset = 1.25f;
         // Height (local Y) of the suspension attachment point relative to the body
         // origin. Usually negative so the wheels hang below the chassis.
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -100.0f, Max = 100.0f)
         f32 m_WheelAttachmentHeight = -0.4f;
 
         // --- Wheel + suspension ---
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 1.0e-3f, Max = 100.0f)
         f32 m_WheelRadius = 0.35f;
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 1.0e-3f, Max = 100.0f)
         f32 m_WheelWidth = 0.25f;
         // Suspension travel relative to the attachment point: min = max raised,
         // max = max droop. Jolt requires 0 <= min <= max.
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
         f32 m_SuspensionMinLength = 0.3f;
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
         f32 m_SuspensionMaxLength = 0.5f;
         // Suspension spring (Jolt ESpringMode::FrequencyAndDamping). Frequency in
         // Hz (> 0); damping is the ratio (0 = undamped/bouncy, 1 = critical).
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 1.0e-3f, Max = 1000.0f)
         f32 m_SuspensionFrequency = 1.5f;
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 m_SuspensionDamping = 0.5f;
 
         // --- Drivetrain ---
-        // Peak engine torque (N·m), delivered through one differential to the
-        // rear axle (rear-wheel drive for the MVP).
+        // Peak engine torque (N·m), delivered through the differential(s) that
+        // m_DriveMode selects.
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0e9f)
         f32 m_MaxEngineTorque = 500.0f;
         // Max steering angle of the front wheels (degrees), reached at |steer| = 1.
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 180.0f)
         f32 m_MaxSteerAngleDeg = 30.0f;
         // Brake torque (N·m) applied to every wheel at full m_BrakeInput.
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0e9f)
         f32 m_MaxBrakeTorque = 1500.0f;
+
+        // --- Differentials (issue #438) ---
+        // Which axle(s) the engine drives. The RearWheelDrive default reproduces
+        // the original single-rear-differential jeep bit-for-bit; the other two
+        // modes rebuild the differential list in JoltScene::CreateVehicle.
+        // Reject, NOT Clamp: an out-of-range value must fall back to the
+        // RearWheelDrive default, matching SaveGameComponentSerializer and
+        // JoltScene::CreateVehicle, which both map anything that isn't
+        // FrontWheelDrive/AllWheelDrive to RearWheelDrive. Clamping instead
+        // saturates a corrupt `7` to 2 = AllWheelDrive — a DIFFERENT VALID mode
+        // — so the same corrupt scene and save-game would have driven different
+        // axles.
+        OLO_PROPERTY(Name = "DriveMode", Type = "int", Get = "static_cast<int>(comp.m_DriveMode)", Set = "comp.m_DriveMode = static_cast<VehicleDriveMode>({v})")
+        OLO_SERIALIZE(Reject, Min = 0, Max = 2)
+        VehicleDriveMode m_DriveMode = VehicleDriveMode::RearWheelDrive;
+        // AllWheelDrive ONLY: fraction of engine torque sent to the FRONT
+        // differential; the rear gets the remaining (1 - this). 0.5 = even split,
+        // 0 = fully rear-biased, 1 = fully front-biased. Ignored by RWD/FWD,
+        // which run a single differential at the full engine torque.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_FrontTorqueSplit = 0.5f;
+        // Per-differential left/right torque bias, applied to every differential
+        // (Jolt VehicleDifferentialSettings::mLeftRightSplit): 0 = all torque to
+        // the left wheel, 0.5 = even, 1 = all to the right.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_LeftRightSplit = 0.5f;
+        // Limited-slip ratio WITHIN each differential: once the faster wheel
+        // exceeds this multiple of the slower one's speed, all torque is handed
+        // to the slower wheel. Just above 1 = effectively locked (a spinning
+        // wheel gets nothing), large = an open differential.
+        // Jolt asserts this is > 1 STRICTLY, so the clamp floor is 1.001, not 1.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 1.001f, Max = 1.0e6f)
+        f32 m_LimitedSlipRatio = 1.4f;
+        // Limited-slip ratio BETWEEN differentials — the centre diff. Only
+        // meaningful in AllWheelDrive, where it stops an axle with a spinning
+        // wheel stealing the torque from the axle that still has grip. Same
+        // locked/open convention, and the same strict > 1 requirement.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 1.001f, Max = 1.0e6f)
+        f32 m_CenterLimitedSlipRatio = 1.4f;
+        // Gear ratio between the gearbox output and the wheels
+        // (VehicleDifferentialSettings::mDifferentialRatio). Higher = more wheel
+        // torque and a lower top speed.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 100.0f)
+        f32 m_DifferentialRatio = 3.42f;
 
         // --- Live driver input (sanitized + read each physics step) ---
         // Throttle in [-1, 1] (negative drives in reverse for the auto
@@ -1211,16 +1291,21 @@ namespace OloEngine
         // Default 0 = a parked car that just settles on its suspension. Scripts
         // (or a future keyboard hookup) set these to drive it.
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -1.0f, Max = 1.0f)
         f32 m_ThrottleInput = 0.0f;
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -1.0f, Max = 1.0f)
         f32 m_SteerInput = 0.0f;
         OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 m_BrakeInput = 0.0f;
 
         // Storage for runtime — non-zero once the Jolt VehicleConstraint has been
         // created (mirrors PhysicsJoint3DComponent::m_RuntimeConstraintToken).
         // Excluded from authored-state equality so play-mode enter/exit isn't seen
-        // as a change; cleared back to 0 when the vehicle is destroyed.
+        // as a change; cleared back to 0 when the vehicle is destroyed. Skipped by
+        // the generated scene serializer (it reloads at its 0 default).
+        OLO_SERIALIZE(Skip)
         u64 m_RuntimeVehicleToken = 0;
 
         VehicleComponent() = default;
@@ -1230,7 +1315,357 @@ namespace OloEngine
         // fields explicitly rather than via a whole-struct Math::BitwiseEqual.
         auto operator==(const VehicleComponent& other) const -> bool
         {
-            return Math::BitwiseEqual(m_HalfTrackWidth, other.m_HalfTrackWidth) && Math::BitwiseEqual(m_FrontAxleOffset, other.m_FrontAxleOffset) && Math::BitwiseEqual(m_RearAxleOffset, other.m_RearAxleOffset) && Math::BitwiseEqual(m_WheelAttachmentHeight, other.m_WheelAttachmentHeight) && Math::BitwiseEqual(m_WheelRadius, other.m_WheelRadius) && Math::BitwiseEqual(m_WheelWidth, other.m_WheelWidth) && Math::BitwiseEqual(m_SuspensionMinLength, other.m_SuspensionMinLength) && Math::BitwiseEqual(m_SuspensionMaxLength, other.m_SuspensionMaxLength) && Math::BitwiseEqual(m_SuspensionFrequency, other.m_SuspensionFrequency) && Math::BitwiseEqual(m_SuspensionDamping, other.m_SuspensionDamping) && Math::BitwiseEqual(m_MaxEngineTorque, other.m_MaxEngineTorque) && Math::BitwiseEqual(m_MaxSteerAngleDeg, other.m_MaxSteerAngleDeg) && Math::BitwiseEqual(m_MaxBrakeTorque, other.m_MaxBrakeTorque) && Math::BitwiseEqual(m_ThrottleInput, other.m_ThrottleInput) && Math::BitwiseEqual(m_SteerInput, other.m_SteerInput) && Math::BitwiseEqual(m_BrakeInput, other.m_BrakeInput);
+            return Math::BitwiseEqual(m_HalfTrackWidth, other.m_HalfTrackWidth) && Math::BitwiseEqual(m_FrontAxleOffset, other.m_FrontAxleOffset) && Math::BitwiseEqual(m_RearAxleOffset, other.m_RearAxleOffset) && Math::BitwiseEqual(m_WheelAttachmentHeight, other.m_WheelAttachmentHeight) && Math::BitwiseEqual(m_WheelRadius, other.m_WheelRadius) && Math::BitwiseEqual(m_WheelWidth, other.m_WheelWidth) && Math::BitwiseEqual(m_SuspensionMinLength, other.m_SuspensionMinLength) && Math::BitwiseEqual(m_SuspensionMaxLength, other.m_SuspensionMaxLength) && Math::BitwiseEqual(m_SuspensionFrequency, other.m_SuspensionFrequency) && Math::BitwiseEqual(m_SuspensionDamping, other.m_SuspensionDamping) && Math::BitwiseEqual(m_MaxEngineTorque, other.m_MaxEngineTorque) && Math::BitwiseEqual(m_MaxSteerAngleDeg, other.m_MaxSteerAngleDeg) && Math::BitwiseEqual(m_MaxBrakeTorque, other.m_MaxBrakeTorque) && m_DriveMode == other.m_DriveMode && Math::BitwiseEqual(m_FrontTorqueSplit, other.m_FrontTorqueSplit) && Math::BitwiseEqual(m_LeftRightSplit, other.m_LeftRightSplit) && Math::BitwiseEqual(m_LimitedSlipRatio, other.m_LimitedSlipRatio) && Math::BitwiseEqual(m_CenterLimitedSlipRatio, other.m_CenterLimitedSlipRatio) && Math::BitwiseEqual(m_DifferentialRatio, other.m_DifferentialRatio) && Math::BitwiseEqual(m_ThrottleInput, other.m_ThrottleInput) && Math::BitwiseEqual(m_SteerInput, other.m_SteerInput) && Math::BitwiseEqual(m_BrakeInput, other.m_BrakeInput);
+        }
+    };
+
+    // ── Boat (issue #438) ────────────────────────────────────────────────
+    //
+    // A boat that DRIVES, layered on top of the existing BuoyancyComponent /
+    // BuoyancySystem rather than replacing it: buoyancy keeps owning the
+    // vertical behaviour (Archimedes + the self-righting torque from its corner
+    // probes), and this component adds the horizontal half — propeller thrust,
+    // a speed-dependent rudder, and the hull hydrodynamics that make a hull
+    // TRACK instead of sliding sideways like a crate on ice.
+    //
+    // Requirements on the entity: a *dynamic* Rigidbody3DComponent (the hull)
+    // and, in practice, a BuoyancyComponent + a WaterComponent surface to float
+    // on. Unlike VehicleComponent this uses NO Jolt constraint — BoatSystem
+    // applies plain AddForce/AddTorque on the hull body each tick, queued before
+    // the physics step (same contract as BuoyancySystem).
+    //
+    // Everything is gated on immersion, sampled from the same water surface
+    // buoyancy floats the hull on (Physics3D/WaterProbe): a propeller lifted
+    // clear of a wave trough produces no thrust, and a boat dropped on land
+    // just sits there.
+    //
+    // Axis convention matches VehicleComponent / Jolt: local +Z is forward,
+    // +Y is up, +X is starboard (right).
+    struct BoatComponent
+    {
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        // --- Propulsion ---
+        // Thrust (N) at |m_ThrottleInput| = 1 with the propeller fully immersed.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0e9f)
+        f32 m_MaxThrust = 6000.0f;
+        // Where the propeller pushes, in hull local space (metres). The default
+        // sits it behind and below the origin — a stern drive. Applying thrust
+        // off-centre is deliberate: it is what gives a boat its bow-up attitude
+        // under power and lets the hull pivot around the thrust line.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -1000.0f, Max = 1000.0f)
+        f32 m_ThrustOffsetZ = -2.0f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -1000.0f, Max = 1000.0f)
+        f32 m_ThrustOffsetY = -0.3f;
+
+        // --- Rudder ---
+        // Yaw torque (N·m) at |m_SteerInput| = 1 and full rudder authority. This
+        // is an ABSOLUTE torque, so the turn rate it produces falls off with the
+        // hull's yaw inertia — scale it with the boat. The default suits a
+        // ~2 tonne launch; a ship needs an order of magnitude more.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0e9f)
+        f32 m_MaxRudderTorque = 4000.0f;
+        // Forward speed (m/s) at which the rudder reaches full authority. Below
+        // it authority scales linearly, so a stationary boat cannot spin on the
+        // spot — a rudder only works when water flows past it. Moving astern the
+        // authority goes negative, which reverses the rudder exactly like a real
+        // boat backing up.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 1000.0f)
+        f32 m_RudderAuthoritySpeed = 4.0f;
+
+        // --- Hull hydrodynamics ---
+        // Per-second decay rates (mass-scaled inside the system, so they are
+        // mass-independent tunables — the same convention BuoyancyComponent's
+        // drag uses). Lateral drag is the keel/hull resisting sideways slip and
+        // is what makes the boat TRACK through a turn; without it the hull just
+        // drifts broadside. Yaw drag stops the turn continuing forever.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
+        f32 m_LateralDrag = 3.0f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
+        f32 m_ForwardDrag = 0.3f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
+        f32 m_YawDrag = 2.0f;
+
+        // Metres of water over a point before it counts as fully immersed. Ramps
+        // thrust / rudder / hull drag in smoothly so a boat crossing wave crests
+        // doesn't chatter between full power and none. The default matches the
+        // default drive depth, so a boat floating with its origin at the
+        // waterline makes full thrust; raise it for a drive that should lose
+        // bite the moment the stern lifts.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.001f, Max = 100.0f)
+        f32 m_ImmersionDepth = 0.3f;
+
+        // --- Live driver input (sanitized + read each physics step) ---
+        // Throttle in [-1, 1] (negative = astern), steer-right in [-1, 1]
+        // (1 = full starboard). Default 0 = a boat that just floats.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -1.0f, Max = 1.0f)
+        f32 m_ThrottleInput = 0.0f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -1.0f, Max = 1.0f)
+        f32 m_SteerInput = 0.0f;
+
+        BoatComponent() = default;
+        BoatComponent(const BoatComponent&) = default;
+
+        // Compare the serialized fields explicitly rather than via a whole-struct
+        // Math::BitwiseEqual: the bool-then-f32 layout leaves padding bytes whose
+        // contents are indeterminate, so a whole-struct compare can report two
+        // logically identical components as different — which in the editor shows
+        // up as SceneHierarchyPanel's equality tier recording phantom undo steps.
+        auto operator==(const BoatComponent& other) const -> bool
+        {
+            return m_Enabled == other.m_Enabled &&
+                   Math::BitwiseEqual(m_MaxThrust, other.m_MaxThrust) &&
+                   Math::BitwiseEqual(m_ThrustOffsetZ, other.m_ThrustOffsetZ) &&
+                   Math::BitwiseEqual(m_ThrustOffsetY, other.m_ThrustOffsetY) &&
+                   Math::BitwiseEqual(m_MaxRudderTorque, other.m_MaxRudderTorque) &&
+                   Math::BitwiseEqual(m_RudderAuthoritySpeed, other.m_RudderAuthoritySpeed) &&
+                   Math::BitwiseEqual(m_LateralDrag, other.m_LateralDrag) &&
+                   Math::BitwiseEqual(m_ForwardDrag, other.m_ForwardDrag) &&
+                   Math::BitwiseEqual(m_YawDrag, other.m_YawDrag) &&
+                   Math::BitwiseEqual(m_ImmersionDepth, other.m_ImmersionDepth) &&
+                   Math::BitwiseEqual(m_ThrottleInput, other.m_ThrottleInput) &&
+                   Math::BitwiseEqual(m_SteerInput, other.m_SteerInput);
+        }
+    };
+
+    // ── Aircraft (issue #438) ────────────────────────────────────────────
+    //
+    // A force-based fixed-wing flight model. Like BoatComponent this uses NO
+    // Jolt constraint — AircraftSystem applies AddForce/AddTorque on the
+    // entity's *dynamic* Rigidbody3DComponent each tick, queued before the
+    // physics step, so it composes with ordinary collision (an aircraft still
+    // hits terrain).
+    //
+    // Per tick the system computes, from the body's own velocity:
+    //   * thrust along local +Z scaled by m_ThrottleInput,
+    //   * lift perpendicular to the airflow, ~ airspeed² × wing area × Cl(AoA),
+    //     with a post-stall falloff so pulling too hard actually stalls,
+    //   * drag along the airflow, Cd = Cd0 + k·Cl² (induced drag),
+    //   * control-surface torques for pitch / roll / yaw, scaled by airspeed
+    //     (controls go slack at low speed, exactly like the real thing),
+    //   * rate damping plus a weathervane term that pulls the nose toward the
+    //     relative wind — together these are what make it FLYABLE rather than
+    //     an oscillator. See the tuning note on m_WeathervaneStrength.
+    //
+    // Axis convention matches VehicleComponent / Jolt: local +Z is forward
+    // (nose), +Y is up, +X is the right wing.
+    struct AircraftComponent
+    {
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        // --- Propulsion ---
+        // Thrust (N) along the nose at m_ThrottleInput = 1. The default suits a
+        // ~1000 kg light airframe: enough to cruise near half throttle and climb
+        // at full, without the thrust-to-weight of a fighter.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0e9f)
+        f32 m_MaxThrust = 4000.0f;
+
+        // --- Wing / lift ---
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 10000.0f)
+        f32 m_WingArea = 16.0f; ///< m^2 of lifting surface
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        f32 m_AirDensity = 1.225f; ///< kg/m^3 (sea level); lower it for thin-air / high-altitude feel
+        // Lift-curve slope dCl/dAlpha per RADIAN. Thin-airfoil theory gives 2*pi
+        // (~6.28); real finite wings sit below it.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        f32 m_LiftSlope = 5.0f;
+        // Cl at zero angle of attack (wing camber + incidence).
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -10.0f, Max = 10.0f)
+        f32 m_ZeroLiftCoefficient = 0.2f;
+        // Angle of attack (degrees) past which the wing stalls: lift falls off
+        // linearly to zero over the SAME angle again, so at 2x the stall angle
+        // the wing produces nothing.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.1f, Max = 90.0f)
+        f32 m_StallAngleDeg = 15.0f;
+
+        // --- Drag ---
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        f32 m_DragCoefficient = 0.03f; ///< Cd0, the parasitic drag of the airframe
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        f32 m_InducedDragFactor = 0.05f; ///< k in Cd = Cd0 + k*Cl^2 (the price of lift)
+
+        // --- Control surfaces ---
+        // Peak torque (N·m) per axis at full deflection and full authority.
+        // ABSOLUTE torques, so the rotation rate each produces depends on the
+        // airframe's inertia — scale them with the aircraft. The defaults are
+        // tuned for the ~1000 kg / 16 m² airframe the rest of these defaults
+        // describe, giving roughly 4-5 g at full back-stick and ~115 deg/s of
+        // roll: brisk, but not the 8 g / 470 deg/s a naive round number lands on.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0e9f)
+        f32 m_PitchTorque = 10000.0f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0e9f)
+        f32 m_RollTorque = 6000.0f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0e9f)
+        f32 m_YawTorque = 4000.0f;
+        // Airspeed (m/s) at which the control surfaces reach full authority.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 10000.0f)
+        f32 m_ControlAuthoritySpeed = 40.0f;
+
+        // --- Stability ---
+        // Per-axis angular rate damping (per second, mass-scaled inside the
+        // system like the boat/buoyancy drags). These absorb control inputs and
+        // gusts; too low and the airframe wallows, too high and it feels nailed.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
+        f32 m_PitchDamping = 4.0f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
+        f32 m_RollDamping = 3.0f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
+        f32 m_YawDamping = 4.0f;
+        // Static (weathercock) stability: the tail's tendency to swing the nose
+        // onto the relative wind, scaled by dynamic pressure × wing area. Rate
+        // damping alone only SLOWS a divergence — this is the term that actually
+        // returns the aircraft to trim, so 0 gives a neutrally-stable airframe
+        // that must be flown continuously. It produces no roll torque (the axis
+        // is always perpendicular to the nose), so it cannot fight the ailerons.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
+        f32 m_WeathervaneStrength = 1.5f;
+
+        // --- Landing gear (issue #438 follow-up) ---
+        //
+        // OFF by default, so an aircraft authored before this existed is
+        // unchanged. Turn it on and AircraftSystem holds the airframe up on three
+        // sprung, ray-cast legs instead of letting the fuselage collider lie flat
+        // on the ground — which is what makes a takeoff ROTATION possible at all.
+        //
+        // The reason this is a component feature and not "just add more elevator":
+        // a fuselage box resting on the ground pivots about its REAR EDGE, so the
+        // weight moment the elevator has to beat is m·g·(half the length) —
+        // ~29 kN·m for a 1 t, 6 m airframe, against an elevator worth ~2 kN·m. A
+        // real aircraft rotates easily because its main gear sits just BEHIND the
+        // centre of mass, cutting that arm to a few tens of centimetres. So the
+        // fix is to put the pivot in the right place, which is exactly what
+        // m_MainGearOffsetZ does.
+        OLO_PROPERTY()
+        bool m_HasLandingGear = false;
+        // Main gear: just AFT of the centre of mass (small negative Z) so the
+        // aircraft is nose-heavy on the ground and tips forward onto the nose
+        // wheel, but pivots about the mains under back-stick. The closer to 0,
+        // the easier it rotates — and the twitchier it is on the ground.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -1000.0f, Max = 1000.0f)
+        f32 m_MainGearOffsetZ = -0.6f;
+        // Half-track of the main gear (its wheels sit at ±this on local X).
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 1000.0f)
+        f32 m_MainGearHalfTrack = 2.0f;
+        // Nose gear, forward on the centreline.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -1000.0f, Max = 1000.0f)
+        f32 m_NoseGearOffsetZ = 2.5f;
+        // How far below the body origin the wheels reach when fully extended.
+        // Must clear the fuselage collider's half-height or the belly grounds out
+        // and the gear can never take the load.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 100.0f)
+        f32 m_GearLength = 1.2f;
+        // Suspension spring, as a fraction of the aircraft's own weight per metre
+        // of compression: 1 = the leg supports exactly the whole aircraft when
+        // fully compressed. Mass-scaled inside the system, so it is airframe-
+        // independent. Damping is the usual 0 = bouncy, 1 = critical ratio.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
+        f32 m_GearStiffness = 12.0f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_GearDamping = 0.5f;
+        // Tyre friction COEFFICIENTS (dimensionless, applied against each leg's
+        // own normal force — Coulomb, not a velocity decay). Rolling resistance is
+        // what a free-rolling wheel costs you: ~0.02 on tarmac, and it must stay
+        // small or it eats the takeoff roll. Raise it hard to model brakes.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        f32 m_GearRollingResistance = 0.03f;
+        // Sideways grip — what stops the aircraft sliding off the side of the
+        // runway. A real tyre is around 1; higher just means it never slides.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        f32 m_GearLateralGrip = 1.5f;
+
+        // --- Live pilot input (sanitized + read each physics step) ---
+        // Throttle in [0, 1]; pitch/roll/yaw in [-1, 1] with positive meaning
+        // nose-up, roll-right, and yaw-right respectively.
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_ThrottleInput = 0.0f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -1.0f, Max = 1.0f)
+        f32 m_PitchInput = 0.0f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -1.0f, Max = 1.0f)
+        f32 m_RollInput = 0.0f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = -1.0f, Max = 1.0f)
+        f32 m_YawInput = 0.0f;
+
+        AircraftComponent() = default;
+        AircraftComponent(const AircraftComponent&) = default;
+
+        // Field-by-field for the same reason as BoatComponent/VehicleComponent: a
+        // whole-struct Math::BitwiseEqual reads the padding the bool members leave
+        // behind, and padding contents are indeterminate — so two logically equal
+        // components can compare unequal and SceneHierarchyPanel's equality tier
+        // records phantom undo steps.
+        auto operator==(const AircraftComponent& other) const -> bool
+        {
+            return m_Enabled == other.m_Enabled &&
+                   Math::BitwiseEqual(m_MaxThrust, other.m_MaxThrust) &&
+                   Math::BitwiseEqual(m_WingArea, other.m_WingArea) &&
+                   Math::BitwiseEqual(m_AirDensity, other.m_AirDensity) &&
+                   Math::BitwiseEqual(m_LiftSlope, other.m_LiftSlope) &&
+                   Math::BitwiseEqual(m_ZeroLiftCoefficient, other.m_ZeroLiftCoefficient) &&
+                   Math::BitwiseEqual(m_StallAngleDeg, other.m_StallAngleDeg) &&
+                   Math::BitwiseEqual(m_DragCoefficient, other.m_DragCoefficient) &&
+                   Math::BitwiseEqual(m_InducedDragFactor, other.m_InducedDragFactor) &&
+                   Math::BitwiseEqual(m_PitchTorque, other.m_PitchTorque) &&
+                   Math::BitwiseEqual(m_RollTorque, other.m_RollTorque) &&
+                   Math::BitwiseEqual(m_YawTorque, other.m_YawTorque) &&
+                   Math::BitwiseEqual(m_ControlAuthoritySpeed, other.m_ControlAuthoritySpeed) &&
+                   Math::BitwiseEqual(m_PitchDamping, other.m_PitchDamping) &&
+                   Math::BitwiseEqual(m_RollDamping, other.m_RollDamping) &&
+                   Math::BitwiseEqual(m_YawDamping, other.m_YawDamping) &&
+                   Math::BitwiseEqual(m_WeathervaneStrength, other.m_WeathervaneStrength) &&
+                   m_HasLandingGear == other.m_HasLandingGear &&
+                   Math::BitwiseEqual(m_MainGearOffsetZ, other.m_MainGearOffsetZ) &&
+                   Math::BitwiseEqual(m_MainGearHalfTrack, other.m_MainGearHalfTrack) &&
+                   Math::BitwiseEqual(m_NoseGearOffsetZ, other.m_NoseGearOffsetZ) &&
+                   Math::BitwiseEqual(m_GearLength, other.m_GearLength) &&
+                   Math::BitwiseEqual(m_GearStiffness, other.m_GearStiffness) &&
+                   Math::BitwiseEqual(m_GearDamping, other.m_GearDamping) &&
+                   Math::BitwiseEqual(m_GearRollingResistance, other.m_GearRollingResistance) &&
+                   Math::BitwiseEqual(m_GearLateralGrip, other.m_GearLateralGrip) &&
+                   Math::BitwiseEqual(m_ThrottleInput, other.m_ThrottleInput) &&
+                   Math::BitwiseEqual(m_PitchInput, other.m_PitchInput) &&
+                   Math::BitwiseEqual(m_RollInput, other.m_RollInput) &&
+                   Math::BitwiseEqual(m_YawInput, other.m_YawInput);
         }
     };
 

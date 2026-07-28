@@ -144,15 +144,26 @@ namespace OloEngine::Tests
     class GTAOVisualEvidenceTest : public RendererAttachedTest
     {
       protected:
+        // Overridden by the forward-path subclass below. Deferred stays the default
+        // so the existing goldens (GTAO_*_Angled/Higher.png) keep their filenames
+        // and content.
+        RenderingPath m_RenderPath = RenderingPath::Deferred;
+        // Prefix for evidence PNGs so the forward variant writes its own files
+        // rather than clobbering the deferred goldens.
+        std::string m_EvidencePrefix;
+
         void BuildScene() override
         {
             Scene& scene = GetScene();
 
             EnableRendering(kWidth, kHeight);
 
-            // GTAO reads the G-Buffer (view-space normals + depth), so force the
-            // deferred path — matches SSAO/SSGI/SSR/ContactShadow evidence tests.
-            Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+            // Which path GTAO sources its normals from is the whole point of the
+            // forward variant below, so it is a fixture knob rather than a
+            // hard-coded Deferred (which is what let a forward-only GTAO bug ship:
+            // every AO evidence test ran deferred, so nothing ever sampled the
+            // forward path's AO output).
+            Renderer3D::GetRendererSettings().Path = m_RenderPath;
             Renderer3D::ApplyRendererSettings();
 
             // Overhead white sun pointing mostly straight down (slightly angled so
@@ -233,7 +244,14 @@ namespace OloEngine::Tests
             EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
             camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
             camera.SetPose(position, yaw, pitch);
+            Capture(tag, camera, outPixels);
+        }
 
+        // Camera-taking overload, so a caller that needs an orbit pose (Focus)
+        // rather than a free pose (SetPose) shares the same readback + PNG
+        // evidence + round-trip verification.
+        void Capture(const std::string& tag, EditorCamera& camera, std::vector<u8>& outPixels)
+        {
             RunEditorFrames(camera, 2);
 
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
@@ -264,7 +282,7 @@ namespace OloEngine::Tests
             ASSERT_FALSE(ec) << "Failed to create evidence dir '" << dir.generic_string()
                              << "': " << ec.message();
 
-            const std::string path = (dir / ("GTAO_" + tag + ".png")).string();
+            const std::string path = (dir / ("GTAO_" + m_EvidencePrefix + tag + ".png")).string();
             const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(kWidth),
                                                static_cast<int>(kHeight), 4, outPixels.data(),
                                                static_cast<int>(kWidth) * 4);
@@ -285,6 +303,189 @@ namespace OloEngine::Tests
             }
             ::stbi_image_free(loaded);
         }
+        // Shared contract body, run once per render path. Extracted so the
+        // forward variant asserts EXACTLY the same AO properties rather than a
+        // weaker near-copy — the whole point is that both paths must agree.
+        void RunAOContract()
+        {
+            OLO_ENSURE_GPU_OR_SKIP();
+
+            struct ScopedMockTime
+            {
+                explicit ScopedMockTime(f32 t)
+                {
+                    Time::SetMockTime(t);
+                }
+                ~ScopedMockTime()
+                {
+                    Time::ClearMockTime();
+                }
+            } scopedMockTime(kCaptureTime);
+
+            auto& pp = Renderer3D::GetPostProcessSettings();
+            const auto applyOnParams = [&pp]()
+            {
+                pp.ActiveAOTechnique = AOTechnique::GTAO;
+                pp.GTAOEnabled = true;
+                pp.GTAORadius = 1.5f;             // wider than the 0.5 default so the contact band reads clearly
+                pp.GTAOPower = 2.2f;              // production default contrast curve
+                pp.GTAOFalloffRange = 0.615f;     // production default
+                pp.GTAOSampleDistribution = 2.0f; // production default
+                pp.GTAOThinCompensation = 0.0f;   // production default
+                pp.GTAODepthMipOffset = 3.3f;     // production default
+                pp.GTAODenoiseEnabled = true;     // production default
+                pp.GTAODenoisePasses = 4;         // production default
+                pp.GTAODenoiseBeta = 1.2f;        // production default
+                // ActiveAOTechnique swaps which AO pass is registered in the render
+                // graph (RegisterSceneAndLightingNodes's switch on ActiveAOTechnique).
+                // Without this, the graph stays wired for whatever technique was
+                // active at build time, GTAOPass never executes, AOBuffer is never
+                // written, and AOApplyRenderPass still multiplies the whole frame by
+                // that all-zero buffer -- see issue #533 and olo_render_toggle_pass's
+                // matching fix in McpTools.cpp.
+                Renderer3D::ApplyRendererSettings();
+            };
+
+            struct Pose
+            {
+                const char* Name;
+                glm::vec3 Position;
+                f32 Yaw;
+                f32 Pitch;
+            };
+
+            // Low-ish angles so the frame is split: SKY across the top (above the
+            // floor's far horizon) and the lit FLOOR + cube across the lower half.
+            // Crucially, at these grazing pitches the floor is NOT face-on to the
+            // camera -- this is exactly where issue #533's tangent-elevation bug
+            // self-occluded flat ground (a straight-down camera pose would not
+            // have reproduced it, since n == 0 is the correct answer there too).
+            const std::array<Pose, 2> poses = { {
+                { "Angled", { 0.0f, 6.0f, 22.0f }, 0.0f, 0.30f },
+                { "Higher", { 0.0f, 8.0f, 19.0f }, 0.0f, 0.42f },
+            } };
+
+            // Scan bands (UV) on the AO buffer (white = unoccluded). Sky high in the
+            // frame; open floor low and to the LEFT of the centred cube (clear of both
+            // the cube and the contact crease); the contact crease straddles the cube
+            // base across the centre.
+            constexpr f32 kSkyX0 = 0.10f, kSkyX1 = 0.90f, kSkyY0 = 0.04f, kSkyY1 = 0.16f;
+            constexpr f32 kFloorX0 = 0.08f, kFloorX1 = 0.30f, kFloorY0 = 0.60f, kFloorY1 = 0.76f;
+            constexpr f32 kCreaseX0 = 0.28f, kCreaseX1 = 0.72f, kCreaseY0 = 0.40f, kCreaseY1 = 0.62f;
+
+            for (const Pose& pose : poses)
+            {
+                SCOPED_TRACE(pose.Name);
+
+                // EVERY GTAOEnabled / GTAODebugView change needs its own
+                // ApplyRendererSettings() before the Capture. The pass reads a
+                // CACHED copy of these settings, so a write that isn't followed
+                // by an apply renders the PREVIOUS state: without the applies
+                // below, the "Off" frame kept the GTAO-on wiring left applied by
+                // the previous pose's applyOnParams(), and the "AO" frame never
+                // entered debug view at all (applyOnParams() applies, then the
+                // GTAODebugView write lands after it) — so aoPixels was the lit
+                // composite, not the AO buffer, and the contract below was
+                // asserting against the wrong image.
+                pp.GTAOEnabled = false;
+                pp.GTAODebugView = false;
+                Renderer3D::ApplyRendererSettings();
+                std::vector<u8> offPixels;
+                Capture(std::string("Off_") + pose.Name, pose.Position, pose.Yaw, pose.Pitch, offPixels);
+                if (::testing::Test::HasFatalFailure())
+                    return;
+
+                applyOnParams();
+                pp.GTAODebugView = false;
+                Renderer3D::ApplyRendererSettings();
+                std::vector<u8> onPixels;
+                Capture(std::string("On_") + pose.Name, pose.Position, pose.Yaw, pose.Pitch, onPixels);
+                if (::testing::Test::HasFatalFailure())
+                    return;
+
+                // Capture the AO buffer itself (white = unoccluded) for the contract.
+                applyOnParams();
+                pp.GTAODebugView = true;
+                Renderer3D::ApplyRendererSettings();
+                std::vector<u8> aoPixels;
+                Capture(std::string("AO_") + pose.Name, pose.Position, pose.Yaw, pose.Pitch, aoPixels);
+                if (::testing::Test::HasFatalFailure())
+                    return;
+
+                // 1) Both lit frames drew the scene (catch a black / failed render):
+                //    the open floor reads as a stable mid-tone in both.
+                const f64 offFloorLit = BandLuma(offPixels, kFloorX0, kFloorX1, kFloorY0, kFloorY1);
+                const f64 onFloorLit = BandLuma(onPixels, kFloorX0, kFloorX1, kFloorY0, kFloorY1);
+                EXPECT_GT(offFloorLit, 20.0) << "GTAO-off lit frame floor rendered (near-)black";
+                EXPECT_GT(onFloorLit, 20.0) << "GTAO-on lit frame floor rendered (near-)black. See GTAO_On_"
+                                            << pose.Name << ".png";
+
+                // 1b) THE ISSUE #533 SYMPTOM, checked directly on the composite: GTAO
+                //     must not crush the open floor to a near-black fraction of its
+                //     GTAO-off brightness. The production GTAOPower=2.2 contrast curve,
+                //     combined with a residual, non-degenerate self-occlusion the
+                //     underlying per-slice horizon integral has for a tilted-but-
+                //     unoccluded surface (verified analytically: even in the
+                //     continuous-slice limit this simplified closed-form arc integral
+                //     does not reconstruct exactly 1.0 for a tilted normal -- a
+                //     separate, deeper GTAO-quality characteristic tracked for
+                //     follow-up, not a regression from any fix here), legitimately
+                //     darkens the open floor substantially. This threshold is
+                //     deliberately loose: it guards against the reported "essentially
+                //     fully black" collapse, not against ordinary tuned contrast.
+                EXPECT_GT(onFloorLit, offFloorLit * 0.15)
+                    << "GTAO-on lit floor (" << onFloorLit << ") is far darker than GTAO-off (" << offFloorLit
+                    << ") on OPEN ground -- near-black composite regression. See GTAO_On_" << pose.Name
+                    << ".png vs GTAO_Off_" << pose.Name << ".png";
+
+                // AO-buffer contract (white = unoccluded, dark = occluded).
+                const f64 skyAO = BandLuma(aoPixels, kSkyX0, kSkyX1, kSkyY0, kSkyY1);
+                const f64 floorAO = BandLuma(aoPixels, kFloorX0, kFloorX1, kFloorY0, kFloorY1);
+                const f64 creaseAO = DarkestCellLuma(aoPixels, kCreaseX0, kCreaseX1, kCreaseY0, kCreaseY1, 16, 12);
+
+                // 2) The background sky (no geometry) is fully unoccluded — near-white.
+                EXPECT_GT(skyAO, 170.0) << "sky is not unoccluded in the AO buffer (luma=" << skyAO
+                                        << "). See GTAO_AO_" << pose.Name << ".png";
+
+                // 3) THE FIX: the open flat floor, viewed at a grazing angle, is no
+                //    longer a near-black wash. Before the #533 fix (axisVS built from
+                //    the surface normal instead of a view-related axis, which
+                //    collapsed the tangent-elevation angle to 0 for every tilted
+                //    slice) this read as literally 0 whenever the graph was actually
+                //    wired for GTAO — see GTAOMathTest.cpp for the degenerate-formula
+                //    regression tests (both that bug and the follow-up cosN-tautology
+                //    bug the per-pixel view-vector basis also fixes).
+                //    NOTE: with the production GTAOPower=2.2 curve, GTAO's open-ground
+                //    reading still isn't SSAO-white (SSAOVisualEvidenceTest's floor
+                //    threshold is 165) — verified analytically that this simplified
+                //    per-slice horizon closed-form does not reconstruct exactly 1.0
+                //    for a tilted-but-unoccluded surface even in the continuous-slice
+                //    limit, independent of any bug fixed here. That residual is a
+                //    separate, deeper GTAO-quality characteristic (tracked for
+                //    follow-up), not the #533 "essentially fully black" regression
+                //    this test guards.
+                EXPECT_GT(floorAO, 50.0)
+                    << "open flat floor is essentially black in the AO buffer (luma=" << floorAO
+                    << ") at a grazing camera angle -- GTAO is collapsing to near-zero, not just tuned "
+                       "contrast (issue #533). See GTAO_AO_"
+                    << pose.Name << ".png / GTAO_On_" << pose.Name << ".png";
+
+                // 4) The cube/floor contact crease must not read BRIGHTER than the
+                //    open floor (a sanity check on the AO buffer's polarity/values).
+                //    NOTE: unlike SSAO (SSAOVisualEvidenceTest asserts a clearly
+                //    darker localised crease band), GTAO's horizon search here does
+                //    not yet produce a strongly visually distinct darker band at this
+                //    cube/floor junction (the crease reads close to, though not
+                //    brighter than, the already partly self-occluded open floor).
+                //    That is a separate localised-contact-occlusion quality gap from
+                //    #533's near-black bug and is not asserted strictly here; only the
+                //    weak polarity check below guards against a sign-flipped AO term.
+                EXPECT_LT(creaseAO, floorAO + 10.0)
+                    << "crease reads brighter than open floor -- possible sign-flipped AO term (darkest "
+                       "crease cell="
+                    << creaseAO << " vs open floor=" << floorAO << "). See GTAO_AO_" << pose.Name << ".png";
+            }
+        }
     };
 
     // GTAO must darken the cube/floor contact crease while leaving flat open
@@ -294,169 +495,121 @@ namespace OloEngine::Tests
     // without a GL 4.6 context (see header).
     TEST_F(GTAOVisualEvidenceTest, GTAODarkensContactsNotFlatSurfacesOrSky)
     {
+        RunAOContract();
+    }
+
+    // Same contract, FORWARD path. This exists because the deferred-only coverage
+    // above let a forward-path GTAO bug ship undetected: the forward scene shader
+    // writes VIEW-space normals while GTAO.comp converts its input to view space
+    // itself, so forward normals were transformed twice and every surface came back
+    // fully occluded (AO ~0.03 everywhere, swimming as the camera turned). The sky
+    // and open-floor assertions in RunAOContract fail loudly on that, but only when
+    // something actually renders GTAO through the forward path — which nothing did.
+    class GTAOForwardPathVisualEvidenceTest : public GTAOVisualEvidenceTest
+    {
+      protected:
+        void BuildScene() override
+        {
+            m_RenderPath = RenderingPath::Forward;
+            m_EvidencePrefix = "Fwd_";
+            GTAOVisualEvidenceTest::BuildScene();
+        }
+    };
+
+    TEST_F(GTAOForwardPathVisualEvidenceTest, GTAODarkensContactsNotFlatSurfacesOrSkyInForwardPath)
+    {
+        RunAOContract();
+    }
+
+    // The contract above is necessary but NOT sufficient: at a near-axis-aligned
+    // camera pose mat3(V) is close to identity, so applying the view rotation twice
+    // is nearly a no-op and a double-transformed normal still yields plausible AO.
+    // The invariant that actually pins this is PARITY — forward and deferred shade
+    // the same scene from the same camera, so their AO buffers must agree. The
+    // error grows with the camera's rotation away from the axes, hence the
+    // deliberately off-axis yaw/pitch below.
+    TEST_F(GTAOForwardPathVisualEvidenceTest, ForwardAndDeferredGTAOAgreeAtOffAxisPose)
+    {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        struct ScopedMockTime
-        {
-            explicit ScopedMockTime(f32 t)
-            {
-                Time::SetMockTime(t);
-            }
-            ~ScopedMockTime()
-            {
-                Time::ClearMockTime();
-            }
-        } scopedMockTime(kCaptureTime);
+        // Well away from any axis: both mat3(V) rows and columns mix all three
+        // components, so a doubled view rotation is maximally wrong here.
+        // Orbit the cube rather than free-posing at it: Focus() guarantees the
+        // geometry is framed at any yaw, so the pose can be chosen purely for
+        // being off-axis. An empty frame would make the two paths agree
+        // trivially — which is exactly what a mis-aimed free pose produced.
+        constexpr f32 kOrbitDistance = 24.0f;
+        constexpr f32 kYaw = 0.9f;    // ~52 deg — mixes X and Z throughout mat3(V)
+        constexpr f32 kPitch = 0.55f; // looking down at the cube/floor contact
 
         auto& pp = Renderer3D::GetPostProcessSettings();
-        const auto applyOnParams = [&pp]()
+        const auto captureAO = [&](RenderingPath path, const char* tag, std::vector<u8>& out)
         {
+            Renderer3D::GetRendererSettings().Path = path;
             pp.ActiveAOTechnique = AOTechnique::GTAO;
             pp.GTAOEnabled = true;
-            pp.GTAORadius = 1.5f;             // wider than the 0.5 default so the contact band reads clearly
-            pp.GTAOPower = 2.2f;              // production default contrast curve
-            pp.GTAOFalloffRange = 0.615f;     // production default
-            pp.GTAOSampleDistribution = 2.0f; // production default
-            pp.GTAOThinCompensation = 0.0f;   // production default
-            pp.GTAODepthMipOffset = 3.3f;     // production default
-            pp.GTAODenoiseEnabled = true;     // production default
-            pp.GTAODenoisePasses = 4;         // production default
-            pp.GTAODenoiseBeta = 1.2f;        // production default
-            // ActiveAOTechnique swaps which AO pass is registered in the render
-            // graph (RegisterSceneAndLightingNodes's switch on ActiveAOTechnique).
-            // Without this, the graph stays wired for whatever technique was
-            // active at build time, GTAOPass never executes, AOBuffer is never
-            // written, and AOApplyRenderPass still multiplies the whole frame by
-            // that all-zero buffer -- see issue #533 and olo_render_toggle_pass's
-            // matching fix in McpTools.cpp.
-            Renderer3D::ApplyRendererSettings();
-        };
-
-        struct Pose
-        {
-            const char* Name;
-            glm::vec3 Position;
-            f32 Yaw;
-            f32 Pitch;
-        };
-
-        // Low-ish angles so the frame is split: SKY across the top (above the
-        // floor's far horizon) and the lit FLOOR + cube across the lower half.
-        // Crucially, at these grazing pitches the floor is NOT face-on to the
-        // camera -- this is exactly where issue #533's tangent-elevation bug
-        // self-occluded flat ground (a straight-down camera pose would not
-        // have reproduced it, since n == 0 is the correct answer there too).
-        const std::array<Pose, 2> poses = { {
-            { "Angled", { 0.0f, 6.0f, 22.0f }, 0.0f, 0.30f },
-            { "Higher", { 0.0f, 8.0f, 19.0f }, 0.0f, 0.42f },
-        } };
-
-        // Scan bands (UV) on the AO buffer (white = unoccluded). Sky high in the
-        // frame; open floor low and to the LEFT of the centred cube (clear of both
-        // the cube and the contact crease); the contact crease straddles the cube
-        // base across the centre.
-        constexpr f32 kSkyX0 = 0.10f, kSkyX1 = 0.90f, kSkyY0 = 0.04f, kSkyY1 = 0.16f;
-        constexpr f32 kFloorX0 = 0.08f, kFloorX1 = 0.30f, kFloorY0 = 0.60f, kFloorY1 = 0.76f;
-        constexpr f32 kCreaseX0 = 0.28f, kCreaseX1 = 0.72f, kCreaseY0 = 0.40f, kCreaseY1 = 0.62f;
-
-        for (const Pose& pose : poses)
-        {
-            SCOPED_TRACE(pose.Name);
-
-            pp.GTAOEnabled = false;
-            pp.GTAODebugView = false;
-            std::vector<u8> offPixels;
-            Capture(std::string("Off_") + pose.Name, pose.Position, pose.Yaw, pose.Pitch, offPixels);
-            if (::testing::Test::HasFatalFailure())
-                return;
-
-            applyOnParams();
-            pp.GTAODebugView = false;
-            std::vector<u8> onPixels;
-            Capture(std::string("On_") + pose.Name, pose.Position, pose.Yaw, pose.Pitch, onPixels);
-            if (::testing::Test::HasFatalFailure())
-                return;
-
-            // Capture the AO buffer itself (white = unoccluded) for the contract.
-            applyOnParams();
+            pp.GTAORadius = 1.5f;
+            pp.GTAOPower = 2.2f;
+            pp.GTAODenoiseEnabled = true;
+            pp.GTAODenoisePasses = 4;
             pp.GTAODebugView = true;
-            std::vector<u8> aoPixels;
-            Capture(std::string("AO_") + pose.Name, pose.Position, pose.Yaw, pose.Pitch, aoPixels);
-            if (::testing::Test::HasFatalFailure())
-                return;
+            Renderer3D::ApplyRendererSettings();
 
-            // 1) Both lit frames drew the scene (catch a black / failed render):
-            //    the open floor reads as a stable mid-tone in both.
-            const f64 offFloorLit = BandLuma(offPixels, kFloorX0, kFloorX1, kFloorY0, kFloorY1);
-            const f64 onFloorLit = BandLuma(onPixels, kFloorX0, kFloorX1, kFloorY0, kFloorY1);
-            EXPECT_GT(offFloorLit, 20.0) << "GTAO-off lit frame floor rendered (near-)black";
-            EXPECT_GT(onFloorLit, 20.0) << "GTAO-on lit frame floor rendered (near-)black. See GTAO_On_"
-                                        << pose.Name << ".png";
+            EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            camera.Focus(glm::vec3(0.0f, 1.5f, 0.0f), kOrbitDistance, kYaw, kPitch);
+            Capture(tag, camera, out);
+        };
 
-            // 1b) THE ISSUE #533 SYMPTOM, checked directly on the composite: GTAO
-            //     must not crush the open floor to a near-black fraction of its
-            //     GTAO-off brightness. The production GTAOPower=2.2 contrast curve,
-            //     combined with a residual, non-degenerate self-occlusion the
-            //     underlying per-slice horizon integral has for a tilted-but-
-            //     unoccluded surface (verified analytically: even in the
-            //     continuous-slice limit this simplified closed-form arc integral
-            //     does not reconstruct exactly 1.0 for a tilted normal -- a
-            //     separate, deeper GTAO-quality characteristic tracked for
-            //     follow-up, not a regression from any fix here), legitimately
-            //     darkens the open floor substantially. This threshold is
-            //     deliberately loose: it guards against the reported "essentially
-            //     fully black" collapse, not against ordinary tuned contrast.
-            EXPECT_GT(onFloorLit, offFloorLit * 0.15)
-                << "GTAO-on lit floor (" << onFloorLit << ") is far darker than GTAO-off (" << offFloorLit
-                << ") on OPEN ground -- near-black composite regression. See GTAO_On_" << pose.Name
-                << ".png vs GTAO_Off_" << pose.Name << ".png";
+        std::vector<u8> forwardAO;
+        captureAO(RenderingPath::Forward, "Parity_Forward", forwardAO);
+        if (::testing::Test::HasFatalFailure())
+            return;
 
-            // AO-buffer contract (white = unoccluded, dark = occluded).
-            const f64 skyAO = BandLuma(aoPixels, kSkyX0, kSkyX1, kSkyY0, kSkyY1);
-            const f64 floorAO = BandLuma(aoPixels, kFloorX0, kFloorX1, kFloorY0, kFloorY1);
-            const f64 creaseAO = DarkestCellLuma(aoPixels, kCreaseX0, kCreaseX1, kCreaseY0, kCreaseY1, 16, 12);
+        std::vector<u8> deferredAO;
+        captureAO(RenderingPath::Deferred, "Parity_Deferred", deferredAO);
+        if (::testing::Test::HasFatalFailure())
+            return;
 
-            // 2) The background sky (no geometry) is fully unoccluded — near-white.
-            EXPECT_GT(skyAO, 170.0) << "sky is not unoccluded in the AO buffer (luma=" << skyAO
-                                    << "). See GTAO_AO_" << pose.Name << ".png";
+        ASSERT_EQ(forwardAO.size(), deferredAO.size());
 
-            // 3) THE FIX: the open flat floor, viewed at a grazing angle, is no
-            //    longer a near-black wash. Before the #533 fix (axisVS built from
-            //    the surface normal instead of a view-related axis, which
-            //    collapsed the tangent-elevation angle to 0 for every tilted
-            //    slice) this read as literally 0 whenever the graph was actually
-            //    wired for GTAO — see GTAOMathTest.cpp for the degenerate-formula
-            //    regression tests (both that bug and the follow-up cosN-tautology
-            //    bug the per-pixel view-vector basis also fixes).
-            //    NOTE: with the production GTAOPower=2.2 curve, GTAO's open-ground
-            //    reading still isn't SSAO-white (SSAOVisualEvidenceTest's floor
-            //    threshold is 165) — verified analytically that this simplified
-            //    per-slice horizon closed-form does not reconstruct exactly 1.0
-            //    for a tilted-but-unoccluded surface even in the continuous-slice
-            //    limit, independent of any bug fixed here. That residual is a
-            //    separate, deeper GTAO-quality characteristic (tracked for
-            //    follow-up), not the #533 "essentially fully black" regression
-            //    this test guards.
-            EXPECT_GT(floorAO, 50.0)
-                << "open flat floor is essentially black in the AO buffer (luma=" << floorAO
-                << ") at a grazing camera angle -- GTAO is collapsing to near-zero, not just tuned "
-                   "contrast (issue #533). See GTAO_AO_"
-                << pose.Name << ".png / GTAO_On_" << pose.Name << ".png";
-
-            // 4) The cube/floor contact crease must not read BRIGHTER than the
-            //    open floor (a sanity check on the AO buffer's polarity/values).
-            //    NOTE: unlike SSAO (SSAOVisualEvidenceTest asserts a clearly
-            //    darker localised crease band), GTAO's horizon search here does
-            //    not yet produce a strongly visually distinct darker band at this
-            //    cube/floor junction (the crease reads close to, though not
-            //    brighter than, the already partly self-occluded open floor).
-            //    That is a separate localised-contact-occlusion quality gap from
-            //    #533's near-black bug and is not asserted strictly here; only the
-            //    weak polarity check below guards against a sign-flipped AO term.
-            EXPECT_LT(creaseAO, floorAO + 10.0)
-                << "crease reads brighter than open floor -- possible sign-flipped AO term (darkest "
-                   "crease cell="
-                << creaseAO << " vs open floor=" << floorAO << "). See GTAO_AO_" << pose.Name << ".png";
+        // Compare on the AO channel only. The two paths are not bit-identical
+        // (different shaders, different precision along the way), so the bar is a
+        // mean absolute difference. Measured on this scene/pose: 0.007/255 with
+        // the normal-space fix in place, 6.07/255 with it reverted — so the 1.5
+        // bound below sits ~200x above the clean value (ample room for GPU
+        // nondeterminism) and ~4x below the regression it exists to catch.
+        f64 sumAbs = 0.0;
+        f64 sumForward = 0.0;
+        f64 sumDeferred = 0.0;
+        std::size_t counted = 0;
+        for (std::size_t i = 0; i + 3 < forwardAO.size(); i += 4)
+        {
+            const f64 f = static_cast<f64>(forwardAO[i]);
+            const f64 d = static_cast<f64>(deferredAO[i]);
+            sumAbs += std::abs(f - d);
+            sumForward += f;
+            sumDeferred += d;
+            ++counted;
         }
+        ASSERT_GT(counted, 0u);
+
+        const f64 meanAbsDiff = sumAbs / static_cast<f64>(counted);
+        const f64 meanForward = sumForward / static_cast<f64>(counted);
+        const f64 meanDeferred = sumDeferred / static_cast<f64>(counted);
+
+        // Guard against the degenerate "both black" / "both white" pass: an AO
+        // buffer with no variation would trivially satisfy the diff bound.
+        EXPECT_GT(meanForward, 20.0) << "Forward AO buffer is (near-)black -- see GTAO_Fwd_Parity_Forward.png";
+        EXPECT_GT(meanDeferred, 20.0) << "Deferred AO buffer is (near-)black -- see GTAO_Fwd_Parity_Deferred.png";
+
+        EXPECT_LT(meanAbsDiff, 1.5)
+            << "Forward and deferred GTAO disagree (mean |diff| = " << meanAbsDiff
+            << "/255, forward mean = " << meanForward << ", deferred mean = " << meanDeferred
+            << "). The forward scene shader writes VIEW-space normals while the deferred "
+               "G-Buffer writes WORLD-space ones; if GTAO applies the view matrix to both, "
+               "forward normals are rotated twice and the AO is wrong by an amount that "
+               "grows with camera rotation. Compare GTAO_Fwd_Parity_Forward.png against "
+               "GTAO_Fwd_Parity_Deferred.png.";
     }
 } // namespace OloEngine::Tests

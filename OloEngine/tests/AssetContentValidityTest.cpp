@@ -1389,9 +1389,16 @@ namespace OloEngine::Tests
             // procedurally-constructed shaders (`__Foo.cached_*`, e.g.
             // `__Fallback`, `__WarmupBoot` from ShaderWarmup / ShaderLibrary)
             // share this cache directory. `.glsl.` is therefore optional.
+            // The alternation also admits the driver-identity stamp for the
+            // program-binary (.pgr) cache: written once by
+            // OpenGLShader::EnsureProgramBinaryCacheMatchesDriver so a driver
+            // update drops every stale binary in one quiet sweep instead of a
+            // per-shader glProgramBinary rejection flood on each launch.
+            // (Matching is find_if on Subdir — one entry per subdir, so the
+            // stamp must live in this regex, not a second "shader" row.)
             { "shader",
-              std::regex(R"(.+?(\.glsl)?\.cached_(opengl|vulkan)\.(vert|frag|comp|tesc|tese|geom|pgr))"),
-              "<name>[.glsl].cached_{opengl|vulkan}.{stage|pgr}" },
+              std::regex(R"((?:.+?(\.glsl)?\.cached_(opengl|vulkan)\.(vert|frag|comp|tesc|tese|geom|pgr))|(?:program_binary_driver_stamp\.txt))"),
+              "<name>[.glsl].cached_{opengl|vulkan}.{stage|pgr}, or program_binary_driver_stamp.txt" },
             { "ibl",
               std::regex(R"([0-9a-fA-F]+_(irradiance|prefilter|brdf)\.iblcache)"),
               "<hash>_{irradiance|prefilter|brdf}.iblcache" },

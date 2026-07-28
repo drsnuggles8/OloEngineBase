@@ -13,12 +13,14 @@
 
 using AllComponents = ComponentGroup<
     AbilityComponent,
+    AircraftComponent,
     AnimationGraphComponent,
     AnimationStateComponent,
     AudioListenerComponent,
     AudioSoundGraphComponent,
     AudioSourceComponent,
     BehaviorTreeComponent,
+    BoatComponent,
     BoxCollider2DComponent,
     BoxCollider3DComponent,
     BuoyancyComponent,

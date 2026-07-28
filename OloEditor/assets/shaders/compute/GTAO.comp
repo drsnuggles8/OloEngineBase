@@ -121,12 +121,30 @@ vec3 ComputeViewspacePosition(vec2 screenPos, float viewspaceDepth)
 }
 
 // ---------------------------------------------------------------------------
-// R1 quasi-random sequence (spatiotemporal noise via Hilbert LUT)
+// R2 quasi-random sequence (spatiotemporal noise via Hilbert LUT).
+//
+// The Hilbert LUT stores an ORDERING, not a noise value, and it is locality-
+// PRESERVING by construction: neighbouring pixels get indices one apart. The R2
+// sequence (an irrational stride, so successive indices land maximally far
+// apart in [0,1)) is what converts that ordering into blue-noise-like values.
+// Both halves are load-bearing and must not be "simplified":
+//   - Using the index directly ((idx + noiseIndex) & 0xFF) / 256 hands adjacent
+//     pixels near-identical noise, so the slice angle and sample distances vary
+//     SMOOTHLY along the curve. The round() quantisation of sampleOffset below
+//     then turns that smooth ramp into coherent contours instead of per-pixel
+//     dither: a woven "goosebump" lattice carrying this LUT's 64px tile period,
+//     worst wherever pixelRadius puts the contours at a visible spacing.
+//   - The 288-per-frame temporal stride is what lets TAA resolve the dither.
+//     Advancing the index by 1 instead only slides the SAME spatial pattern
+//     along the curve, so every frame has identical structure and temporal
+//     averaging has nothing to cancel — the lattice survives TAA untouched.
+// Both were live bugs; see docs/agent-rules/glsl-shaders.md.
 // ---------------------------------------------------------------------------
-float SpatioTemporalNoise(ivec2 pixCoord)
+vec2 SpatioTemporalNoise(ivec2 pixCoord)
 {
     uint idx = texelFetch(u_HilbertLUT, pixCoord & ivec2(63), 0).r;
-    return float((idx + u_NoiseIndex) & 0xFFu) / 256.0;
+    idx += 288u * (uint(u_NoiseIndex) & 63u);
+    return fract(0.5 + vec2(idx) * vec2(0.75487766624669276005, 0.5698402909980532659114));
 }
 
 // ---------------------------------------------------------------------------
@@ -193,9 +211,14 @@ void main()
     vec2 encodedNormal = texelFetch(u_ViewNormals, pixCoord, 0).rg;
     vec3 viewNormal = normalize(mat3(u_ViewMatrix) * OctDecode(encodedNormal));
 
-    // Noise for slice rotation
-    float noiseSlice = SpatioTemporalNoise(pixCoord);
-    float noiseSample = fract(noiseSlice * 0.6180339887498949); // Golden ratio
+    // Noise for slice rotation (.x) and sample distance along the slice (.y).
+    // These come from the two independent R2 dimensions; deriving the second
+    // from the first (fract(noiseSlice * golden)) is NOT independent — with
+    // noiseSlice quantised to k/256 it reduces to fract(k * 0.00241), a plain
+    // ramp spanning only [0, 0.62), which biases every sample inward.
+    vec2 noise = SpatioTemporalNoise(pixCoord);
+    float noiseSlice = noise.x;
+    float noiseSample = noise.y;
 
     // World-space AO radius → pixel radius on screen
     // proj[0][0] = 2 / NDCToViewMul.x, half-screen in pixels = screenWidth / 2
@@ -255,9 +278,25 @@ void main()
         float cosN = clamp(dot(projectedNormal, viewVec) / max(projectedNormalLen, 1e-6), 0.0, 1.0);
         float n = signN * acos(cosN);
 
-        // Horizon angles (initialize to below horizon)
-        float horizonCos0 = cos(n + XE_GTAO_HALF_PI);
-        float horizonCos1 = cos(n - XE_GTAO_HALF_PI);
+        // Horizon angles, initialised to "no occluder found on this side".
+        //
+        // These MUST start at -1 (horizon fully behind the surface), not at
+        // cos(n +/- HALF_PI). The h0/h1 reconstruction below recovers an angle
+        // with acos(), which discards the sign of (n -/+ HALF_PI) -- so for the
+        // unoccluded case the old initialisation produced:
+        //     n = 0        ->  h0 = -HALF_PI, h1 = +HALF_PI  -> visibility 1  (correct)
+        //     n = HALF_PI  ->  h0 =  0,       h1 =  0        -> visibility 0  (wrong)
+        // i.e. a surface with NO occluders reported full occlusion, with the
+        // error growing continuously as the surface tilts away from dead-on.
+        // That is why this was invisible looking straight down (n == 0) and why
+        // a grazing view across a large flat surface -- a sea, a quay, a floor
+        // seen edge-on -- went uniformly black, then pinned at the 0.03
+        // visibility floor below (0.03 * 255 = 8, the exact value observed).
+        // With -1 both sides reconstruct symmetrically (acos(-1) = PI), giving
+        // h0 = n - HALF_PI and h1 = n + HALF_PI for every n, and max() in the
+        // march below still lets any real occluder raise the horizon.
+        float horizonCos0 = -1.0;
+        float horizonCos1 = -1.0;
 
         // March along the slice direction
         for (int step = 0; step < XE_GTAO_STEPS_PER_SLICE; step++)
@@ -304,10 +343,20 @@ void main()
             float newHorizonCos1 = dot(sampleHorizon1, viewNormal);
 
             // Thin occluder compensation
+            //
+            // The compensation term must be measured from -1 (the "no occluder
+            // found" horizon set above), NOT from 0. Scaling horizonCos itself
+            // makes thinComp negative while the horizon is still unoccluded, so
+            // horizonCos - thinComp = -1 + compensation RAISES the floor above
+            // -1 and re-introduces exactly the phantom occlusion the -1
+            // initialisation exists to prevent -- a slice that found nothing
+            // would report itself partly occluded. Basing it on the distance
+            // from -1 keeps an unoccluded horizon pinned at -1 (thinComp == 0)
+            // and only decays a horizon some real occluder already raised.
             if (u_ThinOccluderCompensation > 0.0)
             {
-                float thinComp0 = horizonCos0 * u_ThinOccluderCompensation;
-                float thinComp1 = horizonCos1 * u_ThinOccluderCompensation;
+                float thinComp0 = (horizonCos0 + 1.0) * u_ThinOccluderCompensation;
+                float thinComp1 = (horizonCos1 + 1.0) * u_ThinOccluderCompensation;
                 horizonCos0 = max(horizonCos0 - thinComp0, mix(horizonCos0, newHorizonCos0, weight0));
                 horizonCos1 = max(horizonCos1 - thinComp1, mix(horizonCos1, newHorizonCos1, weight1));
             }

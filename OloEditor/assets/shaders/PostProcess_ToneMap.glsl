@@ -72,7 +72,8 @@ layout(std140, binding = 7) uniform PostProcessUBO
     int   u_MotionBlurSamples;
     float u_InverseScreenWidth;
     float u_InverseScreenHeight;
-    float _padding0;
+    // Deband dither amplitude; 0 disables (tests), the pipeline sets 0.5/255.
+    float u_DitherAmplitude;
 
     float u_TexelSizeX;
     float u_TexelSizeY;
@@ -405,6 +406,26 @@ void main()
 
     // Gamma correction
     mapped = pow(mapped, vec3(1.0 / u_Gamma));
+
+    // Deband dither. Ultra-smooth gradients (distant quay / hazy water)
+    // otherwise quantize into a pixel-locked interference weave — the FP16
+    // scene buffer collapses the gradient to two adjacent quanta per channel,
+    // the R8 AO multiplies its own step lattice in, and the first RGBA8
+    // target downstream re-quantizes the beat pattern into visible ±1–2 LSB
+    // "goosebumps" that shimmer as the camera moves. One triangular-
+    // distributed dither (two IGN taps) at the final shading stage breaks
+    // every downstream quantization contour into invisible noise. Static
+    // (not frame-animated): without TAA an animated dither would shimmer.
+    // Amplitude comes from the pass (0.5/255); an unset uniform defaults to
+    // 0 in GL, so operator-property tests that drive this shader directly
+    // (ToneMapMonotonicityTest's strict non-decreasing ramp) measure the
+    // pure curve without the per-pixel dither.
+    {
+        const vec3 kIGN = vec3(0.06711056, 0.00583715, 52.9829189);
+        float n1 = fract(kIGN.z * fract(dot(gl_FragCoord.xy, kIGN.xy)));
+        float n2 = fract(kIGN.z * fract(dot(gl_FragCoord.xy + vec2(47.0, 17.0), kIGN.xy)));
+        mapped += (n1 + n2 - 1.0) * u_DitherAmplitude;
+    }
 
     o_Color = vec4(mapped, 1.0);
 }

@@ -53,6 +53,7 @@ namespace OloEngine
         RenderGraphNode::Setup(builder, blackboard);
         m_SelectedSceneDepthTexture = {};
         m_SelectedSceneNormalsTexture = {};
+        m_SceneNormalsAreViewSpace = false;
         m_SelectedAOOutputTexture = {};
         m_SelectedEdgeTexture = {};
         m_SelectedHZBDepthTexture = {};
@@ -72,6 +73,12 @@ namespace OloEngine
         if (blackboard.Scene.SceneNormals.IsValid())
         {
             m_SelectedSceneNormalsTexture = blackboard.Scene.SceneNormals;
+            // GTAO.comp converts its input to view space with u_ViewMatrix. The
+            // deferred G-Buffer stores world-space normals, so that conversion is
+            // correct there — but the forward path hands us normals the PBR shader
+            // already put in view space, and transforming those again produced
+            // garbage that read as full occlusion on every surface.
+            m_SceneNormalsAreViewSpace = blackboard.Scene.SceneNormalsAreViewSpace;
             [[maybe_unused]] const auto sceneNormalsRead = builder.Read(blackboard.Scene.SceneNormals, RGReadUsage::ShaderSample);
         }
         if (blackboard.AO.AOBuffer.IsValid())
@@ -342,9 +349,22 @@ namespace OloEngine
         f32 projScale00 = m_Projection[0][0];
         f32 projScale11 = m_Projection[1][1];
 
-        // NDCToView: unproject from normalized screen [0,1] to view-space XY
-        m_GPUData->NDCToViewMul = glm::vec2(2.0f / projScale00, -2.0f / projScale11);
-        m_GPUData->NDCToViewAdd = glm::vec2(-1.0f / projScale00, 1.0f / projScale11);
+        // NDCToView: unproject from normalized screen [0,1] to view-space XY.
+        //
+        // GL convention on BOTH axes: (2u - 1) / proj00 and (2v - 1) / proj11.
+        // The XeGTAO reference negates the Y pair (-2/proj11, +1/proj11)
+        // because D3D texture coordinates put v = 0 at the TOP row; this port
+        // consumes GL-convention inputs everywhere (the compute's pixCoord
+        // row 0 is the framebuffer BOTTOM: the HZB is a 1:1 texelFetch copy
+        // of the scene depth and the view-normals texture is fetched with the
+        // same coordinates), so keeping the D3D flip NEGATED view-space Y for
+        // every reconstructed sample position while the decoded surface
+        // normals stayed correct. All horizon angles were reflected about the
+        // horizontal plane: invisible looking straight down (symmetric), a
+        // full-frame visibility collapse to the 0.03 floor at grazing views
+        // (the sea / quay "goosebumps" weave rode on that collapsed AO).
+        m_GPUData->NDCToViewMul = glm::vec2(2.0f / projScale00, 2.0f / projScale11);
+        m_GPUData->NDCToViewAdd = glm::vec2(-1.0f / projScale00, -1.0f / projScale11);
 
         f32 pixelSizeX = 1.0f / static_cast<f32>(m_Width);
         f32 pixelSizeY = 1.0f / static_cast<f32>(m_Height);
@@ -370,8 +390,13 @@ namespace OloEngine
         m_GPUData->DenoisePasses = m_Settings.GTAODenoisePasses;
         m_GPUData->DebugView = m_Settings.GTAODebugView ? 1 : 0;
 
-        // View matrix: transforms world-space GBuffer normals to view-space
-        m_GPUData->ViewMatrix = m_ViewMatrix;
+        // Transforms world-space G-Buffer normals to view space. When the source is
+        // ALREADY view space (the forward path's scene-colour RT2, written as
+        // octEncode(mat3(u_View) * N) by PBR_MultiLight.glsl) this must be identity
+        // instead — applying the view matrix a second time rotates every normal out
+        // of the hemisphere the horizon search assumes and drives AO to zero
+        // everywhere, swimming as the camera turns.
+        m_GPUData->ViewMatrix = m_SceneNormalsAreViewSpace ? glm::mat4(1.0f) : m_ViewMatrix;
 
         m_GTAOUBO->SetData(m_GPUData, UBOStructures::GTAOUBO::GetSize());
         m_GTAOUBO->Bind();
@@ -483,13 +508,20 @@ namespace OloEngine
 
     void GTAORenderPass::OnReset()
     {
-        // Increment temporal noise index
-        if (m_GPUData)
+        // Advance the spatio-temporal noise phase ONLY when TAA is enabled.
+        // XeGTAO's animated noise index exists to be temporally resolved by
+        // TAA; without TAA the R1/Hilbert pattern visibly boils every frame —
+        // the "goosebumps" weave over the water and distant quay. With a
+        // fixed phase the residual pattern is static and the (edge-aware)
+        // denoise output is temporally stable, matching reference XeGTAO
+        // behavior for the no-TAA configuration.
+        if (m_GPUData && m_Settings.TAAEnabled)
         {
             m_GPUData->NoiseIndex = (m_GPUData->NoiseIndex + 1) % 256;
         }
         m_SelectedSceneDepthTexture = {};
         m_SelectedSceneNormalsTexture = {};
+        m_SceneNormalsAreViewSpace = false;
         m_SelectedAOOutputTexture = {};
         m_SelectedEdgeTexture = {};
         m_SelectedHZBDepthTexture = {};

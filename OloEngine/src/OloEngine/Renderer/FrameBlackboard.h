@@ -64,6 +64,15 @@ namespace OloEngine
             RGTextureHandle SceneDepthAttachment; // Live SceneColor depth attachment view
             RGTextureHandle SceneDepth;           // Semantic scene depth (forward snapshot texture, deferred attachment view, or deferred MSAA resolve view)
             RGTextureHandle SceneNormals;         // Semantic AO/deferred normals input (forward snapshot, deferred attachment view, or deferred MSAA resolve view)
+            // Which space SceneNormals is encoded in, because the two paths differ:
+            // the FORWARD scene shader writes VIEW-space normals
+            // (PBR_MultiLight.glsl: octEncode(mat3(u_View) * N)) and SceneNormals is
+            // a straight copy of that attachment, whereas the DEFERRED G-Buffer
+            // stores WORLD-space normals. Consumers that convert to view space must
+            // check this or they double-transform on one path — which is exactly
+            // what made GTAO shade every surface fully occluded in forward, with
+            // the artefact swimming as the camera turned (issue #438 follow-up).
+            bool SceneNormalsAreViewSpace = false;
         };
 
         // -----------------------------------------------------------------------

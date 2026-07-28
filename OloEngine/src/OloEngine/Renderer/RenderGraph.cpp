@@ -13,8 +13,11 @@
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 
+#include <glad/gl.h>
+
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <deque>
 #include <fstream>
@@ -25,6 +28,13 @@ namespace OloEngine
 {
     namespace
     {
+        // Cap on how far the Resolve* helpers will follow a WriteNewVersion
+        // rename chain through m_VersionAliasTargets. Real chains are a single
+        // hop; the cap exists purely so a malformed (cyclic) map degrades to a
+        // failed resolve instead of blowing the stack. Kept equal to
+        // RenderGraphTransientPlanner's canonicalResourceName guard.
+        constexpr u32 kMaxVersionAliasDepth = 16u;
+
         template<typename TEntry>
         void SynchronizeGraphEntryLifecycle(Ref<TEntry> entry, const u32 physicalWidth, const u32 physicalHeight, const f32 renderScale)
         {
@@ -54,6 +64,249 @@ namespace OloEngine
         {
             static const bool enabled = IsTruthyEnvironmentVariable("OLO_RENDERGRAPH_DIAGNOSTICS");
             return enabled;
+        }
+
+        // Transient-corruption debug instruments (the transient black-square
+        // artifact hunt). OLO_RG_POISON_TRANSIENTS=1 clears every pool-acquired
+        // transient texture / color attachment to magenta at materialize time,
+        // so any texel that reaches a consumer without being written *this
+        // frame* is unmistakable (magenta = stale/unwritten pool content,
+        // black = something actively wrote black mid-frame).
+        // OLO_RG_DISABLE_ALIASING=1 gives every transient resource its own
+        // physical backing (no alias-slot sharing, WillAllocate=false entries
+        // acquire too) — if an artifact disappears under this switch, the
+        // transient planner's lifetime analysis let two live resources share
+        // one GPU object.
+        bool IsTransientPoisonEnabled()
+        {
+            static const bool enabled = IsTruthyEnvironmentVariable("OLO_RG_POISON_TRANSIENTS");
+            return enabled;
+        }
+
+        bool IsTransientAliasingDisabled()
+        {
+            static const bool enabled = IsTruthyEnvironmentVariable("OLO_RG_DISABLE_ALIASING");
+            return enabled;
+        }
+
+        // OLO_RG_BLACKSQUARE_HUNT=1 — per-pass output readback scan for the
+        // one-frame solid-black square artifact. After EVERY executed pass,
+        // read back the pass target's color attachment 0 and log each pass
+        // whose output contains a >=64x64 px solid-black block. The first
+        // pass logged in a frame is the one that painted the square into the
+        // chain (its own draw, or a corrupt sampled source). Heavy (full-res
+        // readback per pass); debug hunts only.
+        bool IsBlackSquareHuntEnabled()
+        {
+            static const bool enabled = IsTruthyEnvironmentVariable("OLO_RG_BLACKSQUARE_HUNT");
+            return enabled;
+        }
+
+        void HuntBlackSquares(const std::string& passName, const Ref<Framebuffer>& target,
+                              const char* watchLabel = nullptr)
+        {
+            if (!target)
+                return;
+
+            // Only color-capable targets participate (depth-only FBs skip).
+            bool hasColor = false;
+            for (const auto& attachment : target->GetSpecification().Attachments.Attachments)
+            {
+                switch (attachment.TextureFormat)
+                {
+                    case FramebufferTextureFormat::RGBA8:
+                    case FramebufferTextureFormat::RGBA16F:
+                    case FramebufferTextureFormat::RGBA32F:
+                    case FramebufferTextureFormat::RGB16F:
+                    case FramebufferTextureFormat::RGB32F:
+                        hasColor = true;
+                        break;
+                    default:
+                        break;
+                }
+                if (hasColor)
+                    break;
+            }
+            if (!hasColor)
+                return;
+
+            const u32 textureID = target->GetColorAttachmentRendererID(0);
+            const auto& spec = target->GetSpecification();
+            if (textureID == 0 || spec.Width == 0 || spec.Height == 0)
+                return;
+
+            const sizet texelCount = static_cast<sizet>(spec.Width) * spec.Height;
+            static thread_local std::vector<f32> s_Scratch;
+            s_Scratch.resize(texelCount * 4u);
+            glGetTextureSubImage(textureID, 0, 0, 0, 0,
+                                 static_cast<GLsizei>(spec.Width), static_cast<GLsizei>(spec.Height), 1,
+                                 GL_RGBA, GL_FLOAT,
+                                 static_cast<GLsizei>(s_Scratch.size() * sizeof(f32)),
+                                 s_Scratch.data());
+
+            // NaN census first: a single NaN texel in the scene input snowballs
+            // through bloom's 13-tap downsample/upsample chain into a ~300px
+            // black block (scene + NaN = NaN), so the pass whose output first
+            // contains ANY NaN is the true origin even when no 64px block
+            // exists yet.
+            {
+                sizet nanCount = 0;
+                sizet firstNaN = static_cast<sizet>(-1);
+                for (sizet i = 0; i < s_Scratch.size(); ++i)
+                {
+                    if (std::isnan(s_Scratch[i]))
+                    {
+                        ++nanCount;
+                        if (firstNaN == static_cast<sizet>(-1))
+                            firstNaN = i;
+                    }
+                }
+                if (nanCount > 0)
+                {
+                    const sizet texel = firstNaN / 4u;
+                    OLO_CORE_ERROR("BLACKSQUARE HUNT NAN: after pass '{}' {}FB#{} tex#{} has {} NaN channel value(s), first at texel ({}, {})",
+                                   passName,
+                                   watchLabel ? watchLabel : "target ",
+                                   target->GetRendererID(), textureID,
+                                   nanCount,
+                                   texel % spec.Width, texel / spec.Width);
+                }
+            }
+
+            // 16x16 block classification: a block is "black" when every texel's
+            // max(r,g,b) < 0.02 (HDR daylight scenes never produce a 64px
+            // fully-zero region legitimately).
+            constexpr u32 kBlock = 16u;
+            const u32 blocksX = (spec.Width + kBlock - 1u) / kBlock;
+            const u32 blocksY = (spec.Height + kBlock - 1u) / kBlock;
+            static thread_local std::vector<u8> s_BlackBlocks;
+            s_BlackBlocks.assign(static_cast<sizet>(blocksX) * blocksY, 1u);
+            for (u32 y = 0; y < spec.Height; ++y)
+            {
+                const u32 by = y / kBlock;
+                for (u32 x = 0; x < spec.Width; ++x)
+                {
+                    const sizet idx = (static_cast<sizet>(y) * spec.Width + x) * 4u;
+                    const f32 maxChannel = std::max(s_Scratch[idx], std::max(s_Scratch[idx + 1u], s_Scratch[idx + 2u]));
+                    if (maxChannel >= 0.02f)
+                        s_BlackBlocks[static_cast<sizet>(by) * blocksX + (x / kBlock)] = 0u;
+                }
+            }
+
+            // Any 4x4 all-black block window (=64x64 px) triggers a report.
+            for (u32 by = 0; by + 4u <= blocksY; ++by)
+            {
+                for (u32 bx = 0; bx + 4u <= blocksX; ++bx)
+                {
+                    bool allBlack = true;
+                    for (u32 dy = 0; dy < 4u && allBlack; ++dy)
+                        for (u32 dx = 0; dx < 4u && allBlack; ++dx)
+                            allBlack = s_BlackBlocks[static_cast<sizet>(by + dy) * blocksX + (bx + dx)] != 0u;
+                    if (allBlack)
+                    {
+                        OLO_CORE_ERROR("BLACKSQUARE HUNT: after pass '{}' {}FB#{} tex#{} has a >=64px black block at ({}, {}) [{}x{}]",
+                                       passName,
+                                       watchLabel ? watchLabel : "target ",
+                                       target->GetRendererID(), textureID,
+                                       bx * kBlock, by * kBlock, spec.Width, spec.Height);
+                        return; // one report per pass per frame is enough
+                    }
+                }
+            }
+        }
+
+        struct PoisonColor
+        {
+            const char* Name;
+            f32 RGBA[4];
+        };
+
+        // Maximally distinct hues so a poisoned texel that leaks to the screen
+        // identifies (up to palette collisions) WHICH transient resource it
+        // came from — the resource→color mapping is logged once per resource.
+        constexpr PoisonColor kPoisonPalette[] = {
+            { "magenta", { 1.0f, 0.0f, 1.0f, 1.0f } },
+            { "red", { 1.0f, 0.0f, 0.0f, 1.0f } },
+            { "green", { 0.0f, 1.0f, 0.0f, 1.0f } },
+            { "blue", { 0.0f, 0.0f, 1.0f, 1.0f } },
+            { "yellow", { 1.0f, 1.0f, 0.0f, 1.0f } },
+            { "cyan", { 0.0f, 1.0f, 1.0f, 1.0f } },
+            { "orange", { 1.0f, 0.5f, 0.0f, 1.0f } },
+            { "purple", { 0.5f, 0.0f, 1.0f, 1.0f } },
+            { "spring", { 0.0f, 1.0f, 0.5f, 1.0f } },
+            { "pink", { 1.0f, 0.0f, 0.5f, 1.0f } },
+            { "lime", { 0.5f, 1.0f, 0.0f, 1.0f } },
+            { "azure", { 0.0f, 0.5f, 1.0f, 1.0f } },
+        };
+
+        const PoisonColor& PoisonColorForResource(const std::string& resourceName)
+        {
+            u64 hash = 1469598103934665603ull;
+            for (const char c : resourceName)
+            {
+                hash ^= static_cast<u64>(static_cast<unsigned char>(c));
+                hash *= 1099511628211ull;
+            }
+            const auto& color = kPoisonPalette[hash % std::size(kPoisonPalette)];
+
+            static std::unordered_set<std::string> s_Logged;
+            if (s_Logged.insert(resourceName).second)
+                OLO_CORE_WARN("RG poison map: {} -> {}", resourceName, color.Name);
+            return color;
+        }
+
+        void PoisonTexture(const Ref<Texture>& texture, const TextureSpecification& spec, const PoisonColor& color)
+        {
+            if (!texture || texture->GetRendererID() == 0)
+                return;
+            // Integer and depth formats take different clear formats and are
+            // not implicated in the artifact; skip them.
+            if (spec.Format == ImageFormat::R32I || spec.Format == ImageFormat::DEPTH24STENCIL8)
+                return;
+            const u32 mipLevels = std::max(spec.MipLevels, 1u);
+            for (u32 level = 0; level < mipLevels; ++level)
+                glClearTexImage(texture->GetRendererID(), static_cast<GLint>(level), GL_RGBA, GL_FLOAT, color.RGBA);
+        }
+
+        void PoisonBuffer(const Ref<StorageBuffer>& buffer)
+        {
+            if (!buffer || buffer->GetRendererID() == 0)
+                return;
+            // A recognizable huge constant rather than a hue: any consumer
+            // reading pool-stale buffer content (exposure/histogram state,
+            // indirect-draw args, cluster lists) goes loudly wrong instead of
+            // plausibly wrong. NaN would be even louder but risks GPU hangs
+            // in indirect-dispatch consumers, so stay finite.
+            constexpr f32 kPoisonValue = 1.0e9f;
+            glClearNamedBufferData(buffer->GetRendererID(), GL_R32F, GL_RED, GL_FLOAT, &kPoisonValue);
+        }
+
+        void PoisonFramebuffer(const Ref<Framebuffer>& framebuffer, const PoisonColor& color)
+        {
+            if (!framebuffer)
+                return;
+            u32 colorIndex = 0;
+            for (const auto& attachment : framebuffer->GetSpecification().Attachments.Attachments)
+            {
+                switch (attachment.TextureFormat)
+                {
+                    case FramebufferTextureFormat::RGBA8:
+                    case FramebufferTextureFormat::RGBA16F:
+                    case FramebufferTextureFormat::RGBA32F:
+                    case FramebufferTextureFormat::RGB16F:
+                    case FramebufferTextureFormat::RGB32F:
+                    case FramebufferTextureFormat::RG16F:
+                    case FramebufferTextureFormat::RG32F:
+                        glClearTexImage(framebuffer->GetColorAttachmentRendererID(colorIndex), 0, GL_RGBA, GL_FLOAT, color.RGBA);
+                        ++colorIndex;
+                        break;
+                    case FramebufferTextureFormat::RED_INTEGER:
+                        ++colorIndex; // integer attachment — skip the clear, but it still occupies a color slot
+                        break;
+                    default:
+                        break; // depth formats don't consume color attachment slots
+                }
+            }
         }
 
         [[nodiscard]] auto HasExplicitVersionQualifier(const std::string_view resourceName) -> bool
@@ -151,6 +404,7 @@ namespace OloEngine
         m_LatestTextureHandlesByBaseName.clear();
         m_TextureViewResourceDescs.clear();
         m_TextureViewDefinitions.clear();
+        m_VersionAliasTargets.clear();
         m_BufferHandlesByName.clear();
         m_LatestBufferHandlesByBaseName.clear();
         m_FramebufferHandlesByName.clear();
@@ -229,6 +483,7 @@ namespace OloEngine
         m_LatestTextureHandlesByBaseName.clear();
         m_TextureViewResourceDescs.clear();
         m_TextureViewDefinitions.clear();
+        m_VersionAliasTargets.clear();
         m_BufferHandlesByName.clear();
         m_LatestBufferHandlesByBaseName.clear();
         m_FramebufferHandlesByName.clear();
@@ -327,6 +582,7 @@ namespace OloEngine
         m_ImportedResources.clear();
         m_TextureViewResourceDescs.clear();
         m_TextureViewDefinitions.clear();
+        m_VersionAliasTargets.clear();
         m_LatestTextureHandlesByBaseName.clear();
         m_LatestBufferHandlesByBaseName.clear();
         m_LatestFramebufferHandlesByBaseName.clear();
@@ -472,6 +728,11 @@ namespace OloEngine
             m_ExplicitVersionProducers[std::string(versionedName)] = std::string(ownerPassName);
         if (versionHandle.IsValid())
         {
+            // A version is a rename of the SAME physical resource (RMW
+            // bookkeeping) — record the alias so Resolve*() returns the
+            // source's physical and the transient planner never allocates a
+            // separate backing for the version.
+            m_VersionAliasTargets[std::string(versionedName)] = std::string(sourceResource);
             m_LatestTextureHandlesByBaseName[std::string(GetVersionLookupBaseName(sourceResource))] = versionHandle;
         }
 
@@ -617,6 +878,8 @@ namespace OloEngine
             m_ExplicitVersionProducers[std::string(versionedName)] = std::string(ownerPassName);
         if (versionHandle.IsValid())
         {
+            // Same-physical rename — see CreateVersionedTextureHandle.
+            m_VersionAliasTargets[std::string(versionedName)] = std::string(sourceResource);
             m_LatestFramebufferHandlesByBaseName[std::string(GetVersionLookupBaseName(sourceResource))] = versionHandle;
 
             // Auto-publish versioned attachment views: every colour/depth
@@ -802,6 +1065,8 @@ namespace OloEngine
             m_ExplicitVersionProducers[std::string(versionedName)] = std::string(ownerPassName);
         if (versionHandle.IsValid())
         {
+            // Same-physical rename — see CreateVersionedTextureHandle.
+            m_VersionAliasTargets[std::string(versionedName)] = std::string(sourceResource);
             m_LatestBufferHandlesByBaseName[std::string(GetVersionLookupBaseName(sourceResource))] = versionHandle;
         }
 
@@ -1395,6 +1660,39 @@ namespace OloEngine
             return 0;
         }
 
+        // A WriteNewVersion rename resolves to its SOURCE's physical — the
+        // version is dependency bookkeeping over the same resource, never a
+        // separate allocation. Walk via the direct by-name map (NOT
+        // GetTextureHandle, whose latest-version redirect would loop) so a
+        // chain of versions terminates at the base resource.
+        //
+        // The walk is ITERATIVE and depth-capped rather than recursive: a
+        // malformed (self- or mutually-referencing) alias map would otherwise
+        // recurse until the stack dies. Bound matches
+        // RenderGraphTransientPlanner's canonicalResourceName guard — real
+        // chains are one hop, so this only ever fires on a corrupt map.
+        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name);
+            aliasIt != m_VersionAliasTargets.end())
+        {
+            const std::string* current = &aliasIt->second;
+            for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
+            {
+                const auto sourceIt = m_TextureHandlesByName.find(*current);
+                if (sourceIt == m_TextureHandlesByName.end() || !IsTextureHandleCurrent(sourceIt->second))
+                    return 0;
+
+                // Terminal link — resolve it so view/placeholder handling still
+                // runs. It is not itself a rename, so this cannot re-enter here.
+                const auto nextIt = m_VersionAliasTargets.find(*current);
+                if (nextIt == m_VersionAliasTargets.end())
+                    return ResolveTexture(sourceIt->second);
+
+                current = &nextIt->second;
+            }
+
+            return 0;
+        }
+
         return m_PhysicalTextures[handle.Index].TextureID;
     }
 
@@ -1418,6 +1716,28 @@ namespace OloEngine
             slot.PlaceholderWarnedThisFrame = true;
         }
 
+        // WriteNewVersion rename — resolve the source's physical, via the same
+        // depth-capped iterative walk (see ResolveTexture for the full rationale).
+        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name);
+            aliasIt != m_VersionAliasTargets.end())
+        {
+            const std::string* current = &aliasIt->second;
+            for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
+            {
+                const auto sourceIt = m_FramebufferHandlesByName.find(*current);
+                if (sourceIt == m_FramebufferHandlesByName.end() || !IsFramebufferHandleCurrent(sourceIt->second))
+                    return nullptr;
+
+                const auto nextIt = m_VersionAliasTargets.find(*current);
+                if (nextIt == m_VersionAliasTargets.end())
+                    return ResolveFramebuffer(sourceIt->second);
+
+                current = &nextIt->second;
+            }
+
+            return nullptr;
+        }
+
         return m_PhysicalFramebuffers[handle.Index].FB;
     }
 
@@ -1439,6 +1759,28 @@ namespace OloEngine
                           slot.Name,
                           slot.PlaceholderReason.empty() ? "unspecified" : slot.PlaceholderReason);
             slot.PlaceholderWarnedThisFrame = true;
+        }
+
+        // WriteNewVersion rename — resolve the source's physical, via the same
+        // depth-capped iterative walk (see ResolveTexture for the full rationale).
+        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name);
+            aliasIt != m_VersionAliasTargets.end())
+        {
+            const std::string* current = &aliasIt->second;
+            for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
+            {
+                const auto sourceIt = m_BufferHandlesByName.find(*current);
+                if (sourceIt == m_BufferHandlesByName.end() || !IsBufferHandleCurrent(sourceIt->second))
+                    return 0;
+
+                const auto nextIt = m_VersionAliasTargets.find(*current);
+                if (nextIt == m_VersionAliasTargets.end())
+                    return ResolveBuffer(sourceIt->second);
+
+                current = &nextIt->second;
+            }
+
+            return 0;
         }
 
         return m_PhysicalBuffers[handle.Index].BufferID;
@@ -2677,14 +3019,36 @@ namespace OloEngine
         // registered, so the executor's per-pass hook check stays a cheap
         // bool test in the common case.
         PostPassHook composedPostPassHook;
-        if (!m_PostPassHooks.empty())
+        const bool blackSquareHunt = IsBlackSquareHuntEnabled();
+        if (!m_PostPassHooks.empty() || blackSquareHunt)
         {
-            composedPostPassHook = [this](const std::string& passName, RenderGraph& graph)
+            composedPostPassHook = [this, blackSquareHunt](const std::string& passName, RenderGraph& graph)
             {
                 for (const auto& [key, hook] : m_PostPassHooks)
                 {
                     if (hook)
                         hook(passName, graph);
+                }
+                if (blackSquareHunt)
+                {
+                    if (const auto nodeIt = m_NodeLookup.find(passName); nodeIt != m_NodeLookup.end() && nodeIt->second)
+                        HuntBlackSquares(passName, nodeIt->second->GetTarget());
+                    // Watchlist: re-scan the known victims at EVERY hook (hooks
+                    // fire for no-op passes too) so the log pinpoints the pass
+                    // interval where a victim's content turns corrupt.
+                    static constexpr std::pair<const char*, const char*> kWatch[] = {
+                        { "SceneColor", "watch[SceneColor] " },
+                        { "AOApplyColor", "watch[AOApplyColor] " },
+                        { "BloomColor", "watch[BloomColor] " },
+                    };
+                    for (const auto& [watchName, watchTag] : kWatch)
+                    {
+                        if (const auto fbHandle = graph.GetFramebufferHandle(watchName); fbHandle.IsValid())
+                        {
+                            if (auto fb = graph.ResolveFramebuffer(fbHandle))
+                                HuntBlackSquares(passName, fb, watchTag);
+                        }
+                    }
                 }
             };
         }
@@ -2828,11 +3192,28 @@ namespace OloEngine
         {
             // Skip resources whose physical backing is owned outside the
             // transient pool — imported resources keep the importer's slot,
-            // externally-backed transients resolve to caller-supplied backing.
-            // Either case must preserve the existing physical pointer.
+            // externally-backed transients resolve to caller-supplied backing,
+            // and WriteNewVersion renames resolve to their source's physical.
+            // Either case must preserve the existing physical pointer (and a
+            // version alias must never receive its own pool object — the
+            // planner already marks them skip, this is the defensive belt).
             return !m_ImportedResources.contains(entry.Resource) &&
-                   !IsExternallyBackedTransientResource(entry.Resource);
+                   !IsExternallyBackedTransientResource(entry.Resource) &&
+                   !m_VersionAliasTargets.contains(entry.Resource);
         };
+
+        const bool poisonTransients = IsTransientPoisonEnabled();
+        const bool disableAliasing = IsTransientAliasingDisabled();
+        if (poisonTransients || disableAliasing)
+        {
+            static bool s_LoggedTransientDebugMode = false;
+            if (!s_LoggedTransientDebugMode)
+            {
+                s_LoggedTransientDebugMode = true;
+                OLO_CORE_WARN("RenderGraph transient debug mode: poison={}, aliasing disabled={}",
+                              poisonTransients, disableAliasing);
+            }
+        }
 
         // -------------------------------------------------------------------
         // Pass 1: acquire GPU objects for WillAllocate=true entries and wire
@@ -2848,11 +3229,31 @@ namespace OloEngine
             if (descriptorIt == m_TransientResourceDescs.end())
                 continue;
 
-            if (!entry.WillAllocate)
-                continue; // pass 2
-
             const auto& desc = descriptorIt->second;
-            const auto aliasKey = entry.AliasGroup + "#" + std::to_string(entry.AliasSlot);
+
+            if (!entry.WillAllocate)
+            {
+                if (!disableAliasing)
+                    continue; // pass 2 — inherits a sibling's physical
+
+                // OLO_RG_DISABLE_ALIASING must bypass alias SHARING only, not the
+                // planner's descriptor validation. WillAllocate=false covers both
+                // "shares a slot with a sibling" (which should allocate its own
+                // object here) and "the descriptor was rejected outright" —
+                // missing dimensions, unknown/unsupported format, zero-size
+                // buffer. Letting the latter through turns a clean planner skip
+                // into a failed GL allocation that only reproduces under the
+                // debug flag, which is precisely when you are trying to isolate
+                // something else.
+                if (!IsTransientDescriptorAllocatable(desc))
+                    continue;
+            }
+
+            // With aliasing disabled every resource keys the acquire map by its
+            // own name, so no two live resources can share a physical object.
+            const auto aliasKey = disableAliasing
+                                      ? entry.Resource
+                                      : entry.AliasGroup + "#" + std::to_string(entry.AliasSlot);
 
             switch (desc.Kind)
             {
@@ -2873,6 +3274,8 @@ namespace OloEngine
                         spec.Samples = std::max(desc.Samples, 1u);
 
                         auto transientTexture = m_TransientPool.AcquireTexture(spec);
+                        if (poisonTransients)
+                            PoisonTexture(transientTexture, spec, PoisonColorForResource(entry.Resource));
                         textureIt = textureAliasesBySlot.emplace(aliasKey, transientTexture).first;
                         // First time we've seen this alias group with a live
                         // physical — record it so pass 2's siblings can share.
@@ -2927,6 +3330,8 @@ namespace OloEngine
                         }
 
                         auto transientFramebuffer = m_TransientPool.AcquireFramebuffer(spec);
+                        if (poisonTransients)
+                            PoisonFramebuffer(transientFramebuffer, PoisonColorForResource(entry.Resource));
                         framebufferIt = framebufferAliasesBySlot.emplace(aliasKey, transientFramebuffer).first;
                         framebufferAliasesByGroup.try_emplace(entry.AliasGroup, transientFramebuffer);
                     }
@@ -2946,6 +3351,11 @@ namespace OloEngine
                     if (bufferIt == bufferAliasesBySlot.end())
                     {
                         auto transientBuffer = m_TransientPool.AcquireBuffer(desc.Width);
+                        if (poisonTransients)
+                        {
+                            [[maybe_unused]] const auto& loggedColor = PoisonColorForResource(entry.Resource);
+                            PoisonBuffer(transientBuffer);
+                        }
                         bufferIt = bufferAliasesBySlot.emplace(aliasKey, transientBuffer).first;
                         bufferAliasesByGroup.try_emplace(entry.AliasGroup, transientBuffer);
                     }
@@ -2971,6 +3381,9 @@ namespace OloEngine
         // explicitly cleared so a stale pointer from a previous frame can't
         // resolve to a now-recycled GPU object.
         // -------------------------------------------------------------------
+        if (disableAliasing)
+            return; // every managed entry already acquired its own physical in pass 1
+
         for (const auto& entry : m_TransientPlan)
         {
             if (!entryIsManaged(entry))
@@ -4254,6 +4667,7 @@ namespace OloEngine
             .ExecutionOrder = m_ExecutionOrder,
             .PassAccessDeclarations = m_PassAccessDeclarations,
             .PassLifetimeExtensions = m_PassLifetimeExtensions,
+            .VersionAliasTargets = m_VersionAliasTargets,
             .IsPassReachable = [this](const std::string& passName)
             { return IsPassReachable(passName); },
             .IsExternallyBackedTransientResource = [this](std::string_view name)

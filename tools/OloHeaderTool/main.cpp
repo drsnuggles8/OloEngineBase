@@ -578,10 +578,18 @@ static bool SerializeArgsHaveSkip(const std::string& args)
 // argument); unrecognised keys are ignored here (this call only extracts Clamp's
 // own arguments — Skip is checked separately and the two are mutually exclusive by
 // construction, since Skip drops the field before this is consulted).
+//
+// `rejectOut` receives the sibling `Reject` token (issue #451's Reject slice),
+// which shares the same Min=/Max= bounds but means REJECT-out-of-range rather
+// than CLAMP-to-range: an out-of-bounds value keeps the constructor default
+// instead of saturating at the nearest bound. The two are mutually exclusive —
+// ParseComponentFields fails a field carrying both non-trivial rather than
+// picking one.
 static bool SerializeArgsClampBounds(const std::string& args, std::optional<std::string>& minOut,
-                                     std::optional<std::string>& maxOut)
+                                     std::optional<std::string>& maxOut, bool& rejectOut)
 {
     bool hasClamp = false;
+    rejectOut = false;
     minOut.reset();
     maxOut.reset();
     for (size_t start = 0; start <= args.size();)
@@ -600,6 +608,8 @@ static bool SerializeArgsClampBounds(const std::string& args, std::optional<std:
             }
             if (key == "Clamp")
                 hasClamp = true;
+            else if (key == "Reject")
+                rejectOut = true;
             else if (key == "Min")
                 minOut = value;
             else if (key == "Max")
@@ -623,6 +633,13 @@ static std::vector<ComponentDef> ParseHeaders(const fs::path& scanDir)
         if (!entry.is_regular_file())
             continue;
         if (auto ext = entry.path().extension().string(); ext != ".h" && ext != ".hpp")
+            continue;
+
+        // Skip the header that DEFINES the marker macros. It mentions
+        // OLO_PROPERTY in its #define and in its doc comments, none of which sit
+        // inside a component struct, so scanning it only ever produces a bogus
+        // "OLO_PROPERTY found outside struct" warning.
+        if (entry.path().filename() == "ComponentReflection.h")
             continue;
 
         std::ifstream file(entry.path());
@@ -1048,13 +1065,20 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 //     OLO_SERIALIZE(Clamp, Min=…, Max=…) annotations on the glm::vec3 members).
 //   * ScriptComponent — serializes the C# ScriptField map owned by ScriptEngine,
 //     not just its ClassName member (the parser only sees ClassName).
-//   * VehicleComponent — has a runtime-only RuntimeVehicleToken field the
-//     hand-written serializer deliberately omits (auto-gen would persist it).
+//   * VehicleComponent — MIGRATED off this set by issue #438 (the FWD/AWD
+//     differential slice), the textbook Skip+Clamp migration: its runtime-only
+//     m_RuntimeVehicleToken now carries OLO_SERIALIZE(Skip) and each authored
+//     float carries the OLO_SERIALIZE(Clamp, Min=…, Max=…) range its SanitizeFloat
+//     call used to enforce, so the generated block emits byte-identical YAML.
 //   * Rigidbody3DComponent — (a) its enum is keyed "BodyType" not "Type" (the
 //     m_-stripped default), so on-disk compatibility needs the hand-written key;
 //     (b) the hand-written serializer deliberately omits m_LayerID, m_LockedAxes,
-//     the initial/max velocities, and the runtime-only m_RuntimeBodyToken — auto-
-//     gen would persist all of them (the runtime token included).
+//     the MAX velocities, and the runtime-only m_RuntimeBodyToken — auto-gen would
+//     persist all of them (the runtime token included). The INITIAL velocities are
+//     no longer omitted: a scene that cannot author a moving body cannot express
+//     "a vehicle already under way", so m_InitialLinearVelocity /
+//     m_InitialAngularVelocity are now written and read (issue #438 follow-up).
+//     Both default to zero, so pre-existing scenes are unaffected.
 //   * StreamingVolumeComponent — (a) the runtime-only `IsLoaded` bool is omitted by
 //     the hand-written serializer (auto-gen would persist it); (b) deserialize range-
 //     clamps ActivationMode and the load/unload radii.
@@ -1216,7 +1240,6 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     "UIPanelComponent",
     "UIResolvedRectComponent",
     "UITextComponent",
-    "VehicleComponent",
     "WorldTransformComponent",
 };
 
@@ -1351,6 +1374,23 @@ struct SerField
     bool hasClamp{ false };
     std::optional<std::string> clampMin;
     std::optional<std::string> clampMax;
+
+    // OLO_SERIALIZE(Reject, Min=…, Max=…) — issue #451's Reject slice, the
+    // sibling of Clamp. Shares clampMin/clampMax (the bounds are the same data)
+    // but flips the SEMANTIC: an out-of-range read keeps the constructor default
+    // instead of saturating at the nearest bound. Use it wherever saturating
+    // would silently turn a corrupt value into a DIFFERENT VALID one — the
+    // motivating case is an enum, where Clamp(0, 2) quietly maps a corrupt `7`
+    // to enumerator 2 while every other load path (save-game, the Jolt
+    // consumer) maps anything unrecognised back to enumerator 0.
+    //
+    // Supported on the scalar Float/Int/UInt/SmallInt/SmallUInt/Enum types only
+    // — NOT Vec3, since "out of range" has no single meaning for a vector
+    // (per-component reject would leave a half-updated value). Mutually
+    // exclusive with Clamp; requesting both, or requesting Reject on an
+    // unsupported type / with neither bound, marks the whole component
+    // non-trivial rather than silently dropping the annotation.
+    bool hasReject{ false };
 
     // Populated only when type == PropType::Ref: the spelling of T in `Ref<T>`
     // (elaborated-type keyword already peeled), used for the generated
@@ -1946,12 +1986,13 @@ static ComponentSerInfo ParseComponentFields(std::string body,
         // so it is glued to the annotated field inside one statement; OLO_PROPERTY was
         // already stripped above, so OLO_SERIALIZE is the statement prefix here.
         bool fieldHasClamp = false;
+        bool fieldHasReject = false;
         std::optional<std::string> fieldClampMin, fieldClampMax;
         if (std::string serArgs, serRest; PeelSerializeMarker(s, serArgs, serRest))
         {
             if (SerializeArgsHaveSkip(serArgs))
                 continue; // runtime-only field — not serialized, not non-trivial
-            fieldHasClamp = SerializeArgsClampBounds(serArgs, fieldClampMin, fieldClampMax);
+            fieldHasClamp = SerializeArgsClampBounds(serArgs, fieldClampMin, fieldClampMax, fieldHasReject);
             s = serRest; // peel the annotation; the field then serializes normally
             if (s.empty())
                 continue;
@@ -2016,7 +2057,7 @@ static ComponentSerInfo ParseComponentFields(std::string body,
                     ept = PropType::Struct;
             }
             if (inner.find('<') != std::string::npos || ept == PropType::Unknown || !IsIdentifier(rest) ||
-                !publicSection || fieldHasClamp)
+                !publicSection || fieldHasClamp || fieldHasReject)
             {
                 // vector of Ref / nested template / non-trivial struct / bad name, a
                 // non-public member the serializer can't reach as comp.member, or a
@@ -2053,7 +2094,7 @@ static ComponentSerInfo ParseComponentFields(std::string body,
             if (ept == PropType::Unknown && enumTypes.contains(LeafTypeName(inner)))
                 ept = PropType::Enum;
             if (inner.find('<') != std::string::npos || !IsSetEligiblePropType(ept) || !IsIdentifier(rest) ||
-                !publicSection || fieldHasClamp)
+                !publicSection || fieldHasClamp || fieldHasReject)
             {
                 ambiguous = true;
                 continue;
@@ -2094,7 +2135,7 @@ static ComponentSerInfo ParseComponentFields(std::string body,
                 if (vt == PropType::Unknown && enumTypes.contains(LeafTypeName(parts[1])))
                     vt = PropType::Enum;
             }
-            if (!keyOk || vt == PropType::Unknown || !IsIdentifier(rest) || !publicSection || fieldHasClamp)
+            if (!keyOk || vt == PropType::Unknown || !IsIdentifier(rest) || !publicSection || fieldHasClamp || fieldHasReject)
             {
                 ambiguous = true;
                 continue;
@@ -2136,7 +2177,7 @@ static ComponentSerInfo ParseComponentFields(std::string body,
             }
             std::string leaf = LeafTypeName(inner);
             if (inner.find('<') != std::string::npos || !assetTypes.contains(leaf) ||
-                !IsIdentifier(rest) || !publicSection || fieldHasClamp)
+                !IsIdentifier(rest) || !publicSection || fieldHasClamp || fieldHasReject)
             {
                 // Ref<non-asset-type> / Ref<Ref<T>> / bad name, a non-public member the
                 // serializer can't reach as comp.member, or a Clamp annotation on a Ref
@@ -2240,6 +2281,23 @@ static ComponentSerInfo ParseComponentFields(std::string body,
             ambiguous = true;
             continue;
         }
+        // Reject (issue #451's Reject slice) takes the same bounds as Clamp but
+        // keeps the constructor default when the read value falls outside them.
+        // Scalars only — Vec3 is deliberately excluded (see SerField::hasReject):
+        // per-component rejection would leave a partially-updated vector, and
+        // whole-vector rejection on one bad component is not what any of the
+        // hand-written vec3 sanitizers do. Both annotations at once is a
+        // contradiction (saturate AND keep-default), so it fails safe too.
+        static const std::set<PropType> kRejectEligible = {
+            PropType::Float, PropType::Int, PropType::UInt,
+            PropType::SmallInt, PropType::SmallUInt, PropType::Enum
+        };
+        if (fieldHasReject &&
+            (fieldHasClamp || !kRejectEligible.contains(pt) || (!fieldClampMin && !fieldClampMax)))
+        {
+            ambiguous = true;
+            continue;
+        }
 
         SerField f;
         f.member = name;
@@ -2259,9 +2317,10 @@ static ComponentSerInfo ParseComponentFields(std::string body,
                     continue;
             }
         }
-        if (fieldHasClamp)
+        if (fieldHasClamp || fieldHasReject)
         {
-            f.hasClamp = true;
+            f.hasClamp = fieldHasClamp;
+            f.hasReject = fieldHasReject;
             f.clampMin = fieldClampMin;
             f.clampMax = fieldClampMax;
         }
@@ -2619,6 +2678,28 @@ static std::string ApplyClamp(const std::string& expr, const std::string& castTy
     return AssembleClampExpr(expr, "std::", wrappedMin, wrappedMax);
 }
 
+// Build the in-range test for a field's Reject annotation (issue #451's Reject
+// slice): `v` is the already-read value of type `castType`. Bounds are cast to
+// the field's own type exactly as ApplyClamp does, so `Min = 0` on a float field
+// compares as 0.0f rather than promoting the field to int. The emitters use this
+// as an if-condition and simply DON'T assign when it fails, which is what leaves
+// the constructor default in place.
+static std::string RejectRangeCondition(const std::string& v, const std::string& castType, const SerField& f)
+{
+    std::string cond;
+    if (f.clampMin)
+        cond = v + " >= static_cast<" + castType + ">(" + *f.clampMin + ")";
+    if (f.clampMax)
+    {
+        if (!cond.empty())
+            cond += " && ";
+        cond += v + " <= static_cast<" + castType + ">(" + *f.clampMax + ")";
+    }
+    // ParseComponentFields requires at least one bound, so `cond` is never empty
+    // here; the fallback keeps the emitters safe to call unconditionally.
+    return cond.empty() ? "true" : cond;
+}
+
 // Wrap a glm::vec3 deserialize expression `expr` in a PER-COMPONENT range clamp
 // per the field's Clamp annotation (issue #451's vec3-Clamp slice) — mirrors the
 // hand-written SanitizeVec3Clamped idiom, applied AFTER the plain `.as<glm::vec3>`
@@ -2941,7 +3022,8 @@ static void EmitDeserializeFields(std::ostream& out, const std::vector<SerField>
                 // — mirrors the hand-written SanitizeFloat idiom, which only clamps the
                 // successfully-read value and otherwise leaves the (already in-range)
                 // default alone.
-                out << indent << "if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(" << key << ", v))\n";
+                out << indent << "if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(" << key << ", v)"
+                    << (f.hasReject ? " && " + RejectRangeCondition("v", "f32", f) : "") << ")\n";
                 out << indent << "    " << lhs << " = " << (f.hasClamp ? ApplyClamp("v", "f32", f) : "v") << ";\n";
                 break;
             case PropType::Vec2:
@@ -2984,11 +3066,25 @@ static void EmitDeserializeFields(std::ostream& out, const std::vector<SerField>
                 out << indent << lhs << " = " << key << ".as<bool>(" << lhs << ");\n";
                 break;
             case PropType::Int:
+                if (f.hasReject)
+                {
+                    out << indent << "if (const i32 v = " << key << ".as<i32>(" << lhs << "); "
+                        << RejectRangeCondition("v", "i32", f) << ")\n";
+                    out << indent << "    " << lhs << " = v;\n";
+                    break;
+                }
                 out << indent << lhs << " = "
                     << (f.hasClamp ? ApplyClamp(key + ".as<i32>(" + lhs + ")", "i32", f) : key + ".as<i32>(" + lhs + ")")
                     << ";\n";
                 break;
             case PropType::UInt:
+                if (f.hasReject)
+                {
+                    out << indent << "if (const u32 v = " << key << ".as<u32>(" << lhs << "); "
+                        << RejectRangeCondition("v", "u32", f) << ")\n";
+                    out << indent << "    " << lhs << " = v;\n";
+                    break;
+                }
                 out << indent << lhs << " = "
                     << (f.hasClamp ? ApplyClamp(key + ".as<u32>(" + lhs + ")", "u32", f) : key + ".as<u32>(" + lhs + ")")
                     << ";\n";
@@ -3004,6 +3100,13 @@ static void EmitDeserializeFields(std::ostream& out, const std::vector<SerField>
                 // the field's own (narrow) integer type.
                 const std::string castT = "decltype(" + lhs + ")";
                 const std::string readExpr = key + ".as<" + castT + ">(" + lhs + ")";
+                if (f.hasReject)
+                {
+                    out << indent << "if (const " << castT << " v = " << readExpr << "; "
+                        << RejectRangeCondition("v", castT, f) << ")\n";
+                    out << indent << "    " << lhs << " = v;\n";
+                    break;
+                }
                 out << indent << lhs << " = " << (f.hasClamp ? ApplyClamp(readExpr, castT, f) : readExpr) << ";\n";
                 break;
             }
@@ -3026,6 +3129,18 @@ static void EmitDeserializeFields(std::ostream& out, const std::vector<SerField>
                 // back to the enum type — mirrors the hand-written
                 // `static_cast<EnumType>(std::clamp(intValue, lo, hi))` idiom.
                 const std::string readExpr = key + ".as<int>(static_cast<int>(" + lhs + "))";
+                // A Reject annotation instead keeps the constructor default when the
+                // value names no enumerator. That matters more than it looks: with
+                // Clamp, a corrupt `7` on a 0..2 enum saturates to enumerator 2 — a
+                // DIFFERENT VALID mode — whereas every other load path for such a
+                // field maps anything unrecognised back to enumerator 0.
+                if (f.hasReject)
+                {
+                    out << indent << "if (const int v = " << readExpr << "; "
+                        << RejectRangeCondition("v", "int", f) << ")\n";
+                    out << indent << "    " << lhs << " = static_cast<decltype(" << lhs << ")>(v);\n";
+                    break;
+                }
                 out << indent << lhs << " = static_cast<decltype(" << lhs << ")>("
                     << (f.hasClamp ? ApplyClamp(readExpr, "int", f) : readExpr) << ");\n";
                 break;
@@ -3136,6 +3251,27 @@ static void EmitBinaryClamp(std::ostream& out, const std::string& indent, const 
         default:
             break; // ParseComponentFields never sets hasClamp on other types
     }
+}
+
+// Binary-path counterpart of the YAML Reject emit. The clamp form above can read
+// straight into `lhs` and fix it up afterwards, but "keep the constructor
+// default" cannot — by then the read has already overwritten it. So read into a
+// scoped temp (the stream still advances either way, which is what keeps the
+// rest of the record aligned) and assign only when the value is in range.
+//
+// A non-finite float fails every comparison and is therefore rejected too, which
+// matches the YAML path's TryReadFiniteF32 guard.
+static void EmitBinaryReject(std::ostream& out, const std::string& indent, const std::string& lhs, const SerField& f)
+{
+    const bool isEnum = f.type == PropType::Enum;
+    const std::string vExpr = isEnum ? "static_cast<int>(v)" : "v";
+    const std::string castT = isEnum ? "int" : "decltype(" + lhs + ")";
+    out << indent << "{\n";
+    out << indent << "    decltype(" << lhs << ") v{};\n";
+    out << indent << "    if (!SceneBinIO::Read(reader, v)) return false;\n";
+    out << indent << "    if (" << RejectRangeCondition(vExpr, castT, f) << ")\n";
+    out << indent << "        " << lhs << " = v;\n";
+    out << indent << "}\n";
 }
 
 // Recursively emit the binary WRITES for `fields` of a struct instance reached
@@ -3329,6 +3465,11 @@ static void EmitBinaryReadFields(std::ostream& out, const std::vector<SerField>&
             continue;
         }
         // Scalar / string / glm / enum / AssetHandle leaf.
+        if (f.hasReject)
+        {
+            EmitBinaryReject(out, indent, lhs, f);
+            continue;
+        }
         out << indent << "if (!SceneBinIO::Read(reader, " << lhs << ")) return false;\n";
         if (f.hasClamp)
             EmitBinaryClamp(out, indent, lhs, f);
@@ -3690,7 +3831,12 @@ static void EmitMcpFieldsRecursive(std::ostream& out, const std::string& compone
         const std::string key = keyPrefix + f.key;
 
         McpRange range;
-        if (f.hasClamp && IsMcpRangeableField(f))
+        // Reject shares Clamp's bounds here. MCP only knows how to RANGE a write,
+        // not to refuse one, so a Reject field is clamped at the MCP boundary
+        // rather than left unvalidated — bounded-to-a-valid-enumerator beats
+        // "anything goes", and it keeps a live editor write from setting a value
+        // the scene loader would then silently discard on reload.
+        if ((f.hasClamp || f.hasReject) && IsMcpRangeableField(f))
             range = McpRange{ f.clampMin, f.clampMax };
         // kMcpFieldClamps is keyed by the FULL dotted field name, so a hand-written
         // serializer's clamp on a nested field would be spelled "Comp.Sub.Field".

@@ -2,6 +2,189 @@
 
 namespace OloEngine
 {
+	public partial class AircraftComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.AircraftComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public float MaxThrust
+		{
+			get => InternalCalls.AircraftComponent_GetMaxThrust(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetMaxThrust(Entity.ID, value);
+		}
+
+		public float WingArea
+		{
+			get => InternalCalls.AircraftComponent_GetWingArea(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetWingArea(Entity.ID, value);
+		}
+
+		public float AirDensity
+		{
+			get => InternalCalls.AircraftComponent_GetAirDensity(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetAirDensity(Entity.ID, value);
+		}
+
+		public float LiftSlope
+		{
+			get => InternalCalls.AircraftComponent_GetLiftSlope(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetLiftSlope(Entity.ID, value);
+		}
+
+		public float ZeroLiftCoefficient
+		{
+			get => InternalCalls.AircraftComponent_GetZeroLiftCoefficient(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetZeroLiftCoefficient(Entity.ID, value);
+		}
+
+		public float StallAngleDeg
+		{
+			get => InternalCalls.AircraftComponent_GetStallAngleDeg(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetStallAngleDeg(Entity.ID, value);
+		}
+
+		public float DragCoefficient
+		{
+			get => InternalCalls.AircraftComponent_GetDragCoefficient(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetDragCoefficient(Entity.ID, value);
+		}
+
+		public float InducedDragFactor
+		{
+			get => InternalCalls.AircraftComponent_GetInducedDragFactor(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetInducedDragFactor(Entity.ID, value);
+		}
+
+		public float PitchTorque
+		{
+			get => InternalCalls.AircraftComponent_GetPitchTorque(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetPitchTorque(Entity.ID, value);
+		}
+
+		public float RollTorque
+		{
+			get => InternalCalls.AircraftComponent_GetRollTorque(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetRollTorque(Entity.ID, value);
+		}
+
+		public float YawTorque
+		{
+			get => InternalCalls.AircraftComponent_GetYawTorque(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetYawTorque(Entity.ID, value);
+		}
+
+		public float ControlAuthoritySpeed
+		{
+			get => InternalCalls.AircraftComponent_GetControlAuthoritySpeed(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetControlAuthoritySpeed(Entity.ID, value);
+		}
+
+		public float PitchDamping
+		{
+			get => InternalCalls.AircraftComponent_GetPitchDamping(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetPitchDamping(Entity.ID, value);
+		}
+
+		public float RollDamping
+		{
+			get => InternalCalls.AircraftComponent_GetRollDamping(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetRollDamping(Entity.ID, value);
+		}
+
+		public float YawDamping
+		{
+			get => InternalCalls.AircraftComponent_GetYawDamping(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetYawDamping(Entity.ID, value);
+		}
+
+		public float WeathervaneStrength
+		{
+			get => InternalCalls.AircraftComponent_GetWeathervaneStrength(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetWeathervaneStrength(Entity.ID, value);
+		}
+
+		public bool HasLandingGear
+		{
+			get => InternalCalls.AircraftComponent_GetHasLandingGear(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetHasLandingGear(Entity.ID, value);
+		}
+
+		public float MainGearOffsetZ
+		{
+			get => InternalCalls.AircraftComponent_GetMainGearOffsetZ(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetMainGearOffsetZ(Entity.ID, value);
+		}
+
+		public float MainGearHalfTrack
+		{
+			get => InternalCalls.AircraftComponent_GetMainGearHalfTrack(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetMainGearHalfTrack(Entity.ID, value);
+		}
+
+		public float NoseGearOffsetZ
+		{
+			get => InternalCalls.AircraftComponent_GetNoseGearOffsetZ(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetNoseGearOffsetZ(Entity.ID, value);
+		}
+
+		public float GearLength
+		{
+			get => InternalCalls.AircraftComponent_GetGearLength(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetGearLength(Entity.ID, value);
+		}
+
+		public float GearStiffness
+		{
+			get => InternalCalls.AircraftComponent_GetGearStiffness(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetGearStiffness(Entity.ID, value);
+		}
+
+		public float GearDamping
+		{
+			get => InternalCalls.AircraftComponent_GetGearDamping(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetGearDamping(Entity.ID, value);
+		}
+
+		public float GearRollingResistance
+		{
+			get => InternalCalls.AircraftComponent_GetGearRollingResistance(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetGearRollingResistance(Entity.ID, value);
+		}
+
+		public float GearLateralGrip
+		{
+			get => InternalCalls.AircraftComponent_GetGearLateralGrip(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetGearLateralGrip(Entity.ID, value);
+		}
+
+		public float ThrottleInput
+		{
+			get => InternalCalls.AircraftComponent_GetThrottleInput(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetThrottleInput(Entity.ID, value);
+		}
+
+		public float PitchInput
+		{
+			get => InternalCalls.AircraftComponent_GetPitchInput(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetPitchInput(Entity.ID, value);
+		}
+
+		public float RollInput
+		{
+			get => InternalCalls.AircraftComponent_GetRollInput(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetRollInput(Entity.ID, value);
+		}
+
+		public float YawInput
+		{
+			get => InternalCalls.AircraftComponent_GetYawInput(Entity.ID);
+			set => InternalCalls.AircraftComponent_SetYawInput(Entity.ID, value);
+		}
+	}
+
 	public partial class AudioSoundGraphComponent : Component
 	{
 		public float Volume
@@ -131,6 +314,81 @@ namespace OloEngine
 		{
 			get => InternalCalls.AudioSourceComponent_GetSoundConfigHandle(Entity.ID);
 			set => InternalCalls.AudioSourceComponent_SetSoundConfigHandle(Entity.ID, value);
+		}
+	}
+
+	public partial class BoatComponent : Component
+	{
+		public bool Enabled
+		{
+			get => InternalCalls.BoatComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.BoatComponent_SetEnabled(Entity.ID, value);
+		}
+
+		public float MaxThrust
+		{
+			get => InternalCalls.BoatComponent_GetMaxThrust(Entity.ID);
+			set => InternalCalls.BoatComponent_SetMaxThrust(Entity.ID, value);
+		}
+
+		public float ThrustOffsetZ
+		{
+			get => InternalCalls.BoatComponent_GetThrustOffsetZ(Entity.ID);
+			set => InternalCalls.BoatComponent_SetThrustOffsetZ(Entity.ID, value);
+		}
+
+		public float ThrustOffsetY
+		{
+			get => InternalCalls.BoatComponent_GetThrustOffsetY(Entity.ID);
+			set => InternalCalls.BoatComponent_SetThrustOffsetY(Entity.ID, value);
+		}
+
+		public float MaxRudderTorque
+		{
+			get => InternalCalls.BoatComponent_GetMaxRudderTorque(Entity.ID);
+			set => InternalCalls.BoatComponent_SetMaxRudderTorque(Entity.ID, value);
+		}
+
+		public float RudderAuthoritySpeed
+		{
+			get => InternalCalls.BoatComponent_GetRudderAuthoritySpeed(Entity.ID);
+			set => InternalCalls.BoatComponent_SetRudderAuthoritySpeed(Entity.ID, value);
+		}
+
+		public float LateralDrag
+		{
+			get => InternalCalls.BoatComponent_GetLateralDrag(Entity.ID);
+			set => InternalCalls.BoatComponent_SetLateralDrag(Entity.ID, value);
+		}
+
+		public float ForwardDrag
+		{
+			get => InternalCalls.BoatComponent_GetForwardDrag(Entity.ID);
+			set => InternalCalls.BoatComponent_SetForwardDrag(Entity.ID, value);
+		}
+
+		public float YawDrag
+		{
+			get => InternalCalls.BoatComponent_GetYawDrag(Entity.ID);
+			set => InternalCalls.BoatComponent_SetYawDrag(Entity.ID, value);
+		}
+
+		public float ImmersionDepth
+		{
+			get => InternalCalls.BoatComponent_GetImmersionDepth(Entity.ID);
+			set => InternalCalls.BoatComponent_SetImmersionDepth(Entity.ID, value);
+		}
+
+		public float ThrottleInput
+		{
+			get => InternalCalls.BoatComponent_GetThrottleInput(Entity.ID);
+			set => InternalCalls.BoatComponent_SetThrottleInput(Entity.ID, value);
+		}
+
+		public float SteerInput
+		{
+			get => InternalCalls.BoatComponent_GetSteerInput(Entity.ID);
+			set => InternalCalls.BoatComponent_SetSteerInput(Entity.ID, value);
 		}
 	}
 
@@ -2781,6 +3039,42 @@ namespace OloEngine
 		{
 			get => InternalCalls.VehicleComponent_GetMaxBrakeTorque(Entity.ID);
 			set => InternalCalls.VehicleComponent_SetMaxBrakeTorque(Entity.ID, value);
+		}
+
+		public int DriveMode
+		{
+			get => InternalCalls.VehicleComponent_GetDriveMode(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetDriveMode(Entity.ID, value);
+		}
+
+		public float FrontTorqueSplit
+		{
+			get => InternalCalls.VehicleComponent_GetFrontTorqueSplit(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetFrontTorqueSplit(Entity.ID, value);
+		}
+
+		public float LeftRightSplit
+		{
+			get => InternalCalls.VehicleComponent_GetLeftRightSplit(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetLeftRightSplit(Entity.ID, value);
+		}
+
+		public float LimitedSlipRatio
+		{
+			get => InternalCalls.VehicleComponent_GetLimitedSlipRatio(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetLimitedSlipRatio(Entity.ID, value);
+		}
+
+		public float CenterLimitedSlipRatio
+		{
+			get => InternalCalls.VehicleComponent_GetCenterLimitedSlipRatio(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetCenterLimitedSlipRatio(Entity.ID, value);
+		}
+
+		public float DifferentialRatio
+		{
+			get => InternalCalls.VehicleComponent_GetDifferentialRatio(Entity.ID);
+			set => InternalCalls.VehicleComponent_SetDifferentialRatio(Entity.ID, value);
 		}
 
 		public float ThrottleInput

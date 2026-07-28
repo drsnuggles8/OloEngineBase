@@ -20,11 +20,24 @@ namespace OloEngine
     class FrameDataBuffer;
 
     // Key for identifying groups of draw calls that can be instanced together.
-    // Commands sharing the same key render the same mesh with the same material
-    // and render state — only the per-instance transform differs.
+    // Commands sharing the same key render the same geometry with the same
+    // material and render state — only the per-instance transform differs.
+    //
+    // Geometry identity is the GL-level triplet the draw actually binds —
+    // vertex array + index range — NOT the asset handle. Runtime-imported
+    // meshes (Model's assimp path) are never registered with the AssetManager,
+    // so they all carry the default handle 0; keying on the handle merged any
+    // two such meshes whose material data deduplicated to the same index, and
+    // the batched draw then rendered the FIRST command's geometry at every
+    // instance's transform. In practice: two Kenney GLBs share a palette
+    // material, so distant cars drew the ship's hull (near the quay the boats
+    // are frustum-culled, no cross-model group forms, and everything looks
+    // right — which is what made this look like a distance-dependent LOD bug).
     struct InstanceGroupKey
     {
-        AssetHandle meshHandle = 0;
+        u32 vertexArrayID = 0;
+        u32 indexCount = 0;
+        u32 baseIndex = 0;
         u16 materialDataIndex = 0;
         u16 renderStateIndex = 0;
 
@@ -35,7 +48,9 @@ namespace OloEngine
     {
         sizet operator()(const InstanceGroupKey& key) const
         {
-            sizet h = std::hash<u64>{}(static_cast<u64>(key.meshHandle));
+            sizet h = std::hash<u32>{}(key.vertexArrayID);
+            h ^= std::hash<u32>{}(key.indexCount) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<u32>{}(key.baseIndex) + 0x9e3779b9 + (h << 6) + (h >> 2);
             h ^= std::hash<u16>{}(key.materialDataIndex) + 0x9e3779b9 + (h << 6) + (h >> 2);
             h ^= std::hash<u16>{}(key.renderStateIndex) + 0x9e3779b9 + (h << 6) + (h >> 2);
             return h;

@@ -79,27 +79,64 @@ namespace OloEngine
         // Reduce a 256-bin log-luminance histogram to an average linear
         // luminance. Bin 0 (black pixels) is excluded from the weighting; if the
         // whole frame is black the result floors at exp2(minLogLum).
+        //
+        // lowPercentile / highPercentile trim the metered population: only the
+        // non-black pixels between those cumulative-percentile bounds
+        // contribute, with the boundary bins included fractionally. The
+        // defaults (0, 1) reproduce the plain weighted mean. Trimming is the
+        // standard defence (UE's EyeAdaptation Low/HighPercent, Frostbite's
+        // banded metering) against compact extreme populations steering the
+        // whole frame's exposure — the concrete bug this fixed: the sun-glint
+        // sparkle on grazing water is a tiny ultra-bright population, and a
+        // slight camera tilt moving it in/out of frame swung the naive mean
+        // hard enough that the water flipped between "normal" and washed-out
+        // white (VehiclesTest, issue #438 follow-up).
         [[nodiscard("pure computation; discarding the result makes the call a no-op")]] inline f32 ComputeAverageLuminance(const std::array<u32, kHistogramBins>& histogram,
-                                                                                                                           f32 minLogLum, f32 maxLogLum) noexcept
+                                                                                                                           f32 minLogLum, f32 maxLogLum,
+                                                                                                                           f32 lowPercentile = 0.0f, f32 highPercentile = 1.0f) noexcept
         {
             const f32 logLumRange = maxLogLum - minLogLum;
             if (!(logLumRange > 0.0f))
                 return std::exp2(minLogLum);
 
-            // weightedCount = sum(binIndex * count); bin 0 contributes nothing.
-            u64 weightedCount = 0;
             u64 totalCount = 0;
             for (u32 i = 0; i < kHistogramBins; ++i)
-            {
-                weightedCount += static_cast<u64>(i) * histogram[i];
                 totalCount += histogram[i];
-            }
 
             const u64 numBlack = histogram[0];
-            const u64 denom = (totalCount > numBlack) ? (totalCount - numBlack) : 1ULL;
+            const u64 nonBlack = (totalCount > numBlack) ? (totalCount - numBlack) : 0ULL;
+            if (nonBlack == 0ULL)
+                return BinToLuminance(0.0f, minLogLum, logLumRange);
 
-            // Average bin index over the non-black pixels, in [0, 255].
-            const f32 avgBin = static_cast<f32>(weightedCount) / static_cast<f32>(denom);
+            f32 lo = std::clamp(std::isfinite(lowPercentile) ? lowPercentile : 0.0f, 0.0f, 1.0f);
+            f32 hi = std::clamp(std::isfinite(highPercentile) ? highPercentile : 1.0f, 0.0f, 1.0f);
+            if (!(hi > lo))
+            {
+                // Degenerate band — fall back to the untrimmed mean.
+                lo = 0.0f;
+                hi = 1.0f;
+            }
+
+            // Clip each bin's population to the [lowCount, highCount) band of
+            // the cumulative non-black distribution (fractional boundary bins).
+            const f32 lowCount = static_cast<f32>(nonBlack) * lo;
+            const f32 highCount = static_cast<f32>(nonBlack) * hi;
+            f64 weighted = 0.0;
+            f64 used = 0.0;
+            f32 cumulative = 0.0f;
+            for (u32 i = 1; i < kHistogramBins; ++i)
+            {
+                const f32 binStart = cumulative;
+                cumulative += static_cast<f32>(histogram[i]);
+                const f32 take = std::max(0.0f, std::min(cumulative, highCount) - std::max(binStart, lowCount));
+                weighted += static_cast<f64>(i) * take;
+                used += take;
+            }
+
+            if (!(used > 0.0))
+                return BinToLuminance(0.0f, minLogLum, logLumRange);
+
+            const f32 avgBin = static_cast<f32>(weighted / used);
             return BinToLuminance(avgBin, minLogLum, logLumRange);
         }
 

@@ -30,6 +30,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <optional>
 #include <vector>
 
 namespace JPH
@@ -273,6 +274,33 @@ namespace OloEngine
         {
             return static_cast<u32>(m_Vehicles.size());
         }
+
+        // Read back the drivetrain a live vehicle was actually built with
+        // (issue #438). Plain data, so callers don't need the Jolt headers.
+        // The drive mode is not stored — it is a *derivation*, so what matters
+        // downstream is the differential list it produced, and that is exactly
+        // what this exposes: which wheel indices each differential drives and
+        // how the engine torque is split across them. Behavioural tests can
+        // only say "the car moved"; this says "the front axle is the one
+        // receiving torque", which is the actual contract of a drive mode.
+        struct VehicleDifferentialInfo
+        {
+            i32 m_LeftWheel = -1;
+            i32 m_RightWheel = -1;
+            f32 m_EngineTorqueRatio = 0.0f;
+            f32 m_LeftRightSplit = 0.0f;
+            f32 m_LimitedSlipRatio = 0.0f;
+            f32 m_DifferentialRatio = 0.0f;
+        };
+        struct VehicleDrivetrainInfo
+        {
+            std::vector<VehicleDifferentialInfo> m_Differentials;
+            f32 m_CenterLimitedSlipRatio = 0.0f; ///< between differentials (the centre diff)
+            f32 m_MaxEngineTorque = 0.0f;
+        };
+        /// Drivetrain of the live vehicle on `entityID`, or nullopt when that
+        /// entity has no vehicle constraint.
+        [[nodiscard("drivetrain query result must be used")]] std::optional<VehicleDrivetrainInfo> GetVehicleDrivetrain(UUID entityID) const;
 
         // Ragdoll (skeleton-driven SwingTwist chain) management, issue #308 item 5.
         // CreateRagdoll expands the RagdollComponent on `entity` into a chain of

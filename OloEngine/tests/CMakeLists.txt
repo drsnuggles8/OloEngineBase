@@ -110,6 +110,7 @@ add_executable(OloEngine-Tests
 		Rendering/ShaderStageContractTest.cpp
 		Rendering/ShaderPackTest.cpp
 		Rendering/ShaderBinaryCacheRoundTripTest.cpp
+		Rendering/GLDebugMessageParseTest.cpp
 		Rendering/FrameDataBufferTest.cpp
 		Rendering/InstanceDataLayoutTest.cpp
 		Rendering/GPUFrustumCullParityTest.cpp
@@ -681,6 +682,9 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/PhysicsJoint3DTest.cpp
 		Functional/AnimationPhysics/PhysicsJointCollideConnectedTest.cpp
 		Functional/AnimationPhysics/VehicleTest.cpp
+		Functional/AnimationPhysics/VehicleDifferentialTest.cpp
+		Functional/AnimationPhysics/BoatTest.cpp
+		Functional/AnimationPhysics/AircraftTest.cpp
 		Functional/AnimationPhysics/RagdollTest.cpp
 		Functional/AnimationPhysics/WaterBuoyancyTest.cpp
 		Functional/AnimationPhysics/FluidCouplingTest.cpp

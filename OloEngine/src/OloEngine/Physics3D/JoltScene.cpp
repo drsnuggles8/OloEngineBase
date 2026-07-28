@@ -2637,11 +2637,66 @@ namespace OloEngine
 
         auto* controllerSettings = new JPH::WheeledVehicleControllerSettings();
         controllerSettings->mEngine.mMaxTorque = maxEngineTorque;
-        // One differential driving the rear axle (rear-wheel drive for the MVP).
-        controllerSettings->mDifferentials.resize(1);
-        controllerSettings->mDifferentials[0].mLeftWheel = 2;  // RL
-        controllerSettings->mDifferentials[0].mRightWheel = 3; // RR
-        controllerSettings->mDifferentials[0].mEngineTorqueRatio = 1.0f;
+
+        // --- Differentials (issue #438) ---------------------------------------
+        // Built from the authored drive mode instead of the old hard-coded rear
+        // pair. Sanitize every knob first: a script can write a raw field, and
+        // Jolt asserts on a limited-slip ratio <= 1 and silently misbehaves on a
+        // torque split outside [0, 1].
+        // Jolt asserts mLimitedSlipRatio > 1 STRICTLY (VehicleDifferential.cpp,
+        // WheeledVehicleController.cpp) — clamping to exactly 1 trips it in Debug,
+        // so the floor is a hair above. kMinLimitedSlipRatio is effectively
+        // "fully locked": the fast wheel may exceed the slow one by 0.1%.
+        constexpr f32 kMinLimitedSlipRatio = 1.001f;
+        const f32 leftRightSplit = std::clamp(std::isfinite(vehicle.m_LeftRightSplit) ? vehicle.m_LeftRightSplit : 0.5f, 0.0f, 1.0f);
+        const f32 limitedSlip = std::clamp(std::isfinite(vehicle.m_LimitedSlipRatio) ? vehicle.m_LimitedSlipRatio : 1.4f, kMinLimitedSlipRatio, 1.0e6f);
+        const f32 centerLimitedSlip = std::clamp(std::isfinite(vehicle.m_CenterLimitedSlipRatio) ? vehicle.m_CenterLimitedSlipRatio : 1.4f, kMinLimitedSlipRatio, 1.0e6f);
+        const f32 diffRatio = SanitizeVehiclePositive(vehicle.m_DifferentialRatio, 3.42f);
+        const f32 frontSplit = std::clamp(std::isfinite(vehicle.m_FrontTorqueSplit) ? vehicle.m_FrontTorqueSplit : 0.5f, 0.0f, 1.0f);
+        // An out-of-range enum (corrupt save / raw script write) falls back to the
+        // historical rear-wheel drive rather than indexing off the end.
+        const VehicleDriveMode driveMode = (vehicle.m_DriveMode == VehicleDriveMode::FrontWheelDrive || vehicle.m_DriveMode == VehicleDriveMode::AllWheelDrive)
+                                               ? vehicle.m_DriveMode
+                                               : VehicleDriveMode::RearWheelDrive;
+
+        // Wheel indices from the layout pushed above: 0=FL, 1=FR, 2=RL, 3=RR.
+        constexpr int kFrontLeft = 0;
+        constexpr int kFrontRight = 1;
+        constexpr int kRearLeft = 2;
+        constexpr int kRearRight = 3;
+
+        const auto addDifferential = [&](int leftWheel, int rightWheel, f32 engineTorqueRatio)
+        {
+            JPH::VehicleDifferentialSettings diff;
+            diff.mLeftWheel = leftWheel;
+            diff.mRightWheel = rightWheel;
+            diff.mDifferentialRatio = diffRatio;
+            diff.mLeftRightSplit = leftRightSplit;
+            diff.mLimitedSlipRatio = limitedSlip;
+            diff.mEngineTorqueRatio = engineTorqueRatio;
+            controllerSettings->mDifferentials.push_back(diff);
+        };
+
+        switch (driveMode)
+        {
+            case VehicleDriveMode::FrontWheelDrive:
+                // The front wheels steer AND drive — Jolt supports both on one wheel.
+                addDifferential(kFrontLeft, kFrontRight, 1.0f);
+                break;
+            case VehicleDriveMode::AllWheelDrive:
+                // Two differentials whose mEngineTorqueRatio must sum to 1 (Jolt's
+                // own contract). Front first so index 0 is the front axle.
+                addDifferential(kFrontLeft, kFrontRight, frontSplit);
+                addDifferential(kRearLeft, kRearRight, 1.0f - frontSplit);
+                break;
+            case VehicleDriveMode::RearWheelDrive:
+            default:
+                addDifferential(kRearLeft, kRearRight, 1.0f);
+                break;
+        }
+        // The centre diff: how torque is allowed to migrate BETWEEN differentials.
+        // Only bites with two of them (AWD), but Jolt reads it unconditionally.
+        controllerSettings->mDifferentialLimitedSlipRatio = centerLimitedSlip;
         settings.mController = controllerSettings;
 
         // VehicleConstraint takes a Body&; lock the chassis to obtain one. The
@@ -2679,6 +2734,33 @@ namespace OloEngine
 
         OLO_CORE_TRACE("Created physics vehicle for entity {0}", (u64)entityID);
         return true;
+    }
+
+    std::optional<JoltScene::VehicleDrivetrainInfo> JoltScene::GetVehicleDrivetrain(UUID entityID) const
+    {
+        const auto it = m_Vehicles.find(entityID);
+        if (it == m_Vehicles.end() || it->second == nullptr)
+            return std::nullopt;
+
+        const auto* controller = static_cast<const JPH::WheeledVehicleController*>(it->second->GetController());
+        if (controller == nullptr)
+            return std::nullopt;
+
+        VehicleDrivetrainInfo info;
+        info.m_CenterLimitedSlipRatio = controller->GetDifferentialLimitedSlipRatio();
+        info.m_MaxEngineTorque = controller->GetEngine().mMaxTorque;
+        for (const JPH::VehicleDifferentialSettings& d : controller->GetDifferentials())
+        {
+            VehicleDifferentialInfo out;
+            out.m_LeftWheel = d.mLeftWheel;
+            out.m_RightWheel = d.mRightWheel;
+            out.m_EngineTorqueRatio = d.mEngineTorqueRatio;
+            out.m_LeftRightSplit = d.mLeftRightSplit;
+            out.m_LimitedSlipRatio = d.mLimitedSlipRatio;
+            out.m_DifferentialRatio = d.mDifferentialRatio;
+            info.m_Differentials.push_back(out);
+        }
+        return info;
     }
 
     void JoltScene::DestroyVehicle(Entity entity)

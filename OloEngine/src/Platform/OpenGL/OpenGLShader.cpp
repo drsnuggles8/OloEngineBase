@@ -22,6 +22,7 @@
 #include <spirv_cross/spirv_glsl.hpp>
 
 #include <fstream>
+#include <mutex>
 #include <optional>
 #include <utility>
 #include <filesystem>
@@ -1169,12 +1170,45 @@ namespace OloEngine
     // Async link helpers
     // ========================================================================
 
+    // A driver update invalidates every previously saved GL program binary at
+    // once — see SyncProgramBinaryCacheDriverStamp (OpenGLProgramBinaryCache.h)
+    // for the full rationale; the wipe/stamp logic lives there, GL-free, so it
+    // is unit-tested (ShaderBinaryCacheRoundTripTest). This wrapper only builds
+    // the driver identity string, which needs a current GL context (both call
+    // sites are shader compile/link paths, which guarantee that).
+    static void EnsureProgramBinaryCacheMatchesDriver()
+    {
+        static std::once_flag s_Once;
+        std::call_once(s_Once, []()
+                       {
+            const auto* vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
+            const auto* renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+            const auto* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+            const std::string stamp = std::string(vendor ? vendor : "?") + "|" +
+                                      (renderer ? renderer : "?") + "|" +
+                                      (version ? version : "?");
+
+            const DriverStampSyncResult sync =
+                SyncProgramBinaryCacheDriverStamp(Utils::GetCacheDirectory(), stamp);
+
+            // First run ever (no stamp, no binaries) is not worth a log line.
+            if (sync.Mismatched && (!sync.PreviousStamp.empty() || sync.RemovedBinaries > 0))
+            {
+                OLO_CORE_INFO("Program-binary cache invalidated by driver change ({0} stale binaries dropped; '{1}' -> '{2}'). "
+                              "Shaders recompile once this launch and re-cache.",
+                              sync.RemovedBinaries,
+                              sync.PreviousStamp.empty() ? "<no stamp>" : sync.PreviousStamp, stamp);
+            } });
+    }
+
     bool OpenGLShader::LoadProgramBinaryCache(GLenum program) const
     {
         OLO_PROFILE_FUNCTION();
 
         if (Utils::IsShaderCacheDisabled())
             return false;
+
+        EnsureProgramBinaryCacheMatchesDriver();
 
         const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
         const std::filesystem::path shaderFilePath = m_FilePath;
@@ -1218,8 +1252,29 @@ namespace OloEngine
                 infoLog.resize(static_cast<sizet>(logLength));
                 glGetProgramInfoLog(program, logLength, nullptr, infoLog.data());
             }
-            OLO_CORE_WARN("Cached program binary failed to link, recompiling: {0}{1}",
-                          shaderFilePath.string(), infoLog.empty() ? std::string{} : " (" + infoLog + ")");
+            // A rejected binary is a LEGAL cache miss, not an engine bug: the
+            // GL spec allows the driver to reject a stored binary at any time,
+            // and NVIDIA does so for inputs beyond the driver build we stamp
+            // against (observed: some — not all — first launches after an
+            // engine rebuild reject every startup binary with "not compatible
+            // with current driver/hardware combination", then the very next
+            // launch loads the rewritten set cleanly). The recompile-and-resave
+            // below self-heals it, so one launch-level WARN carries all the
+            // signal; per-shader WARNs turned an expected miss into a ~105-line
+            // flood. Individual rejections stay visible at trace.
+            static std::atomic<bool> s_RejectionWarned{ false };
+            if (!s_RejectionWarned.exchange(true))
+            {
+                OLO_CORE_WARN("Cached program binary rejected by the driver, recompiling from SPIR-V: {0}{1}. "
+                              "This is an expected cache miss (drivers may reject stored binaries after driver, "
+                              "hardware, or application changes; the cache rewrites itself this launch). "
+                              "Further rejections this session log at trace.",
+                              shaderFilePath.string(), infoLog.empty() ? std::string{} : " (" + infoLog + ")");
+            }
+            else
+            {
+                OLO_CORE_TRACE("Cached program binary rejected, recompiling: {0}", shaderFilePath.string());
+            }
             return false;
         }
 
@@ -1232,6 +1287,8 @@ namespace OloEngine
 
         if (Utils::IsShaderCacheDisabled() || m_RendererID == 0)
             return;
+
+        EnsureProgramBinaryCacheMatchesDriver();
 
         // Mesa radeonsi crashes in glGetProgramiv(GL_PROGRAM_BINARY_LENGTH) for
         // programs compiled from SPIR-V binary (glShaderBinary + glSpecializeShader).
