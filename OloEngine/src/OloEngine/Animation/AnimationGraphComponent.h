@@ -5,6 +5,7 @@
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Animation/AnimationGraph.h"
 #include "OloEngine/Animation/AnimationParameter.h"
+#include "OloEngine/Scene/ComponentReflection.h" // OLO_SERIALIZE(Skip) to mark runtime fields
 
 #include <glm/gtc/quaternion.hpp>
 
@@ -15,6 +16,7 @@ namespace OloEngine
         AssetHandle AnimationGraphAssetHandle = 0;
 
         // Runtime
+        OLO_SERIALIZE(Skip)
         Ref<AnimationGraph> RuntimeGraph;
 
         // Per-entity parameter instance (copied from graph at start)
@@ -25,14 +27,18 @@ namespace OloEngine
         // bind-pose mat4 each tick (the bind pose is stable for a given skeleton).
         // Filled lazily and rebuilt only when the bone count changes; reset on
         // copy like RuntimeGraph.
+        OLO_SERIALIZE(Skip)
         std::vector<BoneTransform> BindPoseLocalTRS;
 
         // Runtime, per-tick (not serialized): the masked root-motion delta the
         // last graph update extracted from the base layer, in entity/model
         // space. Overwritten every update; consumed and cleared by
         // Scene::UpdateRootMotion on the runtime path (issue #631).
+        OLO_SERIALIZE(Skip)
         glm::vec3 RootMotionTranslation = glm::vec3(0.0f);
+        OLO_SERIALIZE(Skip)
         glm::quat RootMotionRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+        OLO_SERIALIZE(Skip)
         bool HasRootMotion = false;
 
         AnimationGraphComponent() = default;

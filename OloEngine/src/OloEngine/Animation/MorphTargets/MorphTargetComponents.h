@@ -3,6 +3,7 @@
 #include "MorphTargetSet.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Scene/ComponentReflection.h" // OLO_SERIALIZE(Skip) to mark runtime fields
 
 #include <algorithm>
 #include <glm/glm.hpp>
@@ -14,17 +15,21 @@ namespace OloEngine
 {
     struct MorphTargetComponent
     {
-        // Morph target data for this entity's mesh
+        // Morph target data for this entity's mesh (runtime — loaded from the mesh)
+        OLO_SERIALIZE(Skip)
         Ref<MorphTargetSet> MorphTargets;
 
-        // Per-target weights (target name -> weight 0.0 to 1.0)
+        // Per-target weights (target name -> weight 0.0 to 1.0) — the authored data
         std::unordered_map<std::string, f32> Weights;
 
         // Cached base mesh data for CPU morph evaluation (populated once from MeshSource)
+        OLO_SERIALIZE(Skip)
         std::vector<glm::vec3> BasePositions;
+        OLO_SERIALIZE(Skip)
         std::vector<glm::vec3> BaseNormals;
 
         // Tracks whether morph weights were active last frame (for transition detection)
+        OLO_SERIALIZE(Skip)
         bool WasMorphActive = false;
 
         MorphTargetComponent() = default;

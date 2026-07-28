@@ -30,6 +30,7 @@
 #include <utility>
 #include <array>
 #include <cstddef>
+#include <memory>
 
 namespace OloEngine::Reflect
 {
@@ -59,7 +60,8 @@ namespace OloEngine::Reflect
         return sm::is_class_type(t) && sm::has_template_arguments(t)
             && sm::has_identifier(sm::template_of(t)) && sm::identifier_of(sm::template_of(t)) == "Ref";
     }
-    template <typename V> consteval bool IsStdArray(){ return IsTemplate<V>(^^std::array); }   // std::array<T,N>
+    template <typename V> consteval bool IsStdArray(){ return IsTemplate<V>(^^std::array); }        // std::array<T,N>
+    template <typename V> consteval bool IsUniquePtr(){ return IsTemplate<V>(^^std::unique_ptr); }  // unique_ptr<Struct>
 
     template <typename T> void EmitStructBody(YAML::Emitter& out, const T& obj);   // fwd (recursion)
 
@@ -106,6 +108,11 @@ namespace OloEngine::Reflect
             for (auto const& e : value) EmitValue(out, e);
             out << YAML::EndSeq;
         }
+        else if constexpr (IsUniquePtr<V>()) {                                            // unique_ptr<Struct> -> sub-map (non-null here)
+            out << YAML::BeginMap;
+            EmitStructBody(out, *value);
+            out << YAML::EndMap;
+        }
         else if constexpr (IsRef<V>()) {                                                  // Ref<Asset> -> handle u64
             if (value) out << static_cast<u64>(value->GetHandle());
             else       out << static_cast<u64>(0);
@@ -123,7 +130,7 @@ namespace OloEngine::Reflect
     {
         visit_fields(obj, [&out]<sm::info M>(std::string_view key, auto& ref) {
             using MT = std::remove_cvref_t<decltype(ref)>;
-            if constexpr (IsRef<MT>()) { if (!ref) return; }   // omit null Ref (matches engine's `if (ref && ...)`)
+            if constexpr (IsRef<MT>() || IsUniquePtr<MT>()) { if (!ref) return; }   // omit null Ref / unique_ptr
             out << YAML::Key << std::string(key) << YAML::Value;
             EmitValue(out, ref);
         });
@@ -181,6 +188,10 @@ namespace OloEngine::Reflect
         }
         else if constexpr (IsStdArray<V>()) {
             if (n.IsSequence()) { std::size_t i = 0; for (auto const& e : n) { if (i >= ref.size()) break; ReadValue(e, ref[i]); ++i; } }
+        }
+        else if constexpr (IsUniquePtr<V>()) {                                            // unique_ptr<Struct>: construct + fill
+            using T = typename V::element_type;
+            if (n.IsMap()) { if (!ref) ref = std::make_unique<T>(); DeserializeStructBody(n, *ref); }
         }
         else if constexpr (IsRef<V>()) { (void)n; /* Ref<Asset>: handle resolves via AssetManager at load (engine service) */ }
         else if constexpr (std::is_class_v<V>) { DeserializeStructBody(n, ref); }         // nested struct sub-map

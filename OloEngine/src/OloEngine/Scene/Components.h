@@ -289,10 +289,22 @@ namespace OloEngine
         // base, a setter-invalidated dirty flag would miss those writes; instead the
         // cache validates itself by bit-comparing the current TRS inputs against the
         // inputs it was built from, so any mutation path invalidates it correctly.
+        OLO_SERIALIZE(Skip)
         mutable glm::mat4 m_CachedTransform{ 1.0f };
-        mutable glm::vec3 m_CachedTranslation{ 0.0f, 0.0f, 0.0f };
-        mutable glm::quat m_CachedRotation{ 1.0f, 0.0f, 0.0f, 0.0f };
-        mutable glm::vec3 m_CachedScale{ 1.0f, 1.0f, 1.0f };
+        OLO_SERIALIZE(Skip)
+        mutable glm::vec3 m_CachedTranslation{ 0.0f,
+                                               0.0f,
+                                               0.0f };
+        OLO_SERIALIZE(Skip)
+        mutable glm::quat m_CachedRotation{ 1.0f,
+                                            0.0f,
+                                            0.0f,
+                                            0.0f };
+        OLO_SERIALIZE(Skip)
+        mutable glm::vec3 m_CachedScale{ 1.0f,
+                                         1.0f,
+                                         1.0f };
+        OLO_SERIALIZE(Skip)
         mutable bool m_CacheValid = false;
 
       public:
@@ -523,6 +535,7 @@ namespace OloEngine
         f32 AngularVelocity = 0.0f;
 
         // Storage for runtime
+        OLO_SERIALIZE(Skip)
         b2BodyId RuntimeBody = b2_nullBodyId;
 
         Rigidbody2DComponent() = default;
@@ -555,6 +568,7 @@ namespace OloEngine
         f32 RestitutionThreshold = 0.5f;
 
         // Storage for runtime
+        OLO_SERIALIZE(Skip)
         void* RuntimeFixture = nullptr;
 
         BoxCollider2DComponent() = default;
@@ -585,6 +599,7 @@ namespace OloEngine
         f32 RestitutionThreshold = 0.5f;
 
         // Storage for runtime
+        OLO_SERIALIZE(Skip)
         void* RuntimeFixture = nullptr;
 
         CircleCollider2DComponent() = default;
@@ -630,6 +645,7 @@ namespace OloEngine
         f32 m_MaxAngularVelocity = 50.0f;
 
         // Storage for runtime - Jolt BodyID token for safe access
+        OLO_SERIALIZE(Skip)
         u64 m_RuntimeBodyToken = 0;
 
         Rigidbody3DComponent() = default;
@@ -1131,6 +1147,7 @@ namespace OloEngine
         // Excluded from authored-state equality so play-mode enter/exit doesn't show
         // as a change (mirrors Rigidbody3DComponent::m_RuntimeBodyToken). Cleared
         // back to 0 when the constraint breaks at runtime (see JoltScene).
+        OLO_SERIALIZE(Skip)
         u64 m_RuntimeConstraintToken = 0;
 
         PhysicsJoint3DComponent() = default;
@@ -1221,6 +1238,7 @@ namespace OloEngine
         // created (mirrors PhysicsJoint3DComponent::m_RuntimeConstraintToken).
         // Excluded from authored-state equality so play-mode enter/exit isn't seen
         // as a change; cleared back to 0 when the vehicle is destroyed.
+        OLO_SERIALIZE(Skip)
         u64 m_RuntimeVehicleToken = 0;
 
         VehicleComponent() = default;
@@ -1267,6 +1285,7 @@ namespace OloEngine
         // Runtime skeleton link. NOT serialized and excluded from operator==;
         // when null the skeleton is resolved from m_SkeletonEntity's
         // SkeletonComponent at physics start.
+        OLO_SERIALIZE(Skip)
         Ref<Skeleton> m_Skeleton;
 
         // Entity whose SkeletonComponent provides the skeleton and under whose
@@ -1297,6 +1316,7 @@ namespace OloEngine
         // Storage for runtime — non-zero once the ragdoll has been built (mirrors
         // PhysicsJoint3DComponent::m_RuntimeConstraintToken). Excluded from
         // authored-state equality so play-mode enter/exit isn't seen as a change.
+        OLO_SERIALIZE(Skip)
         u64 m_RuntimeRagdollToken = 0;
 
         RagdollComponent() = default;
@@ -1479,8 +1499,9 @@ namespace OloEngine
         AssetHandle SoundConfigHandle = 0;
 
         // Event-driven audio
-        std::string StartEvent;          // Event name, e.g. "PlayFootsteps"
-        Audio::CommandID StartCommandID; // CRC32 of StartEvent (cached)
+        std::string StartEvent; // Event name, e.g. "PlayFootsteps"
+        OLO_SERIALIZE(Skip)
+        Audio::CommandID StartCommandID; // CRC32 of StartEvent (cached) — runtime, recomputed from StartEvent
         bool UseEventSystem = false;     // If true, uses events instead of direct play
 
         auto operator==(const AudioSourceColdData& other) const -> bool
@@ -1511,6 +1532,7 @@ namespace OloEngine
         OLO_PROPERTY(Name = "ConeOuterGain", Type = "float", Get = "comp.GetConfig().ConeOuterGain", Set = "comp.GetConfig().ConeOuterGain = {v}; if (comp.Source) comp.Source->SetCone(comp.GetConfig().ConeInnerAngle, comp.GetConfig().ConeOuterAngle, comp.GetConfig().ConeOuterGain)")
         OLO_PROPERTY(Name = "DopplerFactor", Type = "float", Get = "comp.GetConfig().DopplerFactor", Set = "comp.GetConfig().DopplerFactor = {v}; if (comp.Source) comp.Source->SetDopplerFactor({v})")
         OLO_PROPERTY(Name = "SoundConfigHandle", Type = "ulong", Get = "static_cast<u64>(comp.GetSoundConfigHandle())", Set = "comp.SetSoundConfigHandle(AssetHandle({v}))")
+        OLO_SERIALIZE(Skip)
         Ref<AudioSource> Source = nullptr;
 
         u64 ActiveEventID = 0; // Runtime handle from AudioPlayback::PostTrigger
@@ -1627,6 +1649,7 @@ namespace OloEngine
         bool PlayOnAwake = true;
 
         // Runtime-only state. Allocated by Scene::InitAudioRuntime; not serialized.
+        OLO_SERIALIZE(Skip)
         Ref<Audio::SoundGraph::SoundGraphSound> Sound = nullptr;
 
         AudioSoundGraphComponent() = default;
@@ -1691,6 +1714,7 @@ namespace OloEngine
         f32 Volume = 1.0f;
 
         // Runtime-only state, not serialized and reset to null on copy.
+        OLO_SERIALIZE(Skip)
         Ref<VideoPlayer> Player = nullptr;
 
         VideoOverlayComponent() = default;
@@ -1741,6 +1765,7 @@ namespace OloEngine
         f32 Volume = 0.5f;
 
         // Runtime-only state, not serialized and reset to null on copy.
+        OLO_SERIALIZE(Skip)
         Ref<VideoPlayer> Player = nullptr;
 
         VideoSurfaceComponent() = default;
@@ -2687,7 +2712,9 @@ namespace OloEngine
         f32 m_Intensity = 1.0f;
         OLO_PROPERTY(Set = "comp.m_Active = {v}; comp.m_Dirty = true")
         bool m_Active = true;
+        OLO_SERIALIZE(Skip)
         bool m_Dirty = true;
+        OLO_SERIALIZE(Skip)
         bool m_ShowDebugProbes = false;
         AssetHandle m_BakedDataAsset = 0;
 
@@ -3340,18 +3367,28 @@ namespace OloEngine
         f32 m_VoxelSize = 1.0f;
 
         // Runtime state — not serialized
+        OLO_SERIALIZE(Skip)
         Ref<TerrainData> m_TerrainData;
+        OLO_SERIALIZE(Skip)
         Ref<TerrainChunkManager> m_ChunkManager;
+        OLO_SERIALIZE(Skip)
         Ref<TerrainMaterial> m_Material;
+        OLO_SERIALIZE(Skip)
         Ref<TerrainStreamer> m_Streamer;
+        OLO_SERIALIZE(Skip)
         Ref<VoxelOverride> m_VoxelOverride;
+        OLO_SERIALIZE(Skip)
         std::unordered_map<VoxelCoord, VoxelMesh, VoxelCoordHash> m_VoxelMeshes;
+        OLO_SERIALIZE(Skip)
         bool m_NeedsRebuild = true;
+        OLO_SERIALIZE(Skip)
         bool m_MaterialNeedsRebuild = true;
+        OLO_SERIALIZE(Skip)
         bool m_AutoSplatNeedsRebuild = true; // Regenerate the auto-material splatmap on next tick
 
         // Runtime token of the static Jolt height-field collision body (0 = none).
         // Set by Scene physics start, cleared on stop. NOT serialized, NOT copied.
+        OLO_SERIALIZE(Skip)
         u64 m_RuntimeCollisionBodyToken = 0;
 
         TerrainComponent() = default;
@@ -3446,7 +3483,9 @@ namespace OloEngine
         bool m_Enabled = true;
 
         // Runtime (not serialized)
+        OLO_SERIALIZE(Skip)
         Ref<FoliageRenderer> m_Renderer;
+        OLO_SERIALIZE(Skip)
         bool m_NeedsRebuild = true;
 
         FoliageComponent() = default;
@@ -3630,8 +3669,11 @@ namespace OloEngine
         f32 m_FFTJonswapFetch = 100000.0f; ///< fetch in metres the wind blows over (JONSWAP only) — sets the peak frequency
 
         // Runtime (not serialized)
+        OLO_SERIALIZE(Skip)
         Ref<Mesh> m_WaterMesh;
+        OLO_SERIALIZE(Skip)
         Ref<Ocean::OceanFFTField> m_OceanField; ///< lazily-created FFT cascade (runtime)
+        OLO_SERIALIZE(Skip)
         bool m_NeedsRebuild = true;
 
         // Pack wave direction + steepness + wavelength into a vec4 for shader UBO.
@@ -4085,6 +4127,7 @@ namespace OloEngine
     struct LODGroupComponent
     {
         LODGroup m_LODGroup;
+        OLO_SERIALIZE(Skip)
         std::vector<AssetHandle> m_GeneratedLODHandles; // Transient — excluded from copy & equality
         bool m_Enabled = true;
 
