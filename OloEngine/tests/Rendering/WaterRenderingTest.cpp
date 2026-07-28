@@ -14,6 +14,10 @@
 #include <cmath>
 #include <cstddef>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <string>
 #include <type_traits>
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file, brevity preferred
@@ -1152,4 +1156,66 @@ TEST(WaterRendering, WaterFace_AtWaterline_SplitsPerFragment)
     // Fragment of a wave crest above the eye → show underside.
     EXPECT_FALSE(WaterFaceKept(0.5f, cameraY, /*isTopFace=*/true));
     EXPECT_TRUE(WaterFaceKept(0.5f, cameraY, /*isTopFace=*/false));
+}
+
+// =============================================================================
+// NaN containment source guards (the one-frame black-square artifact)
+// =============================================================================
+// A single NaN water pixel (an interpolated vector crossing zero length at one
+// fragment, then normalize() -> NaN) snowballed through the bloom pyramid's
+// 13-tap downsample/upsample chain into a ~300 px solid-black block on screen
+// (scene + NaN = NaN) and poisoned the auto-exposure histogram (global
+// wash-out on the same frames). Caught live by OLO_RG_BLACKSQUARE_HUNT: 3 NaN
+// channels after WaterPass became 367,074 after BloomPass. Two guards, both
+// pinned here: safeNormalize() in Water.glsl kills the producer, and the
+// non-finite kill in PostProcess_BloomDownsample.glsl kills the amplifier for
+// every producer, present and future.
+
+namespace
+{
+    std::string ReadShaderSource(const std::filesystem::path& relative)
+    {
+        const auto path = std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / relative;
+        std::ifstream f(path, std::ios::binary);
+        EXPECT_TRUE(f.is_open()) << "cannot open " << path.string();
+        std::ostringstream buf;
+        buf << f.rdbuf();
+        return buf.str();
+    }
+} // namespace
+
+TEST(WaterRendering, WaterShaderNormalizesThroughSafeNormalize)
+{
+    const std::string src = ReadShaderSource(std::filesystem::path{ "assets" } / "shaders" / "Water.glsl");
+    ASSERT_FALSE(src.empty());
+
+    EXPECT_NE(src.find("vec3 safeNormalize(vec3 v, vec3 fallback)"), std::string::npos)
+        << "Water.glsl lost its safeNormalize helper — zero-length interpolated vectors "
+           "will emit single-pixel NaNs again";
+
+    // The fragment-stage sites that produced the NaNs must stay guarded.
+    EXPECT_NE(src.find("safeNormalize(v_Normal"), std::string::npos)
+        << "gerstnerNormal no longer uses safeNormalize";
+    EXPECT_NE(src.find("safeNormalize(v_ViewDir"), std::string::npos)
+        << "viewDir no longer uses safeNormalize";
+    EXPECT_NE(src.find("safeNormalize(n0 + n1"), std::string::npos)
+        << "normal-map blend no longer uses safeNormalize — two opposing samples sum to zero";
+    EXPECT_NE(src.find("safeNormalize(viewDir + lightDir"), std::string::npos)
+        << "half-vector no longer uses safeNormalize — grazing opposition sums to zero";
+}
+
+TEST(WaterRendering, BloomDownsampleKillsNonFiniteInputs)
+{
+    const std::string src = ReadShaderSource(std::filesystem::path{ "assets" } / "shaders" / "PostProcess_BloomDownsample.glsl");
+    ASSERT_FALSE(src.empty());
+
+    EXPECT_NE(src.find("isnan(result)"), std::string::npos)
+        << "PostProcess_BloomDownsample.glsl lost its NaN kill — one bad input texel will "
+           "snowball through the pyramid into a ~300 px black block";
+    EXPECT_NE(src.find("isinf(result)"), std::string::npos)
+        << "PostProcess_BloomDownsample.glsl lost its Inf kill";
+    // The kill must be a select, not mix(): mix(NaN, 0, 1) multiplies the NaN
+    // operand and stays NaN.
+    EXPECT_EQ(src.find("mix(result, vec3(0.0), vec3(isnan"), std::string::npos)
+        << "the non-finite kill regressed to mix(), which propagates NaN";
 }
