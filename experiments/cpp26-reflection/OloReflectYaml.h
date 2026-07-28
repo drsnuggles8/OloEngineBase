@@ -130,6 +130,7 @@ namespace OloEngine::Reflect
     {
         visit_fields(obj, [&out]<sm::info M>(std::string_view key, auto& ref) {
             using MT = std::remove_cvref_t<decltype(ref)>;
+            if constexpr (HasFlatten(M)) { EmitStructBody(out, ref); return; }     // flatten nested struct's fields at this level
             if constexpr (IsRef<MT>() || IsUniquePtr<MT>()) { if (!ref) return; }   // omit null Ref / unique_ptr
             out << YAML::Key << std::string(key) << YAML::Value;
             EmitValue(out, ref);
@@ -202,6 +203,7 @@ namespace OloEngine::Reflect
     void DeserializeStructBody(const YAML::Node& node, T& obj)
     {
         visit_fields(obj, [&node]<sm::info M>(std::string_view key, auto& ref) {
+            if constexpr (HasFlatten(M)) { DeserializeStructBody(node, ref); return; }  // flatten: read from the parent node
             auto n = node[std::string(key)];
             if (!n) return;                                       // missing key -> keep constructor default
             using MT = std::remove_cvref_t<decltype(ref)>;

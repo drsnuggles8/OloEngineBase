@@ -1618,8 +1618,10 @@ namespace OloEngine
     struct AudioListenerComponent
     {
         bool Active = true;
+        OLO_SERIALIZE(Flatten)
         AudioListenerConfig Config;
 
+        OLO_SERIALIZE(Skip)
         Ref<AudioListener> Listener;
 
         AudioListenerComponent() = default;

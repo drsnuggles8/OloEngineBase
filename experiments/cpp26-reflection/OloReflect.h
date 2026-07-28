@@ -53,6 +53,7 @@ namespace OloEngine::Reflect
     consteval Clamp GetClamp(sm::info m) { return sm::extract<Clamp>(sm::annotations_of_with_type(m, ^^Clamp)[0]); }
     consteval bool   HasReject(sm::info m) { return !sm::annotations_of_with_type(m, ^^Reject).empty(); }
     consteval Reject GetReject(sm::info m) { return sm::extract<Reject>(sm::annotations_of_with_type(m, ^^Reject)[0]); }
+    consteval bool   HasFlatten(sm::info m) { return !sm::annotations_of_with_type(m, ^^Flatten).empty(); }
 
     // -------- component discovery: replaces the source-tree scan -----------------
     // Runtime-only set (mirrors kComponentsNotInTuple): identity + per-tick state.

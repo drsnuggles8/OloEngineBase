@@ -15,9 +15,11 @@ namespace OloEngine::Reflect
         consteval Key(const char* s) { for (int i = 0; s[i] != '\0' && i < 63; ++i) name[i] = s[i]; }
     };
     struct Reject { double min; double max; }; // out-of-range on load -> KEEP the default (reject, not clamp)
+    struct Flatten {};                          // serialize this nested-struct member's fields at the PARENT level (no sub-map)
 }
 
 #define OLO_CLAMP(mn, mx) [[=::OloEngine::Reflect::Clamp{ (double)(mn), (double)(mx) }]]
 #define OLO_SKIP          [[=::OloEngine::Reflect::Skip{}]]
 #define OLO_KEY(k)        [[=::OloEngine::Reflect::Key{ k }]]
 #define OLO_REJECT(mn,mx) [[=::OloEngine::Reflect::Reject{ (double)(mn), (double)(mx) }]]
+#define OLO_FLATTEN       [[=::OloEngine::Reflect::Flatten{}]]

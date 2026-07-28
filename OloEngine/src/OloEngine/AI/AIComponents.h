@@ -8,6 +8,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Scene/ComponentReflection.h" // OLO_SERIALIZE(Skip/Key) to mark runtime fields / rename
 
 #include <glm/glm.hpp>
 
@@ -15,11 +16,15 @@ namespace OloEngine
 {
     struct BehaviorTreeComponent
     {
+        OLO_SERIALIZE(Key, "BehaviorTreeAsset")
         AssetHandle BehaviorTreeAssetHandle = 0;
+        OLO_SERIALIZE(Skip)
         BTBlackboard Blackboard;
 
         // Runtime (not serialized)
+        OLO_SERIALIZE(Skip)
         Ref<BehaviorTree> RuntimeTree = nullptr;
+        OLO_SERIALIZE(Skip)
         bool IsRunning = false;
 
         BehaviorTreeComponent() = default;
@@ -54,10 +59,13 @@ namespace OloEngine
 
     struct StateMachineComponent
     {
+        OLO_SERIALIZE(Key, "StateMachineAsset")
         AssetHandle StateMachineAssetHandle = 0;
+        OLO_SERIALIZE(Skip)
         BTBlackboard Blackboard;
 
         // Runtime (not serialized)
+        OLO_SERIALIZE(Skip)
         Ref<StateMachine> RuntimeFSM = nullptr;
 
         StateMachineComponent() = default;
@@ -92,9 +100,11 @@ namespace OloEngine
     struct GoapAgentComponent
     {
         bool Enabled = true;
+        OLO_SERIALIZE(Skip)
         BTBlackboard Blackboard; // sensor/script bridge, mirrors BT/FSM
 
         // Runtime (not serialized); rebuilt after load by gameplay code.
+        OLO_SERIALIZE(Skip)
         Ref<GoapAgent> RuntimeAgent = nullptr;
 
         GoapAgentComponent() = default;
