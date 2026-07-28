@@ -121,12 +121,30 @@ vec3 ComputeViewspacePosition(vec2 screenPos, float viewspaceDepth)
 }
 
 // ---------------------------------------------------------------------------
-// R1 quasi-random sequence (spatiotemporal noise via Hilbert LUT)
+// R2 quasi-random sequence (spatiotemporal noise via Hilbert LUT).
+//
+// The Hilbert LUT stores an ORDERING, not a noise value, and it is locality-
+// PRESERVING by construction: neighbouring pixels get indices one apart. The R2
+// sequence (an irrational stride, so successive indices land maximally far
+// apart in [0,1)) is what converts that ordering into blue-noise-like values.
+// Both halves are load-bearing and must not be "simplified":
+//   - Using the index directly ((idx + noiseIndex) & 0xFF) / 256 hands adjacent
+//     pixels near-identical noise, so the slice angle and sample distances vary
+//     SMOOTHLY along the curve. The round() quantisation of sampleOffset below
+//     then turns that smooth ramp into coherent contours instead of per-pixel
+//     dither: a woven "goosebump" lattice carrying this LUT's 64px tile period,
+//     worst wherever pixelRadius puts the contours at a visible spacing.
+//   - The 288-per-frame temporal stride is what lets TAA resolve the dither.
+//     Advancing the index by 1 instead only slides the SAME spatial pattern
+//     along the curve, so every frame has identical structure and temporal
+//     averaging has nothing to cancel — the lattice survives TAA untouched.
+// Both were live bugs; see docs/agent-rules/glsl-shaders.md.
 // ---------------------------------------------------------------------------
-float SpatioTemporalNoise(ivec2 pixCoord)
+vec2 SpatioTemporalNoise(ivec2 pixCoord)
 {
     uint idx = texelFetch(u_HilbertLUT, pixCoord & ivec2(63), 0).r;
-    return float((idx + u_NoiseIndex) & 0xFFu) / 256.0;
+    idx += 288u * (uint(u_NoiseIndex) & 63u);
+    return fract(0.5 + vec2(idx) * vec2(0.75487766624669276005, 0.5698402909980532659114));
 }
 
 // ---------------------------------------------------------------------------
@@ -193,9 +211,14 @@ void main()
     vec2 encodedNormal = texelFetch(u_ViewNormals, pixCoord, 0).rg;
     vec3 viewNormal = normalize(mat3(u_ViewMatrix) * OctDecode(encodedNormal));
 
-    // Noise for slice rotation
-    float noiseSlice = SpatioTemporalNoise(pixCoord);
-    float noiseSample = fract(noiseSlice * 0.6180339887498949); // Golden ratio
+    // Noise for slice rotation (.x) and sample distance along the slice (.y).
+    // These come from the two independent R2 dimensions; deriving the second
+    // from the first (fract(noiseSlice * golden)) is NOT independent — with
+    // noiseSlice quantised to k/256 it reduces to fract(k * 0.00241), a plain
+    // ramp spanning only [0, 0.62), which biases every sample inward.
+    vec2 noise = SpatioTemporalNoise(pixCoord);
+    float noiseSlice = noise.x;
+    float noiseSample = noise.y;
 
     // World-space AO radius → pixel radius on screen
     // proj[0][0] = 2 / NDCToViewMul.x, half-screen in pixels = screenWidth / 2
