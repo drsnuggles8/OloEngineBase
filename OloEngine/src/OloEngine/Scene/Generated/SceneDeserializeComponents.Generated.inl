@@ -846,7 +846,8 @@ if (auto node = entity["VehicleComponent"]; node)
         comp.m_MaxSteerAngleDeg = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(180.0f));
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxBrakeTorque"], v))
         comp.m_MaxBrakeTorque = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
-    comp.m_DriveMode = static_cast<decltype(comp.m_DriveMode)>(std::clamp(node["DriveMode"].as<int>(static_cast<int>(comp.m_DriveMode)), static_cast<int>(0), static_cast<int>(2)));
+    if (const int v = node["DriveMode"].as<int>(static_cast<int>(comp.m_DriveMode)); v >= static_cast<int>(0) && v <= static_cast<int>(2))
+        comp.m_DriveMode = static_cast<decltype(comp.m_DriveMode)>(v);
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FrontTorqueSplit"], v))
         comp.m_FrontTorqueSplit = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LeftRightSplit"], v))

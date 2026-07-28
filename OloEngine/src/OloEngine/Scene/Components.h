@@ -1240,8 +1240,15 @@ namespace OloEngine
         // Which axle(s) the engine drives. The RearWheelDrive default reproduces
         // the original single-rear-differential jeep bit-for-bit; the other two
         // modes rebuild the differential list in JoltScene::CreateVehicle.
+        // Reject, NOT Clamp: an out-of-range value must fall back to the
+        // RearWheelDrive default, matching SaveGameComponentSerializer and
+        // JoltScene::CreateVehicle, which both map anything that isn't
+        // FrontWheelDrive/AllWheelDrive to RearWheelDrive. Clamping instead
+        // saturates a corrupt `7` to 2 = AllWheelDrive — a DIFFERENT VALID mode
+        // — so the same corrupt scene and save-game would have driven different
+        // axles.
         OLO_PROPERTY(Name = "DriveMode", Type = "int", Get = "static_cast<int>(comp.m_DriveMode)", Set = "comp.m_DriveMode = static_cast<VehicleDriveMode>({v})")
-        OLO_SERIALIZE(Clamp, Min = 0, Max = 2)
+        OLO_SERIALIZE(Reject, Min = 0, Max = 2)
         VehicleDriveMode m_DriveMode = VehicleDriveMode::RearWheelDrive;
         // AllWheelDrive ONLY: fraction of engine torque sent to the FRONT
         // differential; the rear gets the remaining (1 - this). 0.5 = even split,

@@ -834,8 +834,12 @@ case 371155434u: // VehicleComponent
     comp.m_MaxSteerAngleDeg = std::clamp(comp.m_MaxSteerAngleDeg, static_cast<f32>(0.0f), static_cast<f32>(180.0f));
     if (!SceneBinIO::Read(reader, comp.m_MaxBrakeTorque)) return false;
     comp.m_MaxBrakeTorque = std::clamp(comp.m_MaxBrakeTorque, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
-    if (!SceneBinIO::Read(reader, comp.m_DriveMode)) return false;
-    comp.m_DriveMode = static_cast<decltype(comp.m_DriveMode)>(std::clamp(static_cast<int>(comp.m_DriveMode), static_cast<int>(0), static_cast<int>(2)));
+    {
+        decltype(comp.m_DriveMode) v{};
+        if (!SceneBinIO::Read(reader, v)) return false;
+        if (static_cast<int>(v) >= static_cast<int>(0) && static_cast<int>(v) <= static_cast<int>(2))
+            comp.m_DriveMode = v;
+    }
     if (!SceneBinIO::Read(reader, comp.m_FrontTorqueSplit)) return false;
     comp.m_FrontTorqueSplit = std::clamp(comp.m_FrontTorqueSplit, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
     if (!SceneBinIO::Read(reader, comp.m_LeftRightSplit)) return false;

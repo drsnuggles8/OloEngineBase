@@ -2930,6 +2930,65 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // m_DriveMode is OLO_SERIALIZE(Reject, …), not Clamp — a corrupted or
+    // hand-edited DriveMode must fall back to the RearWheelDrive DEFAULT.
+    //
+    // This is the whole point of the Reject slice. Under the previous
+    // Clamp(0, 2) the same corrupt `7` saturated to 2 = AllWheelDrive: a
+    // perfectly valid mode, silently driving the wrong axles, and disagreeing
+    // with both SaveGameComponentSerializer and JoltScene::CreateVehicle, which
+    // map anything that isn't Front/AllWheelDrive back to RearWheelDrive.
+    // A clamp-shaped regression here is invisible without this test, because
+    // the loaded value is still a legal enumerator and the car still drives.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, VehicleDriveModeRejectsOutOfRangeToTheDefault)
+    {
+        const auto loadDriveMode = [](const std::string& rawValue)
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            entity.AddComponent<VehicleComponent>().m_DriveMode = VehicleDriveMode::FrontWheelDrive;
+            std::string yaml = SceneSerializer(scene).SerializeToYAML();
+
+            // Rewrite just the DriveMode scalar, leaving the rest of the document
+            // untouched — this is what a corrupted or hand-edited scene looks like.
+            const auto pos = yaml.find("DriveMode: ");
+            EXPECT_NE(pos, std::string::npos);
+            const auto eol = yaml.find('\n', pos);
+            yaml.replace(pos, eol - pos, "DriveMode: " + rawValue);
+
+            auto reloaded = Scene::Create();
+            EXPECT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+            Entity restored = FindByTag(*reloaded, kTestTag);
+            EXPECT_TRUE(static_cast<bool>(restored));
+            return restored.GetComponent<VehicleComponent>().m_DriveMode;
+        };
+
+        // Valid enumerators still round-trip untouched.
+        EXPECT_EQ(loadDriveMode("0"), VehicleDriveMode::RearWheelDrive);
+        EXPECT_EQ(loadDriveMode("1"), VehicleDriveMode::FrontWheelDrive);
+        EXPECT_EQ(loadDriveMode("2"), VehicleDriveMode::AllWheelDrive);
+
+        // Out of range in either direction -> the constructor default, NOT the
+        // nearest bound. "7 -> AllWheelDrive" is precisely the clamp bug.
+        EXPECT_EQ(loadDriveMode("7"), VehicleDriveMode::RearWheelDrive)
+            << "an above-range DriveMode saturated to AllWheelDrive instead of "
+               "falling back to the default — Reject has regressed to Clamp";
+        EXPECT_EQ(loadDriveMode("-3"), VehicleDriveMode::RearWheelDrive);
+        EXPECT_EQ(loadDriveMode("2147483647"), VehicleDriveMode::RearWheelDrive);
+
+        // And the scene path now agrees with the save-game path's rule.
+        for (const char* raw : { "3", "7", "-1", "99" })
+        {
+            const auto mode = loadDriveMode(raw);
+            EXPECT_TRUE(mode == VehicleDriveMode::RearWheelDrive)
+                << "scene load of DriveMode " << raw << " disagrees with "
+                                                        "SaveGameComponentSerializer, which maps every unrecognised "
+                                                        "value to RearWheelDrive";
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Rigidbody3DComponent's INITIAL velocities (issue #438 follow-up). These are
     // applied once, at body creation, and were previously runtime-only — so a
     // scene could not author a body that is already moving when Play starts, and
