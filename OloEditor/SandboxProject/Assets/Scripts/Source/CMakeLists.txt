@@ -10,6 +10,7 @@
 		"Player.cs"
 		"PlayerController.cs"
 		"SaveLoadTestPlayer.cs"
+		"Spawner.cs"
 		"TerrainController.cs"
 )
 

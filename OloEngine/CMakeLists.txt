@@ -112,6 +112,26 @@ target_compile_definitions(OloEngine PRIVATE
 # entt "Unexpected type" assert). PUBLIC: every TU that includes entt.hpp must
 # agree on ENTT_MAYBE_ATOMIC or the inline definitions violate ODR.
 target_compile_definitions(OloEngine PUBLIC ENTT_USE_ATOMIC)
+# Entity UUIDs and AssetHandles are full-range u64s, and the Lua bindings pass
+# them across the sol2 boundary as numbers. Lua 5.4's lua_Integer is SIGNED
+# 64-bit, so under SOL_ALL_SAFETIES_ON sol2 refuses to push any u64 above
+# INT64_MAX ("integer value will be misrepresented in lua") — which is roughly
+# half of all randomly generated UUIDs. That made every Lua binding returning or
+# accepting a real runtime UUID throw; it went unnoticed only because the sandbox
+# scenes use small hand-authored UUIDs, and issue #643 made it unavoidable
+# (every script spawn mints a fresh random UUID).
+#
+# This flag tells sol2 that u64 and lua_Integer are the same width with unique
+# object representations, so it may bit-cast between them instead of range-
+# checking. The round trip is lossless (push static_casts to lua_Integer, get
+# static_casts back); the only visible effect is that a script printing an id
+# with the top bit set sees a negative number. Identity, equality and table-key
+# use are unaffected.
+#
+# PUBLIC, and set here rather than per-TU, for the same ODR reason as
+# ENTT_USE_ATOMIC above: it changes the behaviour of sol2's inline push/check
+# helpers, so every TU that includes sol.hpp must agree.
+target_compile_definitions(OloEngine PUBLIC SOL_ALL_INTEGER_VALUES_FIT=1)
 olo_set_common_definitions(OloEngine)
 
 target_include_directories(OloEngine PUBLIC

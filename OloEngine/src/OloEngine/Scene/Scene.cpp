@@ -475,6 +475,19 @@ namespace OloEngine
         return newScene;
     }
 
+    // Reject a non-finite spawn transform at the request site (issue #643). A
+    // NaN/Inf that reaches a spawned entity poisons physics, culling and the
+    // world-matrix compose several systems later, by which point the script
+    // that produced it is untraceable — so fall back to `fallback` and say so.
+    static glm::vec3 SanitizeScriptVec3(const glm::vec3& value, const glm::vec3& fallback, const char* what)
+    {
+        if (std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z))
+            return value;
+
+        OLO_CORE_WARN("[Scene] Script supplied a non-finite {} — using the default instead.", what);
+        return fallback;
+    }
+
     [[nodiscard]] Entity Scene::CreateEntity(const std::string& name)
     {
         return CreateEntityWithUUID(UUID(), name);
@@ -523,29 +536,39 @@ namespace OloEngine
         if (!uuid)
             uuid = UUID();
 
-        // Check for UUID collision and resolve if necessary
-        if (m_EntityMap.Contains(uuid))
-        {
-            UUID originalUuid = uuid;
-#ifdef OLO_DEBUG
-            OLO_CORE_ASSERT(false, "Scene::InstantiateWithUUID - UUID collision detected! UUID {} already exists in scene", static_cast<u64>(uuid));
-#else
-            OLO_CORE_WARN("Scene::InstantiateWithUUID - UUID collision detected! UUID {} already exists, generating new UUID", static_cast<u64>(uuid));
-
-            // Generate new unique UUID
-            do
-            {
-                uuid = UUID();
-            } while (m_EntityMap.Contains(uuid));
-
-            OLO_CORE_WARN("Scene::InstantiateWithUUID - Resolved collision: original UUID {} replaced with new UUID {}", static_cast<u64>(originalUuid), static_cast<u64>(uuid));
-#endif
-        }
+        uuid = ResolveUUIDCollision(uuid, "Scene::InstantiateWithUUID");
 
         // Create a new entity from the prefab
         Entity entity = prefab->Instantiate(*this, uuid);
 
         return entity;
+    }
+
+    UUID Scene::ResolveUUIDCollision(UUID uuid, const char* context)
+    {
+        // CreateEntityWithUUID does no collision check of its own — it just
+        // m_EntityMap.Add()s, which OVERWRITES, silently making the previous
+        // occupant unreachable by UUID. Every caller that supplies a UUID must
+        // therefore screen it here first.
+        if (!m_EntityMap.Contains(uuid))
+            return uuid;
+
+        const UUID originalUuid = uuid;
+#ifdef OLO_DEBUG
+        OLO_CORE_ASSERT(false, "{} - UUID collision detected! UUID {} already exists in scene", context, static_cast<u64>(uuid));
+#else
+        OLO_CORE_WARN("{} - UUID collision detected! UUID {} already exists, generating new UUID", context, static_cast<u64>(uuid));
+
+        do
+        {
+            uuid = UUID();
+        } while (m_EntityMap.Contains(uuid));
+
+        OLO_CORE_WARN("{} - Resolved collision: original UUID {} replaced with new UUID {}", context, static_cast<u64>(originalUuid), static_cast<u64>(uuid));
+#endif
+        (void)originalUuid;
+        (void)context;
+        return uuid;
     }
 
     void Scene::UpdateAllPrefabInstances()
@@ -755,6 +778,327 @@ namespace OloEngine
         // has actually gone through (the early returns above bail before this).
         DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::EntityDestroy,
                                           "Destroyed entity '" + entityName + "'", static_cast<u64>(entityUUID));
+    }
+
+    void Scene::DestroyEntityAndChildren(Entity entity)
+    {
+        if (!entity || !entity.HasComponent<IDComponent>())
+            return;
+
+        // Snapshot the child UUIDs first: each recursive destroy mutates the
+        // parent's RelationshipComponent child vector (RemoveChild erases from
+        // it), so walking the live list would invalidate the iteration.
+        const std::vector<UUID> children = entity.Children();
+        for (const UUID childUUID : children)
+        {
+            if (auto childOpt = TryGetEntityWithUUID(childUUID))
+                DestroyEntityAndChildren(*childOpt);
+        }
+
+        // Unlink from the surviving parent before the registry forgets this
+        // entity, else the parent keeps a dangling UUID in its child list and
+        // every later hierarchy walk resolves it to nothing.
+        if (Entity parent = entity.GetParent(); parent)
+            parent.RemoveChild(entity);
+
+        DestroyEntity(entity);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Deferred script spawn/destroy queue (issue #643)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    UUID Scene::ScriptCreateEntity(const std::string& name, const glm::vec3& translation)
+    {
+        PendingEntityCommand cmd;
+        cmd.m_Kind = PendingEntityCommand::Kind::CreateEntity;
+        cmd.m_EntityID = UUID();
+        cmd.m_Name = name.empty() ? std::string("Entity") : name;
+        // A non-finite spawn position would poison physics/culling the moment
+        // the entity materialises, and the script that produced it is long gone
+        // by then — reject at the request site where it is still attributable.
+        cmd.m_Translation = SanitizeScriptVec3(translation, glm::vec3(0.0f), "spawn translation");
+
+        const UUID id = cmd.m_EntityID;
+        {
+            std::scoped_lock lock(m_EntityCommandMutex);
+            m_PendingSpawnIDs.insert(id);
+            m_PendingEntityCommands.push_back(std::move(cmd));
+        }
+        return id;
+    }
+
+    UUID Scene::ScriptInstantiatePrefab(AssetHandle prefabHandle, const glm::vec3& translation,
+                                        const glm::vec3& rotationEuler, const glm::vec3& scale)
+    {
+        if (!prefabHandle)
+        {
+            OLO_CORE_WARN("[Scene] Script requested prefab instantiation with a null asset handle — ignored.");
+            return UUID(0);
+        }
+
+        PendingEntityCommand cmd;
+        cmd.m_Kind = PendingEntityCommand::Kind::InstantiatePrefab;
+        cmd.m_EntityID = UUID();
+        cmd.m_PrefabHandle = prefabHandle;
+        cmd.m_Translation = SanitizeScriptVec3(translation, glm::vec3(0.0f), "spawn translation");
+        cmd.m_RotationEuler = SanitizeScriptVec3(rotationEuler, glm::vec3(0.0f), "spawn rotation");
+        cmd.m_Scale = SanitizeScriptVec3(scale, glm::vec3(1.0f), "spawn scale");
+
+        const UUID id = cmd.m_EntityID;
+        {
+            std::scoped_lock lock(m_EntityCommandMutex);
+            m_PendingSpawnIDs.insert(id);
+            m_PendingEntityCommands.push_back(std::move(cmd));
+        }
+        return id;
+    }
+
+    void Scene::ScriptDestroyEntity(UUID entityID)
+    {
+        if (!entityID)
+            return;
+
+        PendingEntityCommand cmd;
+        cmd.m_Kind = PendingEntityCommand::Kind::DestroyEntity;
+        cmd.m_EntityID = entityID;
+
+        std::scoped_lock lock(m_EntityCommandMutex);
+        // Idempotent: a script that calls Destroy twice (or two scripts that
+        // both destroy the same target) must not queue two destroys — the
+        // second would resolve to nothing, but the pending set would then be
+        // erased by the first and report the entity live again in between.
+        if (!m_PendingDestroyIDs.insert(entityID).second)
+            return;
+        m_PendingEntityCommands.push_back(std::move(cmd));
+    }
+
+    void Scene::ClearPendingEntityCommands()
+    {
+        std::scoped_lock lock(m_EntityCommandMutex);
+        m_PendingEntityCommands.clear();
+        m_PendingSpawnIDs.clear();
+        m_PendingDestroyIDs.clear();
+    }
+
+    sizet Scene::GetPendingEntityCommandCount() const
+    {
+        std::scoped_lock lock(m_EntityCommandMutex);
+        return m_PendingEntityCommands.size();
+    }
+
+    bool Scene::IsEntitySpawnPending(UUID entityID) const
+    {
+        std::scoped_lock lock(m_EntityCommandMutex);
+        return m_PendingSpawnIDs.contains(entityID);
+    }
+
+    bool Scene::IsEntityDestroyPending(UUID entityID) const
+    {
+        std::scoped_lock lock(m_EntityCommandMutex);
+        return m_PendingDestroyIDs.contains(entityID);
+    }
+
+    bool Scene::IsEntityLiveForScripts(UUID entityID) const
+    {
+        if (!entityID)
+            return false;
+
+        {
+            std::scoped_lock lock(m_EntityCommandMutex);
+            if (m_PendingDestroyIDs.contains(entityID))
+                return false;
+            if (m_PendingSpawnIDs.contains(entityID))
+                return true;
+        }
+        return m_EntityMap.Contains(entityID);
+    }
+
+    void Scene::FlushPendingEntityCommands()
+    {
+        // Cheap early-out for the overwhelmingly common empty case, and the
+        // re-entrancy guard: a spawned entity's OnCreate may queue more work,
+        // which the loop below picks up in its next round rather than nesting.
+        // The flag is read/set under the same lock as the queue it guards, so
+        // the two can never disagree about whether a drain is in progress.
+        {
+            std::scoped_lock lock(m_EntityCommandMutex);
+            if (m_DrainingEntityCommands || m_PendingEntityCommands.empty())
+                return;
+            m_DrainingEntityCommands = true;
+        }
+
+        OLO_PROFILE_FUNCTION();
+
+        // Reused across rounds: swapping an already-cleared vector back in
+        // keeps the queue's capacity instead of reallocating each round.
+        std::vector<PendingEntityCommand> batch;
+        for (u32 round = 0; round < kMaxEntityCommandDrainRounds; ++round)
+        {
+            {
+                std::scoped_lock lock(m_EntityCommandMutex);
+                if (m_PendingEntityCommands.empty())
+                    break;
+                batch.swap(m_PendingEntityCommands);
+            }
+
+            // In request order, so a script's spawn-then-destroy of the same
+            // entity within one tick runs OnCreate on a live entity and then
+            // OnDestroy on it — never OnCreate on something already gone.
+            // Commands queued by an OnCreate fired in here land back on
+            // m_PendingEntityCommands and are picked up by the next round.
+            for (auto& cmd : batch)
+                ApplyPendingEntityCommand(cmd);
+            batch.clear();
+        }
+        {
+            std::scoped_lock lock(m_EntityCommandMutex);
+            m_DrainingEntityCommands = false;
+        }
+
+        if (GetPendingEntityCommandCount() != 0)
+        {
+            OLO_CORE_WARN("[Scene] Spawn/destroy queue still non-empty after {} drain rounds — a script is "
+                          "spawning from OnCreate without a termination condition. Remaining commands are "
+                          "deferred to the next tick rather than hanging this one.",
+                          kMaxEntityCommandDrainRounds);
+        }
+    }
+
+    void Scene::ApplyPendingEntityCommand(const PendingEntityCommand& cmd)
+    {
+        switch (cmd.m_Kind)
+        {
+            case PendingEntityCommand::Kind::CreateEntity:
+            {
+                // Screen the pre-allocated UUID exactly as InstantiateWithUUID
+                // does: CreateEntityWithUUID would otherwise Add() over an
+                // existing mapping and silently strand the previous occupant.
+                const UUID spawnID = ResolveUUIDCollision(cmd.m_EntityID, "Scene::ScriptCreateEntity");
+                if (spawnID != cmd.m_EntityID)
+                {
+                    OLO_CORE_WARN("[Scene] Script entity spawn was assigned UUID {} instead of the requested "
+                                  "{} (collision resolved by regeneration) — the handle already returned to "
+                                  "the script will not resolve.",
+                                  static_cast<u64>(spawnID), static_cast<u64>(cmd.m_EntityID));
+                }
+
+                Entity entity = CreateEntityWithUUID(spawnID, cmd.m_Name);
+                {
+                    std::scoped_lock lock(m_EntityCommandMutex);
+                    m_PendingSpawnIDs.erase(cmd.m_EntityID);
+                    m_PendingSpawnIDs.erase(spawnID);
+                }
+                if (!entity)
+                    return;
+
+                entity.GetComponent<TransformComponent>().Translation = cmd.m_Translation;
+                FireSpawnScriptLifecycle(entity);
+                return;
+            }
+            case PendingEntityCommand::Kind::InstantiatePrefab:
+            {
+                Entity root = InstantiateWithUUID(cmd.m_PrefabHandle, cmd.m_EntityID);
+                {
+                    std::scoped_lock lock(m_EntityCommandMutex);
+                    m_PendingSpawnIDs.erase(cmd.m_EntityID);
+                }
+                if (!root)
+                {
+                    OLO_CORE_WARN("[Scene] Script prefab instantiation failed for handle {} — the asset is "
+                                  "missing, is not a Prefab, or has no root entity.",
+                                  static_cast<u64>(cmd.m_PrefabHandle));
+                    return;
+                }
+
+                // InstantiateWithUUID resolves a UUID collision by minting a new
+                // one, so the root can come back under an id the script was
+                // never told about — its stored handle would then resolve to
+                // nothing forever. Astronomically unlikely with random UUIDs,
+                // but silent if it ever happens, so say so and reconcile the
+                // bookkeeping against the id the entity ACTUALLY has.
+                if (const UUID actualID = root.GetUUID(); actualID != cmd.m_EntityID)
+                {
+                    OLO_CORE_WARN("[Scene] Script prefab spawn was assigned UUID {} instead of the requested "
+                                  "{} (collision resolved by regeneration) — the handle already returned to "
+                                  "the script will not resolve.",
+                                  static_cast<u64>(actualID), static_cast<u64>(cmd.m_EntityID));
+                    std::scoped_lock lock(m_EntityCommandMutex);
+                    m_PendingSpawnIDs.erase(actualID);
+                }
+
+                // The prefab's own authored transform is the fallback; the
+                // spawn request overrides it wholesale, which is what a
+                // "spawn this here, facing that way" call means.
+                auto& transform = root.GetComponent<TransformComponent>();
+                transform.Translation = cmd.m_Translation;
+                transform.SetRotationEuler(cmd.m_RotationEuler);
+                transform.Scale = cmd.m_Scale;
+
+                // Scripts can live on prefab children too, so fire the whole
+                // subtree, not just the root.
+                FireSpawnScriptLifecycleRecursive(root);
+                return;
+            }
+            case PendingEntityCommand::Kind::DestroyEntity:
+            {
+                auto entityOpt = TryGetEntityWithUUID(cmd.m_EntityID);
+                if (entityOpt)
+                    DestroyEntityAndChildren(*entityOpt);
+
+                // Erased AFTER the destroy: IsEntityLiveForScripts must keep
+                // answering "gone" for the whole window between the request and
+                // the entity actually leaving the registry.
+                std::scoped_lock lock(m_EntityCommandMutex);
+                m_PendingDestroyIDs.erase(cmd.m_EntityID);
+                return;
+            }
+        }
+    }
+
+    void Scene::FireSpawnScriptLifecycle(Entity entity)
+    {
+        // Edit mode / Simulate has no script runtime bound, so there is nothing
+        // to create against — the entity still spawns, it just has no script
+        // instance until the next OnRuntimeStart sweep.
+        if (!m_IsRunning || !entity)
+            return;
+
+        if (entity.HasComponent<ScriptComponent>())
+            ScriptEngine::OnCreateEntity(entity);
+
+        if (entity.HasComponent<LuaScriptComponent>())
+        {
+            if (auto const& luaComp = entity.GetComponent<LuaScriptComponent>(); !luaComp.ScriptFile.empty())
+            {
+                // ScriptFile is project-relative when a project is mounted (the
+                // editor / OloRuntime path, matching OnRuntimeStart) and an
+                // absolute path when it isn't (headless harnesses, which set it
+                // directly). Project::GetAssetFileSystemPath asserts without an
+                // active project, so resolve only when there is one.
+                const std::string scriptPath = Project::GetActive()
+                                                   ? Project::GetAssetFileSystemPath(luaComp.ScriptFile).string()
+                                                   : luaComp.ScriptFile;
+                LuaScriptEngine::OnCreateEntity(entity, scriptPath);
+            }
+        }
+    }
+
+    void Scene::FireSpawnScriptLifecycleRecursive(Entity entity)
+    {
+        if (!entity)
+            return;
+
+        FireSpawnScriptLifecycle(entity);
+
+        // Snapshot: an OnCreate callback is allowed to reparent or destroy, so
+        // the child list can change underneath the walk.
+        const std::vector<UUID> children = entity.Children();
+        for (const UUID childUUID : children)
+        {
+            if (auto childOpt = TryGetEntityWithUUID(childUUID))
+                FireSpawnScriptLifecycleRecursive(*childOpt);
+        }
     }
 
     void Scene::InitDialogueSystem()
@@ -996,6 +1340,11 @@ namespace OloEngine
         m_SimulationTick = 0;
         m_FixedTimeAccumulator = 0.0f;
         m_SimulationTime = 0.0f;
+        // A fresh session must not inherit spawn/destroy requests queued by the
+        // previous one (issue #643) — their UUIDs refer to a scene that no
+        // longer exists, and applying them would spawn phantom entities into
+        // tick 0 of the new run.
+        ClearPendingEntityCommands();
         // Floating-origin (issue #429): every play-through starts at the authored
         // coordinates, so the rebased origin coincides with absolute origin.
         m_WorldOrigin = glm::vec3(0.0f);
@@ -1261,6 +1610,11 @@ namespace OloEngine
         // down systems but does not route through Scene::DestroyEntity, so no spurious
         // EntityDestroy flood follows.
         DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::Stop, "Left Play mode", 0, GetName());
+
+        // Drop any spawn/destroy still queued from the final tick (issue #643).
+        // Applying them during teardown would race the subsystem shutdowns
+        // below; the session is over, so the requests are moot.
+        ClearPendingEntityCommands();
 
         // Stop any global fullscreen video while the GL context is still alive, so its
         // texture is freed here rather than at static-destruction time (no context).
@@ -2485,6 +2839,13 @@ namespace OloEngine
 
             // Scripts move entities arbitrarily (transforms, velocities): model as
             // a writer of the local transforms every downstream mover/reader sees.
+            // This node is also the SPAWN/DESTROY SAFE POINT (issue #643): the
+            // deferred script entity-command queue is drained at the top and
+            // bottom of UpdateScripts, which is why script spawns are visible
+            // to physics/propagate/render in the same tick. UNMARKED (join-all
+            // barrier) and it must stay that way — the drain performs EnTT
+            // structural changes, so marking Scripts .Parallelizable() requires
+            // first moving the drains out to a barrier node. See UpdateScripts.
             sched.AddSystem("Scripts", [](Scene& s, Timestep ts)
                             { s.UpdateScripts(ts); })
                 .Writes(kLocalTransforms);
@@ -2822,6 +3183,34 @@ namespace OloEngine
 
     void Scene::UpdateScripts(Timestep ts)
     {
+        // ── The script spawn/destroy safe point (issue #643) ─────────────────
+        // Scripts request entity creation/destruction through Scene::Script*,
+        // which only QUEUES the work; this node is where it is applied. The two
+        // drains bracket the OnUpdate iteration below rather than sitting after
+        // it, and both are load-bearing:
+        //
+        //   leading  — applies anything queued after last tick's trailing drain
+        //              (a Lua dialogue action, a UI button handler, a gameplay-
+        //              event subscriber; all of those run inside some OTHER
+        //              system's view iteration, so they cannot apply inline).
+        //              Draining here means such a request costs at most one
+        //              tick of latency instead of sitting until something else
+        //              happens to flush.
+        //   trailing — applies what THIS tick's OnUpdate callbacks queued, so a
+        //              script spawn is visible to every downstream system in
+        //              the same tick: physics builds its body, the propagate
+        //              pass composes its world matrix, the frame renders it.
+        //
+        // Both sit outside every EnTT view iteration in this function, which is
+        // the whole point — see the ScriptCreateEntity block in Scene.h for why
+        // applying a spawn/destroy inline would invalidate the live iterator.
+        // Scripts is an UNMARKED (join-all barrier) scheduler node, so this
+        // runs on the game thread with no other system in flight. If Scripts is
+        // ever marked .Parallelizable(), these drains must move OUT of the
+        // system body to a barrier node — applying structural registry changes
+        // from a worker is exactly the corruption the queue exists to prevent.
+        FlushPendingEntityCommands();
+
         // Update scripts
         {
             // C# Entity OnUpdate
@@ -2841,6 +3230,8 @@ namespace OloEngine
                 }
             }
         }
+
+        FlushPendingEntityCommands();
     }
 
     void Scene::UpdateCinematics(Timestep ts)
