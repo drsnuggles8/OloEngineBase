@@ -360,4 +360,46 @@ namespace OloEngine::Tests
         EXPECT_LE(s.AutoExposureMinLogLuminance, s.AutoExposureMaxLogLuminance);
         EXPECT_LE(s.AutoExposureMinExposure, s.AutoExposureMaxExposure);
     }
+
+    // The percentile band selects WHICH part of the histogram drives exposure, so
+    // a NaN or out-of-range edge does not just skew the result — it collapses the
+    // band and the persistent adapted-luminance state latches onto the garbage.
+    TEST(AutoExposureMathTest, SanitizeClampsAndOrdersPercentiles)
+    {
+        // Non-finite edges fall back to finite, in-range defaults.
+        {
+            PostProcessSettings s;
+            s.AutoExposureLowPercentile = std::nanf("");
+            s.AutoExposureHighPercentile = std::numeric_limits<f32>::infinity();
+            SanitizeAutoExposure(s);
+            EXPECT_TRUE(std::isfinite(s.AutoExposureLowPercentile));
+            EXPECT_TRUE(std::isfinite(s.AutoExposureHighPercentile));
+            EXPECT_GE(s.AutoExposureLowPercentile, 0.0f);
+            EXPECT_LE(s.AutoExposureLowPercentile, 1.0f);
+            EXPECT_GE(s.AutoExposureHighPercentile, 0.0f);
+            EXPECT_LE(s.AutoExposureHighPercentile, 1.0f);
+            EXPECT_LE(s.AutoExposureLowPercentile, s.AutoExposureHighPercentile);
+        }
+
+        // Out-of-range but finite edges clamp into [0, 1] rather than passing through.
+        {
+            PostProcessSettings s;
+            s.AutoExposureLowPercentile = -3.0f;
+            s.AutoExposureHighPercentile = 7.5f;
+            SanitizeAutoExposure(s);
+            EXPECT_FLOAT_EQ(s.AutoExposureLowPercentile, 0.0f);
+            EXPECT_FLOAT_EQ(s.AutoExposureHighPercentile, 1.0f);
+        }
+
+        // An inverted pair is reordered, not merely clamped.
+        {
+            PostProcessSettings s;
+            s.AutoExposureLowPercentile = 0.95f;
+            s.AutoExposureHighPercentile = 0.10f;
+            SanitizeAutoExposure(s);
+            EXPECT_LE(s.AutoExposureLowPercentile, s.AutoExposureHighPercentile);
+            EXPECT_FLOAT_EQ(s.AutoExposureLowPercentile, 0.10f);
+            EXPECT_FLOAT_EQ(s.AutoExposureHighPercentile, 0.95f);
+        }
+    }
 } // namespace OloEngine::Tests

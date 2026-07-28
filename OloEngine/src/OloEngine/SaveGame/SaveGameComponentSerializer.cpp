@@ -1069,7 +1069,11 @@ namespace OloEngine
             // is a hair above 1 (see JoltScene::CreateVehicle's kMinLimitedSlipRatio).
             c.m_LimitedSlipRatio = std::isfinite(c.m_LimitedSlipRatio) ? std::clamp(c.m_LimitedSlipRatio, 1.001f, 1.0e6f) : 1.4f;
             c.m_CenterLimitedSlipRatio = std::isfinite(c.m_CenterLimitedSlipRatio) ? std::clamp(c.m_CenterLimitedSlipRatio, 1.001f, 1.0e6f) : 1.4f;
-            positive(c.m_DifferentialRatio, 3.42f);
+            // Range must match the scene path's OLO_SERIALIZE(Clamp, Min = 0.01f,
+            // Max = 100.0f) on this field — `positive()` would accept 1e9 (or
+            // 1e-9) from a corrupted save and let a save-game load reach a gear
+            // ratio the scene loader rejects.
+            c.m_DifferentialRatio = std::isfinite(c.m_DifferentialRatio) ? std::clamp(c.m_DifferentialRatio, 0.01f, 100.0f) : 3.42f;
         }
         // m_RuntimeVehicleToken is a runtime Jolt handle — not serialized.
     }

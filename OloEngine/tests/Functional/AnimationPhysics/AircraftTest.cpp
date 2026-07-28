@@ -556,7 +556,7 @@ TEST_F(AircraftGearTest, GearRollsForwardFreelyButResistsSideways)
 // the same airframe cannot — the box is pinned flat on its rear edge — so this
 // pair is the direct before/after of the limitation being fixed.
 // -----------------------------------------------------------------------------
-TEST_F(AircraftGearTest, ElevatorCanRotateTheAircraftOnItsGearButNotOnItsBelly)
+TEST_F(AircraftGearTest, ElevatorCanRotateTheAircraftOnItsGear)
 {
     // --- with gear ---
     MakeRunway();

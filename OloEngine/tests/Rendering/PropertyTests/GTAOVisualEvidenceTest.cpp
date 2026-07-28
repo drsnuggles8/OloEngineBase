@@ -377,8 +377,19 @@ namespace OloEngine::Tests
             {
                 SCOPED_TRACE(pose.Name);
 
+                // EVERY GTAOEnabled / GTAODebugView change needs its own
+                // ApplyRendererSettings() before the Capture. The pass reads a
+                // CACHED copy of these settings, so a write that isn't followed
+                // by an apply renders the PREVIOUS state: without the applies
+                // below, the "Off" frame kept the GTAO-on wiring left applied by
+                // the previous pose's applyOnParams(), and the "AO" frame never
+                // entered debug view at all (applyOnParams() applies, then the
+                // GTAODebugView write lands after it) — so aoPixels was the lit
+                // composite, not the AO buffer, and the contract below was
+                // asserting against the wrong image.
                 pp.GTAOEnabled = false;
                 pp.GTAODebugView = false;
+                Renderer3D::ApplyRendererSettings();
                 std::vector<u8> offPixels;
                 Capture(std::string("Off_") + pose.Name, pose.Position, pose.Yaw, pose.Pitch, offPixels);
                 if (::testing::Test::HasFatalFailure())
@@ -386,6 +397,7 @@ namespace OloEngine::Tests
 
                 applyOnParams();
                 pp.GTAODebugView = false;
+                Renderer3D::ApplyRendererSettings();
                 std::vector<u8> onPixels;
                 Capture(std::string("On_") + pose.Name, pose.Position, pose.Yaw, pose.Pitch, onPixels);
                 if (::testing::Test::HasFatalFailure())
@@ -394,6 +406,7 @@ namespace OloEngine::Tests
                 // Capture the AO buffer itself (white = unoccluded) for the contract.
                 applyOnParams();
                 pp.GTAODebugView = true;
+                Renderer3D::ApplyRendererSettings();
                 std::vector<u8> aoPixels;
                 Capture(std::string("AO_") + pose.Name, pose.Position, pose.Yaw, pose.Pitch, aoPixels);
                 if (::testing::Test::HasFatalFailure())

@@ -406,16 +406,8 @@ TEST(GTAOMath, NDCToViewConstantsUseGLConventionOnBothAxes)
     // sample position: horizon angles reflected about the horizontal plane,
     // invisible looking straight down, a full-frame visibility collapse to
     // the 0.03 floor at grazing views (the sea/quay "goosebumps" weave).
-    // Derive the repo root from the compile-time editor root — cwd-relative
-    // reads break when the runner's working directory isn't the repo root
-    // (background shells, some CI launchers).
-    const auto repoRoot = std::filesystem::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
-    std::ifstream f(repoRoot / "OloEngine" / "src" / "OloEngine" / "Renderer" / "Passes" / "GTAORenderPass.cpp",
-                    std::ios::binary);
-    ASSERT_TRUE(f.is_open());
-    std::ostringstream buf;
-    buf << f.rdbuf();
-    const std::string src = buf.str();
+    const std::string src = ReadRepoFile(std::filesystem::path{ ".." } / "OloEngine" / "src" / "OloEngine" / "Renderer" / "Passes" / "GTAORenderPass.cpp");
+    ASSERT_FALSE(src.empty());
 
     EXPECT_NE(src.find("glm::vec2(2.0f / projScale00, 2.0f / projScale11)"), std::string::npos)
         << "NDCToViewMul lost its GL-convention positive Y term";
@@ -431,15 +423,11 @@ TEST(GTAOMath, TemporalNoiseOnlyAnimatesUnderTAA)
     // pattern temporally. Without TAA the pattern boils every frame — the
     // "goosebumps" weave over water and the distant quay (VehiclesTest,
     // issue #438 follow-up). The pass must advance NoiseIndex only when TAA
-    // is enabled. The test binary runs from the repo root, so engine sources
-    // are reachable relatively (same convention as the coverage tests).
-    const auto repoRoot = std::filesystem::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
-    std::ifstream f(repoRoot / "OloEngine" / "src" / "OloEngine" / "Renderer" / "Passes" / "GTAORenderPass.cpp",
-                    std::ios::binary);
-    ASSERT_TRUE(f.is_open());
-    std::ostringstream buf;
-    buf << f.rdbuf();
-    const std::string src = buf.str();
+    // is enabled. Read through ReadRepoFile, which anchors on the compile-time
+    // OLO_TEST_EDITOR_ROOT rather than the working directory — a cwd-relative
+    // read breaks whenever the runner isn't launched from the repo root.
+    const std::string src = ReadRepoFile(std::filesystem::path{ ".." } / "OloEngine" / "src" / "OloEngine" / "Renderer" / "Passes" / "GTAORenderPass.cpp");
+    ASSERT_FALSE(src.empty());
 
     const auto incrementPos = src.find("NoiseIndex + 1");
     ASSERT_NE(incrementPos, std::string::npos) << "noise-index increment not found";
@@ -699,10 +687,21 @@ TEST(GTAOMath, TemporalStrideRedrawsTheFieldEachFrame)
     // near +1), which is what leaves TAA nothing to average. The shipped
     // stride lands consistently around -0.45 across the whole 64-phase cycle;
     // an anti-correlated field is still a redrawn one.
-    const double shippedFrameCorr = Correlation(R2Noise(kR2SliceMultiplier, 0), R2Noise(kR2SliceMultiplier, 1));
-    EXPECT_LT(shippedFrameCorr, 0.35)
-        << "consecutive GTAO noise frames are " << shippedFrameCorr
-        << " correlated — TAA cannot resolve a pattern that barely changes between frames";
+    //
+    // Walk EVERY consecutive pair in the cycle, including the 63 -> 0 wrap:
+    // the index is used as (noiseIndex & 63), so the wrap is a real frame
+    // transition the renderer performs once per 64 frames. Checking only
+    // 0 -> 1 would leave a stride that decorrelates for one pair and repeats
+    // for another (or specifically at the wrap) completely undetected.
+    constexpr int kNoisePhaseCount = 64;
+    for (int phase = 0; phase < kNoisePhaseCount; ++phase)
+    {
+        const int nextPhase = (phase + 1) % kNoisePhaseCount;
+        const double frameCorr = Correlation(R2Noise(kR2SliceMultiplier, phase), R2Noise(kR2SliceMultiplier, nextPhase));
+        EXPECT_LT(frameCorr, 0.35)
+            << "GTAO noise phases " << phase << " -> " << nextPhase << " are " << frameCorr
+            << " correlated — TAA cannot resolve a pattern that barely changes between frames";
+    }
 
     // Discrimination check: advancing the raw index by 1 leaves the field
     // essentially unchanged, which is exactly why the lattice survived TAA.

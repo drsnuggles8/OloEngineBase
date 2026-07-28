@@ -3798,10 +3798,10 @@ namespace OloEngine
             // — an aircraft in cruise, a car rolling into a test section. Now
             // serialized (issue #438 follow-up); they used to be runtime-only.
             ImGui::SeparatorText("Initial State (applied on Play)");
-            DrawVec3Control("Initial Linear Velocity##Rigidbody3D", component.m_InitialLinearVelocity);
+            DrawVec3Control("Initial Linear Velocity", component.m_InitialLinearVelocity);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("World-space m/s given to the body the moment it is created. Leave at zero for a body that starts at rest.");
-            DrawVec3Control("Initial Angular Velocity##Rigidbody3D", component.m_InitialAngularVelocity); });
+            DrawVec3Control("Initial Angular Velocity", component.m_InitialAngularVelocity); });
 
         DrawComponent<BoxCollider3DComponent>("Box Collider 3D", entity, [](auto& component)
                                               {

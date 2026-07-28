@@ -53,10 +53,11 @@ using namespace OloEngine::Functional;
 
 namespace
 {
-    // The hull is a 4 x 1 x 8 m box (half-extents below) massing 2000 kg. With
-    // the buoyancy probe box matching it, the displaced water at full immersion
-    // is 2 * 0.5 * 4 * 1000 = ... i.e. far more than the hull's mass, so it
-    // floats with its origin near the waterline — the normal operating state a
+    // The hull is a 2 x 1 x 4 m box (the half-extents below) massing 2000 kg.
+    // With the buoyancy probe box matching it, the water displaced at full
+    // immersion is 2 * 1 * 4 * 1000 = 8000 kg — four times the hull's mass, so
+    // it settles with its origin near the waterline (roughly quarter-immersed)
+    // rather than sinking or riding clear. That is the normal operating state a
     // boat controller has to work in.
     constexpr glm::vec3 kHullHalfExtents{ 1.0f, 0.5f, 2.0f };
     constexpr f32 kHullMass = 2000.0f;

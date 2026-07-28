@@ -155,7 +155,7 @@ degenerate geometry.
 the FWD/RWD/AWD differential modes on the wheeled `VehicleComponent`,
 `BoatComponent` propulsion + rudder on top of buoyancy, and the
 `AircraftComponent` flight model.
-**Contents**: A 600 m sea (Gerstner, no FFT) with a seafloor, a 400 m concrete
+**Contents**: A 600 m sea (Gerstner, no FFT) with a seafloor, an 800 m concrete
 quay whose deck sits 3 m above the water, three otherwise-identical cars
 differing only in `DriveMode` (red = rear, blue = front, green = all), two
 floating boats (white runs straight, orange holds right rudder), and one

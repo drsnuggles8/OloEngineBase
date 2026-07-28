@@ -179,8 +179,16 @@ namespace OloEngine
         m_AverageShader->SetFloat("u_ExposureCompensation", m_AutoExposure.Compensation);
         m_AverageShader->SetFloat("u_MinExposure", m_AutoExposure.MinExposure);
         m_AverageShader->SetFloat("u_MaxExposure", m_AutoExposure.MaxExposure);
-        m_AverageShader->SetFloat("u_LowPercentile", m_AutoExposure.LowPercentile);
-        m_AverageShader->SetFloat("u_HighPercentile", m_AutoExposure.HighPercentile);
+        // Same defence as the metering window above: RenderPipeline copies these
+        // straight out of PostProcessSettings without routing through
+        // SanitizeAutoExposure, so a script/MCP/editor write can hand us a NaN.
+        // The exposure state SSBO is PERSISTENT across frames, so a single NaN
+        // frame does not just render wrong — it latches, and every later frame
+        // adapts from a NaN. Defaults match SanitizeAutoExposure's.
+        const f32 lowPercentile = std::isfinite(m_AutoExposure.LowPercentile) ? m_AutoExposure.LowPercentile : 0.80f;
+        const f32 highPercentile = std::isfinite(m_AutoExposure.HighPercentile) ? m_AutoExposure.HighPercentile : 0.98f;
+        m_AverageShader->SetFloat("u_LowPercentile", lowPercentile);
+        m_AverageShader->SetFloat("u_HighPercentile", highPercentile);
         RenderCommand::DispatchCompute(1u, 1u, 1u);
         // Make the exposure write visible to the tone-map fragment shader's SSBO read.
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);

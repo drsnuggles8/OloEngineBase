@@ -1087,6 +1087,14 @@ TEST_F(CommandBucketBatchTest, HandleZeroMeshesWithDifferentGeometryNeverMerge)
     // types (merged instanced + untouched single).
     u32 carInstances = 0;
     u32 shipInstances = 0;
+    // Counted separately and ONLY from instanced packets: the totals above are
+    // also satisfied by two untouched DrawMesh packets, so on their own they
+    // pass even when batching does nothing at all. The merge is the behaviour
+    // under test, so it needs an assertion no un-merged result can satisfy.
+    // BatchCommands merges any group with size > 1 (`indices.size() <= 1`
+    // continues), so a car pair merging into exactly one instanced draw is
+    // deterministic, not incidental.
+    u32 mergedCarDraws = 0;
     for (const auto* pkt : bucket.GetSortedCommands())
     {
         if (!pkt)
@@ -1095,7 +1103,11 @@ TEST_F(CommandBucketBatchTest, HandleZeroMeshesWithDifferentGeometryNeverMerge)
         {
             auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(pkt->GetRawCommandData());
             if (icmd->vertexArrayID == kCarVAO)
+            {
                 carInstances += icmd->instanceCount;
+                if (icmd->instanceCount == 2u)
+                    ++mergedCarDraws;
+            }
             else if (icmd->vertexArrayID == kShipVAO)
                 shipInstances += icmd->instanceCount;
         }
@@ -1109,6 +1121,10 @@ TEST_F(CommandBucketBatchTest, HandleZeroMeshesWithDifferentGeometryNeverMerge)
         }
     }
     EXPECT_EQ(carInstances, 2u) << "both car instances must draw the car VAO";
+    EXPECT_EQ(mergedCarDraws, 1u)
+        << "the two car commands must MERGE into a single DrawMeshInstancedCommand "
+           "with instanceCount == 2 on the car VAO — two untouched DrawMesh packets "
+           "would satisfy the instance total above while batching silently did nothing";
     EXPECT_EQ(shipInstances, 1u)
         << "the ship must keep its own geometry — merging it into the car group "
            "(or vice versa) is the cars-render-as-boats bug";
@@ -1148,6 +1164,12 @@ TEST_F(CommandBucketBatchTest, SubmeshIndexRangesStaySeparateAndSurviveMerging)
 
     u32 baseAInstances = 0;
     u32 baseBInstances = 0;
+    // As in the cars/ship test above: the totals alone are satisfied by two
+    // untouched DrawMesh packets, which would pass even though nothing merged
+    // — and the dropped-baseIndex bug this test exists for can ONLY appear on
+    // a merged command. Assert the merge explicitly so the baseIndex carry-over
+    // is genuinely exercised.
+    u32 mergedBaseBDraws = 0;
     for (const auto* pkt : bucket.GetSortedCommands())
     {
         if (!pkt)
@@ -1158,7 +1180,11 @@ TEST_F(CommandBucketBatchTest, SubmeshIndexRangesStaySeparateAndSurviveMerging)
             if (icmd->baseIndex == kBaseA)
                 baseAInstances += icmd->instanceCount;
             else if (icmd->baseIndex == kBaseB)
+            {
                 baseBInstances += icmd->instanceCount;
+                if (icmd->instanceCount == 2u)
+                    ++mergedBaseBDraws;
+            }
         }
         else if (pkt->GetCommandType() == CommandType::DrawMesh)
         {
@@ -1173,4 +1199,9 @@ TEST_F(CommandBucketBatchTest, SubmeshIndexRangesStaySeparateAndSurviveMerging)
     EXPECT_EQ(baseBInstances, 2u)
         << "submesh B's instances must draw base 72 — a merged command that "
            "drops baseIndex draws the wrong slice of the shared index buffer";
+    EXPECT_EQ(mergedBaseBDraws, 1u)
+        << "submesh B's two commands must MERGE into a single DrawMeshInstancedCommand "
+           "with instanceCount == 2 and baseIndex == "
+        << kBaseB
+        << " — without a merged command the baseIndex carry-over this test guards is never executed";
 }

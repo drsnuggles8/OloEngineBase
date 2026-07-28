@@ -3107,6 +3107,22 @@ Entities:
             a.m_RollInput = 0.6f;
             a.m_YawInput = -0.2f;
 
+            // Landing gear (issue #438 follow-up). These decide whether the
+            // aircraft can rotate on the ground at all, and a dropped one still
+            // simulates perfectly — it just silently reverts to the belly-landed
+            // behaviour the gear exists to fix. Every value below is off-default
+            // and inside the field's OLO_SERIALIZE(Clamp) range, so a value that
+            // comes back changed means the round trip lost or clamped it.
+            a.m_HasLandingGear = true; // default is false
+            a.m_MainGearOffsetZ = -0.85f;
+            a.m_MainGearHalfTrack = 1.4f;
+            a.m_NoseGearOffsetZ = 3.1f;
+            a.m_GearLength = 0.95f;
+            a.m_GearStiffness = 9.5f;
+            a.m_GearDamping = 0.65f;
+            a.m_GearRollingResistance = 0.045f;
+            a.m_GearLateralGrip = 2.25f;
+
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -3141,6 +3157,16 @@ Entities:
         EXPECT_NEAR(a.m_PitchInput, -0.4f, kFloatEpsilon);
         EXPECT_NEAR(a.m_RollInput, 0.6f, kFloatEpsilon);
         EXPECT_NEAR(a.m_YawInput, -0.2f, kFloatEpsilon);
+
+        EXPECT_TRUE(a.m_HasLandingGear);
+        EXPECT_NEAR(a.m_MainGearOffsetZ, -0.85f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_MainGearHalfTrack, 1.4f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_NoseGearOffsetZ, 3.1f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_GearLength, 0.95f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_GearStiffness, 9.5f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_GearDamping, 0.65f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_GearRollingResistance, 0.045f, kFloatEpsilon);
+        EXPECT_NEAR(a.m_GearLateralGrip, 2.25f, kFloatEpsilon);
     }
 
     // -------------------------------------------------------------------------

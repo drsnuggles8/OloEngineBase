@@ -343,10 +343,20 @@ void main()
             float newHorizonCos1 = dot(sampleHorizon1, viewNormal);
 
             // Thin occluder compensation
+            //
+            // The compensation term must be measured from -1 (the "no occluder
+            // found" horizon set above), NOT from 0. Scaling horizonCos itself
+            // makes thinComp negative while the horizon is still unoccluded, so
+            // horizonCos - thinComp = -1 + compensation RAISES the floor above
+            // -1 and re-introduces exactly the phantom occlusion the -1
+            // initialisation exists to prevent -- a slice that found nothing
+            // would report itself partly occluded. Basing it on the distance
+            // from -1 keeps an unoccluded horizon pinned at -1 (thinComp == 0)
+            // and only decays a horizon some real occluder already raised.
             if (u_ThinOccluderCompensation > 0.0)
             {
-                float thinComp0 = horizonCos0 * u_ThinOccluderCompensation;
-                float thinComp1 = horizonCos1 * u_ThinOccluderCompensation;
+                float thinComp0 = (horizonCos0 + 1.0) * u_ThinOccluderCompensation;
+                float thinComp1 = (horizonCos1 + 1.0) * u_ThinOccluderCompensation;
                 horizonCos0 = max(horizonCos0 - thinComp0, mix(horizonCos0, newHorizonCos0, weight0));
                 horizonCos1 = max(horizonCos1 - thinComp1, mix(horizonCos1, newHorizonCos1, weight1));
             }

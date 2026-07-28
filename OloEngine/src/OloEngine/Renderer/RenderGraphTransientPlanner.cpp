@@ -321,7 +321,16 @@ namespace OloEngine::RenderGraphTransientPlanner
             entry.EstimatedBytes = EstimateBytes(desc);
             aliasGroupHashByResource.emplace(resourceName, HashAliasGroup(desc));
 
-            if (const auto ltIt = lifetimes.find(resourceName); ltIt != lifetimes.end())
+            // Look the lifetime up under the CANONICAL name: touchResource
+            // folds every version's accesses into the base's bucket, so a
+            // version-alias entry ("SceneColor@B") has no bucket of its own and
+            // a raw-name lookup silently leaves Reachable=false and the pass
+            // range at its defaults — which is what the JSON/debug dumps then
+            // report for it. Resolving first makes a version report the same
+            // lifetime as the physical it actually shares. Skip reason and
+            // WillAllocate are unaffected: the version-alias branch below is
+            // checked first and never sets WillAllocate.
+            if (const auto ltIt = lifetimes.find(canonicalResourceName(resourceName)); ltIt != lifetimes.end())
             {
                 const auto& lt = ltIt->second;
                 entry.Reachable = lt.Reachable;

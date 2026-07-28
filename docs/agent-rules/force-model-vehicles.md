@@ -97,7 +97,8 @@ Two terms, doing different jobs:
   `sin(angle-off-the-wind)`, a natural small-angle proportional response, and it
   is perpendicular to `forward` **by construction** — so it produces no roll
   component and can never fight the ailerons. Scaling by dynamic pressure `q`
-  makes stability fall away with airspeed, which is also the real behaviour.
+  makes stability fall away as airspeed decreases and strengthen as airspeed
+  increases, which is also the real behaviour.
 
 Related invariants worth keeping:
 

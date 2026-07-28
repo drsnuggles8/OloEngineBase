@@ -306,16 +306,16 @@ Entities:
       ThrottleInput: 0.5
       SteerInput: 0
       BrakeInput: 0
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 438000000000112
 
   # ══ Boats — buoyancy floats them, BoatSystem drives them ═════════════════
   # Hull is a 2 x 0.8 x 5 m box. The buoyancy probe box matches, so it
   # displaces 8 m^3 fully submerged; at 2000 kg it floats half-immersed, i.e.
   # with its origin right at the waterline — a boat's normal working state.
   # (Half the displaced mass is the equilibrium: heavier and the deck goes awash.)
-    RelationshipComponent:
-      ParentHandle: 0
-      Children:
-        - 438000000000112
   - Entity: 438000000000020
     TagComponent:
       Tag: Boat straight (white)
@@ -370,7 +370,7 @@ Entities:
       AngularDrag: 0
       DisableGravity: false
     BoxCollider3DComponent:
-      HalfExtents: [1.2, 0.4, 2.5]
+      HalfExtents: [1, 0.4, 2.5]
     BuoyancyComponent:
       Enabled: true
       ProbeExtents: [1, 0.4, 2.5]
@@ -392,6 +392,10 @@ Entities:
       ImmersionDepth: 0.3
       ThrottleInput: 1
       SteerInput: 0.6
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 438000000000121
 
   # ══ Aircraft — takes off from the south end of the quay ══════════════════
   # A genuine ground takeoff: it sits on its landing gear, rolls, rotates under
@@ -407,11 +411,7 @@ Entities:
   #     scene CAN author a moving body — not needed here, but it is what lets the
   #     other demo scenes start an aircraft already in cruise.
   # High-lift wing (big area, strong camber) so it unsticks around 33 m/s and the
-  # whole roll fits on the 400 m quay.
-    RelationshipComponent:
-      ParentHandle: 0
-      Children:
-        - 438000000000121
+  # whole roll fits on the 800 m quay.
   - Entity: 438000000000030
     TagComponent:
       Tag: Aircraft

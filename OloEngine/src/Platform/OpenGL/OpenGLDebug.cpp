@@ -52,23 +52,13 @@ namespace OloEngine
         // names no program or the program wasn't registered.
         [[nodiscard]] std::string ResolveProgramLabelSuffix(const char* message)
         {
-            if (message == nullptr)
+            // Parsing lives in ParseProgramIDFromMessage (declared in the
+            // header, so callable ahead of its definition below) — the two
+            // copies had to agree on the "program <digits>" shape, and a fix to
+            // one would silently not reach the other.
+            const u32 programID = ParseProgramIDFromMessage(message);
+            if (programID == 0)
                 return {};
-
-            const char* found = std::strstr(message, "program ");
-            if (found == nullptr)
-                return {};
-
-            const char* digits = found + std::strlen("program ");
-            if (*digits < '0' || *digits > '9')
-                return {};
-
-            u32 programID = 0;
-            while (*digits >= '0' && *digits <= '9')
-            {
-                programID = programID * 10 + static_cast<u32>(*digits - '0');
-                ++digits;
-            }
 
             const std::string label = GetGLProgramLabel(programID);
             if (label.empty())

@@ -1411,9 +1411,25 @@ namespace OloEngine
         BoatComponent() = default;
         BoatComponent(const BoatComponent&) = default;
 
+        // Compare the serialized fields explicitly rather than via a whole-struct
+        // Math::BitwiseEqual: the bool-then-f32 layout leaves padding bytes whose
+        // contents are indeterminate, so a whole-struct compare can report two
+        // logically identical components as different — which in the editor shows
+        // up as SceneHierarchyPanel's equality tier recording phantom undo steps.
         auto operator==(const BoatComponent& other) const -> bool
         {
-            return Math::BitwiseEqual(*this, other);
+            return m_Enabled == other.m_Enabled &&
+                   Math::BitwiseEqual(m_MaxThrust, other.m_MaxThrust) &&
+                   Math::BitwiseEqual(m_ThrustOffsetZ, other.m_ThrustOffsetZ) &&
+                   Math::BitwiseEqual(m_ThrustOffsetY, other.m_ThrustOffsetY) &&
+                   Math::BitwiseEqual(m_MaxRudderTorque, other.m_MaxRudderTorque) &&
+                   Math::BitwiseEqual(m_RudderAuthoritySpeed, other.m_RudderAuthoritySpeed) &&
+                   Math::BitwiseEqual(m_LateralDrag, other.m_LateralDrag) &&
+                   Math::BitwiseEqual(m_ForwardDrag, other.m_ForwardDrag) &&
+                   Math::BitwiseEqual(m_YawDrag, other.m_YawDrag) &&
+                   Math::BitwiseEqual(m_ImmersionDepth, other.m_ImmersionDepth) &&
+                   Math::BitwiseEqual(m_ThrottleInput, other.m_ThrottleInput) &&
+                   Math::BitwiseEqual(m_SteerInput, other.m_SteerInput);
         }
     };
 

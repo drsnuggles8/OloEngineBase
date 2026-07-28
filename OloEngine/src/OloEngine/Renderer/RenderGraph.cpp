@@ -28,6 +28,13 @@ namespace OloEngine
 {
     namespace
     {
+        // Cap on how far the Resolve* helpers will follow a WriteNewVersion
+        // rename chain through m_VersionAliasTargets. Real chains are a single
+        // hop; the cap exists purely so a malformed (cyclic) map degrades to a
+        // failed resolve instead of blowing the stack. Kept equal to
+        // RenderGraphTransientPlanner's canonicalResourceName guard.
+        constexpr u32 kMaxVersionAliasDepth = 16u;
+
         template<typename TEntry>
         void SynchronizeGraphEntryLifecycle(Ref<TEntry> entry, const u32 physicalWidth, const u32 physicalHeight, const f32 renderScale)
         {
@@ -1655,16 +1662,32 @@ namespace OloEngine
 
         // A WriteNewVersion rename resolves to its SOURCE's physical — the
         // version is dependency bookkeeping over the same resource, never a
-        // separate allocation. Recurse via the direct by-name map (NOT
+        // separate allocation. Walk via the direct by-name map (NOT
         // GetTextureHandle, whose latest-version redirect would loop) so a
         // chain of versions terminates at the base resource.
+        //
+        // The walk is ITERATIVE and depth-capped rather than recursive: a
+        // malformed (self- or mutually-referencing) alias map would otherwise
+        // recurse until the stack dies. Bound matches
+        // RenderGraphTransientPlanner's canonicalResourceName guard — real
+        // chains are one hop, so this only ever fires on a corrupt map.
         if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name);
             aliasIt != m_VersionAliasTargets.end())
         {
-            if (const auto sourceIt = m_TextureHandlesByName.find(aliasIt->second);
-                sourceIt != m_TextureHandlesByName.end() && IsTextureHandleCurrent(sourceIt->second))
+            const std::string* current = &aliasIt->second;
+            for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
             {
-                return ResolveTexture(sourceIt->second);
+                const auto sourceIt = m_TextureHandlesByName.find(*current);
+                if (sourceIt == m_TextureHandlesByName.end() || !IsTextureHandleCurrent(sourceIt->second))
+                    return 0;
+
+                // Terminal link — resolve it so view/placeholder handling still
+                // runs. It is not itself a rename, so this cannot re-enter here.
+                const auto nextIt = m_VersionAliasTargets.find(*current);
+                if (nextIt == m_VersionAliasTargets.end())
+                    return ResolveTexture(sourceIt->second);
+
+                current = &nextIt->second;
             }
 
             return 0;
@@ -1693,15 +1716,23 @@ namespace OloEngine
             slot.PlaceholderWarnedThisFrame = true;
         }
 
-        // WriteNewVersion rename — resolve the source's physical (see
-        // ResolveTexture for the full rationale).
+        // WriteNewVersion rename — resolve the source's physical, via the same
+        // depth-capped iterative walk (see ResolveTexture for the full rationale).
         if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name);
             aliasIt != m_VersionAliasTargets.end())
         {
-            if (const auto sourceIt = m_FramebufferHandlesByName.find(aliasIt->second);
-                sourceIt != m_FramebufferHandlesByName.end() && IsFramebufferHandleCurrent(sourceIt->second))
+            const std::string* current = &aliasIt->second;
+            for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
             {
-                return ResolveFramebuffer(sourceIt->second);
+                const auto sourceIt = m_FramebufferHandlesByName.find(*current);
+                if (sourceIt == m_FramebufferHandlesByName.end() || !IsFramebufferHandleCurrent(sourceIt->second))
+                    return nullptr;
+
+                const auto nextIt = m_VersionAliasTargets.find(*current);
+                if (nextIt == m_VersionAliasTargets.end())
+                    return ResolveFramebuffer(sourceIt->second);
+
+                current = &nextIt->second;
             }
 
             return nullptr;
@@ -1730,15 +1761,23 @@ namespace OloEngine
             slot.PlaceholderWarnedThisFrame = true;
         }
 
-        // WriteNewVersion rename — resolve the source's physical (see
-        // ResolveTexture for the full rationale).
+        // WriteNewVersion rename — resolve the source's physical, via the same
+        // depth-capped iterative walk (see ResolveTexture for the full rationale).
         if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name);
             aliasIt != m_VersionAliasTargets.end())
         {
-            if (const auto sourceIt = m_BufferHandlesByName.find(aliasIt->second);
-                sourceIt != m_BufferHandlesByName.end() && IsBufferHandleCurrent(sourceIt->second))
+            const std::string* current = &aliasIt->second;
+            for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
             {
-                return ResolveBuffer(sourceIt->second);
+                const auto sourceIt = m_BufferHandlesByName.find(*current);
+                if (sourceIt == m_BufferHandlesByName.end() || !IsBufferHandleCurrent(sourceIt->second))
+                    return 0;
+
+                const auto nextIt = m_VersionAliasTargets.find(*current);
+                if (nextIt == m_VersionAliasTargets.end())
+                    return ResolveBuffer(sourceIt->second);
+
+                current = &nextIt->second;
             }
 
             return 0;
@@ -3190,10 +3229,26 @@ namespace OloEngine
             if (descriptorIt == m_TransientResourceDescs.end())
                 continue;
 
-            if (!disableAliasing && !entry.WillAllocate)
-                continue; // pass 2
-
             const auto& desc = descriptorIt->second;
+
+            if (!entry.WillAllocate)
+            {
+                if (!disableAliasing)
+                    continue; // pass 2 — inherits a sibling's physical
+
+                // OLO_RG_DISABLE_ALIASING must bypass alias SHARING only, not the
+                // planner's descriptor validation. WillAllocate=false covers both
+                // "shares a slot with a sibling" (which should allocate its own
+                // object here) and "the descriptor was rejected outright" —
+                // missing dimensions, unknown/unsupported format, zero-size
+                // buffer. Letting the latter through turns a clean planner skip
+                // into a failed GL allocation that only reproduces under the
+                // debug flag, which is precisely when you are trying to isolate
+                // something else.
+                if (!IsTransientDescriptorAllocatable(desc))
+                    continue;
+            }
+
             // With aliasing disabled every resource keys the acquire map by its
             // own name, so no two live resources can share a physical object.
             const auto aliasKey = disableAliasing

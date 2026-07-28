@@ -308,7 +308,7 @@ Future FSR1 EASU/RCAS *spatial upscale* (render below display res, then upscale)
 the opposite: EASU must run **early** (before display-res post), so when it lands it
 splits — EASU pre-post, RCAS/CAS sharpen post-tonemap.
 
-## Porting D3D/HLSL reference code: audit every screen-space Y convention
+## 10. Porting D3D/HLSL reference code: audit every screen-space Y convention
 
 XeGTAO's reference `NDCToViewMul/Add` constants negate the Y pair
 (`-2/proj11`, `+1/proj11`) because **D3D texture v = 0 is the TOP row**. This
@@ -350,7 +350,7 @@ Rules distilled:
   suspects are the **uniform values** — read the upload site, not the shader.
 - Pinned by `GTAOMath.NDCToViewConstantsUseGLConventionOnBothAxes`.
 
-## Quasi-random sampling: a locality-preserving index is not noise
+## 11. Quasi-random sampling: a locality-preserving index is not noise
 
 XeGTAO seeds its per-pixel slice rotation and sample distances from a 64×64
 **Hilbert-curve LUT**. It is easy to read that as "the LUT is the noise

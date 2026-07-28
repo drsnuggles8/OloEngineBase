@@ -155,8 +155,13 @@ namespace OloEngine
         // reconfigures depth/blend/cull/polygon-mode below for the mirror replay, so
         // without an explicit restore it leaked DepthMask and DepthFunc every single
         // frame and the guard traced all of them — per-frame log spam that buries
-        // real leaks. Snapshot here, roll back at the end, and the guard stays quiet.
-        const GLStateSnapshot entryState = GLStateSnapshot::Capture();
+        // real leaks. Roll back at the end and the guard stays quiet.
+        //
+        // Reuse the guard's own entry snapshot rather than capturing a second
+        // one: the guard was constructed immediately above with nothing in
+        // between, so the two are identical by construction, and GLStateSnapshot
+        // ::Capture() is a long run of glGet* calls that stall the pipeline.
+        const GLStateSnapshot& entryState = guard.EntryState();
 
         // Swap the shared camera to the mirror camera. The mesh path rebinds the
         // shared CameraUBO buffer (uploaded here); terrain/voxel paths re-derive
