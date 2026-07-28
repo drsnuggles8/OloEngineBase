@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Renderer/Camera/Camera.h"
+#include "OloEngine/Scene/ComponentReflection.h" // OLO_SERIALIZE(Skip) — mark viewport-derived m_AspectRatio non-serialized
 
 namespace OloEngine
 {
@@ -109,6 +110,8 @@ namespace OloEngine
         f32 m_OrthographicNear = -1.0f;
         f32 m_OrthographicFar = 1.0f;
 
+        // Viewport-derived runtime value (set via SetViewportSize each resize); not serialized.
+        OLO_SERIALIZE(Skip)
         f32 m_AspectRatio = 0.0f;
     };
 } // namespace OloEngine

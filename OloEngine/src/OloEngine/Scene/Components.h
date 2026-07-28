@@ -279,8 +279,14 @@ namespace OloEngine
         glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
 
       private:
+        // Reflection serializes the human-readable Euler under key "Rotation" (matching the
+        // engine's GetRotationEuler() on-disk format); the authoritative quaternion is Skip'd
+        // and resynced from Euler in OnDeserialized() below — so reflection round-trips the
+        // exact same YAML the hand-written serializer produces.
+        OLO_SERIALIZE(Key, "Rotation")
         OLO_PROPERTY(Name = "Rotation", Type = "vec3", Get = "comp.GetRotationEuler()", Set = "comp.SetRotationEuler({v})")
         glm::vec3 RotationEuler = { 0.0f, 0.0f, 0.0f };
+        OLO_SERIALIZE(Skip)
         glm::quat Rotation = { 1.0f, 0.0f, 0.0f, 0.0f };
 
         // Runtime-only cache of the local TRS matrix. NOT serialized and excluded
@@ -312,6 +318,14 @@ namespace OloEngine
         TransformComponent(const TransformComponent& other) = default;
         explicit TransformComponent(const glm::vec3& translation)
             : Translation(translation) {}
+
+        // Post-deserialize hook for the reflection serializer: it writes RotationEuler directly
+        // (bypassing SetRotationEuler), so resync the authoritative quaternion from the Euler.
+        // Unused by the hand-written engine serializer, which calls SetRotationEuler on load.
+        void OnDeserialized()
+        {
+            Rotation = glm::quat(RotationEuler);
+        }
 
         [[nodiscard("Store this!")]] glm::vec3 GetRotationEuler() const
         {
@@ -523,6 +537,10 @@ namespace OloEngine
             Dynamic,
             Kinematic
         };
+        // Key parity with the engine's on-disk "BodyType". NOTE: the hand-written engine serializer
+        // writes this enum as a STRING (RigidBody2DBodyTypeToString) while reflection writes it as an
+        // int — the engine is inconsistent (Rigidbody3D's BodyType is int); reflection is uniform.
+        OLO_SERIALIZE(Key, "BodyType")
         OLO_PROPERTY(Name = "Type", Type = "int", Get = "static_cast<int>(comp.Type)", Set = "comp.Type = static_cast<Rigidbody2DComponent::BodyType>({v})")
         BodyType Type = BodyType::Static;
         OLO_PROPERTY()
@@ -623,6 +641,7 @@ namespace OloEngine
 
     struct Rigidbody3DComponent
     {
+        OLO_SERIALIZE(Key, "BodyType")
         OLO_PROPERTY(Name = "BodyType", Type = "int", Get = "static_cast<int>(comp.m_Type)", Set = "comp.m_Type = static_cast<BodyType3D>({v})")
         BodyType3D m_Type = BodyType3D::Static;
         u32 m_LayerID = 0;
@@ -666,7 +685,10 @@ namespace OloEngine
         OLO_PROPERTY()
         glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
 
-        // Physics material properties
+        // Physics material properties — Flatten emits StaticFriction/DynamicFriction/Restitution/Density
+        // at the collider level, matching the engine's hand-written serializer AND persisting the
+        // authored Density that the hand-written block silently drops.
+        OLO_SERIALIZE(Flatten)
         ColliderMaterial m_Material{};
 
         BoxCollider3DComponent() = default;
@@ -685,7 +707,10 @@ namespace OloEngine
         OLO_PROPERTY()
         glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
 
-        // Physics material properties
+        // Physics material properties — Flatten emits StaticFriction/DynamicFriction/Restitution/Density
+        // at the collider level, matching the engine's hand-written serializer AND persisting the
+        // authored Density that the hand-written block silently drops.
+        OLO_SERIALIZE(Flatten)
         ColliderMaterial m_Material{};
 
         SphereCollider3DComponent() = default;
@@ -706,7 +731,10 @@ namespace OloEngine
         OLO_PROPERTY()
         glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
 
-        // Physics material properties
+        // Physics material properties — Flatten emits StaticFriction/DynamicFriction/Restitution/Density
+        // at the collider level, matching the engine's hand-written serializer AND persisting the
+        // authored Density that the hand-written block silently drops.
+        OLO_SERIALIZE(Flatten)
         ColliderMaterial m_Material{};
 
         CapsuleCollider3DComponent() = default;
@@ -724,7 +752,10 @@ namespace OloEngine
         glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
         glm::vec3 m_Scale = { 1.0f, 1.0f, 1.0f };
 
-        // Physics material properties
+        // Physics material properties — Flatten emits StaticFriction/DynamicFriction/Restitution/Density
+        // at the collider level, matching the engine's hand-written serializer AND persisting the
+        // authored Density that the hand-written block silently drops.
+        OLO_SERIALIZE(Flatten)
         ColliderMaterial m_Material{};
 
         // Collision complexity setting
@@ -746,7 +777,10 @@ namespace OloEngine
         glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
         glm::vec3 m_Scale = { 1.0f, 1.0f, 1.0f };
 
-        // Physics material properties
+        // Physics material properties — Flatten emits StaticFriction/DynamicFriction/Restitution/Density
+        // at the collider level, matching the engine's hand-written serializer AND persisting the
+        // authored Density that the hand-written block silently drops.
+        OLO_SERIALIZE(Flatten)
         ColliderMaterial m_Material{};
 
         // Convex hull settings
@@ -769,7 +803,10 @@ namespace OloEngine
         glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
         glm::vec3 m_Scale = { 1.0f, 1.0f, 1.0f };
 
-        // Physics material properties
+        // Physics material properties — Flatten emits StaticFriction/DynamicFriction/Restitution/Density
+        // at the collider level, matching the engine's hand-written serializer AND persisting the
+        // authored Density that the hand-written block silently drops.
+        OLO_SERIALIZE(Flatten)
         ColliderMaterial m_Material{};
 
         // Triangle mesh is always static - no additional settings needed
@@ -875,6 +912,7 @@ namespace OloEngine
     // Rigidbody3DComponent to be a constraint endpoint.
     struct PhysicsJoint3DComponent
     {
+        OLO_SERIALIZE(Key, "JointType")
         OLO_PROPERTY(Name = "JointType", Type = "int", Get = "static_cast<int>(comp.m_Type)", Set = "comp.m_Type = static_cast<JointType3D>({v})")
         JointType3D m_Type = JointType3D::Fixed;
 
@@ -2050,7 +2088,9 @@ namespace OloEngine
 
         // Runtime cache (not serialised). Regenerated by
         // Scene::LoadAndRenderSkybox when m_LastBakeHash != HashParameters(...).
+        OLO_SERIALIZE(Skip)
         Ref<EnvironmentMap> m_EnvironmentMap;
+        OLO_SERIALIZE(Skip)
         u64 m_LastBakeHash = 0;
 
         ProceduralSkyComponent() = default;
@@ -2132,7 +2172,9 @@ namespace OloEngine
 
         // Runtime cache (not serialised). Regenerated by
         // Scene::LoadAndRenderSkybox when m_LastBakeHash != HashParameters(...).
+        OLO_SERIALIZE(Skip)
         Ref<EnvironmentMap> m_EnvironmentMap;
+        OLO_SERIALIZE(Skip)
         u64 m_LastBakeHash = 0;
 
         StarNestSkyComponent() = default;
@@ -2674,6 +2716,11 @@ namespace OloEngine
         f32 m_Intensity = 1.0f;
         OLO_PROPERTY()
         bool m_Active = true;
+        // Baked L2 SH (9 vec3). The engine PERSISTS this (see SceneSerializer.cpp) rather than
+        // rebaking on load, so reflection must serialize it too — reflection emits it as a nested
+        // SHCoefficients:{Coefficients:[...]} sub-map (vs the engine's flat sequence), a structural
+        // difference, NOT a drop. (Verified via the exhaustive audit, which caught an earlier
+        // incorrect Skip here as a data-loss regression.)
         SHCoefficients m_SHCoefficients{};
 
         LightProbeComponent() = default;
@@ -2810,7 +2857,9 @@ namespace OloEngine
         // Runtime (not serialized — captured cubemap + IBL chain is regenerated by
         // editor "Bake" action; survives a scene save/load cycle only as a flag to
         // re-bake on next interactive request).
+        OLO_SERIALIZE(Skip)
         Ref<EnvironmentMap> m_BakedEnvironment;
+        OLO_SERIALIZE(Skip)
         bool m_NeedsBake = true;
 
         ReflectionProbeComponent() = default;
@@ -3136,7 +3185,9 @@ namespace OloEngine
         bool m_Interactable = true;
 
         // Runtime state — not serialized
+        OLO_SERIALIZE(Skip)
         bool m_IsFocused = false;
+        OLO_SERIALIZE(Skip)
         i32 m_CursorPosition = 0;
 
         UIInputFieldComponent() = default;
@@ -3196,7 +3247,9 @@ namespace OloEngine
         bool m_Interactable = true;
 
         // Runtime state — not serialized
+        OLO_SERIALIZE(Skip)
         bool m_IsOpen = false;
+        OLO_SERIALIZE(Skip)
         i32 m_HoveredIndex = -1;
 
         UIDropdownComponent() = default;
@@ -4331,6 +4384,7 @@ namespace OloEngine
         AssetHandle m_DialogueTree = 0;
         bool m_AutoTrigger = false;
         f32 m_TriggerRadius = 3.0f;
+        OLO_SERIALIZE(Skip)
         bool m_HasTriggered = false; // runtime-only, not serialized
         bool m_TriggerOnce = true;
 

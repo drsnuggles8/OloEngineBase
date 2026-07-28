@@ -13,6 +13,7 @@ namespace OloEngine
 {
     struct AnimationGraphComponent
     {
+        OLO_SERIALIZE(Key, "AssetHandle")
         AssetHandle AnimationGraphAssetHandle = 0;
 
         // Runtime

@@ -132,7 +132,12 @@ namespace OloEngine::Reflect
             using MT = std::remove_cvref_t<decltype(ref)>;
             if constexpr (HasFlatten(M)) { EmitStructBody(out, ref); return; }     // flatten nested struct's fields at this level
             if constexpr (IsRef<MT>() || IsUniquePtr<MT>()) { if (!ref) return; }   // omit null Ref / unique_ptr
-            out << YAML::Key << std::string(key) << YAML::Value;
+            // A Ref<Asset> serializes as its AssetHandle under "<Name>Handle" — the engine's
+            // issue-#566 convention (m_MeshSource -> MeshSourceHandle). An explicit Key() wins.
+            if constexpr (IsRef<MT>() && !HasKey(M))
+                out << YAML::Key << (std::string(key) + "Handle") << YAML::Value;
+            else
+                out << YAML::Key << std::string(key) << YAML::Value;
             EmitValue(out, ref);
         });
     }
@@ -203,10 +208,13 @@ namespace OloEngine::Reflect
     void DeserializeStructBody(const YAML::Node& node, T& obj)
     {
         visit_fields(obj, [&node]<sm::info M>(std::string_view key, auto& ref) {
-            if constexpr (HasFlatten(M)) { DeserializeStructBody(node, ref); return; }  // flatten: read from the parent node
-            auto n = node[std::string(key)];
-            if (!n) return;                                       // missing key -> keep constructor default
             using MT = std::remove_cvref_t<decltype(ref)>;
+            if constexpr (HasFlatten(M)) { DeserializeStructBody(node, ref); return; }  // flatten: read from the parent node
+            // Symmetric to EmitStructBody: a Ref<Asset> reads its handle from "<Name>Handle".
+            std::string k{ key };
+            if constexpr (IsRef<MT>() && !HasKey(M)) k += "Handle";
+            auto n = node[k];
+            if (!n) return;                                       // missing key -> keep constructor default
             if constexpr (HasReject(M) && std::is_arithmetic_v<MT> && !std::is_same_v<MT, bool>) {
                 MT before = ref;                                  // reject-not-clamp: keep default if out of range
                 ReadValue(n, ref);

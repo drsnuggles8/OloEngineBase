@@ -38,13 +38,19 @@ namespace OloEngine
         // ----- Runtime state (never serialized) -----
         /// Resolved sequence. Set directly for code/tests, or lazily loaded
         /// from `Sequence` by CinematicSystem when null.
+        OLO_SERIALIZE(Skip)
         Ref<CinematicSequence> RuntimeSequence;
+        OLO_SERIALIZE(Skip)
         OLO_PROPERTY()
-        bool Playing = false;     ///< runtime playback flag (exposed for scripts; not serialized)
-        f32 Time = 0.0f;          ///< current playhead in seconds
+        bool Playing = false; ///< runtime playback flag (exposed for scripts; not serialized)
+        OLO_SERIALIZE(Skip)
+        f32 Time = 0.0f; ///< current playhead in seconds
+        OLO_SERIALIZE(Skip)
         f32 PreviousTime = -1.0f; ///< playhead last tick (sentinel < 0 fires t==0 events)
-        bool Finished = false;    ///< reached the end this run (non-looping)
+        OLO_SERIALIZE(Skip)
+        bool Finished = false; ///< reached the end this run (non-looping)
         /// Event identifiers fired during the most recent CinematicSystem tick.
+        OLO_SERIALIZE(Skip)
         std::vector<std::string> EventsFiredThisFrame;
 
         CinematicComponent() = default;

@@ -20,6 +20,7 @@ namespace OloEngine
         f32 LoadRadius = 200.0f;
         OLO_PROPERTY()
         f32 UnloadRadius = 250.0f; // > LoadRadius for hysteresis
-        bool IsLoaded = false;     // Runtime state (not serialized)
+        OLO_SERIALIZE(Skip)
+        bool IsLoaded = false; // Runtime state (not serialized)
     };
 } // namespace OloEngine
