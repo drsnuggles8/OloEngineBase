@@ -1542,6 +1542,22 @@ namespace OloEngine
         std::vector<TransientPlanEntry> m_TransientPlan;
         RGTransparentStringMap<std::string> m_ExplicitVersionProducers;
 
+        // WriteNewVersion bookkeeping: versioned resource name → the source
+        // resource it renames ("SceneColor@GPUDrivenOcclusionPass" →
+        // "SceneColor"). A version handle is a dependency-tracking RENAME of
+        // the same physical resource (RMW), so Resolve*() follows this chain
+        // to the source's physical instead of reading the version's own
+        // physical slot, and the transient planner folds a version's accesses
+        // into the source's lifetime instead of allocating a separate backing.
+        // Before this map existed, every WriteNewVersion materialized an
+        // orphan pool object: passes that rendered via the base handle while
+        // consumers read through the version (the SceneColor RMW seam) made
+        // those consumers sample whatever stale pool content the orphan
+        // happened to receive — invisible in steady state (LIFO reuse handed
+        // it last frame's real texture) but one frame of garbage squares on
+        // every transient-plan rebuild (issue: black squares over water).
+        std::unordered_map<std::string, std::string> m_VersionAliasTargets;
+
         // Tracks the most recent pass that wrote each resource (by base name).
         // Populated incrementally during BuildFrameGraph's Setup loop so a
         // pass's Setup can ask "who wrote SceneColor last?" and emit an
