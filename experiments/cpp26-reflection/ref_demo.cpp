@@ -42,8 +42,8 @@ int main() {
     { MeshComponent c;      // default: null Ref
       std::string y = R::SerializeHolder(c);
       std::printf("null Ref:\n%s\n", y.c_str());
-      bool ok = y.find("Mesh: 0") != std::string::npos;
-      std::printf("  [%s] null Ref -> handle 0\n", ok ? "PASS":"FAIL"); if(!ok) ++fails; }
+      bool ok = y.find("Mesh") == std::string::npos;   // null Ref -> key omitted (matches engine's `if (ref && ...)`)
+      std::printf("  [%s] null Ref -> key omitted\n", ok ? "PASS":"FAIL"); if(!ok) ++fails; }
     std::printf("\nREF<T>: %s\n", fails==0 ? "ALL PASS" : "FAIL");
     return fails;
 }

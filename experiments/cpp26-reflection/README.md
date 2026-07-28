@@ -40,8 +40,9 @@ hand-writes or excludes; reflection correctly declines them rather than emitting
 ## The library (3 headers)
 
 - **`OloReflectAnnotations.h`** — field annotations `Reflect::Skip` (omit), `Reflect::Clamp{min,max}`
-  (range on load), `Reflect::Key{"name"}` (custom YAML key rename). Kept separate so components
-  can be annotated before the reflection code runs.
+  (clamp on load), `Reflect::Reject{min,max}` (keep the default if out of range — reject, not clamp),
+  `Reflect::Key{"name"}` (custom YAML key rename). Kept separate so components can be annotated before
+  the reflection code runs.
 - **`OloReflect.h`** — the core: namespace-scan component discovery, the `AllComponents` tuple via
   `substitute`, `for_each_component`, and `visit_fields<T>()` (the generic member-walk; uses
   `access_context::unchecked()` so it can read **private** members — which OloHeaderTool cannot).
@@ -61,6 +62,7 @@ for your machine.
 ./build.sh parity_validate.cpp   && ./parity_validate   # serialize: every type category == the generator
 ./build.sh ref_demo.cpp          && ./ref_demo          # Ref<Asset> -> handle
 ./build.sh env_demo.cpp          && ./env_demo          # Reflect::Key custom key + omit-if-null
+./build.sh hook_demo.cpp         && ./hook_demo         # OnDeserialized hook + Reject: NavMeshBounds/StreamingVolume/MorphTarget become reflectable
 
 # real-engine tests (compile the actual Components.h; heavy)
 ./build.sh --engine deser_validate.cpp  && ./deser_validate   # deserialize round-trip on real types
@@ -87,9 +89,12 @@ for your machine.
 In the real engine, `OLO_SERIALIZE(Skip)` / `OLO_SERIALIZE(Clamp,…)` / `OLO_SERIALIZE(Key,…)` are
 empty markers (for OloHeaderTool's text parse). Under `__cpp_reflection` they'd expand to the real
 annotations, so **one source feeds both tools** (see the `#define OLO_SERIALIZE(mode,...)` bridge at
-the top of `real_sweep.cpp`). Every reason a component stays hand-written maps to an annotation:
-custom key → `Key`, runtime field → `Skip`, range → `Clamp`, conditional-null → omit-null. Only
-genuinely-custom logic (cross-field invariants, `Ref<non-Asset>`, reject-not-clamp) stays hand-written.
+the top of `real_sweep.cpp`). Every reason a component stays hand-written maps to an annotation **or a
+post-deserialize hook**: custom key → `Key`, runtime field → `Skip`, clamp → `Clamp`, keep-default-if-
+out-of-range → `Reject`, conditional-null → omit-null, and **cross-field invariants (Min≤Max swaps,
+hysteresis, per-value clamps) → an `OnDeserialized()` method reflection calls after reading the fields**
+(`hook_demo.cpp`). With these, even components the engine hand-writes — NavMeshBounds, StreamingVolume,
+MorphTarget — become reflection-driven: field I/O is generic, only the invariant stays a (small) method.
 
 ## Not in scope
 

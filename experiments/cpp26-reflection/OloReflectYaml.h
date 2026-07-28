@@ -193,8 +193,15 @@ namespace OloEngine::Reflect
         visit_fields(obj, [&node]<sm::info M>(std::string_view key, auto& ref) {
             auto n = node[std::string(key)];
             if (!n) return;                                       // missing key -> keep constructor default
-            ReadValue(n, ref);
             using MT = std::remove_cvref_t<decltype(ref)>;
+            if constexpr (HasReject(M) && std::is_arithmetic_v<MT> && !std::is_same_v<MT, bool>) {
+                MT before = ref;                                  // reject-not-clamp: keep default if out of range
+                ReadValue(n, ref);
+                constexpr Reject rj = GetReject(M);
+                if (static_cast<double>(ref) < rj.min || static_cast<double>(ref) > rj.max) ref = before;
+                return;
+            }
+            ReadValue(n, ref);
             if constexpr (HasClamp(M)) {                          // annotation-driven range clamp
                 constexpr Clamp c = GetClamp(M);
                 if      constexpr (std::is_floating_point_v<MT>)                       ref = std::clamp(ref, static_cast<MT>(c.min), static_cast<MT>(c.max));
@@ -202,6 +209,11 @@ namespace OloEngine::Reflect
                 else if constexpr (std::is_enum_v<MT>)                                 ref = static_cast<MT>(std::clamp<int>(static_cast<int>(ref), static_cast<int>(c.min), static_cast<int>(c.max)));
             }
         });
+        // POST-DESERIALIZE HOOK: reflection reads the fields, then a component keeps its
+        // cross-field validation (Min<=Max swaps, hysteresis, per-value clamps, Sanitize)
+        // as a method. This is the refactor that makes genuinely-"custom" components
+        // reflectable — field I/O is generic, only the invariant stays hand-written.
+        if constexpr (requires(T& t) { t.OnDeserialized(); }) obj.OnDeserialized();
     }
 
     template <typename T>
