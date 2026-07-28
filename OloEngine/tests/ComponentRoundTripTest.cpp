@@ -2943,7 +2943,16 @@ namespace OloEngine::Tests
     // -------------------------------------------------------------------------
     TEST(ComponentRoundTrip, VehicleDriveModeRejectsOutOfRangeToTheDefault)
     {
-        const auto loadDriveMode = [](const std::string& rawValue)
+        // The two setup steps are ASSERT (fatal), not EXPECT: a missing DriveMode
+        // key would make yaml.replace(npos, …) throw, and a missing entity would
+        // make GetComponent read a component that isn't there — both must stop
+        // before the damage, not merely record a failure and carry on.
+        //
+        // ASSERT_* expands to a bare `return`, so it is only valid in a
+        // void-returning callable; the loader therefore writes through an
+        // out-param and a thin wrapper keeps the call sites below reading as
+        // plain expressions.
+        const auto loadDriveModeInto = [](const std::string& rawValue, VehicleDriveMode& out)
         {
             auto scene = Scene::Create();
             Entity entity = scene->CreateEntity(kTestTag);
@@ -2953,15 +2962,24 @@ namespace OloEngine::Tests
             // Rewrite just the DriveMode scalar, leaving the rest of the document
             // untouched — this is what a corrupted or hand-edited scene looks like.
             const auto pos = yaml.find("DriveMode: ");
-            EXPECT_NE(pos, std::string::npos);
+            ASSERT_NE(pos, std::string::npos) << "serialized VehicleComponent has no DriveMode key to corrupt";
             const auto eol = yaml.find('\n', pos);
             yaml.replace(pos, eol - pos, "DriveMode: " + rawValue);
 
             auto reloaded = Scene::Create();
-            EXPECT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+            ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
             Entity restored = FindByTag(*reloaded, kTestTag);
-            EXPECT_TRUE(static_cast<bool>(restored));
-            return restored.GetComponent<VehicleComponent>().m_DriveMode;
+            ASSERT_TRUE(static_cast<bool>(restored));
+            out = restored.GetComponent<VehicleComponent>().m_DriveMode;
+        };
+        const auto loadDriveMode = [&loadDriveModeInto](const std::string& rawValue)
+        {
+            // A fatal failure inside the loader leaves `mode` untouched, but the
+            // ASSERT has already failed the test — this value can never turn a
+            // broken setup into a pass.
+            VehicleDriveMode mode = VehicleDriveMode::AllWheelDrive;
+            loadDriveModeInto(rawValue, mode);
+            return mode;
         };
 
         // Valid enumerators still round-trip untouched.

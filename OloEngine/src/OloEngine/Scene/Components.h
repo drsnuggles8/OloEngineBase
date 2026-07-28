@@ -1629,9 +1629,43 @@ namespace OloEngine
         AircraftComponent() = default;
         AircraftComponent(const AircraftComponent&) = default;
 
+        // Field-by-field for the same reason as BoatComponent/VehicleComponent: a
+        // whole-struct Math::BitwiseEqual reads the padding the bool members leave
+        // behind, and padding contents are indeterminate — so two logically equal
+        // components can compare unequal and SceneHierarchyPanel's equality tier
+        // records phantom undo steps.
         auto operator==(const AircraftComponent& other) const -> bool
         {
-            return Math::BitwiseEqual(*this, other);
+            return m_Enabled == other.m_Enabled &&
+                   Math::BitwiseEqual(m_MaxThrust, other.m_MaxThrust) &&
+                   Math::BitwiseEqual(m_WingArea, other.m_WingArea) &&
+                   Math::BitwiseEqual(m_AirDensity, other.m_AirDensity) &&
+                   Math::BitwiseEqual(m_LiftSlope, other.m_LiftSlope) &&
+                   Math::BitwiseEqual(m_ZeroLiftCoefficient, other.m_ZeroLiftCoefficient) &&
+                   Math::BitwiseEqual(m_StallAngleDeg, other.m_StallAngleDeg) &&
+                   Math::BitwiseEqual(m_DragCoefficient, other.m_DragCoefficient) &&
+                   Math::BitwiseEqual(m_InducedDragFactor, other.m_InducedDragFactor) &&
+                   Math::BitwiseEqual(m_PitchTorque, other.m_PitchTorque) &&
+                   Math::BitwiseEqual(m_RollTorque, other.m_RollTorque) &&
+                   Math::BitwiseEqual(m_YawTorque, other.m_YawTorque) &&
+                   Math::BitwiseEqual(m_ControlAuthoritySpeed, other.m_ControlAuthoritySpeed) &&
+                   Math::BitwiseEqual(m_PitchDamping, other.m_PitchDamping) &&
+                   Math::BitwiseEqual(m_RollDamping, other.m_RollDamping) &&
+                   Math::BitwiseEqual(m_YawDamping, other.m_YawDamping) &&
+                   Math::BitwiseEqual(m_WeathervaneStrength, other.m_WeathervaneStrength) &&
+                   m_HasLandingGear == other.m_HasLandingGear &&
+                   Math::BitwiseEqual(m_MainGearOffsetZ, other.m_MainGearOffsetZ) &&
+                   Math::BitwiseEqual(m_MainGearHalfTrack, other.m_MainGearHalfTrack) &&
+                   Math::BitwiseEqual(m_NoseGearOffsetZ, other.m_NoseGearOffsetZ) &&
+                   Math::BitwiseEqual(m_GearLength, other.m_GearLength) &&
+                   Math::BitwiseEqual(m_GearStiffness, other.m_GearStiffness) &&
+                   Math::BitwiseEqual(m_GearDamping, other.m_GearDamping) &&
+                   Math::BitwiseEqual(m_GearRollingResistance, other.m_GearRollingResistance) &&
+                   Math::BitwiseEqual(m_GearLateralGrip, other.m_GearLateralGrip) &&
+                   Math::BitwiseEqual(m_ThrottleInput, other.m_ThrottleInput) &&
+                   Math::BitwiseEqual(m_PitchInput, other.m_PitchInput) &&
+                   Math::BitwiseEqual(m_RollInput, other.m_RollInput) &&
+                   Math::BitwiseEqual(m_YawInput, other.m_YawInput);
         }
     };
 
