@@ -349,9 +349,22 @@ namespace OloEngine
         f32 projScale00 = m_Projection[0][0];
         f32 projScale11 = m_Projection[1][1];
 
-        // NDCToView: unproject from normalized screen [0,1] to view-space XY
-        m_GPUData->NDCToViewMul = glm::vec2(2.0f / projScale00, -2.0f / projScale11);
-        m_GPUData->NDCToViewAdd = glm::vec2(-1.0f / projScale00, 1.0f / projScale11);
+        // NDCToView: unproject from normalized screen [0,1] to view-space XY.
+        //
+        // GL convention on BOTH axes: (2u - 1) / proj00 and (2v - 1) / proj11.
+        // The XeGTAO reference negates the Y pair (-2/proj11, +1/proj11)
+        // because D3D texture coordinates put v = 0 at the TOP row; this port
+        // consumes GL-convention inputs everywhere (the compute's pixCoord
+        // row 0 is the framebuffer BOTTOM: the HZB is a 1:1 texelFetch copy
+        // of the scene depth and the view-normals texture is fetched with the
+        // same coordinates), so keeping the D3D flip NEGATED view-space Y for
+        // every reconstructed sample position while the decoded surface
+        // normals stayed correct. All horizon angles were reflected about the
+        // horizontal plane: invisible looking straight down (symmetric), a
+        // full-frame visibility collapse to the 0.03 floor at grazing views
+        // (the sea / quay "goosebumps" weave rode on that collapsed AO).
+        m_GPUData->NDCToViewMul = glm::vec2(2.0f / projScale00, 2.0f / projScale11);
+        m_GPUData->NDCToViewAdd = glm::vec2(-1.0f / projScale00, -1.0f / projScale11);
 
         f32 pixelSizeX = 1.0f / static_cast<f32>(m_Width);
         f32 pixelSizeY = 1.0f / static_cast<f32>(m_Height);
@@ -495,8 +508,14 @@ namespace OloEngine
 
     void GTAORenderPass::OnReset()
     {
-        // Increment temporal noise index
-        if (m_GPUData)
+        // Advance the spatio-temporal noise phase ONLY when TAA is enabled.
+        // XeGTAO's animated noise index exists to be temporally resolved by
+        // TAA; without TAA the R1/Hilbert pattern visibly boils every frame —
+        // the "goosebumps" weave over the water and distant quay. With a
+        // fixed phase the residual pattern is static and the (edge-aware)
+        // denoise output is temporally stable, matching reference XeGTAO
+        // behavior for the no-TAA configuration.
+        if (m_GPUData && m_Settings.TAAEnabled)
         {
             m_GPUData->NoiseIndex = (m_GPUData->NoiseIndex + 1) % 256;
         }

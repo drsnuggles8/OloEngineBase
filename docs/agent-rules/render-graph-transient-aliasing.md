@@ -91,6 +91,25 @@ nothing when the env vars are unset:
 Launch via the driver so the env reaches the editor:
 `$env:OLO_RG_POISON_TRANSIENTS='1'; driver.ps1 -Action attach`.
 
+## Verify every instrument before trusting an exoneration
+
+The most expensive detour of this hunt came from a *fake* A/B lever:
+`olo_render_toggle_pass` takes lowercase FEATURE names (`gtao`, `taa`,
+`fog`, `bloom`, `fxaa`, `godrays`, ...) — not render-pass node names. Every
+`'SomethingPass'` toggle returned an "Unknown pass" error text that the
+sweep scripts swallowed, so ten different passes were "exonerated" by
+toggles that never toggled anything. Rules:
+
+- Read and assert on EVERY tool response in a scripted battery — an error
+  string in a result the script ignores becomes a fabricated data point.
+- An A/B lever must PROVE it acted: diff the frame against the baseline and
+  require a change consistent with the lever (disabling AO must visibly
+  brighten creases; disabling water must remove the water). A toggle whose
+  "off" frame differs from baseline only by frame noise did nothing.
+- Restore state by writing back the PREVIOUS value the tool reported — an
+  unconditional off-then-on pattern silently ENABLES features that started
+  disabled (this battery turned the whole fog family on mid-run).
+
 ## Hunt protocol (what actually worked, in order)
 
 1. **Statistical stage attribution** — repeated forced-frame captures of

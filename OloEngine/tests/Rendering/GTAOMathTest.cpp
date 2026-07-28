@@ -391,6 +391,61 @@ TEST(GTAOMath, GtaoShaderSeedsHorizonsFullyBehindSurface)
            "edge-on will integrate to zero visibility and the frame will go black";
 }
 
+TEST(GTAOMath, NDCToViewConstantsUseGLConventionOnBothAxes)
+{
+    // Regression: the XeGTAO reference's NDCToView constants negate the Y
+    // pair because D3D puts texture v = 0 at the TOP row. This port consumes
+    // GL-convention inputs (compute pixCoord row 0 = framebuffer bottom; the
+    // HZB is a 1:1 texelFetch copy; normals fetched with the same coords),
+    // so the copied D3D flip negated view-space Y for every reconstructed
+    // sample position: horizon angles reflected about the horizontal plane,
+    // invisible looking straight down, a full-frame visibility collapse to
+    // the 0.03 floor at grazing views (the sea/quay "goosebumps" weave).
+    // Derive the repo root from the compile-time editor root — cwd-relative
+    // reads break when the runner's working directory isn't the repo root
+    // (background shells, some CI launchers).
+    const auto repoRoot = std::filesystem::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
+    std::ifstream f(repoRoot / "OloEngine" / "src" / "OloEngine" / "Renderer" / "Passes" / "GTAORenderPass.cpp",
+                    std::ios::binary);
+    ASSERT_TRUE(f.is_open());
+    std::ostringstream buf;
+    buf << f.rdbuf();
+    const std::string src = buf.str();
+
+    EXPECT_NE(src.find("glm::vec2(2.0f / projScale00, 2.0f / projScale11)"), std::string::npos)
+        << "NDCToViewMul lost its GL-convention positive Y term";
+    EXPECT_NE(src.find("glm::vec2(-1.0f / projScale00, -1.0f / projScale11)"), std::string::npos)
+        << "NDCToViewAdd lost its GL-convention negative Y term";
+    EXPECT_EQ(src.find("-2.0f / projScale11"), std::string::npos)
+        << "the D3D top-down Y flip is back in NDCToViewMul — grazing views will collapse to black again";
+}
+
+TEST(GTAOMath, TemporalNoiseOnlyAnimatesUnderTAA)
+{
+    // XeGTAO's animated noise index exists so TAA can resolve the R1/Hilbert
+    // pattern temporally. Without TAA the pattern boils every frame — the
+    // "goosebumps" weave over water and the distant quay (VehiclesTest,
+    // issue #438 follow-up). The pass must advance NoiseIndex only when TAA
+    // is enabled. The test binary runs from the repo root, so engine sources
+    // are reachable relatively (same convention as the coverage tests).
+    const auto repoRoot = std::filesystem::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
+    std::ifstream f(repoRoot / "OloEngine" / "src" / "OloEngine" / "Renderer" / "Passes" / "GTAORenderPass.cpp",
+                    std::ios::binary);
+    ASSERT_TRUE(f.is_open());
+    std::ostringstream buf;
+    buf << f.rdbuf();
+    const std::string src = buf.str();
+
+    const auto incrementPos = src.find("NoiseIndex + 1");
+    ASSERT_NE(incrementPos, std::string::npos) << "noise-index increment not found";
+    // The gate must appear in the increment's guarding condition, i.e. within
+    // the few lines immediately preceding the increment.
+    const auto windowStart = incrementPos > 400u ? incrementPos - 400u : 0u;
+    const auto window = src.substr(windowStart, incrementPos - windowStart);
+    EXPECT_NE(window.find("m_Settings.TAAEnabled"), std::string::npos)
+        << "the temporal-noise advance lost its TAA gate — without TAA the GTAO pattern will boil again";
+}
+
 TEST(GTAOMath, GtaoShaderSkyEarlyOutIsUlpTolerant)
 {
     const std::string src = ReadRepoFile(std::filesystem::path{ "assets" } / "shaders" / "compute" / "GTAO.comp");

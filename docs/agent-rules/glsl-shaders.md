@@ -307,3 +307,38 @@ also means **fewer** candidate-list edits than the HDR band (5 consumers vs 11).
 Future FSR1 EASU/RCAS *spatial upscale* (render below display res, then upscale) is
 the opposite: EASU must run **early** (before display-res post), so when it lands it
 splits — EASU pre-post, RCAS/CAS sharpen post-tonemap.
+
+## Porting D3D/HLSL reference code: audit every screen-space Y convention
+
+XeGTAO's reference `NDCToViewMul/Add` constants negate the Y pair
+(`-2/proj11`, `+1/proj11`) because **D3D texture v = 0 is the TOP row**. This
+engine's compute passes consume GL-convention inputs — a compute shader's
+`pixCoord` row 0 addresses the framebuffer **bottom** (the HZB is a 1:1
+`texelFetch` copy of the scene depth; the view-normals texture is fetched
+with the same coordinates) — so porting the D3D constants verbatim **negated
+view-space Y for every position reconstructed from depth** while the decoded
+surface normals stayed correct. Every horizon angle reflected about the
+horizontal plane. The failure was invisible at the poses used to verify the
+pass (looking straight down, the scene is symmetric about the view axis and
+the reflection cancels) and catastrophic at grazing views: a full-frame
+visibility collapse to the 0.03 floor over the sea/quay, carrying a noise
+weave ("goosebumps") that survived denoising because its amplitude rode on
+the collapsed signal, not on the noise itself.
+
+Rules distilled:
+
+- When porting any screen-space reference (XeGTAO, FidelityFX, Unreal
+  snippets): list every constant and formula that encodes an **NDC/UV/texel
+  Y direction** (unprojection mul/add pairs, `SV_Position`-based math,
+  gather offsets) and re-derive each for GL's bottom-left origin. Do not
+  trust that "it renders plausibly" at one camera angle — verify at a
+  **grazing** angle across a large flat surface, where a Y-reflection is
+  maximally asymmetric.
+- A reconstruction-convention bug and an integrator-math bug look identical
+  in the output (dark/noisy AO). Separate them by *probing the inputs*: with
+  `olo_render_probe_pixel`, a flat up-facing plane must decode to the same
+  view-space normal the camera pitch predicts, and `LinearizeDepth` of the
+  probed device-Z must match the known camera-to-surface distance. If the
+  inputs check out and the math is pinned by CPU tests, the remaining
+  suspects are the **uniform values** — read the upload site, not the shader.
+- Pinned by `GTAOMath.NDCToViewConstantsUseGLConventionOnBothAxes`.
