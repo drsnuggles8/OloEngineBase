@@ -28,6 +28,21 @@ namespace OloEngine
 		internal static extern object GetScriptInstance(ulong entityID);
         #endregion
 
+        #region Spawning
+        // Deferred by design — see Scene.CreateEntity / Scene.Instantiate.
+        [MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong Scene_CreateEntity(string name, ref Vector3 translation);
+
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong Scene_InstantiatePrefab(ulong prefabHandle, ref Vector3 translation, ref Vector3 rotation, ref Vector3 scale);
+
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong Prefab_FindByPath(string path);
+
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Entity_Destroy(ulong entityID);
+        #endregion
+
         #region Rigidbody2DComponent
         [MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void Rigidbody2DComponent_ApplyLinearImpulse(ulong entityID, ref Vector2 impulse, ref Vector2 point, bool wake);

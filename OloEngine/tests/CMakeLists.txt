@@ -806,6 +806,10 @@ add_executable(OloEngine-Tests
 		# Animated MeshPrimitives (issue #592): CreateAnimatedCube / CreateMultiBoneAnimatedCube
 		# skinning correctness against the MeshSource bone-influence contract.
 		Rendering/PropertyTests/AnimatedMeshPrimitivesPropertyTests.cpp
+		# Script-driven runtime spawning (issue #643): the deferred entity-command
+		# queue driven from Lua through real Scene::OnUpdateRuntime ticks, under
+		# both the parallel and the sequential gameplay executor.
+		Functional/Scripting/LuaSpawnsAndDestroysEntitiesTest.cpp
 )
 target_link_libraries(OloEngine-Tests
 	OloEngine

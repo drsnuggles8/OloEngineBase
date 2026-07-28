@@ -60,6 +60,33 @@ namespace OloEngine
 			return instance as T;
 		}
 
+		/// <summary>
+		/// Ask the engine to destroy this entity together with its children
+		/// (issue #643).
+		///
+		/// <para><b>Deferred, like spawning.</b> The entity survives until the
+		/// engine drains its command queue, which happens once every script's
+		/// <c>OnUpdate</c> has returned this tick — so it is safe for a script
+		/// to destroy the entity it is running on, and safe for two scripts to
+		/// destroy the same target. <see cref="IsValid"/> reports <c>false</c>
+		/// from the moment you call this, not from the moment it takes effect,
+		/// so the rest of your <c>OnUpdate</c> sees a consistent answer.</para>
+		///
+		/// <para>The Lua/C# <c>OnDestroy</c> callback fires when the destroy is
+		/// actually applied.</para>
+		/// </summary>
+		public void Destroy()
+		{
+			InternalCalls.Entity_Destroy(ID);
+		}
+
+		/// <summary>Destroy <paramref name="entity"/> (and its children). Null-safe.</summary>
+		public static void Destroy(Entity entity)
+		{
+			if (entity != null)
+				entity.Destroy();
+		}
+
 	}
 
 }

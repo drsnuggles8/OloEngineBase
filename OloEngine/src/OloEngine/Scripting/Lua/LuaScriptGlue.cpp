@@ -27,6 +27,7 @@
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer2D.h"
@@ -3619,12 +3620,39 @@ namespace OloEngine
 
         // --- Entity utilities ---
         auto entityUtilsTable = lua.create_named_table("entity_utils");
-        entityUtilsTable["is_valid"] = [](Entity* entity) -> bool
+        // Overloaded so scripts can pass either the Entity userdata or the raw
+        // u64 id they actually receive in OnCreate/OnUpdate. Both report the
+        // script-facing (logical) liveness: an id from a same-tick
+        // Scene.Instantiate is already valid even though the entity
+        // materialises at the next drain, and an id already passed to
+        // entity_utils.destroy is already invalid (issue #643).
+        entityUtilsTable["is_valid"] = sol::overload(
+            [](Entity* entity) -> bool
+            {
+                if (!entity)
+                    return false;
+                const Scene* scene = ScriptEngine::GetSceneContext();
+                return scene && scene->IsEntityLiveForScripts(entity->GetUUID());
+            },
+            [](u64 entityID) -> bool
+            {
+                const Scene* scene = ScriptEngine::GetSceneContext();
+                return scene && scene->IsEntityLiveForScripts(UUID(entityID));
+            });
+
+        // Deferred destroy — the entity (and its children) goes away once the
+        // engine drains its command queue, after every script's OnUpdate has
+        // returned this tick. Safe to call on the entity the script is running
+        // on, and safe to call twice. Mirrors C#'s entity.Destroy().
+        entityUtilsTable["destroy"] = [](u64 entityID)
         {
-            if (!entity)
-                return false;
-            const Scene* scene = ScriptEngine::GetSceneContext();
-            return scene && scene->TryGetEntityWithUUID(entity->GetUUID()).has_value();
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+            {
+                OLO_CORE_WARN("[Lua] entity_utils.destroy called with no active scene context.");
+                return;
+            }
+            scene->ScriptDestroyEntity(UUID(entityID));
         };
 
         // --- Physics (raycast) ---
@@ -4225,6 +4253,108 @@ namespace OloEngine
         {
             if (Scene* scene = ScriptEngine::GetSceneContext())
                 scene->SetPendingReload(true);
+        };
+
+        // --- Runtime spawning (issue #643; mirrors the C# Scene.* surface) ---
+        //
+        // All three are DEFERRED. Each returns immediately with the new
+        // entity's final UUID, but the entity itself materialises when the
+        // engine drains its command queue — after every script's OnUpdate has
+        // returned this tick. The engine is iterating the script component
+        // pools while your OnUpdate runs; creating or destroying an entity in
+        // the middle of that walk would invalidate the iteration, which is why
+        // the spawn transform is an argument rather than something you assign
+        // afterwards (there is no entity to assign to until the drain).
+        //
+        // By the time physics, transform propagation and rendering run later in
+        // the same tick, the spawn is fully live — so a spawn shows up in the
+        // same frame, it just isn't readable from the OnUpdate that asked for it.
+        sceneTable["CreateEntity"] = [](const std::string& name, sol::optional<glm::vec3> position) -> u64
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+            {
+                OLO_CORE_WARN("[Lua] Scene.CreateEntity called with no active scene context.");
+                return 0;
+            }
+            return static_cast<u64>(scene->ScriptCreateEntity(name, position.value_or(glm::vec3(0.0f))));
+        };
+
+        sceneTable["Instantiate"] = [](u64 prefabHandle, sol::optional<glm::vec3> position,
+                                       sol::optional<glm::vec3> rotationEuler, sol::optional<glm::vec3> scale) -> u64
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+            {
+                OLO_CORE_WARN("[Lua] Scene.Instantiate called with no active scene context.");
+                return 0;
+            }
+            return static_cast<u64>(scene->ScriptInstantiatePrefab(AssetHandle(prefabHandle),
+                                                                   position.value_or(glm::vec3(0.0f)),
+                                                                   rotationEuler.value_or(glm::vec3(0.0f)),
+                                                                   scale.value_or(glm::vec3(1.0f))));
+        };
+
+        // Project-relative path → prefab AssetHandle, e.g.
+        // "Prefabs/Projectile.oprefab". EDITOR-ONLY: a packed runtime serves
+        // assets by handle with no path index, so it returns 0 there. Scripts
+        // that must ship should carry the handle instead (a component field, or
+        // PrefabComponent.prefabID off an authored template entity).
+        sceneTable["FindPrefabByPath"] = [](const std::string& path) -> u64
+        {
+            // Warn once per distinct path: the natural way to write this
+            // mistake is a per-tick poll, which would otherwise repeat the same
+            // warning every frame and bury the log.
+            static std::mutex s_WarnedMutex;
+            static std::unordered_set<std::string> s_WarnedPaths;
+            auto warnOnce = [&path](const char* reason)
+            {
+                {
+                    std::scoped_lock lock(s_WarnedMutex);
+                    if (!s_WarnedPaths.insert(path).second)
+                        return;
+                }
+                OLO_CORE_WARN("[Lua] Scene.FindPrefabByPath('{}') {} — returning 0. "
+                              "(Further misses on this path are suppressed.)",
+                              path, reason);
+            };
+
+            // HasAssetManager first — GetAssetManager asserts when unset.
+            Ref<EditorAssetManager> editorManager =
+                Project::HasAssetManager() ? Project::GetAssetManager().As<EditorAssetManager>() : nullptr;
+            if (!editorManager)
+            {
+                // Also de-duplicated, and for a stronger reason than a miss: in
+                // a packed runtime EVERY call lands here, so a per-tick poll
+                // would warn every frame for the life of the process.
+                warnOnce("requires the editor asset manager — a packed runtime has no path index, so pass "
+                         "the AssetHandle instead");
+                return 0;
+            }
+
+            AssetHandle handle = editorManager->GetAssetHandleFromFilePath(path);
+            // A path resolving to some OTHER asset type must not come back as a
+            // prefab handle: Scene.Instantiate would take it and fail a tick
+            // later inside the drain, where the offending path is long gone.
+            if (handle && editorManager->GetAssetType(handle) != AssetType::Prefab)
+            {
+                warnOnce("resolves to a non-Prefab asset");
+                return 0;
+            }
+            if (!handle)
+                warnOnce("found no asset at that path");
+            return static_cast<u64>(handle);
+        };
+
+        sceneTable["DestroyEntity"] = [](u64 entityID)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+            {
+                OLO_CORE_WARN("[Lua] Scene.DestroyEntity called with no active scene context.");
+                return;
+            }
+            scene->ScriptDestroyEntity(UUID(entityID));
         };
 
         // --- Localization ---

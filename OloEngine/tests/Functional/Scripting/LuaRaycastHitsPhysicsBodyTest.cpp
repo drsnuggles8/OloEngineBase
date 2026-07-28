@@ -56,14 +56,17 @@ class LuaRaycastHitsPhysicsBodyTest : public FunctionalTest
     void BuildScene() override
     {
         // Static target at x=5, half-extent 0.5 → its near face is at x≈4.5.
-        // Use a small explicit UUID: random UUIDs are usually > 2^53, and
-        // when Physics.Raycast packs `hit.entityID = static_cast<u64>(uuid)`
-        // into the Lua result table, sol2 with SOL_ALL_SAFETIES_ON rejects
-        // the push with "integer value will be misrepresented in lua",
-        // erroring OnUpdate and silently turning the hit into nil. This
-        // surfaces randomly depending on UUID() output — flaky from gtest's
-        // point of view, but a real Lua-binding precision issue worth
-        // pinning. Real production scripts hit the same wall.
+        //
+        // The small explicit UUID used to be load-bearing: when Physics.Raycast
+        // packed `hit.entityID = static_cast<u64>(uuid)` into the Lua result
+        // table, sol2 under SOL_ALL_SAFETIES_ON rejected any u64 above
+        // INT64_MAX with "integer value will be misrepresented in lua",
+        // erroring OnUpdate and silently turning the hit into nil — so a random
+        // UUID broke this test about half the time. Issue #643 fixed that
+        // engine-wide (SOL_ALL_INTEGER_VALUES_FIT, see
+        // docs/agent-rules/script-structural-command-safe-point.md), so a
+        // full-range UUID would work here now. The small ids are kept only
+        // because they make the test readable.
         m_Target = GetScene().CreateEntityWithUUID(UUID{ 1001 }, "Target");
         m_Target.GetComponent<TransformComponent>().Translation = { 5.0f, 0.5f, 0.0f };
         Rigidbody3DComponent body;
