@@ -179,6 +179,8 @@ namespace OloEngine
         m_AverageShader->SetFloat("u_ExposureCompensation", m_AutoExposure.Compensation);
         m_AverageShader->SetFloat("u_MinExposure", m_AutoExposure.MinExposure);
         m_AverageShader->SetFloat("u_MaxExposure", m_AutoExposure.MaxExposure);
+        m_AverageShader->SetFloat("u_LowPercentile", m_AutoExposure.LowPercentile);
+        m_AverageShader->SetFloat("u_HighPercentile", m_AutoExposure.HighPercentile);
         RenderCommand::DispatchCompute(1u, 1u, 1u);
         // Make the exposure write visible to the tone-map fragment shader's SSBO read.
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);

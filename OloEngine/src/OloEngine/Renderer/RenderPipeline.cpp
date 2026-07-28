@@ -850,6 +850,8 @@ namespace OloEngine
             ae.Compensation = pp.AutoExposureCompensation;
             ae.MinExposure = pp.AutoExposureMinExposure;
             ae.MaxExposure = pp.AutoExposureMaxExposure;
+            ae.LowPercentile = pp.AutoExposureLowPercentile;
+            ae.HighPercentile = pp.AutoExposureHighPercentile;
             static auto s_LastAutoExposureTime = std::chrono::steady_clock::now();
             const auto aeNow = std::chrono::steady_clock::now();
             ae.DeltaTime = std::clamp(std::chrono::duration<f32>(aeNow - s_LastAutoExposureTime).count(), 0.0f, 0.1f);
@@ -1054,6 +1056,9 @@ namespace OloEngine
             gpu.DOFBokehRadius = pp.DOFBokehRadius;
             gpu.MotionBlurStrength = pp.MotionBlurStrength;
             gpu.MotionBlurSamples = pp.MotionBlurSamples;
+            // Deband dither: half an 8-bit LSB at the tonemap output breaks
+            // FP16/R8/8-bit quantization interference on smooth gradients.
+            gpu.DitherAmplitude = 0.5f / 255.0f;
             gpu.CameraNear = data.CameraNearClip;
             gpu.CameraFar = data.CameraFarClip;
             if (FrameCorePasses.Scene)
