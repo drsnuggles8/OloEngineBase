@@ -208,6 +208,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ModelWarmCacheGeometryIdentityTest.cpp
 		Rendering/PropertyTests/VirtualGeometryRasterParityTest.cpp
 		Rendering/PropertyTests/VirtualMeshAssetPackTest.cpp
+		Rendering/PropertyTests/VirtualMeshRealAssetCookTest.cpp
 		Rendering/PropertyTests/ImportedMaterialPackTest.cpp
 		Rendering/PropertyTests/FluidVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterStaleTexturePublicationTest.cpp

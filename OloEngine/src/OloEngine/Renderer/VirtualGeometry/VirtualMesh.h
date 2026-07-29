@@ -49,7 +49,11 @@ namespace OloEngine
     //     changes in a way that alters the produced geometry. <<<
     // (A change to VirtualMeshBuildConfig's DEFAULTS needs no bump — the fingerprint below
     //  already covers it.)
-    inline constexpr u32 kVirtualMeshBuilderVersion = 1;
+    // v2 (issue #685): the builder was aligned with meshoptimizer v1.2's stable clusterlod
+    // reference — permissive simplification with UV-seam protect bits replaced the
+    // unconditional position weld, and a watertightness-guarded sloppy pass was added as a
+    // last-resort fallback. Every DAG's geometry changes, so v1 caches must be rejected.
+    inline constexpr u32 kVirtualMeshBuilderVersion = 2;
 
     // Sphere + object-space error used for view-dependent LOD selection.
     // For groups these are conservative: the sphere of a group contains the spheres of all

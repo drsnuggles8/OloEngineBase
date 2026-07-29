@@ -8472,6 +8472,27 @@ namespace OloEngine
                 auto meshSource = AssetManager::GetAsset<MeshSource>(virtualMesh.m_MeshSource);
                 if (!meshSource)
                 {
+                    // An unresolvable handle here is TOTAL and otherwise SILENT: the entity
+                    // renders nothing, every frame, with no other symptom. An empty viewport
+                    // looks exactly like a camera, lighting or culling problem, so this used to
+                    // cost a long diagnosis for what is really "the mesh asset never loaded".
+                    //
+                    // Warn once per handle (this loop runs every frame — the same idiom as
+                    // RenderGraph's s_Logged set). A handle of 0 is deliberately NOT warned:
+                    // a freshly added VirtualMeshComponent has no mesh assigned yet, and that is
+                    // a normal authoring state, not a fault.
+                    static std::unordered_set<u64> s_WarnedUnresolvedVirtualMeshes;
+                    if (s_WarnedUnresolvedVirtualMeshes.insert(static_cast<u64>(virtualMesh.m_MeshSource)).second)
+                    {
+                        OLO_CORE_WARN("Scene: VirtualMeshComponent on entity '{}' references mesh-source asset {} "
+                                      "which did not load — this entity renders NOTHING. Check that the handle is in "
+                                      "the asset registry, that its file exists, and that it imports (the asset "
+                                      "manager logs the failure). Warned once per asset handle.",
+                                      m_Registry.all_of<TagComponent>(entity)
+                                          ? m_Registry.get<TagComponent>(entity).Tag
+                                          : std::string{ "<unnamed>" },
+                                      static_cast<u64>(virtualMesh.m_MeshSource));
+                    }
                     continue;
                 }
 
