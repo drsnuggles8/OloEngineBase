@@ -63,6 +63,42 @@
 
 namespace OloEngine
 {
+    // Sub-rectangle of a mip to read back, in TOP-LEFT-origin texel coordinates —
+    // the orientation of the returned PNG and of every other rect coordinate in
+    // the MCP surface (olo_render_target_stats' `rect`, olo_render_probe_pixel's
+    // texel space). GL's bottom-left row order is an implementation detail
+    // handled inside CaptureTexturePng.
+    //
+    // Why it exists (issue #607): a pixel-scale artifact can only be measured on
+    // 1:1 pixels, but a whole-target capture is rescaled to `maxWidth`
+    // (hard-clamped to 4096). Root-causing the GTAO "goosebumps" weave meant
+    // taking the spatial autocorrelation of the AO buffer to find the noise's
+    // period — and a 4291x2320 target can only come back resampled, which moved
+    // the diagnostic 64 px Hilbert-LUT tile period to 61.1 px and inflated
+    // short-lag correlation, so the first measurement could not tell the
+    // regression from the fix. A region small enough to sit under `maxWidth`
+    // comes back untouched, at native resolution.
+    //
+    // Width == 0 or Height == 0 means "the whole mip" (the default).
+    //
+    // Lives at NAMESPACE scope, and is reachable as
+    // `GPUResourceInspector::CaptureRegion` through an alias, because
+    // CaptureTexturePng defaults it to `{}`: a nested class's default member
+    // initializers are not usable from the enclosing class's complete-class
+    // context while that class is still incomplete ([class.mem.general]).
+    struct GPUCaptureRegion
+    {
+        u32 X = 0;
+        u32 Y = 0;
+        u32 Width = 0;
+        u32 Height = 0;
+
+        [[nodiscard]] bool IsWholeTexture() const
+        {
+            return Width == 0 || Height == 0;
+        }
+    };
+
     // @brief GPU Resource Inspector for debugging GPU resources
     //
     // Provides detailed inspection of GPU resources including textures, buffers,
@@ -231,35 +267,14 @@ namespace OloEngine
             On
         };
 
-        // Sub-rectangle of the mip to read back, in TOP-LEFT-origin texel
-        // coordinates — the orientation of the returned PNG and of every other
-        // rect coordinate in the MCP surface (olo_render_target_stats' `rect`,
-        // olo_render_probe_pixel's texel space). GL's bottom-left row order is
-        // an implementation detail handled inside CaptureTexturePng.
-        //
-        // Why it exists (issue #607): a pixel-scale artifact can only be measured
-        // on 1:1 pixels, but a whole-target capture is rescaled to `maxWidth`
-        // (hard-clamped to 4096). Root-causing the GTAO "goosebumps" weave meant
-        // taking the spatial autocorrelation of the AO buffer to find the noise's
-        // period — and a 4291x2320 target can only come back resampled, which
-        // moved the diagnostic 64 px Hilbert-LUT tile period to 61.1 px and
-        // inflated short-lag correlation, so the first measurement could not tell
-        // the regression from the fix. A region small enough to sit under
-        // `maxWidth` comes back untouched, at native resolution.
-        //
-        // Width == 0 or Height == 0 means "the whole mip" (the default).
-        struct CaptureRegion
-        {
-            u32 X = 0;
-            u32 Y = 0;
-            u32 Width = 0;
-            u32 Height = 0;
-
-            [[nodiscard]] bool IsWholeTexture() const
-            {
-                return Width == 0 || Height == 0;
-            }
-        };
+        // The sub-rectangle type for CaptureTexturePng. Aliased from namespace
+        // scope rather than declared here: `CaptureRegion region = {}` as a
+        // default argument needs the struct's default member initializers, and
+        // those are not usable from the enclosing class's complete-class context
+        // while that class is still incomplete ([class.mem.general]). MSVC accepts
+        // it, Clang correctly rejects it — which failed every sanitizer CI job
+        // while the local msvc build was green. See GPUCaptureRegion above.
+        using CaptureRegion = GPUCaptureRegion;
 
         // Result of CaptureTexturePng. PngBytes is empty (and Error non-empty)
         // on failure. MinValue/MaxValue report the finite value range of float

@@ -56,6 +56,64 @@ because of three non-obvious choices you must replicate locally:
   otherwise intercepts the fault before ASan's own SEGV reporter can
   print the stack.
 
+## 2b. A green msvc build is NOT evidence the sanitizer CI will compile
+
+Every sanitizer job — the three Linux ones *and* Windows clang-cl — builds with
+Clang, which is stricter than MSVC's default conformance. A branch can be fully
+green locally (build + 5000-test suite + live editor verification) and still fail
+**all four** jobs at the compile step, on one error.
+
+The case that produced this note (issue #607, PR #687): a **default argument
+using a nested class's default member initializers**.
+
+```cpp
+class GPUResourceInspector {
+    struct CaptureRegion { u32 X = 0; /* … */ };                 // NSDMIs
+    static Result CaptureTexturePng(/*…*/, CaptureRegion r = {}); // ← Clang: error
+};
+```
+
+> `error: default member initializer for 'X' needed within definition of
+> enclosing class 'GPUResourceInspector' outside of member functions`
+
+A nested class's NSDMIs are not usable from the *enclosing* class's
+complete-class context while that class is still incomplete
+(`[class.mem.general]`). MSVC accepts it; Clang is right to refuse. The fix is to
+define the struct at **namespace scope** and alias it back in, which keeps every
+`Outer::CaptureRegion{…}` call site spelled the same:
+
+```cpp
+struct GPUCaptureRegion { u32 X = 0; /* … */ };
+class GPUResourceInspector { using CaptureRegion = GPUCaptureRegion; /* … */ };
+```
+
+**Cheap pre-push check — seconds, no second build tree.** A full `clangcl`
+configure+build is a cold vendor build (~1 h), so it is not a practical gate for
+a one-file change. Syntax-only compile the touched TUs instead, reusing the msvc
+tree's own include dirs:
+
+```bash
+# Union the include dirs CMake already computed for the target.
+grep -o '<AdditionalIncludeDirectories>[^<]*' build/OloEngine/src/OloEngine.vcxproj \
+  | head -1 | sed 's|<AdditionalIncludeDirectories>||' | tr ';' '\n' \
+  | grep -v '%(' | grep -v '^$' > /tmp/incs.txt
+
+export MSYS2_ARG_CONV_EXCL='*'          # or Git Bash mangles /std:, /I, /EHsc
+INC=$(sed 's|^|/I|' /tmp/incs.txt | tr '\n' ' ')
+"/c/Program Files/LLVM/bin/clang-cl.exe" /std:c++latest /EHsc $INC \
+    /clang:-fsyntax-only /clang:-w /TP /c 'C:\path\to\Changed.cpp'
+```
+
+Two traps: pass the source as a **Windows** path (clang-cl can't open `/tmp/x.cpp`),
+and use the **tests** project's include dirs (`build/OloEngine/tests/…vcxproj`,
+plus `OloEngine/vendor/googletest-src/{googletest,googlemock}/include`) when
+checking a test or an `OloEditor/src/MCP/*.cpp` TU — the sanitizer jobs build the
+`OloEngine-Tests` target, which compiles the MCP editor sources too.
+
+**Confirm the check is load-bearing**: `git stash` the fix, re-run, and verify it
+reproduces the CI error at the same line. A syntax-only check that silently
+skipped the header would otherwise "pass" for any change at all.
+
 ## 3. A fresh worktree's first `cmake --preset msvc` can wedge on the GameNetworkingSockets/WebRTC vendor clone
 
 Each git worktree gets its own independent `OloEngine/vendor/` — nothing is
