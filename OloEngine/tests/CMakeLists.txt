@@ -99,6 +99,7 @@ add_executable(OloEngine-Tests
 		Rendering/VirtualMeshBuilderTest.cpp
 		Rendering/VirtualMeshCookIdentityTest.cpp
 		Rendering/VirtualClusterCullParityTest.cpp
+		Rendering/VirtualClusterTwoPhaseOcclusionTest.cpp
 		Rendering/MeshSourceBoundsTest.cpp
 		Rendering/MeshBVHRaycastTest.cpp
 		Rendering/PODCommandTest.cpp

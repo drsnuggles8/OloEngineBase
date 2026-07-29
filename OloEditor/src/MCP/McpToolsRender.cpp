@@ -1928,6 +1928,7 @@ namespace OloEngine::MCP
                 lever.DepthPrepassEnabled = Renderer3D::IsDepthPrepassEnabled();
                 lever.DepthPrepassAuto = Renderer3D::ComputeSettingsDerivedDepthPrepass();
                 lever.SoftShadows = Renderer3D::GetShadowMap().GetSettings().SoftShadows;
+                lever.HZBOcclusion = Renderer3D::IsHZBOcclusionCullingEnabled();
                 return lever;
             };
 
@@ -1966,6 +1967,13 @@ namespace OloEngine::MCP
                     ShadowSettings shadow = Renderer3D::GetShadowMap().GetSettings();
                     shadow.SoftShadows = lever.SoftShadows;
                     Renderer3D::GetShadowMap().SetSettings(shadow);
+                }
+                else if (setting == Setting::HZBOcclusion)
+                {
+                    // Turning it OFF also invalidates the retained pyramid, so a
+                    // later re-enable starts cleanly from that frame's depth — the
+                    // first frame after an 'on' is therefore frustum-only.
+                    Renderer3D::EnableHZBOcclusionCulling(lever.HZBOcclusion);
                 }
                 else
                 {
@@ -4054,6 +4062,10 @@ namespace OloEngine::MCP
                 cullJson["hardwareDraws"] = cull.HardwareDraws;
                 cullJson["softwareRasterized"] = cull.SoftwareRasterized;
                 cullJson["drawnClusters"] = cull.DrawnClusters();
+                // Two-phase occlusion (issue #682): clusters phase 1 found hidden
+                // by the PREVIOUS frame's depth pyramid that phase 2 recovered
+                // against this frame's. Already included in the counts above.
+                cullJson["phase2Recovered"] = cull.Phase2Recovered;
 
                 Json residencyJson;
                 residencyJson["totalPages"] = residency.TotalPages;

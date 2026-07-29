@@ -1058,6 +1058,7 @@ namespace OloEngine
         static constexpr u32 SSBO_VIRTUAL_VISBUFFER = 41;     // uvec2[width*height] visibility buffer: .y = depth bits (atomicMin), .x = (visibleSlot << 9 | tri)
         static constexpr u32 SSBO_VIRTUAL_INDICES = 42;       // u32[]: pooled cluster-local index buffer (same GL buffer the MDI path uses as element array)
         static constexpr u32 SSBO_VIRTUAL_GROUP_STATES = 43;  // u32[group]: bit0 = page resident (CPU), bit1 = page requested (GPU atomicOr), bit2 = touched for LRU (GPU atomicOr)
+        static constexpr u32 SSBO_VIRTUAL_REJECTED = 44;      // { uint Count; pad[3]; VirtualVisibleCluster[] }: clusters the two-phase cull's phase 1 found hidden by the PREVIOUS frame's Hi-Z, re-tested by phase 2 (issue #682)
 
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE

@@ -1498,6 +1498,25 @@ namespace OloEngine
         static void DispatchOcclusionPhase2(const GPUFrustumCuller::TwoPhaseCullResult& cull,
                                             const GPUFrustumCuller::HZBOcclusionInputs& currentHZB);
 
+        // The RETAINED occlusion pyramid, i.e. the one GenerateOcclusionHZB()
+        // built at the tail of the PREVIOUS EndScene from that frame's FINAL
+        // depth — so unlike BuildCurrentOcclusionHZB's mid-frame rebuild it
+        // already contains last frame's virtual geometry. Phase 1 of the
+        // virtualized-geometry two-phase cull consumes it (issue #682), which is
+        // what lets a VG occluder cull the VG behind it.
+        //
+        // `PrevViewProjection` is last frame's VP made relative to THIS frame's
+        // render origin, matching the render-origin-relative instance transforms
+        // the cull reads (same treatment RenderPipeline gives the instance cull).
+        //
+        // ORDERING: valid only until something rebuilds the pyramid this frame.
+        // BuildCurrentOcclusionHZB overwrites it in place, so any consumer must
+        // read this BEFORE calling that — VirtualGeometryPass runs before
+        // DeferredGPUOcclusionPass in the deferred graph for exactly this reason.
+        // Returns a non-usable struct on frame 0, with HZB culling off, or after
+        // an invalidation (the frustum-and-cone-only fallback).
+        [[nodiscard]] static GPUFrustumCuller::HZBOcclusionInputs GetRetainedOcclusionHZB();
+
       private:
         [[nodiscard]] static GPUDrivenOcclusionPass* GetGPUOcclusionPass();
         // Deferred two-phase occlusion (#486). Exposes the deferred phase-2 pass

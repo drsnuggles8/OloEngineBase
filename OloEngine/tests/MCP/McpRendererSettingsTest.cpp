@@ -368,6 +368,35 @@ TEST(McpRendererSettingsApply, SoftShadowsPcfDisablesPcssAndReportsPrior)
     EXPECT_TRUE(lever.SoftShadows);
 }
 
+// The Hi-Z occlusion lever (issue #682): the A/B switch an agent needs to verify
+// occlusion culling live over MCP. It drives BOTH two-phase culls — the instanced
+// batches (#431/#486) and the virtual-geometry clusters — so without it the only
+// way to A/B either was a rebuild.
+TEST(McpRendererSettingsApply, HZBOcclusionTogglesTheLeverAndReportsPrior)
+{
+    PostProcessSettings pp;
+    RendererSettings rs;
+    RS::LeverState lever;
+    lever.HZBOcclusion = false; // engine default: off
+
+    const auto result = RS::Apply(RS::Setting::HZBOcclusion, RS::kHZBOcclusionOn, pp, rs, lever);
+    ASSERT_TRUE(result.Ok);
+    EXPECT_TRUE(lever.HZBOcclusion);
+    EXPECT_EQ(result.Data["previousValue"], "off");
+    EXPECT_EQ(result.Data["value"], "on");
+    EXPECT_EQ(result.Data["restoreWith"], "off");
+    EXPECT_TRUE(result.Data["changed"].get<bool>());
+
+    // Restore by setting the reported prior value back.
+    const auto restored = RS::Apply(RS::Setting::HZBOcclusion, RS::kHZBOcclusionOff, pp, rs, lever);
+    ASSERT_TRUE(restored.Ok);
+    EXPECT_FALSE(lever.HZBOcclusion);
+
+    // A settings write must never touch the other levers.
+    EXPECT_FALSE(lever.DepthPrepassEnabled);
+    EXPECT_FALSE(lever.SoftShadows);
+}
+
 // Describe reads the lever state for the two new settings — 'auto' is
 // write-only, so the current value is always off/on.
 TEST(McpRendererSettingsApply, DescribeReportsLeverCurrentValues)

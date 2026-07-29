@@ -74,6 +74,7 @@ namespace OloEngine::MCP::RendererSettings
         RenderPath,   // RendererSettings::Path        (forward / forward+ / deferred)
         DepthPrepass, // LeverState::DepthPrepassEnabled (Renderer3D live toggle; 'auto' = settings-derived)
         SoftShadows,  // LeverState::SoftShadows       (ShadowSettings::SoftShadows: PCSS vs PCF)
+        HZBOcclusion, // LeverState::HZBOcclusion      (Renderer3D::EnableHZBOcclusionCulling)
     };
 
     // Live renderer state the perf-lever settings (#316) read/write. These are NOT
@@ -88,6 +89,7 @@ namespace OloEngine::MCP::RendererSettings
         bool DepthPrepassEnabled = false; // live effective value (Renderer3D::IsDepthPrepassEnabled)
         bool DepthPrepassAuto = false;    // what 'auto' resolves to (Renderer3D::ComputeSettingsDerivedDepthPrepass)
         bool SoftShadows = false;         // live ShadowSettings::SoftShadows
+        bool HZBOcclusion = false;        // live Renderer3D::IsHZBOcclusionCullingEnabled
     };
 
     // Engine integers of the depthprepass tri-token. 'off'/'on' mirror the live
@@ -99,6 +101,9 @@ namespace OloEngine::MCP::RendererSettings
 
     inline constexpr i32 kSoftShadowsPcf = 0;
     inline constexpr i32 kSoftShadowsPcss = 1;
+
+    inline constexpr i32 kHZBOcclusionOff = 0;
+    inline constexpr i32 kHZBOcclusionOn = 1;
 
     // One allowed value of an enum-valued setting: the stable, user-facing token the
     // agent passes, the underlying engine enum integer, and a human description.
@@ -144,6 +149,11 @@ namespace OloEngine::MCP::RendererSettings
         { "pcss", kSoftShadowsPcss, "Percentage-Closer Soft Shadows (contact-hardening variable penumbra; expensive blocker search)" },
     } };
 
+    inline constexpr std::array<EnumValue, 2> kHZBOcclusionValues = { {
+        { "off", kHZBOcclusionOff, "No Hi-Z occlusion culling — instanced batches and virtual-geometry clusters are frustum-culled only" },
+        { "on", kHZBOcclusionOn, "Two-phase Hi-Z occlusion culling for instanced batches (#431/#486) and virtual-geometry clusters (#682)" },
+    } };
+
     // Setting token + description + which struct field it targets (documented only).
     struct SettingInfo
     {
@@ -152,7 +162,7 @@ namespace OloEngine::MCP::RendererSettings
         std::string_view Description;
     };
 
-    inline constexpr std::array<SettingInfo, 5> kSettings = { {
+    inline constexpr std::array<SettingInfo, 6> kSettings = { {
         { "upscale", Setting::Upscale,
           "FSR1 spatial-upscale quality preset (PostProcess.Upscale). Off is native resolution; the other presets render "
           "below display resolution and EASU-upscale the HDR scene colour back to display res (#480)." },
@@ -169,6 +179,13 @@ namespace OloEngine::MCP::RendererSettings
           "Directional-shadow filtering (ShadowSettings.SoftShadows): 'pcss' = contact-hardening soft shadows, 'pcf' = "
           "fixed 3x3 hardware PCF. THE dominant ScenePass perf lever in shadowed scenes (#316: PCSS was ~93% of "
           "ScenePass at 1080p Sponza)." },
+        { "hzbocclusion", Setting::HZBOcclusion,
+          "GPU Hi-Z occlusion culling (Renderer3D::EnableHZBOcclusionCulling), off by default. Drives BOTH two-phase "
+          "culls: instanced static batches (#431/#486) and virtualized-geometry clusters (#682, where phase 1 tests "
+          "the PREVIOUS frame's pyramid so virtual geometry can occlude virtual geometry). Toggling it off "
+          "invalidates the retained pyramid, so the first frame after re-enabling is frustum-only. This is the "
+          "A/B lever for occlusion work — pair it with olo_virtual_geometry_stats / the RendererProfiler to see "
+          "the drawn-cluster and instance counts move." },
     } };
 
     // Lowercase + drop every non-alphanumeric character so "Ultra Performance",
@@ -202,6 +219,8 @@ namespace OloEngine::MCP::RendererSettings
                 return kDepthPrepassValues;
             case Setting::SoftShadows:
                 return kSoftShadowValues;
+            case Setting::HZBOcclusion:
+                return kHZBOcclusionValues;
         }
         return {};
     }
@@ -298,8 +317,8 @@ namespace OloEngine::MCP::RendererSettings
     [[nodiscard]] inline Json InputSchema()
     {
         return Schema::Object()
-            .Prop("setting", Schema::String().Enum({ "upscale", "tonemap", "renderpath", "depthprepass", "softshadows" }).Desc("Which renderer / post-process setting to set. Omit both arguments to list every setting with its current value and allowed values."))
-            .Prop("value", Schema::String().Desc("The new value token for the chosen setting — upscale: off|quality|balanced|performance|ultraperformance; tonemap: none|reinhard|aces|uncharted2; renderpath: forward|forwardplus|deferred; depthprepass: off|on|auto; softshadows: pcf|pcss. Call with no arguments to discover the valid tokens for each setting."))
+            .Prop("setting", Schema::String().Enum({ "upscale", "tonemap", "renderpath", "depthprepass", "softshadows", "hzbocclusion" }).Desc("Which renderer / post-process setting to set. Omit both arguments to list every setting with its current value and allowed values."))
+            .Prop("value", Schema::String().Desc("The new value token for the chosen setting — upscale: off|quality|balanced|performance|ultraperformance; tonemap: none|reinhard|aces|uncharted2; renderpath: forward|forwardplus|deferred; depthprepass: off|on|auto; softshadows: pcf|pcss; hzbocclusion: off|on. Call with no arguments to discover the valid tokens for each setting."))
             .NoAdditional();
     }
 
@@ -372,6 +391,8 @@ namespace OloEngine::MCP::RendererSettings
                 return lever.DepthPrepassEnabled ? kDepthPrepassOn : kDepthPrepassOff;
             case Setting::SoftShadows:
                 return lever.SoftShadows ? kSoftShadowsPcss : kSoftShadowsPcf;
+            case Setting::HZBOcclusion:
+                return lever.HZBOcclusion ? kHZBOcclusionOn : kHZBOcclusionOff;
         }
         return 0;
     }
@@ -426,6 +447,9 @@ namespace OloEngine::MCP::RendererSettings
                 break;
             case Setting::SoftShadows:
                 lever.SoftShadows = value == kSoftShadowsPcss;
+                break;
+            case Setting::HZBOcclusion:
+                lever.HZBOcclusion = value == kHZBOcclusionOn;
                 break;
         }
 

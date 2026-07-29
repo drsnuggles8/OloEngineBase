@@ -58,8 +58,12 @@ namespace OloEngine
         u32 InstanceCount = 0;
         u32 TestedClusters = 0;     // clusters the cull dispatched a thread for
         u32 CutSelected = 0;        // passed the view-dependent DAG-cut rule
-        u32 HardwareDraws = 0;      // survivors routed to the hardware MDI path
-        u32 SoftwareRasterized = 0; // survivors routed to the compute SW rasterizer
+        u32 HardwareDraws = 0;      // survivors routed to the hardware MDI path (both phases)
+        u32 SoftwareRasterized = 0; // survivors routed to the compute SW rasterizer (both phases)
+        // Two-phase occlusion (issue #682): clusters phase 1 found hidden by the
+        // PREVIOUS frame's depth pyramid that phase 2 recovered against this
+        // frame's — the disocclusion set. Already counted in the two totals above.
+        u32 Phase2Recovered = 0;
         [[nodiscard]] u32 DrawnClusters() const
         {
             return HardwareDraws + SoftwareRasterized;
@@ -323,6 +327,15 @@ namespace OloEngine
         {
             return m_SwListBuffer;
         }
+        // Two-phase occlusion reject list (issue #682): { u32 Count; pad[3];
+        // VirtualVisibleCluster[TotalFrameClusterCount] }. Phase 1 appends the
+        // clusters the previous frame's pyramid hid; phase 2 re-tests exactly
+        // those. Capacity is the frame's cluster count, and each cluster gets
+        // one phase-1 thread, so it can never overflow.
+        [[nodiscard]] const Ref<StorageBuffer>& GetRejectListBuffer() const
+        {
+            return m_RejectListBuffer;
+        }
         [[nodiscard]] const Ref<StorageBuffer>& GetVisbufferBuffer() const
         {
             return m_VisbufferBuffer;
@@ -423,9 +436,10 @@ namespace OloEngine
         // Mutable because that readback is const — it observes the frame, it doesn't build it.
         mutable u32 m_ArgsReadbackID = 0;
         mutable u32 m_ArgsReadbackBytes = 0;
-        Ref<StorageBuffer> m_VisibleBuffer;   // SSBO_VIRTUAL_VISIBLE
-        Ref<StorageBuffer> m_SwListBuffer;    // SSBO_VIRTUAL_SW_LIST (16-byte header + records)
-        Ref<StorageBuffer> m_VisbufferBuffer; // SSBO_VIRTUAL_VISBUFFER (uvec2 per pixel)
+        Ref<StorageBuffer> m_VisibleBuffer;    // SSBO_VIRTUAL_VISIBLE
+        Ref<StorageBuffer> m_SwListBuffer;     // SSBO_VIRTUAL_SW_LIST (16-byte header + records)
+        Ref<StorageBuffer> m_RejectListBuffer; // SSBO_VIRTUAL_REJECTED (16-byte header + records, issue #682)
+        Ref<StorageBuffer> m_VisbufferBuffer;  // SSBO_VIRTUAL_VISBUFFER (uvec2 per pixel)
         u32 m_VisbufferWidth = 0;
         u32 m_VisbufferHeight = 0;
 

@@ -222,6 +222,7 @@ TEST(ShaderBindingLayout, SSBOSlotUniqueness)
     checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_VISBUFFER, "SSBO_VIRTUAL_VISBUFFER");
     checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_INDICES, "SSBO_VIRTUAL_INDICES");
     checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_GROUP_STATES, "SSBO_VIRTUAL_GROUP_STATES");
+    checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_REJECTED, "SSBO_VIRTUAL_REJECTED");
 }
 
 // =============================================================================

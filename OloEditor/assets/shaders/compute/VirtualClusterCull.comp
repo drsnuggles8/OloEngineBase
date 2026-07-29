@@ -20,6 +20,20 @@
 // Frustum planes are derived from u_ViewProjection with the same row-of-VP
 // technique as InstanceFrustumCull.comp / Frustum::Update() — keeping that
 // math in sync with the C++ side is a load-bearing invariant.
+//
+// TWO-PHASE OCCLUSION (issue #682). The shader runs twice per frame:
+//   * PHASE 1 (u_Phase2 == 0, one dispatch per instance, u_InstanceIndex) — the
+//     full cut + frustum + cone, then a Hi-Z test against the PREVIOUS frame's
+//     depth pyramid. That pyramid was built from last frame's FINAL depth, so it
+//     contains virtual geometry: this is the step that lets a foreground VG
+//     building occlude the VG city behind it. A hit is appended to the reject
+//     list (u_WriteRejected) rather than dropped.
+//   * PHASE 2 (u_Phase2 != 0, one dispatch over the reject list) — after the
+//     phase-1 survivors have been drawn and the pyramid rebuilt from the now
+//     current depth, every reject is re-tested against it and the ones that
+//     turned out visible are emitted into a second command region.
+// Phase 1 may therefore reject wrongly (reprojection error, camera cut,
+// disocclusion) with no visible consequence; only a phase-2 reject is final.
 
 layout(local_size_x = 64) in;
 
@@ -103,6 +117,20 @@ layout(std430, binding = 40) buffer VirtualSwList {
 //   bit0 = page resident (CPU-written), bit1 = requested (GPU), bit2 = touched (GPU LRU).
 layout(std430, binding = 43) buffer VirtualGroupStates { uint groupStates[]; };
 
+// Two-phase occlusion reject list (issue #682), the cluster-level analogue of
+// InstanceOcclusionCull.comp's InstanceCullRejected buffer. In PHASE 1 a
+// cluster that survives the DAG cut + frustum + cone but is hidden by the
+// PREVIOUS frame's depth pyramid is appended here instead of being dropped;
+// PHASE 2 re-tests exactly these against a pyramid rebuilt from THIS frame's
+// depth and emits the ones that turned out visible. Only touched when
+// u_WriteRejected / u_Phase2 are set, so single-phase callers (the shadow
+// cascades, the parity test) never bind it.
+layout(std430, binding = 44) buffer VirtualRejectList {
+    uint Count;
+    uint _j0; uint _j1; uint _j2;
+    VisibleCluster Records[];
+} rejectList;
+
 layout(std140, binding = 0) uniform CameraMatrices
 {
     mat4 u_ViewProjection;
@@ -119,19 +147,36 @@ uniform int u_OrthoMode;                  // 1 = orthographic view (shadow casca
                                           //     no cone/backface or SW routing (shadows need back faces)
 uniform float u_OrthoErrorScale;          // ortho mode: pixels per world-space error unit
 
-// Hi-Z occlusion (issue #629): reject clusters whose screen-space bounding
-// rectangle is entirely behind THIS frame's scene-depth pyramid (occluders
-// already drawn by ScenePass). Same-frame, so bounds project with the current
-// u_ViewProjection — no reprojection (unlike the instance phase-1 cull). Never
-// in ortho/shadow mode: shadow maps must rasterize every caster. Conservative,
-// exactly like InstanceOcclusionCull.comp — a false survivor only wastes a
-// draw, a false cull would punch a visible hole.
+// Hi-Z occlusion (issue #629, made two-phase by #682): reject clusters whose
+// screen-space bounding rectangle is entirely behind a max-reduction scene-depth
+// pyramid. Never in ortho/shadow mode: shadow maps must rasterize every caster.
+// Conservative, exactly like InstanceOcclusionCull.comp — a false survivor only
+// wastes a draw, a false cull would punch a visible hole.
+//
+// WHICH pyramid depends on the phase, and u_OcclusionViewProjection always names
+// the VP that MATCHES the bound pyramid:
+//   * phase 1 — the PREVIOUS frame's final-depth pyramid, which already contains
+//     last frame's virtual geometry (that is what makes VG occlude VG), so the
+//     bounds are reprojected with the previous frame's VP and the cluster's
+//     PrevTransform;
+//   * phase 2 — a pyramid rebuilt from THIS frame's depth (opaque scene + the
+//     phase-1 virtual-geometry draws), so the current VP and current transform.
 layout(binding = 0) uniform sampler2D u_HZB; // max-reduction depth pyramid (device-Z, smaller = nearer)
 uniform int   u_OcclusionEnabled;    // 0 = skip the Hi-Z test entirely
+uniform mat4  u_OcclusionViewProjection; // the VP the bound pyramid was rendered with
 uniform vec2  u_HZBSize;             // HZB texture size in texels (power-of-2)
 uniform vec2  u_HZBUVFactor;         // viewport / HZB size — screenUV -> HZB UV
 uniform int   u_HZBMipCount;         // mip levels in the HZB pyramid
 uniform float u_OcclusionDepthBias;  // device-Z slack before a reject fires
+
+// ── Two-phase controls (issue #682). All default to 0, so the shadow cascades
+// and the GPU/CPU parity test — which set none of them — keep the exact
+// single-phase behaviour and never touch the reject buffer. ──
+uniform int  u_WriteRejected;    // phase 1: defer an occluded cluster to the reject list instead of dropping it
+uniform int  u_Phase2;           // 1 = re-test the reject list against the freshly built pyramid
+uniform uint u_RejectCapacity;   // reject-list record capacity (this frame's total cluster count)
+uniform uint u_CommandSlotBase;  // added to inst.CommandBase — 0 in phase 1, the frame's cluster count in phase 2
+uniform uint u_ArgsSlotBase;     // added to the instance index when indexing args[] — 0 / the frame's instance count
 
 const uint kNoRefinedGroup = 0xFFFFFFFFu;
 
@@ -182,11 +227,11 @@ vec4 extractPlane(int col, float colSign)
     return p / len;
 }
 
-// True when the world-space cull sphere is fully hidden by the current-frame
-// HZB (safe to cull). Mirrors InstanceOcclusionCull.comp::isOccluded, but with
-// the CURRENT view-projection (the pyramid is this frame's scene depth, not a
-// retained previous-frame one). Conservative: returns false — keep the cluster —
-// whenever the projection is unreliable.
+// True when the world-space cull sphere is fully hidden by the bound HZB (safe
+// to cull). Mirrors InstanceOcclusionCull.comp::isOccluded. Bounds project with
+// u_OcclusionViewProjection — the VP that matches the bound pyramid, NOT
+// necessarily this frame's camera (see the uniform block above). Conservative:
+// returns false — keep the cluster — whenever the projection is unreliable.
 bool IsOccluded(vec3 worldCenter, float worldRadius)
 {
     // Screen-space rectangle + nearest device-Z of the sphere's world AABB.
@@ -199,7 +244,7 @@ bool IsOccluded(vec3 worldCenter, float worldRadius)
             (i & 1) != 0 ? 1.0 : -1.0,
             (i & 2) != 0 ? 1.0 : -1.0,
             (i & 4) != 0 ? 1.0 : -1.0);
-        vec4 clip = u_ViewProjection * vec4(corner, 1.0);
+        vec4 clip = u_OcclusionViewProjection * vec4(corner, 1.0);
         if (clip.w <= 0.0)
             return false; // straddles / behind camera — cannot project safely
         vec3 ndc = clip.xyz / clip.w;
@@ -245,8 +290,120 @@ bool IsOccluded(vec3 worldCenter, float worldRadius)
     return nearestZ > occluderZ + u_OcclusionDepthBias;
 }
 
+// ── Survivor emit, shared by both cull phases ──
+// Routing: small-coverage clusters go to the compute software rasterizer;
+// large or near-plane-crossing clusters take the hardware MDI path (the SW
+// raster does no clipping).
+//
+// bit1 = alpha-masked/blended material. Those NEVER software-rasterize: the compute
+// rasterizer resolves depth with an atomic min and has no texture access, so it cannot
+// run the cutout test — a fully transparent texel would still win the depth race, and
+// the resolve pass (which does run the cutout) would then discard it, leaving whatever
+// was behind it unshaded. Sponza's potted plants rendered as white speckle exactly this
+// way. The hardware path has a real fragment shader and discards before writing depth.
+// Same restriction UE5's Nanite has: masked materials are excluded from the fast raster.
+//
+// bit2 (two-sided) does NOT exclude a cluster from the SW path: the rasterizer keeps
+// negative-area triangles for those instances and the resolve flips the barycentric
+// sign, so double-sided geometry keeps the fast path instead of being forced to HW.
+//
+// Phase 2 emits into a SEPARATE command/visible region and a separate args slot
+// (u_CommandSlotBase / u_ArgsSlotBase), because the phase-1 MDI has already
+// consumed its own segment by the time phase 2 runs — appending there would make
+// the second replay re-issue every phase-1 draw.
+void EmitSurvivor(uint instanceIndex, uint clusterIndex, VirtualInstance inst, VirtualCluster cluster,
+                  vec3 worldCenter, float worldRadius, vec4 nearPlane)
+{
+    uint argsIndex = instanceIndex + u_ArgsSlotBase;
+
+    bool alphaMasked = (inst.Flags & 2u) != 0u;
+    if (u_SwRasterThresholdPixels > 0.0 && u_OrthoMode == 0 && !alphaMasked)
+    {
+        float dist = length(worldCenter - u_CameraPosition);
+        float denom = max(dist - worldRadius, NearPlane());
+        float projRadiusPixels = worldRadius / denom * (u_Projection[1][1] * 0.5) * u_ViewportHeight;
+        // Sphere fully in front of the near plane <=> signed distance exceeds
+        // the radius (with margin for w-precision).
+        float nearDistance = dot(nearPlane.xyz, worldCenter) + nearPlane.w;
+        bool nearSafe = nearDistance > worldRadius * 1.05;
+        if (projRadiusPixels < u_SwRasterThresholdPixels && nearSafe)
+        {
+            uint swSlot = atomicAdd(swList.Count, 1);
+            VisibleCluster swRecord;
+            swRecord.InstanceIndex = instanceIndex;
+            swRecord.ClusterIndex = clusterIndex;
+            swRecord._p0 = 0u;
+            swRecord._p1 = 0u;
+            swList.Records[swSlot] = swRecord;
+            atomicAdd(args[argsIndex].SwCount, 1);
+            return;
+        }
+    }
+
+    // Compacted append into this instance's command segment
+    uint localSlot = atomicAdd(args[argsIndex].DrawCount, 1);
+    uint globalSlot = u_CommandSlotBase + inst.CommandBase + localSlot;
+
+    DrawCommand command;
+    command.Count = cluster.IndexCount;
+    command.InstanceCount = 1u;
+    command.FirstIndex = cluster.IndexBase;
+    command.BaseVertex = cluster.VertexBase;
+    command.BaseInstance = globalSlot; // gl_BaseInstance keys the VisibleCluster record
+    command._p0 = 0u;
+    command._p1 = 0u;
+    command._p2 = 0u;
+    commands[globalSlot] = command;
+
+    VisibleCluster record;
+    record.InstanceIndex = instanceIndex;
+    record.ClusterIndex = clusterIndex;
+    record._p0 = 0u;
+    record._p1 = 0u;
+    visible[globalSlot] = record;
+}
+
+// ── PHASE 2 (issue #682) ──
+// One thread per phase-1 reject. The DAG cut, frustum and cone verdicts were
+// already made in phase 1 and do not change within a frame — only the occlusion
+// verdict is refreshed, against the pyramid rebuilt from this frame's depth
+// (UE sets bSkipCullFrustum in CULLING_PASS_OCCLUSION_POST for the same reason).
+// A reject that is still hidden stays culled; one that turned out visible is
+// emitted here, which is what makes a phase-1 mis-reject impossible to see.
+void Phase2()
+{
+    // 2D dispatch flattening keeps large reject lists under the 65535 per-axis
+    // cap (same idiom as VirtualClusterRaster.comp's work list).
+    uint groupIndex = gl_WorkGroupID.x + gl_WorkGroupID.y * gl_NumWorkGroups.x;
+    uint idx = groupIndex * gl_WorkGroupSize.x + gl_LocalInvocationID.x;
+    if (idx >= min(rejectList.Count, u_RejectCapacity))
+        return; // dispatched at a conservative upper bound
+
+    VisibleCluster rejected = rejectList.Records[idx];
+    VirtualInstance inst = instances[rejected.InstanceIndex];
+    VirtualCluster cluster = clusters[rejected.ClusterIndex];
+
+    vec3 worldCenter = (inst.Transform * vec4(cluster.CullSphere.xyz, 1.0)).xyz;
+    float worldRadius = cluster.CullSphere.w * inst.MaxScale;
+
+    // u_OcclusionEnabled == 0 here means the current-frame pyramid could not be
+    // built — then EVERY reject is emitted, because a phase-1 reject that is
+    // never re-tested is exactly the hole this scheme must not have.
+    if (u_OcclusionEnabled != 0 && u_HZBMipCount > 0 && IsOccluded(worldCenter, worldRadius))
+        return; // still hidden by this frame's depth — correctly culled
+
+    EmitSurvivor(rejected.InstanceIndex, rejected.ClusterIndex, inst, cluster,
+                 worldCenter, worldRadius, extractPlane(2, 1.0)); // near plane, current VP
+}
+
 void main()
 {
+    if (u_Phase2 != 0)
+    {
+        Phase2();
+        return;
+    }
+
     uint localIndex = gl_GlobalInvocationID.x;
     VirtualInstance inst = instances[u_InstanceIndex];
     if (localIndex >= inst.ClusterCount)
@@ -328,75 +485,49 @@ void main()
             return; // entire cluster faces away
     }
 
-    // ── Hi-Z occlusion cull (main/perspective view only — shadow cascades must
-    // rasterize every caster). Tests the cluster's cull sphere against this
-    // frame's scene-depth pyramid; conservative, so it never removes a visible
-    // cluster (no cracks). Clusters hidden behind already-drawn opaque geometry
-    // are dropped before both the hardware MDI and software-raster routing. ──
-    if (u_OcclusionEnabled != 0 && u_OrthoMode == 0 && u_HZBMipCount > 0 &&
-        IsOccluded(worldCenter, worldRadius))
-    {
-        return; // fully behind recorded scene depth
-    }
-
-    // ── Routing: small-coverage clusters go to the compute software
-    // rasterizer; large or near-plane-crossing clusters take the hardware
-    // MDI path (the SW raster does no clipping) ──
+    // ── Hi-Z occlusion cull, PHASE 1 (main/perspective view only — shadow
+    // cascades must rasterize every caster). The bound pyramid is the PREVIOUS
+    // frame's final depth, which already contains last frame's virtual geometry
+    // — that is what lets a VG occluder cull the VG behind it (issue #682); a
+    // same-frame pyramid can only ever hold the classic-path occluders drawn
+    // before this pass. Because it is last frame's screen space, the bounds are
+    // reprojected: where the cluster WAS (PrevTransform, identical to Transform
+    // for a static instance) through the VP that matches the pyramid — the same
+    // reprojection InstanceOcclusionCull.comp does.
     //
-    // bit1 = alpha-masked/blended material. Those NEVER software-rasterize: the compute
-    // rasterizer resolves depth with an atomic min and has no texture access, so it cannot
-    // run the cutout test — a fully transparent texel would still win the depth race, and
-    // the resolve pass (which does run the cutout) would then discard it, leaving whatever
-    // was behind it unshaded. Sponza's potted plants rendered as white speckle exactly this
-    // way. The hardware path has a real fragment shader and discards before writing depth.
-    // Same restriction UE5's Nanite has: masked materials are excluded from the fast raster.
-    //
-    // bit2 (two-sided) does NOT exclude a cluster from the SW path: the rasterizer keeps
-    // negative-area triangles for those instances and the resolve flips the barycentric
-    // sign, so double-sided geometry keeps the fast path instead of being forced to HW.
-    bool alphaMasked = (inst.Flags & 2u) != 0u;
-    if (u_SwRasterThresholdPixels > 0.0 && u_OrthoMode == 0 && !alphaMasked)
+    // A hit is DEFERRED, not dropped: the cluster goes on the reject list and
+    // phase 2 re-tests it against this frame's depth. So phase 1 is allowed to
+    // be wrong in the reject direction (reprojection error, a camera cut, a
+    // disocclusion) — phase 2 always recovers it, which is the property that
+    // keeps the two-phase scheme hole-free. ──
+    if (u_OcclusionEnabled != 0 && u_OrthoMode == 0 && u_HZBMipCount > 0)
     {
-        float dist = length(worldCenter - u_CameraPosition);
-        float denom = max(dist - worldRadius, NearPlane());
-        float projRadiusPixels = worldRadius / denom * (u_Projection[1][1] * 0.5) * u_ViewportHeight;
-        // planes[4] is the near plane: sphere fully in front <=> signed
-        // distance exceeds the radius (with margin for w-precision).
-        float nearDistance = dot(planes[4].xyz, worldCenter) + planes[4].w;
-        bool nearSafe = nearDistance > worldRadius * 1.05;
-        if (projRadiusPixels < u_SwRasterThresholdPixels && nearSafe)
+        mat4 prev = inst.PrevTransform;
+        vec3 occCenter = (prev * vec4(cluster.CullSphere.xyz, 1.0)).xyz;
+        float occScale = max(max(length(prev[0].xyz), length(prev[1].xyz)), length(prev[2].xyz));
+        float occRadius = cluster.CullSphere.w * occScale;
+        if (IsOccluded(occCenter, occRadius))
         {
-            uint swSlot = atomicAdd(swList.Count, 1);
-            VisibleCluster swRecord;
-            swRecord.InstanceIndex = u_InstanceIndex;
-            swRecord.ClusterIndex = clusterIndex;
-            swRecord._p0 = 0u;
-            swRecord._p1 = 0u;
-            swList.Records[swSlot] = swRecord;
-            atomicAdd(args[u_InstanceIndex].SwCount, 1);
-            return;
+            if (u_WriteRejected == 0)
+                return; // single-phase caller: simply cull
+
+            uint slot = atomicAdd(rejectList.Count, 1u);
+            if (slot < u_RejectCapacity)
+            {
+                VisibleCluster rejected;
+                rejected.InstanceIndex = u_InstanceIndex;
+                rejected.ClusterIndex = clusterIndex;
+                rejected._p0 = 0u;
+                rejected._p1 = 0u;
+                rejectList.Records[slot] = rejected;
+                return; // handed to phase 2
+            }
+            // List full. Unreachable while the capacity is this frame's cluster
+            // count (each cluster gets exactly one phase-1 thread), but a silent
+            // overrun would corrupt memory and a silent drop would punch a hole,
+            // so fall through and draw the cluster now instead.
         }
     }
 
-    // ── Survivor: compacted append into this instance's command segment ──
-    uint localSlot = atomicAdd(args[u_InstanceIndex].DrawCount, 1);
-    uint globalSlot = inst.CommandBase + localSlot;
-
-    DrawCommand command;
-    command.Count = cluster.IndexCount;
-    command.InstanceCount = 1u;
-    command.FirstIndex = cluster.IndexBase;
-    command.BaseVertex = cluster.VertexBase;
-    command.BaseInstance = globalSlot; // gl_BaseInstance keys the VisibleCluster record
-    command._p0 = 0u;
-    command._p1 = 0u;
-    command._p2 = 0u;
-    commands[globalSlot] = command;
-
-    VisibleCluster record;
-    record.InstanceIndex = u_InstanceIndex;
-    record.ClusterIndex = clusterIndex;
-    record._p0 = 0u;
-    record._p1 = 0u;
-    visible[globalSlot] = record;
+    EmitSurvivor(u_InstanceIndex, clusterIndex, inst, cluster, worldCenter, worldRadius, planes[4]);
 }
