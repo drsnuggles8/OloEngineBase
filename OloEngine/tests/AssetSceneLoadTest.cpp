@@ -57,12 +57,15 @@
 
 #include <gtest/gtest.h>
 
+#include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/RendererTypes.h"
+#include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 
@@ -245,6 +248,47 @@ namespace OloEngine::Tests
             {
                 failures.push_back({ path.generic_string(),
                                      "Deserialize() returned false — see engine log" });
+                continue;
+            }
+
+            // A scene deserialising cleanly is NOT the same as its geometry being reachable.
+            //
+            // Scene::ProcessScene3DSharedLogic's virtual-mesh loop resolves each
+            // VirtualMeshComponent::m_MeshSource with AssetManager::GetAsset<MeshSource> and, if
+            // that returns null, skips the entity. So a scene whose mesh handle does not resolve
+            // loads with the right entity count and renders NOTHING — an empty viewport that
+            // looks exactly like a camera or lighting problem. (Scene.cpp now warns once per
+            // handle at that site; this is the build-time guard for the same class.)
+            //
+            // Checked here rather than in its own test on purpose: staging the sandbox project
+            // into temp is by far the most expensive thing in this file, and it is already paid
+            // for above. A second test doing its own staging doubled the cost for nothing.
+            for (auto entity : scene->GetAllEntitiesWith<VirtualMeshComponent>())
+            {
+                const auto& vm = scene->GetAllEntitiesWith<VirtualMeshComponent>()
+                                     .template get<VirtualMeshComponent>(entity);
+                if (!vm.m_Enabled || static_cast<u64>(vm.m_MeshSource) == 0)
+                {
+                    continue;
+                }
+
+                const AssetMetadata metadata = assetManager->GetMetadata(vm.m_MeshSource);
+
+                // An asset that is registered but absent from disk is a fetch step, not a defect:
+                // some assets are deliberately not committed (scripts/Fetch-Assets.ps1).
+                if (!metadata.FilePath.empty() && !fs::exists(tempRoot / metadata.FilePath))
+                {
+                    continue;
+                }
+
+                if (!AssetManager::GetAsset<MeshSource>(vm.m_MeshSource))
+                {
+                    std::ostringstream reason;
+                    reason << "VirtualMeshComponent handle " << static_cast<u64>(vm.m_MeshSource) << " ("
+                           << metadata.FilePath.generic_string()
+                           << ") resolves to no loadable MeshSource — the entity renders NOTHING, silently";
+                    failures.push_back({ path.generic_string(), reason.str() });
+                }
             }
         }
 
@@ -260,4 +304,5 @@ namespace OloEngine::Tests
 
         EXPECT_GE(scenes.size(), 1u);
     }
+
 } // namespace OloEngine::Tests

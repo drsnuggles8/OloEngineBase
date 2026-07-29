@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -2060,7 +2061,13 @@ namespace OloEngine
             return;
         }
 
+        // The cook is the single most expensive step of a cold import for a large model, and it
+        // is otherwise invisible — timing it here is what makes a builder change's cost (or win)
+        // measurable from a plain editor run instead of a profiler session (issue #685).
+        auto const cookStart = std::chrono::steady_clock::now();
         VirtualMeshSet const built = VirtualMeshBuilder::BuildSet(combined);
+        auto const cookMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - cookStart).count();
+
         if (!built.IsValid())
         {
             OLO_CORE_WARN("Model::CookVirtualMesh: cluster-DAG build failed ({} triangles) — "
@@ -2070,8 +2077,8 @@ namespace OloEngine
         }
 
         m_CookedVirtualMeshBlob = VirtualMeshSerializer::SerializeSetToBlob(built);
-        OLO_CORE_INFO("Model::CookVirtualMesh: cooked {} triangles into {} part(s) / {} clusters ({} KB)",
+        OLO_CORE_INFO("Model::CookVirtualMesh: cooked {} triangles into {} part(s) / {} clusters ({} KB) in {:.1f} ms",
                       triangleCount, built.Parts.size(), built.TotalClusters(),
-                      m_CookedVirtualMeshBlob.size() / 1024);
+                      m_CookedVirtualMeshBlob.size() / 1024, cookMs);
     }
 } // namespace OloEngine

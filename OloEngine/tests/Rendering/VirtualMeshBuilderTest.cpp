@@ -20,6 +20,7 @@
 #include <limits>
 #include <map>
 #include <random>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -442,6 +443,71 @@ static u32 SelectedTriangleCount(const VirtualMesh& vm, const std::vector<u32>& 
     return total;
 }
 
+// Icosphere rebuilt the way Assimp hands over a source that carries no normals: every
+// triangle gets its OWN three vertices, each with the flat face normal, so no vertex is
+// ever shared between faces. Positions still coincide exactly, so the surface is closed
+// geometrically while being a disconnected triangle soup in index space.
+//
+// This is the issue #651 shape, and the reason it matters is meshoptimizer's vertex
+// classification: a position with more than two attribute wedges is Kind_Locked and can
+// never collapse, so a builder without a countermeasure produces a one-level DAG that
+// renders full source density forever. The countermeasure used to be an unconditional
+// position weld; since issue #685 it is meshopt_SimplifyPermissive, with the weld demoted
+// to a fallback rung.
+static Ref<MeshSource> MakeFlatNormalIcosphereMesh(u32 subdivisions)
+{
+    std::vector<glm::vec3> positions;
+    std::vector<u32> indices;
+    BuildIcosphereData(subdivisions, positions, indices);
+
+    TArray<Vertex> vertices;
+    vertices.Reserve(static_cast<i32>(indices.size()));
+    TArray<u32> meshIndices;
+    meshIndices.Reserve(static_cast<i32>(indices.size()));
+
+    for (sizet tri = 0; tri + 2 < indices.size(); tri += 3)
+    {
+        const glm::vec3& p0 = positions[indices[tri]];
+        const glm::vec3& p1 = positions[indices[tri + 1]];
+        const glm::vec3& p2 = positions[indices[tri + 2]];
+        glm::vec3 const faceNormal = glm::normalize(glm::cross(p1 - p0, p2 - p0));
+
+        for (const glm::vec3& p : { p0, p1, p2 })
+        {
+            meshIndices.Add(static_cast<u32>(vertices.Num()));
+            // Same UV parameterisation as IcosphereVertex, so the only discontinuity is
+            // the normal — a UV seam here would be protected and change what is measured.
+            constexpr f32 kPi = 3.14159265358979323846f;
+            glm::vec2 const uv{ std::atan2(p.z, p.x) / (2.0f * kPi) + 0.5f,
+                                std::asin(std::clamp(p.y, -1.0f, 1.0f)) / kPi + 0.5f };
+            vertices.Add(Vertex(p, faceNormal, uv));
+        }
+    }
+
+    return Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(meshIndices));
+}
+
+// Distinct UVs per bit-exact position, counted only over the SIMPLIFIED clusters (those
+// with a RefinedGroup, i.e. produced by the simplifier rather than copied from the source).
+static std::map<PositionKey, std::set<std::pair<u32, u32>>> SimplifiedUvsByPosition(const VirtualMesh& vm)
+{
+    std::map<PositionKey, std::set<std::pair<u32, u32>>> uvs;
+    for (const VirtualCluster& cluster : vm.Clusters)
+    {
+        if (cluster.RefinedGroup < 0)
+        {
+            continue; // LOD-0 leaf: carries the source vertices verbatim by construction
+        }
+        for (u32 v = 0; v < cluster.VertexCount; ++v)
+        {
+            const Vertex& vertex = vm.Vertices[vm.ClusterVertexRefs[cluster.VertexOffset + v]];
+            uvs[MakePositionKey(vertex)].emplace(std::bit_cast<u32>(vertex.TexCoord.x),
+                                                 std::bit_cast<u32>(vertex.TexCoord.y));
+        }
+    }
+    return uvs;
+}
+
 // =============================================================================
 // Structural validity
 // =============================================================================
@@ -763,6 +829,163 @@ TEST(VirtualMeshBuilder, SeamedMeshCutsStayWatertightAcrossDuplicatedVertices)
         auto selected = vm.SelectClusters(threshold);
         ExpectWatertightSelection(vm, selected, ("seamed mesh, threshold " + std::to_string(threshold)).c_str());
     }
+}
+
+// =============================================================================
+// Simplification entry points (issue #685 — alignment with meshoptimizer v1.2 clusterlod)
+// =============================================================================
+
+TEST(VirtualMeshBuilder, UnweldedFlatNormalMeshStillBuildsAMultiLevelDAG)
+{
+    // The issue #651 failure shape: a triangle soup in index space. Every position carries
+    // one attribute wedge PER INCIDENT FACE, which meshoptimizer classifies as Kind_Locked
+    // and refuses to collapse — unless meshopt_SimplifyPermissive is in play.
+    auto mesh = MakeFlatNormalIcosphereMesh(4);
+
+    // Fixture sanity: this really is unwelded (3 vertices per triangle, no sharing).
+    ASSERT_EQ(mesh->GetVertices().Num(), mesh->GetIndices().Num());
+    ASSERT_GT(mesh->GetVertices().Num(), MakeIcosphereMesh(4)->GetVertices().Num());
+
+    auto vm = VirtualMeshBuilder::Build(*mesh);
+    ASSERT_TRUE(vm.IsValid());
+
+    // The whole point: a DAG that can actually coarsen. A single level means every group
+    // went terminal and virtual geometry would draw source density at any distance.
+    EXPECT_GT(vm.LevelCount, 1u) << "the simplification cascade left a flat, unusable DAG";
+
+    // And it must coarsen without cracking.
+    for (f32 const threshold : InterestingThresholds(vm))
+    {
+        ExpectWatertightSelection(vm, vm.SelectClusters(threshold),
+                                  ("flat-normal mesh, threshold " + std::to_string(threshold)).c_str());
+    }
+
+    // The coarsest cut must be genuinely coarser than the source.
+    auto const coarsest = vm.SelectClusters(std::numeric_limits<f32>::max() * 0.5f);
+    EXPECT_LT(SelectedTriangleCount(vm, coarsest), vm.SourceTriangleCount);
+}
+
+TEST(VirtualMeshBuilder, PermissiveSimplificationPreservesUvSeamsOnSimplifiedLevels)
+{
+    // meshopt_SimplifyPermissive collapses across attribute discontinuities, which is what
+    // un-sticks flat-normal meshes — but a UV seam is a discontinuity we must NOT lose, or
+    // the texture smears across it on every LOD above 0. The builder marks seam wedges with
+    // meshopt_SimplifyVertex_Protect (clusterlod.h's attribute_protect_mask) to exempt them.
+    //
+    // Before issue #685 the builder position-welded every group before simplifying, so every
+    // simplified cluster referenced only canonical vertices and this test could not pass:
+    // each position had exactly one UV above LOD 0.
+    auto seamed = MakeSeamedIcosphereMesh(4);
+    auto vm = VirtualMeshBuilder::Build(*seamed);
+    ASSERT_TRUE(vm.IsValid());
+    ASSERT_GT(vm.LevelCount, 1u) << "need simplified levels for this test to mean anything";
+
+    sizet seamPositionsKept = 0;
+    for (const auto& [position, uvs] : SimplifiedUvsByPosition(vm))
+    {
+        if (uvs.size() > 1)
+        {
+            ++seamPositionsKept;
+        }
+    }
+    EXPECT_GT(seamPositionsKept, 0u)
+        << "every simplified cluster carries a single UV per position — the UV seam was welded "
+           "shut, so either the protect bits are not being set or permissive mode overrode them";
+}
+
+TEST(VirtualMeshBuilder, SloppyFallbackAloneStillProducesWatertightCuts)
+{
+    // Force the last rung: no permissive, no welded retry, so any group the plain
+    // attribute-aware simplifier cannot reduce falls through to meshopt_simplifySloppy.
+    // Sloppy does not preserve topology, so the builder only accepts a sloppy result that
+    // is still edge-manifold with exactly its original border edges. This test is the guard
+    // on that guard — the invariant must hold even when the lossiest path is the only one.
+    VirtualMeshBuildConfig config;
+    config.SimplifyPermissive = false;
+    config.SimplifyFallbackWelded = false;
+    config.SimplifyFallbackSloppy = true;
+
+    auto mesh = MakeFlatNormalIcosphereMesh(4);
+    auto vm = VirtualMeshBuilder::Build(*mesh, config);
+    ASSERT_TRUE(vm.IsValid());
+
+    for (f32 const threshold : InterestingThresholds(vm))
+    {
+        ExpectWatertightSelection(vm, vm.SelectClusters(threshold),
+                                  ("sloppy-only cascade, threshold " + std::to_string(threshold)).c_str());
+    }
+
+    // Sanity: a sloppy result that IS accepted must carry an amplified error, never zero.
+    for (const VirtualClusterGroup& group : vm.Groups)
+    {
+        EXPECT_TRUE(std::isfinite(group.LODBounds.Error) || group.LODBounds.Error == std::numeric_limits<f32>::max())
+            << "a fallback path produced a non-finite, non-terminal group error";
+    }
+}
+
+TEST(VirtualMeshBuilder, TerminalGroupBoundaryStaysLockedForTheRestOfTheBuild)
+{
+    // A group that goes TERMINAL keeps FLT_MAX error, so it is selected at every threshold and
+    // is never refined away — but its clusters leave the pending set the moment they are
+    // emitted. The per-level boundary lock only walks the pending clusters, so from the next
+    // level on it cannot see the boundary that terminal group shares with its still-simplifying
+    // neighbours. Without a build-lifetime freeze those neighbours simplify away from a
+    // boundary that is pinned forever, and the COARSE cuts (only the coarse ones — the fine
+    // cuts still select both sides at the same level) crack along that seam.
+    //
+    // Reproduced by forcing a mix of terminal and simplifiable groups on one mesh: with the
+    // permissive and welded rungs off, an unwelded flat-normal mesh sends some groups down the
+    // sloppy rung and strands others as terminal.
+    VirtualMeshBuildConfig config;
+    config.SimplifyPermissive = false;
+    config.SimplifyFallbackWelded = false;
+    config.SimplifyFallbackSloppy = true;
+
+    auto mesh = MakeFlatNormalIcosphereMesh(4);
+    auto vm = VirtualMeshBuilder::Build(*mesh, config);
+    ASSERT_TRUE(vm.IsValid());
+
+    // Fixture sanity: this configuration must actually produce BOTH kinds of group, or the
+    // test is vacuous — a DAG that is all-terminal or all-simplified never exercises the seam.
+    u32 terminalGroups = 0;
+    for (const VirtualClusterGroup& group : vm.Groups)
+    {
+        if (group.LODBounds.Error >= std::numeric_limits<f32>::max())
+        {
+            ++terminalGroups;
+        }
+    }
+    ASSERT_GT(terminalGroups, 0u) << "no terminal group — fixture does not exercise the seam";
+    ASSERT_LT(terminalGroups, vm.Groups.size()) << "every group is terminal — nothing simplifies";
+
+    for (f32 const threshold : InterestingThresholds(vm))
+    {
+        ExpectWatertightSelection(vm, vm.SelectClusters(threshold),
+                                  ("terminal/simplified seam, threshold " + std::to_string(threshold)).c_str());
+    }
+}
+
+TEST(VirtualMeshBuilder, DisablingEveryFallbackDegradesGracefullyToTerminalGroups)
+{
+    // With the whole cascade off, an unweldable mesh must still produce a VALID, watertight
+    // DAG — just a flat one. The builder must never emit a broken DAG in exchange for depth.
+    VirtualMeshBuildConfig config;
+    config.SimplifyPermissive = false;
+    config.SimplifyFallbackWelded = false;
+    config.SimplifyFallbackSloppy = false;
+
+    auto mesh = MakeFlatNormalIcosphereMesh(3);
+    auto vm = VirtualMeshBuilder::Build(*mesh, config);
+    ASSERT_TRUE(vm.IsValid());
+
+    for (f32 const threshold : InterestingThresholds(vm))
+    {
+        ExpectWatertightSelection(vm, vm.SelectClusters(threshold), "no-fallback cascade");
+    }
+
+    auto blob = VirtualMeshSerializer::SerializeToBlob(vm);
+    VirtualMesh loaded;
+    EXPECT_TRUE(VirtualMeshSerializer::DeserializeFromBlob(blob, loaded));
 }
 
 TEST(VirtualMeshBuilder, MaxLevelsCapProducesLoadableWatertightDAG)
