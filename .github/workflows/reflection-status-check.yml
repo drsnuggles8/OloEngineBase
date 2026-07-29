@@ -27,7 +27,8 @@ jobs:
         id: probe
         run: |
           # Never fail the job on a network/parse hiccup — this is a signal, not a gate.
-          if curl -sSL --max-time 30 https://devblogs.microsoft.com/cppblog/ 2>/dev/null | grep -qi 'reflection'; then
+          # --proto-redir "=https" forbids a redirect from downgrading to http:// (SonarCloud S6506).
+          if curl -sSL --proto-redir "=https" --max-time 30 https://devblogs.microsoft.com/cppblog/ 2>/dev/null | grep -qi 'reflection'; then
             echo "msvc=WARNING - the MSVC C++ blog front page mentions 'reflection', CHECK IT" >> "$GITHUB_OUTPUT"
           else
             echo "msvc=no 'reflection' on the MSVC C++ blog front page (still likely blocked)" >> "$GITHUB_OUTPUT"

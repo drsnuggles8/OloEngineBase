@@ -56,8 +56,6 @@ registry.push_back(OLO_GFW_FIELD_RANGE(AircraftComponent, "YawInput", m_YawInput
 
 // AnimationGraphComponent
 registry.push_back(OLO_GFW_FIELD(AnimationGraphComponent, "AnimationGraphAssetHandle", AnimationGraphAssetHandle));
-registry.push_back(OLO_GFW_FIELD(AnimationGraphComponent, "RootMotionTranslation", RootMotionTranslation));
-registry.push_back(OLO_GFW_FIELD(AnimationGraphComponent, "HasRootMotion", HasRootMotion));
 
 // AudioListenerComponent
 registry.push_back(OLO_GFW_FIELD(AudioListenerComponent, "Active", Active));
@@ -74,7 +72,6 @@ registry.push_back(OLO_GFW_FIELD(AudioSoundGraphComponent, "PlayOnAwake", PlayOn
 
 // BehaviorTreeComponent
 registry.push_back(OLO_GFW_FIELD(BehaviorTreeComponent, "BehaviorTreeAssetHandle", BehaviorTreeAssetHandle));
-registry.push_back(OLO_GFW_FIELD(BehaviorTreeComponent, "IsRunning", IsRunning));
 
 // BoatComponent
 registry.push_back(OLO_GFW_FIELD(BoatComponent, "Enabled", m_Enabled));
@@ -140,10 +137,6 @@ registry.push_back(OLO_GFW_FIELD(CinematicComponent, "Sequence", Sequence));
 registry.push_back(OLO_GFW_FIELD(CinematicComponent, "PlayOnStart", PlayOnStart));
 registry.push_back(OLO_GFW_FIELD(CinematicComponent, "Loop", Loop));
 registry.push_back(OLO_GFW_FIELD(CinematicComponent, "PlaybackSpeed", PlaybackSpeed));
-registry.push_back(OLO_GFW_FIELD(CinematicComponent, "Playing", Playing));
-registry.push_back(OLO_GFW_FIELD(CinematicComponent, "Time", Time));
-registry.push_back(OLO_GFW_FIELD(CinematicComponent, "PreviousTime", PreviousTime));
-registry.push_back(OLO_GFW_FIELD(CinematicComponent, "Finished", Finished));
 
 // CircleCollider2DComponent
 registry.push_back(OLO_GFW_FIELD(CircleCollider2DComponent, "Offset", Offset));
@@ -222,7 +215,6 @@ registry.push_back(OLO_GFW_FIELD(DecalComponent, "Transparent", m_Transparent));
 registry.push_back(OLO_GFW_FIELD(DialogueComponent, "DialogueTree", m_DialogueTree));
 registry.push_back(OLO_GFW_FIELD(DialogueComponent, "AutoTrigger", m_AutoTrigger));
 registry.push_back(OLO_GFW_FIELD(DialogueComponent, "TriggerRadius", m_TriggerRadius));
-registry.push_back(OLO_GFW_FIELD(DialogueComponent, "HasTriggered", m_HasTriggered));
 registry.push_back(OLO_GFW_FIELD(DialogueComponent, "TriggerOnce", m_TriggerOnce));
 
 // DirectionalLightComponent
@@ -284,7 +276,6 @@ registry.push_back(OLO_GFW_FIELD(FogVolumeComponent, "AffectTransparent", m_Affe
 
 // FoliageComponent
 registry.push_back(OLO_GFW_FIELD(FoliageComponent, "Enabled", m_Enabled));
-registry.push_back(OLO_GFW_FIELD(FoliageComponent, "NeedsRebuild", m_NeedsRebuild));
 
 // FootIKComponent
 registry.push_back(OLO_GFW_FIELD(FootIKComponent, "Enabled", Enabled));
@@ -404,8 +395,6 @@ registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "BoundsMax", m_Bound
 registry.push_back(OLO_GFW_FIELD_RANGE(LightProbeVolumeComponent, "Spacing", m_Spacing, OLO_GFW_BOUND(0.01f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD_RANGE(LightProbeVolumeComponent, "Intensity", m_Intensity, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "Active", m_Active));
-registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "Dirty", m_Dirty));
-registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "ShowDebugProbes", m_ShowDebugProbes));
 registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "BakedDataAsset", m_BakedDataAsset));
 registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "Mode", m_Mode));
 registry.push_back(OLO_GFW_FIELD(LightProbeVolumeComponent, "RaysPerProbe", m_RaysPerProbe));
@@ -598,11 +587,6 @@ registry.push_back(OLO_GFW_FIELD(PerceptionComponent, "EyeOffset", EyeOffset));
 registry.push_back(OLO_GFW_FIELD(PerceptionComponent, "RequireLineOfSight", RequireLineOfSight));
 registry.push_back(OLO_GFW_FIELD(PerceptionComponent, "PerceiverTeam", PerceiverTeam));
 registry.push_back(OLO_GFW_FIELD(PerceptionComponent, "DetectSameTeam", DetectSameTeam));
-registry.push_back(OLO_GFW_FIELD(PerceptionComponent, "HasVisibleTarget", HasVisibleTarget));
-registry.push_back(OLO_GFW_FIELD(PerceptionComponent, "VisibleTarget", VisibleTarget));
-registry.push_back(OLO_GFW_FIELD(PerceptionComponent, "LastKnownPosition", LastKnownPosition));
-registry.push_back(OLO_GFW_FIELD(PerceptionComponent, "HasLastKnownPosition", HasLastKnownPosition));
-registry.push_back(OLO_GFW_FIELD(PerceptionComponent, "TimeSinceLastSeen", TimeSinceLastSeen));
 
 // PhaseComponent
 registry.push_back(OLO_GFW_FIELD(PhaseComponent, "PhaseID", PhaseID));
@@ -724,7 +708,6 @@ registry.push_back(OLO_GFW_FIELD_RANGE(ReflectionProbeComponent, "BlendDistance"
 registry.push_back(OLO_GFW_FIELD_RANGE(ReflectionProbeComponent, "Resolution", m_Resolution, OLO_GFW_BOUND(16u), OLO_GFW_BOUND(2048u)));
 registry.push_back(OLO_GFW_FIELD_RANGE(ReflectionProbeComponent, "Intensity", m_Intensity, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD(ReflectionProbeComponent, "Active", m_Active));
-registry.push_back(OLO_GFW_FIELD(ReflectionProbeComponent, "NeedsBake", m_NeedsBake));
 
 // RelationshipComponent
 registry.push_back(OLO_GFW_FIELD(RelationshipComponent, "ParentHandle", m_ParentHandle));
@@ -839,7 +822,6 @@ registry.push_back(OLO_GFW_FIELD(StreamingVolumeComponent, "RegionAssetHandle", 
 registry.push_back(OLO_GFW_FIELD(StreamingVolumeComponent, "ActivationMode", ActivationMode));
 registry.push_back(OLO_GFW_FIELD_RANGE(StreamingVolumeComponent, "LoadRadius", LoadRadius, OLO_GFW_BOUND(1.0f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD(StreamingVolumeComponent, "UnloadRadius", UnloadRadius));
-registry.push_back(OLO_GFW_FIELD(StreamingVolumeComponent, "IsLoaded", IsLoaded));
 
 // SubmeshComponent
 registry.push_back(OLO_GFW_FIELD(SubmeshComponent, "SubmeshIndex", m_SubmeshIndex));
@@ -882,9 +864,6 @@ registry.push_back(OLO_GFW_FIELD(TerrainComponent, "StreamingLoadRadius", m_Stre
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "StreamingMaxTiles", m_StreamingMaxTiles));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "VoxelEnabled", m_VoxelEnabled));
 registry.push_back(OLO_GFW_FIELD(TerrainComponent, "VoxelSize", m_VoxelSize));
-registry.push_back(OLO_GFW_FIELD(TerrainComponent, "NeedsRebuild", m_NeedsRebuild));
-registry.push_back(OLO_GFW_FIELD(TerrainComponent, "MaterialNeedsRebuild", m_MaterialNeedsRebuild));
-registry.push_back(OLO_GFW_FIELD(TerrainComponent, "AutoSplatNeedsRebuild", m_AutoSplatNeedsRebuild));
 
 }
 
@@ -961,8 +940,6 @@ registry.push_back(OLO_GFW_FIELD(UIDropdownComponent, "TextColor", m_TextColor))
 registry.push_back(OLO_GFW_FIELD(UIDropdownComponent, "FontSize", m_FontSize));
 registry.push_back(OLO_GFW_FIELD(UIDropdownComponent, "ItemHeight", m_ItemHeight));
 registry.push_back(OLO_GFW_FIELD(UIDropdownComponent, "Interactable", m_Interactable));
-registry.push_back(OLO_GFW_FIELD(UIDropdownComponent, "IsOpen", m_IsOpen));
-registry.push_back(OLO_GFW_FIELD(UIDropdownComponent, "HoveredIndex", m_HoveredIndex));
 
 }
 
@@ -989,8 +966,6 @@ registry.push_back(OLO_GFW_FIELD(UIInputFieldComponent, "PlaceholderColor", m_Pl
 registry.push_back(OLO_GFW_FIELD(UIInputFieldComponent, "BackgroundColor", m_BackgroundColor));
 registry.push_back(OLO_GFW_FIELD(UIInputFieldComponent, "CharacterLimit", m_CharacterLimit));
 registry.push_back(OLO_GFW_FIELD(UIInputFieldComponent, "Interactable", m_Interactable));
-registry.push_back(OLO_GFW_FIELD(UIInputFieldComponent, "IsFocused", m_IsFocused));
-registry.push_back(OLO_GFW_FIELD(UIInputFieldComponent, "CursorPosition", m_CursorPosition));
 
 // UIPanelComponent
 registry.push_back(OLO_GFW_FIELD(UIPanelComponent, "BackgroundColor", m_BackgroundColor));
@@ -1032,10 +1007,6 @@ registry.push_back(OLO_GFW_FIELD(UISliderComponent, "FillColor", m_FillColor));
 registry.push_back(OLO_GFW_FIELD(UISliderComponent, "HandleColor", m_HandleColor));
 registry.push_back(OLO_GFW_FIELD(UISliderComponent, "Interactable", m_Interactable));
 
-}
-
-static void BuildRegistryChunk13(std::vector<FieldEntry>& registry)
-{
 // UITextComponent
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "Text", m_Text));
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "FontSize", m_FontSize));
@@ -1044,6 +1015,10 @@ registry.push_back(OLO_GFW_FIELD(UITextComponent, "Alignment", m_Alignment));
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "Kerning", m_Kerning));
 registry.push_back(OLO_GFW_FIELD(UITextComponent, "LineSpacing", m_LineSpacing));
 
+}
+
+static void BuildRegistryChunk13(std::vector<FieldEntry>& registry)
+{
 // UIToggleComponent
 registry.push_back(OLO_GFW_FIELD(UIToggleComponent, "IsOn", m_IsOn));
 registry.push_back(OLO_GFW_FIELD(UIToggleComponent, "OffColor", m_OffColor));
@@ -1098,10 +1073,6 @@ registry.push_back(OLO_GFW_FIELD(VirtualMeshComponent, "MeshSource", m_MeshSourc
 registry.push_back(OLO_GFW_FIELD_RANGE(VirtualMeshComponent, "ErrorThresholdPixels", m_ErrorThresholdPixels, OLO_GFW_BOUND(0.05f), OLO_GFW_BOUND(64.0f)));
 registry.push_back(OLO_GFW_FIELD(VirtualMeshComponent, "CastShadows", m_CastShadows));
 
-}
-
-static void BuildRegistryChunk14(std::vector<FieldEntry>& registry)
-{
 // WaterComponent
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "WorldSizeX", m_WorldSizeX));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "WorldSizeZ", m_WorldSizeZ));
@@ -1191,11 +1162,10 @@ registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTUseGpuCompute", m_FFTUseGpu
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTSpectrumType", m_FFTSpectrumType));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTJonswapGamma", m_FFTJonswapGamma));
 registry.push_back(OLO_GFW_FIELD(WaterComponent, "FFTJonswapFetch", m_FFTJonswapFetch));
-registry.push_back(OLO_GFW_FIELD(WaterComponent, "NeedsRebuild", m_NeedsRebuild));
 
 }
 
-static void BuildRegistryChunk15(std::vector<FieldEntry>& registry)
+static void BuildRegistryChunk14(std::vector<FieldEntry>& registry)
 {
 // WeatherStateComponent
 registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "Enabled", m_Enabled));
@@ -1321,7 +1291,7 @@ registry.push_back(OLO_GFW_FIELD(WeatherStateComponent, "PresetFogBank.WetnessTa
 
 }
 
-static void BuildRegistryChunk16(std::vector<FieldEntry>& registry)
+static void BuildRegistryChunk15(std::vector<FieldEntry>& registry)
 {
 // AudioSourceComponent (OLO_PROPERTY setter-based — private cold-data fields)
 registry.push_back(MakeSetterField<AudioSourceComponent, float>(
@@ -1485,5 +1455,4 @@ static void BuildRegistryChunks(std::vector<FieldEntry>& registry)
     BuildRegistryChunk13(registry);
     BuildRegistryChunk14(registry);
     BuildRegistryChunk15(registry);
-    BuildRegistryChunk16(registry);
 }

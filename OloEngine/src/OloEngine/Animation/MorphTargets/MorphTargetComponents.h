@@ -28,8 +28,13 @@ namespace OloEngine
         OLO_SERIALIZE(Skip)
         std::vector<glm::vec3> BaseNormals;
 
-        // Tracks whether morph weights were active last frame (for transition detection)
-        OLO_SERIALIZE(Skip)
+        // Tracks whether morph weights were active last frame (for transition detection).
+        // NOT OLO_SERIALIZE(Skip): master exposes this plain bool in the MCP field registry,
+        // and a master test (McpFieldRegistry.ListFieldsOnEmptyWeightsMapReportsNoMapEntries)
+        // relies on it keeping the component listable when the Weights map is empty. Skipping
+        // it would silently change shipping MCP behavior — the component is hand-written in the
+        // scene serializer (kComponentsCustomSerialize), so this field is not scene-persisted
+        // either way; Skip here only ever affected MCP.
         bool WasMorphActive = false;
 
         MorphTargetComponent() = default;
