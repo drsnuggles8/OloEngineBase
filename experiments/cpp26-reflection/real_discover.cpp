@@ -1,6 +1,6 @@
 // ============================================================================
 //  THE real thing: OloReflect discovery over the ACTUAL engine Components.h
-//  (all 86 real components). Replaces OloHeaderTool's whole-tree scan +
+//  (all 110 real components). Replaces OloHeaderTool's whole-tree scan +
 //  AllComponents.Generated.inl with a single namespace reflection.
 //  GCC 16.1.0: -std=c++26 -freflection -fpermissive, real engine + PCH.
 // ============================================================================

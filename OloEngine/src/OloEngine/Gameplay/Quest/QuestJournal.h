@@ -172,7 +172,13 @@ namespace OloEngine
             OLO_SERIALIZE(Skip)
             QuestDefinition Definition; // Stored definition for runtime use
 
-            auto operator==(const ActiveQuestState&) const -> bool = default;
+            // Authored-state equality only: ElapsedTime (a live timer — and a float, which the
+            // defaulted operator== would compare with ==) and Definition (reloaded from the quest
+            // asset) are runtime-only / OLO_SERIALIZE(Skip)'d, so both are excluded.
+            auto operator==(const ActiveQuestState& other) const -> bool
+            {
+                return QuestID == other.QuestID && Status == other.Status && CurrentStageIndex == other.CurrentStageIndex && ObjectiveStates == other.ObjectiveStates;
+            }
         };
 
         [[nodiscard("active quest states must be used")]] const StringMap<ActiveQuestState>& GetActiveQuestStates() const

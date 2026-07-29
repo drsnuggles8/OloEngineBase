@@ -33,7 +33,13 @@ namespace OloEngine
             Attributes.DefineAttribute("Defense", defense);
         }
 
-        auto operator==(const AbilityComponent&) const -> bool = default;
+        // Authored-state equality only: ActiveEffects and Cooldowns are runtime GAS state
+        // (OLO_SERIALIZE(Skip)'d, rebuilt at runtime), so they are excluded — mirroring how the
+        // runtime-token fields elsewhere are kept out of operator==.
+        auto operator==(const AbilityComponent& other) const -> bool
+        {
+            return Attributes == other.Attributes && OwnedTags == other.OwnedTags && Abilities == other.Abilities;
+        }
     };
 
 } // namespace OloEngine

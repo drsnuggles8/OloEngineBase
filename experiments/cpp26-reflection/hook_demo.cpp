@@ -21,7 +21,7 @@ using u64 = std::uint64_t; using u32 = std::uint32_t; using i32 = std::int32_t; 
 namespace YAML {
     template <> struct convert<glm::vec3> {
         static Node encode(const glm::vec3& v){ Node n; n.push_back(v.x); n.push_back(v.y); n.push_back(v.z); n.SetStyle(EmitterStyle::Flow); return n; }
-        static bool decode(const Node& n, glm::vec3& v){ if(!n.IsSequence()||n.size()!=3) return false; v.x=n[0].as<f32>(); v.y=n[1].as<f32>(); v.z=n[2].as<f32>(); return true; }
+        static bool decode(const Node& n, glm::vec3& v){ if(!n.IsSequence()||n.size()!=3) return false; f32 x=n[0].as<f32>(), y=n[1].as<f32>(), z=n[2].as<f32>(); if(!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(z)) return false; v.x=x; v.y=y; v.z=z; return true; }
     };
     inline Emitter& operator<<(Emitter& o, const glm::vec3& v){ o<<Flow<<BeginSeq<<v.x<<v.y<<v.z<<EndSeq; return o; }
 }

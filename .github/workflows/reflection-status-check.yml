@@ -12,12 +12,16 @@ on:
     - cron: "7 9 1 * *" # 1st of each month, ~09:07 UTC (off the :00 mark on purpose)
   workflow_dispatch: {}
 
-permissions:
-  issues: write
+# Least privilege: no permissions by default; the one job that needs to comment
+# on the tracking issue is granted issues:write at the job scope below.
+permissions: {}
 
 jobs:
   remind:
     runs-on: ubuntu-latest
+    # Scoped here (not top-level) because only this job runs `gh issue comment`.
+    permissions:
+      issues: write
     steps:
       - name: Best-effort first-pass probe
         id: probe

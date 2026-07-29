@@ -2383,7 +2383,7 @@ namespace OloEngine
             if (bc3dComponent["Restitution"])
                 bc3d.m_Material.SetRestitution(bc3dComponent["Restitution"].as<f32>());
             if (bc3dComponent["Density"])
-                bc3d.m_Material.SetDensity(bc3dComponent["Density"].as<f32>());
+                bc3d.m_Material.SetDensity(bc3dComponent["Density"].as<f32>(bc3d.m_Material.GetDensity()));
         }
 
         if (auto sc3dComponent = entity["SphereCollider3DComponent"]; sc3dComponent)
@@ -2398,7 +2398,7 @@ namespace OloEngine
             if (sc3dComponent["Restitution"])
                 sc3d.m_Material.SetRestitution(sc3dComponent["Restitution"].as<f32>());
             if (sc3dComponent["Density"])
-                sc3d.m_Material.SetDensity(sc3dComponent["Density"].as<f32>());
+                sc3d.m_Material.SetDensity(sc3dComponent["Density"].as<f32>(sc3d.m_Material.GetDensity()));
         }
 
         if (auto cc3dComponent = entity["CapsuleCollider3DComponent"]; cc3dComponent)
@@ -2414,7 +2414,7 @@ namespace OloEngine
             if (cc3dComponent["Restitution"])
                 cc3d.m_Material.SetRestitution(cc3dComponent["Restitution"].as<f32>());
             if (cc3dComponent["Density"])
-                cc3d.m_Material.SetDensity(cc3dComponent["Density"].as<f32>());
+                cc3d.m_Material.SetDensity(cc3dComponent["Density"].as<f32>(cc3d.m_Material.GetDensity()));
         }
 
         // PrefabComponent: hand-written (issue #444 hot/cold split) — the three
@@ -2457,7 +2457,7 @@ namespace OloEngine
             if (mc3dComponent["Restitution"])
                 mc3d.m_Material.SetRestitution(mc3dComponent["Restitution"].as<f32>());
             if (mc3dComponent["Density"])
-                mc3d.m_Material.SetDensity(mc3dComponent["Density"].as<f32>());
+                mc3d.m_Material.SetDensity(mc3dComponent["Density"].as<f32>(mc3d.m_Material.GetDensity()));
         }
 
         if (auto cmc3dComponent = entity["ConvexMeshCollider3DComponent"]; cmc3dComponent)
@@ -2476,7 +2476,7 @@ namespace OloEngine
             if (cmc3dComponent["Restitution"])
                 cmc3d.m_Material.SetRestitution(cmc3dComponent["Restitution"].as<f32>());
             if (cmc3dComponent["Density"])
-                cmc3d.m_Material.SetDensity(cmc3dComponent["Density"].as<f32>());
+                cmc3d.m_Material.SetDensity(cmc3dComponent["Density"].as<f32>(cmc3d.m_Material.GetDensity()));
         }
 
         if (auto tmc3dComponent = entity["TriangleMeshCollider3DComponent"]; tmc3dComponent)
@@ -2493,7 +2493,7 @@ namespace OloEngine
             if (tmc3dComponent["Restitution"])
                 tmc3d.m_Material.SetRestitution(tmc3dComponent["Restitution"].as<f32>());
             if (tmc3dComponent["Density"])
-                tmc3d.m_Material.SetDensity(tmc3dComponent["Density"].as<f32>());
+                tmc3d.m_Material.SetDensity(tmc3dComponent["Density"].as<f32>(tmc3d.m_Material.GetDensity()));
         }
 
         if (auto jointComponent = entity["PhysicsJoint3DComponent"]; jointComponent)

@@ -37,12 +37,14 @@ int main() {
     { MeshComponent c; c.m_Mesh = Ref<MeshSource>(&ms); c.m_Tint = 0.5f;
       std::string y = R::SerializeHolder(c);
       std::printf("non-null Ref:\n%s\n", y.c_str());
-      bool ok = y.find("Mesh: 4242") != std::string::npos && y.find("Tint: 0.5") != std::string::npos;
+      YAML::Node root = YAML::Load(y);
+      bool ok = root["Mesh"] && root["Mesh"].as<u64>() == 4242 && root["Tint"];
       std::printf("  [%s] Ref<Asset> serialized as its handle\n", ok ? "PASS":"FAIL"); if(!ok) ++fails; }
     { MeshComponent c;      // default: null Ref
       std::string y = R::SerializeHolder(c);
       std::printf("null Ref:\n%s\n", y.c_str());
-      bool ok = y.find("Mesh") == std::string::npos;   // null Ref -> key omitted (matches engine's `if (ref && ...)`)
+      YAML::Node root = YAML::Load(y);
+      bool ok = !root["Mesh"];   // null Ref -> key omitted (matches engine's `if (ref && ...)`)
       std::printf("  [%s] null Ref -> key omitted\n", ok ? "PASS":"FAIL"); if(!ok) ++fails; }
     std::printf("\nREF<T>: %s\n", fails==0 ? "ALL PASS" : "FAIL");
     return fails;

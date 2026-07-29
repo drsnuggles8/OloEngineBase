@@ -43,7 +43,7 @@ Both paths read the *same* reflection over the *same* annotations, so they canno
 drift. The schema is simply "the reflection truth, serialised for consumers that
 cannot run C++ reflection."
 
-```
+```text
 C++ components + annotations   ← the ONE definition of the scripting surface
         │ reflection
         ├─ C++-hosted (Lua/sol2)         → generated in-compile, no schema, no step
