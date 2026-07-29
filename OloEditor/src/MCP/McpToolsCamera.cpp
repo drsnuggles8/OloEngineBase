@@ -429,6 +429,7 @@ namespace OloEngine::MCP
             tool.OutputSchema = Schema::Object()
                                     .Prop("sceneState", Schema::String().Enum({ "play", "edit-or-simulate" }).Desc("Which mode rendered the captured frame."))
                                     .Prop("camera", Schema::String().Enum({ "runtime primary CameraComponent", "editor camera" }).Desc("Which camera produced the frame."))
+                                    .Prop("region", Schema::Object().Desc("The requested sub-rect {x, y, w, h} plus 'nativeResolution' (whether it was no wider than maxWidth, so never downscaled); present only when 'region' was given."))
                                     .Prop("resourceUri", Schema::String().Desc("Present only with delivery:'resource_link' — the olo://capture/... resource holding the PNG (resources/read returns it as base64 blob contents)."))
                                     .Required({ "sceneState", "camera" });
             tool.MainMarshaled = true;
