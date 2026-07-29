@@ -3,6 +3,7 @@
 #include "OloEngine/Gameplay/Quest/Quest.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/TransparentStringHash.h"
+#include "OloEngine/Scene/ComponentReflection.h" // OLO_SERIALIZE(Skip) — drop runtime quest state (matches SceneSerializer)
 
 #include <optional>
 #include <string>
@@ -164,7 +165,11 @@ namespace OloEngine
             QuestStatus Status = QuestStatus::Active;
             i32 CurrentStageIndex = 0;
             std::vector<QuestObjective> ObjectiveStates; // Runtime copy with progress
+            // Runtime-only — the engine's SceneSerializer omits both (ElapsedTime is a live
+            // quest timer; Definition is reloaded from the quest asset, not persisted).
+            OLO_SERIALIZE(Skip)
             f32 ElapsedTime = 0.0f;
+            OLO_SERIALIZE(Skip)
             QuestDefinition Definition; // Stored definition for runtime use
 
             auto operator==(const ActiveQuestState&) const -> bool = default;

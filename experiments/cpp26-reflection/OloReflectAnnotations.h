@@ -16,6 +16,7 @@ namespace OloEngine::Reflect
     };
     struct Reject { double min; double max; }; // out-of-range on load -> KEEP the default (reject, not clamp)
     struct Flatten {};                          // serialize this nested-struct member's fields at the PARENT level (no sub-map)
+    struct Property {};                         // marks a field script-exposed (OLO_PROPERTY) -> Mono internal-call getter/setter glue
 }
 
 #define OLO_CLAMP(mn, mx) [[=::OloEngine::Reflect::Clamp{ (double)(mn), (double)(mx) }]]

@@ -12,6 +12,7 @@
 // ============================================================================
 #include "OloReflect.h"
 #include <yaml-cpp/yaml.h>
+#include <optional>
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
@@ -62,6 +63,7 @@ namespace OloEngine::Reflect
     }
     template <typename V> consteval bool IsStdArray(){ return IsTemplate<V>(^^std::array); }        // std::array<T,N>
     template <typename V> consteval bool IsUniquePtr(){ return IsTemplate<V>(^^std::unique_ptr); }  // unique_ptr<Struct>
+    template <typename V> consteval bool IsOptional(){ return IsTemplate<V>(^^std::optional); }     // optional<T> (e.g. inventory slot)
 
     template <typename T> void EmitStructBody(YAML::Emitter& out, const T& obj);   // fwd (recursion)
 
@@ -112,6 +114,10 @@ namespace OloEngine::Reflect
             out << YAML::BeginMap;
             EmitStructBody(out, *value);
             out << YAML::EndMap;
+        }
+        else if constexpr (IsOptional<V>()) {                                              // optional<T> -> value, or null to preserve index
+            if (value.has_value()) EmitValue(out, *value);
+            else                   out << YAML::Null;
         }
         else if constexpr (IsRef<V>()) {                                                  // Ref<Asset> -> handle u64
             if (value) out << static_cast<u64>(value->GetHandle());
@@ -168,6 +174,13 @@ namespace OloEngine::Reflect
     // ======================= DESERIALIZE (symmetric to EmitValue) =======================
     template <typename T> void DeserializeStructBody(const YAML::Node& node, T& obj);   // fwd (recursion)
 
+    // Asset-resolution customization point: given a handle, return the live Ref<T>. This is
+    // the ONE runtime service deserialize needs, so it is DECLARED here and DEFINED by the
+    // consumer — the engine as `return ::OloEngine::AssetManager::GetAsset<T>(AssetHandle{h});`
+    // (one line), the isolated experiment as a mock. Keeps OloReflectYaml.h free of the
+    // AssetManager dependency while making Ref<Asset> fields resolve on load.
+    template <typename T> ::OloEngine::Ref<T> ReflectResolveAsset(u64 handle);
+
     template <typename V>
     void ReadValue(const YAML::Node& n, V& ref)
     {
@@ -199,7 +212,16 @@ namespace OloEngine::Reflect
             using T = typename V::element_type;
             if (n.IsMap()) { if (!ref) ref = std::make_unique<T>(); DeserializeStructBody(n, *ref); }
         }
-        else if constexpr (IsRef<V>()) { (void)n; /* Ref<Asset>: handle resolves via AssetManager at load (engine service) */ }
+        else if constexpr (IsOptional<V>()) {                                              // optional<T>: null -> empty, else read T
+            using OT = typename V::value_type;
+            if (!n || n.IsNull()) ref.reset();
+            else { OT t{}; ReadValue(n, t); ref = std::move(t); }
+        }
+        else if constexpr (IsRef<V>()) {                                                  // Ref<Asset>: read handle, resolve via AssetManager
+            using T = [: sm::template_arguments_of(sm::dealias(^^V))[0] :];
+            u64 h = n.as<u64>(static_cast<u64>(0));
+            ref = (h != 0) ? ReflectResolveAsset<T>(h) : V{};
+        }
         else if constexpr (std::is_class_v<V>) { DeserializeStructBody(n, ref); }         // nested struct sub-map
         else static_assert(sizeof(V) == 0, "OloReflectYaml: unhandled member type (deserialize)");
     }

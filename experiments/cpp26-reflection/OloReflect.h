@@ -55,6 +55,7 @@ namespace OloEngine::Reflect
     consteval Reject GetReject(sm::info m) { return sm::extract<Reject>(sm::annotations_of_with_type(m, ^^Reject)[0]); }
     consteval bool   HasFlatten(sm::info m) { return !sm::annotations_of_with_type(m, ^^Flatten).empty(); }
     consteval bool   HasKey    (sm::info m) { return !sm::annotations_of_with_type(m, ^^Key    ).empty(); }
+    consteval bool   HasProperty(sm::info m){ return !sm::annotations_of_with_type(m, ^^Property).empty(); }
 
     // -------- component discovery: replaces the source-tree scan -----------------
     // Runtime-only set (mirrors kComponentsNotInTuple): identity + per-tick state.
@@ -68,17 +69,29 @@ namespace OloEngine::Reflect
             || n == "FootIKStateComponent" || n == "LocomotionStateComponent";
     }
 
-    consteval std::vector<sm::info> DiscoverComponents()
+    // Raw scan — EVERY `struct *Component`, with NO exclusion. This is the primitive
+    // each consumer filters its own way, so the tool's several *different* hand-kept
+    // exclusion sets (kComponentsNotInTuple vs kComponentsNotInSaveGame vs …) become
+    // derived predicates: the tuple excludes IsRuntimeOnly; save-games filter by the
+    // Serialize overload; MCP by editability. One scan, many views.
+    consteval std::vector<sm::info> DiscoverAllComponents()
     {
         std::vector<sm::info> out;
         for (sm::info m : sm::members_of(^^OloEngine, sm::access_context::unchecked()))
         {
             if (!sm::is_type(m) || !sm::is_class_type(m) || !sm::has_identifier(m)) continue;
-            std::string_view n = sm::identifier_of(m);
-            if (!n.ends_with("Component")) continue;   // the *Component heuristic
-            if (IsRuntimeOnly(n)) continue;
+            if (!sm::identifier_of(m).ends_with("Component")) continue;   // the *Component heuristic
             out.push_back(m);
         }
+        return out;
+    }
+
+    // The ECS scene-copy / tuple view: all components minus the runtime-only identity/state set.
+    consteval std::vector<sm::info> DiscoverComponents()
+    {
+        std::vector<sm::info> out;
+        for (sm::info m : DiscoverAllComponents())
+            if (!IsRuntimeOnly(sm::identifier_of(m))) out.push_back(m);
         return out;
     }
 
@@ -94,6 +107,18 @@ namespace OloEngine::Reflect
         template for (constexpr auto c : std::define_static_array(DiscoverComponents()))
         {
             using C = [: c :];                 // splice the reflection to a type via alias
+            fn(std::type_identity<C>{});
+        }
+    }
+
+    // Same, over the RAW set (incl. identity IDComponent/TagComponent) — for consumers
+    // like save-games whose base set differs from the tuple's.
+    template <typename Fn>
+    void for_each_all_component(Fn&& fn)
+    {
+        template for (constexpr auto c : std::define_static_array(DiscoverAllComponents()))
+        {
+            using C = [: c :];
             fn(std::type_identity<C>{});
         }
     }

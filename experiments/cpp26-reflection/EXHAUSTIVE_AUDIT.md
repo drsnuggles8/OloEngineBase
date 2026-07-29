@@ -17,11 +17,12 @@ against the engine's ground truth — the 44 generated `.inl` blocks **plus** th
 | | count |
 |---|---|
 | Total components | **110** |
-| Serialized by reflection | **102** (8 are runtime-only / deferred-bespoke, intentionally skipped) |
+| Serialized by reflection | **105** (up from 102 — see "Bespoke components" below) |
+| Cannot be serialized (skipped) | **5** — 2 runtime-only + 3 heavyweight-render-resource embeds |
 | **Byte-key-identical to the engine** | **72** |
 | Reflection is *more correct* than the engine | **9** |
-| Lossless structural / encoding difference | **20** |
-| Genuine prototype limitation | **1** |
+| Lossless structural / encoding difference | **23** |
+| Genuine prototype limitation | **1** (ScriptComponent — serializes `ClassName`; C# field values are out-of-band) |
 
 Of the 30 components that differ from the engine's exact key set, **not one is reflection losing
 authored data.** They break down as: 9 where reflection is *better*, 2 empty-container test
@@ -68,11 +69,12 @@ assumption error that "tests are green" would not.
 None of these lose data; they round-trip through reflection's own format. They differ from the
 engine's *exact* on-disk shape.
 
-**Empty-container test artifacts (2)** — `NavMeshBoundsComponent`, `FoliageComponent`.
+**Empty-container test artifacts (2, both proven)** — `NavMeshBoundsComponent`, `FoliageComponent`.
 The default-constructed sweep instances have empty vectors, so element sub-keys never materialize.
-Proven artifact: a populated `NavMeshBoundsComponent` emits the full
-`Links: [{Start,End,Radius,Bidirectional}, ...]` — identical element structure to the engine
-(`scratchpad/container_probe.cpp`).
+Both proven in `scratchpad/container_probe.cpp`: a populated `NavMeshBoundsComponent` emits the full
+`Links: [{Start,End,Radius,Bidirectional}, ...]`, and a populated `FoliageComponent` emits
+`Layers: [{Name,MeshPath,AlbedoPath,Density,MinScale,...,BaseColor}]` — the exact ~25 per-layer
+keys the audit listed as "missing" — identical element structure to the engine.
 
 **Asset-handle key suffix (3, fixed this session)** — `MeshComponent`, `InstancedMeshComponent`,
 `EnvironmentMapComponent`. A `Ref<Asset>` field now serializes under `<Name>Handle` (the engine's
@@ -95,11 +97,48 @@ moved — a deliberate modernization, not a loss.
 
 ---
 
-## 4. Genuine prototype limitation (1)
+## 4. The one component reflection fundamentally cannot serialize (1)
 
-`ScriptComponent` — its `ScriptFields` is an opaque `std::variant`-keyed map the prototype
-serializer does not model. This is the one place the hand-written engine serializer does something
-reflection genuinely cannot yet.
+`ScriptComponent` is `{ std::string ClassName; }` — reflection serializes `ClassName` correctly.
+Its other on-disk data (`ScriptFields`: each C# field's `Name`/`Type`/`Data`) is **not in the C++
+struct at all** — the engine fetches it from `ScriptEngine::GetScriptFieldMap(entity)`, i.e. the
+Mono/C# runtime, keyed by entity. No *type-driven* serializer can reach out-of-band runtime state;
+this component intrinsically needs the hand-written block that calls the ScriptEngine. This is a
+boundary of static reflection, **not** a missing type in the serializer — every C++ field type in
+the codebase is handled.
+
+## 5. The bespoke components — 3 closed, 3 principled boundaries
+
+Six components were originally deferred as "bespoke". After investigation they split cleanly:
+
+**Closed (3)** — these are plain DATA types that were blocked only by *missing serializer features*,
+now added:
+- **InventoryComponent, ItemContainerComponent** — blocked by `std::vector<std::optional<ItemInstance>>`
+  / `std::array<std::optional<ItemInstance>, N>` (inventory slots). Added `std::optional<T>` support
+  (emit value, or a YAML `~` null to preserve the slot index; symmetric on read). Round-trip verified
+  (`container_probe.cpp`: holes preserved). They round-trip losslessly; reflection nests the `Inventory`
+  object where the engine flattens it (a NEST difference).
+- **QuestJournalComponent** — blocked by `ActiveQuestState::Definition` (a runtime `QuestDefinition`
+  copy) and the runtime `ElapsedTime`; both are `OLO_SERIALIZE(Skip)`-marked (the engine's serializer
+  omits both — `Definition` is reloaded from the quest asset). The rest (`QuestID`/`Status`/objectives/
+  reputations/tags) is authored data reflection now serializes.
+
+**Principled boundaries (3)** — these embed a **heavyweight engine RESOURCE** whose authored data is a
+hand-curated *getter-projection*, exactly analogous to ScriptComponent's out-of-band data:
+- **MaterialComponent, TileRendererComponent** — embed `Material`, a 40+-member GPU render resource
+  (PBR factors **plus** 11 texture-map `Ref`s, **16** shader-uniform-override maps, a shader `Ref`).
+  The component's authored data is a 3-value getter-projection (`GetBaseColorFactor()` → a **vec3**
+  `AlbedoColor`, `GetMetallicFactor()`, `GetRoughnessFactor()`) + a shader-graph handle. Reflecting the
+  full type would emit a giant, mostly-runtime blob; the lossy getter-projection (vec4→vec3, renamed)
+  cannot be expressed by field annotations.
+- **ParticleSystemComponent** — embeds `ParticleSystem`, a runtime simulation type (GPU particle pool,
+  trail buffers, sort indices, bounding sphere, LOD state, a `std::variant` emission shape) with an
+  authored `Emitter` config the engine reaches via getters. Same category.
+
+These three are a legitimate architectural boundary: a component that embeds a runtime render/simulation
+resource and authors only a computed slice of it *should* be hand-serialized. The remaining 2 skipped
+components (`AnimationStateComponent`, `SkeletonComponent`) are correctly runtime-only (`Ref<AnimationClip>`,
+`Ref<Skeleton>`, `FMutex`).
 
 ---
 
