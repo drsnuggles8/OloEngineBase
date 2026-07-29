@@ -149,6 +149,13 @@ add_executable(OloEngine-Tests
 		Rendering/CommandBucketTest.cpp
 		#Rendering/CommandDispatchTest.cpp  # Requires full engine (calls CommandDispatch::Initialize which pulls in OpenGL statics)
 		Rendering/RenderGraphTest.cpp
+		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`
+		# argument (#607 native-resolution capture): the top-left-origin rect must
+		# land on exactly those texels through GL's bottom-up rows. Needs a GL
+		# context (skips cleanly without) and a SYNTHETIC gradient — measured
+		# against a live animated scene the mirrored position scored BETTER than
+		# the correct one, so a live pixel-compare cannot pin this.
+		Rendering/CaptureRegionReadbackTest.cpp
 		Rendering/ResourceHazardValidationTests.cpp
 		Rendering/RenderGraphPathSwitchTests.cpp
 		Rendering/FramePipelineTest.cpp
@@ -527,6 +534,17 @@ add_executable(OloEngine-Tests
 		# the "a layer view must not silently capture layer 0" rule. Header-only
 		# (MCP/McpShadowCapture.h), no extra editor TU pulled in.
 		MCP/McpShadowCaptureLayerTest.cpp
+		# Pure parse / reject / meta shaping behind the shared 'region' {x,y,w,h}
+		# argument on olo_render_capture_target + olo_screenshot (#607: native-
+		# resolution capture, so a pixel-scale artifact can be measured on 1:1
+		# pixels instead of a maxWidth-resampled image). Header-only
+		# (MCP/McpCaptureRegion.h), no extra editor TU pulled in.
+		MCP/McpCaptureRegionTest.cpp
+		# The post-process / AO / fog field table + coercion / clamp / enum-token
+		# core behind olo_postprocess_settings_get / _set (#607: the GTAO-vs-SSAO
+		# A/B that could not be driven from an agent session at all). Header-only
+		# (MCP/McpPostProcessSettings.h), no extra editor TU pulled in.
+		MCP/McpPostProcessSettingsTest.cpp
 		# Unified diagnostics event ring buffer behind olo_events_tail (#306 item B).
 		# Header-only engine facility (Debug/DiagnosticsEventLog.h, compiled into
 		# OloEngine), so no extra editor TU is pulled in.

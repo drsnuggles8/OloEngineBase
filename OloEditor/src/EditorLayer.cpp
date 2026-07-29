@@ -166,24 +166,48 @@ namespace OloEngine
         // top-down orientation, optionally downscale so the width is <= maxWidth,
         // and encode a PNG in memory. Mirrors SaveGame/ThumbnailCapture. MUST run on
         // the main (GL) thread. Returns empty bytes on any failure.
-        std::vector<u8> CaptureFramebufferPng(const Ref<Framebuffer>& framebuffer, int maxWidth)
+        //
+        // `region` (issue #607) reads back only a sub-rect, in top-left-origin
+        // pixel coordinates of the attachment, so a small enough rect never hits
+        // the maxWidth downscale and comes back at 1:1 — the only way to measure a
+        // pixel-scale artifact on a 4K viewport. An out-of-bounds region is a
+        // failure (empty bytes), never a silent clamp: a quietly shrunk rect would
+        // report the wrong spatial period without saying so.
+        std::vector<u8> CaptureFramebufferPng(const Ref<Framebuffer>& framebuffer, int maxWidth,
+                                              MCP::McpCaptureRegion region = {})
         {
             if (!framebuffer)
                 return {};
             const auto& spec = framebuffer->GetSpecification();
-            const u32 width = spec.Width;
-            const u32 height = spec.Height;
-            if (width == 0 || height == 0)
+            const u32 fullWidth = spec.Width;
+            const u32 fullHeight = spec.Height;
+            if (fullWidth == 0 || fullHeight == 0)
                 return {};
             const u32 textureId = framebuffer->GetColorAttachmentRendererID(0);
             if (textureId == 0)
                 return {};
 
-            std::vector<u8> pixels(static_cast<sizet>(width) * height * 4);
-            ::glGetTextureImage(textureId, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                                static_cast<GLsizei>(pixels.size()), pixels.data());
+            if (region.IsWholeImage())
+                region = MCP::McpCaptureRegion{ 0, 0, fullWidth, fullHeight };
+            // `extent > remaining`, not `offset + extent > size`, so a huge pair
+            // cannot wrap the u32 addition and slip past the check.
+            else if (region.X >= fullWidth || region.Y >= fullHeight ||
+                     region.Width > fullWidth - region.X || region.Height > fullHeight - region.Y)
+                return {};
 
-            // glGetTextureImage returns rows bottom-up; flip for PNG (top-down).
+            const u32 width = region.Width;
+            const u32 height = region.Height;
+            // The rect arrives top-left-origin; GL rows run bottom-up.
+            const u32 glRegionY = fullHeight - region.Y - region.Height;
+
+            std::vector<u8> pixels(static_cast<sizet>(width) * height * 4);
+            ::glGetTextureSubImage(textureId, 0,
+                                   static_cast<GLint>(region.X), static_cast<GLint>(glRegionY), 0,
+                                   static_cast<GLsizei>(width), static_cast<GLsizei>(height), 1,
+                                   GL_RGBA, GL_UNSIGNED_BYTE,
+                                   static_cast<GLsizei>(pixels.size()), pixels.data());
+
+            // glGetTextureSubImage returns rows bottom-up; flip for PNG (top-down).
             const u32 rowBytes = width * 4;
             std::vector<u8> flipped(pixels.size());
             for (u32 y = 0; y < height; ++y)
@@ -345,7 +369,7 @@ namespace OloEngine
             { return m_ActiveScene; };
             mcpContext.IsPlaying = [this]() -> bool
             { return m_SceneState == SceneState::Play; };
-            mcpContext.CaptureViewportPng = [this](int maxWidth) -> std::vector<u8>
+            mcpContext.CaptureViewportPng = [this](int maxWidth, MCP::McpCaptureRegion region) -> std::vector<u8>
             {
                 // Capture what the viewport actually displays (see UI_Viewport): in 3D
                 // mode that's the UICompositePass output (fallback SceneColor), not
@@ -358,7 +382,7 @@ namespace OloEngine
                     else if (auto scene = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor); scene)
                         target = scene;
                 }
-                return CaptureFramebufferPng(target, maxWidth);
+                return CaptureFramebufferPng(target, maxWidth, region);
             };
 
             // Tier-0 camera / viewport control (#316). Editor-only inspection

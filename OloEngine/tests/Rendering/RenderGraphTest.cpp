@@ -12087,3 +12087,130 @@ TEST(RenderGraphBuildDiagnostics, DumpToJsonIncludesRegistrationOrderSensitivity
     EXPECT_NE(json.find("\"alternateBeforePass\": \"EarlyPass\""), std::string::npos);
     EXPECT_NE(json.find("\"alternateAfterPass\": \"LatePass\""), std::string::npos);
 }
+
+// =============================================================================
+// RenderGraphTransientDebugFlags — the two permanent transient-corruption
+// instruments, now RUNTIME-settable (issue #607, olo_render_debug_set).
+//
+// They used to be `static const bool` latches over OLO_RG_POISON_TRANSIENTS /
+// OLO_RG_DISABLE_ALIASING, so flipping either meant an editor restart — the
+// wrong ergonomics for a probe whose whole value is being usable against a
+// RUNNING editor (poison mode is what turned a ~3% stochastic camera-move
+// artifact into a deterministic every-frame signal).
+//
+// Two contracts are pinned here:
+//   * Set/Get round-trip, and the flags are independent — an MCP call that only
+//     names one must not clobber the other, which is what the "seed both from
+//     env before writing either" step in SetTransientDebugFlags guarantees.
+//   * PoisonColorNameForResource is PURE and STABLE: same name -> same hue,
+//     whether or not poison mode is on and whether or not the resource has been
+//     materialized yet. That is what lets olo_render_debug_set hand back the
+//     whole resource->colour map up front, instead of an agent having to wait
+//     for the engine to log it one line per resource as each is first cleared —
+//     which is useless when you want to read a poisoned screenshot immediately.
+// =============================================================================
+
+namespace
+{
+    // Restore the process-global flags so this suite cannot leak a poisoned /
+    // aliasing-disabled renderer into an unrelated test.
+    class TransientDebugFlagGuard
+    {
+      public:
+        TransientDebugFlagGuard() : m_Saved(RenderGraph::GetTransientDebugFlags()) {}
+        ~TransientDebugFlagGuard()
+        {
+            RenderGraph::SetTransientDebugFlags(m_Saved);
+        }
+        TransientDebugFlagGuard(const TransientDebugFlagGuard&) = delete;
+        TransientDebugFlagGuard& operator=(const TransientDebugFlagGuard&) = delete;
+
+      private:
+        RenderGraph::TransientDebugFlags m_Saved;
+    };
+} // namespace
+
+TEST(RenderGraphTransientDebugFlags, SetAndGetRoundTripIndependently)
+{
+    const TransientDebugFlagGuard guard;
+
+    RenderGraph::SetTransientDebugFlags({ /*PoisonTransients*/ false, /*DisableAliasing*/ false });
+    EXPECT_FALSE(RenderGraph::GetTransientDebugFlags().PoisonTransients);
+    EXPECT_FALSE(RenderGraph::GetTransientDebugFlags().DisableAliasing);
+
+    RenderGraph::SetTransientDebugFlags({ true, false });
+    EXPECT_TRUE(RenderGraph::GetTransientDebugFlags().PoisonTransients);
+    EXPECT_FALSE(RenderGraph::GetTransientDebugFlags().DisableAliasing);
+
+    RenderGraph::SetTransientDebugFlags({ true, true });
+    EXPECT_TRUE(RenderGraph::GetTransientDebugFlags().PoisonTransients);
+    EXPECT_TRUE(RenderGraph::GetTransientDebugFlags().DisableAliasing);
+
+    // Turning one off leaves the other alone — the tool builds its argument by
+    // reading current state and overriding only what the caller named, so a
+    // clobber here would silently disable the other instrument mid-hunt.
+    RenderGraph::SetTransientDebugFlags({ false, true });
+    EXPECT_FALSE(RenderGraph::GetTransientDebugFlags().PoisonTransients);
+    EXPECT_TRUE(RenderGraph::GetTransientDebugFlags().DisableAliasing);
+}
+
+TEST(RenderGraphTransientDebugFlags, PoisonColorMappingIsPureAndStable)
+{
+    const TransientDebugFlagGuard guard;
+
+    RenderGraph::SetTransientDebugFlags({ false, false });
+    const std::string offState(RenderGraph::PoisonColorNameForResource("SceneColor"));
+    RenderGraph::SetTransientDebugFlags({ true, false });
+    const std::string onState(RenderGraph::PoisonColorNameForResource("SceneColor"));
+
+    EXPECT_FALSE(offState.empty());
+    // The map must not depend on whether poison mode happens to be enabled, or a
+    // caller could not plan a hunt before turning it on.
+    EXPECT_EQ(offState, onState);
+    // ...and it must be repeatable within a run.
+    EXPECT_EQ(offState, std::string(RenderGraph::PoisonColorNameForResource("SceneColor")));
+
+    // A versioned name is a DIFFERENT key than its base — that distinction is the
+    // whole point of the hue coding (the black-square hunt was resolved by the
+    // on-screen colour naming 'SceneColor@GPUDrivenOcclusionPass', not 'SceneColor').
+    // They may still collide in a 12-colour palette; assert only that the mapping
+    // is defined for both, not that they differ.
+    EXPECT_FALSE(std::string(RenderGraph::PoisonColorNameForResource("SceneColor@GPUDrivenOcclusionPass")).empty());
+    EXPECT_FALSE(std::string(RenderGraph::PoisonColorNameForResource("")).empty());
+}
+
+TEST(RenderGraphTransientDebugFlags, VersionAliasTargetsAreExposedForDiagnostics)
+{
+    // olo_render_transient_plan reports what a "version-alias" skip is an alias
+    // OF; without the accessor the plan entry is a dead end (see
+    // docs/agent-rules/render-graph-transient-aliasing.md — a version whose
+    // physical differs from its base's IS the orphan-allocation bug).
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+    AddSetupNode(
+        graph,
+        "WriterPass",
+        [](RGBuilder& builder)
+        {
+            auto sceneColor = builder.ImportTexture(
+                "SceneColor", 7u,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
+            [[maybe_unused]] const auto versioned =
+                builder.WriteNewVersion(sceneColor, RGWriteUsage::RenderTarget, "WriterPass");
+        });
+    graph.SetFinalPass("WriterPass");
+    graph.BuildFrameGraph();
+
+    const auto& aliases = graph.GetVersionAliasTargets();
+    ASSERT_FALSE(aliases.empty());
+    bool sawSceneColorVersion = false;
+    for (const auto& [versionedName, sourceName] : aliases)
+    {
+        if (versionedName.find("SceneColor@") != std::string::npos)
+        {
+            sawSceneColorVersion = true;
+            EXPECT_EQ(sourceName, "SceneColor");
+        }
+    }
+    EXPECT_TRUE(sawSceneColorVersion);
+}

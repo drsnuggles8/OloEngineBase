@@ -800,7 +800,8 @@ namespace OloEngine
     GPUResourceInspector::TextureCaptureResult GPUResourceInspector::CaptureTexturePng(u32 textureId, u32 mipLevel,
                                                                                        u32 faceOrLayer,
                                                                                        CaptureNormalizeMode normalize,
-                                                                                       int maxWidth)
+                                                                                       int maxWidth,
+                                                                                       CaptureRegion region)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -837,6 +838,32 @@ namespace OloEngine
             result.Error = "texture has no storage at the requested mip level";
             return result;
         }
+
+        // Resolve the read rect. A zero-sized region means the whole mip; an
+        // out-of-bounds one is an error rather than a silent clamp, because a
+        // silently shrunk rect would make a 1:1 measurement report the wrong
+        // spatial period without ever saying so.
+        const auto fullWidth = static_cast<u32>(width);
+        const auto fullHeight = static_cast<u32>(height);
+        if (region.IsWholeTexture())
+            region = CaptureRegion{ 0, 0, fullWidth, fullHeight };
+        // Bounds are tested as `extent > remaining` rather than `offset + extent >
+        // size` so a huge offset/extent pair cannot wrap the u32 addition and slip
+        // past the check into an out-of-range glGetTextureSubImage.
+        else if (region.X >= fullWidth || region.Y >= fullHeight ||
+                 region.Width > fullWidth - region.X || region.Height > fullHeight - region.Y)
+        {
+            result.Error = "region (" + std::to_string(region.X) + ", " + std::to_string(region.Y) + ", " +
+                           std::to_string(region.Width) + "x" + std::to_string(region.Height) + ") exceeds mip " +
+                           std::to_string(mipLevel) + " (" + std::to_string(fullWidth) + "x" +
+                           std::to_string(fullHeight) + ")";
+            return result;
+        }
+        const auto regionW = static_cast<GLsizei>(region.Width);
+        const auto regionH = static_cast<GLsizei>(region.Height);
+        // The rect arrives in top-left-origin coords; GL rows run bottom-up, so
+        // rows [Y, Y+H) from the top are GL rows [fullHeight - Y - H, ...).
+        const auto glRegionY = static_cast<GLint>(fullHeight - region.Y - region.Height);
 
         // Map the internal format to a readback (format, type). Same table as
         // QueryTextureInfo, except packed depth-stencil reads as depth-only
@@ -904,8 +931,8 @@ namespace OloEngine
         const i32 channels = ChannelsFromGLFormat(format);
         const bool sourceIsFloat = (dataType == GL_FLOAT);
         const sizet bytesPerChannel = sourceIsFloat ? sizeof(f32) : sizeof(u8);
-        const sizet rowStride = static_cast<sizet>(width) * static_cast<sizet>(channels) * bytesPerChannel;
-        const sizet bufferBytes = rowStride * static_cast<sizet>(height);
+        const sizet rowStride = static_cast<sizet>(regionW) * static_cast<sizet>(channels) * bytesPerChannel;
+        const sizet bufferBytes = rowStride * static_cast<sizet>(regionH);
         std::vector<u8> readBuffer(bufferBytes);
 
         // Tight packing + PBO unbind guard — same rationale as SaveTextureToFile.
@@ -919,8 +946,9 @@ namespace OloEngine
 
         glGetTextureSubImage(textureId,
                              static_cast<GLint>(mipLevel),
-                             0, 0, isLayered ? static_cast<GLint>(faceOrLayer) : 0,
-                             width, height, 1,
+                             static_cast<GLint>(region.X), glRegionY,
+                             isLayered ? static_cast<GLint>(faceOrLayer) : 0,
+                             regionW, regionH, 1,
                              format, sourceIsFloat ? GL_FLOAT : GL_UNSIGNED_BYTE,
                              static_cast<GLsizei>(bufferBytes), readBuffer.data());
 
@@ -934,10 +962,17 @@ namespace OloEngine
             return result;
         }
 
+        // Everything below works on the READ RECT, not the full mip — with no
+        // region requested the two are the same. Note the min/max normalisation
+        // range is therefore region-local, which is what a zoomed inspection
+        // wants (a 64x64 crop of a flat-looking HDR target gets its own contrast).
+        const auto capturedWidth = static_cast<sizet>(regionW);
+        const auto capturedHeight = static_cast<sizet>(regionH);
+
         // Convert to 8-bit. Float sources optionally min-max normalise first
         // (Auto = depth only) so a depth buffer / HDR target isn't a flat
         // white/black image after the [0,1] clamp.
-        const sizet valueCount = static_cast<sizet>(width) * static_cast<sizet>(height) * static_cast<sizet>(channels);
+        const sizet valueCount = capturedWidth * capturedHeight * static_cast<sizet>(channels);
         std::vector<u8> pixels8;
         if (sourceIsFloat)
         {
@@ -983,8 +1018,8 @@ namespace OloEngine
         if (channels == 2)
         {
             outChannels = 3;
-            std::vector<u8> widened(static_cast<sizet>(width) * static_cast<sizet>(height) * 3, 0);
-            for (sizet i = 0; i < static_cast<sizet>(width) * static_cast<sizet>(height); ++i)
+            std::vector<u8> widened(capturedWidth * capturedHeight * 3, 0);
+            for (sizet i = 0; i < capturedWidth * capturedHeight; ++i)
             {
                 widened[i * 3 + 0] = pixels8[i * 2 + 0];
                 widened[i * 3 + 1] = pixels8[i * 2 + 1];
@@ -995,15 +1030,17 @@ namespace OloEngine
         // Flip to PNG top-down orientation so the capture is upright when an
         // agent views it (matches CaptureViewportPng / olo_screenshot, and
         // intentionally differs from SaveTextureToFile's raw-memory dump).
-        const sizet outRowBytes = static_cast<sizet>(width) * static_cast<sizet>(outChannels);
+        const sizet outRowBytes = capturedWidth * static_cast<sizet>(outChannels);
         std::vector<u8> flipped(pixels8.size());
-        for (sizet y = 0; y < static_cast<sizet>(height); ++y)
+        for (sizet y = 0; y < capturedHeight; ++y)
             std::memcpy(flipped.data() + y * outRowBytes,
-                        pixels8.data() + (static_cast<sizet>(height) - 1 - y) * outRowBytes, outRowBytes);
+                        pixels8.data() + (capturedHeight - 1 - y) * outRowBytes, outRowBytes);
 
-        // Optional nearest-neighbour downscale so width <= maxWidth.
-        u32 outW = static_cast<u32>(width);
-        u32 outH = static_cast<u32>(height);
+        // Optional nearest-neighbour downscale so width <= maxWidth. A region
+        // narrower than maxWidth skips this entirely and stays 1:1 — that is the
+        // whole point of asking for a region.
+        auto outW = static_cast<u32>(capturedWidth);
+        auto outH = static_cast<u32>(capturedHeight);
         const std::vector<u8>* encodeSrc = &flipped;
         std::vector<u8> scaled;
         if (maxWidth > 0 && outW > static_cast<u32>(maxWidth))
@@ -1044,8 +1081,12 @@ namespace OloEngine
         result.PngBytes = std::move(png);
         result.Width = outW;
         result.Height = outH;
-        result.SourceWidth = static_cast<u32>(width);
-        result.SourceHeight = static_cast<u32>(height);
+        result.SourceWidth = fullWidth;
+        result.SourceHeight = fullHeight;
+        result.RegionX = region.X;
+        result.RegionY = region.Y;
+        result.RegionWidth = region.Width;
+        result.RegionHeight = region.Height;
         result.FormatName = GetInstance().FormatTextureFormat(static_cast<GLenum>(internalFormat));
         result.IsDepth = isDepth;
         return result;

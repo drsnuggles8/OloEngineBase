@@ -3,6 +3,8 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 
+#include <algorithm>
+
 namespace OloEngine
 {
     namespace
@@ -117,6 +119,13 @@ namespace OloEngine
 
     void TransientPool::ReleaseAll()
     {
+        // Snapshot the frame's acquisition order BEFORE the lists are emptied
+        // (issue #607). Every MCP read marshals onto the game thread at a frame
+        // boundary, i.e. after this call, so without the snapshot
+        // olo_render_transient_plan would always report an empty acquire order —
+        // a confidently wrong "nothing was acquired", which is worse than no tool.
+        m_LastFrameAcquireOrder = BuildAcquireOrder();
+
         // Return all acquired objects to their pools
         for (const auto& tex : m_AcquiredTextures)
         {
@@ -229,6 +238,10 @@ namespace OloEngine
         m_AcquiredTextures.clear();
         m_AcquiredFramebuffers.clear();
         m_AcquiredBuffers.clear();
+        // The snapshot describes objects that no longer exist after a Clear
+        // (context loss, shutdown, a debug-flag flip evicting the pool), so drop
+        // it rather than report stale GL ids.
+        m_LastFrameAcquireOrder.clear();
     }
 
     TransientPool::PoolStats TransientPool::GetStats() const
@@ -256,6 +269,103 @@ namespace OloEngine
         }
 
         return stats;
+    }
+
+    std::vector<TransientPool::BucketInfo> TransientPool::GetBucketReport() const
+    {
+        std::vector<BucketInfo> buckets;
+        buckets.reserve(m_TexturePool.size() + m_FramebufferPool.size() + m_BufferPool.size());
+
+        for (const auto& [key, pool] : m_TexturePool)
+        {
+            BucketInfo info;
+            info.Kind = "texture";
+            info.Key = TextureDescriptorKeyHash{}(key);
+            info.Width = key.Width;
+            info.Height = key.Height;
+            info.Format = key.Format;
+            info.MipLevels = key.MipLevels;
+            info.Samples = key.Samples;
+            info.PooledCount = static_cast<u32>(pool.size());
+            buckets.push_back(std::move(info));
+        }
+
+        for (const auto& [key, pool] : m_FramebufferPool)
+        {
+            BucketInfo info;
+            info.Kind = "framebuffer";
+            info.Key = key;
+            info.PooledCount = static_cast<u32>(pool.size());
+            buckets.push_back(std::move(info));
+        }
+
+        for (const auto& [key, pool] : m_BufferPool)
+        {
+            BucketInfo info;
+            info.Kind = "buffer";
+            info.Key = key;
+            info.SizeBytes = key;
+            info.PooledCount = static_cast<u32>(pool.size());
+            buckets.push_back(std::move(info));
+        }
+
+        // The pool maps are unordered, so iteration order is implementation-
+        // defined and can differ run-to-run. Sort so two captures of an
+        // unchanged pool are diffable — the same determinism reasoning the
+        // generated container serializers follow.
+        std::sort(buckets.begin(), buckets.end(),
+                  [](const BucketInfo& a, const BucketInfo& b)
+                  {
+                      if (a.Kind != b.Kind)
+                          return a.Kind < b.Kind;
+                      return a.Key < b.Key;
+                  });
+        return buckets;
+    }
+
+    std::vector<TransientPool::AcquiredInfo> TransientPool::GetAcquireOrder(bool* isLiveFrame) const
+    {
+        // Mid-frame there are live acquisitions; between frames ReleaseAll() has
+        // already emptied the lists, so fall back to its snapshot of the last
+        // completed frame. Without this every MCP read (which marshals at a frame
+        // boundary) would report "nothing was acquired" — a confidently wrong
+        // answer, which is worse than no tool at all.
+        const bool live = !m_AcquiredTextures.empty() || !m_AcquiredFramebuffers.empty() ||
+                          !m_AcquiredBuffers.empty();
+        if (isLiveFrame != nullptr)
+            *isLiveFrame = live;
+        return live ? BuildAcquireOrder() : m_LastFrameAcquireOrder;
+    }
+
+    std::vector<TransientPool::AcquiredInfo> TransientPool::BuildAcquireOrder() const
+    {
+        std::vector<AcquiredInfo> acquired;
+        acquired.reserve(m_AcquiredTextures.size() + m_AcquiredFramebuffers.size() + m_AcquiredBuffers.size());
+
+        // Deliberately NOT sorted: acquisition order is the whole point — it is
+        // the order the alias-slot assigner consumed the pool this frame, and a
+        // LIFO pool's reuse pattern is only readable in that order.
+        for (const auto& texture : m_AcquiredTextures)
+        {
+            if (!texture)
+                continue;
+            const auto& spec = texture->GetSpecification();
+            acquired.push_back(AcquiredInfo{ "texture", texture->GetRendererID(), spec.Width, spec.Height, 0u });
+        }
+        for (const auto& framebuffer : m_AcquiredFramebuffers)
+        {
+            if (!framebuffer)
+                continue;
+            const auto& spec = framebuffer->GetSpecification();
+            acquired.push_back(AcquiredInfo{ "framebuffer", framebuffer->GetRendererID(), spec.Width, spec.Height, 0u });
+        }
+        for (const auto& buffer : m_AcquiredBuffers)
+        {
+            if (!buffer)
+                continue;
+            acquired.push_back(AcquiredInfo{ "buffer", buffer->GetRendererID(), 0u, 0u, buffer->GetSize() });
+        }
+        return acquired;
     }
 
     void TransientPool::LogStats() const

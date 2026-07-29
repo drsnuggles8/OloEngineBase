@@ -63,6 +63,14 @@ OloEditor/assets/tests/captures/
 # Functional test capture artefacts (scene snapshots on assertion failure)
 OloEngine/tests/Functional/captures/
 
+# Crash reports written by the engine's SEH handler. Machine-specific, and each
+# crash drops a full minidump next to the text report (100+ MB), so these must
+# never reach git history.
+OloEditor/CrashReports/
+OloRuntime/CrashReports/
+OloServer/CrashReports/
+/CrashReports/
+
 # Debug export files (Command Bucket Inspector)
 **/cmd_bucket_*.csv
 **/cmd_bucket_*.md
