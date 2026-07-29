@@ -56,6 +56,41 @@ namespace OloEngine::Reflect
     consteval bool   HasFlatten(sm::info m) { return !sm::annotations_of_with_type(m, ^^Flatten).empty(); }
     consteval bool   HasKey    (sm::info m) { return !sm::annotations_of_with_type(m, ^^Key    ).empty(); }
     consteval bool   HasProperty(sm::info m){ return !sm::annotations_of_with_type(m, ^^Property).empty(); }
+    // The verbatim OLO_PROPERTY args of a Property-annotated member ("" for a bare OLO_PROPERTY()).
+    consteval std::string_view PropertyRaw(sm::info m) {
+        auto anns = sm::annotations_of_with_type(m, ^^Property);
+        if (anns.empty()) return {};
+        Property p = sm::extract<Property>(anns[0]);
+        return std::string_view(std::define_static_string(std::string_view(p.raw)));
+    }
+    // Script-facing name: the OLO_PROPERTY `Name = "..."` if present, else the m_-stripped field name.
+    consteval std::string_view PropertyScriptName(sm::info m) {
+        std::string_view raw = PropertyRaw(m);
+        if (auto k = raw.find("Name"); k != std::string_view::npos) {
+            if (auto q1 = raw.find('"', k); q1 != std::string_view::npos)
+                if (auto q2 = raw.find('"', q1 + 1); q2 != std::string_view::npos)
+                    return std::string_view(std::define_static_string(raw.substr(q1 + 1, q2 - q1 - 1)));
+        }
+        return KeyOf(sm::identifier_of(m));   // fallback: field name
+    }
+    // Access: a `ReadOnly` token in the args makes the schema property read-only (reserved; no field uses it yet).
+    consteval bool PropertyReadOnly(sm::info m) { return PropertyRaw(m).find("ReadOnly") != std::string_view::npos; }
+
+    // --- OnSet sync-hook (commitment #4) ---
+    consteval bool HasOnSet(sm::info m) { return !sm::annotations_of_with_type(m, ^^OnSet).empty(); }
+    consteval std::string_view OnSetMethod(sm::info m) {
+        auto anns = sm::annotations_of_with_type(m, ^^OnSet);
+        if (anns.empty()) return {};
+        OnSet o = sm::extract<OnSet>(anns[0]);
+        return std::string_view(std::define_static_string(std::string_view(o.method)));
+    }
+    // Reflect the zero-arg member function named `name` on type T (for splicing a call to it).
+    template <typename T>
+    consteval sm::info FindMethod(std::string_view name) {
+        for (sm::info f : sm::members_of(^^T, sm::access_context::unchecked()))
+            if (sm::is_function(f) && sm::has_identifier(f) && sm::identifier_of(f) == name) return f;
+        return {};
+    }
 
     // -------- component discovery: replaces the source-tree scan -----------------
     // Runtime-only set (mirrors kComponentsNotInTuple): identity + per-tick state.

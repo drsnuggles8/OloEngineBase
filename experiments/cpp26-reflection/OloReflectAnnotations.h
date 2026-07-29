@@ -16,7 +16,20 @@ namespace OloEngine::Reflect
     };
     struct Reject { double min; double max; }; // out-of-range on load -> KEEP the default (reject, not clamp)
     struct Flatten {};                          // serialize this nested-struct member's fields at the PARENT level (no sub-map)
-    struct Property {};                         // marks a field script-exposed (OLO_PROPERTY) -> Mono internal-call getter/setter glue
+    // Marks a field script-exposed (OLO_PROPERTY). Carries the annotation's args verbatim
+    // (Name/Type/Get/Set/…) so the neutral schema is self-sufficient (ADR 0009 commitment #3):
+    // the script-facing name and access are parsed out of `raw` at consteval — no second scan.
+    struct Property {
+        char raw[256]{};                        // OLO_PROPERTY(...) args captured verbatim ("" for a bare OLO_PROPERTY())
+        consteval Property() = default;
+        consteval Property(const char* s) { for (int i = 0; s[i] != '\0' && i < 255; ++i) raw[i] = s[i]; }
+    };
+    // Field-level side-effect on set (ADR 0009 commitment #4): generated setters run comp.<method>()
+    // after the assignment, so physics-synced fields (Rigidbody2D->Box2D) need no hand-written glue.
+    struct OnSet {
+        char method[64]{};                      // name of a zero-arg member function to call after set
+        consteval OnSet(const char* s) { for (int i = 0; s[i] != '\0' && i < 63; ++i) method[i] = s[i]; }
+    };
 }
 
 #define OLO_CLAMP(mn, mx) [[=::OloEngine::Reflect::Clamp{ (double)(mn), (double)(mx) }]]
