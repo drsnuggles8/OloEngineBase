@@ -16,11 +16,13 @@
 // stays hand-written in Scene.cpp.
 
 OLO_ON_COMPONENT_REMOVED_NOOP(AbilityComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(AircraftComponent)
 OLO_ON_COMPONENT_REMOVED_NOOP(AnimationGraphComponent)
 OLO_ON_COMPONENT_REMOVED_NOOP(AnimationStateComponent)
 OLO_ON_COMPONENT_REMOVED_NOOP(AudioListenerComponent)
 OLO_ON_COMPONENT_REMOVED_NOOP(AudioSourceComponent)
 OLO_ON_COMPONENT_REMOVED_NOOP(BehaviorTreeComponent)
+OLO_ON_COMPONENT_REMOVED_NOOP(BoatComponent)
 OLO_ON_COMPONENT_REMOVED_NOOP(BoxCollider2DComponent)
 OLO_ON_COMPONENT_REMOVED_NOOP(BoxCollider3DComponent)
 OLO_ON_COMPONENT_REMOVED_NOOP(BuoyancyComponent)

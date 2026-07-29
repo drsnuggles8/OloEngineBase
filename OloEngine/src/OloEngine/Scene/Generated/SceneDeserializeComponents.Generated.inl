@@ -25,6 +25,97 @@
 // double-emit, so a new trivial component is auto-serialized and a new complex
 // one fails the coverage test until hand-written.
 
+if (auto node = entity["AircraftComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<AircraftComponent>();
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxThrust"], v))
+        comp.m_MaxThrust = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WingArea"], v))
+        comp.m_WingArea = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(10000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["AirDensity"], v))
+        comp.m_AirDensity = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LiftSlope"], v))
+        comp.m_LiftSlope = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ZeroLiftCoefficient"], v))
+        comp.m_ZeroLiftCoefficient = std::clamp(v, static_cast<f32>(-10.0f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["StallAngleDeg"], v))
+        comp.m_StallAngleDeg = std::clamp(v, static_cast<f32>(0.1f), static_cast<f32>(90.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["DragCoefficient"], v))
+        comp.m_DragCoefficient = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["InducedDragFactor"], v))
+        comp.m_InducedDragFactor = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PitchTorque"], v))
+        comp.m_PitchTorque = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RollTorque"], v))
+        comp.m_RollTorque = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["YawTorque"], v))
+        comp.m_YawTorque = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ControlAuthoritySpeed"], v))
+        comp.m_ControlAuthoritySpeed = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(10000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PitchDamping"], v))
+        comp.m_PitchDamping = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RollDamping"], v))
+        comp.m_RollDamping = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["YawDamping"], v))
+        comp.m_YawDamping = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WeathervaneStrength"], v))
+        comp.m_WeathervaneStrength = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    comp.m_HasLandingGear = node["HasLandingGear"].as<bool>(comp.m_HasLandingGear);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MainGearOffsetZ"], v))
+        comp.m_MainGearOffsetZ = std::clamp(v, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MainGearHalfTrack"], v))
+        comp.m_MainGearHalfTrack = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["NoseGearOffsetZ"], v))
+        comp.m_NoseGearOffsetZ = std::clamp(v, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["GearLength"], v))
+        comp.m_GearLength = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["GearStiffness"], v))
+        comp.m_GearStiffness = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["GearDamping"], v))
+        comp.m_GearDamping = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["GearRollingResistance"], v))
+        comp.m_GearRollingResistance = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["GearLateralGrip"], v))
+        comp.m_GearLateralGrip = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ThrottleInput"], v))
+        comp.m_ThrottleInput = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PitchInput"], v))
+        comp.m_PitchInput = std::clamp(v, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RollInput"], v))
+        comp.m_RollInput = std::clamp(v, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["YawInput"], v))
+        comp.m_YawInput = std::clamp(v, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+}
+
+if (auto node = entity["BoatComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<BoatComponent>();
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxThrust"], v))
+        comp.m_MaxThrust = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ThrustOffsetZ"], v))
+        comp.m_ThrustOffsetZ = std::clamp(v, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ThrustOffsetY"], v))
+        comp.m_ThrustOffsetY = std::clamp(v, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxRudderTorque"], v))
+        comp.m_MaxRudderTorque = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RudderAuthoritySpeed"], v))
+        comp.m_RudderAuthoritySpeed = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LateralDrag"], v))
+        comp.m_LateralDrag = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ForwardDrag"], v))
+        comp.m_ForwardDrag = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["YawDrag"], v))
+        comp.m_YawDrag = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ImmersionDepth"], v))
+        comp.m_ImmersionDepth = std::clamp(v, static_cast<f32>(0.001f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ThrottleInput"], v))
+        comp.m_ThrottleInput = std::clamp(v, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SteerInput"], v))
+        comp.m_SteerInput = std::clamp(v, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+}
+
 if (auto node = entity["BuoyancyComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<BuoyancyComponent>();
@@ -724,6 +815,55 @@ if (auto node = entity["UIWorldAnchorComponent"]; node)
     auto& comp = deserializedEntity.AddComponent<UIWorldAnchorComponent>();
     comp.m_TargetEntity = node["TargetEntity"].as<u64>(static_cast<u64>(comp.m_TargetEntity));
     comp.m_WorldOffset = node["WorldOffset"].as<glm::vec3>(comp.m_WorldOffset);
+}
+
+if (auto node = entity["VehicleComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<VehicleComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["HalfTrackWidth"], v))
+        comp.m_HalfTrackWidth = std::clamp(v, static_cast<f32>(1.0e-3f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FrontAxleOffset"], v))
+        comp.m_FrontAxleOffset = std::clamp(v, static_cast<f32>(1.0e-3f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RearAxleOffset"], v))
+        comp.m_RearAxleOffset = std::clamp(v, static_cast<f32>(1.0e-3f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WheelAttachmentHeight"], v))
+        comp.m_WheelAttachmentHeight = std::clamp(v, static_cast<f32>(-100.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WheelRadius"], v))
+        comp.m_WheelRadius = std::clamp(v, static_cast<f32>(1.0e-3f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WheelWidth"], v))
+        comp.m_WheelWidth = std::clamp(v, static_cast<f32>(1.0e-3f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SuspensionMinLength"], v))
+        comp.m_SuspensionMinLength = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SuspensionMaxLength"], v))
+        comp.m_SuspensionMaxLength = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SuspensionFrequency"], v))
+        comp.m_SuspensionFrequency = std::clamp(v, static_cast<f32>(1.0e-3f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SuspensionDamping"], v))
+        comp.m_SuspensionDamping = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxEngineTorque"], v))
+        comp.m_MaxEngineTorque = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxSteerAngleDeg"], v))
+        comp.m_MaxSteerAngleDeg = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(180.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxBrakeTorque"], v))
+        comp.m_MaxBrakeTorque = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0e9f));
+    if (const int v = node["DriveMode"].as<int>(static_cast<int>(comp.m_DriveMode)); v >= static_cast<int>(0) && v <= static_cast<int>(2))
+        comp.m_DriveMode = static_cast<decltype(comp.m_DriveMode)>(v);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FrontTorqueSplit"], v))
+        comp.m_FrontTorqueSplit = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LeftRightSplit"], v))
+        comp.m_LeftRightSplit = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LimitedSlipRatio"], v))
+        comp.m_LimitedSlipRatio = std::clamp(v, static_cast<f32>(1.001f), static_cast<f32>(1.0e6f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["CenterLimitedSlipRatio"], v))
+        comp.m_CenterLimitedSlipRatio = std::clamp(v, static_cast<f32>(1.001f), static_cast<f32>(1.0e6f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["DifferentialRatio"], v))
+        comp.m_DifferentialRatio = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ThrottleInput"], v))
+        comp.m_ThrottleInput = std::clamp(v, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SteerInput"], v))
+        comp.m_SteerInput = std::clamp(v, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["BrakeInput"], v))
+        comp.m_BrakeInput = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
 }
 
 if (auto node = entity["VirtualMeshComponent"]; node)

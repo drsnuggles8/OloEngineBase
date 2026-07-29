@@ -22,7 +22,14 @@ repos:
     - id: clang-format
       name: clang-format
       files: '\.(c|cc|cpp|cxx|h|hh|hpp|ipp|inl)$'
-      exclude: '^OloEngine/(vendor|mono)/'
+      # OloHeaderTool output must NOT be reformatted here. The tool rewrites a
+      # generated file whenever its content differs from what is on disk
+      # (WriteIfChanged), so formatting those files creates a loop: build emits
+      # raw -> clang-format rewrites it -> next build sees a difference and
+      # rewrites it raw -> every TU that #includes it recompiles. That made a
+      # no-op run rebuild the whole engine, and left the generated .inl showing
+      # as modified in git after every build.
+      exclude: '^OloEngine/(vendor|mono)/|/Generated/'
       args: ["--style=file"]
 
 - repo: local

@@ -5,6 +5,8 @@
 // inserted into the `ids` set. #include'd where `ids`
 // (std::unordered_set<entt::id_type>&) is in scope.
 
+ids.insert(entt::type_hash<AircraftComponent>::value());
+ids.insert(entt::type_hash<BoatComponent>::value());
 ids.insert(entt::type_hash<BuoyancyComponent>::value());
 ids.insert(entt::type_hash<CharacterController3DComponent>::value());
 ids.insert(entt::type_hash<CircleRendererComponent>::value());
@@ -47,5 +49,6 @@ ids.insert(entt::type_hash<UIScrollViewComponent>::value());
 ids.insert(entt::type_hash<UISliderComponent>::value());
 ids.insert(entt::type_hash<UIToggleComponent>::value());
 ids.insert(entt::type_hash<UIWorldAnchorComponent>::value());
+ids.insert(entt::type_hash<VehicleComponent>::value());
 ids.insert(entt::type_hash<VirtualMeshComponent>::value());
 ids.insert(entt::type_hash<WeatherStateComponent>::value());

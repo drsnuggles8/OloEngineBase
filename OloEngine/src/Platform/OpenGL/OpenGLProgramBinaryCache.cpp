@@ -3,6 +3,7 @@
 #include "Platform/OpenGL/OpenGLProgramBinaryCache.h"
 
 #include <cstdint>
+#include <fstream>
 #include <istream>
 #include <limits>
 #include <ostream>
@@ -72,5 +73,54 @@ namespace OloEngine
             out.write(data, static_cast<std::streamsize>(dataSize));
         }
         return static_cast<bool>(out);
+    }
+
+    DriverStampSyncResult SyncProgramBinaryCacheDriverStamp(const std::filesystem::path& cacheDirectory,
+                                                            std::string_view driverStamp)
+    {
+        DriverStampSyncResult result;
+
+        const std::filesystem::path stampPath = cacheDirectory / kProgramBinaryDriverStampFileName;
+        if (std::ifstream in(stampPath); in.is_open())
+        {
+            std::getline(in, result.PreviousStamp);
+        }
+
+        if (result.PreviousStamp == driverStamp)
+        {
+            return result; // Mismatched stays false; nothing removed.
+        }
+        result.Mismatched = true;
+
+        // Drop every program binary — none of them can be produced by the
+        // stamped driver, so each would be rejected by glProgramBinary anyway.
+        std::error_code ec;
+        if (std::filesystem::exists(cacheDirectory, ec) && !ec)
+        {
+            for (const auto& entry : std::filesystem::directory_iterator(cacheDirectory, ec))
+            {
+                if (!entry.is_regular_file())
+                {
+                    continue;
+                }
+                if (entry.path().filename().string().ends_with(".cached_opengl.pgr"))
+                {
+                    std::error_code removeEc;
+                    std::filesystem::remove(entry.path(), removeEc);
+                    if (!removeEc)
+                    {
+                        ++result.RemovedBinaries;
+                    }
+                }
+            }
+        }
+
+        std::filesystem::create_directories(cacheDirectory, ec);
+        if (std::ofstream out(stampPath, std::ios::out | std::ios::trunc); out.is_open())
+        {
+            out << driverStamp << '\n';
+        }
+
+        return result;
     }
 } // namespace OloEngine

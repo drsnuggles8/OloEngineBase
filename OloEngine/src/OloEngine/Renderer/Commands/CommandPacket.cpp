@@ -71,8 +71,13 @@ namespace OloEngine
                 auto* cmd1 = reinterpret_cast<const DrawMeshCommand*>(GetInlineData());
                 auto* cmd2 = reinterpret_cast<const DrawMeshCommand*>(other.GetInlineData());
 
-                // Check if mesh handles are the same (POD)
-                if (cmd1->meshHandle != cmd2->meshHandle)
+                // Same geometry = same GL vertex array + index range. Do NOT
+                // compare asset handles here: runtime-imported meshes all carry
+                // the default handle 0, which merged distinct geometry whenever
+                // their material data deduplicated (see InstanceGroupKey).
+                if (cmd1->vertexArrayID != cmd2->vertexArrayID ||
+                    cmd1->indexCount != cmd2->indexCount ||
+                    cmd1->baseIndex != cmd2->baseIndex)
                     return false;
 
                 // Check if material data is the same (covers shader, textures, and all material properties)

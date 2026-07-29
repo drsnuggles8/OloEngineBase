@@ -261,6 +261,11 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
         "RootMotionApply",
         "MorphEval",
         "Fluid",
+        // Boat / aircraft force models (issue #438): like Fluid they queue Jolt
+        // body forces the kick's world step integrates, so they sit here by the
+        // same Before("PhysicsKick") edge, with registration order as tie-break.
+        "Boat",
+        "Aircraft",
         "PhysicsKick",
         "Dialogue",
         "Quest",
@@ -353,6 +358,16 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     // authored-transform writers.
     EXPECT_TRUE(sched.DependsOn("PhysicsKick", "Fluid"));
     EXPECT_TRUE(sched.DependsOn("Fluid", "Cinematics"));
+
+    // Boat / aircraft (issue #438) queue Jolt body forces under the same
+    // queue-before-step contract, so the kick must depend on both — if that edge
+    // is ever lost the forces land a tick late and the controls feel laggy in a
+    // way no unit test would otherwise notice. Both also read posed transforms,
+    // so a script setting throttle this tick is honoured this tick.
+    EXPECT_TRUE(sched.DependsOn("PhysicsKick", "Boat"));
+    EXPECT_TRUE(sched.DependsOn("PhysicsKick", "Aircraft"));
+    EXPECT_TRUE(sched.DependsOn("Boat", "Scripts"));
+    EXPECT_TRUE(sched.DependsOn("Aircraft", "Scripts"));
 
     // The physics shadow's legality is the ABSENCE of paths: Dialogue, Quest,
     // and Progression must be unordered against both physics nodes (they may

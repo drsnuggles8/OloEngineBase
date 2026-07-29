@@ -84,6 +84,15 @@ namespace OloEngine
         f32 AutoExposureCompensation = 0.0f;     // EV bias; +1 doubles the resulting brightness
         f32 AutoExposureMinExposure = 0.05f;     // hard clamp on the metered exposure multiplier
         f32 AutoExposureMaxExposure = 16.0f;     // hard clamp on the metered exposure multiplier
+        // Percentile band of the non-black population the metering averages
+        // (UE EyeAdaptation Low/HighPercent style; (0,1) = plain mean).
+        // Keying exposure on the brightest coherent region keeps it stable
+        // when composition shifts add broad dark populations (the tilt-up
+        // water wash-out) and immune to compact glints above the high bound.
+        // Deliberately NOT scene/save-serialized (engine metering tuning, not
+        // per-scene art direction) — revisit if a scene needs to override it.
+        f32 AutoExposureLowPercentile = 0.80f;
+        f32 AutoExposureHighPercentile = 0.98f;
 
         // Bloom
         bool BloomEnabled = false;
@@ -362,11 +371,15 @@ namespace OloEngine
         s.AutoExposureCompensation = std::clamp(finite(s.AutoExposureCompensation, 0.0f), -16.0f, 16.0f);
         s.AutoExposureMinExposure = std::max(0.0f, finite(s.AutoExposureMinExposure, 0.05f));
         s.AutoExposureMaxExposure = std::max(0.0f, finite(s.AutoExposureMaxExposure, 16.0f));
+        s.AutoExposureLowPercentile = std::clamp(finite(s.AutoExposureLowPercentile, 0.80f), 0.0f, 1.0f);
+        s.AutoExposureHighPercentile = std::clamp(finite(s.AutoExposureHighPercentile, 0.98f), 0.0f, 1.0f);
 
         if (s.AutoExposureMinLogLuminance > s.AutoExposureMaxLogLuminance)
             std::swap(s.AutoExposureMinLogLuminance, s.AutoExposureMaxLogLuminance);
         if (s.AutoExposureMinExposure > s.AutoExposureMaxExposure)
             std::swap(s.AutoExposureMinExposure, s.AutoExposureMaxExposure);
+        if (s.AutoExposureLowPercentile > s.AutoExposureHighPercentile)
+            std::swap(s.AutoExposureLowPercentile, s.AutoExposureHighPercentile);
     }
 
     // GPU-side UBO layout for post-process parameters (std140, binding 7)
@@ -390,7 +403,11 @@ namespace OloEngine
         i32 MotionBlurSamples = 8;
         f32 InverseScreenWidth = 0.0f;
         f32 InverseScreenHeight = 0.0f;
-        f32 _padding0 = 0.0f;
+        // Deband dither amplitude for the tonemap output (occupies the former
+        // padding slot — same std140 layout). Defaults to 0 so tests that
+        // fill this struct directly measure the pure tonemap curve; the live
+        // pipeline sets half an 8-bit LSB in UploadExecutionState.
+        f32 DitherAmplitude = 0.0f;
 
         // Per-pass volatile data (re-uploaded before each effect)
         f32 TexelSizeX = 0.0f;

@@ -38,10 +38,17 @@ uniform float u_SpeedDown;   // adaptation rate when darkening
 uniform float u_ExposureCompensation;
 uniform float u_MinExposure;
 uniform float u_MaxExposure;
+// Percentile band of the non-black population that contributes to the
+// metered average (UE EyeAdaptation Low/HighPercent style). Keying the
+// exposure on the brightest coherent region makes it robust against
+// composition shifts (tilting toward the horizon adding a broad dark
+// far-water population) AND compact glints (excluded above the high bound).
+// (0, 1) reproduces the plain weighted mean.
+uniform float u_LowPercentile;
+uniform float u_HighPercentile;
 
 const float BLACK_THRESHOLD = 0.0001;
 
-shared uint s_WeightedBins[NUM_BINS];
 shared uint s_Counts[NUM_BINS];
 
 // Mirrors AutoExposure::BinToLuminance.
@@ -54,19 +61,14 @@ float binToLuminance(float bin)
 void main()
 {
     uint i = gl_LocalInvocationIndex;
-    uint count = histogram[i];
-
-    // weighted = binIndex * count; bin 0 contributes nothing.
-    s_WeightedBins[i] = count * i;
-    s_Counts[i] = count;
+    s_Counts[i] = histogram[i];
     barrier();
 
-    // Parallel reduction over the 256 bins.
+    // Parallel reduction for the total pixel count.
     for (uint cutoff = NUM_BINS / 2u; cutoff > 0u; cutoff >>= 1u)
     {
         if (i < cutoff)
         {
-            s_WeightedBins[i] += s_WeightedBins[i + cutoff];
             s_Counts[i] += s_Counts[i + cutoff];
         }
         barrier();
@@ -75,12 +77,45 @@ void main()
     if (i != 0u)
         return;
 
-    // --- Weighted-average luminance (AutoExposure::ComputeAverageLuminance) ---
+    // --- Percentile-banded average luminance ---
+    // Mirrors AutoExposure::ComputeAverageLuminance exactly (CPU twin pinned
+    // by AutoExposureMathTest): clip each bin's population to the
+    // [low, high) band of the cumulative non-black distribution, with the
+    // boundary bins contributing fractionally.
     uint totalCount = s_Counts[0];
     uint numBlack = histogram[0];
-    uint denom = max(totalCount - numBlack, 1u);
-    float avgBin = float(s_WeightedBins[0]) / float(denom);
-    float targetLum = binToLuminance(avgBin);
+    uint nonBlack = (totalCount > numBlack) ? (totalCount - numBlack) : 0u;
+
+    float targetLum;
+    if (nonBlack == 0u)
+    {
+        targetLum = binToLuminance(0.0);
+    }
+    else
+    {
+        float lo = clamp(u_LowPercentile, 0.0, 1.0);
+        float hi = clamp(u_HighPercentile, 0.0, 1.0);
+        if (!(hi > lo))
+        {
+            lo = 0.0; // degenerate band — fall back to the untrimmed mean
+            hi = 1.0;
+        }
+        float lowCount = float(nonBlack) * lo;
+        float highCount = float(nonBlack) * hi;
+        float weighted = 0.0;
+        float used = 0.0;
+        float cumulative = 0.0;
+        for (uint b = 1u; b < NUM_BINS; ++b)
+        {
+            float binStart = cumulative;
+            cumulative += float(histogram[b]);
+            float take = max(0.0, min(cumulative, highCount) - max(binStart, lowCount));
+            weighted += float(b) * take;
+            used += take;
+        }
+        float avgBin = (used > 0.0) ? (weighted / used) : 0.0;
+        targetLum = binToLuminance(avgBin);
+    }
 
     // --- Eye adaptation (AutoExposure::AdaptLuminance) ---
     float current = state[1];

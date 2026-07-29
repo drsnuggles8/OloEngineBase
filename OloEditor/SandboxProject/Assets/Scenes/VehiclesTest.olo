@@ -1,0 +1,588 @@
+Scene: VehiclesTest.olo
+PostProcessSettings:
+  TonemapOperator: 1
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1
+  BloomIntensity: 0.3
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+FogSettings:
+  Enabled: false
+  Mode: 0
+  Color: [0.6, 0.65, 0.75]
+  Density: 0.01
+  Start: 10
+  End: 100
+  HeightFalloff: 0
+  HeightOffset: 0
+  MaxOpacity: 0.8
+  EnableScattering: false
+  RayleighStrength: 0.5
+  MieStrength: 0.003
+  MieDirectionality: 0.76
+  RayleighColor: [0.27, 0.51, 0.83]
+  SunIntensity: 5
+WindSettings:
+  Enabled: false
+  Direction: [1, 0, 0]
+  Speed: 0
+  GustStrength: 0
+  GustFrequency: 0
+  TurbulenceIntensity: 0
+  TurbulenceScale: 0.1
+  GridWorldSize: 200
+  GridResolution: 128
+# =============================================================================
+# VehiclesTest — issue #438 demo scene: boats that drive, aircraft that fly,
+# and the FWD / RWD / AWD differential modes on the existing wheeled vehicle.
+#
+# Every vehicle here has its driver input AUTHORED (throttle / steer / pitch are
+# ordinary serialized fields), so the whole scene animates the moment you press
+# Play or Simulate — no scripting required.
+#
+#   * Three cars line up on the quay at z = -190 and drive down it (800 m of
+#     deck, so they stay on it for the whole demo). They differ
+#     ONLY in DriveMode, so they should all pull away together; a mode whose
+#     differential was wired to the wrong axle would be left sitting still.
+#       red = rear-wheel drive (the historical jeep), blue = front, green = all.
+#   * Two boats run on the open water west of the quay. The white one runs
+#     straight; the orange one holds right rudder and should carve a steady
+#     circle — a boat sliding broadside instead of turning means the hull's
+#     lateral drag is not biting.
+#   * One aircraft sits on its landing gear at the south end of the quay at full
+#     throttle with steady back-pressure. It rolls, rotates, unsticks around
+#     33 m/s and climbs away northward over the sea — wings level throughout.
+# =============================================================================
+Entities:
+  # Primary camera — Play mode needs one (the editor reverts to Edit without it).
+  # Parked high to the south-west looking north-east: an establishing shot with
+  # the two boats, the three cars on the quay and the aircraft all in frame at
+  # t=0. Everything then moves away northward (+Z).
+  # Camera forward is rot*(0,0,-1), and glm::quat(vec3(pitch,yaw,0)) is
+  # Ry(yaw)*Rx(pitch) - so for a look direction d: pitch=asin(d.y), yaw=atan2(-d.x,-d.z).
+  - Entity: 438000000000000
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [-95, 45, -265]
+      Rotation: [-0.211090, -2.492597, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 1.0000
+        PerspectiveNear: 0.1
+        PerspectiveFar: 2000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      # Free-fly in Play mode: WASD to move, Q/E down/up, hold RIGHT MOUSE to look.
+      RuntimeControl: true
+      FlySpeed: 45
+
+  - Entity: 438000000000001
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 60, 0]
+      Rotation: [-0.7853982, 0.3926991, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.4, -0.82, -0.4]
+      Color: [1, 0.96, 0.9]
+      # 4.0, not 15. A Lambertian surface returns (albedo/PI) * I * NdotL, so the
+      # quay deck (albedo 0.55, NdotL ~0.84 against this direction) rendered at
+      # (0.55/PI) * 15 * 0.84 = 2.2 in linear HDR -- measured 2.29 -- i.e. clipped
+      # to pure white well before tonemapping. The sea hid it by being mostly
+      # specular. A white deck swallowed the white-ish car bodies, so at distance
+      # only their dark undersides read and the silhouettes became unidentifiable.
+      Intensity: 4
+      CastShadows: true
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 500
+      CascadeSplitLambda: 0.5
+      CascadeDebugVisualization: false
+    # Sky + IBL: without an ambient source the sea and the hulls render almost
+    # black, which makes it impossible to judge how a boat is sitting in the water.
+
+  # ── Environment: the water needs something to REFLECT ────────────────────
+  # Without this the sea renders as a near-black void from above (water is
+  # largely a mirror; a flat procedural gradient gives it nothing to bounce).
+  # Same cubemap WaterTest.olo uses.
+  - Entity: 438000000000005
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 0.6
+
+  # ── Water: the surface both BuoyancySystem and BoatSystem sample ──────────
+  - Entity: 438000000000002
+    TagComponent:
+      Tag: Sea
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    WaterComponent:
+      WorldSizeX: 1000
+      WorldSizeZ: 1000
+      WaveAmplitude: 0.25
+      WaveFrequency: 0.6
+      WaveSpeed: 1
+      WaveDir0: [1, 0]
+      WaveSteepness0: 0.35
+      WaveDir1: [0.7, 0.7]
+      WaveSteepness1: 0.2
+      WaterColor: [0.16, 0.46, 0.56]
+      DeepColor: [0.06, 0.24, 0.34]
+      Transparency: 0.6
+      Reflectivity: 0.45
+      FresnelPower: 3
+      SpecularIntensity: 0.4
+      GridResolutionX: 128
+      GridResolutionZ: 128
+      Enabled: true
+      PlanarReflectionsEnabled: true
+      PlanarReflectionIntensity: 1
+      PlanarReflectionDistortion: 0.02
+      UnderwaterFogColor: [0.04, 0.18, 0.3]
+      UnderwaterFogDensity: 0.08
+      RenderFromBelow: true
+      UseFFT: false
+
+  # ── Seafloor (visual depth reference + something to land on) ──────────────
+  - Entity: 438000000000003
+    TagComponent:
+      Tag: Seafloor
+    TransformComponent:
+      Translation: [0, -14, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1000, 1, 1000]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.32, 0.28, 0.2]
+      Metallic: 0
+      Roughness: 0.95
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 0
+      LinearDrag: 0
+      AngularDrag: 0
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+
+  # ── The quay: an 800 m concrete strip whose deck sits 3 m above the water.
+  #    Doubles as the cars' 800 m test track and the aircraft's runway. ─────
+  - Entity: 438000000000004
+    TagComponent:
+      Tag: Quay
+    TransformComponent:
+      Translation: [40, 1.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [24, 3, 800]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.55, 0.57]
+      Metallic: 0
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 0
+      LinearDrag: 0
+      AngularDrag: 0
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+
+  # ══ Cars — identical except for DriveMode ════════════════════════════════
+  - Entity: 438000000000010
+    TagComponent:
+      Tag: Car RWD (red)
+    TransformComponent:
+      Translation: [31, 3.4, -190]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1200
+      LinearDrag: 0.01
+      AngularDrag: 0.05
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.9, 0.4, 1.8]
+    VehicleComponent:
+      DriveMode: 0
+      MaxEngineTorque: 500
+      ThrottleInput: 0.5
+      SteerInput: 0
+      BrakeInput: 0
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 438000000000110
+  - Entity: 438000000000011
+    TagComponent:
+      Tag: Car FWD (blue)
+    TransformComponent:
+      Translation: [36, 3.4, -190]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1200
+      LinearDrag: 0.01
+      AngularDrag: 0.05
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.9, 0.4, 1.8]
+    VehicleComponent:
+      DriveMode: 1
+      MaxEngineTorque: 500
+      ThrottleInput: 0.5
+      SteerInput: 0
+      BrakeInput: 0
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 438000000000111
+  - Entity: 438000000000012
+    TagComponent:
+      Tag: Car AWD (green)
+    TransformComponent:
+      Translation: [41, 3.4, -190]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1200
+      LinearDrag: 0.01
+      AngularDrag: 0.05
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.9, 0.4, 1.8]
+    VehicleComponent:
+      DriveMode: 2
+      FrontTorqueSplit: 0.4
+      CenterLimitedSlipRatio: 1.4
+      MaxEngineTorque: 500
+      ThrottleInput: 0.5
+      SteerInput: 0
+      BrakeInput: 0
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 438000000000112
+
+  # ══ Boats — buoyancy floats them, BoatSystem drives them ═════════════════
+  # Hull is a 2 x 0.8 x 5 m box. The buoyancy probe box matches, so it
+  # displaces 8 m^3 fully submerged; at 2000 kg it floats half-immersed, i.e.
+  # with its origin right at the waterline — a boat's normal working state.
+  # (Half the displaced mass is the equilibrium: heavier and the deck goes awash.)
+  - Entity: 438000000000020
+    TagComponent:
+      Tag: Boat straight (white)
+    TransformComponent:
+      Translation: [-30, 0, -60]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 2000
+      LinearDrag: 0
+      AngularDrag: 0
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [1, 0.4, 2.5]
+    BuoyancyComponent:
+      Enabled: true
+      ProbeExtents: [1, 0.4, 2.5]
+      FluidDensity: 1000
+      BuoyancyScale: 1
+      LinearDrag: 0.8
+      AngularDrag: 1.5
+      SubmergenceRamp: 0.8
+    BoatComponent:
+      Enabled: true
+      MaxThrust: 15000
+      ThrustOffsetZ: -2.2
+      ThrustOffsetY: -0.3
+      MaxRudderTorque: 3000
+      RudderAuthoritySpeed: 4
+      LateralDrag: 3
+      ForwardDrag: 0.3
+      YawDrag: 2
+      ImmersionDepth: 0.3
+      ThrottleInput: 1
+      SteerInput: 0
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 438000000000120
+  - Entity: 438000000000021
+    TagComponent:
+      Tag: Boat circling (orange)
+    TransformComponent:
+      Translation: [-75, 0, 20]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 2000
+      LinearDrag: 0
+      AngularDrag: 0
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [1, 0.4, 2.5]
+    BuoyancyComponent:
+      Enabled: true
+      ProbeExtents: [1, 0.4, 2.5]
+      FluidDensity: 1000
+      BuoyancyScale: 1
+      LinearDrag: 0.8
+      AngularDrag: 1.5
+      SubmergenceRamp: 0.8
+    BoatComponent:
+      Enabled: true
+      MaxThrust: 15000
+      ThrustOffsetZ: -2.2
+      ThrustOffsetY: -0.3
+      MaxRudderTorque: 3000
+      RudderAuthoritySpeed: 4
+      LateralDrag: 3
+      ForwardDrag: 0.3
+      YawDrag: 2
+      ImmersionDepth: 0.3
+      ThrottleInput: 1
+      SteerInput: 0.6
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 438000000000121
+
+  # ══ Aircraft — takes off from the south end of the quay ══════════════════
+  # A genuine ground takeoff: it sits on its landing gear, rolls, rotates under
+  # back-pressure, unsticks and climbs away. Two things make that possible, both
+  # added as issue #438 follow-ups:
+  #   * m_HasLandingGear — three sprung ray-cast legs. Without them the fuselage
+  #     collider lies flat on the deck and the aircraft pivots about the box's
+  #     REAR EDGE, where the weight moment (~9810 N x 3 m) is an order of
+  #     magnitude beyond what the elevator (~3.5 kN.m here) can beat. The main
+  #     gear sits just aft of the CoM, which is exactly how a real aircraft
+  #     rotates on a few tens of centimetres of arm.
+  #   * Rigidbody3DComponent::InitialLinearVelocity is now scene-serialized, so a
+  #     scene CAN author a moving body — not needed here, but it is what lets the
+  #     other demo scenes start an aircraft already in cruise.
+  # High-lift wing (big area, strong camber) so it unsticks around 33 m/s and the
+  # whole roll fits on the 800 m quay.
+  - Entity: 438000000000030
+    TagComponent:
+      Tag: Aircraft
+    TransformComponent:
+      Translation: [48, 3.5, -190]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    Rigidbody3DComponent:
+      BodyType: 1
+      Mass: 1000
+      LinearDrag: 0
+      AngularDrag: 0
+      DisableGravity: false
+    BoxCollider3DComponent:
+      HalfExtents: [4, 0.5, 3]
+      StaticFriction: 0.02
+      DynamicFriction: 0.02
+    AircraftComponent:
+      Enabled: true
+      MaxThrust: 3500
+      # High-lift, low-speed airframe: unsticks near
+      #   v = sqrt(2*m*g / (rho*A*Cl0)) = sqrt(2*9810 / (1.225*24*0.6)) ~= 33 m/s
+      WingArea: 24
+      AirDensity: 1.225
+      LiftSlope: 5
+      ZeroLiftCoefficient: 0.6
+      StallAngleDeg: 15
+      DragCoefficient: 0.05
+      InducedDragFactor: 0.05
+      PitchTorque: 10000
+      RollTorque: 6000
+      YawTorque: 4000
+      ControlAuthoritySpeed: 30
+      PitchDamping: 4
+      RollDamping: 3
+      YawDamping: 4
+      WeathervaneStrength: 1.5
+      # Landing gear: mains just aft of the CoM (the rotation pivot), nose wheel
+      # forward. GearLength 1.2 clears the 0.5 fuselage half-height, so the belly
+      # never touches and the legs carry everything.
+      HasLandingGear: true
+      MainGearOffsetZ: -0.6
+      MainGearHalfTrack: 2
+      NoseGearOffsetZ: 2.5
+      GearLength: 1.2
+      GearStiffness: 12
+      GearDamping: 0.5
+      GearRollingResistance: 0.03
+      GearLateralGrip: 1.5
+      ThrottleInput: 1
+      # Gentle, CONSTANT back-pressure. Sized for the climb, not the rotation:
+      # a stick held hard enough to rotate early also loops the aircraft once it
+      # is flying (the weathervane balances the elevator at a high angle of
+      # attack, which is several g of turn). At 0.06 the in-flight balance sits
+      # near 1.3 deg AoA -> a steady ~1.3 g climb-out.
+      #
+      # It still rotates, because rotation gets EASIER as the wing takes the
+      # load: the moment about the main gear is (weight - lift) x 0.6 m, which
+      # collapses toward zero as the aircraft approaches flying speed. So it
+      # unsticks around 32 m/s instead of being hauled off early — which is what
+      # a real rotation looks like anyway.
+      PitchInput: 0.06
+      RollInput: 0
+      YawInput: 0
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 438000000000130
+
+  # Visual only (no yaw needed: these models already face +Z, the engine's
+  # vehicle-forward axis) — parented to 438000000000010 so it can carry the -Z -> +Z yaw
+  # correction and its own scale without touching the physics transform.
+  - Entity: 438000000000110
+    TagComponent:
+      Tag: Car RWD mesh
+    TransformComponent:
+      Translation: [0, -0.7, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.35, 1.35, 1.35]
+    ModelComponent:
+      FilePath: SandboxProject/Assets/Models/KenneyVehicles/sedan-sports.glb
+      Visible: true
+    RelationshipComponent:
+      ParentHandle: 438000000000010
+      Children: []
+
+  # Visual only (no yaw needed: these models already face +Z, the engine's
+  # vehicle-forward axis) — parented to 438000000000011 so it can carry the -Z -> +Z yaw
+  # correction and its own scale without touching the physics transform.
+  - Entity: 438000000000111
+    TagComponent:
+      Tag: Car FWD mesh
+    TransformComponent:
+      Translation: [0, -0.7, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.35, 1.35, 1.35]
+    ModelComponent:
+      FilePath: SandboxProject/Assets/Models/KenneyVehicles/suv.glb
+      Visible: true
+    RelationshipComponent:
+      ParentHandle: 438000000000011
+      Children: []
+
+  # Visual only (no yaw needed: these models already face +Z, the engine's
+  # vehicle-forward axis) — parented to 438000000000012 so it can carry the -Z -> +Z yaw
+  # correction and its own scale without touching the physics transform.
+  - Entity: 438000000000112
+    TagComponent:
+      Tag: Car AWD mesh
+    TransformComponent:
+      Translation: [0, -0.7, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.35, 1.35, 1.35]
+    ModelComponent:
+      FilePath: SandboxProject/Assets/Models/KenneyVehicles/van.glb
+      Visible: true
+    RelationshipComponent:
+      ParentHandle: 438000000000012
+      Children: []
+
+  # Visual only (no yaw needed: these models already face +Z, the engine's
+  # vehicle-forward axis) — parented to 438000000000020 so it can carry the -Z -> +Z yaw
+  # correction and its own scale without touching the physics transform.
+  - Entity: 438000000000120
+    TagComponent:
+      Tag: Boat straight mesh
+    TransformComponent:
+      Translation: [0, -0.45, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.57, 0.57, 0.57]
+    ModelComponent:
+      FilePath: SandboxProject/Assets/Models/KenneyVehicles/ship-small.glb
+      Visible: true
+    RelationshipComponent:
+      ParentHandle: 438000000000020
+      Children: []
+
+  # Visual only (no yaw needed: these models already face +Z, the engine's
+  # vehicle-forward axis) — parented to 438000000000021 so it can carry the -Z -> +Z yaw
+  # correction and its own scale without touching the physics transform.
+  - Entity: 438000000000121
+    TagComponent:
+      Tag: Boat circling mesh
+    TransformComponent:
+      Translation: [0, -0.35, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.75, 1.75, 1.75]
+    ModelComponent:
+      FilePath: SandboxProject/Assets/Models/KenneyVehicles/boat-row-large.glb
+      Visible: true
+    RelationshipComponent:
+      ParentHandle: 438000000000021
+      Children: []
+
+  # Visual only (no yaw needed: these models already face +Z, the engine's
+  # vehicle-forward axis) — parented to 438000000000030 so it can carry the -Z -> +Z yaw
+  # correction and its own scale without touching the physics transform.
+  - Entity: 438000000000130
+    TagComponent:
+      Tag: Aircraft mesh
+    TransformComponent:
+      Translation: [0, -1.1, 0]
+      # craft_speederA noses toward -Z (its hull tapers from a 0.20 half-width at
+      # -Z out to 1.00 at +Z, where the engines sit), but AircraftSystem thrusts
+      # along +Z like the boat and Jolt vehicle systems. Without this yaw the
+      # plane flies tail-first. The car/boat meshes already nose +Z.
+      Rotation: [0, 3.1415927, 0]
+      Scale: [3.0, 3.0, 3.0]
+    ModelComponent:
+      FilePath: SandboxProject/Assets/Models/KenneyVehicles/craft_speederA.glb
+      Visible: true
+    RelationshipComponent:
+      ParentHandle: 438000000000030
+      Children: []

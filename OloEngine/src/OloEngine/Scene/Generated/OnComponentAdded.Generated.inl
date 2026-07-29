@@ -16,11 +16,13 @@
 // stays hand-written in Scene.cpp.
 
 OLO_ON_COMPONENT_ADDED_NOOP(AbilityComponent)
+OLO_ON_COMPONENT_ADDED_NOOP(AircraftComponent)
 OLO_ON_COMPONENT_ADDED_NOOP(AnimationGraphComponent)
 OLO_ON_COMPONENT_ADDED_NOOP(AnimationStateComponent)
 OLO_ON_COMPONENT_ADDED_NOOP(AudioListenerComponent)
 OLO_ON_COMPONENT_ADDED_NOOP(AudioSourceComponent)
 OLO_ON_COMPONENT_ADDED_NOOP(BehaviorTreeComponent)
+OLO_ON_COMPONENT_ADDED_NOOP(BoatComponent)
 OLO_ON_COMPONENT_ADDED_NOOP(BoxCollider2DComponent)
 OLO_ON_COMPONENT_ADDED_NOOP(BoxCollider3DComponent)
 OLO_ON_COMPONENT_ADDED_NOOP(BuoyancyComponent)

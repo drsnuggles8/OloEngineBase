@@ -232,10 +232,30 @@ namespace OloEngine::RenderGraphTransientPlanner
         std::unordered_map<std::string, Lifetime> lifetimes;
         lifetimes.reserve(input.TransientResourceDescs.size());
 
-        const auto touchResource = [&input, &lifetimes](const std::string& resourceName,
-                                                        u32 passIndex,
-                                                        const std::string& passName)
+        // Canonicalize a WriteNewVersion rename to the base resource it
+        // aliases (following chains: SceneColor@B → SceneColor@A → SceneColor)
+        // so a version's accesses extend the BASE's lifetime — the version
+        // shares the base's physical, so the base must stay live until the
+        // last version reader has executed. The depth guard only protects
+        // against a malformed self-referencing map; real chains are short.
+        const auto canonicalResourceName = [&input](const std::string& resourceName) -> const std::string&
         {
+            const std::string* current = &resourceName;
+            for (u32 depth = 0; depth < 16u; ++depth)
+            {
+                const auto aliasIt = input.VersionAliasTargets.find(*current);
+                if (aliasIt == input.VersionAliasTargets.end())
+                    return *current;
+                current = &aliasIt->second;
+            }
+            return *current;
+        };
+
+        const auto touchResource = [&input, &lifetimes, &canonicalResourceName](const std::string& rawResourceName,
+                                                                                u32 passIndex,
+                                                                                const std::string& passName)
+        {
+            const auto& resourceName = canonicalResourceName(rawResourceName);
             if (!input.TransientResourceDescs.contains(resourceName))
                 return;
 
@@ -301,7 +321,16 @@ namespace OloEngine::RenderGraphTransientPlanner
             entry.EstimatedBytes = EstimateBytes(desc);
             aliasGroupHashByResource.emplace(resourceName, HashAliasGroup(desc));
 
-            if (const auto ltIt = lifetimes.find(resourceName); ltIt != lifetimes.end())
+            // Look the lifetime up under the CANONICAL name: touchResource
+            // folds every version's accesses into the base's bucket, so a
+            // version-alias entry ("SceneColor@B") has no bucket of its own and
+            // a raw-name lookup silently leaves Reachable=false and the pass
+            // range at its defaults — which is what the JSON/debug dumps then
+            // report for it. Resolving first makes a version report the same
+            // lifetime as the physical it actually shares. Skip reason and
+            // WillAllocate are unaffected: the version-alias branch below is
+            // checked first and never sets WillAllocate.
+            if (const auto ltIt = lifetimes.find(canonicalResourceName(resourceName)); ltIt != lifetimes.end())
             {
                 const auto& lt = ltIt->second;
                 entry.Reachable = lt.Reachable;
@@ -311,7 +340,15 @@ namespace OloEngine::RenderGraphTransientPlanner
                 entry.LastPass = lt.LastPass;
             }
 
-            if (!entry.Reachable)
+            if (input.VersionAliasTargets.contains(resourceName))
+            {
+                // WriteNewVersion rename — shares the source's physical, its
+                // lifetime already folded into the base above. Allocating it
+                // would materialize an orphan pool object that RMW consumers
+                // could end up sampling (stale-pool black-square artifact).
+                entry.SkipReason = "version-alias";
+            }
+            else if (!entry.Reachable)
             {
                 entry.SkipReason = "unreachable-or-disabled";
             }

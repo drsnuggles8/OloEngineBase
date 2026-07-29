@@ -11470,6 +11470,196 @@ TEST(RenderGraphSceneColorChain, RmwContributorsRemainReachableWhenConsumerReads
     EXPECT_LT(posOf("ContributorB"), posOf("ConsumerPass"));
 }
 
+TEST(RenderGraphVersionAlias, VersionHandleResolvesToSourcePhysical)
+{
+    // Regression for the transient black-square artifact (VehiclesTest,
+    // one-frame squares over water on camera-move frames): a WriteNewVersion
+    // handle used to be a fully independent transient — the pool materialized
+    // an ORPHAN physical for it, and any consumer resolving through the
+    // version (the latest-version redirect, or a versioned attachment view's
+    // parent) sampled whatever stale pool content that orphan received
+    // instead of the resource the producing pass actually rendered. A
+    // version is an RMW *rename* of the same resource, so resolving it must
+    // return the SOURCE's physical.
+    //
+    // Headless-safe probe: import the source with a known fake renderer ID —
+    // before the fix ResolveTexture(version) returned the orphan slot (0 in
+    // a headless run, arbitrary pool memory in production); after, it
+    // follows the alias chain to the imported ID.
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    constexpr u32 kImportedTextureID = 1234u;
+    RGTextureHandle versionHandle;
+
+    AddSetupNode(
+        graph,
+        "RmwPass",
+        [&versionHandle](RGBuilder& builder)
+        {
+            auto source = builder.ImportTexture(
+                "VersionAliasSrcTex",
+                kImportedTextureID,
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "VersionAliasSrcTex"));
+            [[maybe_unused]] const auto r = builder.Read(source, RGReadUsage::ShaderSample);
+            versionHandle = builder.WriteNewVersion(source, RGWriteUsage::ShaderImage, "RmwPass");
+        });
+
+    AddSetupNode(
+        graph,
+        "ReaderPass",
+        [&versionHandle](RGBuilder& builder)
+        {
+            if (versionHandle.IsValid())
+                [[maybe_unused]]
+                const auto r = builder.Read(versionHandle, RGReadUsage::ShaderSample);
+        });
+
+    graph.SetFinalPass("ReaderPass");
+    graph.BuildFrameGraph();
+
+    ASSERT_TRUE(versionHandle.IsValid());
+    EXPECT_EQ(graph.ResolveTexture(versionHandle), kImportedTextureID)
+        << "a WriteNewVersion handle must resolve to its source's physical, never an orphan pool object";
+
+    // The unqualified latest-version redirect must land on the same physical.
+    const auto latestHandle = graph.GetTextureHandle("VersionAliasSrcTex");
+    ASSERT_TRUE(latestHandle.IsValid());
+    EXPECT_EQ(graph.ResolveTexture(latestHandle), kImportedTextureID)
+        << "the latest-version redirect for the base name must also reach the source's physical";
+}
+
+TEST(RenderGraphVersionAlias, VersionPlanEntryNeverAllocates)
+{
+    // The transient planner half of the same regression: the version's plan
+    // entry must never allocate a pool object (that orphan is what consumers
+    // used to sample), while the base resource still allocates normally.
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc fbDesc;
+    fbDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    fbDesc.Width = 64u;
+    fbDesc.Height = 64u;
+    fbDesc.Attachments = { RGResourceFormat::RGBA8UNorm };
+    fbDesc.DebugName = "VersionAliasFB";
+    const auto baseFB = graph.DeclareTransientFramebuffer("VersionAliasFB", fbDesc);
+
+    AddSetupNode(
+        graph,
+        "BaseWriterPass",
+        [baseFB](RGBuilder& builder)
+        {
+            builder.Write(baseFB, RGWriteUsage::RenderTarget);
+        });
+
+    RGFramebufferHandle versionHandle;
+    AddSetupNode(
+        graph,
+        "RmwPass",
+        [baseFB, &versionHandle](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto r = builder.Read(baseFB, RGReadUsage::RenderTargetRead);
+            versionHandle = builder.WriteNewVersion(baseFB, RGWriteUsage::RenderTarget, "RmwPass");
+            builder.DependsOnPreviousWriter("VersionAliasFB");
+        });
+
+    AddSetupNode(
+        graph,
+        "ReaderPass",
+        [&versionHandle](RGBuilder& builder)
+        {
+            if (versionHandle.IsValid())
+                [[maybe_unused]]
+                const auto r = builder.Read(versionHandle, RGReadUsage::ShaderSample);
+        });
+
+    graph.SetFinalPass("ReaderPass");
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto& transientPlan = graph.GetTransientPlan();
+    const auto findEntry = [&transientPlan](std::string_view resource) -> const RenderGraph::TransientPlanEntry*
+    {
+        const auto it = std::ranges::find_if(transientPlan,
+                                             [resource](const RenderGraph::TransientPlanEntry& entry)
+                                             { return entry.Resource == resource; });
+        return it != transientPlan.end() ? &*it : nullptr;
+    };
+
+    const auto* versionEntry = findEntry("VersionAliasFB@RmwPass");
+    ASSERT_NE(versionEntry, nullptr) << "version plan entry missing";
+    EXPECT_FALSE(versionEntry->WillAllocate)
+        << "a WriteNewVersion rename must never materialize its own pool object";
+    EXPECT_EQ(versionEntry->SkipReason, "version-alias");
+
+    const auto* baseEntry = findEntry("VersionAliasFB");
+    ASSERT_NE(baseEntry, nullptr) << "base plan entry missing";
+    EXPECT_TRUE(baseEntry->WillAllocate) << "the base resource still allocates normally";
+}
+
+TEST(RenderGraphVersionAlias, VersionReadersExtendBaseLifetime)
+{
+    // Lifetime-folding half: the version shares the base's physical, so a
+    // pass that reads only the VERSION must extend the BASE's transient
+    // lifetime — otherwise the alias-slot assigner may hand the base's
+    // backing to another same-descriptor transient before the version
+    // reader has executed (the same stale-content corruption, one hop
+    // removed).
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+
+    RGResourceDesc fbDesc;
+    fbDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    fbDesc.Width = 64u;
+    fbDesc.Height = 64u;
+    fbDesc.Attachments = { RGResourceFormat::RGBA8UNorm };
+    fbDesc.DebugName = "VersionLifetimeFB";
+    const auto baseFB = graph.DeclareTransientFramebuffer("VersionLifetimeFB", fbDesc);
+
+    AddSetupNode(
+        graph,
+        "BaseWriterPass",
+        [baseFB](RGBuilder& builder)
+        {
+            builder.Write(baseFB, RGWriteUsage::RenderTarget);
+        });
+
+    RGFramebufferHandle versionHandle;
+    AddSetupNode(
+        graph,
+        "RmwPass",
+        [baseFB, &versionHandle](RGBuilder& builder)
+        {
+            [[maybe_unused]] const auto r = builder.Read(baseFB, RGReadUsage::RenderTargetRead);
+            versionHandle = builder.WriteNewVersion(baseFB, RGWriteUsage::RenderTarget, "RmwPass");
+            builder.DependsOnPreviousWriter("VersionLifetimeFB");
+        });
+
+    // Reads ONLY the version — never the base handle.
+    AddSetupNode(
+        graph,
+        "LateVersionReaderPass",
+        [&versionHandle](RGBuilder& builder)
+        {
+            if (versionHandle.IsValid())
+                [[maybe_unused]]
+                const auto r = builder.Read(versionHandle, RGReadUsage::ShaderSample);
+        });
+
+    graph.SetFinalPass("LateVersionReaderPass");
+    graph.BuildFrameGraph();
+    graph.Execute();
+
+    const auto& transientPlan = graph.GetTransientPlan();
+    const auto it = std::ranges::find_if(transientPlan,
+                                         [](const RenderGraph::TransientPlanEntry& entry)
+                                         { return entry.Resource == "VersionLifetimeFB"; });
+    ASSERT_NE(it, transientPlan.end());
+    EXPECT_EQ(it->LastPass, "LateVersionReaderPass")
+        << "a read of the version must fold into the base resource's lifetime";
+}
+
 TEST(RenderGraphBuildDiagnostics, RegistrationOrderSensitivityIsReportedForReverseRmwChain)
 {
     RenderGraph graph;

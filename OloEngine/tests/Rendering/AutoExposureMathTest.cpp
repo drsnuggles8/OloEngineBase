@@ -159,6 +159,73 @@ namespace OloEngine::Tests
         EXPECT_NEAR(std::log2(avg), -0.5f, 0.2f); // midpoint of -3 and 2
     }
 
+    // ----- Percentile-banded metering ---------------------------------------
+    // The band (UE EyeAdaptation Low/HighPercent style) keys exposure on the
+    // brightest coherent population. Two concrete regressions pinned here,
+    // both from the VehiclesTest water scene (issue #438 follow-up): a slight
+    // camera tilt toward the horizon added a broad dark far-water population
+    // and the naive mean dropped so hard the whole frame washed out (2.4x
+    // display-brightness swing over 10 degrees of pitch), and the compact
+    // sun-glint sparkle population steered exposure whenever it entered the
+    // frame.
+
+    TEST(AutoExposureMathTest, PercentileDefaultsReproduceThePlainMean)
+    {
+        const f32 dark = std::exp2(-3.0f);
+        const f32 lite = std::exp2(2.0f);
+        std::vector<f32> px(5000, dark);
+        px.insert(px.end(), 5000, lite);
+        const auto h = MakeHistogram(px);
+        const f32 plain = AutoExposure::ComputeAverageLuminance(h, kMinLogLum, kMaxLogLum);
+        const f32 explicitFull = AutoExposure::ComputeAverageLuminance(h, kMinLogLum, kMaxLogLum, 0.0f, 1.0f);
+        EXPECT_EQ(plain, explicitFull) << "default arguments must be the plain weighted mean";
+        // A degenerate band falls back to the plain mean instead of dividing by zero.
+        const f32 degenerate = AutoExposure::ComputeAverageLuminance(h, kMinLogLum, kMaxLogLum, 0.5f, 0.5f);
+        EXPECT_EQ(plain, degenerate);
+    }
+
+    TEST(AutoExposureMathTest, BandIgnoresACompactBrightGlint)
+    {
+        const f32 waterLum = std::exp2(-1.0f);
+        std::vector<f32> water(100000, waterLum);
+        const auto plainWater = AutoExposure::ComputeAverageLuminance(MakeHistogram(water), kMinLogLum, kMaxLogLum, 0.80f, 0.98f);
+
+        // Add a 1.5% ultra-bright glint population (sun sparkle).
+        auto withGlint = water;
+        withGlint.insert(withGlint.end(), 1500, std::exp2(3.0f));
+        const auto banded = AutoExposure::ComputeAverageLuminance(MakeHistogram(withGlint), kMinLogLum, kMaxLogLum, 0.80f, 0.98f);
+        const auto naive = AutoExposure::ComputeAverageLuminance(MakeHistogram(withGlint), kMinLogLum, kMaxLogLum);
+
+        // The banded average must not move (the glint sits above the 98th
+        // percentile); the naive mean visibly does.
+        EXPECT_NEAR(std::log2(banded), std::log2(plainWater), 0.05f)
+            << "a compact glint above the high percentile must not steer the metered average";
+        EXPECT_GT(std::log2(naive), std::log2(plainWater) + 0.05f)
+            << "sanity: the naive mean must actually shift for this histogram, or this test is vacuous";
+    }
+
+    TEST(AutoExposureMathTest, BandStaysStableWhenABroadDarkPopulationEnters)
+    {
+        // Bright near-water fills the frame...
+        const f32 nearLum = std::exp2(0.0f);
+        std::vector<f32> nearOnly(100000, nearLum);
+        const f32 before = AutoExposure::ComputeAverageLuminance(MakeHistogram(nearOnly), kMinLogLum, kMaxLogLum, 0.80f, 0.98f);
+
+        // ...then the camera tilts up and 60% of the frame becomes much
+        // darker far water. The 80th..98th percentile band still lands inside
+        // the bright population (which now occupies the top 40%), so the
+        // metered average must barely move; the naive mean collapses.
+        auto tilted = nearOnly;
+        tilted.insert(tilted.end(), 150000, std::exp2(-4.0f));
+        const f32 bandedAfter = AutoExposure::ComputeAverageLuminance(MakeHistogram(tilted), kMinLogLum, kMaxLogLum, 0.80f, 0.98f);
+        const f32 naiveAfter = AutoExposure::ComputeAverageLuminance(MakeHistogram(tilted), kMinLogLum, kMaxLogLum);
+
+        EXPECT_NEAR(std::log2(bandedAfter), std::log2(before), 0.05f)
+            << "a broad dark population below the band must not steer the metered average";
+        EXPECT_LT(std::log2(naiveAfter), std::log2(before) - 1.0f)
+            << "sanity: the naive mean must collapse for this histogram, or this test is vacuous";
+    }
+
     // ----- Eye adaptation ----------------------------------------------------
 
     TEST(AutoExposureMathTest, AdaptationConvergesToTarget)
@@ -292,5 +359,47 @@ namespace OloEngine::Tests
         SanitizeAutoExposure(s);
         EXPECT_LE(s.AutoExposureMinLogLuminance, s.AutoExposureMaxLogLuminance);
         EXPECT_LE(s.AutoExposureMinExposure, s.AutoExposureMaxExposure);
+    }
+
+    // The percentile band selects WHICH part of the histogram drives exposure, so
+    // a NaN or out-of-range edge does not just skew the result — it collapses the
+    // band and the persistent adapted-luminance state latches onto the garbage.
+    TEST(AutoExposureMathTest, SanitizeClampsAndOrdersPercentiles)
+    {
+        // Non-finite edges fall back to finite, in-range defaults.
+        {
+            PostProcessSettings s;
+            s.AutoExposureLowPercentile = std::nanf("");
+            s.AutoExposureHighPercentile = std::numeric_limits<f32>::infinity();
+            SanitizeAutoExposure(s);
+            EXPECT_TRUE(std::isfinite(s.AutoExposureLowPercentile));
+            EXPECT_TRUE(std::isfinite(s.AutoExposureHighPercentile));
+            EXPECT_GE(s.AutoExposureLowPercentile, 0.0f);
+            EXPECT_LE(s.AutoExposureLowPercentile, 1.0f);
+            EXPECT_GE(s.AutoExposureHighPercentile, 0.0f);
+            EXPECT_LE(s.AutoExposureHighPercentile, 1.0f);
+            EXPECT_LE(s.AutoExposureLowPercentile, s.AutoExposureHighPercentile);
+        }
+
+        // Out-of-range but finite edges clamp into [0, 1] rather than passing through.
+        {
+            PostProcessSettings s;
+            s.AutoExposureLowPercentile = -3.0f;
+            s.AutoExposureHighPercentile = 7.5f;
+            SanitizeAutoExposure(s);
+            EXPECT_FLOAT_EQ(s.AutoExposureLowPercentile, 0.0f);
+            EXPECT_FLOAT_EQ(s.AutoExposureHighPercentile, 1.0f);
+        }
+
+        // An inverted pair is reordered, not merely clamped.
+        {
+            PostProcessSettings s;
+            s.AutoExposureLowPercentile = 0.95f;
+            s.AutoExposureHighPercentile = 0.10f;
+            SanitizeAutoExposure(s);
+            EXPECT_LE(s.AutoExposureLowPercentile, s.AutoExposureHighPercentile);
+            EXPECT_FLOAT_EQ(s.AutoExposureLowPercentile, 0.10f);
+            EXPECT_FLOAT_EQ(s.AutoExposureHighPercentile, 0.95f);
+        }
     }
 } // namespace OloEngine::Tests

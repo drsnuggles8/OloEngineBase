@@ -55,6 +55,8 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Physics3D/JoltShapes.h"
+#include "OloEngine/Physics3D/AircraftSystem.h"
+#include "OloEngine/Physics3D/BoatSystem.h"
 #include "OloEngine/Physics3D/BuoyancySystem.h"
 #include "OloEngine/Physics3D/ClothWindSystem.h"
 #include "OloEngine/Fluid/FluidSettings.h"
@@ -2529,6 +2531,13 @@ namespace OloEngine
         // against its domain walls (coupling is skipped inside).
         FluidSystem::OnUpdate(this, ts.GetSeconds());
 
+        // Boat / aircraft force models (issue #438) — mirrors their "Boat" /
+        // "Aircraft" scheduler nodes, which are ordered Before("PhysicsKick") on
+        // the runtime path. Same queue-before-step contract as Fluid above; keep
+        // the two call sites in sync. Both no-op without a Jolt scene.
+        BoatSystem::OnUpdate(this, m_SimulationTime, ts.GetSeconds());
+        AircraftSystem::OnUpdate(this, ts.GetSeconds());
+
         // Update 3D physics
         if (m_JoltScene)
         {
@@ -2936,6 +2945,34 @@ namespace OloEngine
             // of Scene::StepPhysics — keep the two call sites in sync.
             sched.AddSystem("Fluid", [](Scene& s, Timestep ts)
                             { FluidSystem::OnUpdate(&s, ts.GetSeconds()); })
+                .Reads(kLocalTransforms)
+                .Writes(kBodyForces)
+                .Before("PhysicsKick");
+
+            // Boat propulsion / rudder / hull drag (issue #438). Same
+            // queue-before-step contract as Fluid: the forces must be queued
+            // before the kick's world step integrates them. Reads the water
+            // tiles' transforms to locate the surface (hence LocalTransforms),
+            // writes only Jolt body forces. Sums with — never replaces —
+            // BuoyancySystem, which runs inside the kick and owns the vertical
+            // axis. UNMARKED (join-all barrier): a Parallelizable mark would
+            // need the thread-safety audit in the table below, and boats are
+            // rare enough that the barrier costs nothing. The editor Simulate
+            // path mirrors this with a direct call in Scene::StepPhysics — keep
+            // the two call sites in sync.
+            sched.AddSystem("Boat", [](Scene& s, Timestep ts)
+                            { BoatSystem::OnUpdate(&s, s.GetSimulationTime(), ts.GetSeconds()); })
+                .Reads(kLocalTransforms)
+                .Writes(kBodyForces)
+                .Before("PhysicsKick");
+
+            // Fixed-wing flight model (issue #438) — same contract as Boat, but
+            // needs no water and so reads nothing but the aircraft bodies'
+            // own Jolt state (a pre-kick read of fenced physics state is legal).
+            // The LocalTransforms read is declared because the ECS view it walks
+            // includes TransformComponent.
+            sched.AddSystem("Aircraft", [](Scene& s, Timestep ts)
+                            { AircraftSystem::OnUpdate(&s, ts.GetSeconds()); })
                 .Reads(kLocalTransforms)
                 .Writes(kBodyForces)
                 .Before("PhysicsKick");

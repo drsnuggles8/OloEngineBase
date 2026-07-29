@@ -1042,3 +1042,166 @@ TEST_F(CommandBucketBatchTest, NonDefaultColorAndCustomSurviveCollapse)
             << "Custom " << i << " lost across batch collapse";
     }
 }
+
+// =============================================================================
+// Geometry identity — the auto-batcher must key on what the draw actually
+// binds (vertex array + index range), never on the asset handle.
+// =============================================================================
+
+TEST_F(CommandBucketBatchTest, HandleZeroMeshesWithDifferentGeometryNeverMerge)
+{
+    // Regression: runtime-imported meshes (Model's assimp path) are never
+    // registered with the AssetManager, so they ALL carry the default asset
+    // handle 0. Keying instance groups on the handle merged two DIFFERENT
+    // meshes whenever their material data deduplicated to the same index —
+    // the batched draw then rendered the FIRST command's geometry at every
+    // instance's transform. In VehiclesTest that drew the ship's hull at the
+    // three cars' transforms once the camera was far enough away for boats
+    // and cars to be in-frustum together (near the quay the boats cull and
+    // no cross-model group forms — which disguised this as a LOD bug).
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    // Two "cars" sharing VAO 10 and one "ship" with VAO 20 — all handle 0,
+    // all the same material/render state (the shared-palette scenario).
+    constexpr u32 kCarVAO = 10;
+    constexpr u32 kShipVAO = 20;
+    for (u32 i = 0; i < 3; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
+        cmd.meshHandle = UUID(0);
+        cmd.vertexArrayID = (i < 2) ? kCarVAO : kShipVAO;
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, cmd.vertexArrayID, 1, i);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.BatchCommands(*m_Allocator);
+
+    // The two same-VAO commands may merge; the different-VAO one must survive
+    // as its own draw. Count how many draws bind each VAO, over both command
+    // types (merged instanced + untouched single).
+    u32 carInstances = 0;
+    u32 shipInstances = 0;
+    // Counted separately and ONLY from instanced packets: the totals above are
+    // also satisfied by two untouched DrawMesh packets, so on their own they
+    // pass even when batching does nothing at all. The merge is the behaviour
+    // under test, so it needs an assertion no un-merged result can satisfy.
+    // BatchCommands merges any group with size > 1 (`indices.size() <= 1`
+    // continues), so a car pair merging into exactly one instanced draw is
+    // deterministic, not incidental.
+    u32 mergedCarDraws = 0;
+    for (const auto* pkt : bucket.GetSortedCommands())
+    {
+        if (!pkt)
+            continue;
+        if (pkt->GetCommandType() == CommandType::DrawMeshInstanced)
+        {
+            auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(pkt->GetRawCommandData());
+            if (icmd->vertexArrayID == kCarVAO)
+            {
+                carInstances += icmd->instanceCount;
+                if (icmd->instanceCount == 2u)
+                    ++mergedCarDraws;
+            }
+            else if (icmd->vertexArrayID == kShipVAO)
+                shipInstances += icmd->instanceCount;
+        }
+        else if (pkt->GetCommandType() == CommandType::DrawMesh)
+        {
+            auto const* mcmd = static_cast<const DrawMeshCommand*>(pkt->GetRawCommandData());
+            if (mcmd->vertexArrayID == kCarVAO)
+                ++carInstances;
+            else if (mcmd->vertexArrayID == kShipVAO)
+                ++shipInstances;
+        }
+    }
+    EXPECT_EQ(carInstances, 2u) << "both car instances must draw the car VAO";
+    EXPECT_EQ(mergedCarDraws, 1u)
+        << "the two car commands must MERGE into a single DrawMeshInstancedCommand "
+           "with instanceCount == 2 on the car VAO — two untouched DrawMesh packets "
+           "would satisfy the instance total above while batching silently did nothing";
+    EXPECT_EQ(shipInstances, 1u)
+        << "the ship must keep its own geometry — merging it into the car group "
+           "(or vice versa) is the cars-render-as-boats bug";
+}
+
+TEST_F(CommandBucketBatchTest, SubmeshIndexRangesStaySeparateAndSurviveMerging)
+{
+    // Two submeshes of one MeshSource share a VAO but draw disjoint index
+    // ranges (baseIndex). They must not merge with each other, and a merged
+    // group must carry its members' baseIndex into the instanced command —
+    // it was previously dropped (left 0), so batched non-zero-base submeshes
+    // drew the wrong slice of the index buffer.
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    constexpr u32 kSharedVAO = 30;
+    constexpr u32 kBaseA = 0;
+    constexpr u32 kBaseB = 72;
+    // Two instances of submesh B (merge candidates) + one of submesh A.
+    for (u32 i = 0; i < 3; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
+        cmd.meshHandle = UUID(0);
+        cmd.vertexArrayID = kSharedVAO;
+        cmd.indexCount = 36;
+        cmd.baseIndex = (i < 2) ? kBaseB : kBaseA;
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, kSharedVAO, 1, i);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.BatchCommands(*m_Allocator);
+
+    u32 baseAInstances = 0;
+    u32 baseBInstances = 0;
+    // As in the cars/ship test above: the totals alone are satisfied by two
+    // untouched DrawMesh packets, which would pass even though nothing merged
+    // — and the dropped-baseIndex bug this test exists for can ONLY appear on
+    // a merged command. Assert the merge explicitly so the baseIndex carry-over
+    // is genuinely exercised.
+    u32 mergedBaseBDraws = 0;
+    for (const auto* pkt : bucket.GetSortedCommands())
+    {
+        if (!pkt)
+            continue;
+        if (pkt->GetCommandType() == CommandType::DrawMeshInstanced)
+        {
+            auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(pkt->GetRawCommandData());
+            if (icmd->baseIndex == kBaseA)
+                baseAInstances += icmd->instanceCount;
+            else if (icmd->baseIndex == kBaseB)
+            {
+                baseBInstances += icmd->instanceCount;
+                if (icmd->instanceCount == 2u)
+                    ++mergedBaseBDraws;
+            }
+        }
+        else if (pkt->GetCommandType() == CommandType::DrawMesh)
+        {
+            auto const* mcmd = static_cast<const DrawMeshCommand*>(pkt->GetRawCommandData());
+            if (mcmd->baseIndex == kBaseA)
+                ++baseAInstances;
+            else if (mcmd->baseIndex == kBaseB)
+                ++baseBInstances;
+        }
+    }
+    EXPECT_EQ(baseAInstances, 1u) << "submesh A must keep its index range";
+    EXPECT_EQ(baseBInstances, 2u)
+        << "submesh B's instances must draw base 72 — a merged command that "
+           "drops baseIndex draws the wrong slice of the shared index buffer";
+    EXPECT_EQ(mergedBaseBDraws, 1u)
+        << "submesh B's two commands must MERGE into a single DrawMeshInstancedCommand "
+           "with instanceCount == 2 and baseIndex == "
+        << kBaseB
+        << " — without a merged command the baseIndex carry-over this test guards is never executed";
+}

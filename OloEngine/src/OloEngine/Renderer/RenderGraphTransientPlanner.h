@@ -49,6 +49,15 @@ namespace OloEngine::RenderGraphTransientPlanner
         // RGBuilder::Write for why this is kept separate from
         // PassAccessDeclarations).
         const std::unordered_map<std::string, std::vector<std::string>>& PassLifetimeExtensions;
+        // WriteNewVersion renames: versioned name → source resource name
+        // (RenderGraph::m_VersionAliasTargets). A version is dependency
+        // bookkeeping over the SAME physical resource, so its accesses fold
+        // into the source's lifetime (following the chain to the base) and
+        // the version itself is never allocated — before this, every version
+        // got its own pool object, and RMW seams where the producer rendered
+        // via the base handle left consumers reading a never-written orphan
+        // (the one-frame black-square artifact on transient-plan rebuilds).
+        const std::unordered_map<std::string, std::string>& VersionAliasTargets;
         std::function<bool(const std::string&)> IsPassReachable;
         std::function<bool(std::string_view)> IsExternallyBackedTransientResource;
     };

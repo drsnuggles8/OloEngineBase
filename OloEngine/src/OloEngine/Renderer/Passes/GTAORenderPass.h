@@ -107,6 +107,11 @@ namespace OloEngine
         glm::mat4 m_ViewMatrix{ 1.0f };
         RGTextureHandle m_SelectedSceneDepthTexture{};
         RGTextureHandle m_SelectedSceneNormalsTexture{};
+        // True when m_SelectedSceneNormalsTexture holds VIEW-space normals (the
+        // forward path) rather than the world-space G-Buffer normals the deferred
+        // path supplies. GTAO.comp converts with u_ViewMatrix, so this decides
+        // whether that conversion runs or is replaced by identity.
+        bool m_SceneNormalsAreViewSpace = false;
         RGTextureHandle m_SelectedAOOutputTexture{};
         RGTextureHandle m_SelectedEdgeTexture{};
         RGTextureHandle m_SelectedHZBDepthTexture{};

@@ -57,14 +57,31 @@
 //           (Vec2/Vec4/vector-of-T clamping remain a follow-up) — requesting it on
 //           any other type marks the whole component non-trivial (fail-safe) rather
 //           than silently dropping the annotation.
-//           Note this is CLAMP-to-range, not REJECT-out-of-range: a component whose
-//           hand-written deserialize instead *rejects* an out-of-bounds value (keeps
-//           the constructor default rather than clamping to the bound) is a different
-//           semantic and must stay hand-written.
-//   Min   — Clamp lower bound, e.g. Min = 0.0f. Emitted as a static_cast to the
-//           field's own type, so an int literal is fine for a float field. For a
+//           Note this is CLAMP-to-range, not REJECT-out-of-range — for that, use
+//           Reject below.
+//  Reject — The sibling of Clamp: same Min/Max bounds, opposite failure mode. An
+//           out-of-range (or, for a float, non-finite) value leaves the field at its
+//           CONSTRUCTOR DEFAULT instead of saturating at the nearest bound.
+//           Reach for this whenever saturating would turn a corrupt value into a
+//           different VALID one. The motivating case is an enum: Clamp(0, 2) maps a
+//           corrupt `7` to enumerator 2, silently selecting a real-but-wrong mode,
+//           while every other load path for such a field maps anything unrecognised
+//           back to enumerator 0. Rule of thumb — Clamp for a continuous quantity
+//           where "as close as we can get" is meaningful (a density, a radius),
+//           Reject for a discriminated one where it is not (an enum, a mode index).
+//           Scalar Float/Int/UInt/SmallInt/SmallUInt/Enum fields only: glm::vec3 is
+//           deliberately unsupported, since rejecting one bad component would leave
+//           a half-updated vector. Mutually exclusive with Clamp; requesting both,
+//           or requesting Reject on an unsupported type, marks the whole component
+//           non-trivial (fail-safe) rather than silently picking one.
+//           Applies on BOTH generated read paths (YAML and the binary scene
+//           writer). At the MCP boundary the value is CLAMPED to the same bounds
+//           instead — MCP can only range a write, not refuse it, and a bounded
+//           write beats an unvalidated one.
+//   Min   — Clamp/Reject lower bound, e.g. Min = 0.0f. Emitted as a static_cast to
+//           the field's own type, so an int literal is fine for a float field. For a
 //           glm::vec3 field, broadcast to all three components via glm::vec3(Min).
-//   Max   — Clamp upper bound, e.g. Max = 100.0f.
+//   Max   — Clamp/Reject upper bound, e.g. Max = 100.0f.
 //
 // Usage:
 //   struct SomeComponent
@@ -74,6 +91,10 @@
 //       OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
 //       glm::vec3 m_Extents{ 0.5f, 0.5f, 0.5f };
 //       // deserialize: m_Extents = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1000.0f))
+//       OLO_SERIALIZE(Reject, Min = 0, Max = 2)
+//       SomeMode m_Mode = SomeMode::First;
+//       // deserialize: if (const int v = ...; v >= 0 && v <= 2) m_Mode = SomeMode(v);
+//       // i.e. a corrupt 7 stays SomeMode::First rather than becoming mode 2.
 //   };
 //
 // May co-exist with OLO_PROPERTY on the same field (e.g. a runtime field exposed to

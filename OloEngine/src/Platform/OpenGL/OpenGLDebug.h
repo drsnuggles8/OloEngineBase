@@ -26,4 +26,12 @@ namespace OloEngine
     void RegisterGLProgramLabel(u32 programID, std::string_view name);
     void UnregisterGLProgramLabel(u32 programID);
     [[nodiscard]] std::string GetGLProgramLabel(u32 programID);
+
+    // Parse the "program N" id out of a driver debug message ("Vertex shader in
+    // program 172 is being recompiled..."). Returns 0 when the message names no
+    // program (0 is not a valid GL program id). Exposed for unit testing: the
+    // per-program recompile policy in the debug callback (first 131218 for a
+    // program = expected one-time SPIR-V specialization -> INFO; a repeat for
+    // the SAME program = state thrash -> WARN + stack) keys off this parse.
+    [[nodiscard]] u32 ParseProgramIDFromMessage(const char* message);
 } // namespace OloEngine

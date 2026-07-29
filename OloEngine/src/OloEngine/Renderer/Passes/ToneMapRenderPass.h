@@ -23,6 +23,10 @@ namespace OloEngine
         f32 Compensation = 0.0f;
         f32 MinExposure = 0.05f;
         f32 MaxExposure = 16.0f;
+        // Metering percentile band (see PostProcessSettings.h) — exposure is
+        // averaged over the non-black pixels between these cumulative bounds.
+        f32 LowPercentile = 0.80f;
+        f32 HighPercentile = 0.98f;
         f32 DeltaTime = 0.0f;
     };
 

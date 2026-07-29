@@ -2,6 +2,666 @@
 // Re-generate with: cmake --build build --target GenerateBindings
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// AircraftComponent                                                              //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool AircraftComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_Enabled;
+}
+
+static void AircraftComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_Enabled = value;
+}
+
+static float AircraftComponent_GetMaxThrust(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_MaxThrust;
+}
+
+static void AircraftComponent_SetMaxThrust(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_MaxThrust = value;
+}
+
+static float AircraftComponent_GetWingArea(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_WingArea;
+}
+
+static void AircraftComponent_SetWingArea(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_WingArea = value;
+}
+
+static float AircraftComponent_GetAirDensity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_AirDensity;
+}
+
+static void AircraftComponent_SetAirDensity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_AirDensity = value;
+}
+
+static float AircraftComponent_GetLiftSlope(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_LiftSlope;
+}
+
+static void AircraftComponent_SetLiftSlope(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_LiftSlope = value;
+}
+
+static float AircraftComponent_GetZeroLiftCoefficient(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_ZeroLiftCoefficient;
+}
+
+static void AircraftComponent_SetZeroLiftCoefficient(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_ZeroLiftCoefficient = value;
+}
+
+static float AircraftComponent_GetStallAngleDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_StallAngleDeg;
+}
+
+static void AircraftComponent_SetStallAngleDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_StallAngleDeg = value;
+}
+
+static float AircraftComponent_GetDragCoefficient(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_DragCoefficient;
+}
+
+static void AircraftComponent_SetDragCoefficient(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_DragCoefficient = value;
+}
+
+static float AircraftComponent_GetInducedDragFactor(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_InducedDragFactor;
+}
+
+static void AircraftComponent_SetInducedDragFactor(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_InducedDragFactor = value;
+}
+
+static float AircraftComponent_GetPitchTorque(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_PitchTorque;
+}
+
+static void AircraftComponent_SetPitchTorque(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_PitchTorque = value;
+}
+
+static float AircraftComponent_GetRollTorque(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_RollTorque;
+}
+
+static void AircraftComponent_SetRollTorque(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_RollTorque = value;
+}
+
+static float AircraftComponent_GetYawTorque(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_YawTorque;
+}
+
+static void AircraftComponent_SetYawTorque(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_YawTorque = value;
+}
+
+static float AircraftComponent_GetControlAuthoritySpeed(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_ControlAuthoritySpeed;
+}
+
+static void AircraftComponent_SetControlAuthoritySpeed(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_ControlAuthoritySpeed = value;
+}
+
+static float AircraftComponent_GetPitchDamping(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_PitchDamping;
+}
+
+static void AircraftComponent_SetPitchDamping(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_PitchDamping = value;
+}
+
+static float AircraftComponent_GetRollDamping(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_RollDamping;
+}
+
+static void AircraftComponent_SetRollDamping(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_RollDamping = value;
+}
+
+static float AircraftComponent_GetYawDamping(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_YawDamping;
+}
+
+static void AircraftComponent_SetYawDamping(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_YawDamping = value;
+}
+
+static float AircraftComponent_GetWeathervaneStrength(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_WeathervaneStrength;
+}
+
+static void AircraftComponent_SetWeathervaneStrength(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_WeathervaneStrength = value;
+}
+
+static bool AircraftComponent_GetHasLandingGear(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_HasLandingGear;
+}
+
+static void AircraftComponent_SetHasLandingGear(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_HasLandingGear = value;
+}
+
+static float AircraftComponent_GetMainGearOffsetZ(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_MainGearOffsetZ;
+}
+
+static void AircraftComponent_SetMainGearOffsetZ(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_MainGearOffsetZ = value;
+}
+
+static float AircraftComponent_GetMainGearHalfTrack(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_MainGearHalfTrack;
+}
+
+static void AircraftComponent_SetMainGearHalfTrack(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_MainGearHalfTrack = value;
+}
+
+static float AircraftComponent_GetNoseGearOffsetZ(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_NoseGearOffsetZ;
+}
+
+static void AircraftComponent_SetNoseGearOffsetZ(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_NoseGearOffsetZ = value;
+}
+
+static float AircraftComponent_GetGearLength(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_GearLength;
+}
+
+static void AircraftComponent_SetGearLength(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_GearLength = value;
+}
+
+static float AircraftComponent_GetGearStiffness(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_GearStiffness;
+}
+
+static void AircraftComponent_SetGearStiffness(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_GearStiffness = value;
+}
+
+static float AircraftComponent_GetGearDamping(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_GearDamping;
+}
+
+static void AircraftComponent_SetGearDamping(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_GearDamping = value;
+}
+
+static float AircraftComponent_GetGearRollingResistance(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_GearRollingResistance;
+}
+
+static void AircraftComponent_SetGearRollingResistance(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_GearRollingResistance = value;
+}
+
+static float AircraftComponent_GetGearLateralGrip(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_GearLateralGrip;
+}
+
+static void AircraftComponent_SetGearLateralGrip(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_GearLateralGrip = value;
+}
+
+static float AircraftComponent_GetThrottleInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_ThrottleInput;
+}
+
+static void AircraftComponent_SetThrottleInput(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_ThrottleInput = value;
+}
+
+static float AircraftComponent_GetPitchInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_PitchInput;
+}
+
+static void AircraftComponent_SetPitchInput(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_PitchInput = value;
+}
+
+static float AircraftComponent_GetRollInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_RollInput;
+}
+
+static void AircraftComponent_SetRollInput(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_RollInput = value;
+}
+
+static float AircraftComponent_GetYawInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    return comp.m_YawInput;
+}
+
+static void AircraftComponent_SetYawInput(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AircraftComponent>();
+    comp.m_YawInput = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // AudioSoundGraphComponent                                                       //
 ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -481,6 +1141,272 @@ static void AudioSourceComponent_SetSoundConfigHandle(UUID entityID, u64 value)
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<AudioSourceComponent>();
     comp.SetSoundConfigHandle(AssetHandle(value));
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
+// BoatComponent                                                                  //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static bool BoatComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<BoatComponent>();
+    return comp.m_Enabled;
+}
+
+static void BoatComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<BoatComponent>();
+    comp.m_Enabled = value;
+}
+
+static float BoatComponent_GetMaxThrust(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<BoatComponent>();
+    return comp.m_MaxThrust;
+}
+
+static void BoatComponent_SetMaxThrust(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<BoatComponent>();
+    comp.m_MaxThrust = value;
+}
+
+static float BoatComponent_GetThrustOffsetZ(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<BoatComponent>();
+    return comp.m_ThrustOffsetZ;
+}
+
+static void BoatComponent_SetThrustOffsetZ(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<BoatComponent>();
+    comp.m_ThrustOffsetZ = value;
+}
+
+static float BoatComponent_GetThrustOffsetY(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<BoatComponent>();
+    return comp.m_ThrustOffsetY;
+}
+
+static void BoatComponent_SetThrustOffsetY(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<BoatComponent>();
+    comp.m_ThrustOffsetY = value;
+}
+
+static float BoatComponent_GetMaxRudderTorque(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<BoatComponent>();
+    return comp.m_MaxRudderTorque;
+}
+
+static void BoatComponent_SetMaxRudderTorque(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<BoatComponent>();
+    comp.m_MaxRudderTorque = value;
+}
+
+static float BoatComponent_GetRudderAuthoritySpeed(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<BoatComponent>();
+    return comp.m_RudderAuthoritySpeed;
+}
+
+static void BoatComponent_SetRudderAuthoritySpeed(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<BoatComponent>();
+    comp.m_RudderAuthoritySpeed = value;
+}
+
+static float BoatComponent_GetLateralDrag(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<BoatComponent>();
+    return comp.m_LateralDrag;
+}
+
+static void BoatComponent_SetLateralDrag(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<BoatComponent>();
+    comp.m_LateralDrag = value;
+}
+
+static float BoatComponent_GetForwardDrag(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<BoatComponent>();
+    return comp.m_ForwardDrag;
+}
+
+static void BoatComponent_SetForwardDrag(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<BoatComponent>();
+    comp.m_ForwardDrag = value;
+}
+
+static float BoatComponent_GetYawDrag(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<BoatComponent>();
+    return comp.m_YawDrag;
+}
+
+static void BoatComponent_SetYawDrag(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<BoatComponent>();
+    comp.m_YawDrag = value;
+}
+
+static float BoatComponent_GetImmersionDepth(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<BoatComponent>();
+    return comp.m_ImmersionDepth;
+}
+
+static void BoatComponent_SetImmersionDepth(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<BoatComponent>();
+    comp.m_ImmersionDepth = value;
+}
+
+static float BoatComponent_GetThrottleInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<BoatComponent>();
+    return comp.m_ThrottleInput;
+}
+
+static void BoatComponent_SetThrottleInput(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<BoatComponent>();
+    comp.m_ThrottleInput = value;
+}
+
+static float BoatComponent_GetSteerInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<BoatComponent>();
+    return comp.m_SteerInput;
+}
+
+static void BoatComponent_SetSteerInput(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<BoatComponent>();
+    comp.m_SteerInput = value;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -8640,6 +9566,136 @@ static void VehicleComponent_SetMaxBrakeTorque(UUID entityID, float value)
         return;
     auto& comp = entity.GetComponent<VehicleComponent>();
     comp.m_MaxBrakeTorque = value;
+}
+
+static int VehicleComponent_GetDriveMode(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return static_cast<int>(comp.m_DriveMode);
+}
+
+static void VehicleComponent_SetDriveMode(UUID entityID, int value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_DriveMode = static_cast<VehicleDriveMode>(value);
+}
+
+static float VehicleComponent_GetFrontTorqueSplit(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_FrontTorqueSplit;
+}
+
+static void VehicleComponent_SetFrontTorqueSplit(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_FrontTorqueSplit = value;
+}
+
+static float VehicleComponent_GetLeftRightSplit(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_LeftRightSplit;
+}
+
+static void VehicleComponent_SetLeftRightSplit(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_LeftRightSplit = value;
+}
+
+static float VehicleComponent_GetLimitedSlipRatio(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_LimitedSlipRatio;
+}
+
+static void VehicleComponent_SetLimitedSlipRatio(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_LimitedSlipRatio = value;
+}
+
+static float VehicleComponent_GetCenterLimitedSlipRatio(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_CenterLimitedSlipRatio;
+}
+
+static void VehicleComponent_SetCenterLimitedSlipRatio(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_CenterLimitedSlipRatio = value;
+}
+
+static float VehicleComponent_GetDifferentialRatio(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    return comp.m_DifferentialRatio;
+}
+
+static void VehicleComponent_SetDifferentialRatio(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<VehicleComponent>();
+    comp.m_DifferentialRatio = value;
 }
 
 static float VehicleComponent_GetThrottleInput(UUID entityID)

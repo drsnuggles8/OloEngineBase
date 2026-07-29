@@ -116,7 +116,10 @@ void main()
         vec2 fftUV = worldPosAbs.xz * u_FFTParams.y; // world-anchored (issue #429)
         vec4 disp = textureLod(u_FFTDisplacement, fftUV, 0.0);
         displacedPos = worldPos.xyz + vec3(disp.x * u_FFTParams.w, disp.y * u_FFTParams.z, disp.z * u_FFTParams.w);
-        displacedNormal = normalize(textureLod(u_FFTDerivatives, fftUV, 0.0).xyz);
+        // Zero/NaN-safe: a zero or non-finite derivatives texel would make
+        // normalize() emit NaN into the whole triangle's interpolants.
+        vec3 fftNormal = textureLod(u_FFTDerivatives, fftUV, 0.0).xyz;
+        displacedNormal = (dot(fftNormal, fftNormal) > 1e-12) ? normalize(fftNormal) : vec3(0.0, 1.0, 0.0);
         v_PrevWorldPos = displacedPos; // FFT field has no prev-frame copy → no wave reprojection
     }
     else
@@ -451,7 +454,9 @@ void main()
         vec2 fftUV = posAbs.xz * u_FFTParams.y; // world-anchored (issue #429)
         vec4 disp = textureLod(u_FFTDisplacement, fftUV, 0.0);
         displacedPos = pos + vec3(disp.x * u_FFTParams.w, disp.y * u_FFTParams.z, disp.z * u_FFTParams.w);
-        displacedNormal = normalize(textureLod(u_FFTDerivatives, fftUV, 0.0).xyz);
+        // Zero/NaN-safe — see the vertex-stage FFT branch.
+        vec3 fftNormal = textureLod(u_FFTDerivatives, fftUV, 0.0).xyz;
+        displacedNormal = (dot(fftNormal, fftNormal) > 1e-12) ? normalize(fftNormal) : vec3(0.0, 1.0, 0.0);
         v_PrevWorldPos = displacedPos; // FFT field has no prev-frame copy
     }
     else
@@ -627,6 +632,18 @@ vec4 samplePlanarReflection(vec3 worldPos, vec3 normal)
 }
 
 // Linearize a depth buffer value to view-space depth
+// Normalize with a zero/NaN-safe fallback. normalize(v) of a zero-length or
+// non-finite vector yields NaN; a single NaN water pixel escaping this shader
+// snowballs through the bloom pyramid's 13-tap downsample/upsample chain into
+// a ~300 px black block on screen (scene + NaN = NaN) and poisons the
+// auto-exposure histogram. `len2 > eps` is false for NaN too, so one predicate
+// covers both degenerate cases.
+vec3 safeNormalize(vec3 v, vec3 fallback)
+{
+    float len2 = dot(v, v);
+    return (len2 > 1e-12) ? v * inversesqrt(len2) : fallback;
+}
+
 float linearizeDepth(float d, float nearPlane, float farPlane)
 {
     return nearPlane * farPlane / (farPlane - d * (farPlane - nearPlane));
@@ -788,8 +805,11 @@ void main()
             discard;
     }
 
-    vec3 gerstnerNormal = normalize(v_Normal);
-    vec3 viewDir = normalize(v_ViewDir);
+    // Interpolated vertex vectors can cross zero length at isolated pixels
+    // (opposing per-vertex directions inside one triangle) — plain
+    // normalize() emits the single-pixel NaNs that bloom then amplifies.
+    vec3 gerstnerNormal = safeNormalize(v_Normal, vec3(0.0, 1.0, 0.0));
+    vec3 viewDir = safeNormalize(v_ViewDir, vec3(0.0, 1.0, 0.0));
 
     // Underside shading: kept back faces (camera below this fragment) face away
     // from the viewer, so flip the shading normal to face the camera before the
@@ -804,8 +824,8 @@ void main()
     float time = u_WaveParams.x * u_WaveParams.y;
 
     // Build TBN matrix from vertex outputs
-    vec3 T = normalize(v_Tangent);
-    vec3 B = normalize(v_Bitangent);
+    vec3 T = safeNormalize(v_Tangent, vec3(1.0, 0.0, 0.0));
+    vec3 B = safeNormalize(v_Bitangent, vec3(0.0, 0.0, 1.0));
     vec3 N = gerstnerNormal;
     mat3 TBN = mat3(T, B, N);
 
@@ -841,11 +861,13 @@ void main()
         n1 = proceduralNormal(uv1 * 12.0, 1.2);
     }
 
-    // Blend the two normal maps in tangent space
-    vec3 blendedTangentNormal = normalize(n0 + n1);
-    vec3 normalMapWorld = normalize(TBN * blendedTangentNormal);
+    // Blend the two normal maps in tangent space. Two opposing samples sum to
+    // ~zero at isolated pixels — the safeNormalize fallbacks keep those from
+    // emitting NaNs instead of a flat normal.
+    vec3 blendedTangentNormal = safeNormalize(n0 + n1, vec3(0.0, 0.0, 1.0));
+    vec3 normalMapWorld = safeNormalize(TBN * blendedTangentNormal, gerstnerNormal);
     // Blend strength: stronger at close range for micro-detail
-    vec3 normal = normalize(mix(gerstnerNormal, normalMapWorld, 0.6));
+    vec3 normal = safeNormalize(mix(gerstnerNormal, normalMapWorld, 0.6), gerstnerNormal);
 
     // --- Underside (camera submerged) ---
     // Cheap, stable shading for the surface seen from below. Screen-space
@@ -970,12 +992,10 @@ void main()
     finalColor += ambientOcean;
 
     // --- Specular with noise modulation ---
-    vec3 lightDir = normalize(u_LightDirection.xyz);
-    if (dot(lightDir, lightDir) < 0.001)
-    {
-        lightDir = normalize(vec3(0.5, 1.0, 0.3));
-    }
-    vec3 halfVec = normalize(viewDir + lightDir);
+    vec3 lightDir = safeNormalize(u_LightDirection.xyz, normalize(vec3(0.5, 1.0, 0.3)));
+    // viewDir == -lightDir at grazing opposition sums to zero — fall back to
+    // the surface normal (spec term is degenerate there anyway).
+    vec3 halfVec = safeNormalize(viewDir + lightDir, normal);
     float specAngle = max(dot(normal, halfVec), 0.0);
 
     // Two specular lobes: tight sun disk + broader sparkle

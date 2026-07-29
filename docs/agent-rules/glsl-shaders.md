@@ -307,3 +307,109 @@ also means **fewer** candidate-list edits than the HDR band (5 consumers vs 11).
 Future FSR1 EASU/RCAS *spatial upscale* (render below display res, then upscale) is
 the opposite: EASU must run **early** (before display-res post), so when it lands it
 splits — EASU pre-post, RCAS/CAS sharpen post-tonemap.
+
+## 10. Porting D3D/HLSL reference code: audit every screen-space Y convention
+
+XeGTAO's reference `NDCToViewMul/Add` constants negate the Y pair
+(`-2/proj11`, `+1/proj11`) because **D3D texture v = 0 is the TOP row**. This
+engine's compute passes consume GL-convention inputs — a compute shader's
+`pixCoord` row 0 addresses the framebuffer **bottom** (the HZB is a 1:1
+`texelFetch` copy of the scene depth; the view-normals texture is fetched
+with the same coordinates) — so porting the D3D constants verbatim **negated
+view-space Y for every position reconstructed from depth** while the decoded
+surface normals stayed correct. Every horizon angle reflected about the
+horizontal plane. The failure was invisible at the poses used to verify the
+pass (looking straight down, the scene is symmetric about the view axis and
+the reflection cancels) and catastrophic at grazing views: a full-frame
+visibility collapse to the 0.03 floor over the sea/quay.
+
+That collapse also *amplified* a co-located but *independent* defect — the
+noise-weave "goosebumps" described in the next section. Fixing the Y
+convention lifted the AO deck from 9.6 to 132.6/255 and dropped the weave
+energy from 0.875 to 0.277, which read as "mostly fixed" and led to the weave
+being written off as residual quantisation. It was not: it had its own root
+cause and needed its own fix. **A large improvement in a metric is not
+evidence that a co-located symptom shared the cause you just fixed** — when a
+user reports the symptom is still there, believe them over the metric.
+
+Rules distilled:
+
+- When porting any screen-space reference (XeGTAO, FidelityFX, Unreal
+  snippets): list every constant and formula that encodes an **NDC/UV/texel
+  Y direction** (unprojection mul/add pairs, `SV_Position`-based math,
+  gather offsets) and re-derive each for GL's bottom-left origin. Do not
+  trust that "it renders plausibly" at one camera angle — verify at a
+  **grazing** angle across a large flat surface, where a Y-reflection is
+  maximally asymmetric.
+- A reconstruction-convention bug and an integrator-math bug look identical
+  in the output (dark/noisy AO). Separate them by *probing the inputs*: with
+  `olo_render_probe_pixel`, a flat up-facing plane must decode to the same
+  view-space normal the camera pitch predicts, and `LinearizeDepth` of the
+  probed device-Z must match the known camera-to-surface distance. If the
+  inputs check out and the math is pinned by CPU tests, the remaining
+  suspects are the **uniform values** — read the upload site, not the shader.
+- Pinned by `GTAOMath.NDCToViewConstantsUseGLConventionOnBothAxes`.
+
+## 11. Quasi-random sampling: a locality-preserving index is not noise
+
+XeGTAO seeds its per-pixel slice rotation and sample distances from a 64×64
+**Hilbert-curve LUT**. It is easy to read that as "the LUT is the noise
+texture" and use the stored value directly. It is not — a Hilbert curve is
+**locality-preserving by construction** (that is the entire reason it is
+used), so neighbouring pixels hold indices one apart. The LUT stores an
+**ordering**; the **R2 low-discrepancy sequence** —
+`frac(0.5 + index * vec2(0.75487766624669276005, 0.5698402909980532659114))`
+— is what converts that ordering into a value, mapping sequential indices to
+maximally-separated points in `[0,1)`.
+
+Shipping `((idx + noiseIndex) & 0xFF) / 256.0` instead produced (issue #438
+follow-up, reported as "goosebumps" on water):
+
+| property (64×64 tile) | index-as-value | R2 |
+|---|---|---|
+| neighbour correlation, slice noise | **+0.83** | −0.10 |
+| neighbour correlation, sample noise | **+0.83** | −0.26 |
+| sample-noise range / mean | **[0, 0.62]** / 0.31 | [0, 1.0] / 0.50 |
+| frame-to-frame correlation | **+0.977** | −0.45 |
+
+Consequences, each of which is a recognisable on-screen signature:
+
+- **A smooth noise field plus `round()` gives contours, not dither.** GTAO
+  snaps each sample offset to whole pixels (`round(omega * offsetPixels)`).
+  With decorrelated noise those boundaries fall independently per pixel and
+  read as dither the denoiser and TAA remove. With a field that varies by
+  ~1/256 between neighbours they fall along *level sets*, drawing a woven
+  lattice that carries the LUT's **64px tile period** — measurable as an
+  autocorrelation spike at lag 64 in the AO buffer.
+- **It looked like a distance-banded artifact.** The lattice is only visible
+  where the projected effect radius puts those contours at a resolvable
+  spacing, so it occupied a band that *moved when the AO radius changed* —
+  which reads as a radius/mip bug and sends you to the wrong code.
+- **TAA could not fix it.** Advancing the index by 1 per frame slides the same
+  field along the curve rather than redrawing it, leaving consecutive frames
+  ~98% correlated. Temporal averaging needs a field that is *redrawn* each
+  frame; that is what the reference's `index += 288 * (temporalIndex % 64)`
+  stride is for. "Enabling TAA doesn't help" is therefore evidence *about the
+  noise's temporal correlation*, not evidence that the artifact is
+  geometric.
+- **Deriving the second noise channel from the first is not independence.**
+  `fract(noiseSlice * golden)` on an already-quantised `k/256` collapses to
+  `fract(k * 0.00241)` — a ramp confined to `[0, 0.62)`, biasing every sample
+  distance toward the pixel centre and undersampling the outer radius. Take
+  both channels from the two R2 dimensions.
+
+Rules distilled:
+
+- Before using any LUT as noise, ask what it *stores*. An index, a curve
+  parameter, or a sort key needs a decorrelating map; only a pre-baked blue
+  noise texture is directly usable.
+- Test noise **as a field, not as a formula**: nearest-neighbour correlation
+  over one tile (want ≈ 0, negative is better), value range and mean, and
+  frame-to-frame correlation. All three are cheap CPU assertions and each one
+  maps to a distinct visible artifact.
+- Pinned by `GTAOMath.R2NoiseDecorrelatesNeighbouringPixels`,
+  `.SampleDistanceNoiseSpansTheFullUnitRange`,
+  `.TemporalStrideRedrawsTheFieldEachFrame`, and
+  `.GtaoShaderMapsHilbertIndexThroughR2Sequence`. Each threshold is paired
+  with an assertion that the *regressed* formulation fails it, so the guards
+  cannot pass vacuously.

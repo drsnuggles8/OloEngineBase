@@ -81,5 +81,17 @@ void main()
     result += (a + c + m + k) * 0.03125; // corner 4 get less weight
     result += (b + g + i + h) * 0.0625;
 
+    // Non-finite kill: a single NaN/Inf input texel (e.g. one bad pixel
+    // escaping a lighting shader) would otherwise snowball through the whole
+    // pyramid — every downsample tap touching it goes NaN, the additive
+    // upsample spreads it further, and the composite turns it into a ~300 px
+    // black block on screen (scene + NaN = NaN). Ternary select, NOT mix():
+    // mix(NaN, 0, 1) is still NaN because it multiplies the NaN operand.
+    bvec3 nan = isnan(result);
+    bvec3 inf = isinf(result);
+    result = vec3((nan.x || inf.x) ? 0.0 : result.x,
+                  (nan.y || inf.y) ? 0.0 : result.y,
+                  (nan.z || inf.z) ? 0.0 : result.z);
+
     o_Color = vec4(result, 1.0);
 }
