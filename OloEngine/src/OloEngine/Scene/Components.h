@@ -685,9 +685,10 @@ namespace OloEngine
         OLO_PROPERTY()
         glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
 
-        // Physics material properties — Flatten emits StaticFriction/DynamicFriction/Restitution/Density
-        // at the collider level, matching the engine's hand-written serializer AND persisting the
-        // authored Density that the hand-written block silently drops.
+        // Physics material properties. OLO_SERIALIZE(Flatten) is consumed only by the cpp26-reflection
+        // experiment (the shipping OloHeaderTool ignores it); it flattens StaticFriction/DynamicFriction/
+        // Restitution/Density to the collider level to match the engine's hand-written serializer, which
+        // persists all four (Density included as of the SceneSerializer.cpp dropped-field fix).
         OLO_SERIALIZE(Flatten)
         ColliderMaterial m_Material{};
 
@@ -707,9 +708,10 @@ namespace OloEngine
         OLO_PROPERTY()
         glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
 
-        // Physics material properties — Flatten emits StaticFriction/DynamicFriction/Restitution/Density
-        // at the collider level, matching the engine's hand-written serializer AND persisting the
-        // authored Density that the hand-written block silently drops.
+        // Physics material properties. OLO_SERIALIZE(Flatten) is consumed only by the cpp26-reflection
+        // experiment (the shipping OloHeaderTool ignores it); it flattens StaticFriction/DynamicFriction/
+        // Restitution/Density to the collider level to match the engine's hand-written serializer, which
+        // persists all four (Density included as of the SceneSerializer.cpp dropped-field fix).
         OLO_SERIALIZE(Flatten)
         ColliderMaterial m_Material{};
 
@@ -731,9 +733,10 @@ namespace OloEngine
         OLO_PROPERTY()
         glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
 
-        // Physics material properties — Flatten emits StaticFriction/DynamicFriction/Restitution/Density
-        // at the collider level, matching the engine's hand-written serializer AND persisting the
-        // authored Density that the hand-written block silently drops.
+        // Physics material properties. OLO_SERIALIZE(Flatten) is consumed only by the cpp26-reflection
+        // experiment (the shipping OloHeaderTool ignores it); it flattens StaticFriction/DynamicFriction/
+        // Restitution/Density to the collider level to match the engine's hand-written serializer, which
+        // persists all four (Density included as of the SceneSerializer.cpp dropped-field fix).
         OLO_SERIALIZE(Flatten)
         ColliderMaterial m_Material{};
 
@@ -752,9 +755,10 @@ namespace OloEngine
         glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
         glm::vec3 m_Scale = { 1.0f, 1.0f, 1.0f };
 
-        // Physics material properties — Flatten emits StaticFriction/DynamicFriction/Restitution/Density
-        // at the collider level, matching the engine's hand-written serializer AND persisting the
-        // authored Density that the hand-written block silently drops.
+        // Physics material properties. OLO_SERIALIZE(Flatten) is consumed only by the cpp26-reflection
+        // experiment (the shipping OloHeaderTool ignores it); it flattens StaticFriction/DynamicFriction/
+        // Restitution/Density to the collider level to match the engine's hand-written serializer, which
+        // persists all four (Density included as of the SceneSerializer.cpp dropped-field fix).
         OLO_SERIALIZE(Flatten)
         ColliderMaterial m_Material{};
 
@@ -777,9 +781,10 @@ namespace OloEngine
         glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
         glm::vec3 m_Scale = { 1.0f, 1.0f, 1.0f };
 
-        // Physics material properties — Flatten emits StaticFriction/DynamicFriction/Restitution/Density
-        // at the collider level, matching the engine's hand-written serializer AND persisting the
-        // authored Density that the hand-written block silently drops.
+        // Physics material properties. OLO_SERIALIZE(Flatten) is consumed only by the cpp26-reflection
+        // experiment (the shipping OloHeaderTool ignores it); it flattens StaticFriction/DynamicFriction/
+        // Restitution/Density to the collider level to match the engine's hand-written serializer, which
+        // persists all four (Density included as of the SceneSerializer.cpp dropped-field fix).
         OLO_SERIALIZE(Flatten)
         ColliderMaterial m_Material{};
 
@@ -803,9 +808,10 @@ namespace OloEngine
         glm::vec3 m_Offset = { 0.0f, 0.0f, 0.0f };
         glm::vec3 m_Scale = { 1.0f, 1.0f, 1.0f };
 
-        // Physics material properties — Flatten emits StaticFriction/DynamicFriction/Restitution/Density
-        // at the collider level, matching the engine's hand-written serializer AND persisting the
-        // authored Density that the hand-written block silently drops.
+        // Physics material properties. OLO_SERIALIZE(Flatten) is consumed only by the cpp26-reflection
+        // experiment (the shipping OloHeaderTool ignores it); it flattens StaticFriction/DynamicFriction/
+        // Restitution/Density to the collider level to match the engine's hand-written serializer, which
+        // persists all four (Density included as of the SceneSerializer.cpp dropped-field fix).
         OLO_SERIALIZE(Flatten)
         ColliderMaterial m_Material{};
 

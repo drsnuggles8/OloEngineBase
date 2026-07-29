@@ -1,6 +1,6 @@
 # Monthly reminder + first-pass probe for C++26 reflection (P2996) toolchain availability.
 # Posts to the tracking issue (#688) so the OloHeaderTool-replacement gate gets re-checked
-# every month. See experiments/cpp26-reflection/REFLECTION_TOOLCHAIN_STATUS.md.
+# every month. The checklist is inlined in the issue comment this job posts.
 #
 # NOTE: scheduled workflows only fire from the repository's DEFAULT branch, so this only
 # runs on a schedule once it lands on the default branch. Use the "Run workflow" button
@@ -38,13 +38,13 @@ jobs:
             echo ""
             echo "First-pass signal (best-effort, verify manually): **$MSVC_SIGNAL**"
             echo ""
-            echo "Run the full checklist in \`experiments/cpp26-reflection/REFLECTION_TOOLCHAIN_STATUS.md\`:"
+            echo "Check the C++26 reflection (P2996) toolchain status:"
             echo "1. **MSVC** — newest MSVC C++ Team Blog preview: reflection / P2996 / /experimental? (highest-signal row) — https://devblogs.microsoft.com/cppblog/"
             echo "2. **Clang mainline** — LLVM reflection discourse + Clang 22 release notes: P2996 behind a flag yet? — https://discourse.llvm.org/t/dedicated-meeting-for-c-26-reflection/88927"
             echo "3. **Bloomberg fork** — upstreaming progress — https://github.com/bloomberg/clang-p2996/issues/189"
             echo "4. **GCC** — 16.x/17 notes: P2996 fixes."
             echo ""
-            echo "If anything moved: update the table + changelog in REFLECTION_TOOLCHAIN_STATUS.md and note it here."
+            echo "If anything moved, note it in this issue (#688) with the source link."
             echo "**Triggers:** MSVC → 🟡 = start migration planning; Clang 22 ships P2996 = re-validate the prototype on clang-cl."
           } > "$RUNNER_TEMP/comment.md"
           gh issue comment 688 --repo "${{ github.repository }}" --body-file "$RUNNER_TEMP/comment.md"
