@@ -1183,8 +1183,11 @@ static const std::set<std::string> kComponentsCustomSerialize = {
     //     (Rigidbody2D BodyType, the AI asset handles), a load-time clamp or Sanitize, a
     //     runtime-token omission, or an exact on-disk shape existing scenes were saved with.
     //     Skip still correctly drops the runtime fields from MCP + the reflection serializer;
-    //     it just must not change what the shipping scene serializer emits. See
-    //     experiments/cpp26-reflection/MERGE_SAFETY.md for the derivation.
+    //     it just must not change what the shipping scene serializer emits. Verified by running
+    //     this tool on master's headers vs the annotated headers and diffing: with these 15
+    //     excluded, every serializer .inl (text + binary) is byte-identical to the pre-annotation
+    //     output — only the MCP registry drops the runtime fields, which is the intended Skip
+    //     behavior (McpFieldRegistry.SkipAnnotatedRuntimeFieldsAreNotWritable).
     "AudioListenerComponent",
     "AudioSoundGraphComponent",
     "BehaviorTreeComponent",

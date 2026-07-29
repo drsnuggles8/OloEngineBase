@@ -53,7 +53,7 @@ C++ components + annotations   ← the ONE definition of the scripting surface
                └─ docs / editor tooling / validation
 ```
 
-This is "Option B" from `CSHARP_BINDINGS_DESIGN.md`, promoted from a C# tactic to
+This is "Option B" — the neutral-schema approach — promoted from a C# tactic to
 the interop architecture. Option A (a C++ program that writes `.cs` directly) was
 rejected: it hard-codes C# *and* the Mono interop ABI into the C++ build at
 precisely the moment we intend to change both, and it puts C#-specific knowledge
