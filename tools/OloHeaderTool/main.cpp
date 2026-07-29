@@ -1172,6 +1172,34 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 // listing one here while ALSO leaving (or removing) its hand-written block is a
 // loud test failure, never a silent double-emit / drop.
 static const std::set<std::string> kComponentsCustomSerialize = {
+    // --- Kept hand-written despite carrying OLO_SERIALIZE(Skip) on their runtime fields
+    //     (added by the cpp26-reflection experiment, experiments/cpp26-reflection/). Skip
+    //     drops those runtime fields from the trivial-classification, which made the
+    //     *remaining* authored fields look all-trivial and would flip each of these from
+    //     hand-written to auto-generated — a double-emit with the existing hand-written
+    //     block (caught by ComponentSerializerCoverage.NoComponentIsBothHandWrittenAndGenerated).
+    //     Each stays hand-written because its serializer encodes something the plain
+    //     generated round-trip can't reproduce: an enum-keyed field / Ref<Asset> handle key
+    //     (Rigidbody2D BodyType, the AI asset handles), a load-time clamp or Sanitize, a
+    //     runtime-token omission, or an exact on-disk shape existing scenes were saved with.
+    //     Skip still correctly drops the runtime fields from MCP + the reflection serializer;
+    //     it just must not change what the shipping scene serializer emits. See
+    //     experiments/cpp26-reflection/MERGE_SAFETY.md for the derivation.
+    "AudioListenerComponent",
+    "AudioSoundGraphComponent",
+    "BehaviorTreeComponent",
+    "BoxCollider2DComponent",
+    "CircleCollider2DComponent",
+    "FoliageComponent",
+    "GoapAgentComponent",
+    "MorphTargetComponent",
+    "RagdollComponent",
+    "Rigidbody2DComponent",
+    "StateMachineComponent",
+    "TerrainComponent",
+    "VideoOverlayComponent",
+    "VideoSurfaceComponent",
+    "WaterComponent",
     "CinematicComponent",
     "DecalComponent",
     "DialogueComponent",
