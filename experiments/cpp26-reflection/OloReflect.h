@@ -76,6 +76,8 @@ namespace OloEngine::Reflect
     // Access: a `ReadOnly` token in the args makes the schema property read-only (reserved; no field uses it yet).
     consteval bool PropertyReadOnly(sm::info m) { return PropertyRaw(m).find("ReadOnly") != std::string_view::npos; }
 
+    consteval bool HasMethod(sm::info m) { return !sm::annotations_of_with_type(m, ^^Method).empty(); }
+
     // --- OnSet sync-hook (commitment #4) ---
     consteval bool HasOnSet(sm::info m) { return !sm::annotations_of_with_type(m, ^^OnSet).empty(); }
     consteval std::string_view OnSetMethod(sm::info m) {

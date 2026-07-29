@@ -30,7 +30,11 @@ namespace OloEngine::Reflect
         char method[64]{};                      // name of a zero-arg member function to call after set
         consteval OnSet(const char* s) { for (int i = 0; s[i] != '\0' && i < 63; ++i) method[i] = s[i]; }
     };
+    // Marks a member FUNCTION script-exposed (the schema's reserved kind="method"). Reflection reads
+    // its return type + parameter types directly, so methods flow through the neutral schema too.
+    struct Method {};
 }
+#define OLO_METHOD(...)   [[=::OloEngine::Reflect::Method{}]]
 
 #define OLO_CLAMP(mn, mx) [[=::OloEngine::Reflect::Clamp{ (double)(mn), (double)(mx) }]]
 #define OLO_SKIP          [[=::OloEngine::Reflect::Skip{}]]
