@@ -190,8 +190,12 @@ TEST(McpPostProcessSettings, IntFieldRoundsRatherThanTruncates)
 {
     PostProcessSettings pp;
     FogSettings fog;
-    ASSERT_TRUE(ApplyToken("BloomIterations", Json(4.6), pp, fog).Ok);
+    const PP::ApplyResult result = ApplyToken("BloomIterations", Json(4.6), pp, fog);
+    ASSERT_TRUE(result.Ok) << result.Error;
     EXPECT_EQ(pp.BloomIterations, 5);
+    // Rounding is NOT clamping. Reporting it as such (with the `range` block)
+    // would tell a caller their in-range value had been rejected.
+    EXPECT_EQ(result.Data["clamped"], Json(false));
 }
 
 TEST(McpPostProcessSettings, RejectsNonFiniteAndWrongTypes)

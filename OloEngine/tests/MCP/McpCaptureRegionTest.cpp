@@ -84,6 +84,40 @@ TEST(McpCaptureRegion, RejectsDegenerateAndNegativeRects)
     EXPECT_TRUE(region.IsWholeImage());
 }
 
+TEST(McpCaptureRegion, RejectsValuesTooLargeForU32)
+{
+    McpCaptureRegion region;
+    constexpr long long kU32Max = 4294967295LL;
+    constexpr long long kOverflow = kU32Max + 1; // 2^32
+
+    // The dangerous one: 2^32 narrows to 0, and a Width/Height of 0 reads as
+    // IsWholeImage() — so without the bound check a bogus request silently
+    // becomes a full-target capture the caller then mis-measures.
+    for (const char* field : { "x", "y", "w", "h" })
+    {
+        Json rect = Json{ { "x", 0 }, { "y", 0 }, { "w", 8 }, { "h", 8 } };
+        rect[field] = kOverflow;
+        const auto error = RegionArg::Parse(Json{ { "region", rect } }, region);
+        ASSERT_TRUE(error.has_value()) << field << " = 2^32 was accepted";
+        EXPECT_NE(error->find(field), std::string::npos) << "the error should name the offending field";
+        EXPECT_TRUE(region.IsWholeImage()) << "a rejected parse must leave the caller's region untouched";
+    }
+
+    // u32::max() itself is in range and must still parse (the boundary is
+    // inclusive — an off-by-one here would reject a legal maximum).
+    ASSERT_FALSE(RegionArg::Parse(Rect(kU32Max, kU32Max, kU32Max, kU32Max), region).has_value());
+    EXPECT_EQ(region.Width, 4294967295u);
+    EXPECT_EQ(region.Height, 4294967295u);
+
+    // A JSON *unsigned* beyond signed range must be caught on its own terms,
+    // not round-tripped through a signed get<> first.
+    region = McpCaptureRegion{};
+    Json huge = Json{ { "x", 0 }, { "y", 0 }, { "w", 8 }, { "h", 8 } };
+    huge["w"] = 18446744073709551615ull;
+    EXPECT_TRUE(RegionArg::Parse(Json{ { "region", huge } }, region).has_value());
+    EXPECT_TRUE(region.IsWholeImage());
+}
+
 TEST(McpCaptureRegion, RejectsMalformedShapes)
 {
     McpCaptureRegion region;

@@ -23,6 +23,7 @@
 #include <deque>
 #include <fstream>
 #include <limits>
+#include <mutex>
 #include <unordered_set>
 
 namespace OloEngine
@@ -84,19 +85,29 @@ namespace OloEngine
         // live flags own it. They were `static const bool` latches before, which
         // meant an editor restart per flip — the wrong ergonomics for a probe
         // whose whole value is being usable against a running editor.
-        std::atomic<bool> s_TransientDebugFlagsInitialized{ false };
+        std::once_flag s_TransientDebugFlagsSeedOnce;
         std::atomic<bool> s_PoisonTransients{ false };
         std::atomic<bool> s_DisableAliasing{ false };
 
+        // std::call_once, NOT a test-then-set on an atomic flag: the seed must be
+        // atomic with respect to SetTransientDebugFlags, which seeds first and
+        // then stores the caller's values. With a plain check-then-seed, a reader
+        // that observed "not yet initialized" could still be inside the env reads
+        // when the setter's stores land, and would then overwrite them with the
+        // env defaults — silently losing the flag flip. Reads reach here from an
+        // httplib worker (GetTransientDebugFlags) as well as the render thread,
+        // so the window is real. call_once makes every later caller wait for (and
+        // observe) the completed seeding instead of racing it.
         void EnsureTransientDebugFlagsSeeded()
         {
-            if (s_TransientDebugFlagsInitialized.load(std::memory_order_acquire))
-                return;
-            // Benign race: two threads may both seed, but from the same env vars
-            // to the same values, so the result is identical either way.
-            s_PoisonTransients.store(IsTruthyEnvironmentVariable("OLO_RG_POISON_TRANSIENTS"), std::memory_order_relaxed);
-            s_DisableAliasing.store(IsTruthyEnvironmentVariable("OLO_RG_DISABLE_ALIASING"), std::memory_order_relaxed);
-            s_TransientDebugFlagsInitialized.store(true, std::memory_order_release);
+            std::call_once(s_TransientDebugFlagsSeedOnce,
+                           []
+                           {
+                               s_PoisonTransients.store(IsTruthyEnvironmentVariable("OLO_RG_POISON_TRANSIENTS"),
+                                                        std::memory_order_relaxed);
+                               s_DisableAliasing.store(IsTruthyEnvironmentVariable("OLO_RG_DISABLE_ALIASING"),
+                                                       std::memory_order_relaxed);
+                           });
         }
 
         bool IsTransientPoisonEnabled()

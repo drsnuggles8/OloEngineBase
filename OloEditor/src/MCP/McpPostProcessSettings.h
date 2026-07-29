@@ -623,7 +623,11 @@ namespace OloEngine::MCP::PostProcess
                 }
                 const f64 rounded = field.Type == FieldType::Int ? std::round(raw) : raw;
                 const f64 ranged = std::clamp(rounded, field.Min, field.Max);
-                clamped = ranged != raw;
+                // Compare against `rounded`, not `raw`: rounding 4.6 to 5 on an
+                // Int field is not a range clamp, and reporting it as one (plus
+                // the `range` block) tells the caller their value was rejected
+                // when it was honoured.
+                clamped = ranged != rounded;
                 field.Set(pp, fog, ranged);
                 break;
             }
@@ -787,10 +791,28 @@ namespace OloEngine::MCP::PostProcess
         }
 
         if (!args.contains("value") || args["value"].is_null())
-            return "Missing required argument 'value' for field '" + std::string(field->Token) + "' (" +
-                   (field->Type == FieldType::Enum ? "one of: " + JoinEnumTokens(*field)
-                                                   : std::string("type ") + (field->Type == FieldType::Bool ? "boolean" : "number")) +
-                   ").";
+        {
+            // Name the shape the caller must actually send. A Vec3 falling through
+            // to "number" tells them to send the one thing Apply will reject.
+            std::string expected;
+            switch (field->Type)
+            {
+                case FieldType::Enum:
+                    expected = "one of: " + JoinEnumTokens(*field);
+                    break;
+                case FieldType::Bool:
+                    expected = "type boolean";
+                    break;
+                case FieldType::Vec3:
+                    expected = "a 3-number array [x, y, z]";
+                    break;
+                case FieldType::Int:
+                case FieldType::Float:
+                    expected = "type number";
+                    break;
+            }
+            return "Missing required argument 'value' for field '" + std::string(field->Token) + "' (" + expected + ").";
+        }
         value = args["value"];
         return std::nullopt;
     }

@@ -12194,7 +12194,7 @@ TEST(RenderGraphTransientDebugFlags, VersionAliasTargetsAreExposedForDiagnostics
         {
             auto sceneColor = builder.ImportTexture(
                 "SceneColor", 7u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
             [[maybe_unused]] const auto versioned =
                 builder.WriteNewVersion(sceneColor, RGWriteUsage::RenderTarget, "WriterPass");
         });

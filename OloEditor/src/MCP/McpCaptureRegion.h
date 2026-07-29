@@ -39,6 +39,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <limits>
 #include <optional>
 #include <string>
 
@@ -106,6 +107,25 @@ namespace OloEngine::MCP
                     return std::string("Invalid '") + key + "': '" + field +
                            "' is missing or not an integer (expected { x, y, w, h } in source pixels/texels, "
                            "top-left origin).";
+            }
+
+            // Bound-check BEFORE narrowing to u32. A value above the u32 range
+            // wraps on the cast, and a wrapped Width/Height of 0 reads as
+            // IsWholeImage() — silently turning a bogus request into a
+            // full-target capture the caller then mis-measures, which is exactly
+            // the failure this argument exists to prevent. `is_number_integer()`
+            // accepts a JSON *unsigned* too, so check that representation on its
+            // own terms rather than round-tripping it through a signed get<>.
+            constexpr u64 kMaxCoord = std::numeric_limits<u32>::max();
+            for (const char* field : { "x", "y", "w", "h" })
+            {
+                const Json& component = region[field];
+                const bool tooLarge = component.is_number_unsigned()
+                                          ? component.get<u64>() > kMaxCoord
+                                          : component.get<long long>() > static_cast<long long>(kMaxCoord);
+                if (tooLarge)
+                    return std::string("Invalid '") + key + "': '" + field +
+                           "' exceeds the maximum texel coordinate (" + std::to_string(kMaxCoord) + ").";
             }
 
             const long long x = region["x"].get<long long>();
