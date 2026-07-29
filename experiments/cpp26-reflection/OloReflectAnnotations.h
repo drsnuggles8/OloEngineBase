@@ -33,8 +33,12 @@ namespace OloEngine::Reflect
     // Marks a member FUNCTION script-exposed (the schema's reserved kind="method"). Reflection reads
     // its return type + parameter types directly, so methods flow through the neutral schema too.
     struct Method {};
+    // Marks a script-subscribable engine event (schema kind="event"). Modelled as a member function
+    // whose PARAMETERS are the callback signature scripts receive; reflection reads them like a method.
+    struct Event {};
 }
 #define OLO_METHOD(...)   [[=::OloEngine::Reflect::Method{}]]
+#define OLO_EVENT(...)    [[=::OloEngine::Reflect::Event{}]]
 
 #define OLO_CLAMP(mn, mx) [[=::OloEngine::Reflect::Clamp{ (double)(mn), (double)(mx) }]]
 #define OLO_SKIP          [[=::OloEngine::Reflect::Skip{}]]

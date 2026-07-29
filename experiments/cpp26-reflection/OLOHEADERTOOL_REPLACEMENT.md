@@ -89,7 +89,11 @@ runtime side effects. Everything else is generated.
 **So both scripting backends split the same way:** Lua (C++) is reflection-native like the rest;
 C# (`.cs` source) is the sole piece that needs a codegen step reflection can *feed* but not *be*.
 
-Two GCC-16-experimental notes for the Lua path: sol2 is compile-heavy (~2 min for 61 usertypes under
-the reflection frontend — a build-time cost, fine for a one-time registration), and a
-pointer-to-member cannot yet be formed from a reflection via `&C::[:m:]` (used a reference-getter
-lambda `[](C& c) -> MT& { return c.[:m:]; }` instead, which sol2 accepts).
+One GCC-16-experimental note for the Lua path: sol2 is compile-heavy (~2 min for 61 usertypes under
+the reflection frontend — a build-time cost, fine for a one-time registration).
+
+**Correction (superseded):** an earlier version of this note claimed a pointer-to-member could not be
+formed from a reflection. That was a *syntax error* — `&C::[:m:]` / `&[:^^C:]::[:m:]` fail, but
+**`&[:m:]` works** for both data members and member functions. So Lua binds fields *and* arg-methods
+directly via member pointers (`ut[key] = &[:m:]`), driven live from real Lua scripts (see
+`scratchpad/lua_methods.cpp`); the reference-getter-lambda workaround is unnecessary.

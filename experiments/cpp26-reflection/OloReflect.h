@@ -77,6 +77,7 @@ namespace OloEngine::Reflect
     consteval bool PropertyReadOnly(sm::info m) { return PropertyRaw(m).find("ReadOnly") != std::string_view::npos; }
 
     consteval bool HasMethod(sm::info m) { return !sm::annotations_of_with_type(m, ^^Method).empty(); }
+    consteval bool HasEvent (sm::info m) { return !sm::annotations_of_with_type(m, ^^Event ).empty(); }
 
     // --- OnSet sync-hook (commitment #4) ---
     consteval bool HasOnSet(sm::info m) { return !sm::annotations_of_with_type(m, ^^OnSet).empty(); }
