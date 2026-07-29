@@ -16,6 +16,7 @@
 #include <glad/gl.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -68,25 +69,46 @@ namespace OloEngine
 
         // Transient-corruption debug instruments (the transient black-square
         // artifact hunt). OLO_RG_POISON_TRANSIENTS=1 clears every pool-acquired
-        // transient texture / color attachment to magenta at materialize time,
-        // so any texel that reaches a consumer without being written *this
-        // frame* is unmistakable (magenta = stale/unwritten pool content,
-        // black = something actively wrote black mid-frame).
+        // transient texture / color attachment to a per-resource hue at
+        // materialize time, so any texel that reaches a consumer without being
+        // written *this frame* is unmistakable (a poison hue = stale/unwritten
+        // pool content, black = something actively wrote black mid-frame).
         // OLO_RG_DISABLE_ALIASING=1 gives every transient resource its own
         // physical backing (no alias-slot sharing, WillAllocate=false entries
         // acquire too) — if an artifact disappears under this switch, the
         // transient planner's lifetime analysis let two live resources share
         // one GPU object.
+        //
+        // Both are RUNTIME-settable as of issue #607 (olo_render_debug_set): the
+        // env var only seeds the initial value on first read, after which the
+        // live flags own it. They were `static const bool` latches before, which
+        // meant an editor restart per flip — the wrong ergonomics for a probe
+        // whose whole value is being usable against a running editor.
+        std::atomic<bool> s_TransientDebugFlagsInitialized{ false };
+        std::atomic<bool> s_PoisonTransients{ false };
+        std::atomic<bool> s_DisableAliasing{ false };
+
+        void EnsureTransientDebugFlagsSeeded()
+        {
+            if (s_TransientDebugFlagsInitialized.load(std::memory_order_acquire))
+                return;
+            // Benign race: two threads may both seed, but from the same env vars
+            // to the same values, so the result is identical either way.
+            s_PoisonTransients.store(IsTruthyEnvironmentVariable("OLO_RG_POISON_TRANSIENTS"), std::memory_order_relaxed);
+            s_DisableAliasing.store(IsTruthyEnvironmentVariable("OLO_RG_DISABLE_ALIASING"), std::memory_order_relaxed);
+            s_TransientDebugFlagsInitialized.store(true, std::memory_order_release);
+        }
+
         bool IsTransientPoisonEnabled()
         {
-            static const bool enabled = IsTruthyEnvironmentVariable("OLO_RG_POISON_TRANSIENTS");
-            return enabled;
+            EnsureTransientDebugFlagsSeeded();
+            return s_PoisonTransients.load(std::memory_order_relaxed);
         }
 
         bool IsTransientAliasingDisabled()
         {
-            static const bool enabled = IsTruthyEnvironmentVariable("OLO_RG_DISABLE_ALIASING");
-            return enabled;
+            EnsureTransientDebugFlagsSeeded();
+            return s_DisableAliasing.load(std::memory_order_relaxed);
         }
 
         // OLO_RG_BLACKSQUARE_HUNT=1 — per-pass output readback scan for the
@@ -239,7 +261,11 @@ namespace OloEngine
             { "azure", { 0.0f, 0.5f, 1.0f, 1.0f } },
         };
 
-        const PoisonColor& PoisonColorForResource(const std::string& resourceName)
+        // Pure name -> palette entry. Split out of PoisonColorForResource so the
+        // mapping can be reported for EVERY plan entry up front (issue #607's
+        // olo_render_debug_set reply) instead of trickling into the log one
+        // resource at a time as each is first materialized.
+        const PoisonColor& PoisonPaletteEntry(std::string_view resourceName)
         {
             u64 hash = 1469598103934665603ull;
             for (const char c : resourceName)
@@ -247,7 +273,12 @@ namespace OloEngine
                 hash ^= static_cast<u64>(static_cast<unsigned char>(c));
                 hash *= 1099511628211ull;
             }
-            const auto& color = kPoisonPalette[hash % std::size(kPoisonPalette)];
+            return kPoisonPalette[hash % std::size(kPoisonPalette)];
+        }
+
+        const PoisonColor& PoisonColorForResource(const std::string& resourceName)
+        {
+            const auto& color = PoisonPaletteEntry(resourceName);
 
             static std::unordered_set<std::string> s_Logged;
             if (s_Logged.insert(resourceName).second)
@@ -2662,6 +2693,30 @@ namespace OloEngine
     {
         EnsureResourceRegistryBuilt();
         return m_RegisteredResources;
+    }
+
+    RenderGraph::TransientDebugFlags RenderGraph::GetTransientDebugFlags()
+    {
+        TransientDebugFlags flags;
+        flags.PoisonTransients = IsTransientPoisonEnabled();
+        flags.DisableAliasing = IsTransientAliasingDisabled();
+        return flags;
+    }
+
+    void RenderGraph::SetTransientDebugFlags(const TransientDebugFlags& flags)
+    {
+        // Seed first so a Set that only means to change one flag doesn't get the
+        // other silently overwritten by a later lazy env read.
+        EnsureTransientDebugFlagsSeeded();
+        s_PoisonTransients.store(flags.PoisonTransients, std::memory_order_relaxed);
+        s_DisableAliasing.store(flags.DisableAliasing, std::memory_order_relaxed);
+        OLO_CORE_WARN("RenderGraph transient debug mode set at runtime: poison={}, aliasing disabled={}",
+                      flags.PoisonTransients, flags.DisableAliasing);
+    }
+
+    std::string_view RenderGraph::PoisonColorNameForResource(std::string_view resourceName)
+    {
+        return PoisonPaletteEntry(resourceName).Name;
     }
 
     const RenderGraph::ResourceInfo* RenderGraph::FindRegisteredResource(std::string_view name) const

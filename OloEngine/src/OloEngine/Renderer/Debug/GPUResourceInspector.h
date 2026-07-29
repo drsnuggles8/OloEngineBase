@@ -231,9 +231,45 @@ namespace OloEngine
             On
         };
 
+        // Sub-rectangle of the mip to read back, in TOP-LEFT-origin texel
+        // coordinates — the orientation of the returned PNG and of every other
+        // rect coordinate in the MCP surface (olo_render_target_stats' `rect`,
+        // olo_render_probe_pixel's texel space). GL's bottom-left row order is
+        // an implementation detail handled inside CaptureTexturePng.
+        //
+        // Why it exists (issue #607): a pixel-scale artifact can only be measured
+        // on 1:1 pixels, but a whole-target capture is rescaled to `maxWidth`
+        // (hard-clamped to 4096). Root-causing the GTAO "goosebumps" weave meant
+        // taking the spatial autocorrelation of the AO buffer to find the noise's
+        // period — and a 4291x2320 target can only come back resampled, which
+        // moved the diagnostic 64 px Hilbert-LUT tile period to 61.1 px and
+        // inflated short-lag correlation, so the first measurement could not tell
+        // the regression from the fix. A region small enough to sit under
+        // `maxWidth` comes back untouched, at native resolution.
+        //
+        // Width == 0 or Height == 0 means "the whole mip" (the default).
+        struct CaptureRegion
+        {
+            u32 X = 0;
+            u32 Y = 0;
+            u32 Width = 0;
+            u32 Height = 0;
+
+            [[nodiscard]] bool IsWholeTexture() const
+            {
+                return Width == 0 || Height == 0;
+            }
+        };
+
         // Result of CaptureTexturePng. PngBytes is empty (and Error non-empty)
         // on failure. MinValue/MaxValue report the finite value range of float
-        // sources before quantisation — useful to interpret normalised output.
+        // sources before quantisation — useful to interpret normalised output;
+        // with a region they describe the REGION's range, not the whole mip's.
+        // Width/Height are the encoded PNG's dimensions (post-downscale);
+        // SourceWidth/SourceHeight are always the full mip's, and RegionX..
+        // RegionHeight echo the rect actually read (the whole mip when none was
+        // requested), so a caller can tell 1:1 from resampled by comparing
+        // Width against RegionWidth.
         struct TextureCaptureResult
         {
             std::vector<u8> PngBytes;
@@ -241,6 +277,10 @@ namespace OloEngine
             u32 Height = 0;
             u32 SourceWidth = 0;
             u32 SourceHeight = 0;
+            u32 RegionX = 0;
+            u32 RegionY = 0;
+            u32 RegionWidth = 0;
+            u32 RegionHeight = 0;
             std::string FormatName;
             bool IsDepth = false;
             bool Normalized = false;
@@ -258,12 +298,16 @@ namespace OloEngine
         //        native), and — unlike SaveTextureToFile — flips rows to PNG
         //        top-down orientation so the image is upright when viewed.
         //        `faceOrLayer` selects the cubemap face / array layer (0 for 2D).
+        //        `region` reads back a sub-rect at native resolution instead of
+        //        the whole mip (see CaptureRegion); the maxWidth downscale then
+        //        applies to the REGION, so a region <= maxWidth comes back 1:1.
         //        Packed depth-stencil textures are read back as depth-only.
         //        Requires an active OpenGL 4.5+ context (main thread).
         [[nodiscard]] static TextureCaptureResult CaptureTexturePng(u32 textureId, u32 mipLevel = 0,
                                                                     u32 faceOrLayer = 0,
                                                                     CaptureNormalizeMode normalize = CaptureNormalizeMode::Auto,
-                                                                    int maxWidth = 0);
+                                                                    int maxWidth = 0,
+                                                                    CaptureRegion region = {});
 
         // @brief Get total number of tracked resources
         u32 GetResourceCount() const

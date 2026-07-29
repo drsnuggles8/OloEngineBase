@@ -99,6 +99,50 @@ namespace OloEngine
         };
         [[nodiscard]] AliasReport ComputeAliasReport() const;
 
+        // **Debug:** per-bucket and per-acquisition detail behind the aggregate
+        // PoolStats (issue #607). Root-causing the one-frame black-square artifact
+        // needed exactly this — "which pool object did this plan entry acquire,
+        // and how many same-descriptor siblings could it have been handed
+        // instead" — and it took a rebuild with hand-rolled instrumentation to
+        // learn, because nothing exposed the plan/pool layer where the aliasing
+        // decisions actually live. `olo_render_transient_plan` reports both.
+        struct BucketInfo
+        {
+            std::string Kind;    ///< "texture" | "framebuffer" | "buffer"
+            u64 Key = 0;         ///< the bucket's descriptor hash (fb / buffer) or texture-key hash
+            u32 Width = 0;       ///< texture buckets only (0 elsewhere)
+            u32 Height = 0;      ///< texture buckets only
+            u32 Format = 0;      ///< texture buckets only (ImageFormat as u32)
+            u32 MipLevels = 0;   ///< texture buckets only
+            u32 Samples = 0;     ///< texture buckets only
+            u32 SizeBytes = 0;   ///< buffer buckets only
+            u32 PooledCount = 0; ///< objects currently sitting FREE in this bucket
+        };
+
+        // One entry per object handed out during a frame, in acquisition order —
+        // the order the alias-slot assigner consumed the pool. A plan entry's
+        // physical id appears here; two entries sharing an id shared an object.
+        struct AcquiredInfo
+        {
+            std::string Kind; ///< "texture" | "framebuffer" | "buffer"
+            u32 RendererID = 0;
+            u32 Width = 0;     ///< texture / framebuffer only
+            u32 Height = 0;    ///< texture / framebuffer only
+            u32 SizeBytes = 0; ///< buffer only
+        };
+
+        [[nodiscard]] std::vector<BucketInfo> GetBucketReport() const;
+
+        // The acquisition order. ReleaseAll() empties the live acquired lists at
+        // end of frame, so ANY caller that runs between frames — every MCP read,
+        // which marshals onto the game thread at a frame boundary — would
+        // otherwise always see an empty list and conclude nothing was acquired.
+        // ReleaseAll() therefore snapshots the order before clearing, and this
+        // returns the live list mid-frame or the last COMPLETED frame's snapshot
+        // between frames. `IsLiveFrame` says which, so a reader never mistakes
+        // last frame's layout for this one's.
+        [[nodiscard]] std::vector<AcquiredInfo> GetAcquireOrder(bool* isLiveFrame = nullptr) const;
+
       private:
         // Descriptor key for texture/framebuffer pooling (format + dimensions + flags)
         struct TextureDescriptorKey
@@ -148,10 +192,16 @@ namespace OloEngine
         std::unordered_map<u64, std::vector<Ref<Framebuffer>>> m_FramebufferPool;
         std::unordered_map<u32, std::vector<Ref<StorageBuffer>>> m_BufferPool;
 
+        [[nodiscard]] std::vector<AcquiredInfo> BuildAcquireOrder() const;
+
         // Track which objects are currently acquired (for debugging/validation)
         std::vector<Ref<Texture>> m_AcquiredTextures;
         std::vector<Ref<Framebuffer>> m_AcquiredFramebuffers;
         std::vector<Ref<StorageBuffer>> m_AcquiredBuffers;
+
+        // Last COMPLETED frame's acquisition order, snapshotted by ReleaseAll()
+        // just before it empties the lists above — see GetAcquireOrder().
+        std::vector<AcquiredInfo> m_LastFrameAcquireOrder;
     };
 
 } // namespace OloEngine

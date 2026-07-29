@@ -755,6 +755,58 @@ namespace OloEngine
             return m_TransientPlan;
         }
 
+        // `versioned name -> source name` for every WriteNewVersion rename in the
+        // current topology. A version is a RENAME of the same physical resource,
+        // never an allocation (see docs/agent-rules/render-graph-transient-aliasing.md),
+        // so a diagnostic that lists plan entries must be able to say "this name
+        // is an alias of that one" rather than reporting a mysterious
+        // `SkipReason = "version-alias"` with no target. Exposed for
+        // `olo_render_transient_plan` (issue #607).
+        [[nodiscard]] const std::unordered_map<std::string, std::string>& GetVersionAliasTargets() const
+        {
+            return m_VersionAliasTargets;
+        }
+
+        // -------------------------------------------------------------------
+        // Transient-corruption debug instruments (runtime-settable)
+        // -------------------------------------------------------------------
+        // The two permanent instruments from the one-frame black-square hunt.
+        // Both used to be latched `static const bool` reads of OLO_RG_POISON_TRANSIENTS
+        // / OLO_RG_DISABLE_ALIASING, so flipping either meant an editor restart —
+        // which is exactly the wrong ergonomics for a diagnosis that takes seconds
+        // against a LIVE editor (issue #607). The env vars still seed the initial
+        // value on first read, so every existing launch recipe keeps working; a
+        // runtime Set overrides them for the rest of the session.
+        //
+        //   PoisonTransients — clear every pool-acquired transient texture / FBO
+        //     colour attachment to a per-resource hue at materialize time. Any
+        //     texel reaching a consumer without being written THIS frame is
+        //     unmistakable, and its colour names the resource it leaked from
+        //     (PoisonColorNameForResource is the pure mapping, so a caller can
+        //     report the whole map without waiting for each resource to be logged).
+        //   DisableAliasing — every transient gets its own physical backing. If an
+        //     artifact disappears under this switch, the planner's lifetime
+        //     analysis let two live resources share one GPU object.
+        //
+        // Both are read fresh at each MaterializeTransientResources, so a change
+        // takes effect on the next rendered frame. Flipping DisableAliasing should
+        // be paired with GetTransientPool().Clear() by the caller: pooled objects
+        // acquired under the previous policy are still bucketed and would be handed
+        // back out under the new one.
+        struct TransientDebugFlags
+        {
+            bool PoisonTransients = false;
+            bool DisableAliasing = false;
+        };
+
+        [[nodiscard]] static TransientDebugFlags GetTransientDebugFlags();
+        static void SetTransientDebugFlags(const TransientDebugFlags& flags);
+
+        // The poison hue a resource name maps to (12-colour palette keyed by an
+        // FNV-1a hash of the name). Pure — same answer whether or not poison mode
+        // is on, and whether or not the resource has been materialized yet.
+        [[nodiscard]] static std::string_view PoisonColorNameForResource(std::string_view resourceName);
+
         // -------------------------------------------------------------------
         // Per-frame graph building
         // -------------------------------------------------------------------

@@ -272,24 +272,45 @@ namespace OloEngine::Tests
         // (the EditorMcpContext::CaptureViewportPng contract — clamps the longer of
         // width/height, not width alone, so a portrait target is bounded too), and
         // encode a PNG in memory. MUST run on the GL thread. Empty on failure.
-        [[nodiscard]] static std::vector<u8> CaptureFramebufferPng(const Ref<Framebuffer>& framebuffer, int maxWidth)
+        // `region` (issue #607) reads back only a sub-rect, top-left origin, so a
+        // small enough rect never hits the maxWidth downscale and comes back 1:1.
+        // Out-of-bounds is a failure (empty bytes), never a silent clamp — the
+        // same contract as EditorLayer's CaptureFramebufferPng.
+        [[nodiscard]] static std::vector<u8> CaptureFramebufferPng(const Ref<Framebuffer>& framebuffer, int maxWidth,
+                                                                   MCP::McpCaptureRegion region = {})
         {
             if (!framebuffer)
                 return {};
             const auto& spec = framebuffer->GetSpecification();
-            const u32 width = spec.Width;
-            const u32 height = spec.Height;
-            if (width == 0 || height == 0)
+            const u32 fullWidth = spec.Width;
+            const u32 fullHeight = spec.Height;
+            if (fullWidth == 0 || fullHeight == 0)
                 return {};
             const u32 textureId = framebuffer->GetColorAttachmentRendererID(0);
             if (textureId == 0)
                 return {};
 
-            std::vector<u8> pixels(static_cast<sizet>(width) * height * 4);
-            ::glGetTextureImage(textureId, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                                static_cast<GLsizei>(pixels.size()), pixels.data());
+            if (region.IsWholeImage())
+                region = MCP::McpCaptureRegion{ 0, 0, fullWidth, fullHeight };
+            // `extent > remaining`, not `offset + extent > size`, so a huge pair
+            // cannot wrap the u32 addition and slip past the check.
+            else if (region.X >= fullWidth || region.Y >= fullHeight ||
+                     region.Width > fullWidth - region.X || region.Height > fullHeight - region.Y)
+                return {};
 
-            // glGetTextureImage returns rows bottom-up; flip for PNG (top-down).
+            const u32 width = region.Width;
+            const u32 height = region.Height;
+            // The rect arrives top-left-origin; GL rows run bottom-up.
+            const u32 glRegionY = fullHeight - region.Y - region.Height;
+
+            std::vector<u8> pixels(static_cast<sizet>(width) * height * 4);
+            ::glGetTextureSubImage(textureId, 0,
+                                   static_cast<GLint>(region.X), static_cast<GLint>(glRegionY), 0,
+                                   static_cast<GLsizei>(width), static_cast<GLsizei>(height), 1,
+                                   GL_RGBA, GL_UNSIGNED_BYTE,
+                                   static_cast<GLsizei>(pixels.size()), pixels.data());
+
+            // glGetTextureSubImage returns rows bottom-up; flip for PNG (top-down).
             const u32 rowBytes = width * 4;
             std::vector<u8> flipped(pixels.size());
             for (u32 y = 0; y < height; ++y)
@@ -359,10 +380,10 @@ namespace OloEngine::Tests
             { return m_Hooks.GetScene ? m_Hooks.GetScene() : nullptr; };
             ctx.IsPlaying = []() -> bool
             { return false; };
-            ctx.CaptureViewportPng = [this](int maxWidth) -> std::vector<u8>
+            ctx.CaptureViewportPng = [this](int maxWidth, MCP::McpCaptureRegion region) -> std::vector<u8>
             {
                 const Ref<Framebuffer> fb = m_Hooks.GetCompositeFramebuffer ? m_Hooks.GetCompositeFramebuffer() : nullptr;
-                return CaptureFramebufferPng(fb, maxWidth);
+                return CaptureFramebufferPng(fb, maxWidth, region);
             };
 
             ctx.GetCameraPose = [this]() -> MCP::McpCameraPose

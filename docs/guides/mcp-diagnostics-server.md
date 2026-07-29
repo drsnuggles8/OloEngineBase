@@ -212,14 +212,16 @@ and for what to do when adding a tool.
 | `olo_script_get_last_errors` | recent C# (Mono) / Lua (Sol2) script exceptions |
 | `olo_reload_script` | **(consented write)** reload the C# script assembly — the editor's *Script ▸ Reload assembly* (Ctrl+R) path — so a rebuilt game assembly is picked up without restarting the editor; reports whether scripting is available, whether the reload ran, and the post-reload script-class count. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
 | `olo_crash_list` / `olo_crash_get` | crash reports under `CrashReports/` |
-| `olo_screenshot` | the viewport rendered to a PNG image block; optional one-shot camera pose (`camera`/`orbit` + `settleFrames`) with automatic save/restore of the user's camera. In **Play mode** the frame comes from the runtime's primary `CameraComponent`, so poses are refused there (they could only move the unused editor camera) and the reply's `sceneState`/`camera` meta says which camera produced the frame. `delivery:"resource_link"` publishes the PNG as an ephemeral `olo://capture/...` resource + `resource_link` block instead of inline base64 (see [Resources](#resources)) |
+| `olo_screenshot` | the viewport rendered to a PNG image block; optional one-shot camera pose (`camera`/`orbit` + `settleFrames`) with automatic save/restore of the user's camera. In **Play mode** the frame comes from the runtime's primary `CameraComponent`, so poses are refused there (they could only move the unused editor camera) and the reply's `sceneState`/`camera` meta says which camera produced the frame. `delivery:"resource_link"` publishes the PNG as an ephemeral `olo://capture/...` resource + `resource_link` block instead of inline base64 (see [Resources](#resources)). `region`:{x,y,w,h} captures a sub-rect at **native resolution** instead of the whole viewport rescaled to `maxWidth` — see [Native-resolution region capture](#native-resolution-region-capture-region) |
 | `olo_camera_get` | the editor camera's pose (position, focal point, yaw/pitch, FOV, clips, viewport size) |
 | `olo_camera_set_pose` | move the editor camera: `position` + (`target` \| `yaw`/`pitch`), optional `fov` |
 | `olo_camera_orbit` | orbit-frame the camera around a world point: `target`, `yaw`, `pitch`, `distance` |
 | `olo_camera_frame_entity` | point the camera at an entity (by UUID) and fit it in view |
 | `olo_viewport_set_size` | override the viewport's logical render size for deterministic captures (`reset` to clear). The override wins over window/panel resizes (the editor reasserts it after any OS window-resize event); verify with `olo_perf_snapshot`'s `renderWidth`/`renderHeight` before perf measurements |
 | `olo_render_list_targets` | the render graph's live texture/framebuffer resources (name, kind, format, size, producers) |
-| `olo_render_capture_target` | read back one intermediate render target (depth, normals, G-buffer, shadow map, AO, the DDGI atlases, the froxel-fog volumes, post-process stages, …) as a PNG image block; depth is min-max normalised by default. `layer` picks one slice of an **array / cube / 3D** target (CSM cascade 0–3, cubemap faces, froxel z-slices); out-of-range is an error, never a silent layer-0 capture. `afterPass` captures the resource **as of that pass's execution** (mid-frame snapshot) instead of end-of-frame — see [Mid-frame state & exact texels](#mid-frame-state--exact-texels-afterpass-texel-space-stats-validate) |
+| `olo_render_capture_target` | read back one intermediate render target (depth, normals, G-buffer, shadow map, AO, the DDGI atlases, the froxel-fog volumes, post-process stages, …) as a PNG image block; depth is min-max normalised by default. `layer` picks one slice of an **array / cube / 3D** target (CSM cascade 0–3, cubemap faces, froxel z-slices); out-of-range is an error, never a silent layer-0 capture. `afterPass` captures the resource **as of that pass's execution** (mid-frame snapshot) instead of end-of-frame — see [Mid-frame state & exact texels](#mid-frame-state--exact-texels-afterpass-texel-space-stats-validate). `region`:{x,y,w,h} reads back a sub-rect at **native resolution** rather than the whole target rescaled to `maxWidth` — the only way to measure a pixel-scale artifact; the reply's `meta.region.nativeResolution` says whether the PNG is genuinely 1:1 |
+| `olo_render_transient_plan` | the render graph's **transient plan + pool state** — the layer under `olo_render_graph_topology_export` where aliasing is decided. Per entry: alias group/slot, `willAllocate` + the planner's `skipReason`, `firstPass`→`lastPass` lifetime, resolved `glTexture` id, `versionAliasOf` (what a `WriteNewVersion` rename aliases), and its poison hue. Per pool: bucket descriptors with free counts, byte totals, and this frame's unsorted `acquireOrder` (two entries sharing a `glId` shared one GPU object). See [Transient plan & pool introspection](#transient-plan--pool-introspection-olo_render_transient_plan) |
+| `olo_render_debug_set` | **(consented write)** flip the two transient-corruption instruments LIVE instead of via env var + editor restart: `poisonTransients` (clear every pool-acquired transient to a per-resource hue at materialize time — turns a stochastic stale-read artifact into a deterministic per-resource-coloured one; the reply carries the whole resource→colour map up front) and `disableAliasing` (every transient gets its own backing; the pool is evicted on the flip so the A/B isn't mixed). Omitting a flag leaves it unchanged; `restoreWith` puts both back. Gated behind **Agent writes** |
 | `olo_render_probe_pixel` | the exact NUMBERS under one pixel: every decoded G-Buffer channel (albedo, metallic, decoded world normal, roughness, AO, emissive, velocity, integer entityID, raw + linearized depth) plus the final presented colour — or, with `target`, the raw channels of ONE named resource. Every reply echoes `mappedCoord` (the exact texel read); `space`:"texel" + `mip` address an exact texel of a padded resource (the HZB pyramid), `layer` picks an array slice, `afterPass` probes mid-frame state |
 | `olo_render_target_stats` | exact float min/max/mean + a **bit-exact unique-value histogram** over a `rect` of one target at a `mip` — the 1-ULP instrument an 8-bit PNG cannot be (1.0 and 0.99999994 both encode as 255). Per channel: finite/NaN/Inf counts, distinct-bit-pattern count, most frequent values with exact counts. Supports `layer` and `afterPass` |
 | `olo_render_validate` | on-demand render-graph frame validation: the compiled resource-hazard sweep, barrier/build diagnostics, execute-path resolve failures, consumed-but-unbacked resources, and versioned-name physical-id groups; optional `compare` checks two targets **bit-exactly** (channel 0), e.g. `compare:{a:"SceneDepth", b:"HZB", afterPass:"GTAOPass"}` — both sides snapshotted in the SAME frame |
@@ -228,6 +230,8 @@ and for what to do when adding a tool.
 | `olo_render_toggle_pass` | flip a post-process / fog feature on/off (`name` + optional `enabled`) — the ephemeral A/B loop: toggle off → `olo_screenshot` → toggle on → `olo_screenshot`. No `name` lists every pass + its live state |
 | `olo_render_set_debug_view` | switch the viewport to a raw AO/SSR/SSGI buffer, the overdraw heatmap, or a virtualized-geometry visualization (`mode`: none/ssao/gtao/ssr/ssgi/overdraw/**vgclusterid/vglod/vgoverdraw**); reports whether the backing pass is actually running, and (for the vg\* modes) the `captureTarget` to read back. No `mode` lists the modes + current state |
 | `olo_renderer_settings_set` | **(consented write)** set a multi-valued, session-global renderer / post-process setting — `upscale` (FSR1 spatial-upscale mode), `tonemap` (operator), `renderpath` (forward/forward+/deferred), `depthprepass` (off/on/auto — the #316 perf lever), `softshadows` (pcf/pcss — THE ScenePass shadow-cost lever) — to verify a rendering feature live at each value. The enum-valued sibling of `olo_render_toggle_pass`; reports `previousValue` for restore-prior-value (no undo stack). No args lists every setting + current value + allowed values. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
+| `olo_postprocess_settings_get` | read the live post-process / AO / fog parameters — the whole Post Processing panel as JSON, which nothing else exposes. No args lists every field with value, type, range and description; `group` narrows to one block (ao, bloom, ssr, ssgi, contactshadow, fog, exposure, dof, …); `field` returns one. Read-only, so it is **not** behind the write gate — parameter values no longer have to be read off a screenshot of the panel. See [Post-process / AO / fog parameters](#post-process--ao--fog-parameters-olo_postprocess_settings_get--_set) |
+| `olo_postprocess_settings_set` | **(consented write)** write one post-process / AO / fog parameter — the part of the renderer `olo_renderer_settings_set` never reached. `ActiveAOTechnique` (none/ssao/gtao) makes the same-scene same-pose GTAO-vs-SSAO A/B one call; it is **not** scene-serialised, so before this it could not be driven at all. Also every GTAO/SSAO parameter, the `*DebugView` flags, bloom, DOF, TAA, SSR, SSGI, contact shadows, exposure and the whole fog block. Numerics **clamp** to the serializer's own range (`clamped:true` + `range`); reports `previousValue` for restore-prior-value. Gated behind **Agent writes** |
 | `olo_scene_set_time_of_day` | **(consented write)** set the scene's time-of-day clock — writes the **serialized `TimeOfDayComponent`** (the single authoritative sun source since issue #633; the old ephemeral override is retired): `hours` [0,24) and/or `dayOfYear`, `latitudeDegrees`, `timeScale`, `paused`, `enabled`. TimeOfDaySystem drives the sun/sky from it next frame, edit and play alike; returns the component state + derived sun elevation / isNight / sun+moon directions. In-memory edit (persisted on scene save); errors with guidance when the scene has no `TimeOfDayComponent`. `clear`:true is a legacy no-op (note only). Gated behind **Agent writes** |
 | `olo_scene_set_sun_angle` | **(consented write)** aim the sun from a `yaw` (azimuth) / `pitch` (elevation) pair — SOLVES for the time of day whose ephemeris sun best matches and writes the solved hours into the `TimeOfDayComponent`. Pitch is matched exactly when the day/latitude can reach it (else clamped, reported via `clamped` + note); yaw is honoured for its east/west side only (east = morning, west = afternoon). Returns the component state + `achievedElevationDeg`/`clamped`. Gated behind **Agent writes** |
 | `olo_scene_set_weather` | **(consented write)** drive the weather director — writes the `WeatherStateComponent`'s target `state` (Clear \| Overcast \| Rain \| Storm \| Snow \| FogBank, case-sensitive) with optional `transitionSeconds` (0–600) and `immediate`:true snap; applies the blend to the scene + renderer immediately (edit-mode preview). Returns currentState/targetState/transitionDuration/transitionProgress/wetness; errors with guidance when the scene has no `WeatherStateComponent`. Gated behind **Agent writes** |
@@ -389,7 +393,7 @@ round-trip rather than looking like a write that quietly did nothing.
 
 ### Toolsets & on-demand tool discovery (`tools/search`)
 
-The tool surface is large enough (~64 built-in tools; the full `tools/list` measures
+The tool surface is large enough (~70 built-in tools; the full `tools/list` measures
 ~60 KB ≈ 15k tokens) that paging the whole flat list to find the right one is
 wasteful. Every tool is tagged with a **toolset** (grouping category), and a custom
 `tools/search` JSON-RPC method lets an agent discover tools by keyword and/or
@@ -982,6 +986,110 @@ plus plain `olo_render_capture_target` — works on them. The atlases ping-pong:
 is "current" flips every blended frame, so both are listed under stable names; either
 shows a black/leaking probe.
 
+### Native-resolution region capture (`region`)
+
+`olo_render_capture_target` and `olo_screenshot` rescale the **whole** target so its
+width is at most `maxWidth` (hard-clamped to 4096). That is fine for looking, and useless
+for **measuring**: a pixel-scale artifact only exists on 1:1 pixels. Root-causing the GTAO
+"goosebumps" weave (issue #607) meant taking the spatial autocorrelation of the AO buffer
+to identify the noise's period — but a 4291×2320 target could only come back resampled,
+which moved the diagnostic 64 px Hilbert-LUT tile period to **61.1 px** and inflated
+short-lag correlation, so the first measurement could not tell the regression from the
+fix. The workaround was shrinking the editor window until the target fit.
+
+Pass `region: { x, y, w, h }` — top-left origin, in texels of the mip being captured (the
+same space `olo_render_target_stats`' `rect` and `olo_render_probe_pixel`'s
+`space:"texel"` use) — to read back only that rectangle. The `maxWidth` downscale then
+applies to the **region**, so a region narrower than `maxWidth` comes back untouched:
+
+```jsonc
+// olo_render_capture_target { "name": "AOBuffer", "region": { "x": 1900, "y": 1100, "w": 512, "h": 512 } }
+{ "meta": { "width": 512, "height": 512,          // the PNG
+            "sourceWidth": 4291, "sourceHeight": 2320,   // the full mip, unchanged
+            "region": { "x": 1900, "y": 1100, "w": 512, "h": 512, "nativeResolution": true } } }
+```
+
+Read `meta.region.nativeResolution` rather than inferring 1:1 from `maxWidth` arithmetic —
+it is derived from the encoded size, so it is the only honest signal. Two rules that make
+a region trustworthy:
+
+- A **degenerate rect** (`w` or `h` ≤ 0) is rejected, never folded into "the whole image":
+  a caller that computed an empty rect must hear about it instead of silently receiving a
+  full-target capture it will then mis-measure.
+- An **out-of-bounds rect** is an error, never a silent clamp — a quietly shrunk rect
+  reports the wrong spatial period without ever saying so, which is precisely the failure
+  this argument exists to prevent.
+
+For float/HDR sources note that min-max normalisation becomes **region-local**, which is
+what a zoomed inspection wants (a 64×64 crop of a flat-looking HDR target gets its own
+contrast). `olo_render_target_stats` already had `rect` and dodges its 4,194,304-texel
+ceiling the same way.
+
+### Transient plan & pool introspection (`olo_render_transient_plan`)
+
+`olo_render_graph_topology_export` shows per-pass **resolved ids** for one frame. Nothing
+showed the layer *underneath* it — where the resource-aliasing decisions are actually
+made. Root-causing the one-frame black-square artifact needed exactly that and had to be
+obtained by rebuilding the engine with hand-rolled instrumentation (issue #607).
+
+`olo_render_transient_plan` dumps it:
+
+- **Per plan entry** — alias group + slot, `willAllocate` and the planner's `skipReason`
+  when it doesn't, the `firstPass` → `lastPass` lifetime (with execution-order indices),
+  `estimatedBytes`, `reachable`, the **resolved `glTexture` id**, `versionAliasOf` (what a
+  `WriteNewVersion` rename is an alias *of*), and the `poisonColor` the resource would
+  leak as.
+- **Per pool** — bucket descriptors with free counts, estimated/acquired bytes, and this
+  frame's **`acquireOrder`** (deliberately unsorted — it is the order the alias-slot
+  assigner consumed the pool, and a LIFO pool's reuse pattern is only readable in that
+  order; two entries sharing a `glId` shared one GPU object).
+
+`topologyGeneration` changes whenever the graph was torn down and the plan rebuilt — the
+frames on which an aliasing bug surfaces (see
+[render-graph-transient-aliasing.md](../agent-rules/render-graph-transient-aliasing.md)).
+Filter with `resource` (substring), and drop the pool half with `includePool:false`.
+
+The canonical question it answers in one lookup: *does this versioned name resolve to its
+base's physical, or to an orphan?* A version whose `glTexture` differs from its base's **is**
+the orphan-allocation bug.
+
+### Runtime transient debug instruments (`olo_render_debug_set`)
+
+The two permanent instruments from that same hunt used to be latched env vars
+(`OLO_RG_POISON_TRANSIENTS` / `OLO_RG_DISABLE_ALIASING`), so flipping either meant an
+editor restart — the wrong ergonomics for a probe whose whole value is being usable
+against a **running** editor. `olo_render_debug_set` flips them live (the env vars still
+seed the initial value, so every existing launch recipe keeps working). It is a
+**consented WRITE tool**, same gate as `olo_renderer_settings_set`.
+
+- **`poisonTransients`** — clear every pool-acquired transient to a **per-resource hue** at
+  materialize time. Any texel that reaches a consumer without being written *this frame* is
+  unmistakable, and its colour names the resource it leaked from. This is what turned a ~3 %
+  stochastic camera-move artifact into a **deterministic every-frame signal** — the
+  difference between 200-frame statistical sweeps and a single screenshot. It doubles as
+  the fix-verification probe. The reply carries the whole `poisonColorMap` **up front**;
+  the engine otherwise logs it one line per resource as each is first materialized, which
+  is useless when you want to read a poisoned screenshot immediately.
+- **`disableAliasing`** — give every transient its own physical backing. If an artifact
+  disappears under this switch, the planner's lifetime analysis let two live resources
+  share one GPU object. Flipping it **evicts the transient pool**, so the A/B isn't
+  comparing a mixed state of objects acquired under the old policy.
+
+Omitting a flag leaves it unchanged, and the reply's `restoreWith` puts both back. Both
+take effect at the next `MaterializeTransientResources`, so the call settles two frames
+before returning — otherwise the screenshot taken straight afterwards shows the pre-poison
+frame and "proves" the instrument does nothing.
+
+```jsonc
+// 1) olo_render_debug_set { "poisonTransients": true }
+{ "poisonTransients": true, "disableAliasing": false,
+  "previous": { "poisonTransients": false, "disableAliasing": false },
+  "poisonColorMap": [ { "resource": "SceneColor", "color": "magenta" },
+                      { "resource": "SceneColor@GPUDrivenOcclusionPass", "color": "azure" }, … ] }
+// 2) olo_screenshot { "forceFrame": true }   -> an azure wash names the leaking resource
+// 3) olo_render_debug_set { "poisonTransients": false }
+```
+
 ### Probing the froxel fog volume (`olo_froxel_fog_probe`)
 
 Every volumetric-fog check we have compares **final-frame pixels**, which cannot tell
@@ -1077,6 +1185,61 @@ again with that token. The A/B loop:
 Calling the tool with **no arguments** lists every setting with its live
 `currentValue` and the full allowed-value catalogue (still behind the write gate,
 since the whole tool is a write tool).
+
+### Post-process / AO / fog parameters (`olo_postprocess_settings_get` / `_set`)
+
+`olo_renderer_settings_set` above reaches exactly five knobs. Everything else in the
+Post Processing panel was unreachable from an agent session (issue #607). The motivating
+case: while root-causing the GTAO grazing-angle collapse the A/B that mattered — *same
+scene, same pose, GTAO vs SSAO* — could not be driven at all. Both workarounds were bad —
+hand-edit the scene `.olo` and relaunch (slow, mutates project data, and still cannot
+reach `ActiveAOTechnique`, which is **not scene-serialised**), or give up and reason
+analytically. The read side was equally missing: the parameter values in play had to be
+read off a screenshot of the panel.
+
+These two tools cover the live `PostProcessSettings` **and** `FogSettings` structs — AO
+technique and every GTAO/SSAO parameter, all the `*DebugView` flags, bloom, DOF, TAA,
+CAS/RCAS, SSR, SSGI, contact shadows, exposure / auto-exposure, and the whole fog block
+including scattering, volumetrics, noise and light shafts.
+
+**Read and write are separate tools on purpose.** `_set` is gated behind **Agent writes**
+like every other write; `_get` is not, so an agent without that consent can still read the
+parameters in play.
+
+Field tokens are the **C++ field names** (`ActiveAOTechnique`, `GTAORadius`, `SSAOBias`,
+`FogDensity`), matched case- and separator-insensitively — so anything in
+`PostProcessSettings.h` is guessable, and a renamed field is a compile error rather than a
+silently dead token. `_get` takes an optional `group` (`ao`, `bloom`, `ssr`, `ssgi`,
+`contactshadow`, `fog`, `exposure`, `dof`, `antialiasing`, `motionblur`, `vignette`,
+`sharpen`, `colorgrading`, `chromaticaberration`, `debug`) or a single `field`; a near-miss
+token comes back with suggestions rather than a bare "unknown".
+
+```jsonc
+// The A/B that started this. 1) note what it is now
+// olo_postprocess_settings_get { "field": "ActiveAOTechnique" }
+{ "field": "ActiveAOTechnique", "type": "enum", "value": "gtao", "rebuildsRenderGraph": true, … }
+// 2) switch, 3) screenshot, 4) restore with previousValue
+// olo_postprocess_settings_set { "field": "ActiveAOTechnique", "value": "ssao" }
+{ "field": "ActiveAOTechnique", "previousValue": "gtao", "value": "ssao",
+  "changed": true, "clamped": false, "restoreWith": "gtao" }
+```
+
+Notes:
+
+- **Numeric writes CLAMP** to the field's declared range and say so (`"clamped": true`
+  plus the `range`). The bounds mirror the engine's own `SanitizeSSR` / `SanitizeSSGI` /
+  `SanitizeContactShadow` caps where those exist, so an MCP write can never push the
+  settings somewhere a scene load would reject — the "a bounded write beats an unvalidated
+  one" rule the generated MCP field registry follows. A non-finite float, a wrong JSON
+  type, or an unknown enum token is an **error** that leaves the settings untouched.
+- `ActiveAOTechnique` carries `rebuildsRenderGraph: true` — writing it re-runs
+  `Renderer3D::ApplyRendererSettings()`, since it swaps which AO pass is registered in the
+  graph (issue #533). Without that the write would render as a silent no-op.
+- **Tone-map operator, FSR1 upscale preset, rendering path, depth prepass and soft shadows
+  are deliberately absent here** — `olo_renderer_settings_set` owns them. One write path
+  per field; two would be exactly the kind of divergence that goes unnoticed.
+- Restore is **restore-prior-value**, not CommandHistory, for the same reason as its
+  sibling: session-global renderer settings are not scene/ECS data.
 
 ### Sun / time-of-day (`olo_scene_set_time_of_day` / `olo_scene_set_sun_angle`)
 

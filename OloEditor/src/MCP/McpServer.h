@@ -25,6 +25,8 @@
 // registry is NOT thread-safe, so any Scene / entity read must be marshaled onto
 // the main (game) thread at a frame boundary via MarshalRead() ("main-marshaled").
 
+#include "MCP/McpCaptureRegion.h"
+
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Scene/Scene.h"
 
@@ -536,10 +538,12 @@ namespace OloEngine::MCP
         std::function<Ref<Scene>()> GetActiveScene;
         std::function<bool()> IsPlaying;
         // Capture the editor viewport framebuffer as PNG bytes, downscaled so the
-        // long edge is at most maxWidth (<=0 = native). ONLY safe on the main
+        // long edge is at most maxWidth (<=0 = native). `region` reads back only a
+        // sub-rect (top-left origin) so it can come back at 1:1 — a default-
+        // constructed region means the whole viewport. ONLY safe on the main
         // thread (does GL readback), so call it from inside a MarshalRead job.
-        // Returns empty bytes on failure.
-        std::function<std::vector<u8>(int maxWidth)> CaptureViewportPng;
+        // Returns empty bytes on failure (including an out-of-bounds region).
+        std::function<std::vector<u8>(int maxWidth, McpCaptureRegion region)> CaptureViewportPng;
 
         // ---- Tier-0 camera / viewport control (issue #316) -----------------
         // All main-thread-only, like the readers above. These mutate editor-only

@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpToolsCommon.h"
+#include "MCP/McpCaptureRegion.h"
+#include "MCP/McpPostProcessSettings.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpClusterGridStats.h"
 #include "MCP/McpFrameBreakdown.h"
@@ -36,6 +38,7 @@
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 #include "OloEngine/Renderer/Passes/VolumetricFogPass.h"
 #include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Renderer/TransientPool.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
@@ -552,6 +555,14 @@ namespace OloEngine::MCP
             if (args.contains("maxWidth") && args["maxWidth"].is_number_integer())
                 maxWidth = static_cast<int>(std::clamp<long long>(args["maxWidth"].get<long long>(), 16, 4096));
 
+            // Optional native-resolution sub-rect (issue #607). The maxWidth
+            // downscale then applies to the REGION, so a region narrower than
+            // maxWidth comes back 1:1 — the only way to measure a pixel-scale
+            // artifact on a target wider than 4096. Omitted = whole mip, as before.
+            McpCaptureRegion region;
+            if (const auto regionError = CaptureRegionArg::Parse(args, region))
+                return ToolResult::Error(*regionError);
+
             // Opt-in resource-link delivery (issue #673 Tier 1): publish the PNG
             // as an ephemeral olo://capture resource instead of inlining base64.
             const bool deliverLink = args.value("delivery", std::string{ "inline" }) == "resource_link";
@@ -590,7 +601,7 @@ namespace OloEngine::MCP
             }
 
             Json result = server.MarshalRead([&server, name, mipLevel, hasLayerSelector, requestedLayer,
-                                              normalizeMode, maxWidth, afterPass, afterPassFrameRendered,
+                                              normalizeMode, maxWidth, region, afterPass, afterPassFrameRendered,
                                               deliverLink]() -> Json
                                              {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
@@ -626,8 +637,9 @@ namespace OloEngine::MCP
                 if (!selection.Error.empty())
                     return Json{ { "__error", selection.Error } };
 
-                auto capture = GPUResourceInspector::CaptureTexturePng(textureId, mipLevel, selection.Layer,
-                                                                       normalizeMode, maxWidth);
+                auto capture = GPUResourceInspector::CaptureTexturePng(
+                    textureId, mipLevel, selection.Layer, normalizeMode, maxWidth,
+                    GPUResourceInspector::CaptureRegion{ region.X, region.Y, region.Width, region.Height });
                 if (!capture.Error.empty())
                     return Json{ { "__error", "Capture of '" + name + "' failed: " + capture.Error } };
 
@@ -649,6 +661,12 @@ namespace OloEngine::MCP
                 meta["height"] = capture.Height;
                 meta["sourceWidth"] = capture.SourceWidth;
                 meta["sourceHeight"] = capture.SourceHeight;
+                // Always echo the rect actually read plus whether the PNG is 1:1 —
+                // a measurement that assumes native resolution must be able to
+                // CHECK it, not infer it from maxWidth arithmetic (issue #607).
+                meta["region"] = CaptureRegionArg::MetaJson(
+                    McpCaptureRegion{ capture.RegionX, capture.RegionY, capture.RegionWidth, capture.RegionHeight },
+                    capture.Width, capture.Height);
                 meta["format"] = capture.FormatName;
                 meta["isDepth"] = capture.IsDepth;
                 meta["normalized"] = capture.Normalized;
@@ -1721,7 +1739,9 @@ namespace OloEngine::MCP
                     waitTimedOut = !AwaitRenderedFrames(server, savedPose.value("frame", static_cast<u64>(0)), settleFrames);
                 const Json cap = server.MarshalRead([&server, maxWidth, posed, &restorePriorPose, &capturedPng]() -> Json
                                                     {
-                    capturedPng = server.Context().CaptureViewportPng(maxWidth);
+                    // Whole viewport, never a region: a golden was recorded whole,
+                    // so comparing a sub-rect against it would be meaningless.
+                    capturedPng = server.Context().CaptureViewportPng(maxWidth, McpCaptureRegion{});
                     if (posed)
                         restorePriorPose();
                     if (capturedPng.empty())
@@ -1984,6 +2004,395 @@ namespace OloEngine::MCP
 
             return ToolResult::Structured(result);
         }
+        // ---- olo_postprocess_settings_get / _set (main-marshaled) --------------
+        // The post-process / AO / fog block of the renderer, which
+        // olo_renderer_settings_set never reached (issue #607). Read and write are
+        // SEPARATE tools on purpose: the write is gated behind "Allow writes", and
+        // an agent without that consent must still be able to read the parameters
+        // in play — during the GTAO hunt they had to be read off a screenshot of
+        // the Post Processing panel. The shared field table + coercion core lives
+        // in McpPostProcessSettings.h so it is unit-tested without this TU; the one
+        // renderer-bound side effect (an ActiveAOTechnique switch re-registering
+        // the AO pass, issue #533) stays here, on the main thread.
+
+        // (main thread) Both live settings PODs, as a pair, so the field table's
+        // accessors can reach either without knowing which owns a given field.
+        Json DescribePostProcess(std::string_view group, bool& unknownGroup)
+        {
+            return PostProcess::Describe(Renderer3D::GetPostProcessSettings(), Renderer3D::GetFogSettings(),
+                                         group, unknownGroup);
+        }
+
+        ToolResult Handle_PostProcessSettingsGet(McpServer& server, const Json& args)
+        {
+            if (args.contains("field") && !args["field"].is_null())
+            {
+                if (!args["field"].is_string())
+                    return ToolResult::Error("Invalid 'field': expected a string.");
+                const std::string token = args["field"].get<std::string>();
+                const PostProcess::FieldInfo* field = PostProcess::FindField(token);
+                if (field == nullptr)
+                {
+                    std::string message = "Unknown post-process field '" + token + "'.";
+                    if (const std::vector<std::string> suggestions = PostProcess::SuggestFields(token);
+                        !suggestions.empty())
+                    {
+                        message += " Did you mean: ";
+                        for (sizet i = 0; i < suggestions.size(); ++i)
+                            message += (i == 0 ? "" : ", ") + suggestions[i];
+                        message += "?";
+                    }
+                    message += " Call with no arguments to list every field; groups: " + PostProcess::JoinGroupTokens() + ".";
+                    return ToolResult::Error(message);
+                }
+                const Json result = server.MarshalRead([field]() -> Json
+                                                       { return PostProcess::DescribeField(*field, Renderer3D::GetPostProcessSettings(),
+                                                                                           Renderer3D::GetFogSettings()); });
+                return ToolResult::Structured(result);
+            }
+
+            std::string group;
+            if (args.contains("group") && args["group"].is_string())
+                group = args["group"].get<std::string>();
+
+            bool unknownGroup = false;
+            const Json result = server.MarshalRead([&group, &unknownGroup]() -> Json
+                                                   { return DescribePostProcess(group, unknownGroup); });
+            if (unknownGroup)
+                return ToolResult::Error("Unknown group '" + group + "'. Valid groups: " + PostProcess::JoinGroupTokens() + ".");
+            return ToolResult::Structured(result);
+        }
+
+        ToolResult Handle_PostProcessSettingsSet(McpServer& server, const Json& args)
+        {
+            bool introspect = false;
+            const PostProcess::FieldInfo* field = nullptr;
+            Json value;
+            if (const auto error = PostProcess::ParseSetArgs(args, introspect, field, value))
+                return ToolResult::Error(*error);
+
+            if (introspect)
+            {
+                bool unknownGroup = false;
+                const Json result = server.MarshalRead([&unknownGroup]() -> Json
+                                                       { return DescribePostProcess({}, unknownGroup); });
+                return ToolResult::Structured(result);
+            }
+
+            const Json result = server.MarshalRead([field, &value]() -> Json
+                                                   {
+                const PostProcess::ApplyResult applied =
+                    PostProcess::Apply(*field, value, Renderer3D::GetPostProcessSettings(), Renderer3D::GetFogSettings());
+                if (!applied.Ok)
+                    return Json{ { "__error", applied.Error } };
+                // ActiveAOTechnique swaps which AO pass is registered in the render
+                // graph, so the topology must be rebuilt for the new value to render
+                // at all (issue #533) — the same reason a renderpath switch does it.
+                if (applied.RequiresRendererApply)
+                    Renderer3D::ApplyRendererSettings();
+                return applied.Data; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+
+            // Settle before returning, exactly as olo_renderer_settings_set does
+            // (#519): a write landing while the editor's render-budget throttle is
+            // skipping frames stays invisible to an immediately following
+            // screenshot / perf snapshot until some later frame renders.
+            constexpr int kSettingsSettleFrames = 2;
+            if (server.Context().GetFrameIndex)
+            {
+                const u64 baseFrame = server.MarshalRead([&server]() -> Json
+                                                         { return Json{ { "frame", server.Context().GetFrameIndex() } }; })
+                                          .value("frame", static_cast<u64>(0));
+                AwaitRenderedFrames(server, baseFrame, kSettingsSettleFrames);
+            }
+            return ToolResult::Structured(result);
+        }
+
+        // Stable JSON token for a resource kind. Written out rather than derived
+        // from the enum so a reordered/renamed enumerator is a compile error here
+        // instead of a silently changed wire value.
+        const char* ResourceKindName(ResourceHandle::Kind kind)
+        {
+            switch (kind)
+            {
+                case ResourceHandle::Kind::Texture2D:
+                    return "texture2d";
+                case ResourceHandle::Kind::Texture2DArray:
+                    return "texture2darray";
+                case ResourceHandle::Kind::Texture3D:
+                    return "texture3d";
+                case ResourceHandle::Kind::TextureCube:
+                    return "texturecube";
+                case ResourceHandle::Kind::TextureCubeArray:
+                    return "texturecubearray";
+                case ResourceHandle::Kind::Framebuffer:
+                    return "framebuffer";
+                case ResourceHandle::Kind::UniformBuffer:
+                    return "uniformbuffer";
+                case ResourceHandle::Kind::StorageBuffer:
+                    return "storagebuffer";
+                case ResourceHandle::Kind::Unknown:
+                    break;
+            }
+            return "unknown";
+        }
+
+        // ---- olo_render_transient_plan (main-marshaled) ------------------------
+        // The render graph's transient PLAN and the pool state behind it (issue
+        // #607). olo_render_graph_topology_export shows per-pass resolved ids for
+        // one frame, but nothing exposed the layer where the aliasing decisions are
+        // actually made: which alias group/slot a resource landed in, whether it
+        // allocated at all (and why not), its FirstPass->LastPass lifetime, what it
+        // is a version-alias OF, and which pool bucket handed out which object in
+        // what order. Root-causing the one-frame black-square artifact needed
+        // exactly this and had to be obtained by rebuilding the engine with
+        // hand-rolled instrumentation.
+        ToolResult Handle_RenderTransientPlan(McpServer& server, const Json& args)
+        {
+            const bool includePool = args.value("includePool", true);
+            const bool includeAcquireOrder = args.value("includeAcquireOrder", true);
+            std::string filter;
+            if (args.contains("resource") && args["resource"].is_string())
+                filter = args["resource"].get<std::string>();
+
+            const Json result = server.MarshalRead([includePool, includeAcquireOrder, filter]() -> Json
+                                                   {
+                const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
+                if (!graph)
+                    return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
+
+                const auto& versionAliases = graph->GetVersionAliasTargets();
+                const RenderGraph::TransientDebugFlags flags = RenderGraph::GetTransientDebugFlags();
+
+                Json entries = Json::array();
+                for (const auto& entry : graph->GetTransientPlan())
+                {
+                    if (!filter.empty() && entry.Resource.find(filter) == std::string::npos)
+                        continue;
+
+                    Json j{
+                        { "resource", entry.Resource },
+                        { "kind", ResourceKindName(entry.Kind) },
+                        { "reachable", entry.Reachable },
+                        { "willAllocate", entry.WillAllocate },
+                        { "aliasGroup", entry.AliasGroup },
+                        { "estimatedBytes", entry.EstimatedBytes },
+                        { "firstPass", entry.FirstPass },
+                        { "lastPass", entry.LastPass },
+                    };
+                    if (entry.AliasSlot != std::numeric_limits<u32>::max())
+                        j["aliasSlot"] = entry.AliasSlot;
+                    if (entry.FirstPassIndex != std::numeric_limits<u32>::max())
+                        j["firstPassIndex"] = entry.FirstPassIndex;
+                    j["lastPassIndex"] = entry.LastPassIndex;
+                    if (!entry.SkipReason.empty())
+                        j["skipReason"] = entry.SkipReason;
+                    // A "version-alias" skip is meaningless without its target: the
+                    // versioned name is a RENAME of the source's physical, and a
+                    // version whose physical differs from its base's is the
+                    // orphan-allocation bug this whole diagnostic exists to catch.
+                    if (const auto aliasIt = versionAliases.find(entry.Resource); aliasIt != versionAliases.end())
+                        j["versionAliasOf"] = aliasIt->second;
+                    // The resolved physical id, so "did these two plan entries get
+                    // the same GPU object" is one lookup rather than an inference
+                    // from alias group + slot.
+                    if (const u32 textureId = ResolveTargetTexture(entry.Resource); textureId != 0)
+                        j["glTexture"] = textureId;
+                    // Poison hue is reported unconditionally — knowing which colour
+                    // a resource WOULD leak as is what lets you plan the hunt before
+                    // turning poison mode on.
+                    j["poisonColor"] = std::string(RenderGraph::PoisonColorNameForResource(entry.Resource));
+                    entries.push_back(std::move(j));
+                }
+
+                Json out{
+                    { "entries", std::move(entries) },
+                    { "planSize", graph->GetTransientPlan().size() },
+                    { "topologyGeneration", graph->GetTopologyGeneration() },
+                    { "debugFlags", Json{ { "poisonTransients", flags.PoisonTransients },
+                                          { "disableAliasing", flags.DisableAliasing } } },
+                };
+                if (!filter.empty())
+                    out["resourceFilter"] = filter;
+
+                if (includePool)
+                {
+                    // GetActiveGraph() hands back a CONST Ref, and Ref<T> propagates
+                    // constness through operator-> — so reach the pool through an
+                    // own (non-const) Ref rather than const_cast'ing the graph.
+                    Ref<RenderGraph> mutableGraph = graph;
+                    TransientPool& pool = mutableGraph->GetTransientPool();
+                    const auto stats = pool.GetStats();
+                    const auto aliasReport = pool.ComputeAliasReport();
+
+                    Json buckets = Json::array();
+                    for (const auto& bucket : pool.GetBucketReport())
+                    {
+                        Json b{ { "kind", bucket.Kind }, { "key", bucket.Key }, { "pooledCount", bucket.PooledCount } };
+                        if (bucket.Kind == "texture")
+                        {
+                            b["width"] = bucket.Width;
+                            b["height"] = bucket.Height;
+                            b["format"] = bucket.Format;
+                            b["mipLevels"] = bucket.MipLevels;
+                            b["samples"] = bucket.Samples;
+                        }
+                        else if (bucket.Kind == "buffer")
+                        {
+                            b["sizeBytes"] = bucket.SizeBytes;
+                        }
+                        buckets.push_back(std::move(b));
+                    }
+
+                    out["pool"] = Json{
+                        { "texturePoolSize", stats.TexturePoolSize },
+                        { "textureBuckets", stats.TextureAliasGroups },
+                        { "framebufferPoolSize", stats.FramebufferPoolSize },
+                        { "framebufferBuckets", stats.FramebufferAliasGroups },
+                        { "bufferPoolSize", stats.BufferPoolSize },
+                        { "bufferBuckets", stats.BufferAliasGroups },
+                        { "estimatedBytes", pool.EstimateMemoryUsage() },
+                        { "totalAcquiredBytes", aliasReport.TotalAcquiredBytes },
+                        { "potentialAliasingBytes", aliasReport.PotentialAliasingBytes },
+                        { "buckets", std::move(buckets) },
+                    };
+
+                    if (includeAcquireOrder)
+                    {
+                        Json order = Json::array();
+                        bool liveFrame = false;
+                        for (const auto& acquired : pool.GetAcquireOrder(&liveFrame))
+                        {
+                            Json a{ { "kind", acquired.Kind }, { "glId", acquired.RendererID } };
+                            if (acquired.Kind == "buffer")
+                                a["sizeBytes"] = acquired.SizeBytes;
+                            else
+                            {
+                                a["width"] = acquired.Width;
+                                a["height"] = acquired.Height;
+                            }
+                            order.push_back(std::move(a));
+                        }
+                        out["pool"]["acquireOrder"] = std::move(order);
+                        // Which frame the order describes. An MCP read marshals at
+                        // a frame boundary, i.e. AFTER ReleaseAll() emptied the
+                        // live lists, so the honest answer is normally the last
+                        // COMPLETED frame — say so rather than let a reader take
+                        // it for the frame they are about to capture.
+                        out["pool"]["acquireOrderIsLiveFrame"] = liveFrame;
+                        out["pool"]["acquireOrderNote"] =
+                            std::string("Acquisition order, not sorted — the order the alias-slot assigner consumed "
+                                        "the pool. A LIFO pool's reuse pattern is only readable in this order; two "
+                                        "entries sharing a glId shared one GPU object. ") +
+                            (liveFrame ? "This is the IN-PROGRESS frame."
+                                       : "This is the last COMPLETED frame (ReleaseAll() returns every object to the "
+                                         "pool at end of frame, so a between-frames read has no live acquisitions).");
+                    }
+                }
+                return out; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+            return ToolResult::Structured(result);
+        }
+
+        // ---- olo_render_debug_set (main-marshaled; session WRITE) ---------------
+        // Flip the two permanent transient-corruption instruments live instead of
+        // via env var + editor restart (issue #607). Poison mode in particular
+        // turned a ~3% stochastic camera-move artifact into a deterministic
+        // every-frame signal; as a toggle against a running editor that diagnosis
+        // takes seconds, and it doubles as the fix-verification probe.
+        ToolResult Handle_RenderDebugSet(McpServer& server, const Json& args)
+        {
+            const RenderGraph::TransientDebugFlags before = RenderGraph::GetTransientDebugFlags();
+            RenderGraph::TransientDebugFlags wanted = before;
+
+            bool anyRequested = false;
+            if (args.contains("poisonTransients") && !args["poisonTransients"].is_null())
+            {
+                if (!args["poisonTransients"].is_boolean())
+                    return ToolResult::Error("Invalid 'poisonTransients': expected a boolean.");
+                wanted.PoisonTransients = args["poisonTransients"].get<bool>();
+                anyRequested = true;
+            }
+            if (args.contains("disableAliasing") && !args["disableAliasing"].is_null())
+            {
+                if (!args["disableAliasing"].is_boolean())
+                    return ToolResult::Error("Invalid 'disableAliasing': expected a boolean.");
+                wanted.DisableAliasing = args["disableAliasing"].get<bool>();
+                anyRequested = true;
+            }
+
+            const bool aliasingChanged = wanted.DisableAliasing != before.DisableAliasing;
+            const Json result = server.MarshalRead([wanted, before, anyRequested, aliasingChanged]() -> Json
+                                                   {
+                if (anyRequested)
+                {
+                    RenderGraph::SetTransientDebugFlags(wanted);
+                    // Pooled objects acquired under the previous aliasing policy are
+                    // still bucketed and would be handed straight back out under the
+                    // new one, so an A/B would compare a mixed state. Evict.
+                    if (aliasingChanged)
+                    {
+                        // Own (non-const) Ref: Ref<T> propagates constness through
+                        // operator->, and GetActiveGraph() returns a const Ref.
+                        if (Ref<RenderGraph> graph = RenderGraphDebugRuntime::GetActiveGraph(); graph)
+                            graph->GetTransientPool().Clear();
+                    }
+                }
+
+                Json out{
+                    { "poisonTransients", wanted.PoisonTransients },
+                    { "disableAliasing", wanted.DisableAliasing },
+                    { "previous", Json{ { "poisonTransients", before.PoisonTransients },
+                                        { "disableAliasing", before.DisableAliasing } } },
+                    { "changed", anyRequested && (wanted.PoisonTransients != before.PoisonTransients || aliasingChanged) },
+                    { "restoreWith", Json{ { "poisonTransients", before.PoisonTransients },
+                                           { "disableAliasing", before.DisableAliasing } } },
+                };
+
+                // The resource->hue map, up front. The engine logs it one line per
+                // resource as each is first materialized, which is useless if you
+                // want to read a poisoned screenshot immediately.
+                if (wanted.PoisonTransients)
+                {
+                    Json map = Json::array();
+                    if (const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph(); graph)
+                    {
+                        for (const auto& entry : graph->GetTransientPlan())
+                        {
+                            map.push_back(Json{ { "resource", entry.Resource },
+                                                { "color", std::string(RenderGraph::PoisonColorNameForResource(entry.Resource)) } });
+                        }
+                    }
+                    out["poisonColorMap"] = std::move(map);
+                    out["poisonNote"] =
+                        "Every pool-acquired transient is cleared to its hue at materialize time from the NEXT "
+                        "rendered frame. Any texel reaching the screen in one of these colours was never written "
+                        "this frame, and the colour names the resource it leaked from. Capture with "
+                        "olo_screenshot { forceFrame: true }.";
+                }
+                return out; });
+
+            if (result.is_object() && result.contains("__error"))
+                return ToolResult::Error(result["__error"].get<std::string>());
+
+            // The flags only take effect at the next MaterializeTransientResources,
+            // so settle a couple of frames — otherwise the screenshot an agent takes
+            // straight after enabling poison shows the pre-poison frame and "proves"
+            // the instrument does nothing.
+            if (anyRequested && server.Context().GetFrameIndex)
+            {
+                const u64 baseFrame = server.MarshalRead([&server]() -> Json
+                                                         { return Json{ { "frame", server.Context().GetFrameIndex() } }; })
+                                          .value("frame", static_cast<u64>(0));
+                AwaitRenderedFrames(server, baseFrame, 2);
+            }
+            return ToolResult::Structured(result);
+        }
+
         // ---- olo_render_why_not_visible (main-marshaled) -----------------------
         // The rendering counterpart of olo_physics_why_no_collision: explain why an
         // entity isn't on screen. Gathers the render-relevant facts off the live
@@ -4433,7 +4842,11 @@ namespace OloEngine::MCP
                 "STATE: pass 'afterPass' to capture the resource AS OF that pass's execution instead of "
                 "end-of-frame — decisive when a later pass overwrites it (ParticlePass re-exports "
                 "SceneDepth after GTAOPass, so an end-of-frame SceneDepth can never show what GTAO "
-                "sampled). Pass names come from olo_render_graph_topology_export's executionOrder.";
+                "sampled). Pass names come from olo_render_graph_topology_export's executionOrder. "
+                "PIXEL-SCALE MEASUREMENT: the whole target is rescaled to 'maxWidth' (max 4096), which "
+                "destroys any spatial period you might want to measure — pass 'region' {x,y,w,h} to read "
+                "back a sub-rectangle at NATIVE resolution instead. The reply's meta.region.nativeResolution "
+                "says whether the returned PNG is genuinely 1:1.";
             tool.InputSchema = Schema::Object()
                                    .Prop("name", Schema::String().Desc("Render-graph resource name (see olo_render_list_targets)."))
                                    .Prop("mip", Schema::Int().Min(0).Max(16).Desc("Mip level to capture (default 0)."))
@@ -4441,6 +4854,7 @@ namespace OloEngine::MCP
                                    .Prop("face", Schema::Int().Min(0).Max(64).Desc("Alias of 'layer' (the original spelling); give only one."))
                                    .Prop("normalize", Schema::Bool().Desc("Min-max normalise float values to [0,1] before encoding (default: true for depth, false otherwise)."))
                                    .Prop("maxWidth", Schema::Int().Min(16).Max(4096).Desc("Max output width in pixels (default 1024); aspect ratio preserved."))
+                                   .Prop("region", CaptureRegionArg::SchemaNode())
                                    .Prop("forceFrame", Schema::Bool().Desc("Render and settle a fresh frame before capturing (default false). Use after any change (scene open, setting flip) so you cannot read a stale target. Implied by 'afterPass'."))
                                    .Prop("afterPass", Schema::String().Desc("Capture the resource AS OF this pass's execution (mid-frame snapshot), not end-of-frame. A pass name from olo_render_graph_topology_export's executionOrder; a culled/unknown pass is an error."))
                                    .Prop("delivery", Schema::String().Enum({ "inline", "resource_link" }).Desc("How to return the PNG: 'inline' (default) embeds a base64 image block; 'resource_link' publishes an ephemeral olo://capture resource and returns a link to fetch via resources/read — for large captures."))
@@ -4460,8 +4874,9 @@ namespace OloEngine::MCP
                                     .Prop("layerNote", Schema::String().Desc("Layer-selection note; omitted when there is nothing to flag."))
                                     .Prop("width", Schema::Int().Desc("Output PNG width."))
                                     .Prop("height", Schema::Int().Desc("Output PNG height."))
-                                    .Prop("sourceWidth", Schema::Int())
-                                    .Prop("sourceHeight", Schema::Int())
+                                    .Prop("sourceWidth", Schema::Int().Desc("Full mip width (NOT the region's)."))
+                                    .Prop("sourceHeight", Schema::Int().Desc("Full mip height (NOT the region's)."))
+                                    .Prop("region", Schema::Object().Desc("The rect actually read {x, y, w, h} (the whole mip when none was requested) plus 'nativeResolution' — whether the returned PNG is 1:1 with it."))
                                     .Prop("format", Schema::String())
                                     .Prop("isDepth", Schema::Bool())
                                     .Prop("normalized", Schema::Bool().Desc("Min-max normalisation was applied."))
@@ -4518,6 +4933,193 @@ namespace OloEngine::MCP
                                     .Prop("activeAOTechnique", Schema::String().Desc("Introspection form only: 'none', 'ssao', or 'gtao'."));
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderTogglePass;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_postprocess_settings_get";
+            tool.Toolset = "render";
+            tool.Title = "Read post-process / AO / fog settings";
+            // Pure read of two POD settings structs; changes nothing.
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Read the renderer's live post-process, ambient-occlusion and fog parameters — the whole Post "
+                "Processing panel as JSON, which no other tool exposes (olo_renderer_settings_set covers only "
+                "upscale/tonemap/renderpath/depthprepass/softshadows). Call with no arguments for every field "
+                "with its current value, type, range and description; 'group' narrows to one block (ao, bloom, "
+                "ssr, ssgi, contactshadow, fog, exposure, dof, antialiasing, motionblur, vignette, sharpen, "
+                "colorgrading, chromaticaberration, debug); 'field' returns one field. Field tokens are the C++ "
+                "field names (ActiveAOTechnique, GTAORadius, SSAOBias, FogDensity), matched case- and "
+                "separator-insensitively. This is the READ half — olo_postprocess_settings_set writes, and is "
+                "gated behind 'Allow writes'; reading never is, so parameter values no longer have to be read "
+                "off a screenshot of the panel.";
+            tool.InputSchema = PostProcess::GetInputSchema();
+            // Two shapes: a single-field record, or the fields[]+groups[] listing.
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("fields", Schema::Array(Schema::Object()
+                                                                      .Prop("field", Schema::String())
+                                                                      .Prop("group", Schema::String())
+                                                                      .Prop("type", Schema::String().Desc("boolean | integer | number | enum | vec3."))
+                                                                      .Prop("value", Schema::Raw(Json{ { "type", Json::array({ "boolean", "number", "string", "array" }) } }))
+                                                                      .Prop("min", Schema::Number().Desc("Numeric fields only."))
+                                                                      .Prop("max", Schema::Number().Desc("Numeric fields only."))
+                                                                      .Prop("values", Schema::Array(Schema::Object().Prop("token", Schema::String()).Prop("description", Schema::String())).Desc("Enum fields only."))
+                                                                      .Prop("rebuildsRenderGraph", Schema::Bool().Desc("Writing this field re-registers passes; omitted when false."))
+                                                                      .Prop("description", Schema::String()))
+                                                        .Desc("Listing shape: every field (optionally filtered by 'group')."))
+                                    .Prop("groups", Schema::Array(Schema::String()).Desc("Listing shape: the group catalogue."))
+                                    .Prop("note", Schema::String().Desc("Listing shape: which settings live on olo_renderer_settings_set instead."))
+                                    .Prop("field", Schema::String().Desc("Single-field shape: the field token."))
+                                    .Prop("group", Schema::String().Desc("Single-field shape."))
+                                    .Prop("type", Schema::String().Desc("Single-field shape."))
+                                    .Prop("value", Schema::Raw(Json{ { "type", Json::array({ "boolean", "number", "string", "array" }) } }).Desc("Single-field shape: the live value."));
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_PostProcessSettingsGet;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_postprocess_settings_set";
+            tool.Toolset = "render";
+            tool.Title = "Set post-process / AO / fog setting";
+            // Mutates the session-global post-process / fog settings — the same
+            // read-only line olo_renderer_settings_set crosses, so the same gate.
+            // Idempotent (writing a value twice leaves the same state); not
+            // destructive (fully reversible via the reported previousValue).
+            tool.ProjectWrite = true;
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Write one post-process / ambient-occlusion / fog parameter to verify a rendering change LIVE — "
+                "the part of the renderer olo_renderer_settings_set never reached. THE motivating case: "
+                "'ActiveAOTechnique' (none|ssao|gtao) makes the same-scene, same-pose GTAO-vs-SSAO A/B a single "
+                "call; it is not scene-serialised, so before this tool it could not be driven from an agent "
+                "session at all. Also reaches every AO/GTAO/SSAO parameter, the *DebugView flags, bloom, DOF, "
+                "TAA, SSR, SSGI, contact shadows, exposure/auto-exposure and the whole fog block. 'field' is a "
+                "C++ field name (GTAORadius, SSAOBias, FogDensity), case- and separator-insensitive; 'value' is "
+                "a boolean, a number (CLAMPED to the field's declared range — the reply reports 'clamped'), an "
+                "enum token, or a 3-number array for a colour. Call with NO arguments to list every field with "
+                "its current value (same payload as olo_postprocess_settings_get). Tone-map operator, FSR1 "
+                "upscale preset, rendering path, depth prepass and soft shadows live on "
+                "olo_renderer_settings_set — one write path per field. The change is session-global and "
+                "ephemeral (a scene reload restores it); the reply reports 'previousValue' so you restore by "
+                "calling again with it — restore-prior-value, NOT an undo-stack entry. This is a WRITE tool: "
+                "refused unless 'Allow writes' is enabled in the editor's MCP Server panel (off by default).";
+            tool.InputSchema = PostProcess::SetInputSchema();
+            // Two disjoint shapes — introspection (no arguments) returns the
+            // fields[] listing; an apply returns the ack fields.
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("fields", Schema::Array(Schema::Object()).Desc("Introspection shape only (no arguments): every field with its live value."))
+                                    .Prop("groups", Schema::Array(Schema::String()).Desc("Introspection shape only."))
+                                    .Prop("field", Schema::String().Desc("Apply shape: the field written."))
+                                    .Prop("group", Schema::String().Desc("Apply shape: its group."))
+                                    .Prop("previousValue", Schema::Raw(Json{ { "type", Json::array({ "boolean", "number", "string", "array" }) } }).Desc("Apply shape: the prior value — pass it back to revert."))
+                                    .Prop("value", Schema::Raw(Json{ { "type", Json::array({ "boolean", "number", "string", "array" }) } }).Desc("Apply shape: the value actually stored (post-clamp)."))
+                                    .Prop("changed", Schema::Bool().Desc("Apply shape: value != previousValue."))
+                                    .Prop("clamped", Schema::Bool().Desc("Apply shape: the request was outside the field's range and was clamped."))
+                                    .Prop("range", Schema::Object().Prop("min", Schema::Number()).Prop("max", Schema::Number()).Desc("Apply shape: present only when clamped."))
+                                    .Prop("restoreWith", Schema::Raw(Json{ { "type", Json::array({ "boolean", "number", "string", "array" }) } }).Desc("Apply shape: alias of previousValue."));
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_PostProcessSettingsSet;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_render_transient_plan";
+            tool.Toolset = "render";
+            tool.Title = "Render-graph transient plan + pool";
+            // Pure read of the plan/pool bookkeeping; changes nothing.
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Dump the render graph's TRANSIENT PLAN and the pool state behind it — the layer where the "
+                "resource-aliasing decisions are made, which olo_render_graph_topology_export (per-pass "
+                "resolved ids) does not show. Per plan entry: alias group + slot, whether it allocates a GPU "
+                "object (and the planner's skip reason if not), its FirstPass->LastPass lifetime, its resolved "
+                "GL texture id, what it is a version-alias OF, and the poison hue it would leak as. Per pool: "
+                "bucket descriptors with free counts, estimated/acquired bytes, and this frame's ACQUIRE ORDER "
+                "(unsorted — two entries sharing a glId shared one GPU object). Use it when a target shows "
+                "one-frame garbage after a plan rebuild, when you suspect two live resources share a physical, "
+                "or to check that a versioned name (SceneColor@SomePass) resolves to its base's physical rather "
+                "than an orphan — the exact question behind the one-frame black-square artifact, which "
+                "previously required rebuilding the engine with hand-rolled instrumentation. Pair it with "
+                "olo_render_debug_set { poisonTransients: true } to turn a stochastic artifact into a "
+                "deterministic per-resource-coloured one.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("resource", Schema::String().Desc("Only report plan entries whose resource name CONTAINS this substring (case-sensitive). Omit for the whole plan."))
+                                   .Prop("includePool", Schema::Bool().Desc("Include the TransientPool bucket/size report (default true)."))
+                                   .Prop("includeAcquireOrder", Schema::Bool().Desc("Include this frame's pool acquisition order (default true; ignored when includePool is false)."))
+                                   .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("entries", Schema::Array(Schema::Object()
+                                                                       .Prop("resource", Schema::String())
+                                                                       .Prop("kind", Schema::String())
+                                                                       .Prop("reachable", Schema::Bool())
+                                                                       .Prop("willAllocate", Schema::Bool())
+                                                                       .Prop("aliasGroup", Schema::String())
+                                                                       .Prop("aliasSlot", Schema::Int().Desc("Omitted when the planner assigned none."))
+                                                                       .Prop("estimatedBytes", Schema::Int())
+                                                                       .Prop("firstPass", Schema::String())
+                                                                       .Prop("lastPass", Schema::String())
+                                                                       .Prop("firstPassIndex", Schema::Int().Desc("Index into the execution order; omitted when never written."))
+                                                                       .Prop("lastPassIndex", Schema::Int())
+                                                                       .Prop("skipReason", Schema::String().Desc("Why the planner did not allocate; omitted when it did."))
+                                                                       .Prop("versionAliasOf", Schema::String().Desc("Source resource this versioned name renames; omitted for a base name."))
+                                                                       .Prop("glTexture", Schema::Int().Desc("Resolved physical texture id; omitted when unbacked this frame."))
+                                                                       .Prop("poisonColor", Schema::String().Desc("Hue this resource is cleared to under poisonTransients."))))
+                                    .Prop("planSize", Schema::Int().Min(0).Desc("Total plan entries before any 'resource' filter."))
+                                    .Prop("topologyGeneration", Schema::Int().Min(0).Desc("Bumped on every topology teardown — a change means the plan was rebuilt."))
+                                    .Prop("debugFlags", Schema::Object().Prop("poisonTransients", Schema::Bool()).Prop("disableAliasing", Schema::Bool()))
+                                    .Prop("resourceFilter", Schema::String().Desc("Echo of the 'resource' filter; omitted when none."))
+                                    .Prop("pool", Schema::Object().Desc("TransientPool state; omitted when includePool is false."))
+                                    .Required({ "entries", "planSize", "topologyGeneration", "debugFlags" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RenderTransientPlan;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_render_debug_set";
+            tool.Toolset = "render";
+            tool.Title = "Set render-graph debug instruments";
+            // Flips session-global renderer diagnostics — the same read-only line
+            // the other session-setting writes cross, so the same gate. Idempotent;
+            // not destructive (fully reversible via the reported 'restoreWith').
+            tool.ProjectWrite = true;
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Flip the render graph's two transient-corruption instruments LIVE, instead of setting "
+                "OLO_RG_POISON_TRANSIENTS / OLO_RG_DISABLE_ALIASING and restarting the editor. "
+                "'poisonTransients' clears every pool-acquired transient to a per-resource hue at materialize "
+                "time, so any texel that reaches a consumer WITHOUT being written this frame is unmistakable "
+                "and its colour names the resource it leaked from — this is what turned a ~3% stochastic "
+                "camera-move artifact into a deterministic every-frame signal, and it doubles as the "
+                "fix-verification probe. The reply carries the whole resource->colour map up front (the engine "
+                "otherwise logs it one line per resource as each is first materialized). 'disableAliasing' "
+                "gives every transient its own physical backing; if an artifact disappears under it, the "
+                "planner's lifetime analysis let two live resources share one GPU object — and the pool is "
+                "evicted on the flip so the A/B is not comparing a mixed state. Call with no arguments to read "
+                "the current flags. Both take effect from the next rendered frame (this call settles two), and "
+                "are session-global and ephemeral; the reply's 'restoreWith' puts them back. Read the plan they "
+                "act on with olo_render_transient_plan. This is a WRITE tool: refused unless 'Allow writes' is "
+                "enabled in the editor's MCP Server panel (off by default).";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("poisonTransients", Schema::Bool().Desc("Clear every pool-acquired transient to its per-resource hue at materialize time. Omit to leave unchanged."))
+                                   .Prop("disableAliasing", Schema::Bool().Desc("Give every transient its own physical backing (no alias-slot sharing). Omit to leave unchanged."))
+                                   .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("poisonTransients", Schema::Bool().Desc("State after the call."))
+                                    .Prop("disableAliasing", Schema::Bool().Desc("State after the call."))
+                                    .Prop("previous", Schema::Object().Prop("poisonTransients", Schema::Bool()).Prop("disableAliasing", Schema::Bool()))
+                                    .Prop("changed", Schema::Bool().Desc("Either flag actually differs from before."))
+                                    .Prop("restoreWith", Schema::Object().Prop("poisonTransients", Schema::Bool()).Prop("disableAliasing", Schema::Bool()).Desc("Call again with these to restore."))
+                                    .Prop("poisonColorMap", Schema::Array(Schema::Object().Prop("resource", Schema::String()).Prop("color", Schema::String())).Desc("Present only while poisonTransients is on: every plan resource and the hue it is cleared to."))
+                                    .Prop("poisonNote", Schema::String().Desc("How to read a poisoned frame; present only while poisonTransients is on."))
+                                    .Required({ "poisonTransients", "disableAliasing", "previous", "changed", "restoreWith" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_RenderDebugSet;
             server.RegisterTool(std::move(tool));
         }
 

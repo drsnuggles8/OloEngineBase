@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpToolsCommon.h"
+#include "MCP/McpCaptureRegion.h"
 #include "MCP/McpSchemaBuilder.h"
 #include <algorithm>
 #include <atomic>
@@ -130,6 +131,12 @@ namespace OloEngine::MCP
             // stays the default so existing clients see an unchanged shape.
             const bool deliverLink = args.value("delivery", std::string{ "inline" }) == "resource_link";
 
+            // Optional native-resolution sub-rect (issue #607). Omitted = whole
+            // viewport, exactly as before.
+            McpCaptureRegion region;
+            if (const auto error = CaptureRegionArg::Parse(args, region))
+                return ToolResult::Error(*error);
+
             if (!server.Context().CaptureViewportPng)
                 return ToolResult::Error("Screenshot capture is not available in this editor build.");
 
@@ -249,12 +256,18 @@ namespace OloEngine::MCP
                 // The play state is RE-SAMPLED here, in the same job as the capture,
                 // so the sceneState meta below describes the frame actually captured
                 // even if Play/Stop flipped between the early guard and this job.
-                marshaled = server.MarshalRead([&server, maxWidth, restorePriorPose, deliverLink]() -> Json
+                marshaled = server.MarshalRead([&server, maxWidth, region, restorePriorPose, deliverLink]() -> Json
                                                {
-                    std::vector<u8> png = server.Context().CaptureViewportPng(maxWidth);
+                    std::vector<u8> png = server.Context().CaptureViewportPng(maxWidth, region);
                     restorePriorPose();
                     if (png.empty())
-                        return Json{ { "__error", "Viewport capture failed (no framebuffer or empty viewport)." } };
+                        return Json{ { "__error", region.IsWholeImage()
+                                                      ? std::string("Viewport capture failed (no framebuffer or empty viewport).")
+                                                      : "Viewport capture failed — 'region' (" + std::to_string(region.X) + ", " +
+                                                            std::to_string(region.Y) + ", " + std::to_string(region.Width) + "x" +
+                                                            std::to_string(region.Height) +
+                                                            ") is most likely outside the viewport; call olo_camera_get for its "
+                                                            "current viewportWidth/viewportHeight." } };
                     Json j{ { "bytes", static_cast<u64>(png.size()) },
                             { "playing", server.Context().IsPlaying ? server.Context().IsPlaying() : false } };
                     // Link mode hands the RAW bytes out (base64 happens lazily at
@@ -309,6 +322,18 @@ namespace OloEngine::MCP
             Json meta;
             meta["sceneState"] = capturedWhilePlaying ? "play" : "edit-or-simulate";
             meta["camera"] = capturedWhilePlaying ? "runtime primary CameraComponent" : "editor camera";
+            // Echo the requested sub-rect (issue #607). `nativeResolution` can only
+            // be decided against the encoded size, which lives in the PNG, so it is
+            // stated as the request's INTENT: a region no wider than maxWidth is
+            // never downscaled by CaptureFramebufferPng.
+            if (!region.IsWholeImage())
+            {
+                meta["region"] = Json{ { "x", region.X },
+                                       { "y", region.Y },
+                                       { "w", region.Width },
+                                       { "h", region.Height },
+                                       { "nativeResolution", static_cast<int>(region.Width) <= maxWidth } };
+            }
             if (deliverLink)
             {
                 // Publish the capture as an ephemeral resource and hand back a
@@ -385,9 +410,13 @@ namespace OloEngine::MCP
                 "(the editor camera does not drive Play rendering); the reply's sceneState/camera meta "
                 "says which camera produced the frame. With delivery:'resource_link' the PNG is published "
                 "as an ephemeral olo://capture resource and referenced by a resource_link content block "
-                "(fetch it via resources/read) instead of inlining base64 — prefer it for high-res captures.";
+                "(fetch it via resources/read) instead of inlining base64 — prefer it for high-res captures. "
+                "Pass 'region' {x,y,w,h} to capture a sub-rectangle at NATIVE resolution instead of the whole "
+                "viewport rescaled to maxWidth — required to measure anything pixel-scale (noise period, dither "
+                "pattern, aliasing) on a viewport wider than maxWidth.";
             tool.InputSchema = Schema::Object()
                                    .Prop("maxWidth", Schema::Int().Min(16).Max(4096).Desc("Max output width in pixels (default 1024); aspect ratio preserved."))
+                                   .Prop("region", CaptureRegionArg::SchemaNode())
                                    .Prop("camera", Schema::Object().Desc("Capture from this pose, then restore the prior camera. Same shape as olo_camera_set_pose: position [x,y,z] plus target [x,y,z] or yaw/pitch (degrees); optional fov."))
                                    .Prop("orbit", Schema::Object().Desc("Capture from this orbit pose, then restore. Same shape as olo_camera_orbit: target [x,y,z], yaw/pitch (degrees), distance; optional fov."))
                                    .Prop("settleFrames", Schema::Int().Min(1).Max(30).Desc("Frames to render at the new pose before capturing (default 2). Raise for temporal effects (TAA, fog history) to settle."))
