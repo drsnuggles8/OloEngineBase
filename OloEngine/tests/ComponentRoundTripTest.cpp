@@ -454,6 +454,8 @@ namespace OloEngine::Tests
     {
         const auto expectedType = Rigidbody2DComponent::BodyType::Dynamic;
         const bool expectedFixedRotation = true;
+        const glm::vec2 expectedLinearVelocity{ 3.0f, -4.0f }; // was silently dropped before the fix
+        const f32 expectedAngularVelocity = 2.5f;              // was silently dropped before the fix
 
         std::string yaml;
         {
@@ -462,6 +464,8 @@ namespace OloEngine::Tests
             auto& rb = entity.AddComponent<Rigidbody2DComponent>();
             rb.Type = expectedType;
             rb.FixedRotation = expectedFixedRotation;
+            rb.LinearVelocity = expectedLinearVelocity;
+            rb.AngularVelocity = expectedAngularVelocity;
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -475,6 +479,9 @@ namespace OloEngine::Tests
         const auto& rb = restored.GetComponent<Rigidbody2DComponent>();
         EXPECT_EQ(rb.Type, expectedType);
         EXPECT_EQ(rb.FixedRotation, expectedFixedRotation);
+        EXPECT_NEAR(rb.LinearVelocity.x, expectedLinearVelocity.x, kFloatEpsilon);
+        EXPECT_NEAR(rb.LinearVelocity.y, expectedLinearVelocity.y, kFloatEpsilon);
+        EXPECT_NEAR(rb.AngularVelocity, expectedAngularVelocity, kFloatEpsilon);
     }
 
     // -------------------------------------------------------------------------
@@ -488,6 +495,13 @@ namespace OloEngine::Tests
         const f32 expectedAngularDrag = 0.6f;
         const bool expectedDisableGravity = true;
         const bool expectedIsTrigger = true;
+        // The following six were all silently dropped by the serializer before the fix.
+        const u32 expectedLayerID = 3;
+        const EActorAxis expectedLockedAxes = EActorAxis::Translation;
+        const glm::vec3 expectedInitialLinearVelocity{ 1.5f, -2.0f, 0.5f };
+        const glm::vec3 expectedInitialAngularVelocity{ 0.25f, 0.5f, -0.75f };
+        const f32 expectedMaxLinearVelocity = 250.0f;
+        const f32 expectedMaxAngularVelocity = 30.0f;
 
         std::string yaml;
         {
@@ -500,6 +514,12 @@ namespace OloEngine::Tests
             rb.m_AngularDrag = expectedAngularDrag;
             rb.m_DisableGravity = expectedDisableGravity;
             rb.m_IsTrigger = expectedIsTrigger;
+            rb.m_LayerID = expectedLayerID;
+            rb.m_LockedAxes = expectedLockedAxes;
+            rb.m_InitialLinearVelocity = expectedInitialLinearVelocity;
+            rb.m_InitialAngularVelocity = expectedInitialAngularVelocity;
+            rb.m_MaxLinearVelocity = expectedMaxLinearVelocity;
+            rb.m_MaxAngularVelocity = expectedMaxAngularVelocity;
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -517,6 +537,16 @@ namespace OloEngine::Tests
         EXPECT_NEAR(rb.m_AngularDrag, expectedAngularDrag, kFloatEpsilon);
         EXPECT_EQ(rb.m_DisableGravity, expectedDisableGravity);
         EXPECT_EQ(rb.m_IsTrigger, expectedIsTrigger);
+        EXPECT_EQ(rb.m_LayerID, expectedLayerID);
+        EXPECT_EQ(rb.m_LockedAxes, expectedLockedAxes);
+        EXPECT_NEAR(rb.m_InitialLinearVelocity.x, expectedInitialLinearVelocity.x, kFloatEpsilon);
+        EXPECT_NEAR(rb.m_InitialLinearVelocity.y, expectedInitialLinearVelocity.y, kFloatEpsilon);
+        EXPECT_NEAR(rb.m_InitialLinearVelocity.z, expectedInitialLinearVelocity.z, kFloatEpsilon);
+        EXPECT_NEAR(rb.m_InitialAngularVelocity.x, expectedInitialAngularVelocity.x, kFloatEpsilon);
+        EXPECT_NEAR(rb.m_InitialAngularVelocity.y, expectedInitialAngularVelocity.y, kFloatEpsilon);
+        EXPECT_NEAR(rb.m_InitialAngularVelocity.z, expectedInitialAngularVelocity.z, kFloatEpsilon);
+        EXPECT_NEAR(rb.m_MaxLinearVelocity, expectedMaxLinearVelocity, kFloatEpsilon);
+        EXPECT_NEAR(rb.m_MaxAngularVelocity, expectedMaxAngularVelocity, kFloatEpsilon);
     }
 
     // A corrupted/hand-authored `Mass: 0` (or negative, or NaN) would otherwise
@@ -641,6 +671,7 @@ namespace OloEngine::Tests
             auto scene = Scene::Create();
             Entity entity = scene->CreateEntity(kTestTag);
             auto& sc = entity.AddComponent<SphereCollider3DComponent>();
+            sc.m_Material.SetDensity(3300.0f); // non-default — guards the Density round-trip
             sc.m_Radius = expectedRadius;
             sc.m_Offset = expectedOffset;
             yaml = SceneSerializer(scene).SerializeToYAML();
@@ -658,6 +689,7 @@ namespace OloEngine::Tests
         EXPECT_NEAR(sc.m_Offset.x, expectedOffset.x, kFloatEpsilon);
         EXPECT_NEAR(sc.m_Offset.y, expectedOffset.y, kFloatEpsilon);
         EXPECT_NEAR(sc.m_Offset.z, expectedOffset.z, kFloatEpsilon);
+        EXPECT_NEAR(sc.m_Material.GetDensity(), 3300.0f, kFloatEpsilon); // was silently dropped before the fix
     }
 
     // -------------------------------------------------------------------------
@@ -700,6 +732,7 @@ namespace OloEngine::Tests
             auto scene = Scene::Create();
             Entity entity = scene->CreateEntity(kTestTag);
             auto& bc = entity.AddComponent<BoxCollider3DComponent>();
+            bc.m_Material.SetDensity(2500.0f); // non-default (default is 1000) — guards the Density round-trip
             bc.m_HalfExtents = expectedHalfExtents;
             bc.m_Offset = expectedOffset;
             yaml = SceneSerializer(scene).SerializeToYAML();
@@ -719,6 +752,7 @@ namespace OloEngine::Tests
         EXPECT_NEAR(bc.m_Offset.x, expectedOffset.x, kFloatEpsilon);
         EXPECT_NEAR(bc.m_Offset.y, expectedOffset.y, kFloatEpsilon);
         EXPECT_NEAR(bc.m_Offset.z, expectedOffset.z, kFloatEpsilon);
+        EXPECT_NEAR(bc.m_Material.GetDensity(), 2500.0f, kFloatEpsilon); // was silently dropped before the fix
     }
 
     // -------------------------------------------------------------------------
@@ -739,6 +773,7 @@ namespace OloEngine::Tests
             auto scene = Scene::Create();
             Entity entity = scene->CreateEntity(kTestTag);
             auto& mc = entity.AddComponent<MeshCollider3DComponent>();
+            mc.m_Material.SetDensity(4200.0f); // non-default — guards the Density round-trip
             mc.m_ColliderAsset = expectedHandle;
             mc.m_Offset = expectedOffset;
             mc.m_Scale = expectedScale;
@@ -762,6 +797,7 @@ namespace OloEngine::Tests
         EXPECT_NEAR(mc.m_Scale.y, expectedScale.y, kFloatEpsilon);
         EXPECT_NEAR(mc.m_Scale.z, expectedScale.z, kFloatEpsilon);
         EXPECT_EQ(mc.m_UseComplexAsSimple, expectedUseComplexAsSimple);
+        EXPECT_NEAR(mc.m_Material.GetDensity(), 4200.0f, kFloatEpsilon); // was silently dropped before the fix
     }
 
     // -------------------------------------------------------------------------
@@ -780,6 +816,7 @@ namespace OloEngine::Tests
             auto scene = Scene::Create();
             Entity entity = scene->CreateEntity(kTestTag);
             auto& cc = entity.AddComponent<ConvexMeshCollider3DComponent>();
+            cc.m_Material.SetDensity(2200.0f); // non-default — guards the Density round-trip
             cc.m_ColliderAsset = expectedHandle;
             cc.m_Offset = expectedOffset;
             cc.m_Scale = expectedScale;
@@ -801,6 +838,7 @@ namespace OloEngine::Tests
         EXPECT_NEAR(cc.m_Scale.y, expectedScale.y, kFloatEpsilon);
         EXPECT_NEAR(cc.m_ConvexRadius, expectedConvexRadius, kFloatEpsilon);
         EXPECT_EQ(cc.m_MaxVertices, expectedMaxVertices);
+        EXPECT_NEAR(cc.m_Material.GetDensity(), 2200.0f, kFloatEpsilon); // was silently dropped before the fix
     }
 
     // -------------------------------------------------------------------------
@@ -817,6 +855,7 @@ namespace OloEngine::Tests
             auto scene = Scene::Create();
             Entity entity = scene->CreateEntity(kTestTag);
             auto& tc = entity.AddComponent<TriangleMeshCollider3DComponent>();
+            tc.m_Material.SetDensity(5100.0f); // non-default — guards the Density round-trip
             tc.m_ColliderAsset = expectedHandle;
             tc.m_Offset = expectedOffset;
             tc.m_Scale = expectedScale;
@@ -835,6 +874,7 @@ namespace OloEngine::Tests
         EXPECT_NEAR(tc.m_Offset.x, expectedOffset.x, kFloatEpsilon);
         EXPECT_NEAR(tc.m_Offset.y, expectedOffset.y, kFloatEpsilon);
         EXPECT_NEAR(tc.m_Scale.z, expectedScale.z, kFloatEpsilon);
+        EXPECT_NEAR(tc.m_Material.GetDensity(), 5100.0f, kFloatEpsilon); // was silently dropped before the fix
     }
 
     // -------------------------------------------------------------------------
@@ -851,6 +891,7 @@ namespace OloEngine::Tests
             auto scene = Scene::Create();
             Entity entity = scene->CreateEntity(kTestTag);
             auto& cc = entity.AddComponent<CapsuleCollider3DComponent>();
+            cc.m_Material.SetDensity(1750.0f); // non-default — guards the Density round-trip
             cc.m_Radius = expectedRadius;
             cc.m_HalfHeight = expectedHalfHeight;
             cc.m_Offset = expectedOffset;
@@ -870,6 +911,7 @@ namespace OloEngine::Tests
         EXPECT_NEAR(cc.m_Offset.x, expectedOffset.x, kFloatEpsilon);
         EXPECT_NEAR(cc.m_Offset.y, expectedOffset.y, kFloatEpsilon);
         EXPECT_NEAR(cc.m_Offset.z, expectedOffset.z, kFloatEpsilon);
+        EXPECT_NEAR(cc.m_Material.GetDensity(), 1750.0f, kFloatEpsilon); // was silently dropped before the fix
     }
 
     // -------------------------------------------------------------------------
