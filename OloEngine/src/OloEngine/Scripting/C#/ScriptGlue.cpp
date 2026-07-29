@@ -3399,6 +3399,31 @@ namespace OloEngine
         }
     }
 
+    // Runtime scene switching (issue #642). Deferred: the request is recorded
+    // here and serviced by the host (OloRuntime's RuntimeLayer, or the editor's
+    // Play mode) once the tick has returned — swapping the scene from inside a
+    // script callback would destroy the registry the caller is running on.
+    // `path` is resolved against the game's scene directory by the host, so a
+    // bare name ("Level2") is enough.
+    static void Scene_LoadScene(MonoString* path)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        if (!scene)
+        {
+            OLO_CORE_WARN("[ScriptGlue] SceneManager.LoadScene called with no active scene context.");
+            return;
+        }
+
+        const std::string pathStr = path ? Utils::MonoStringToString(path) : std::string{};
+        if (pathStr.empty())
+        {
+            OLO_CORE_WARN("[ScriptGlue] SceneManager.LoadScene called with an empty path — ignoring.");
+            return;
+        }
+
+        scene->SetPendingSceneLoad(pathStr);
+    }
+
     ///////////////////////////////////////////////////////////////////////////////////////////
     // Localization ///////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -4007,6 +4032,7 @@ namespace OloEngine
         // Scene //////////////////////////////////////////////////////
         ///////////////////////////////////////////////////////////////
         OLO_ADD_INTERNAL_CALL(Scene_ReloadCurrentScene);
+        OLO_ADD_INTERNAL_CALL(Scene_LoadScene);
 
         ///////////////////////////////////////////////////////////////
         // Localization ///////////////////////////////////////////////

@@ -12,6 +12,15 @@ namespace OloEngine
         return s_ActiveProject;
     }
 
+    Ref<Project> Project::NewInMemory(const std::filesystem::path& directory, const ProjectConfig& config)
+    {
+        Ref<Project> project = Ref<Project>::Create();
+        project->m_Config = config;
+        project->m_ProjectDirectory = directory;
+        s_ActiveProject = project;
+        return s_ActiveProject;
+    }
+
     Ref<Project> Project::Load(const std::filesystem::path& path)
     {
         Ref<Project> project = Ref<Project>::Create();

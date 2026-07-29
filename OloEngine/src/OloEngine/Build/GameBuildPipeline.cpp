@@ -168,6 +168,17 @@ namespace OloEngine
         }
         progress = 0.95f;
 
+        // Step 8b: Copy loose Lua script files. Non-fatal — a game with no Lua
+        // scripts is perfectly normal, and a failure here shouldn't sink an
+        // otherwise-complete build.
+        {
+            std::string scriptError;
+            if (!CopyScriptFiles(outputDir, scriptError))
+            {
+                OLO_CORE_WARN("[GameBuild] Lua script copy failed (non-fatal): {}", scriptError);
+            }
+        }
+
         // Step 9: Write game manifest (95% -> 100%)
         OLO_CORE_INFO("[GameBuild] Step 9/9: Writing game manifest...");
         if (!WriteGameManifest(settings, outputDir, result.ErrorMessage))
@@ -605,6 +616,65 @@ namespace OloEngine
         }
 
         OLO_CORE_INFO("[GameBuild] Copied {} scene file(s) to output", copiedCount);
+        return true;
+    }
+
+    bool GameBuildPipeline::CopyScriptFiles(
+        const std::filesystem::path& outputDir,
+        std::string& errorMessage)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto project = Project::GetActive();
+        if (!project)
+        {
+            errorMessage = "No active project";
+            return false;
+        }
+
+        const auto assetDir = Project::GetAssetDirectory();
+
+        // Scripts land under <game>/Assets/<asset-relative path> — NOT a
+        // Scripts/ sibling like the scene copy uses. The runtime resolves a
+        // LuaScriptComponent's project-relative ScriptFile through
+        // Project::GetAssetFileSystemPath, so the relative layout under the
+        // asset root has to survive the build byte for byte.
+        const auto scriptOutputRoot = outputDir / "Assets";
+        std::error_code ec;
+        std::filesystem::create_directories(scriptOutputRoot, ec);
+
+        u32 copiedCount = 0;
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(assetDir, ec))
+        {
+            if (!entry.is_regular_file() || entry.path().extension() != ".lua")
+            {
+                continue;
+            }
+
+            auto relativePath = std::filesystem::relative(entry.path(), assetDir, ec);
+            auto destPath = scriptOutputRoot / relativePath;
+
+            std::filesystem::create_directories(destPath.parent_path(), ec);
+            std::filesystem::copy_file(entry.path(), destPath,
+                                       std::filesystem::copy_options::overwrite_existing, ec);
+            if (ec)
+            {
+                OLO_CORE_WARN("[GameBuild] Failed to copy script file {}: {}", relativePath.string(), ec.message());
+                ec.clear();
+                continue;
+            }
+
+            ++copiedCount;
+        }
+
+        if (copiedCount == 0)
+        {
+            OLO_CORE_INFO("[GameBuild] No Lua script files found in project asset directory");
+        }
+        else
+        {
+            OLO_CORE_INFO("[GameBuild] Copied {} Lua script file(s) to output", copiedCount);
+        }
         return true;
     }
 

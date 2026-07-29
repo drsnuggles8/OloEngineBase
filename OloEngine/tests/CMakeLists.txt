@@ -406,6 +406,10 @@ add_executable(OloEngine-Tests
 		Scene/SystemSchedulerTest.cpp
 		# Floating-origin / origin-rebasing math (issue #429)
 		Scene/WorldOriginRebaseTest.cpp
+		# Runtime scene load/switch resolution + loading (issue #642)
+		Scene/SceneTransitionTest.cpp
+		# Shipped-game project mount + asset-relative script path contract (issue #642)
+		RuntimeProjectMountTest.cpp
 		# Floating-origin rebase cost characterization over N entities (issue #613)
 		Scene/WorldOriginRebaseBenchmarkTest.cpp
 		# Physics3D mesh mass-properties (divergence-theorem volume + centroid)
@@ -718,6 +722,7 @@ add_executable(OloEngine-Tests
 		Functional/Scene/PhysicsRestartIsCleanTest.cpp
 		Functional/Scene/WorldOriginRebasePhysicsTest.cpp
 		Functional/Scene/MultipleScenesCoexistTest.cpp
+		Functional/Scene/RuntimeSceneSwitchTest.cpp
 		Functional/Scene/HierarchyChildFollowsPhysicsParentTest.cpp
 		Functional/Scene/WorldTransformPropagationTest.cpp
 		Functional/AI/BehaviorTreeAdvancesViaSceneTickTest.cpp

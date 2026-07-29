@@ -36,6 +36,7 @@
 #include "OloEngine/Scene/SceneCamera.h"
 #include "OloEngine/Scene/SceneCameraFraming.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Scene/SceneTransition.h"
 #include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Scene/Prefab.h"
 #include "OloEngine/Renderer/Model.h"
@@ -1202,8 +1203,20 @@ namespace OloEngine
                 m_ActiveScene->OnUpdateRuntimeFixed(ts, Application::Get().GetFixedTimeStep());
                 SaveGameManager::Tick(ts, *m_ActiveScene);
 
-                // Handle script-triggered scene reload
-                if (m_ActiveScene->GetPendingReload())
+                // Handle script-triggered scene transitions (issue #642).
+                // A load and a reload are mutually exclusive by construction
+                // (Scene's setters clear each other), so this is a check order,
+                // not a precedence rule.
+                if (m_ActiveScene->HasPendingSceneLoad())
+                {
+                    const std::string request = m_ActiveScene->GetPendingSceneLoad();
+                    m_ActiveScene->ClearPendingSceneLoad();
+                    // A failed switch is deliberately not fatal — the error is
+                    // logged and Play carries on with the current scene, which
+                    // is what an author needs to see to fix the scene name.
+                    (void)SwitchPlayScene(request);
+                }
+                else if (m_ActiveScene->GetPendingReload())
                 {
                     m_ActiveScene->SetPendingReload(false);
                     OnSceneStop();
@@ -3669,20 +3682,75 @@ namespace OloEngine
         // Play session (subscriptions are dropped on OnRuntimeStop).
         AttachGameplayEventLogger(*m_ActiveScene);
 
-        m_SceneHierarchyPanel.SetContext(m_ActiveScene);
-        m_SceneHierarchyPanel.SetCommandHistory(nullptr);
-        m_AnimationPanel.SetContext(m_ActiveScene);
-        m_AnimationPanel.SetCommandHistory(nullptr);
-        m_AnimationGraphEditorPanel.SetContext(m_ActiveScene);
-        m_AnimationGraphEditorPanel.SetCommandHistory(nullptr);
-        m_StreamingPanel.SetContext(m_ActiveScene);
+        BindPanelsToScene(m_ActiveScene, nullptr);
         m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
-        m_StreamingPanel.SetCommandHistory(nullptr);
-        m_StatisticsPanel.SetContext(m_ActiveScene);
-        m_NavMeshPanel.SetContext(m_ActiveScene);
-        m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
-        m_FSMEditorPanel.SetContext(m_ActiveScene);
-        m_AudioEventsPanel.SetActiveScene(m_ActiveScene);
+    }
+
+    // Every scene-observing panel, in one place. Introduced when script-driven
+    // scene switching (issue #642) added a fourth site that swaps the active
+    // scene — a panel missing from any one of them keeps a raw pointer into a
+    // destroyed registry.
+    void EditorLayer::BindPanelsToScene(const Ref<Scene>& scene, CommandHistory* history)
+    {
+        m_SceneHierarchyPanel.SetContext(scene);
+        m_SceneHierarchyPanel.SetCommandHistory(history);
+        m_AnimationPanel.SetContext(scene);
+        m_AnimationPanel.SetCommandHistory(history);
+        m_AnimationGraphEditorPanel.SetContext(scene);
+        m_AnimationGraphEditorPanel.SetCommandHistory(history);
+        m_StreamingPanel.SetContext(scene);
+        m_StreamingPanel.SetCommandHistory(history);
+        m_StatisticsPanel.SetContext(scene);
+        m_NavMeshPanel.SetContext(scene);
+        m_BehaviorTreeEditorPanel.SetContext(scene);
+        m_FSMEditorPanel.SetContext(scene);
+        m_AudioEventsPanel.SetActiveScene(scene);
+    }
+
+    bool EditorLayer::SwitchPlayScene(const std::string& request)
+    {
+        // Resolve against the project's asset directory — that is where the
+        // editor's Scenes/ live. In a shipped game the same request resolves
+        // against the game directory instead (OloRuntimeApp).
+        const auto searchRoot = Project::GetActive() ? Project::GetAssetDirectory() : std::filesystem::path{};
+        const auto resolved = SceneTransition::ResolveScenePath(request, searchRoot);
+        if (resolved.empty())
+        {
+            OLO_CORE_ERROR("[Editor] Scene switch to '{}' failed: no matching scene file under '{}'. "
+                           "Staying on the current scene.",
+                           request, searchRoot.string());
+            return false;
+        }
+
+        // Load and validate BEFORE tearing the running scene down, so a bad
+        // target leaves Play mode running rather than half-stopped.
+        auto loaded = SceneTransition::LoadSceneFile(resolved, /*requirePrimaryCamera=*/true);
+        if (!loaded)
+        {
+            OLO_CORE_ERROR("[Editor] Scene switch failed: {}", loaded.Error);
+            return false;
+        }
+
+        OLO_CORE_INFO("[Editor] Switching play scene to '{}'", resolved.string());
+
+        // Stale entity references into the outgoing scene.
+        m_HoveredEntity = Entity();
+        m_PickingReadPending = false;
+
+        m_ActiveScene->OnRuntimeStop();
+
+        m_ActiveScene = loaded.LoadedScene;
+        m_ActiveScene->SetRenderInterpolationEnabled(m_Prefs.RenderInterpolation);
+        if (m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f)
+        {
+            m_ActiveScene->OnViewportResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
+        }
+        m_ActiveScene->OnRuntimeStart();
+        AttachGameplayEventLogger(*m_ActiveScene);
+
+        BindPanelsToScene(m_ActiveScene, nullptr);
+        m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
+        return true;
     }
 
     void EditorLayer::OnSceneSimulate()
@@ -3697,19 +3765,7 @@ namespace OloEngine
         m_ActiveScene = Scene::Copy(m_EditorScene);
         m_ActiveScene->OnSimulationStart();
 
-        m_SceneHierarchyPanel.SetContext(m_ActiveScene);
-        m_SceneHierarchyPanel.SetCommandHistory(nullptr);
-        m_AnimationPanel.SetContext(m_ActiveScene);
-        m_AnimationPanel.SetCommandHistory(nullptr);
-        m_AnimationGraphEditorPanel.SetContext(m_ActiveScene);
-        m_AnimationGraphEditorPanel.SetCommandHistory(nullptr);
-        m_StreamingPanel.SetContext(m_ActiveScene);
-        m_StreamingPanel.SetCommandHistory(nullptr);
-        m_StatisticsPanel.SetContext(m_ActiveScene);
-        m_NavMeshPanel.SetContext(m_ActiveScene);
-        m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
-        m_FSMEditorPanel.SetContext(m_ActiveScene);
-        m_AudioEventsPanel.SetActiveScene(m_ActiveScene);
+        BindPanelsToScene(m_ActiveScene, nullptr);
     }
 
     void EditorLayer::OnSceneStop()
@@ -3739,20 +3795,8 @@ namespace OloEngine
 
         m_ActiveScene = m_EditorScene;
 
-        m_SceneHierarchyPanel.SetContext(m_ActiveScene);
-        m_SceneHierarchyPanel.SetCommandHistory(&m_CommandHistory);
-        m_AnimationPanel.SetContext(m_ActiveScene);
-        m_AnimationPanel.SetCommandHistory(&m_CommandHistory);
-        m_AnimationGraphEditorPanel.SetContext(m_ActiveScene);
-        m_AnimationGraphEditorPanel.SetCommandHistory(&m_CommandHistory);
-        m_StreamingPanel.SetContext(m_ActiveScene);
+        BindPanelsToScene(m_ActiveScene, &m_CommandHistory);
         m_SaveGamePanel.SetContext(nullptr, nullptr);
-        m_StreamingPanel.SetCommandHistory(&m_CommandHistory);
-        m_StatisticsPanel.SetContext(m_ActiveScene);
-        m_NavMeshPanel.SetContext(m_ActiveScene);
-        m_BehaviorTreeEditorPanel.SetContext(m_ActiveScene);
-        m_FSMEditorPanel.SetContext(m_ActiveScene);
-        m_AudioEventsPanel.SetActiveScene(m_ActiveScene);
     }
 
     void EditorLayer::SetEditorScene(const Ref<Scene>& scene)

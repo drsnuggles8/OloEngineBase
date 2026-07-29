@@ -710,6 +710,9 @@ namespace OloEngine
 		#region Scene
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void Scene_ReloadCurrentScene();
+
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Scene_LoadScene(string path);
 		#endregion
 
 		#region Localization

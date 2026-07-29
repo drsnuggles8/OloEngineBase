@@ -4409,11 +4409,38 @@ namespace OloEngine
                 scene->GetStreamingSettings().Enabled = v;
         };
 
-        // --- Scene reload ---
+        // --- Scene reload / switch ---
         sceneTable["ReloadCurrentScene"] = []()
         {
             if (Scene* scene = ScriptEngine::GetSceneContext())
                 scene->SetPendingReload(true);
+        };
+
+        // Switch to another scene (issue #642) — the main-menu -> level ->
+        // next-level primitive, at parity with C#'s SceneManager.LoadScene.
+        //
+        // DEFERRED, exactly like ReloadCurrentScene: the request is recorded
+        // and serviced by the host after this tick returns, because the scene
+        // torn down by the swap is the one this script is running in. The rest
+        // of your OnUpdate still runs on the old scene, and the last request
+        // made during a tick is the one that happens. Hard cut — no fade.
+        //
+        // The path may be a bare name ("Level2"), a file name ("Level2.olo")
+        // or a path relative to the game's scene directory.
+        sceneTable["LoadScene"] = [](const std::string& path)
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+            {
+                OLO_CORE_WARN("[Lua] Scene.LoadScene called with no active scene context.");
+                return;
+            }
+            if (path.empty())
+            {
+                OLO_CORE_WARN("[Lua] Scene.LoadScene called with an empty path — ignoring.");
+                return;
+            }
+            scene->SetPendingSceneLoad(path);
         };
 
         // --- Runtime spawning (issue #643; mirrors the C# Scene.* surface) ---

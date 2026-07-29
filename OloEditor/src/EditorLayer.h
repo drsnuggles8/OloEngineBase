@@ -114,6 +114,21 @@ namespace OloEngine
         void OnSceneStop();
         void OnScenePause();
 
+        // Point every scene-observing panel at `scene`, with `history` as its
+        // undo/redo target (nullptr while playing/simulating — a runtime scene
+        // has no editable history). Panels hold raw Scene* / entity handles, so
+        // every scene swap must go through here or a panel is left pointing at
+        // a destroyed registry.
+        void BindPanelsToScene(const Ref<Scene>& scene, CommandHistory* history);
+
+        // Service a script-requested scene switch during Play (issue #642).
+        // Loads `request` (resolved against the project asset directory) as a
+        // fresh runtime scene and swaps it in, leaving the EDITOR scene — and
+        // any unsaved edits in it — untouched, so Stop still returns the user to
+        // what they were working on. Returns false and keeps the current scene
+        // running if the target can't be resolved or loaded.
+        bool SwitchPlayScene(const std::string& request);
+
         void OnDuplicateEntity();
         void OnCopyEntity();
         void OnPasteEntity();

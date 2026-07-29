@@ -20,6 +20,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -338,6 +339,50 @@ namespace OloEngine
         void SetPendingReload(bool pending)
         {
             m_PendingReload = pending;
+            // A reload and a load are the same request with different targets,
+            // so the newer one wins rather than both firing (see
+            // SetPendingSceneLoad).
+            if (pending)
+            {
+                m_PendingSceneLoad.clear();
+            }
+        }
+
+        // --- Runtime scene transitions (issue #642) --------------------------
+        //
+        // A script asks for a scene change by path; the HOST picks the request
+        // up after the tick has returned and performs the swap (OloRuntime's
+        // RuntimeLayer, or the editor's Play mode). Scene deliberately does not
+        // load anything itself: tearing the registry down from inside
+        // OnUpdateRuntime would destroy the very scene mid-iteration, which is
+        // the same hazard SetPendingReload exists to avoid. This generalizes
+        // that mechanism from "reload m_ScenePath" to "load an arbitrary path".
+        //
+        // The request is a raw, script-supplied string ("Level2",
+        // "Level2.olo", "Scenes/Level2.olo"); resolving it against the game's
+        // scene directory is the host's job — see SceneTransition::ResolveScenePath.
+        //
+        // Reload and load are mutually exclusive: whichever was requested last
+        // during a tick is the one that happens.
+        [[nodiscard("Store this!")]] bool HasPendingSceneLoad() const
+        {
+            return !m_PendingSceneLoad.empty();
+        }
+        [[nodiscard("Store this!")]] const std::string& GetPendingSceneLoad() const
+        {
+            return m_PendingSceneLoad;
+        }
+        void SetPendingSceneLoad(std::string_view path)
+        {
+            m_PendingSceneLoad.assign(path);
+            if (!m_PendingSceneLoad.empty())
+            {
+                m_PendingReload = false;
+            }
+        }
+        void ClearPendingSceneLoad()
+        {
+            m_PendingSceneLoad.clear();
         }
 
         void Step(int frames = 1);
@@ -977,6 +1022,8 @@ namespace OloEngine
         bool m_IsRunning = false;
         bool m_IsPaused = false;
         bool m_PendingReload = false;
+        // Script-requested scene to switch to, unresolved. Empty = no request.
+        std::string m_PendingSceneLoad;
         int m_StepFrames = 0;
         u64 m_TerrainFrameCounter = 0;
         u64 m_StreamingFrameCounter = 0;
