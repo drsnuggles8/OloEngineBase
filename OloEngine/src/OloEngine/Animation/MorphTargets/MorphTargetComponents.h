@@ -3,6 +3,7 @@
 #include "MorphTargetSet.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Scene/ComponentReflection.h" // OLO_SERIALIZE(Skip) to mark runtime fields
 
 #include <algorithm>
 #include <glm/glm.hpp>
@@ -14,17 +15,26 @@ namespace OloEngine
 {
     struct MorphTargetComponent
     {
-        // Morph target data for this entity's mesh
+        // Morph target data for this entity's mesh (runtime — loaded from the mesh)
+        OLO_SERIALIZE(Skip)
         Ref<MorphTargetSet> MorphTargets;
 
-        // Per-target weights (target name -> weight 0.0 to 1.0)
+        // Per-target weights (target name -> weight 0.0 to 1.0) — the authored data
         std::unordered_map<std::string, f32> Weights;
 
         // Cached base mesh data for CPU morph evaluation (populated once from MeshSource)
+        OLO_SERIALIZE(Skip)
         std::vector<glm::vec3> BasePositions;
+        OLO_SERIALIZE(Skip)
         std::vector<glm::vec3> BaseNormals;
 
-        // Tracks whether morph weights were active last frame (for transition detection)
+        // Tracks whether morph weights were active last frame (for transition detection).
+        // NOT OLO_SERIALIZE(Skip): master exposes this plain bool in the MCP field registry,
+        // and a master test (McpFieldRegistry.ListFieldsOnEmptyWeightsMapReportsNoMapEntries)
+        // relies on it keeping the component listable when the Weights map is empty. Skipping
+        // it would silently change shipping MCP behavior — the component is hand-written in the
+        // scene serializer (kComponentsCustomSerialize), so this field is not scene-persisted
+        // either way; Skip here only ever affected MCP.
         bool WasMorphActive = false;
 
         MorphTargetComponent() = default;

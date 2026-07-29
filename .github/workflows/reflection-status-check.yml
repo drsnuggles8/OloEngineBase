@@ -1,0 +1,55 @@
+# Monthly reminder + first-pass probe for C++26 reflection (P2996) toolchain availability.
+# Posts to the tracking issue (#688) so the OloHeaderTool-replacement gate gets re-checked
+# every month. The checklist is inlined in the issue comment this job posts.
+#
+# NOTE: scheduled workflows only fire from the repository's DEFAULT branch, so this only
+# runs on a schedule once it lands on the default branch. Use the "Run workflow" button
+# (workflow_dispatch) to test it from any branch.
+name: reflection-status-check
+
+on:
+  schedule:
+    - cron: "7 9 1 * *" # 1st of each month, ~09:07 UTC (off the :00 mark on purpose)
+  workflow_dispatch: {}
+
+# Least privilege: no permissions by default; the one job that needs to comment
+# on the tracking issue is granted issues:write at the job scope below.
+permissions: {}
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    # Scoped here (not top-level) because only this job runs `gh issue comment`.
+    permissions:
+      issues: write
+    steps:
+      - name: Best-effort first-pass probe
+        id: probe
+        run: |
+          # Never fail the job on a network/parse hiccup — this is a signal, not a gate.
+          # --proto-redir "=https" forbids a redirect from downgrading to http:// (SonarCloud S6506).
+          if curl -sSL --proto-redir "=https" --max-time 30 https://devblogs.microsoft.com/cppblog/ 2>/dev/null | grep -qi 'reflection'; then
+            echo "msvc=WARNING - the MSVC C++ blog front page mentions 'reflection', CHECK IT" >> "$GITHUB_OUTPUT"
+          else
+            echo "msvc=no 'reflection' on the MSVC C++ blog front page (still likely blocked)" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Comment on the tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MSVC_SIGNAL: ${{ steps.probe.outputs.msvc }}
+        run: |
+          {
+            echo "🔭 **Monthly C++26 reflection (P2996) status check** — automated reminder."
+            echo ""
+            echo "First-pass signal (best-effort, verify manually): **$MSVC_SIGNAL**"
+            echo ""
+            echo "Check the C++26 reflection (P2996) toolchain status:"
+            echo "1. **MSVC** — newest MSVC C++ Team Blog preview: reflection / P2996 / /experimental? (highest-signal row) — https://devblogs.microsoft.com/cppblog/"
+            echo "2. **Clang mainline** — LLVM reflection discourse + Clang 22 release notes: P2996 behind a flag yet? — https://discourse.llvm.org/t/dedicated-meeting-for-c-26-reflection/88927"
+            echo "3. **Bloomberg fork** — upstreaming progress — https://github.com/bloomberg/clang-p2996/issues/189"
+            echo "4. **GCC** — 16.x/17 notes: P2996 fixes."
+            echo ""
+            echo "If anything moved, note it in this issue (#688) with the source link."
+            echo "**Triggers:** MSVC → 🟡 = start migration planning; Clang 22 ships P2996 = re-validate the prototype on clang-cl."
+          } > "$RUNNER_TEMP/comment.md"
+          gh issue comment 688 --repo "${{ github.repository }}" --body-file "$RUNNER_TEMP/comment.md"

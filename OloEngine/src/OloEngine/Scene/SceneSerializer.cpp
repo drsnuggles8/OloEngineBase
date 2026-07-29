@@ -1867,6 +1867,10 @@ namespace OloEngine
             auto& rb2d = deserializedEntity.AddComponent<Rigidbody2DComponent>();
             rb2d.Type = RigidBody2DBodyTypeFromString(rigidbody2DComponent["BodyType"].as<std::string>());
             rb2d.FixedRotation = rigidbody2DComponent["FixedRotation"].as<bool>();
+            rb2d.LinearVelocity = rigidbody2DComponent["LinearVelocity"].as<glm::vec2>(rb2d.LinearVelocity);
+            SanitizeVec2(rb2d.LinearVelocity, glm::vec2(0.0f));
+            rb2d.AngularVelocity = rigidbody2DComponent["AngularVelocity"].as<f32>(rb2d.AngularVelocity);
+            SanitizeFloat(rb2d.AngularVelocity, -1.0e6f, 1.0e6f, 0.0f);
         }
 
         if (auto boxCollider2DComponent = entity["BoxCollider2DComponent"]; boxCollider2DComponent)
@@ -2348,6 +2352,8 @@ namespace OloEngine
             SanitizeFloat(rb3d.m_AngularDrag, 0.0f, 1.0e6f, 0.05f);
             rb3d.m_DisableGravity = rb3dComponent["DisableGravity"].as<bool>(rb3d.m_DisableGravity);
             rb3d.m_IsTrigger = rb3dComponent["IsTrigger"].as<bool>(rb3d.m_IsTrigger);
+            rb3d.m_LayerID = rb3dComponent["LayerID"].as<u32>(rb3d.m_LayerID);
+            rb3d.m_LockedAxes = static_cast<EActorAxis>(rb3dComponent["LockedAxes"].as<u32>(std::to_underlying(rb3d.m_LockedAxes)));
             // Initial velocities (issue #438 follow-up). Absent in scenes written
             // before this key existed, in which case the zero constructor defaults
             // stand and the body starts at rest exactly as it always did.
@@ -2359,6 +2365,10 @@ namespace OloEngine
             SanitizeVec3(rb3d.m_InitialAngularVelocity, glm::vec3(0.0f));
             rb3d.m_InitialLinearVelocity = glm::clamp(rb3d.m_InitialLinearVelocity, glm::vec3(-1.0e5f), glm::vec3(1.0e5f));
             rb3d.m_InitialAngularVelocity = glm::clamp(rb3d.m_InitialAngularVelocity, glm::vec3(-1.0e4f), glm::vec3(1.0e4f));
+            rb3d.m_MaxLinearVelocity = rb3dComponent["MaxLinearVelocity"].as<f32>(rb3d.m_MaxLinearVelocity);
+            SanitizeFloat(rb3d.m_MaxLinearVelocity, 0.0f, 1.0e6f, 500.0f);
+            rb3d.m_MaxAngularVelocity = rb3dComponent["MaxAngularVelocity"].as<f32>(rb3d.m_MaxAngularVelocity);
+            SanitizeFloat(rb3d.m_MaxAngularVelocity, 0.0f, 1.0e6f, 50.0f);
         }
 
         if (auto bc3dComponent = entity["BoxCollider3DComponent"]; bc3dComponent)
@@ -2372,6 +2382,8 @@ namespace OloEngine
                 bc3d.m_Material.SetDynamicFriction(bc3dComponent["DynamicFriction"].as<f32>());
             if (bc3dComponent["Restitution"])
                 bc3d.m_Material.SetRestitution(bc3dComponent["Restitution"].as<f32>());
+            if (bc3dComponent["Density"])
+                bc3d.m_Material.SetDensity(bc3dComponent["Density"].as<f32>(bc3d.m_Material.GetDensity()));
         }
 
         if (auto sc3dComponent = entity["SphereCollider3DComponent"]; sc3dComponent)
@@ -2385,6 +2397,8 @@ namespace OloEngine
                 sc3d.m_Material.SetDynamicFriction(sc3dComponent["DynamicFriction"].as<f32>());
             if (sc3dComponent["Restitution"])
                 sc3d.m_Material.SetRestitution(sc3dComponent["Restitution"].as<f32>());
+            if (sc3dComponent["Density"])
+                sc3d.m_Material.SetDensity(sc3dComponent["Density"].as<f32>(sc3d.m_Material.GetDensity()));
         }
 
         if (auto cc3dComponent = entity["CapsuleCollider3DComponent"]; cc3dComponent)
@@ -2399,6 +2413,8 @@ namespace OloEngine
                 cc3d.m_Material.SetDynamicFriction(cc3dComponent["DynamicFriction"].as<f32>());
             if (cc3dComponent["Restitution"])
                 cc3d.m_Material.SetRestitution(cc3dComponent["Restitution"].as<f32>());
+            if (cc3dComponent["Density"])
+                cc3d.m_Material.SetDensity(cc3dComponent["Density"].as<f32>(cc3d.m_Material.GetDensity()));
         }
 
         // PrefabComponent: hand-written (issue #444 hot/cold split) — the three
@@ -2440,6 +2456,8 @@ namespace OloEngine
                 mc3d.m_Material.SetDynamicFriction(mc3dComponent["DynamicFriction"].as<f32>());
             if (mc3dComponent["Restitution"])
                 mc3d.m_Material.SetRestitution(mc3dComponent["Restitution"].as<f32>());
+            if (mc3dComponent["Density"])
+                mc3d.m_Material.SetDensity(mc3dComponent["Density"].as<f32>(mc3d.m_Material.GetDensity()));
         }
 
         if (auto cmc3dComponent = entity["ConvexMeshCollider3DComponent"]; cmc3dComponent)
@@ -2457,6 +2475,8 @@ namespace OloEngine
                 cmc3d.m_Material.SetDynamicFriction(cmc3dComponent["DynamicFriction"].as<f32>());
             if (cmc3dComponent["Restitution"])
                 cmc3d.m_Material.SetRestitution(cmc3dComponent["Restitution"].as<f32>());
+            if (cmc3dComponent["Density"])
+                cmc3d.m_Material.SetDensity(cmc3dComponent["Density"].as<f32>(cmc3d.m_Material.GetDensity()));
         }
 
         if (auto tmc3dComponent = entity["TriangleMeshCollider3DComponent"]; tmc3dComponent)
@@ -2472,6 +2492,8 @@ namespace OloEngine
                 tmc3d.m_Material.SetDynamicFriction(tmc3dComponent["DynamicFriction"].as<f32>());
             if (tmc3dComponent["Restitution"])
                 tmc3d.m_Material.SetRestitution(tmc3dComponent["Restitution"].as<f32>());
+            if (tmc3dComponent["Density"])
+                tmc3d.m_Material.SetDensity(tmc3dComponent["Density"].as<f32>(tmc3d.m_Material.GetDensity()));
         }
 
         if (auto jointComponent = entity["PhysicsJoint3DComponent"]; jointComponent)
@@ -3937,6 +3959,8 @@ namespace OloEngine
             auto const& rb2dComponent = entity.GetComponent<Rigidbody2DComponent>();
             out << YAML::Key << "BodyType" << YAML::Value << RigidBody2DBodyTypeToString(rb2dComponent.Type);
             out << YAML::Key << "FixedRotation" << YAML::Value << rb2dComponent.FixedRotation;
+            out << YAML::Key << "LinearVelocity" << YAML::Value << rb2dComponent.LinearVelocity;
+            out << YAML::Key << "AngularVelocity" << YAML::Value << rb2dComponent.AngularVelocity;
 
             out << YAML::EndMap; // Rigidbody2DComponent
         }
@@ -4228,6 +4252,8 @@ namespace OloEngine
             out << YAML::Key << "AngularDrag" << YAML::Value << rb3dComponent.m_AngularDrag;
             out << YAML::Key << "DisableGravity" << YAML::Value << rb3dComponent.m_DisableGravity;
             out << YAML::Key << "IsTrigger" << YAML::Value << rb3dComponent.m_IsTrigger;
+            out << YAML::Key << "LayerID" << YAML::Value << rb3dComponent.m_LayerID;
+            out << YAML::Key << "LockedAxes" << YAML::Value << std::to_underlying(rb3dComponent.m_LockedAxes);
             // Velocities applied to the body the moment it is created
             // (JoltBody::SetupCreatedBody). Without these on disk a scene can only
             // author bodies that start at REST, which makes "a vehicle already
@@ -4237,6 +4263,8 @@ namespace OloEngine
             // changes nothing for existing scenes (issue #438 follow-up).
             out << YAML::Key << "InitialLinearVelocity" << YAML::Value << rb3dComponent.m_InitialLinearVelocity;
             out << YAML::Key << "InitialAngularVelocity" << YAML::Value << rb3dComponent.m_InitialAngularVelocity;
+            out << YAML::Key << "MaxLinearVelocity" << YAML::Value << rb3dComponent.m_MaxLinearVelocity;
+            out << YAML::Key << "MaxAngularVelocity" << YAML::Value << rb3dComponent.m_MaxAngularVelocity;
 
             out << YAML::EndMap; // Rigidbody3DComponent
         }
@@ -4252,6 +4280,7 @@ namespace OloEngine
             out << YAML::Key << "StaticFriction" << YAML::Value << bc3dComponent.m_Material.GetStaticFriction();
             out << YAML::Key << "DynamicFriction" << YAML::Value << bc3dComponent.m_Material.GetDynamicFriction();
             out << YAML::Key << "Restitution" << YAML::Value << bc3dComponent.m_Material.GetRestitution();
+            out << YAML::Key << "Density" << YAML::Value << bc3dComponent.m_Material.GetDensity();
 
             out << YAML::EndMap; // BoxCollider3DComponent
         }
@@ -4267,6 +4296,7 @@ namespace OloEngine
             out << YAML::Key << "StaticFriction" << YAML::Value << sc3dComponent.m_Material.GetStaticFriction();
             out << YAML::Key << "DynamicFriction" << YAML::Value << sc3dComponent.m_Material.GetDynamicFriction();
             out << YAML::Key << "Restitution" << YAML::Value << sc3dComponent.m_Material.GetRestitution();
+            out << YAML::Key << "Density" << YAML::Value << sc3dComponent.m_Material.GetDensity();
 
             out << YAML::EndMap; // SphereCollider3DComponent
         }
@@ -4283,6 +4313,7 @@ namespace OloEngine
             out << YAML::Key << "StaticFriction" << YAML::Value << cc3dComponent.m_Material.GetStaticFriction();
             out << YAML::Key << "DynamicFriction" << YAML::Value << cc3dComponent.m_Material.GetDynamicFriction();
             out << YAML::Key << "Restitution" << YAML::Value << cc3dComponent.m_Material.GetRestitution();
+            out << YAML::Key << "Density" << YAML::Value << cc3dComponent.m_Material.GetDensity();
 
             out << YAML::EndMap; // CapsuleCollider3DComponent
         }
@@ -4336,6 +4367,7 @@ namespace OloEngine
             out << YAML::Key << "StaticFriction" << YAML::Value << mc3dComponent.m_Material.GetStaticFriction();
             out << YAML::Key << "DynamicFriction" << YAML::Value << mc3dComponent.m_Material.GetDynamicFriction();
             out << YAML::Key << "Restitution" << YAML::Value << mc3dComponent.m_Material.GetRestitution();
+            out << YAML::Key << "Density" << YAML::Value << mc3dComponent.m_Material.GetDensity();
 
             out << YAML::EndMap; // MeshCollider3DComponent
         }
@@ -4354,6 +4386,7 @@ namespace OloEngine
             out << YAML::Key << "StaticFriction" << YAML::Value << cmc3dComponent.m_Material.GetStaticFriction();
             out << YAML::Key << "DynamicFriction" << YAML::Value << cmc3dComponent.m_Material.GetDynamicFriction();
             out << YAML::Key << "Restitution" << YAML::Value << cmc3dComponent.m_Material.GetRestitution();
+            out << YAML::Key << "Density" << YAML::Value << cmc3dComponent.m_Material.GetDensity();
 
             out << YAML::EndMap; // ConvexMeshCollider3DComponent
         }
@@ -4370,6 +4403,7 @@ namespace OloEngine
             out << YAML::Key << "StaticFriction" << YAML::Value << tmc3dComponent.m_Material.GetStaticFriction();
             out << YAML::Key << "DynamicFriction" << YAML::Value << tmc3dComponent.m_Material.GetDynamicFriction();
             out << YAML::Key << "Restitution" << YAML::Value << tmc3dComponent.m_Material.GetRestitution();
+            out << YAML::Key << "Density" << YAML::Value << tmc3dComponent.m_Material.GetDensity();
 
             out << YAML::EndMap; // TriangleMeshCollider3DComponent
         }

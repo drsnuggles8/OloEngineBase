@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Scene/ComponentReflection.h" // OLO_SERIALIZE(Skip) — mark runtime bone-binding non-serialized
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -36,7 +37,11 @@ namespace OloEngine
      */
     struct SubmeshComponent
     {
+        // Runtime data — m_Mesh + m_BoneEntityIds are reconstructed from parent MeshComponent's
+        // skeleton by BoneEntityUtils on load; not serialized (see SceneSerializer.cpp:5088).
+        OLO_SERIALIZE(Skip)
         Ref<Mesh> m_Mesh;
+        OLO_SERIALIZE(Skip)
         std::vector<UUID> m_BoneEntityIds; // Maps skeleton bones to scene entities
         u32 m_SubmeshIndex = 0;
         bool m_Visible = true;

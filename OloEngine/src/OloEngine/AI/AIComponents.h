@@ -8,6 +8,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Scene/ComponentReflection.h" // OLO_SERIALIZE(Skip/Key) to mark runtime fields / rename
 
 #include <glm/glm.hpp>
 
@@ -15,11 +16,15 @@ namespace OloEngine
 {
     struct BehaviorTreeComponent
     {
+        OLO_SERIALIZE(Key, "BehaviorTreeAsset")
         AssetHandle BehaviorTreeAssetHandle = 0;
+        OLO_SERIALIZE(Skip)
         BTBlackboard Blackboard;
 
         // Runtime (not serialized)
+        OLO_SERIALIZE(Skip)
         Ref<BehaviorTree> RuntimeTree = nullptr;
+        OLO_SERIALIZE(Skip)
         bool IsRunning = false;
 
         BehaviorTreeComponent() = default;
@@ -54,10 +59,13 @@ namespace OloEngine
 
     struct StateMachineComponent
     {
+        OLO_SERIALIZE(Key, "StateMachineAsset")
         AssetHandle StateMachineAssetHandle = 0;
+        OLO_SERIALIZE(Skip)
         BTBlackboard Blackboard;
 
         // Runtime (not serialized)
+        OLO_SERIALIZE(Skip)
         Ref<StateMachine> RuntimeFSM = nullptr;
 
         StateMachineComponent() = default;
@@ -92,9 +100,11 @@ namespace OloEngine
     struct GoapAgentComponent
     {
         bool Enabled = true;
+        OLO_SERIALIZE(Skip)
         BTBlackboard Blackboard; // sensor/script bridge, mirrors BT/FSM
 
         // Runtime (not serialized); rebuilt after load by gameplay code.
+        OLO_SERIALIZE(Skip)
         Ref<GoapAgent> RuntimeAgent = nullptr;
 
         GoapAgentComponent() = default;
@@ -157,11 +167,16 @@ namespace OloEngine
         bool DetectSameTeam = false;                // when false, same-team perceptibles are ignored
 
         // --- Runtime result (not serialized; recomputed every tick) ---
-        bool HasVisibleTarget = false;                      // a target is currently visible this tick
-        UUID VisibleTarget = 0;                             // UUID of the nearest visible target (0 = none)
+        OLO_SERIALIZE(Skip)
+        bool HasVisibleTarget = false; // a target is currently visible this tick
+        OLO_SERIALIZE(Skip)
+        UUID VisibleTarget = 0; // UUID of the nearest visible target (0 = none)
+        OLO_SERIALIZE(Skip)
         glm::vec3 LastKnownPosition = { 0.0f, 0.0f, 0.0f }; // where the target was last seen
-        bool HasLastKnownPosition = false;                  // true once any target has been seen
-        f32 TimeSinceLastSeen = 0.0f;                       // seconds since a target was last visible
+        OLO_SERIALIZE(Skip)
+        bool HasLastKnownPosition = false; // true once any target has been seen
+        OLO_SERIALIZE(Skip)
+        f32 TimeSinceLastSeen = 0.0f; // seconds since a target was last visible
 
         PerceptionComponent() = default;
 

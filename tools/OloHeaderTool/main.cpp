@@ -1196,6 +1196,37 @@ static const std::set<std::string> kComponentsCustomOnRemove = {
 // listing one here while ALSO leaving (or removing) its hand-written block is a
 // loud test failure, never a silent double-emit / drop.
 static const std::set<std::string> kComponentsCustomSerialize = {
+    // --- Kept hand-written despite carrying OLO_SERIALIZE(Skip) on their runtime fields
+    //     (added by the cpp26-reflection experiment, experiments/cpp26-reflection/). Skip
+    //     drops those runtime fields from the trivial-classification, which made the
+    //     *remaining* authored fields look all-trivial and would flip each of these from
+    //     hand-written to auto-generated — a double-emit with the existing hand-written
+    //     block (caught by ComponentSerializerCoverage.NoComponentIsBothHandWrittenAndGenerated).
+    //     Each stays hand-written because its serializer encodes something the plain
+    //     generated round-trip can't reproduce: an enum-keyed field / Ref<Asset> handle key
+    //     (Rigidbody2D BodyType, the AI asset handles), a load-time clamp or Sanitize, a
+    //     runtime-token omission, or an exact on-disk shape existing scenes were saved with.
+    //     Skip still correctly drops the runtime fields from MCP + the reflection serializer;
+    //     it just must not change what the shipping scene serializer emits. Verified by running
+    //     this tool on master's headers vs the annotated headers and diffing: with these 15
+    //     excluded, every serializer .inl (text + binary) is byte-identical to the pre-annotation
+    //     output — only the MCP registry drops the runtime fields, which is the intended Skip
+    //     behavior (McpFieldRegistry.SkipAnnotatedRuntimeFieldsAreNotWritable).
+    "AudioListenerComponent",
+    "AudioSoundGraphComponent",
+    "BehaviorTreeComponent",
+    "BoxCollider2DComponent",
+    "CircleCollider2DComponent",
+    "FoliageComponent",
+    "GoapAgentComponent",
+    "MorphTargetComponent",
+    "RagdollComponent",
+    "Rigidbody2DComponent",
+    "StateMachineComponent",
+    "TerrainComponent",
+    "VideoOverlayComponent",
+    "VideoSurfaceComponent",
+    "WaterComponent",
     "CinematicComponent",
     "DecalComponent",
     "DialogueComponent",
