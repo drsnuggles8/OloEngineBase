@@ -915,11 +915,25 @@ TEST(VirtualMeshBuilder, SloppyFallbackAloneStillProducesWatertightCuts)
                                   ("sloppy-only cascade, threshold " + std::to_string(threshold)).c_str());
     }
 
-    // Sanity: a sloppy result that IS accepted must carry an amplified error, never zero.
-    for (const VirtualClusterGroup& group : vm.Groups)
+    // Sanity: a group the cascade ACCEPTED must carry a real, strictly positive error. A zero
+    // error would make the group indistinguishable from unsimplified geometry at every
+    // threshold, so the cut could never coarsen past it.
+    //
+    // Terminal groups are the FLT_MAX sentinel and are skipped — via an ordered comparison, not
+    // an equality, both because comparing floats with == is wrong and because it makes the check
+    // below catch a non-finite error for free: NaN >= FLT_MAX is false, so a NaN falls through to
+    // the EXPECT_GT, which it also fails.
+    for (sizet i = 0; i < vm.Groups.size(); ++i)
     {
-        EXPECT_TRUE(std::isfinite(group.LODBounds.Error) || group.LODBounds.Error == std::numeric_limits<f32>::max())
-            << "a fallback path produced a non-finite, non-terminal group error";
+        const VirtualClusterGroup& group = vm.Groups[i];
+        if (group.LODBounds.Error >= std::numeric_limits<f32>::max())
+        {
+            continue; // terminal — never refined away, carries the sentinel rather than an error
+        }
+
+        EXPECT_GT(group.LODBounds.Error, 0.0f)
+            << "group " << i << " (depth " << group.Depth << ") was accepted by the simplify "
+            << "cascade but carries a zero or non-finite error";
     }
 }
 

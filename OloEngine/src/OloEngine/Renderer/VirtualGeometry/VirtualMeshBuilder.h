@@ -38,7 +38,8 @@ namespace OloEngine
         bool SimplifyFallbackWelded = true;
         // Sloppy: meshopt_simplifySloppy on a deindexed subset. This one does NOT preserve
         // topology, so the result is accepted only when it is still edge-manifold and has
-        // exactly the border edges the group started with — see BuildCutSafety in the .cpp.
+        // exactly the border edges the group started with — see SloppyResultKeepsCutsWatertight
+        // in the .cpp.
         bool SimplifyFallbackSloppy = true;
         // Error multiplier applied to a sloppy result (clodConfig::simplify_error_factor_sloppy),
         // accounting for appearance degradation the quadric error does not capture.
