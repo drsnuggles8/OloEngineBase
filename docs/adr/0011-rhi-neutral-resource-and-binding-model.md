@@ -50,9 +50,12 @@ the picture the issue paints:
 - **`Renderer/Debug/` is 43% of the problem** (236 of 549) in 7 files, and it is
   *not* legitimately exempt (§1.6).
 - **The include graph is the real boundary, and it is far worse than the call
-  count.** 79 files outside `Platform/OpenGL/` include `<glad/gl.h>` but only 42
-  call GL. The other **40 include it purely to name `GLenum` / `GL_*` constants
-  they pass into `RendererAPI`'s own virtuals** — `SetBlendFunc(GLenum, GLenum)`,
+  count.** 79 files outside `Platform/OpenGL/` include `<glad/gl.h>`; 42 call
+  GL. Those two sets are not nested — 39 files both include and call, 3 call
+  while relying on the transitive include through `RendererAPI.h` (next bullet),
+  and the remaining **40 include the entire API while calling none of it**,
+  purely to name the `GLenum` / `GL_*` constants they pass into `RendererAPI`'s
+  own virtuals — `SetBlendFunc(GLenum, GLenum)`,
   `SetDepthFunc(GLenum)`, `SetStencilOp(GLenum, GLenum, GLenum)`,
   `CreateTexture2D(u32, u32, GLenum internalFormat)`, and a dozen more. The
   facade is not leaky at the edges; GL is part of its declared vocabulary.
@@ -91,7 +94,7 @@ therefore three distinct types with three distinct visibilities:
 | --- | --- | --- |
 | **Resource identity** — "which GPU object is this?" | `RHI::ResourceHandle { u32 Index; u32 Generation; }` | Everyone. This is the engine-wide currency. |
 | **View identity** — "which *way of looking at* that object?" | `RHI::ViewHandle { u32 Index; u32 Generation; }` | Everyone. One resource, many views — this is what owns a heap slot. |
-| **Binding address** — "what integer does the shader index with?" | `RHI::HeapOffset { u32 Value; }`, obtained *only* via `Heap::OffsetOf(ViewHandle)` | Everyone, and it is *shader-visible data* — it goes into a UBO/SSBO field. Fetch it; never store it (§1.2). |
+| **Binding address** — "what integer does the shader index with?" | `RHI::HeapOffset { u32 Value; }`, obtained *only* via `Heap::OffsetOf(ViewHandle)` | Everyone, and it is *shader-visible data* — it goes into a UBO/SSBO field. Cacheable for persistent views, never held across a use for transients (§1.2). |
 | **Native handle** — "what do I pass to the driver?" | backend-private (`GLuint`, `VkImage`, …) | `Platform/<Backend>/` only. |
 
 **Does bindless still need a "binding address" at all?** Yes — bindless is what
@@ -114,7 +117,7 @@ shader can index with, whereas `ResourceHandle` is 64 bits and the generation is
 the entire point of it; and a resource that is only ever a colour attachment
 needs no heap slot at all, so fusing them would size the heap by resource count.
 
-`RHIResourceHandle` deliberately mirrors the `{ Index, Generation }` shape the
+`RHI::ResourceHandle` deliberately mirrors the `{ Index, Generation }` shape the
 render graph already uses (`RGTextureHandle` / `RGBufferHandle` /
 `RGFramebufferHandle` in `Renderer/ResourceHandle.h`), so the graph's existing
 handle discipline generalises instead of acquiring a second, competing scheme.
@@ -123,7 +126,7 @@ different objects can compare equal via `Texture::operator==`
 (`GetRendererID() == other.GetRendererID()`) if one was deleted and the other
 created. A generation catches that; a raw `u32` cannot.
 
-`RHIHeapOffset` is a plain `u32` wrapper *on purpose*. It has to survive being
+`RHI::HeapOffset` is a plain `u32` wrapper *on purpose*. It has to survive being
 written into a UBO and read by GLSL as an array index, so it cannot be an opaque
 type. Wrapping it in a struct only buys type-safety at the C++ boundary — that
 is the point, but it must stay layout-compatible with `u32`.
@@ -171,13 +174,28 @@ the same reason. The heap gets a poison mode mirroring `OLO_RG_POISON_TRANSIENTS
 use-after-free renders as a deterministic, obviously-wrong result rather than
 whatever the previous tenant left behind.
 
-**A `HeapOffset` is fetched, never stored.** The only way to obtain one is
-`Heap::OffsetOf(ViewHandle)`, which validates the view's generation first. A
-loose `u32` cached in a material or a pass member is a stale-offset bug waiting
-to happen — persistent offsets are stable, but a `FrameTransient` one is
-re-allocated every frame, and under `WriteNewVersion` aliasing one physical
-object legitimately holds two offsets within a single frame. Fetching at the
-point of write turns that into a generation compare on the CPU.
+**Caching rules differ by slot lifetime — and the difference is the whole
+point.** An earlier draft of this ADR said flatly "fetch it, never store it",
+which contradicted §1.3's material-data story and would have thrown away the
+performance argument for bindless. The actual rule has two halves:
+
+- **Persistent slots may be cached**, including baked into material data — that
+  stability *is* why bindless is faster, and re-fetching per draw would give it
+  back. The cache must hold the `ViewHandle` alongside the offset and revalidate
+  through `Heap::OffsetOf` whenever the view could have changed (asset reload,
+  texture resize, streaming eviction). Caching the bare `u32` alone is what is
+  forbidden, because nothing then detects the view's death.
+- **Frame-transient slots must never be stored across a use.** They are
+  re-allocated every frame from the ring that resets in
+  `TransientPool::ReleaseAll()`, and under `WriteNewVersion` aliasing one
+  physical object legitimately holds two offsets within a single frame. A
+  transient offset held past the point of write is *already* stale — not "might
+  go stale" — so it is re-acquired via `Heap::OffsetOf(ViewHandle)` at each use.
+
+`Heap::OffsetOf` validates the view's generation, so both halves reduce to the
+same discipline: **the `ViewHandle` is the durable thing; the `u32` is
+derived.** Where they differ is only how long the derived value stays good —
+indefinitely for persistent, until the next use for transient.
 
 That is cheap insurance against an expensive failure. The consequence of a bad
 descriptor under this model is **not** "samples the wrong resource" — DXVK's
@@ -239,30 +257,34 @@ this far in the first place.
 1. **Passes binding a texture for sampling** — **173** `BindTexture(...)` sites
    in 47 `.cpp` files (the issue's "~125 across ~35 passes" undercounts; a
    handful of the 173 are the facade's own definitions rather than pass calls).
-   Under heap-bindless there is no slot to bind to: the pass
-   writes `texture->GetHeapOffset()` into its UBO and the shader indexes the
-   heap. `BindTexture` does not get abstracted, it **disappears**. This is the
+   Under heap-bindless there is no slot to bind to: the pass writes
+   `Heap::OffsetOf(texture->GetDefaultView())` into its UBO and the shader
+   indexes the heap. (Via the view, not a `texture->GetHeapOffset()` accessor —
+   a texture has one offset *per view*, and the offset has to come from
+   something generation-checked. For a persistent texture the result is stable
+   and the material may cache it alongside the `ViewHandle`; see §1.2.)
+   `BindTexture` does not get abstracted, it **disappears**. This is the
    single biggest reason Phase 3's `ARB_bindless_texture` rehearsal is worth
    doing — it forces the GLSL-side and UBO-side change on the backend we can
    still debug easily, before any Vulkan-specific effort.
 2. **Debug / introspection tools** (`Renderer/Debug/`, MCP capture) — these
-   genuinely need the native object. They get `RHIResourceHandle` for identity,
+   genuinely need the native object. They get `RHI::ResourceHandle` for identity,
    plus an escape hatch that is **named to be conspicuous**:
-   `RHI::GetNativeHandleForDebug(RHIResourceHandle) -> RHINativeHandle`
+   `RHI::GetNativeHandleForDebug(RHI::ResourceHandle) -> RHI::NativeHandle`
    (a `u64` plus a backend tag). The naming is the mechanism: a
    `GetNativeHandleForDebug` call sitting in a render pass is a self-evident
    smell in review, where `GetRendererID()` reads as ordinary. The ratchet
    counts uses of this escape hatch outside `Renderer/Debug/` and
    `Platform/`, with a baseline of zero (§1.7).
 3. **`TransientPool` bookkeeping** — `AcquiredInfo::RendererID` only ever answers
-   "did these two plan entries get handed the same object?". `RHIResourceHandle`
+   "did these two plan entries get handed the same object?". `RHI::ResourceHandle`
    answers that *better*, because the generation distinguishes a recycled name
    from a genuine alias — which is exactly the distinction the transient-plan
    MCP tooling was built to investigate.
 
 ### 1.4 `TransientPool` describes a physical resource without a `u32`
 
-`TransientPool::AcquiredInfo::RendererID` becomes `RHIResourceHandle Handle`.
+`TransientPool::AcquiredInfo::RendererID` becomes `RHI::ResourceHandle Handle`.
 Nothing else in that struct changes: `Kind`, `Width`, `Height`, `SizeBytes` are
 already neutral. `BucketInfo` is already neutral (its `Format` is
 `ImageFormat as u32`, an engine enum, not a `GLenum`).
@@ -292,12 +314,34 @@ been promoted to the neutral currency. It sits in `PlannedBarrier::Flags`, in
 lowering to `(srcStageMask, srcAccessMask, oldLayout) → (dstStageMask,
 dstAccessMask, newLayout)`.
 
-**The neutral model deliberately does not carry an image layout.** Layout is a
-pure function of usage — `ShaderSample → SHADER_READ_ONLY_OPTIMAL`,
-`RenderTarget → COLOR_ATTACHMENT_OPTIMAL`,
-`DepthStencil → DEPTH_STENCIL_ATTACHMENT_OPTIMAL`, `ShaderImage → GENERAL`,
-`TransferDest → TRANSFER_DST_OPTIMAL` — so the Vulkan backend derives it. Adding
-a layout enum to the graph would leak Vulkan upward for no gain.
+**The neutral model still does not carry an image layout — but "layout is a pure
+function of usage" is too strong, and an earlier draft of this ADR said exactly
+that.** For the common cases it holds (`ShaderSample → SHADER_READ_ONLY_OPTIMAL`,
+`RenderTarget → COLOR_ATTACHMENT_OPTIMAL`, `ShaderImage → GENERAL`,
+`TransferDest → TRANSFER_DST_OPTIMAL`). Three cases in *this* engine break it,
+and the fix is to carry the missing **inputs**, not to hoist the layout itself:
+
+- **Depth/stencil aspect.** `D24UNormS8UInt` can transition its depth and
+  stencil aspects independently
+  (`DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL` and its mirror), and the usage
+  enum cannot say which aspect an access refers to. `RHI::SubresourceRange`
+  therefore gains an `Aspect` field; without it the range is not a complete
+  subresource identifier at all, which is a defect independent of layouts.
+- **Read-while-attached.** The PCSS blocker search samples raw depth through
+  `CreateDepthArrayCompareOffView` while the same depth resource is in play as
+  an attachment. That wants `DEPTH_STENCIL_READ_ONLY_OPTIMAL`, not
+  `SHADER_READ_ONLY_OPTIMAL` — and the two accesses are individually legal, so
+  no single access value distinguishes them. It needs the *pair* to be visible.
+- **Feedback loops / input attachments.** `InputAttachmentRead` lowers
+  differently depending on whether the resource is simultaneously an attachment
+  (`ATTACHMENT_FEEDBACK_LOOP_OPTIMAL` or `GENERAL`).
+
+So the contract Phase 5 owes is a **layout/access resolution function whose
+inputs are `(Access, Aspect, is-also-attached-this-pass)`**, not a bare
+`Access → layout` table. The neutral layer supplies those inputs and keeps
+naming none of the layouts; the backend owns the mapping. That preserves the
+original reason for the decision — a layout enum in the render graph is Vulkan
+leaking upward — while dropping the claim that made it sound free.
 
 **One concrete defect found while validating this, which Phase 5 must fix:**
 `ResourceTransition` types the pair as `RGWriteUsage FromUsage` →
@@ -316,7 +360,7 @@ canonical shape of the bug class Phase 1 exists to catch — a neutral-looking
 record whose neutrality is only accidental, held up by a GL-specific field
 alongside it.
 
-The fix is a **single unified access enum** (`RHIAccess`) covering reads,
+The fix is a **single unified access enum** (`RHI::Access`) covering reads,
 writes, and the "no access" initial state, replacing the read/write enum pair in
 the transition record. `RGReadUsage` / `RGWriteUsage` may stay as the *builder's*
 declaration vocabulary (passes genuinely do declare reads and writes
@@ -558,13 +602,22 @@ line 62. Any code that reads `Renderer::GetAPI()` during static initialisation
 will see `OpenGL` regardless of the flag; nothing does today, and nothing
 should start.
 
-Device selection then gates hard per ADR 0010: if `--rhi=vulkan` is requested
-and `VK_EXT_descriptor_heap` is unavailable, **refuse to initialise with a clear
-message** rather than silently degrading. Falling back to OpenGL automatically
-would reintroduce, at runtime, precisely the "silent fallback" that ADR 0010
-forbids at compile time — the user asked for Vulkan and must be told they did
-not get it. The default-when-unspecified staying OpenGL is a different thing and
-is fine.
+Device selection then gates hard on
+[ADR 0010's capability contract](0010-vulkan-rhi-heap-bindless-only.md#capability-contract).
+`--rhi=vulkan` is accepted only when a device satisfies that contract **in full**
+— API version, SDK/validation floor, `VK_EXT_descriptor_heap`, and the
+untyped-pointer shader dependency, plus whatever feature bits Phase 4 pins there.
+Anything less: **refuse to initialise, naming the missing capability.**
+
+The contract is referenced, not restated, on purpose. An acceptance test that
+open-codes "is `VK_EXT_descriptor_heap` present?" would silently pass a device
+missing the shader dependency, and the two definitions would then drift with
+nothing to catch it. One list, two readers.
+
+Falling back to OpenGL automatically would reintroduce at runtime precisely the
+"silent fallback" that ADR 0010 forbids at compile time — the user asked for
+Vulkan and must be told they did not get it. The default-when-unspecified
+staying OpenGL is a different thing and is fine.
 
 ---
 
@@ -621,8 +674,17 @@ and, on some drivers, crash-prone. Vulkan's contract is different and better:
 the blob carries `VkPipelineCacheHeaderVersionOne` with vendor ID, device ID and
 `pipelineCacheUUID`, and the driver is *required* to safely ignore a blob it
 does not recognise. Hand-rolling a stamp would be reimplementing a guarantee the
-API already gives. Keep the soft-fail *posture* (a bad cache costs compile time,
-never correctness); drop the mechanism.
+API already gives.
+
+**Soft-fail is required, not merely inherited.** Dropping the stamp mechanism
+must not drop the behaviour it provided, so this is explicit: if the
+`pipeline_cache.vkpc` blob is missing, unreadable, truncated, or rejected — or
+if `vkCreatePipelineCache` fails with the loaded data — **discard the data and
+create an empty cache, then continue startup.** A pipeline cache is a
+compile-time optimisation; a corrupt one must cost a slower first frame and a
+log line, never a failed launch. The same applies on write: a failed serialise
+at shutdown is logged and ignored. This mirrors the GL path, where a rejected
+`glProgramBinary` falls back to recompilation rather than aborting.
 
 **(d) Hot reload needs a shader→pipeline reverse index, because the invalidation
 granularity is fundamentally different — this is the constraint that shapes

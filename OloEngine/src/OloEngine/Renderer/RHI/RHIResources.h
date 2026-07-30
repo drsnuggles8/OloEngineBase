@@ -145,10 +145,26 @@ namespace OloEngine::RHI
     // second view, and under this model a second heap slot.
     // =========================================================================
 
+    // Which plane(s) of a resource an access refers to. A depth-stencil format
+    // has two, and Vulkan can transition them independently
+    // (DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL and its mirror), so a range
+    // without an aspect is not a complete subresource identifier. The engine's
+    // existing RGSubresourceRange omits this; it is added here because
+    // CreateDepthArrayCompareOffView already produces a depth-only read of a
+    // resource that is elsewhere used as a depth-stencil attachment.
+    enum class TextureAspect : u8
+    {
+        Color = 0,
+        Depth,
+        Stencil,
+        DepthStencil,
+    };
+
     struct SubresourceRange
     {
         static constexpr u32 AllRemaining = ~0u;
 
+        TextureAspect Aspect = TextureAspect::Color;
         u32 BaseMip = 0;
         u32 MipCount = AllRemaining;
         u32 BaseLayer = 0;

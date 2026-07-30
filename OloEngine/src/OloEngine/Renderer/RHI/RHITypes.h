@@ -49,7 +49,20 @@ namespace OloEngine::RHI
     // distinction ("did these two plan entries get the same object, or a
     // recycled name?").
     // -------------------------------------------------------------------------
-    struct ResourceHandle
+    // Tag-templated so the two identity levels below share one definition and
+    // cannot drift, while staying MUTUALLY NON-CONVERTIBLE — distinct Tag types
+    // make Handle<ResourceTag> and Handle<ViewTag> unrelated classes, which is
+    // the property that stops a resource id being passed where a view id is
+    // wanted. RHIBoundaryRatchetTest static_asserts both directions.
+    //
+    // `InvalidIndex` keeps its PascalCase spelling rather than the k-prefix used
+    // for some file-scope constants elsewhere: the sibling handle types this
+    // deliberately mirrors (RGTextureHandle / RGBufferHandle /
+    // RGFramebufferHandle) all spell it `InvalidIndex`, and matching the types
+    // §1.1 says we mirror beats matching a convention that is itself the
+    // minority in Renderer/ (22 k-prefixed vs 291 PascalCase static constexpr).
+    template<typename Tag>
+    struct Handle
     {
         static constexpr u32 InvalidIndex = std::numeric_limits<u32>::max();
 
@@ -61,8 +74,13 @@ namespace OloEngine::RHI
             return Index != InvalidIndex && Generation > 0;
         }
 
-        [[nodiscard]] auto operator==(const ResourceHandle& other) const -> bool = default;
+        [[nodiscard]] auto operator==(const Handle& other) const -> bool = default;
     };
+
+    struct ResourceTag;
+    struct ViewTag;
+
+    using ResourceHandle = Handle<ResourceTag>;
 
     // -------------------------------------------------------------------------
     // View identity — "which *view* of which resource?"
@@ -73,26 +91,13 @@ namespace OloEngine::RHI
     // (resource, subresource range, format reinterpretation) — not one per
     // sampler. See ViewDesc in RHIResources.h.
     //
-    // A separate handle type rather than reusing ResourceHandle, because the
+    // A separate type rather than reusing ResourceHandle, because the
     // relationship is genuinely one-to-many and the engine already proves it:
     // RendererAPI::CreateDepthArrayCompareOffView exists so one depth array can
     // be read both as sampler2DArrayShadow and as a plain sampler2DArray for the
     // PCSS blocker search. One resource, two views, two heap slots.
     // -------------------------------------------------------------------------
-    struct ViewHandle
-    {
-        static constexpr u32 InvalidIndex = std::numeric_limits<u32>::max();
-
-        u32 Index = InvalidIndex;
-        u32 Generation = 0;
-
-        [[nodiscard]] auto IsValid() const -> bool
-        {
-            return Index != InvalidIndex && Generation > 0;
-        }
-
-        [[nodiscard]] auto operator==(const ViewHandle& other) const -> bool = default;
-    };
+    using ViewHandle = Handle<ViewTag>;
 
     // -------------------------------------------------------------------------
     // Binding address — "what integer does the shader index the heap with?"
