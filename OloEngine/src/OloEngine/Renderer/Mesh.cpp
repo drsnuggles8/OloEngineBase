@@ -126,7 +126,13 @@ namespace OloEngine
 
     Ref<VertexArray> Mesh::GetVertexArray() const
     {
-        if (!m_MeshSource)
+        // Gate on IsValid(), not merely on a non-null source. The draw paths spell
+        // "nothing to draw" as `if (!mesh->GetVertexArray())`, so this is where a
+        // not-valid mesh has to report itself — and an out-of-range submesh index is
+        // exactly as not-valid as a null source. Returning the source's VAO for one
+        // would hand the renderer a real vertex array whose GetSubmesh()/GetIndexCount()
+        // say zero, i.e. a draw set up to render nothing.
+        if (!IsValid())
             return nullptr;
 
         return m_MeshSource->GetVertexArray();

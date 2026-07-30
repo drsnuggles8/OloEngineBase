@@ -39,7 +39,7 @@ its upper bound rejects the common case, not just the exotic one.
 The firing frame was not either serializer. It was the **placeholder machinery added to
 survive missing assets** (#455):
 
-```
+```text
 Scene virtual-mesh loop
   -> AssetManager::GetAsset<MeshSource>(<un-fetched dragon>)
   -> ResolveAssetOrPlaceholder            (handle registered, file absent)
