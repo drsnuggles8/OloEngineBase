@@ -121,6 +121,12 @@ namespace OloEngine
         // a destroyed registry.
         void BindPanelsToScene(const Ref<Scene>& scene, CommandHistory* history);
 
+        // Bring `m_ActiveScene` up as the running Play-mode scene: render
+        // preference, OnRuntimeStart, gameplay-event logger, panel binding.
+        // Shared by OnScenePlay and SwitchPlayScene so the two ways Play mode
+        // acquires a scene cannot drift apart.
+        void StartActiveRuntimeScene();
+
         // Service a script-requested scene switch during Play (issue #642).
         // Loads `request` (resolved against the project asset directory) as a
         // fresh runtime scene and swaps it in, leaving the EDITOR scene — and

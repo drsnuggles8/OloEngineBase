@@ -64,7 +64,21 @@ namespace OloEngine::SceneTransition
         const std::filesystem::path requested(request);
 
         // Refuse to climb out of the game's data directory. Scene requests come
-        // from script source, and no legitimate one needs "..".
+        // from script source, and no legitimate one needs to leave it.
+        //
+        // Absolute is checked FIRST and separately from "..": appending an
+        // absolute path REPLACES the left operand ([fs.path.append]), so
+        // `root / "C:/anywhere/x.olo"` is just `C:/anywhere/x.olo` — an absolute
+        // request would sail past the "..' scan below and escape the root
+        // anyway, making that scan decorative.
+        if (requested.is_absolute() || requested.has_root_name())
+        {
+            OLO_CORE_WARN("[SceneTransition] Rejecting scene request '{}': absolute paths are not allowed; "
+                          "name a scene relative to the game's scene directory.",
+                          std::string(request));
+            return {};
+        }
+
         for (const auto& part : requested)
         {
             if (part == "..")
@@ -94,7 +108,7 @@ namespace OloEngine::SceneTransition
             }
         }
 
-        // 3. As given, relative to the working directory (or absolute).
+        // 3. As given, relative to the working directory.
         for (const auto& name : names)
         {
             if (IsExistingSceneFile(name))
@@ -106,25 +120,44 @@ namespace OloEngine::SceneTransition
         // 4. Last resort: find a matching file name anywhere under Scenes/.
         //    Sorted so a project with two same-named scenes in different
         //    subdirectories resolves identically on every machine and run.
+        //
+        //    Driven by an explicit increment(ec) loop rather than a range-for:
+        //    recursive_directory_iterator's operator++ (and directory_entry's
+        //    throwing is_regular_file) raise filesystem_error on an unreadable
+        //    subdirectory, and this runs on the game thread while servicing a
+        //    script's scene switch — an escaping exception there takes the game
+        //    down over a permissions quirk in some unrelated folder. A directory
+        //    we cannot walk simply ends the search with whatever matched so far.
         const auto sceneRoot = root / "Scenes";
         std::error_code ec;
         if (std::filesystem::is_directory(sceneRoot, ec))
         {
             std::vector<std::filesystem::path> matches;
-            for (const auto& entry : std::filesystem::recursive_directory_iterator(sceneRoot, ec))
+            std::filesystem::recursive_directory_iterator iter(sceneRoot, ec);
+            const std::filesystem::recursive_directory_iterator end;
+            if (ec)
             {
-                if (!entry.is_regular_file() || !IsSceneFileExtension(entry.path()))
+                OLO_CORE_WARN("[SceneTransition] Could not scan '{}' for scenes: {}", sceneRoot.string(), ec.message());
+            }
+            for (; !ec && iter != end; iter.increment(ec))
+            {
+                if (!iter->is_regular_file(ec) || ec || !IsSceneFileExtension(iter->path()))
                 {
+                    ec.clear();
                     continue;
                 }
                 for (const auto& name : names)
                 {
-                    if (entry.path().filename() == name.filename())
+                    if (iter->path().filename() == name.filename())
                     {
-                        matches.push_back(entry.path());
+                        matches.push_back(iter->path());
                         break;
                     }
                 }
+            }
+            if (ec)
+            {
+                OLO_CORE_WARN("[SceneTransition] Scene scan of '{}' stopped early: {}", sceneRoot.string(), ec.message());
             }
             if (!matches.empty())
             {

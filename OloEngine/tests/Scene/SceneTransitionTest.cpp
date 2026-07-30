@@ -175,6 +175,25 @@ TEST_F(SceneTransitionTest, AParentDirectoryEscapeIsRejected)
     std::filesystem::remove(outside, ec);
 }
 
+TEST_F(SceneTransitionTest, AnAbsoluteRequestIsRejected)
+{
+    // An absolute request escapes the root WITHOUT any '..', because appending
+    // an absolute path replaces the left operand ([fs.path.append]) — so
+    // `root / "C:/anywhere/x.olo"` is just `C:/anywhere/x.olo`. If absolute
+    // requests were honoured, the '..' rejection above would be decorative.
+    const auto scenePath = m_Root / "Scenes" / "Level2.olo";
+    WriteSceneFile(scenePath, "Level2Marker", /*withCamera=*/true);
+    ASSERT_TRUE(scenePath.is_absolute()) << "the fixture's staging root is not absolute; test is void.";
+
+    EXPECT_TRUE(SceneTransition::ResolveScenePath(scenePath.string(), m_Root).empty())
+        << "an absolute path resolved, so a script could name any scene file on the player's disk "
+           "and sidestep the root entirely.";
+
+    // The same scene is still reachable the legitimate way.
+    EXPECT_FALSE(SceneTransition::ResolveScenePath("Level2", m_Root).empty())
+        << "rejecting absolute requests also broke ordinary relative resolution.";
+}
+
 // -----------------------------------------------------------------------------
 // Loading: succeed with a live scene, or fail leaving the caller nothing.
 // -----------------------------------------------------------------------------

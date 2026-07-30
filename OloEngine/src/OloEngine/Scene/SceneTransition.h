@@ -37,8 +37,11 @@ namespace OloEngine::SceneTransition
     /// where a shipped game's data lives.
     ///
     /// Returns an empty path when nothing matches, when the request names a
-    /// non-scene file, or when it contains a `..` component — a scene request
-    /// has no legitimate reason to climb out of the game's data directory.
+    /// non-scene file, or when it is ABSOLUTE or contains a `..` component — a
+    /// scene request has no legitimate reason to climb out of the game's data
+    /// directory. Both forms are refused, not just `..`: appending an absolute
+    /// path replaces the root, so allowing one would make the `..` check
+    /// pointless.
     [[nodiscard]] std::filesystem::path ResolveScenePath(std::string_view request,
                                                          const std::filesystem::path& rootDirectory = {});
 

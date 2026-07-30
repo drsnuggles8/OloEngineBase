@@ -60,7 +60,12 @@ namespace OloEngine
             // asset root mirrors the layout the build pipeline writes —
             // `<game>/Assets/<asset-relative path>` — which is where
             // CopyScriptFiles puts the loose .lua files.
-            MountGameProject();
+            //
+            // The manifest is read once here and handed to each consumer, so
+            // the project config, the start scene and the rendering mode can't
+            // disagree about what the file said.
+            const YAML::Node manifest = LoadGameManifest();
+            MountGameProject(manifest);
 
             // Set up runtime asset manager with pack-based loading
             auto runtimeAssetManager = Ref<RuntimeAssetManager>::Create();
@@ -84,7 +89,7 @@ namespace OloEngine
             }
 
             // Find the start scene — check manifest first, then scan Scenes/ directory
-            std::filesystem::path startScenePath = FindStartScene();
+            std::filesystem::path startScenePath = FindStartScene(manifest);
             if (startScenePath.empty())
             {
                 OLO_CORE_ERROR("[Runtime] No scene files found. Cannot start game.");
@@ -95,7 +100,7 @@ namespace OloEngine
             OLO_CORE_INFO("[Runtime] Loading start scene: {}", startScenePath.string());
 
             // Determine rendering mode from manifest
-            m_Is3DMode = ReadIs3DModeFromManifest();
+            m_Is3DMode = ReadIs3DModeFromManifest(manifest);
 
             if (m_Is3DMode)
             {
@@ -363,7 +368,7 @@ namespace OloEngine
         /// `AssetDirectory` really matters at runtime — it is what turns a
         /// project-relative `LuaScriptComponent::ScriptFile` into a real file —
         /// but Name/StartScene are filled in so diagnostics read sensibly.
-        static void MountGameProject()
+        static void MountGameProject(const YAML::Node& manifest)
         {
             ProjectConfig config;
             config.AssetDirectory = "Assets";
@@ -371,24 +376,20 @@ namespace OloEngine
             std::error_code ec;
             const auto gameRoot = std::filesystem::current_path(ec);
 
-            if (const std::filesystem::path manifestPath = "game.manifest"; std::filesystem::exists(manifestPath))
+            try
             {
-                try
+                if (manifest["Game"] && manifest["Game"]["Name"])
                 {
-                    YAML::Node manifest = YAML::LoadFile(manifestPath.string());
-                    if (manifest["Game"] && manifest["Game"]["Name"])
-                    {
-                        config.Name = manifest["Game"]["Name"].as<std::string>();
-                    }
-                    if (manifest["StartScene"])
-                    {
-                        config.StartScene = manifest["StartScene"].as<std::string>();
-                    }
+                    config.Name = manifest["Game"]["Name"].as<std::string>();
                 }
-                catch (const std::exception& e)
+                if (manifest["StartScene"])
                 {
-                    OLO_CORE_WARN("[Runtime] Failed to read project config from manifest: {}", e.what());
+                    config.StartScene = manifest["StartScene"].as<std::string>();
                 }
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_WARN("[Runtime] Failed to read project config from manifest: {}", e.what());
             }
 
             Project::NewInMemory(ec ? std::filesystem::path{} : gameRoot, config);
@@ -396,42 +397,66 @@ namespace OloEngine
                           config.Name, Project::GetProjectDirectory().string(), Project::GetAssetDirectory().string());
         }
 
-        /// Find the start scene path — reads manifest if available, then scans Scenes/
-        [[nodiscard]] static std::filesystem::path FindStartScene()
+        /// Read and parse `game.manifest` once per launch.
+        ///
+        /// Startup needs three unrelated things out of it (project config, the
+        /// start scene, the rendering mode) and each used to open, read and
+        /// parse the file for itself — three chances for the same file to be
+        /// read inconsistently, and three yaml-cpp throw sites for one small
+        /// document. Returns an invalid Node when the manifest is missing or
+        /// unparseable; every consumer already treats "key absent" as "use the
+        /// default", and an invalid Node answers `operator[]` that way.
+        [[nodiscard]] static YAML::Node LoadGameManifest()
         {
-            // 1. Check game.manifest for an explicit start scene
-            if (const std::filesystem::path manifestPath = "game.manifest"; std::filesystem::exists(manifestPath))
+            const std::filesystem::path manifestPath = "game.manifest";
+            if (!std::filesystem::exists(manifestPath))
             {
-                try
-                {
-                    YAML::Node manifest = YAML::LoadFile(manifestPath.string());
-                    if (manifest["StartScene"])
-                    {
-                        auto startScene = manifest["StartScene"].as<std::string>();
-                        // Try the path as-is (relative to game root)
-                        if (std::filesystem::exists(startScene))
-                        {
-                            return startScene;
-                        }
-                        // Try under Scenes/ in case it's just a filename
-                        if (std::filesystem::path scenePath = "Scenes" / std::filesystem::path(startScene); std::filesystem::exists(scenePath))
-                        {
-                            return scenePath;
-                        }
-                        OLO_CORE_WARN("[Runtime] Start scene from manifest not found: {}", startScene);
-                    }
+                return {};
+            }
 
-                    // Check for scene directory override
-                    if (manifest["Assets"] && manifest["Assets"]["SceneDirectory"])
-                    {
-                        auto sceneDir = manifest["Assets"]["SceneDirectory"].as<std::string>();
-                        return FindFirstSceneInDirectory(sceneDir);
-                    }
-                }
-                catch (const std::exception& e)
+            try
+            {
+                return YAML::LoadFile(manifestPath.string());
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_WARN("[Runtime] Failed to parse game manifest: {}", e.what());
+                return {};
+            }
+        }
+
+        /// Find the start scene path — uses the manifest if it named one, then scans Scenes/
+        [[nodiscard]] static std::filesystem::path FindStartScene(const YAML::Node& manifest)
+        {
+            // 1. An explicit start scene from game.manifest
+            try
+            {
+                if (manifest["StartScene"])
                 {
-                    OLO_CORE_WARN("[Runtime] Failed to parse game manifest: {}", e.what());
+                    auto startScene = manifest["StartScene"].as<std::string>();
+                    // Try the path as-is (relative to game root)
+                    if (std::filesystem::exists(startScene))
+                    {
+                        return startScene;
+                    }
+                    // Try under Scenes/ in case it's just a filename
+                    if (std::filesystem::path scenePath = "Scenes" / std::filesystem::path(startScene); std::filesystem::exists(scenePath))
+                    {
+                        return scenePath;
+                    }
+                    OLO_CORE_WARN("[Runtime] Start scene from manifest not found: {}", startScene);
                 }
+
+                // Check for scene directory override
+                if (manifest["Assets"] && manifest["Assets"]["SceneDirectory"])
+                {
+                    auto sceneDir = manifest["Assets"]["SceneDirectory"].as<std::string>();
+                    return FindFirstSceneInDirectory(sceneDir);
+                }
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_WARN("[Runtime] Failed to read the start scene from the manifest: {}", e.what());
             }
 
             // 2. Fallback: scan Scenes/ directory for the first .olo file
@@ -465,18 +490,11 @@ namespace OloEngine
             return scenes.front();
         }
 
-        /// Read the Is3DMode flag from game.manifest. Defaults to true if missing.
-        [[nodiscard]] static bool ReadIs3DModeFromManifest()
+        /// Read the Is3DMode flag from the manifest. Defaults to true if missing.
+        [[nodiscard]] static bool ReadIs3DModeFromManifest(const YAML::Node& manifest)
         {
-            const std::filesystem::path manifestPath = "game.manifest";
-            if (!std::filesystem::exists(manifestPath))
-            {
-                return true;
-            }
-
             try
             {
-                YAML::Node manifest = YAML::LoadFile(manifestPath.string());
                 if (manifest["Rendering"] && manifest["Rendering"]["Is3DMode"])
                 {
                     return manifest["Rendering"]["Is3DMode"].as<bool>();

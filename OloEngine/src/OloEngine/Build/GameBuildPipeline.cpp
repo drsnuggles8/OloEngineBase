@@ -643,28 +643,47 @@ namespace OloEngine
         std::error_code ec;
         std::filesystem::create_directories(scriptOutputRoot, ec);
 
+        // The traversal is wrapped because recursive_directory_iterator's
+        // operator++ (and directory_entry::is_regular_file) throw
+        // filesystem_error on an unreadable entry — an asset tree with one
+        // permission-denied subfolder would otherwise throw straight out of
+        // here. Build() runs on a detached FThread with no handler above it, so
+        // that would std::terminate the whole editor rather than fail a build
+        // step this caller deliberately treats as non-fatal.
         u32 copiedCount = 0;
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(assetDir, ec))
+        try
         {
-            if (!entry.is_regular_file() || entry.path().extension() != ".lua")
+            for (const auto& entry : std::filesystem::recursive_directory_iterator(assetDir, ec))
             {
-                continue;
+                if (!entry.is_regular_file() || entry.path().extension() != ".lua")
+                {
+                    continue;
+                }
+
+                auto relativePath = std::filesystem::relative(entry.path(), assetDir, ec);
+                auto destPath = scriptOutputRoot / relativePath;
+
+                std::filesystem::create_directories(destPath.parent_path(), ec);
+                std::filesystem::copy_file(entry.path(), destPath,
+                                           std::filesystem::copy_options::overwrite_existing, ec);
+                if (ec)
+                {
+                    OLO_CORE_WARN("[GameBuild] Failed to copy script file {}: {}", relativePath.string(), ec.message());
+                    ec.clear();
+                    continue;
+                }
+
+                ++copiedCount;
             }
-
-            auto relativePath = std::filesystem::relative(entry.path(), assetDir, ec);
-            auto destPath = scriptOutputRoot / relativePath;
-
-            std::filesystem::create_directories(destPath.parent_path(), ec);
-            std::filesystem::copy_file(entry.path(), destPath,
-                                       std::filesystem::copy_options::overwrite_existing, ec);
-            if (ec)
-            {
-                OLO_CORE_WARN("[GameBuild] Failed to copy script file {}: {}", relativePath.string(), ec.message());
-                ec.clear();
-                continue;
-            }
-
-            ++copiedCount;
+        }
+        catch (const std::filesystem::filesystem_error& e)
+        {
+            // Loud, not silent: the shipped game is missing scripts it should
+            // have had, and "the level does nothing" is a miserable way to find
+            // that out later.
+            OLO_CORE_ERROR("[GameBuild] Lua script scan of '{}' aborted after {} file(s): {}",
+                           assetDir.string(), copiedCount, e.what());
+            return true;
         }
 
         if (copiedCount == 0)

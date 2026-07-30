@@ -3671,6 +3671,16 @@ namespace OloEngine
             }
         }
 
+        StartActiveRuntimeScene();
+    }
+
+    // Bring m_ActiveScene up as the running Play-mode scene. Shared by the two
+    // ways Play mode acquires one — pressing Play, and a script switching scenes
+    // mid-session (issue #642) — so neither can drift from the other on what
+    // "started" means. The order matters: preference, then start, then the
+    // observers that a start resets.
+    void EditorLayer::StartActiveRuntimeScene()
+    {
         // Apply the render-interpolation preference to the fresh runtime scene
         // (#502): Play renders interpolated poses between fixed ticks unless the
         // user disabled it.
@@ -3740,16 +3750,13 @@ namespace OloEngine
         m_ActiveScene->OnRuntimeStop();
 
         m_ActiveScene = loaded.LoadedScene;
-        m_ActiveScene->SetRenderInterpolationEnabled(m_Prefs.RenderInterpolation);
+        // Unlike OnScenePlay's Scene::Copy, this scene was just deserialized and
+        // has never seen the viewport, so size it before the runtime starts.
         if (m_ViewportSize.x > 0.0f && m_ViewportSize.y > 0.0f)
         {
             m_ActiveScene->OnViewportResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
         }
-        m_ActiveScene->OnRuntimeStart();
-        AttachGameplayEventLogger(*m_ActiveScene);
-
-        BindPanelsToScene(m_ActiveScene, nullptr);
-        m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
+        StartActiveRuntimeScene();
         return true;
     }
 
