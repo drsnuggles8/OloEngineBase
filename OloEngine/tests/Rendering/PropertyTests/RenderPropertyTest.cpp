@@ -10,18 +10,73 @@
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
 
+#if defined(OLO_TESTS_HAVE_EGL)
+// Keep X11's headers out of this translation unit. `<EGL/eglplatform.h>`
+// pulls in `<X11/Xlib.h>` unless told otherwise, and Xlib defines `None` as
+// a bare `0L` macro — which silently mangles every `None` enumerator the
+// engine headers declare (MeshComponent::Primitive::None among them). The
+// surfaceless path never touches X, so opt out of the headers entirely.
+#define EGL_NO_X11 1
+#define MESA_EGL_NO_X11_HEADERS 1
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#endif
+
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
 #include <filesystem>
 #include <mutex>
+#include <string>
 #include <vector>
 
 namespace OloEngine::Tests
 {
     namespace
     {
+        // Which windowing/context path to use for the shared GL context, via
+        // the OLO_TEST_GL_BACKEND environment variable.
+        //
+        //   Auto (default) — prefer GLFW, the context a developer gets locally;
+        //                    fall back to EGL when GLFW cannot reach a display
+        //                    server, i.e. a headless Linux box that still has a
+        //                    perfectly usable GPU.
+        //   Glfw / Egl     — pin one path. Headless CI pins `egl` so that a
+        //                    missing display server is a deterministic choice
+        //                    rather than a silent backend switch: two backends
+        //                    can produce subtly different pixels, and a golden
+        //                    baseline must know which one produced it.
+        enum class GlBackend
+        {
+            Auto,
+            Glfw,
+            Egl
+        };
+
+        GlBackend SelectBackend()
+        {
+            const char* raw = std::getenv("OLO_TEST_GL_BACKEND");
+            if (raw == nullptr || raw[0] == '\0')
+                return GlBackend::Auto;
+
+            std::string value(raw);
+            std::transform(value.begin(), value.end(), value.begin(),
+                           [](unsigned char c)
+                           { return static_cast<char>(std::tolower(c)); });
+
+            if (value == "egl")
+                return GlBackend::Egl;
+            if (value == "glfw")
+                return GlBackend::Glfw;
+
+            // Unrecognised value: fall back to Auto rather than failing hard —
+            // a typo in CI config should degrade to the normal behaviour, and
+            // the GPU tests will report themselves skipped if nothing works.
+            return GlBackend::Auto;
+        }
+
         // ---------------------------------------------------------------
         // Singleton GPU-context. Created on first call to IsGpuAvailable.
         // No teardown: process exit reclaims GL state. This avoids order-
@@ -32,6 +87,10 @@ namespace OloEngine::Tests
             std::once_flag m_InitOnce;
             bool m_Available = false;
             GLFWwindow* m_Window = nullptr;
+#if defined(OLO_TESTS_HAVE_EGL)
+            EGLDisplay m_EglDisplay = EGL_NO_DISPLAY;
+            EGLContext m_EglContext = EGL_NO_CONTEXT;
+#endif
 
             static GpuContext& Get()
             {
@@ -47,42 +106,168 @@ namespace OloEngine::Tests
                                    if (!ChangeToOloEditorDir())
                                        return;
 
-                                   if (!::glfwInit())
-                                       return;
+                                   const GlBackend backend = SelectBackend();
 
-                                   ::glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-                                   ::glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-                                   ::glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-                                   ::glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-                                   ::glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
-
-                                   m_Window = ::glfwCreateWindow(1, 1, "OloEngine-RenderPropertyTest", nullptr, nullptr);
-                                   if (!m_Window)
+                                   if (backend != GlBackend::Egl && TryInitGlfw())
                                    {
+                                       m_Available = true;
                                        return;
                                    }
 
-                                   ::glfwMakeContextCurrent(m_Window);
-                                   const int version = ::gladLoadGL(reinterpret_cast<GLADloadfunc>(::glfwGetProcAddress));
-                                   if (version == 0)
+#if defined(OLO_TESTS_HAVE_EGL)
+                                   if (backend != GlBackend::Glfw && TryInitEgl())
                                    {
-                                       ::glfwDestroyWindow(m_Window);
-                                       m_Window = nullptr;
+                                       m_Available = true;
                                        return;
                                    }
-
-                                   const int major = GLAD_VERSION_MAJOR(version);
-                                   const int minor = GLAD_VERSION_MINOR(version);
-                                   if (major < 4 || (major == 4 && minor < 6))
-                                   {
-                                       ::glfwDestroyWindow(m_Window);
-                                       m_Window = nullptr;
-                                       return;
-                                   }
-
-                                   m_Available = true;
+#endif
                                });
             }
+
+            // Shared by both backends: glad resolves against whichever loader
+            // owns the now-current context, and we require a full 4.6 core
+            // profile either way.
+            static bool LoadGladAndCheckVersion(GLADloadfunc loader)
+            {
+                const int version = ::gladLoadGL(loader);
+                if (version == 0)
+                    return false;
+
+                const int major = GLAD_VERSION_MAJOR(version);
+                const int minor = GLAD_VERSION_MINOR(version);
+                return (major > 4) || (major == 4 && minor >= 6);
+            }
+
+            bool TryInitGlfw()
+            {
+                if (!::glfwInit())
+                    return false;
+
+                ::glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+                ::glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+                ::glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+                ::glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+                ::glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+
+                m_Window = ::glfwCreateWindow(1, 1, "OloEngine-RenderPropertyTest", nullptr, nullptr);
+                if (!m_Window)
+                    return false;
+
+                ::glfwMakeContextCurrent(m_Window);
+                if (!LoadGladAndCheckVersion(reinterpret_cast<GLADloadfunc>(::glfwGetProcAddress)))
+                {
+                    ::glfwDestroyWindow(m_Window);
+                    m_Window = nullptr;
+                    return false;
+                }
+
+                return true;
+            }
+
+#if defined(OLO_TESTS_HAVE_EGL)
+            bool TryInitEgl()
+            {
+                auto getPlatformDisplay =
+                    reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(::eglGetProcAddress("eglGetPlatformDisplayEXT"));
+                if (getPlatformDisplay == nullptr)
+                    return false;
+
+                // 1. Mesa's surfaceless platform: no X, no Wayland, no GBM device
+                //    to pick. This is the path a headless CI box takes.
+                if (TryInitEglOnDisplay(getPlatformDisplay(kPlatformSurfacelessMesa, EGL_DEFAULT_DISPLAY, nullptr)))
+                    return true;
+
+                // 2. Otherwise enumerate EGL devices and take the first backed by
+                //    a DRM render node. Skipping the node-less entries is not
+                //    cosmetic: Mesa also publishes an EGL_MESA_device_software
+                //    device, and binding that would hand us llvmpipe while the
+                //    run is labelled with a hardware vendor's golden set.
+                auto queryDevices =
+                    reinterpret_cast<PFNEGLQUERYDEVICESEXTPROC>(::eglGetProcAddress("eglQueryDevicesEXT"));
+                auto queryDeviceString =
+                    reinterpret_cast<PFNEGLQUERYDEVICESTRINGEXTPROC>(::eglGetProcAddress("eglQueryDeviceStringEXT"));
+                if (queryDevices == nullptr || queryDeviceString == nullptr)
+                    return false;
+
+                constexpr EGLint kMaxDevices = 8;
+                EGLDeviceEXT devices[kMaxDevices]{};
+                EGLint deviceCount = 0;
+                if (!queryDevices(kMaxDevices, devices, &deviceCount))
+                    return false;
+
+                for (EGLint i = 0; i < deviceCount; ++i)
+                {
+                    if (queryDeviceString(devices[i], kDrmRenderNodeFileExt) == nullptr)
+                        continue;
+
+                    if (TryInitEglOnDisplay(getPlatformDisplay(EGL_PLATFORM_DEVICE_EXT, devices[i], nullptr)))
+                        return true;
+                }
+
+                return false;
+            }
+
+            bool TryInitEglOnDisplay(EGLDisplay display)
+            {
+                if (display == EGL_NO_DISPLAY)
+                    return false;
+
+                if (!::eglInitialize(display, nullptr, nullptr))
+                    return false;
+
+                // Desktop GL, not GLES — the engine is a GL 4.6 DSA renderer.
+                if (!::eglBindAPI(EGL_OPENGL_API))
+                    return false;
+
+                constexpr EGLint configAttribs[] = {
+                    EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+                    EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
+                    EGL_RED_SIZE, 8,
+                    EGL_GREEN_SIZE, 8,
+                    EGL_BLUE_SIZE, 8,
+                    EGL_ALPHA_SIZE, 8,
+                    EGL_NONE
+                };
+                EGLConfig config{};
+                EGLint configCount = 0;
+                if (!::eglChooseConfig(display, configAttribs, &config, 1, &configCount) || configCount < 1)
+                    return false;
+
+                constexpr EGLint contextAttribs[] = {
+                    EGL_CONTEXT_MAJOR_VERSION, 4,
+                    EGL_CONTEXT_MINOR_VERSION, 6,
+                    EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
+                    EGL_NONE
+                };
+                EGLContext context = ::eglCreateContext(display, config, EGL_NO_CONTEXT, contextAttribs);
+                if (context == EGL_NO_CONTEXT)
+                    return false;
+
+                // Surfaceless on purpose: every pixel the suite inspects is read
+                // back from an FBO, so a default framebuffer would go unused.
+                if (!::eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, context))
+                {
+                    ::eglDestroyContext(display, context);
+                    return false;
+                }
+
+                if (!LoadGladAndCheckVersion(reinterpret_cast<GLADloadfunc>(::eglGetProcAddress)))
+                {
+                    ::eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+                    ::eglDestroyContext(display, context);
+                    return false;
+                }
+
+                m_EglDisplay = display;
+                m_EglContext = context;
+                return true;
+            }
+
+            // Spelled out rather than relying on the SDK headers being new enough
+            // to declare them.
+            static constexpr EGLenum kPlatformSurfacelessMesa = 0x31DD; // EGL_PLATFORM_SURFACELESS_MESA
+            static constexpr EGLint kDrmRenderNodeFileExt = 0x3377;     // EGL_DRM_RENDER_NODE_FILE_EXT
+#endif
 
             // Walk up from CWD looking for <candidate>/OloEditor/assets/shaders.
             // chdir into the OloEditor folder if found, so Shader::Create's

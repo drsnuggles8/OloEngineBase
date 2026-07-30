@@ -2,6 +2,7 @@
 
 [![Windows](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/Windows.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/Windows.yml)
 [![Sanitizers](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/asan.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/asan.yml)
+[![GPU Conformance (AMD, self-hosted)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/gpu-conformance-amd.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/gpu-conformance-amd.yml)
 [![Cross-Vendor Conformance](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/cross-vendor.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/cross-vendor.yml)
 [![Fuzz Smoke](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/fuzz.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/fuzz.yml)
 [![SonarCloud Scan](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/SonarCloud.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/SonarCloud.yml)
@@ -26,6 +27,7 @@ Metallic and dielectric PBR spheres (a roughness sweep) reflecting a procedural 
 - [Building & running](#building--running)
 - [Features](#features)
 - [Testing](#testing)
+- [Continuous integration](#continuous-integration)
 - [Tooling](#tooling)
 - [Dependencies](#dependencies)
 - [Code style & pre-commit hooks](#code-style--pre-commit-hooks)
@@ -173,6 +175,34 @@ build\OloEngine\tests\Debug\OloEngine-Tests.exe --gtest_filter=SuiteName.TestNam
 ```
 
 The rationale, per-layer reference, classification rules, and anti-patterns live in [docs/testing.md](docs/testing.md) and [docs/agent-rules/testing-architecture.md](docs/agent-rules/testing-architecture.md).
+
+## Continuous integration
+
+### Per-PR and per-push
+
+These gate every change and run on GitHub-hosted runners.
+
+| Workflow | Status | Covers |
+| --- | --- | --- |
+| [Windows](.github/workflows/Windows.yml) | [![Windows](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/Windows.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/Windows.yml) | MSVC build + full suite via CTest |
+| [Sanitizers](.github/workflows/asan.yml) | [![Sanitizers](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/asan.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/asan.yml) | ASan (Windows/clang-cl), ASan+LSan / UBSan / TSan (Linux/Clang) |
+| [SonarCloud Scan](.github/workflows/SonarCloud.yml) | [![SonarCloud Scan](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/SonarCloud.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/SonarCloud.yml) | Static analysis (see [sonarqube-review-alignment.md](docs/agent-rules/sonarqube-review-alignment.md)) |
+| [Pre-commit checks](.github/workflows/pre-commit.yml) | [![Pre-commit checks](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/pre-commit.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/pre-commit.yml) | Formatting, YAML, test-catalogue classification |
+
+### Scheduled
+
+Cron times are **UTC** — GitHub's scheduler does not observe DST, so local times shift by an hour across the year. Every one of these is also `workflow_dispatch`-able from the Actions tab. Scheduled runs may start tens of minutes late under load.
+
+| Workflow | Status | Cadence (UTC) | Runs on | Covers |
+| --- | --- | --- | --- | --- |
+| [GPU Conformance (AMD)](.github/workflows/gpu-conformance-amd.yml) | [![GPU Conformance (AMD, self-hosted)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/gpu-conformance-amd.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/gpu-conformance-amd.yml) | nightly 00:47 | **self-hosted** Linux / AMD Navi 10 | The renderer's visual, golden and perf layers against a **real GPU** — they skip everywhere else. See [self-hosted-gpu-runner.md](docs/ops/self-hosted-gpu-runner.md) |
+| [Cross-Vendor Conformance](.github/workflows/cross-vendor.yml) | [![Cross-Vendor Conformance](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/cross-vendor.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/cross-vendor.yml) | nightly 03:47 | GitHub-hosted Windows | L1/3/5/6/8 against Mesa **llvmpipe** (software) |
+| [Fuzz Smoke](.github/workflows/fuzz.yml) | [![Fuzz Smoke](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/fuzz.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/fuzz.yml) | nightly 04:13 | GitHub-hosted Windows | Parser / deserializer fuzzing |
+| [Flaky repro (#281)](.github/workflows/flaky-repro-281.yml) | [![Flaky repro (#281)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/flaky-repro-281.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/flaky-repro-281.yml) | nightly 07:00 | GitHub-hosted Windows | Repeat-runs a known-flaky test to hunt issue #281 |
+| [Video (FFmpeg backend)](.github/workflows/video-ffmpeg.yml) | [![Video (FFmpeg backend)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/video-ffmpeg.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/video-ffmpeg.yml) | weekly, Mon 06:00 | GitHub-hosted matrix | `OLO_VIDEO_FFMPEG=ON` build + decode tests |
+| [reflection-status-check](.github/workflows/reflection-status-check.yml) | [![reflection-status-check](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/reflection-status-check.yml/badge.svg?branch=master)](https://github.com/drsnuggles8/OloEngineBase/actions/workflows/reflection-status-check.yml) | monthly, 1st 09:07 | GitHub-hosted Linux | Reminder to re-check C++26 reflection toolchain support |
+
+**Hardware-GPU vendor coverage** is AMD-only. The goldens in `assets/tests/golden/` are baselined on NVIDIA, but only ever from a developer machine — there is no NVIDIA or Intel CI. llvmpipe is a third *software* implementation, not a second vendor, so it catches spec-compliance drift rather than driver divergence.
 
 ## Tooling
 

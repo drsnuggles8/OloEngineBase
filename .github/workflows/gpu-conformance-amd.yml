@@ -1,0 +1,327 @@
+name: GPU Conformance (AMD, self-hosted)
+
+# Layer 9 of the renderer testing pyramid (docs/agent-rules/testing-architecture.md,
+# row "L9 Cross-vendor") — the HARDWARE half that cross-vendor.yml's header has
+# always pointed at but that never existed:
+#
+#     "Hardware-GPU cross-vendor coverage (NVIDIA / AMD / Intel) is tracked
+#      separately on a self-hosted runner matrix — see issue tracker."
+#
+# GitHub-hosted runners have no usable GPU, so every test built on the
+# RenderPropertyFixture GL-context gate (97 test files at time of writing)
+# hits `GTEST_SKIP() << "no usable GL 4.6 context available"` in CI. That is
+# the entire visual/golden/perf half of the pyramid running nowhere except a
+# developer's Windows box. cross-vendor.yml substitutes Mesa llvmpipe, but
+# llvmpipe is a THIRD software implementation — not a second *vendor*. It
+# structurally cannot catch AMD GLSL-compiler or driver divergence from the
+# NVIDIA hardware the goldens are baselined on.
+#
+# This job runs the real suite against a real AMD Navi 10 (RX 5600 XT) via
+# Mesa radeonsi, headless, on a self-hosted Linux runner.
+#
+# ---------------------------------------------------------------------------
+# SECURITY: why this workflow is safe on a PUBLIC repository
+# ---------------------------------------------------------------------------
+# GitHub is explicit that self-hosted runners on public repos are dangerous:
+# "forks of your public repository can potentially run dangerous code on your
+# self-hosted runner machine by creating a pull request that executes the code
+# in a workflow."
+#
+# We do not *mitigate* that risk here — we remove it structurally:
+#
+#   * There is NO `pull_request` trigger, and NO `pull_request_target`. A fork
+#     PR can therefore never schedule work onto the self-hosted runner, with or
+#     without approval settings. This is the single most important line in the
+#     file; do not add a PR trigger to this workflow.
+#   * `schedule` only ever runs on the default branch, from repo-owned code.
+#   * `workflow_dispatch` requires write access to the repository.
+#   * The job requests no secrets. Nothing here needs one; keep it that way so a
+#     runner compromise cannot exfiltrate a token.
+#   * `permissions: contents: read` — the GITHUB_TOKEN is read-only, and
+#     checkout is told not to persist it into .git/config.
+#
+# The runner itself must additionally be ephemeral and run as a dedicated,
+# unprivileged user isolated from any other runners on the host — see
+# docs/ops/self-hosted-gpu-runner.md.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 00:47 UTC — roughly 02:00 German local (02:47 CEST / 01:47 CET; GitHub cron
+    # is UTC-only and does not follow DST, so it drifts an hour across the year).
+    # Odd minute follows the house convention (see cross-vendor.yml) of avoiding
+    # the on-the-hour scheduling surge. GitHub may still delay scheduled runs by
+    # tens of minutes under load; this job is not time-critical.
+    - cron: '47 0 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  # Only workflow_dispatch and schedule reach this workflow, so cancelling a
+  # stale run is always safe — and important here, because a self-hosted runner
+  # has a fixed pool of one. A hung run must not block tomorrow's.
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  amd-hardware:
+    name: Linux / AMD Navi 10 (radeonsi, hardware)
+    # Defence in depth: even though no fork-reachable trigger exists, refuse to
+    # run if this workflow file ever executes outside the upstream repository.
+    if: github.repository == 'drsnuggles8/OloEngineBase'
+    runs-on: [self-hosted, linux, x64, gpu-amd]
+    timeout-minutes: 120
+
+    env:
+      BUILD_TYPE: Release
+      # Goldens are baselined on NVIDIA hardware; GoldenImageTests.cpp reads this
+      # to select a per-vendor golden directory (assets/tests/golden/amd/) so an
+      # AMD run can never clobber the NVIDIA baseline set.
+      OLOENGINE_GOLDEN_VENDOR: amd
+      # Perf history rows are keyed by machine. A dedicated box is far quieter
+      # than a shared hosted VM, so these numbers are actually meaningful — but
+      # they must not land in the same series as hosted or llvmpipe runs.
+      OLOENGINE_PERF_MACHINE: selfhosted-amd-navi10-linux
+      # CPM/FetchContent pull vendor sources into OloEngine/vendor/ *inside the
+      # workspace*, which the wipe + checkout clears every run. Without a cache
+      # outside the workspace every nightly re-downloads and re-builds the whole
+      # vendor set. Both dirs live in the runner user's home, not the workspace.
+      CPM_SOURCE_CACHE: /home/gh-runner-olo/.cache/cpm
+      CCACHE_DIR: /home/gh-runner-olo/.cache/ccache
+
+    steps:
+      # A self-hosted runner's workspace PERSISTS between jobs. Even with an
+      # ephemeral runner the _work directory can survive re-registration, so
+      # never assume a clean tree: a stale generated .inl or CMake cache from a
+      # previous commit produces failures that look like real regressions.
+      - name: Wipe workspace
+        run: |
+          set -euo pipefail
+          ws="${{ github.workspace }}"
+          # Never let an empty/unexpected expansion turn this into `rm -rf /*`.
+          # A self-hosted runner has a real filesystem behind it, unlike a
+          # throwaway hosted VM — this guard is not paranoia.
+          case "$ws" in
+            ''|'/'|'/home'|'/home/'*/) echo "::error::refusing to wipe '$ws'"; exit 1 ;;
+          esac
+          [ -d "$ws/_actions" ] && { echo "::error::'$ws' looks like the runner root"; exit 1; }
+          echo "Wiping $ws"
+          find "$ws" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          mkdir -p "$ws"
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # This job makes no authenticated git writes. Don't leave the token in
+          # .git/config where a later step or a compromised dependency can read
+          # it — the same reasoning as Windows.yml's checkout.
+          persist-credentials: false
+
+      # ---------------------------------------------------------------------
+      # Preflight: prove we have a HARDWARE context before spending an hour
+      # building. This is the anti-silent-failure guard, and it is the whole
+      # reason this job is trustworthy: Mesa will happily fall back to llvmpipe
+      # if the render node is missing, the amdgpu module failed to load, or the
+      # runner user lost its `render` group. That fallback is SILENT — the suite
+      # would go green and we would quietly baseline llvmpipe output into
+      # assets/tests/golden/amd/, which is exactly the "tests green, screen
+      # wrong" failure mode CLAUDE.md warns about. Fail loudly instead.
+      # ---------------------------------------------------------------------
+      - name: Preflight — require hardware GL 4.6 (reject llvmpipe)
+        run: |
+          set -euo pipefail
+          test -e /dev/dri/renderD128 || { echo "::error::no /dev/dri/renderD128 - amdgpu not loaded?"; exit 1; }
+
+          cat > /tmp/glprobe.c <<'PROBE'
+          #include <EGL/egl.h>
+          #include <EGL/eglext.h>
+          #include <GL/gl.h>
+          #include <stdio.h>
+          #include <string.h>
+          #ifndef EGL_PLATFORM_SURFACELESS_MESA
+          #define EGL_PLATFORM_SURFACELESS_MESA 0x31DD
+          #endif
+          int main(void) {
+            PFNEGLGETPLATFORMDISPLAYEXTPROC gpd =
+              (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
+            if (!gpd) { printf("no eglGetPlatformDisplayEXT\n"); return 1; }
+            EGLDisplay d = gpd(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, NULL);
+            if (d == EGL_NO_DISPLAY || !eglInitialize(d, 0, 0)) { printf("eglInitialize failed\n"); return 1; }
+            eglBindAPI(EGL_OPENGL_API);
+            const EGLint ca[] = { EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+                                  EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
+                                  EGL_RED_SIZE,8, EGL_GREEN_SIZE,8, EGL_BLUE_SIZE,8, EGL_ALPHA_SIZE,8,
+                                  EGL_NONE };
+            EGLConfig c; EGLint n = 0;
+            if (!eglChooseConfig(d, ca, &c, 1, &n) || n < 1) { printf("chooseConfig failed\n"); return 1; }
+            const EGLint xa[] = { EGL_CONTEXT_MAJOR_VERSION, 4, EGL_CONTEXT_MINOR_VERSION, 6,
+                                  EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
+                                  EGL_NONE };
+            EGLContext x = eglCreateContext(d, c, EGL_NO_CONTEXT, xa);
+            if (x == EGL_NO_CONTEXT) { printf("no GL 4.6 core context\n"); return 1; }
+            if (!eglMakeCurrent(d, EGL_NO_SURFACE, EGL_NO_SURFACE, x)) { printf("makeCurrent failed\n"); return 1; }
+            const char* r = (const char*)glGetString(GL_RENDERER);
+            printf("GL_VENDOR   : %s\n", (const char*)glGetString(GL_VENDOR));
+            printf("GL_RENDERER : %s\n", r);
+            printf("GL_VERSION  : %s\n", (const char*)glGetString(GL_VERSION));
+            if (!r) return 1;
+            if (strstr(r,"llvmpipe") || strstr(r,"softpipe") || strstr(r,"swrast")) {
+              printf("SOFTWARE RENDERER - refusing to baseline llvmpipe as AMD\n");
+              return 2;
+            }
+            return 0;
+          }
+          PROBE
+
+          gcc -O1 -o /tmp/glprobe /tmp/glprobe.c -lEGL -lGL
+          if ! /tmp/glprobe; then
+            echo "::error::Preflight failed - no hardware GL 4.6 context (see output above)."
+            exit 1
+          fi
+          echo "Hardware GL 4.6 context confirmed."
+
+      # The engine hard-fails configure without the Vulkan SDK: it needs not just
+      # libvulkan but shaderc / glslang / SPIRV-Tools / SPIRV-Cross, and
+      # OloEngine/CMakeLists.txt raises FATAL_ERROR on the first one missing.
+      # Distro packages are not enough (Rocky ships the loader, not the SDK), so
+      # the SDK is provisioned on the box and pointed at via CMAKE_PREFIX_PATH —
+      # a single prefix resolves all of them. Checked here so the failure reads
+      # as "provision the runner" rather than a CMake stack trace 5 minutes in.
+      - name: Preflight — Vulkan SDK
+        run: |
+          set -euo pipefail
+          : "${VULKAN_SDK:?VULKAN_SDK is not set - see docs/ops/self-hosted-gpu-runner.md}"
+          test -d "$VULKAN_SDK/include/vulkan" || { echo "::error::no headers under $VULKAN_SDK"; exit 1; }
+          test -e "$VULKAN_SDK/lib/libshaderc_shared.so" || { echo "::error::no shaderc under $VULKAN_SDK"; exit 1; }
+          echo "Vulkan SDK: $VULKAN_SDK"
+
+      - name: Configure CMake
+        # Heavy optional interchange deps (USD/Alembic/MaterialX) and the FFmpeg
+        # from-source build are all irrelevant to GPU rendering conformance and
+        # cost far more than they'd tell us — same reasoning as cross-vendor.yml.
+        # USD additionally cannot install unprivileged: its pxrConfig.cmake rule
+        # ignores `cmake --install --prefix` and writes to /usr/local, so an
+        # OLO_WITH_USD=ON build fails as non-root regardless.
+        #
+        # ccache: unlike a hosted runner, this box keeps its cache between runs,
+        # so a warm rebuild is minutes rather than an hour.
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+          -DCMAKE_PREFIX_PATH="$VULKAN_SDK"
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -DOLO_VIDEO_FFMPEG=OFF
+          -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
+
+      - name: Build tests
+        # --parallel 12, not nproc (16): this host also runs the gh-runner-1/2/3
+        # runners for another repository. A nightly at ~02:47 local should
+        # normally find them idle, but "normally" is not "always" — leave
+        # headroom so a concurrent build on the other runners doesn't turn into
+        # swap thrash or an OOM during the OloEngine-Tests link.
+        run: cmake --build build --target OloEngine-Tests --parallel 12
+
+      # ---------------------------------------------------------------------
+      # The suite runs from OloEditor/ — OloEditor, OloRuntime and the test
+      # binary all resolve assets, shaders and scenes relative to that directory
+      # (see CLAUDE.md "Working directory matters"). Running from the repo root
+      # yields missing-shader failures that look like rendering regressions.
+      # ---------------------------------------------------------------------
+      - name: Run full suite on AMD hardware
+        working-directory: OloEditor
+        timeout-minutes: 60
+        env:
+          # Force the headless EGL surfaceless path: this box has no X server and
+          # no Wayland compositor, so GLFW cannot create a window. Requires the
+          # EGL context fallback in RenderPropertyTest.cpp (see
+          # docs/ops/self-hosted-gpu-runner.md "Prerequisite").
+          OLO_TEST_GL_BACKEND: egl
+          # Belt and braces against a silent software fallback mid-run.
+          MESA_LOADER_DRIVER_OVERRIDE: radeonsi
+        run: |
+          mkdir -p ../test_results
+          ../build/OloEngine/tests/OloEngine-Tests \
+            --gtest_catch_exceptions=1 \
+            --gtest_output=xml:../test_results/gpu_amd.xml
+
+      # ---------------------------------------------------------------------
+      # The failure mode this job exists to prevent is also its own worst
+      # failure mode: if the EGL context path breaks, every GPU-gated test
+      # calls GTEST_SKIP() and the run goes GREEN having verified nothing.
+      # A green nightly that silently tests zero pixels is worse than a red
+      # one. RenderPropertyFixture emits an exact skip reason, so assert that
+      # it never appears rather than guessing at a pass/skip ratio.
+      # ---------------------------------------------------------------------
+      - name: Assert GPU tests actually ran
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import sys, xml.etree.ElementTree as ET
+
+          # Both GPU-gate sites, which word their skip differently:
+          #   RendererAttachedTest.cpp  -> "no usable GL 4.6 context available"
+          #   OLO_ENSURE_GPU_OR_SKIP()  -> "No GPU / GL 4.5+ context available..."
+          # Matched case-insensitively so a reworded message still trips this.
+          NEEDLES = ("no usable gl 4.6 context", "no gpu / gl 4.5+ context")
+          try:
+              root = ET.parse("test_results/gpu_amd.xml").getroot()
+          except Exception as e:
+              print(f"::error::could not read gtest XML: {e}")
+              sys.exit(1)
+
+          gpu_skips, total = [], 0
+          for case in root.iter("testcase"):
+              total += 1
+              for sk in case.iter("skipped"):
+                  blob = f"{sk.get('message') or ''} {sk.text or ''}".lower()
+                  if any(n in blob for n in NEEDLES):
+                      gpu_skips.append(f"{case.get('classname')}.{case.get('name')}")
+
+          print(f"{total} test cases in report; {len(gpu_skips)} skipped for a missing GL context")
+          if gpu_skips:
+              print(f"::error::{len(gpu_skips)} GPU test(s) skipped - the headless EGL context "
+                    f"was not acquired, so this run verified no pixels.")
+              for name in gpu_skips[:20]:
+                  print(f"  skipped: {name}")
+              sys.exit(1)
+          if total == 0:
+              print("::error::gtest reported zero test cases")
+              sys.exit(1)
+          print("OK - no GPU test was skipped for want of a context.")
+          PY
+
+      - name: Perf-history trend analysis
+        if: always()
+        run: python3 OloEngine/tests/scripts/perf_trend.py
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gpu_amd_results
+          path: |
+            test_results/gpu_amd.xml
+            OloEngine/tests/Rendering/PropertyTests/perf_history/*.tsv
+          if-no-files-found: warn
+
+      # The whole point of a GPU job is the pixels. On failure, get the actual
+      # and diff images off the box so they can be inspected without SSH.
+      - name: Upload golden-image diffs and visual evidence on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gpu_amd_golden_diffs
+          path: |
+            OloEditor/assets/tests/golden/*.actual.png
+            OloEditor/assets/tests/golden/*.diff.png
+            OloEditor/assets/tests/golden/amd/*.actual.png
+            OloEditor/assets/tests/golden/amd/*.diff.png
+            OloEditor/assets/tests/visual/**/*.png
+          if-no-files-found: ignore
+
+      # Build trees for this engine are tens of GB and the box is shared with
+      # other runners; don't let a month of nightlies fill the disk.
+      - name: Report disk usage
+        if: always()
+        run: df -h "${{ github.workspace }}" && du -sh build 2>/dev/null || true
