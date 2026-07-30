@@ -151,7 +151,26 @@ namespace OloEngine
 
         // Create MeshSource first, then create Mesh from it
         auto meshSource = Ref<MeshSource>::Create(vertices, indices);
-        m_Mesh = Ref<Mesh>::Create(meshSource);
+
+        // A Mesh addresses its geometry THROUGH a submesh, and MeshSource's
+        // (vertices, indices) constructor does not create one — so without this the
+        // stand-in cube had no drawable range at all (GetIndexCount() == 0) and the
+        // wrapping Mesh was not even IsValid(). Worse, Mesh's constructor used to assert
+        // exactly this condition, so the placeholder built for a MISSING asset was itself
+        // an abort: a fresh clone that had not run scripts\Fetch-Assets.ps1 died the
+        // moment anything resolved an un-fetched handle (issue #694). Deliberately not
+        // Build()ing: this is created lazily on the first unresolvable handle, which can
+        // happen with no GL context (headless tests, the asset thread), and the draw path
+        // already skips a mesh whose vertex array is null.
+        Submesh cube;
+        cube.m_BaseVertex = 0;
+        cube.m_BaseIndex = 0;
+        cube.m_MaterialIndex = 0;
+        cube.m_VertexCount = static_cast<u32>(vertices.size());
+        cube.m_IndexCount = static_cast<u32>(indices.size());
+        meshSource->AddSubmesh(cube);
+
+        m_Mesh = Ref<Mesh>::Create(meshSource, 0u);
 
         OLO_CORE_TRACE("PlaceholderMesh: Created placeholder cube mesh with {} vertices, {} indices",
                        vertices.size(), indices.size());

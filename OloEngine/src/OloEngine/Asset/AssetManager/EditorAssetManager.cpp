@@ -935,7 +935,30 @@ namespace OloEngine
         std::error_code existsEc;
         if (auto absolutePath = m_ProjectPath / metadata.FilePath; !std::filesystem::exists(absolutePath, existsEc) || existsEc)
         {
-            OLO_CORE_ERROR("Cannot load asset: file does not exist: {}", metadata.FilePath.string());
+            // Warn ONCE per handle (issue #694). A registered-but-absent asset is resolved
+            // again on every frame that references it — nothing caches the substituted
+            // placeholder, deliberately, so that fetching the file mid-session still picks
+            // it up — and VirtualGeometryStress.olo references its un-fetched dragon from
+            // 24 entities, so this printed ~24 lines per frame and buried everything else.
+            // "Degrades gracefully" has to mean one legible message, not a flood. Same
+            // warned-set idiom as AssetManager::ResolveAssetOrPlaceholder and Scene's
+            // virtual-mesh loop.
+            static FMutex s_MissingFileMutex;
+            static std::unordered_set<AssetHandle> s_ReportedMissingFiles;
+            bool firstReport = false;
+            {
+                TUniqueLock<FMutex> lock(s_MissingFileMutex);
+                firstReport = s_ReportedMissingFiles.insert(metadata.Handle).second;
+            }
+
+            if (firstReport)
+            {
+                OLO_CORE_ERROR("Cannot load asset: file does not exist: {}. If this is an opt-in asset that is "
+                               "deliberately not committed, fetch it with scripts\\Fetch-Assets.ps1 (see "
+                               "scripts/assets/asset-manifest.json). Reported once per asset handle.",
+                               metadata.FilePath.string());
+            }
+
             SetAssetStatus(metadata.Handle, AssetStatus::Missing);
             return AssetManager::GetPlaceholderAsset(metadata.Type);
         }
