@@ -1325,13 +1325,31 @@ namespace OloEngine
             count = maxBuf;
         }
 
-        std::array<u32, 16> attachments{};
-        count = std::min(count, static_cast<u32>(attachments.size()));
+        // The stack path covers every framebuffer in the engine (the G-Buffer is
+        // the widest at 5) but must NOT be a silent cap: this helper's whole
+        // contract is "restore ALL of them", and quietly truncating is the exact
+        // failure the comment on the declaration warns about — a narrower list
+        // drops later fragment outputs. Above 16, allocate rather than clip.
+        // GL_MAX_DRAW_BUFFERS is the only legitimate ceiling, and it is applied
+        // above with a warning.
+        static constexpr u32 kStackCapacity = 16;
+        if (count <= kStackCapacity)
+        {
+            std::array<u32, kStackCapacity> attachments{};
+            for (u32 i = 0; i < count; ++i)
+            {
+                attachments[i] = i;
+            }
+            SetFramebufferDrawAttachments(framebufferID, std::span<const u32>(attachments.data(), count));
+            return;
+        }
+
+        std::vector<u32> attachments(count);
         for (u32 i = 0; i < count; ++i)
         {
             attachments[i] = i;
         }
-        SetFramebufferDrawAttachments(framebufferID, std::span<const u32>(attachments.data(), count));
+        SetFramebufferDrawAttachments(framebufferID, attachments);
     }
 
     void OpenGLRendererAPI::SetFramebufferReadAttachment(u32 framebufferID, u32 attachmentIndex)
