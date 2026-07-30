@@ -141,11 +141,7 @@ namespace OloEngine
                 glNamedFramebufferDrawBuffers(sceneFBID, static_cast<GLsizei>(n), drawBufs.data());
             }
             context.SetDepthTest(true);
-            context.SetDepthMask(true);
-            rendererAPI.SetDepthFunc(RHI::CompareOp::Less);
-            context.SetBlendState(false);
-            rendererAPI.SetCullFace(RHI::CullMode::Back);
-            rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
+            context.ResetOpaqueForwardDrawState();
             CommandDispatch::BindSceneResources();
         };
 
@@ -221,11 +217,7 @@ namespace OloEngine
             }
         }
 
-        context.SetDepthMask(true);
-        rendererAPI.SetDepthFunc(RHI::CompareOp::Less);
-        context.SetBlendState(false);
-        rendererAPI.SetCullFace(RHI::CullMode::Back);
-        rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
+        context.ResetOpaqueForwardDrawState();
         ::glBlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
 
         m_SceneFramebuffer->Unbind();

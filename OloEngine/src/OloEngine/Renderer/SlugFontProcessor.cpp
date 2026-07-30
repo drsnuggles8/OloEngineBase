@@ -589,12 +589,12 @@ namespace OloEngine
         // the call. RenderCommand::IsDeviceAvailable() is the backend-neutral
         // form of that check (issue #691 Phase 2).
         //
-        // When NO context is bound we do NOT discard the packed data: it is
+        // When NO device is available we do NOT discard the packed data: it is
         // retained on the SlugFontData so EnsureGpuTextures() can upload it the
         // first time the font is rendered. Without this, a font first loaded
         // headless (e.g. Font::GetDefault() from a metrics-only unit test) would
         // be cached as permanently textureless and silently drop its text on
-        // every later render even once a context exists — issue #520.
+        // every later render even once a device exists — issue #520.
         if (const bool hasDevice = RenderCommand::IsDeviceAvailable(); hasDevice)
         {
             if (curveWidth > 0)

@@ -124,11 +124,7 @@ namespace OloEngine
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();
         context.SetDepthTest(true);
-        context.SetDepthMask(true);
-        rendererAPI.SetDepthFunc(RHI::CompareOp::Less);
-        context.SetBlendState(false);
-        rendererAPI.SetCullFace(RHI::CullMode::Back);
-        rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
+        context.ResetOpaqueForwardDrawState();
 
         // Rebind shared scene resources so overlay shaders see the same
         // view/projection/light data forward shaders expect.
@@ -158,13 +154,9 @@ namespace OloEngine
             glNamedFramebufferDrawBuffers(sceneFBID, static_cast<GLsizei>(n), fullDrawBufs.data());
         }
 
-        context.SetDepthMask(true);
-        rendererAPI.SetDepthFunc(RHI::CompareOp::Less);
-        context.SetBlendState(false);
-        // Restore cull face + polygon mode — skybox / debug commands inside the
-        // bucket may flip these and would otherwise leak into the next pass.
-        rendererAPI.SetCullFace(RHI::CullMode::Back);
-        rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
+        // Restores cull face + polygon mode too — skybox / debug commands inside
+        // the bucket may flip these and would otherwise leak into the next pass.
+        context.ResetOpaqueForwardDrawState();
 
         // Reset blend func to the default (GL_ONE, GL_ZERO). Bucket commands
         // (skybox / debug / grid) call glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)

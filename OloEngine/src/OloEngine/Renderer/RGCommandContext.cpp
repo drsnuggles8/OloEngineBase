@@ -41,6 +41,17 @@ namespace OloEngine
         RenderCommand::EnableMultisampling();
     }
 
+    void RGCommandContext::ResetOpaqueForwardDrawState() const
+    {
+        // Order matches the four call sites this replaced, so the emitted GL
+        // sequence is unchanged. See the header for why depth test is excluded.
+        RenderCommand::SetDepthMask(true);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+        RenderCommand::SetBlendState(false);
+        RenderCommand::SetCullFace(RHI::CullMode::Back);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
+    }
+
     void RGCommandContext::BindDefaultFramebuffer() const
     {
         RenderCommand::BindDefaultFramebuffer();

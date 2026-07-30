@@ -58,6 +58,16 @@ namespace
                   "RHI::AddressMode changed — update ToGL() and AddressModeLowering");
     static_assert(static_cast<int>(RHI::Format::BC7SRGB) == 22,
                   "RHI::Format changed — update ToGLInternalFormat() and FormatLowering");
+    // Access and PrimitiveTopology are lowered by ToGLImageAccess() / ToGL() and
+    // so need the same growth tripwire. Access is the one most likely to gain a
+    // member — ADR 0011 §1.5 has Phase 5 unifying ResourceTransition's read/write
+    // enum pair onto it — and only its three Storage* values are image-load/store
+    // accesses, so a new member falling through ToGLImageAccess()'s default would
+    // silently bind as GL_READ_WRITE.
+    static_assert(static_cast<int>(RHI::Access::Present) == 18,
+                  "RHI::Access changed — update ToGLImageAccess() and ImageAccessLowering");
+    static_assert(static_cast<int>(RHI::PrimitiveTopology::PatchList) == 5,
+                  "RHI::PrimitiveTopology changed — update ToGL() and PrimitiveTopologyLowering");
 } // namespace
 
 TEST(RHIEnumLowering, CompareOpLowersToTheNamedGLConstant)
