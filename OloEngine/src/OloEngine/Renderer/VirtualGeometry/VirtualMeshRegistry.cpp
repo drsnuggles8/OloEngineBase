@@ -560,7 +560,8 @@ namespace OloEngine
             return stats;
 
         stats.InstanceCount = static_cast<u32>(m_FrameInstances.size());
-        std::vector<VirtualDrawArgs> args(m_FrameInstances.size());
+        // Both phase regions: [0, n) is phase 1, [n, 2n) is phase 2 (issue #682).
+        std::vector<VirtualDrawArgs> args(m_FrameInstances.size() * 2);
         auto const bytes = static_cast<u32>(args.size() * sizeof(VirtualDrawArgs));
 
         // Stage the args through a dedicated GL_DYNAMIC_READ buffer rather than reading
@@ -585,10 +586,23 @@ namespace OloEngine
         glCopyNamedBufferSubData(m_ArgsBuffer->GetRendererID(), m_ArgsReadbackID, 0, 0,
                                  static_cast<GLsizeiptr>(bytes));
         glGetNamedBufferSubData(m_ArgsReadbackID, 0, static_cast<GLsizeiptr>(bytes), args.data());
-        for (const VirtualDrawArgs& a : args)
+        sizet const phaseStride = m_FrameInstances.size();
+        for (sizet i = 0; i < args.size(); ++i)
         {
-            stats.TestedClusters += a.TestedCount;
-            stats.CutSelected += a.CutSelected;
+            const VirtualDrawArgs& a = args[i];
+            bool const phase2 = i >= phaseStride;
+            // Only phase 1 runs the DAG cut, so its tested/selected counters are
+            // the frame's — phase 2 re-tests occlusion for an already-selected
+            // subset and would double-count them.
+            if (!phase2)
+            {
+                stats.TestedClusters += a.TestedCount;
+                stats.CutSelected += a.CutSelected;
+            }
+            else
+            {
+                stats.Phase2Recovered += a.DrawCount + a.SwCount;
+            }
             stats.HardwareDraws += a.DrawCount;
             stats.SoftwareRasterized += a.SwCount;
         }
@@ -658,7 +672,16 @@ namespace OloEngine
                                                      StorageBufferUsage::DynamicDraw);
         }
 
-        auto const commandBytes = m_TotalFrameClusterCount * 32u; // DrawElementsIndirectCommand stride
+        // Two regions of everything the cull compacts into, one per occlusion
+        // phase (issue #682). Phase 2 cannot append to phase 1's segment: the
+        // phase-1 MDI has already read its parameter word and replayed its
+        // commands by the time phase 2 runs, so a shared segment would make the
+        // second replay re-issue every phase-1 draw. The phase-2 region starts at
+        // a CPU-known fixed offset — cluster count for commands/visible, instance
+        // count for args — which is what lets the second MDI name it without a
+        // GPU readback. Each cluster is emitted by at most one phase, so the
+        // second region is never more than a duplicate worst case.
+        auto const commandBytes = m_TotalFrameClusterCount * 32u * 2u; // DrawElementsIndirectCommand stride
         if (!m_CommandBuffer || m_CommandBuffer->GetSize() < commandBytes)
         {
             m_CommandBuffer = StorageBuffer::Create(std::max(commandBytes, 1024u),
@@ -666,15 +689,15 @@ namespace OloEngine
                                                     StorageBufferUsage::DynamicCopy);
         }
 
-        auto const argsBytes = instanceCount * static_cast<u32>(sizeof(VirtualDrawArgs));
+        auto const argsBytes = instanceCount * static_cast<u32>(sizeof(VirtualDrawArgs)) * 2u;
         if (!m_ArgsBuffer || m_ArgsBuffer->GetSize() < argsBytes)
         {
-            m_ArgsBuffer = StorageBuffer::Create(std::max(argsBytes, static_cast<u32>(sizeof(VirtualDrawArgs))),
+            m_ArgsBuffer = StorageBuffer::Create(std::max(argsBytes, 2u * static_cast<u32>(sizeof(VirtualDrawArgs))),
                                                  ShaderBindingLayout::SSBO_VIRTUAL_DRAW_ARGS,
                                                  StorageBufferUsage::DynamicCopy);
         }
 
-        auto const visibleBytes = m_TotalFrameClusterCount * static_cast<u32>(sizeof(VirtualVisibleCluster));
+        auto const visibleBytes = m_TotalFrameClusterCount * static_cast<u32>(sizeof(VirtualVisibleCluster)) * 2u;
         if (!m_VisibleBuffer || m_VisibleBuffer->GetSize() < visibleBytes)
         {
             m_VisibleBuffer = StorageBuffer::Create(std::max(visibleBytes, 1024u),
@@ -682,13 +705,26 @@ namespace OloEngine
                                                     StorageBufferUsage::DynamicCopy);
         }
 
-        // Software-raster work list: 16-byte header + one record per cluster
+        // Software-raster work list: 16-byte header + one record per cluster.
+        // Shared by both phases — the SW rasterizer runs once, after phase 2, so
+        // it consumes the union list in a single dispatch.
         auto const swListBytes = 16u + m_TotalFrameClusterCount * static_cast<u32>(sizeof(VirtualVisibleCluster));
         if (!m_SwListBuffer || m_SwListBuffer->GetSize() < swListBytes)
         {
             m_SwListBuffer = StorageBuffer::Create(std::max(swListBytes, 1024u),
                                                    ShaderBindingLayout::SSBO_VIRTUAL_SW_LIST,
                                                    StorageBufferUsage::DynamicCopy);
+        }
+
+        // Two-phase reject list: same shape as the SW list, one record per
+        // cluster (each cluster gets exactly one phase-1 thread, so that is the
+        // exact worst case — the shader still bounds-checks the append).
+        auto const rejectBytes = 16u + m_TotalFrameClusterCount * static_cast<u32>(sizeof(VirtualVisibleCluster));
+        if (!m_RejectListBuffer || m_RejectListBuffer->GetSize() < rejectBytes)
+        {
+            m_RejectListBuffer = StorageBuffer::Create(std::max(rejectBytes, 1024u),
+                                                       ShaderBindingLayout::SSBO_VIRTUAL_REJECTED,
+                                                       StorageBufferUsage::DynamicCopy);
         }
     }
 
@@ -849,14 +885,16 @@ namespace OloEngine
         m_InstanceBuffer->SetData(gpuRecords.data(),
                                   static_cast<u32>(gpuRecords.size() * sizeof(VirtualInstanceGpuRecord)), 0);
 
-        // Zero this frame's draw counts + stats before the cull dispatches
-        std::vector<VirtualDrawArgs> const zeroArgs(m_FrameInstances.size());
+        // Zero this frame's draw counts + stats before the cull dispatches —
+        // BOTH phase regions (issue #682).
+        std::vector<VirtualDrawArgs> const zeroArgs(m_FrameInstances.size() * 2);
         m_ArgsBuffer->SetData(zeroArgs.data(),
                               static_cast<u32>(zeroArgs.size() * sizeof(VirtualDrawArgs)), 0);
 
-        // Zero the software-raster list header (Count + padding)
+        // Zero the software-raster + two-phase reject list headers (Count + padding)
         u32 const zeroHeader[4] = { 0, 0, 0, 0 };
         m_SwListBuffer->SetData(zeroHeader, sizeof(zeroHeader), 0);
+        m_RejectListBuffer->SetData(zeroHeader, sizeof(zeroHeader), 0);
 
         m_FramePreparedResult = true;
         return true;
@@ -873,6 +911,7 @@ namespace OloEngine
         m_ArgsBuffer = nullptr;
         m_VisibleBuffer = nullptr;
         m_SwListBuffer = nullptr;
+        m_RejectListBuffer = nullptr;
         m_VisbufferBuffer = nullptr;
         m_VisbufferWidth = 0;
         m_VisbufferHeight = 0;

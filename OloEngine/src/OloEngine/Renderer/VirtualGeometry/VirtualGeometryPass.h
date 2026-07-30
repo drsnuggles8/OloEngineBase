@@ -29,6 +29,23 @@ namespace OloEngine
     //      PBR_GBuffer.glsl, so lighting/AO/SSR/picking work unchanged). The
     //      multisample G-Buffer is supported (hardware path only under MSAA).
     //
+    // TWO-PHASE OCCLUSION (issue #682, the Aaltonen/Haar idiom this repo already
+    // runs for instanced batches in GPUDrivenOcclusionPass / DeferredGPUOcclusionPass):
+    //   * Phase 1 culls the DAG cut against the PREVIOUS frame's retained depth
+    //     pyramid, reprojected with the previous view-projection. That pyramid was
+    //     built from last frame's FINAL depth, so it contains virtual geometry —
+    //     which is the whole point: a same-frame pyramid can only hold the
+    //     classic-path occluders ScenePass drew, so VG could never occlude VG.
+    //     Clusters it finds hidden go on a reject list instead of being dropped.
+    //   * The phase-1 survivors are drawn, the pyramid is rebuilt from the now
+    //     current depth (HZBGenerator, via Renderer3D::BuildCurrentOcclusionHZB),
+    //     and phase 2 re-tests ONLY the reject list against it, drawing whatever
+    //     turned out visible through a second command region.
+    // Phase 1 is therefore free to reject wrongly — reprojection error, a camera
+    // cut, a disocclusion — because only a phase-2 reject is final. First frame /
+    // HZB invalidated: no retained pyramid, so phase 1 degrades to frustum + cone
+    // and phase 2 does not run, matching the instanced path's convention.
+    //
     // DEFERRED BY DESIGN (not a limitation to lift): virtualized geometry is a
     // deferred technique — the compute software rasterizer writes a visibility
     // buffer whose material-resolve pass reconstructs the G-Buffer, and there is

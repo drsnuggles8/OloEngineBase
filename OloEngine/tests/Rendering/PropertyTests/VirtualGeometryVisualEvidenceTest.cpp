@@ -348,6 +348,7 @@ namespace OloEngine::Tests
             {
                 auto meshSource = MakeIcosphereMeshSource(5); // 20480 triangles
                 AssetHandle const handle = AssetManager::AddMemoryOnlyAsset(meshSource);
+                m_MeshHandle = handle;
 
                 Entity sphere = scene.CreateEntity("VirtualSphere");
                 auto& vm = sphere.AddComponent<VirtualMeshComponent>();
@@ -363,6 +364,7 @@ namespace OloEngine::Tests
         Entity m_SphereEntity;
         Entity m_SunEntity;
         Entity m_BlockerEntity;
+        AssetHandle m_MeshHandle = 0;
 
         // Renders one pose and returns the composite pixels (also writes the
         // evidence PNG). Bottom-up GL row order — fine for counting.
@@ -546,6 +548,18 @@ namespace OloEngine::Tests
         u32 const redResolved = renderMsaa(4, false, "MSAA_Resolved");
         u32 const redPerSample = renderMsaa(4, true, "MSAA_PerSample");
 
+        // Both MSAA modes again with the two-phase occlusion cull ACTIVE (issue
+        // #682). MSAA forces every cluster onto the hardware MDI path, and under
+        // PER-SAMPLE lighting the clusters land in the multisample G-Buffer, which
+        // is not resolved until the end of the pass — so the pyramid phase 2 builds
+        // from the resolved depth cannot see this frame's virtual geometry. That is
+        // conservative (it only under-culls), but it is a distinct code path from
+        // the non-MSAA one and nothing else exercises it.
+        Renderer3D::EnableHZBOcclusionCulling(true);
+        u32 const occludedResolved = renderMsaa(4, false, "MSAA_Resolved_TwoPhase");
+        u32 const occludedPerSample = renderMsaa(4, true, "MSAA_PerSample_TwoPhase");
+        Renderer3D::EnableHZBOcclusionCulling(false); // don't leak the toggle
+
         settings.Deferred.MSAASampleCount = msaaWas;
         settings.Deferred.PerSampleLighting = perSampleWas;
         Renderer3D::ApplyRendererSettings();
@@ -554,6 +568,12 @@ namespace OloEngine::Tests
             << "virtual sphere did not render under deferred 4x MSAA (non-per-sample) — the pass skipped the MS G-Buffer";
         EXPECT_GE(redPerSample, 800u)
             << "virtual sphere did not render under deferred 4x MSAA per-sample — MS draw/resolve/re-export broken";
+        EXPECT_GE(occludedResolved, static_cast<u32>(static_cast<f64>(redResolved) * 0.95))
+            << "two-phase occlusion ate sphere pixels under 4x MSAA (non-per-sample): " << occludedResolved
+            << " vs " << redResolved;
+        EXPECT_GE(occludedPerSample, static_cast<u32>(static_cast<f64>(redPerSample) * 0.95))
+            << "two-phase occlusion ate sphere pixels under 4x MSAA per-sample: " << occludedPerSample
+            << " vs " << redPerSample;
     }
 
     // The per-frame cull-stats readback (VirtualCullStats) that drives the editor
@@ -595,12 +615,15 @@ namespace OloEngine::Tests
 
         // Total drawn clusters (hardware MDI + software raster) across every
         // instance, read back from the per-instance cull args after a frame.
+        // BOTH two-phase regions (issue #682): [0, n) is phase 1, [n, 2n) is the
+        // phase-2 recovery — reading only the first half would under-report every
+        // disoccluded cluster.
         auto drawnClusters = [&registry]() -> u32
         {
             const auto& instances = registry.GetFrameInstances();
             if (instances.empty() || !registry.GetArgsBuffer())
                 return 0;
-            std::vector<VirtualDrawArgs> args(instances.size());
+            std::vector<VirtualDrawArgs> args(instances.size() * 2);
             glGetNamedBufferSubData(registry.GetArgsBuffer()->GetRendererID(), 0,
                                     static_cast<GLsizeiptr>(args.size() * sizeof(VirtualDrawArgs)), args.data());
             u32 drawn = 0;
@@ -633,8 +656,12 @@ namespace OloEngine::Tests
         ASSERT_GT(baseDrawn, 0u) << "baseline drew no clusters";
 
         // ── Conservatism: no occluder, HZB occlusion ON. The visible sphere must
-        // look the same and keep (essentially) the same drawn-cluster count — the
-        // Hi-Z test must never cull a visible cluster (no holes/cracks). ──
+        // look the SAME — the Hi-Z test must never cull a visible cluster (no
+        // holes/cracks). The PIXELS are the contract here, not the cluster count:
+        // since issue #682 the pyramid phase 1 tests is the previous frame's FINAL
+        // depth, which contains the sphere itself, so the sphere's own far-side
+        // clusters are now legitimately self-occluded and the count is expected to
+        // drop. A total collapse would still mean over-culling, hence the floor. ──
         Renderer3D::EnableHZBOcclusionCulling(true);
         std::vector<u8> const visibleFrame = renderFront("HiZ_OcclusionOn");
         u32 const visibleDrawn = drawnClusters();
@@ -643,8 +670,9 @@ namespace OloEngine::Tests
         EXPECT_GE(visibleRed, static_cast<u32>(static_cast<f64>(baseRed) * 0.95))
             << "HZB occlusion removed visible sphere pixels (" << visibleRed << " vs " << baseRed
             << ") — a false cull punched a hole";
-        EXPECT_GE(visibleDrawn, static_cast<u32>(static_cast<f64>(baseDrawn) * 0.9))
-            << "HZB occlusion culled visible clusters (" << visibleDrawn << " vs " << baseDrawn << ")";
+        EXPECT_GT(visibleDrawn, 0u)
+            << "HZB occlusion culled EVERY cluster of a fully visible sphere (" << visibleDrawn << " vs "
+            << baseDrawn << ") — phase 2 is not recovering the phase-1 rejects";
 
         // ── Effectiveness: park a large opaque wall between the camera and the
         // sphere (the classic-mesh blocker → it lands in the scene depth the HZB
@@ -665,6 +693,295 @@ namespace OloEngine::Tests
 
         Renderer3D::EnableHZBOcclusionCulling(false); // don't leak the toggle
         registry.SetSwRasterMode(VirtualSwRasterMode::Auto);
+    }
+
+    // TWO-PHASE OCCLUSION: VIRTUAL GEOMETRY MUST OCCLUDE VIRTUAL GEOMETRY (issue #682).
+    //
+    // The acceptance scene from the issue: a row of virtual-geometry statues with the
+    // camera behind the first one. Every statue after the first is hidden by a statue,
+    // not by any classic mesh — which the single-phase cull could not see at all, because
+    // the pyramid it tested was built mid-frame from ScenePass's depth and ScenePass draws
+    // no virtual geometry. So raster/shading cost scaled with the SELECTED cluster count
+    // rather than the VISIBLE one.
+    //
+    // Two-phase fixes that by testing phase 1 against the PREVIOUS frame's FINAL depth
+    // pyramid (which does contain virtual geometry) and re-testing only the rejects
+    // against a pyramid rebuilt from this frame's depth.
+    //
+    // Every assertion is a DIFFERENTIAL between captures that differ in exactly one
+    // flag — same geometry, same camera — so nothing here depends on the driver or on a
+    // committed golden. Counter evidence AND pixel evidence are both required: the
+    // counters prove the cull is doing work, the pixels prove it is not punching holes.
+    TEST_F(VirtualGeometryVisualEvidence, TwoPhaseOcclusionCullsVirtualGeometryBehindVirtualGeometry)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+
+        auto& registry = VirtualMeshRegistry::Get();
+        registry.SetSwRasterMode(VirtualSwRasterMode::Auto); // exercise BOTH counters (HW MDI + SW raster)
+
+        Scene& scene = GetScene();
+        ASSERT_NE(m_MeshHandle, AssetHandle(0)) << "fixture did not register the virtual mesh";
+
+        // The row: the fixture sphere is statue 0 at the origin; five more recede
+        // along -Z. Equal radii on the view axis means the nearest statue subtends
+        // the largest angle and hides every one behind it.
+        constexpr u32 kRowStatues = 5;
+        std::vector<Entity> rowStatues;
+        for (u32 i = 0; i < kRowStatues; ++i)
+        {
+            Entity statue = scene.CreateEntity("RowStatue");
+            auto& tc = statue.GetComponent<TransformComponent>();
+            tc.Translation = { 0.0f, 0.0f, -3.0f * static_cast<f32>(i + 1) };
+            auto& vm = statue.AddComponent<VirtualMeshComponent>();
+            vm.m_MeshSource = m_MeshHandle;
+            vm.m_ErrorThresholdPixels = 1.0f;
+            auto& mat = statue.AddComponent<MaterialComponent>();
+            mat.m_Material.SetBaseColorFactor(glm::vec4(0.9f, 0.05f, 0.05f, 1.0f));
+            mat.m_Material.SetRoughnessFactor(0.6f);
+            rowStatues.push_back(statue);
+        }
+        m_SphereEntity.GetComponent<VirtualMeshComponent>().m_ErrorThresholdPixels = 1.0f;
+
+        // Straight down the row from just in front of statue 0.
+        auto renderRow = [this](const char* pngName, u32 frames = 4) -> std::vector<u8>
+        {
+            EditorCamera camera(45.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.1f, 500.0f);
+            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            camera.SetPose({ 0.0f, 0.0f, 4.0f }, 0.0f, 0.0f);
+            RunEditorFrames(camera, frames); // >= 2 frames so a retained pyramid exists for phase 1
+            std::vector<u8> rgba;
+            u32 w = 0;
+            u32 h = 0;
+            if (ReadbackComposite(rgba, w, h) && pngName != nullptr)
+                WriteEvidencePng(std::string("VirtualGeometry_") + pngName + ".png", rgba, w, h);
+            return rgba;
+        };
+
+        // ── Baseline: occlusion off. Every selected cluster of all six statues is
+        // rasterized, including the five that are completely hidden. ──
+        Renderer3D::EnableHZBOcclusionCulling(false);
+        std::vector<u8> const singlePhaseFrame = renderRow("TwoPhase_OcclusionOff");
+        VirtualCullStats const off = registry.ReadFrameCullStats();
+        u32 const offRed = CountRedDominantPixels(singlePhaseFrame);
+        ASSERT_EQ(off.InstanceCount, kRowStatues + 1u) << "the row did not submit as six virtual-mesh instances";
+        ASSERT_GT(off.DrawnClusters(), 0u) << "baseline drew no clusters";
+        ASSERT_GE(offRed, 800u) << "the front statue is not visible — the measurement would be meaningless";
+
+        // ── Two-phase on. ──
+        Renderer3D::EnableHZBOcclusionCulling(true);
+        std::vector<u8> const twoPhaseFrame = renderRow("TwoPhase_OcclusionOn");
+        VirtualCullStats const on = registry.ReadFrameCullStats();
+        u32 const onRed = CountRedDominantPixels(twoPhaseFrame);
+
+        // The DAG cut is unchanged — two-phase culls after selection, it does not
+        // change which LOD level is chosen. Anything else means the cut drifted.
+        EXPECT_EQ(on.CutSelected, off.CutSelected)
+            << "the two-phase cull changed the DAG cut (" << on.CutSelected << " vs " << off.CutSelected
+            << ") — occlusion must run after selection, not alter it";
+
+        // AC1: the drawn-cluster and SW-raster counters drop by roughly the
+        // occluded fraction. Five of six statues are fully hidden, plus the far
+        // side of the front statue is now self-occluded (the previous frame's
+        // pyramid contains virtual geometry, so a VG surface occludes VG behind
+        // it — including its own). A conservative test can always keep more than
+        // the ideal, so this asserts a substantial drop, not an exact fraction.
+        EXPECT_LT(on.DrawnClusters(), static_cast<u32>(static_cast<f64>(off.DrawnClusters()) * 0.6))
+            << "two-phase occlusion did not cull the hidden statues: " << on.DrawnClusters()
+            << " clusters drawn vs a " << off.DrawnClusters()
+            << "-cluster baseline. Five of six statues are completely hidden BY OTHER VIRTUAL GEOMETRY, "
+               "which is exactly the case the single-phase cull could not see.";
+        // Only meaningful when the baseline actually routed clusters to the SW
+        // rasterizer. Whether it does depends on the projected-radius threshold
+        // against this scene's cluster sizes, so a zero baseline is a legitimate
+        // configuration — and `0 < 0` would fail spuriously. The drawn-cluster
+        // assertion above already covers the total either way.
+        if (off.SoftwareRasterized > 0)
+        {
+            EXPECT_LT(on.SoftwareRasterized, static_cast<u32>(static_cast<f64>(off.SoftwareRasterized) * 0.6))
+                << "the software-raster invocation count did not drop (" << on.SoftwareRasterized << " vs "
+                << off.SoftwareRasterized << ") — hidden clusters are still being routed to the SW rasterizer";
+        }
+
+        // AC2: no visual difference. The front statue's silhouette is unchanged;
+        // a false cull would eat red pixels out of it.
+        EXPECT_GE(onRed, static_cast<u32>(static_cast<f64>(offRed) * 0.95))
+            << "two-phase occlusion removed visible statue pixels (" << onRed << " vs " << offRed
+            << ") — a false cull punched a hole in the front statue";
+        EXPECT_LE(onRed, static_cast<u32>(static_cast<f64>(offRed) * 1.05))
+            << "the two-phase frame gained red pixels (" << onRed << " vs " << offRed
+            << ") — the two captures should be pixel-equivalent, so something else changed";
+
+        // A static camera in a settled scene must CONVERGE: phase 1's reprojected
+        // verdict already matches this frame's, so phase 2 should recover little or
+        // nothing. A large recovery here would mean the two phases disagree every
+        // frame — clusters ping-ponging between them, i.e. wasted work, not a bug
+        // the pixels can show.
+        EXPECT_LT(on.Phase2Recovered, static_cast<u32>(static_cast<f64>(on.DrawnClusters()) * 0.5) + 8u)
+            << "phase 2 recovered " << on.Phase2Recovered << " of " << on.DrawnClusters()
+            << " drawn clusters with a stationary camera — the two pyramids should agree in steady state";
+
+        GTEST_LOG_(INFO) << "[vg-two-phase] row of " << (kRowStatues + 1) << " statues, camera behind the first: "
+                         << "cut-selected " << on.CutSelected << ", drawn " << off.DrawnClusters()
+                         << " -> " << on.DrawnClusters() << " (HW " << off.HardwareDraws << " -> "
+                         << on.HardwareDraws << ", SW " << off.SoftwareRasterized << " -> "
+                         << on.SoftwareRasterized << "), phase-2 recovered " << on.Phase2Recovered
+                         << "; red pixels " << offRed << " -> " << onRed;
+
+        // ── Disocclusion, on the very frame it happens: pull the front statue out
+        // of frame. On the NEXT frame the retained pyramid still contains it, so
+        // phase 1 rejects every statue behind it — and phase 2, testing the pyramid
+        // rebuilt from this frame's depth, has to put them all back. If phase-1
+        // rejects were dropped instead of re-tested this is where the hole appears,
+        // as a one-frame pop. The reference is the SAME single frame with occlusion
+        // off: same geometry, same camera, only the cull flag differs.
+        //
+        // (A raw before/after pixel comparison would be meaningless here — the
+        // statue being removed is the NEAREST one, so it owns most of the red
+        // pixels and the count drops no matter how correct the cull is.) ──
+        {
+            auto& tc = m_SphereEntity.GetComponent<TransformComponent>();
+            tc.Translation = { 6.0f, 0.0f, 4.0f }; // off to the side, out of frame
+        }
+        std::vector<u8> const popFrame = renderRow("TwoPhase_OccluderRemoved", 1);
+        VirtualCullStats const revealed = registry.ReadFrameCullStats();
+        u32 const revealedRed = CountRedDominantPixels(popFrame);
+
+        Renderer3D::EnableHZBOcclusionCulling(false); // don't leak the toggle
+        std::vector<u8> const popReference = renderRow("TwoPhase_OccluderRemovedReference", 1);
+        u32 const referenceRed = CountRedDominantPixels(popReference);
+
+        EXPECT_GT(revealed.DrawnClusters(), on.DrawnClusters())
+            << "removing the occluder drew no extra clusters (" << revealed.DrawnClusters() << " vs "
+            << on.DrawnClusters() << ") — the statues behind it stayed culled, which is a hole";
+        ASSERT_GE(referenceRed, 800u) << "the reference frame shows no statues — the comparison is meaningless";
+        EXPECT_GE(revealedRed, static_cast<u32>(static_cast<f64>(referenceRed) * 0.95))
+            << "the frame right after the occluder moved away is missing statue pixels (" << revealedRed
+            << " vs an occlusion-off reference of " << referenceRed
+            << ") — a one-frame disocclusion pop, i.e. phase 2 did not recover the phase-1 rejects";
+    }
+
+    // The two-phase cull's one real hazard is over-culling while the camera MOVES:
+    // phase 1 tests a pyramid from a viewpoint that no longer exists, so its
+    // verdicts are systematically wrong on a moving camera, and every one of those
+    // mistakes has to be caught by phase 2. A stationary-camera test cannot see
+    // this at all — the two pyramids agree there.
+    //
+    // So: sweep the camera through a set of poses ONE FRAME AT A TIME (every frame
+    // is a fresh disocclusion) and compare each pose against the identical sweep
+    // with occlusion off. Same geometry, same camera history, only the cull flag
+    // differs — any per-pose pixel deficit is a hole the two-phase scheme opened.
+    // PNGs are written for both sweeps so the frames can be eyeballed.
+    TEST_F(VirtualGeometryVisualEvidence, TwoPhaseOcclusionMatchesTheUnculledFrameWhileTheCameraMoves)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+
+        auto& registry = VirtualMeshRegistry::Get();
+        registry.SetSwRasterMode(VirtualSwRasterMode::Auto);
+
+        Scene& scene = GetScene();
+        ASSERT_NE(m_MeshHandle, AssetHandle(0)) << "fixture did not register the virtual mesh";
+
+        // A cluster of statues at different depths, so most poses have some of them
+        // occluding others and the sweep keeps disoccluding things.
+        const glm::vec3 extraStatues[] = {
+            { 0.0f, 0.0f, -2.6f },
+            { 1.6f, 0.0f, -5.0f },
+            { -1.7f, 0.0f, -4.2f },
+        };
+        for (const glm::vec3& position : extraStatues)
+        {
+            Entity statue = scene.CreateEntity("SweepStatue");
+            statue.GetComponent<TransformComponent>().Translation = position;
+            auto& vm = statue.AddComponent<VirtualMeshComponent>();
+            vm.m_MeshSource = m_MeshHandle;
+            vm.m_ErrorThresholdPixels = 1.0f;
+            auto& mat = statue.AddComponent<MaterialComponent>();
+            mat.m_Material.SetBaseColorFactor(glm::vec4(0.9f, 0.05f, 0.05f, 1.0f));
+            mat.m_Material.SetRoughnessFactor(0.6f);
+        }
+
+        struct Pose
+        {
+            const char* Name;
+            glm::vec3 Position;
+            f32 Yaw;
+            f32 Pitch;
+        };
+        const Pose sweep[] = {
+            { "Front", { 0.0f, 0.6f, 6.0f }, 0.0f, 0.05f },
+            { "RightHigh", { 4.5f, 3.0f, 4.5f }, glm::radians(-45.0f), glm::radians(25.0f) },
+            { "Left", { -5.0f, 0.8f, 3.0f }, glm::radians(52.0f), glm::radians(6.0f) },
+            { "Above", { 0.0f, 6.5f, 2.2f }, 0.0f, glm::radians(72.0f) },
+            { "Behind", { 0.0f, 0.9f, -9.0f }, glm::radians(180.0f), glm::radians(4.0f) },
+        };
+
+        // Walks the whole sweep, one frame per pose, returning the per-pose
+        // red-dominant pixel counts. Every pose therefore renders with a retained
+        // pyramid built from the PREVIOUS pose — the reprojection stress case.
+        auto runSweep = [this](const Pose* poses, sizet count, const char* tag) -> std::vector<u32>
+        {
+            std::vector<u32> reds;
+            EditorCamera camera(45.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.1f, 500.0f);
+            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            for (sizet i = 0; i < count; ++i)
+            {
+                camera.SetPose(poses[i].Position, poses[i].Yaw, poses[i].Pitch);
+                RunEditorFrames(camera, 1);
+                std::vector<u8> rgba;
+                u32 w = 0;
+                u32 h = 0;
+                if (!ReadbackComposite(rgba, w, h))
+                {
+                    ADD_FAILURE() << "composite readback unavailable for " << tag << '/' << poses[i].Name;
+                    reds.push_back(0);
+                    continue;
+                }
+                WriteEvidencePng(std::string("VirtualGeometry_Sweep_") + tag + "_" + poses[i].Name + ".png",
+                                 rgba, w, h);
+                reds.push_back(CountRedDominantPixels(rgba));
+            }
+            return reds;
+        };
+
+        constexpr sizet kPoseCount = sizeof(sweep) / sizeof(sweep[0]);
+
+        // Warm up so the first measured sweep is not the graph-rebuild frame.
+        {
+            EditorCamera camera(45.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.1f, 500.0f);
+            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            camera.SetPose(sweep[0].Position, sweep[0].Yaw, sweep[0].Pitch);
+            Renderer3D::EnableHZBOcclusionCulling(false);
+            RunEditorFrames(camera, 3);
+        }
+
+        Renderer3D::EnableHZBOcclusionCulling(false);
+        const std::vector<u32> unculled = runSweep(sweep, kPoseCount, "OcclusionOff");
+
+        Renderer3D::EnableHZBOcclusionCulling(true);
+        const std::vector<u32> twoPhase = runSweep(sweep, kPoseCount, "TwoPhase");
+
+        Renderer3D::EnableHZBOcclusionCulling(false); // don't leak the toggle
+
+        ASSERT_EQ(unculled.size(), kPoseCount);
+        ASSERT_EQ(twoPhase.size(), kPoseCount);
+        for (sizet i = 0; i < kPoseCount; ++i)
+        {
+            ASSERT_GE(unculled[i], 800u)
+                << "pose '" << sweep[i].Name << "' shows no statues even unculled — the pose is a bad probe";
+            EXPECT_GE(twoPhase[i], static_cast<u32>(static_cast<f64>(unculled[i]) * 0.95))
+                << "pose '" << sweep[i].Name << "' lost statue pixels under two-phase occlusion ("
+                << twoPhase[i] << " vs " << unculled[i]
+                << ") — phase 1 rejected geometry on a moving camera that phase 2 failed to recover";
+            EXPECT_LE(twoPhase[i], static_cast<u32>(static_cast<f64>(unculled[i]) * 1.05))
+                << "pose '" << sweep[i].Name << "' GAINED pixels under occlusion culling (" << twoPhase[i]
+                << " vs " << unculled[i] << ") — the two sweeps are not rendering the same thing";
+        }
     }
 
     TEST_F(VirtualGeometryVisualEvidence, StreamingResidencyConvergesUnderTightBudget)

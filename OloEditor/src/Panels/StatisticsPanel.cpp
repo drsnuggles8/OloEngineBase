@@ -191,6 +191,11 @@ namespace OloEngine
                     ImGui::Text("DAG-cut selected: %u", cull.CutSelected);
                     ImGui::Text("Drawn: %u  (HW %u / SW %u)", cull.DrawnClusters(), cull.HardwareDraws,
                                 cull.SoftwareRasterized);
+                    // Two-phase occlusion (issue #682): clusters the previous
+                    // frame's pyramid hid that this frame's recovered. A count
+                    // that never leaves 0 while the camera moves means phase 1
+                    // is not rejecting anything (HZB occlusion off / frame 0).
+                    ImGui::Text("Phase-2 recovered: %u", cull.Phase2Recovered);
 
                     // Debug visualization: drives the "VirtualGeometryDebug"
                     // capture target (olo_render_capture_target / MCP inspection).

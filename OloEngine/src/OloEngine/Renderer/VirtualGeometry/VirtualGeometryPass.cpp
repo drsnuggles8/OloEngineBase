@@ -228,46 +228,60 @@ namespace OloEngine
 
         GLStateGuard guard("VirtualGeometryPass", GLStateGuard::Policy::Ignore);
 
-        // ── Hi-Z occlusion inputs (issue #629): build a max-reduction depth
-        // pyramid from THIS frame's scene depth (occluders already drawn by
-        // ScenePass) so the cull can drop clusters hidden behind opaque geometry.
+        // ── Phase-1 Hi-Z inputs (issue #682): the RETAINED pyramid, built at the
+        // tail of the previous EndScene from that frame's FINAL depth — so it
+        // already contains virtual geometry, which is what lets a VG occluder
+        // cull the VG behind it. Read BEFORE anything rebuilds the pyramid
+        // in-place (BuildCurrentOcclusionHZB below overwrites this very texture).
         // Gated on the same global toggle as the instance HZB cull (off by
-        // default). Built BEFORE the cull SSBO binds below — the HZB build binds
-        // its own program/SSBOs/textures and would otherwise clobber them.
-        bool occlusionUsable = false;
-        u32 hzbTextureID = 0;
-        glm::vec2 hzbSize{ 0.0f };
-        glm::vec2 hzbUVFactor{ 1.0f };
-        i32 hzbMipCount = 0;
-        f32 occlusionDepthBias = 0.0f;
-        if (Renderer3D::IsHZBOcclusionCullingEnabled())
-        {
-            ::glTextureBarrier(); // order ScenePass's depth write -> HZB texture fetch
-            const auto hzb = Renderer3D::BuildCurrentOcclusionHZB(
-                gbuffer->GetDepthAttachmentID(), gbuffer->GetWidth(), gbuffer->GetHeight());
-            if (hzb.IsUsable())
-            {
-                occlusionUsable = true;
-                hzbTextureID = hzb.HZBTextureID;
-                hzbSize = hzb.HZBSize;
-                hzbUVFactor = hzb.HZBUVFactor;
-                hzbMipCount = static_cast<i32>(hzb.MipCount);
-                occlusionDepthBias = hzb.DepthBias;
-            }
-        }
+        // default); non-usable on frame 0 → frustum + cone only, no phase 2.
+        const GPUFrustumCuller::HZBOcclusionInputs prevHZB = Renderer3D::GetRetainedOcclusionHZB();
+        bool const twoPhase = prevHZB.IsUsable();
 
         // ── 1. DAG-cut + cull compute, one dispatch per instance ──
         // Re-bind every SSBO the dispatch touches: binding points are
         // process-global GL state shared with other subsystems.
-        registry.GetClusterBuffer()->Bind();
-        registry.GetGroupBuffer()->Bind();
-        registry.GetInstanceBuffer()->Bind();
-        registry.GetCommandBuffer()->Bind();
-        registry.GetArgsBuffer()->Bind();
-        registry.GetVisibleBuffer()->Bind();
-        registry.GetSwListBuffer()->Bind();
-        registry.GetGroupStatesBuffer()->Bind();
-        CommandDispatch::BindSceneResources(); // camera UBO at binding 0
+        const auto bindCullResources = [&registry]()
+        {
+            registry.GetClusterBuffer()->Bind();
+            registry.GetGroupBuffer()->Bind();
+            registry.GetInstanceBuffer()->Bind();
+            registry.GetCommandBuffer()->Bind();
+            registry.GetArgsBuffer()->Bind();
+            registry.GetVisibleBuffer()->Bind();
+            registry.GetSwListBuffer()->Bind();
+            registry.GetGroupStatesBuffer()->Bind();
+            registry.GetRejectListBuffer()->Bind();
+            // The hardware MDI path pulls vertices from SSBO 39 in
+            // VirtualMeshGBuffer.glsl. Bind it here rather than relying on the
+            // software-raster block (which binds it for its own use) having run
+            // first — since issue #682 the phase-1 MDI happens BEFORE that block.
+            if (registry.GetVertexBuffer())
+                registry.GetVertexBuffer()->Bind();
+            CommandDispatch::BindSceneResources(); // camera UBO at binding 0
+        };
+        bindCullResources();
+
+        // Binds one occlusion pyramid's uniforms + texture on the cull program.
+        // Texture unit 0 is ALSO u_AlbedoMap for the material draws below. This raw bind
+        // happens behind CommandDispatch's redundant-bind cache, which would go on believing
+        // slot 0 still holds the last albedo it bound — and then SKIP the real bind for any
+        // material whose albedo has that same GL ID, leaving the HZB depth pyramid live in
+        // u_AlbedoMap. Tell the cache the slot is dirty so the next material bind is real.
+        const auto bindOcclusionInputs = [this](const GPUFrustumCuller::HZBOcclusionInputs& hzb)
+        {
+            m_CullShader->SetInt("u_OcclusionEnabled", hzb.IsUsable() ? 1 : 0);
+            if (!hzb.IsUsable())
+                return;
+            ::glBindTextureUnit(0, hzb.HZBTextureID);
+            CommandDispatch::InvalidateTextureSlot(0);
+            m_CullShader->SetInt("u_HZB", 0);
+            m_CullShader->SetMat4("u_OcclusionViewProjection", hzb.PrevViewProjection);
+            m_CullShader->SetFloat2("u_HZBSize", hzb.HZBSize);
+            m_CullShader->SetFloat2("u_HZBUVFactor", hzb.HZBUVFactor);
+            m_CullShader->SetInt("u_HZBMipCount", static_cast<i32>(hzb.MipCount));
+            m_CullShader->SetFloat("u_OcclusionDepthBias", hzb.DepthBias);
+        };
 
         // Software-raster routing threshold: 0 disables (all clusters take the
         // hardware path); ForceSoftware routes everything near-plane-safe.
@@ -289,40 +303,43 @@ namespace OloEngine
 
         const auto& instances = registry.GetFrameInstances();
 
-        // Re-zero the per-instance draw args + SW list for the MAIN view: the
-        // shadow cascades ran their own culls into the same buffers earlier
-        // this frame (PrepareFrame's zeroing only happens on its first call).
+        u32 const instanceCount = static_cast<u32>(instances.size());
+        u32 const frameClusterCount = registry.GetTotalFrameClusterCount();
+        bool const swEnabled = swThresholdPixels > 0.0f && registry.GetVisbufferBuffer();
+
+        // Re-zero the per-instance draw args (BOTH phase regions) + the SW and
+        // reject list headers for the MAIN view: the shadow cascades ran their
+        // own culls into the same buffers earlier this frame (PrepareFrame's
+        // zeroing only happens on its first call).
         {
+            // Non-const Ref copies: the registry hands these out as const refs and
+            // SetData mutates (cheap refcount bumps).
             Ref<StorageBuffer> argsBuffer = registry.GetArgsBuffer();
             Ref<StorageBuffer> swListBuffer = registry.GetSwListBuffer();
-            std::vector<VirtualDrawArgs> const zeroArgs(instances.size());
+            Ref<StorageBuffer> rejectListBuffer = registry.GetRejectListBuffer();
+            std::vector<VirtualDrawArgs> const zeroArgs(static_cast<sizet>(instanceCount) * 2);
             argsBuffer->SetData(zeroArgs.data(),
                                 static_cast<u32>(zeroArgs.size() * sizeof(VirtualDrawArgs)), 0);
             u32 const zeroHeader[4] = { 0, 0, 0, 0 };
             swListBuffer->SetData(zeroHeader, sizeof(zeroHeader), 0);
+            rejectListBuffer->SetData(zeroHeader, sizeof(zeroHeader), 0);
         }
 
+        // ── Cull phase 1: full DAG cut + frustum + cone, then the Hi-Z test
+        // against the PREVIOUS frame's pyramid. u_OrthoMode defaults to 0 here —
+        // perspective main view; the shadow cull binds its own program and forces
+        // it off. u_WriteRejected turns an occlusion hit into a deferral rather
+        // than a drop, so it is only set when phase 2 is actually going to run:
+        // a reject nobody re-tests would be a hole. ──
         m_CullShader->Bind();
         m_CullShader->SetFloat("u_ViewportHeight", static_cast<f32>(gbuffer->GetHeight()));
         m_CullShader->SetFloat("u_SwRasterThresholdPixels", swThresholdPixels);
-        // Hi-Z occlusion uniforms (u_OrthoMode defaults to 0 here — perspective
-        // main view; the shadow cull binds its own program and forces it off).
-        m_CullShader->SetInt("u_OcclusionEnabled", occlusionUsable ? 1 : 0);
-        if (occlusionUsable)
-        {
-            ::glBindTextureUnit(0, hzbTextureID);
-            // Unit 0 is ALSO u_AlbedoMap for the material draws below. This raw bind happens
-            // behind CommandDispatch's redundant-bind cache, which would go on believing slot 0
-            // still holds the last albedo it bound — and then SKIP the real bind for any
-            // material whose albedo has that same GL ID, leaving the HZB depth pyramid live in
-            // u_AlbedoMap. Tell the cache the slot is dirty so the next material bind is real.
-            CommandDispatch::InvalidateTextureSlot(0);
-            m_CullShader->SetInt("u_HZB", 0);
-            m_CullShader->SetFloat2("u_HZBSize", hzbSize);
-            m_CullShader->SetFloat2("u_HZBUVFactor", hzbUVFactor);
-            m_CullShader->SetInt("u_HZBMipCount", hzbMipCount);
-            m_CullShader->SetFloat("u_OcclusionDepthBias", occlusionDepthBias);
-        }
+        m_CullShader->SetInt("u_Phase2", 0);
+        m_CullShader->SetInt("u_WriteRejected", twoPhase ? 1 : 0);
+        m_CullShader->SetUint("u_RejectCapacity", frameClusterCount);
+        m_CullShader->SetUint("u_CommandSlotBase", 0u);
+        m_CullShader->SetUint("u_ArgsSlotBase", 0u);
+        bindOcclusionInputs(prevHZB);
         for (sizet i = 0; i < instances.size(); ++i)
         {
             m_CullShader->SetUint("u_InstanceIndex", static_cast<u32>(i));
@@ -334,18 +351,176 @@ namespace OloEngine
         // pulling reads of the visible/instance/vertex buffers.
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::Command);
 
-        // ── 1b. Compute software rasterizer (portable two-pass 2x32 scheme):
+        // ── Hardware raster target + state ──
+        // Non-per-sample MSAA draws straight into the resolved FBO (ScenePass
+        // already resolved it); per-sample MSAA and the non-MSAA path draw into
+        // the primary FBO (multisample or single-sample respectively).
+        Ref<Framebuffer> targetFB = (msaa && !perSampleMSAA) ? gbuffer->GetSamplingFramebuffer()
+                                                             : gbuffer->GetFramebuffer();
+        if (!targetFB)
+            targetFB = gbuffer->GetFramebuffer();
+
+        if (!m_DrawInfoUBO)
+        {
+            m_DrawInfoUBO = UniformBuffer::Create(16, ShaderBindingLayout::UBO_VIRTUAL_DRAW);
+        }
+
+        // Bind the G-Buffer target + the raster state every draw block needs.
+        // Replayed before phase 1 and again before phase 2 / the resolve, because
+        // the mid-pass Hi-Z build and phase-2 cull rebind program, SSBOs and
+        // textures in between (same discipline GPUDrivenOcclusionPass uses).
+        const auto bindDrawTarget = [&targetFB, &gbuffer]()
+        {
+            targetFB->Bind();
+            {
+                // All five G-Buffer MRTs, same set SceneRenderPass draws
+                std::array<GLenum, GBuffer::Count> drawBufs{};
+                for (u32 a = 0; a < GBuffer::Count; ++a)
+                    drawBufs[a] = GL_COLOR_ATTACHMENT0 + a;
+                glNamedFramebufferDrawBuffers(targetFB->GetRendererID(), static_cast<GLsizei>(GBuffer::Count),
+                                              drawBufs.data());
+            }
+
+            // Raw GL state, deliberately bypassing the context caches: this pass
+            // runs between bucket executions whose dispatchers track state in
+            // their own caches — a cached "already true" here can leave the real
+            // GL depth test/mask off, which silently drops every depth write
+            // (color still lands) and downstream sky/overlay passes then overdraw
+            // the clusters. Same raw-GL discipline as GPUDrivenOcclusionPass.
+            ::glViewport(0, 0, static_cast<GLsizei>(gbuffer->GetWidth()), static_cast<GLsizei>(gbuffer->GetHeight()));
+            ::glEnable(GL_DEPTH_TEST);
+            ::glDepthFunc(GL_LESS);
+            ::glDepthMask(GL_TRUE);
+            ::glDisable(GL_BLEND);
+            ::glEnable(GL_CULL_FACE);
+            ::glCullFace(GL_BACK);
+            ::glDisable(GL_STENCIL_TEST);
+            ::glDisable(GL_SCISSOR_TEST);
+            ::glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            // Per-attachment color masks can be left disabled by earlier passes
+            // (glColorMaski state is indexed and survives a plain glColorMask);
+            // a masked RT1/RT2 silently drops normal/emissive writes while RT0 +
+            // depth land — the lighting pass then shades clusters with cleared
+            // G-Buffer data.
+            ::glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            for (u32 attachment = 0; attachment < GBuffer::Count; ++attachment)
+            {
+                ::glColorMaski(attachment, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            }
+        };
+
+        // One MDI-count call per instance over one phase's command region.
+        // `commandSlotBase` / `argsInstanceBase` select the region: 0/0 for phase
+        // 1, the frame's cluster/instance counts for phase 2.
+        const auto drawHardwarePhase = [&](u32 commandSlotBase, u32 argsInstanceBase)
+        {
+            m_GBufferShader->Bind();
+            if (debugActive)
+            {
+                // Image units 0/1 (separate namespace from the sampler texture units).
+                ::glBindImageTexture(0, registry.GetDebugColorTextureID(), 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
+                ::glBindImageTexture(1, registry.GetDebugCountTextureID(), 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+            }
+            m_DrawInfoUBO->Bind();
+
+            u32 const commandBufferID = registry.GetCommandBuffer()->GetRendererID();
+            u32 const argsBufferID = registry.GetArgsBuffer()->GetRendererID();
+            for (sizet i = 0; i < instances.size(); ++i)
+            {
+                const auto& mat = FrameDataBufferManager::Get().GetMaterialData(
+                    static_cast<u16>(instances[i].MaterialDataIndex));
+                CommandDispatch::UploadMaterialForDirectDraw(mat, static_cast<u16>(instances[i].MaterialDataIndex));
+
+                u32 const segmentBase = commandSlotBase + instances[i].Gpu.CommandBase;
+                u32 const drawInfo[4] = { static_cast<u32>(i), segmentBase, 0u, 0u };
+                m_DrawInfoUBO->SetData(drawInfo, sizeof(drawInfo));
+
+                // Two-sided materials must not backface-cull. Foliage is a single sheet of quads
+                // meant to be seen from both sides, so culling drops half of every leaf — which is
+                // what shredded Sponza's plants. The classic path does the same thing via
+                // Renderer3DDrawHelpers::BuildRenderState; this loop drives raw GL, so it has to
+                // toggle the state itself.
+                if (instances[i].TwoSided)
+                {
+                    ::glDisable(GL_CULL_FACE);
+                }
+                else
+                {
+                    ::glEnable(GL_CULL_FACE);
+                }
+
+                RenderCommand::MultiDrawElementsIndirectCountRaw(
+                    registry.GetVaoID(), commandBufferID,
+                    segmentBase * 32u, // this instance's command segment, in this phase's region
+                    argsBufferID,
+                    static_cast<u32>((argsInstanceBase + i) * sizeof(VirtualDrawArgs)),
+                    instances[i].Gpu.ClusterCount, 32u);
+            }
+            ::glEnable(GL_CULL_FACE); // restore the pass-wide default
+        };
+
+        // ── 2. Phase-1 hardware raster ──
+        bindDrawTarget();
+        drawHardwarePhase(0u, 0u);
+        // Unbind so the depth attachment can be sampled by the Hi-Z build below
+        // without an attachment/sampler feedback loop.
+        targetFB->Unbind();
+
+        // ── 3. Cull phase 2 (issue #682) ──
+        // The phase-1 clusters are now in the depth buffer. Rebuild the pyramid
+        // from it (opaque scene + phase-1 virtual geometry) and re-test only the
+        // reject list. Software-rasterized clusters are NOT in that depth yet —
+        // they live in the visibility buffer until the resolve below — which
+        // simply makes the pyramid a weaker occluder set, i.e. conservative.
+        if (twoPhase)
+        {
+            // The phase-1 draws just wrote this depth through the fixed-function
+            // pipeline; the Hi-Z build samples it as a texture. Order the
+            // framebuffer-write -> texture-fetch explicitly (GL 4.5 texture barrier).
+            ::glTextureBarrier();
+            const GPUFrustumCuller::HZBOcclusionInputs currentHZB = Renderer3D::BuildCurrentOcclusionHZB(
+                gbuffer->GetDepthAttachmentID(), gbuffer->GetWidth(), gbuffer->GetHeight());
+
+            // The HZB build bound its own program / SSBOs / images.
+            bindCullResources();
+            m_CullShader->Bind();
+            m_CullShader->SetFloat("u_ViewportHeight", static_cast<f32>(gbuffer->GetHeight()));
+            m_CullShader->SetFloat("u_SwRasterThresholdPixels", swThresholdPixels);
+            m_CullShader->SetInt("u_Phase2", 1);
+            m_CullShader->SetInt("u_WriteRejected", 0);
+            m_CullShader->SetUint("u_RejectCapacity", frameClusterCount);
+            m_CullShader->SetUint("u_CommandSlotBase", frameClusterCount);
+            m_CullShader->SetUint("u_ArgsSlotBase", instanceCount);
+            // If the rebuild failed, occlusion goes off for phase 2 and EVERY
+            // reject is emitted — a phase-1 reject that is never re-tested is
+            // exactly the hole this scheme must not have.
+            bindOcclusionInputs(currentHZB);
+
+            // One thread per reject, dispatched at the worst case (every cluster
+            // rejected); threads past the live count early-out.
+            u32 const rejectGroups = (frameClusterCount + 63u) / 64u;
+            u32 const groupsX = std::min(rejectGroups, 4096u);
+            u32 const groupsY = (rejectGroups + groupsX - 1u) / std::max(groupsX, 1u);
+            if (rejectGroups > 0)
+                RenderCommand::DispatchCompute(groupsX, groupsY, 1);
+
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::Command);
+        }
+
+        // ── 4. Compute software rasterizer (portable two-pass 2x32 scheme):
         // phase 0 atomicMin-compacts depth, phase 1 writes the winning
         // payloads. Dispatched at the conservative total-cluster upper bound;
         // workgroups beyond the live SW count early-out (issue #551 idiom).
-        if (swThresholdPixels > 0.0f && registry.GetVisbufferBuffer())
+        // Runs ONCE, after both cull phases, over the union work list — the two
+        // phases append to the same SW list, so a single dispatch covers both.
+        if (swEnabled)
         {
             registry.GetVertexBuffer()->Bind();
             registry.GetVisbufferBuffer()->Bind();
             ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_VIRTUAL_INDICES,
                                registry.GetIndexBufferID());
 
-            u32 const maxSwRecords = registry.GetTotalFrameClusterCount();
+            u32 const maxSwRecords = frameClusterCount;
             u32 const groupsX = std::min(maxSwRecords, 4096u);
             u32 const groupsY = (maxSwRecords + groupsX - 1u) / std::max(groupsX, 1u);
 
@@ -381,126 +556,46 @@ namespace OloEngine
             }
         }
 
-        // ── 2. Hardware raster: one MDI-count call per instance ──
-        // Non-per-sample MSAA draws straight into the resolved FBO (ScenePass
-        // already resolved it); per-sample MSAA and the non-MSAA path draw into
-        // the primary FBO (multisample or single-sample respectively).
-        Ref<Framebuffer> targetFB = (msaa && !perSampleMSAA) ? gbuffer->GetSamplingFramebuffer()
-                                                             : gbuffer->GetFramebuffer();
-        if (!targetFB)
-            targetFB = gbuffer->GetFramebuffer();
-        targetFB->Bind();
+        // ── 5. Phase-2 hardware raster + visibility-buffer material resolve ──
+        if (twoPhase || swEnabled)
         {
-            // All five G-Buffer MRTs, same set SceneRenderPass draws
-            std::array<GLenum, GBuffer::Count> drawBufs{};
-            for (u32 a = 0; a < GBuffer::Count; ++a)
-                drawBufs[a] = GL_COLOR_ATTACHMENT0 + a;
-            glNamedFramebufferDrawBuffers(targetFB->GetRendererID(), static_cast<GLsizei>(GBuffer::Count), drawBufs.data());
-        }
+            bindDrawTarget();
 
-        // Raw GL state, deliberately bypassing the context caches: this pass
-        // runs between bucket executions whose dispatchers track state in
-        // their own caches — a cached "already true" here can leave the real
-        // GL depth test/mask off, which silently drops every depth write
-        // (color still lands) and downstream sky/overlay passes then overdraw
-        // the clusters. Same raw-GL discipline as GPUDrivenOcclusionPass.
-        ::glViewport(0, 0, static_cast<GLsizei>(gbuffer->GetWidth()), static_cast<GLsizei>(gbuffer->GetHeight()));
-        ::glEnable(GL_DEPTH_TEST);
-        ::glDepthFunc(GL_LESS);
-        ::glDepthMask(GL_TRUE);
-        ::glDisable(GL_BLEND);
-        ::glEnable(GL_CULL_FACE);
-        ::glCullFace(GL_BACK);
-        ::glDisable(GL_STENCIL_TEST);
-        ::glDisable(GL_SCISSOR_TEST);
-        ::glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        // Per-attachment color masks can be left disabled by earlier passes
-        // (glColorMaski state is indexed and survives a plain glColorMask);
-        // a masked RT1/RT2 silently drops normal/emissive writes while RT0 +
-        // depth land — the lighting pass then shades clusters with cleared
-        // G-Buffer data.
-        ::glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        for (u32 attachment = 0; attachment < GBuffer::Count; ++attachment)
-        {
-            ::glColorMaski(attachment, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        }
-
-        m_GBufferShader->Bind();
-        if (debugActive)
-        {
-            // Image units 0/1 (separate namespace from the sampler texture units).
-            ::glBindImageTexture(0, registry.GetDebugColorTextureID(), 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
-            ::glBindImageTexture(1, registry.GetDebugCountTextureID(), 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
-        }
-
-        if (!m_DrawInfoUBO)
-        {
-            m_DrawInfoUBO = UniformBuffer::Create(16, ShaderBindingLayout::UBO_VIRTUAL_DRAW);
-        }
-        m_DrawInfoUBO->Bind();
-
-        u32 const commandBufferID = registry.GetCommandBuffer()->GetRendererID();
-        u32 const argsBufferID = registry.GetArgsBuffer()->GetRendererID();
-        for (sizet i = 0; i < instances.size(); ++i)
-        {
-            const auto& mat = FrameDataBufferManager::Get().GetMaterialData(
-                static_cast<u16>(instances[i].MaterialDataIndex));
-            CommandDispatch::UploadMaterialForDirectDraw(mat, static_cast<u16>(instances[i].MaterialDataIndex));
-
-            u32 const drawInfo[4] = { static_cast<u32>(i), instances[i].Gpu.CommandBase, 0u, 0u };
-            m_DrawInfoUBO->SetData(drawInfo, sizeof(drawInfo));
-
-            // Two-sided materials must not backface-cull. Foliage is a single sheet of quads
-            // meant to be seen from both sides, so culling drops half of every leaf — which is
-            // what shredded Sponza's plants. The classic path does the same thing via
-            // Renderer3DDrawHelpers::BuildRenderState; this loop drives raw GL, so it has to
-            // toggle the state itself.
-            if (instances[i].TwoSided)
+            if (twoPhase)
             {
-                ::glDisable(GL_CULL_FACE);
+                drawHardwarePhase(frameClusterCount, instanceCount);
             }
-            else
+
+            // One fullscreen draw per instance (the material model binds textures
+            // per draw). Depth test + write stay on: gl_FragDepth replays the
+            // visibility buffer's depth, composing SW-rasterized clusters with the
+            // HW-rasterized ones from both phases.
+            if (swEnabled)
             {
+                ::glDisable(GL_CULL_FACE); // fullscreen triangle
+                m_ResolveShader->Bind();
+                registry.GetSwListBuffer()->Bind();
+                registry.GetVisbufferBuffer()->Bind();
+
+                const auto fullscreen = MeshPrimitives::GetFullscreenTriangle();
+                for (sizet i = 0; i < instances.size(); ++i)
+                {
+                    const auto& mat = FrameDataBufferManager::Get().GetMaterialData(
+                        static_cast<u16>(instances[i].MaterialDataIndex));
+                    CommandDispatch::UploadMaterialForDirectDraw(mat, static_cast<u16>(instances[i].MaterialDataIndex));
+
+                    u32 const drawInfo[4] = { static_cast<u32>(i), instances[i].Gpu.CommandBase,
+                                              registry.GetVisbufferWidth(), registry.GetVisbufferHeight() };
+                    m_DrawInfoUBO->SetData(drawInfo, sizeof(drawInfo));
+
+                    fullscreen->Bind();
+                    context.DrawIndexed(fullscreen);
+                }
                 ::glEnable(GL_CULL_FACE);
             }
 
-            RenderCommand::MultiDrawElementsIndirectCountRaw(
-                registry.GetVaoID(), commandBufferID,
-                instances[i].Gpu.CommandBase * 32u, // this instance's command segment
-                argsBufferID, static_cast<u32>(i * sizeof(VirtualDrawArgs)),
-                instances[i].Gpu.ClusterCount, 32u);
+            targetFB->Unbind();
         }
-        ::glEnable(GL_CULL_FACE); // restore the pass-wide default for the resolve draws below
-
-        // ── 3. Visibility-buffer material resolve: one fullscreen draw per
-        // instance (the material model binds textures per draw). Depth test +
-        // write stay on: gl_FragDepth replays the visibility buffer's depth,
-        // composing SW-rasterized clusters with the HW-rasterized ones.
-        if (swThresholdPixels > 0.0f && registry.GetVisbufferBuffer())
-        {
-            ::glDisable(GL_CULL_FACE); // fullscreen triangle
-            m_ResolveShader->Bind();
-            registry.GetSwListBuffer()->Bind();
-            registry.GetVisbufferBuffer()->Bind();
-
-            const auto fullscreen = MeshPrimitives::GetFullscreenTriangle();
-            for (sizet i = 0; i < instances.size(); ++i)
-            {
-                const auto& mat = FrameDataBufferManager::Get().GetMaterialData(
-                    static_cast<u16>(instances[i].MaterialDataIndex));
-                CommandDispatch::UploadMaterialForDirectDraw(mat, static_cast<u16>(instances[i].MaterialDataIndex));
-
-                u32 const drawInfo[4] = { static_cast<u32>(i), instances[i].Gpu.CommandBase,
-                                          registry.GetVisbufferWidth(), registry.GetVisbufferHeight() };
-                m_DrawInfoUBO->SetData(drawInfo, sizeof(drawInfo));
-
-                fullscreen->Bind();
-                context.DrawIndexed(fullscreen);
-            }
-            ::glEnable(GL_CULL_FACE);
-        }
-
-        targetFB->Unbind();
 
         // Overdraw debug: colorize the accumulated per-pixel fragment count into
         // the colour target (heat ramp) so it captures as a readable image. The

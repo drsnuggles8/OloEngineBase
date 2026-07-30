@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
+#include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
@@ -142,6 +143,32 @@ namespace OloEngine
         inputs.MipCount = s_Data.OcclusionHZB.GetMipCount();
         // Current-frame pyramid → reproject phase-2 bounds with the CURRENT VP.
         inputs.PrevViewProjection = s_Data.ViewProjectionMatrix;
+        inputs.HZBSize = glm::vec2(static_cast<f32>(s_Data.OcclusionHZB.GetHZBWidth()),
+                                   static_cast<f32>(s_Data.OcclusionHZB.GetHZBHeight()));
+        inputs.HZBUVFactor = s_Data.OcclusionHZB.GetUVFactor();
+        inputs.DepthBias = s_Data.HZBOcclusionDepthBias;
+        return inputs;
+    }
+
+    GPUFrustumCuller::HZBOcclusionInputs Renderer3D::GetRetainedOcclusionHZB()
+    {
+        GPUFrustumCuller::HZBOcclusionInputs inputs; // Enabled = false by default
+
+        // Same three-part guard RenderPipeline applies before handing the pyramid
+        // to the instance cull: the global toggle (which also honours the
+        // force-disable-culling debug override), the frame-0 / post-invalidation
+        // validity flag, and the generator actually holding a texture.
+        if (!IsHZBOcclusionCullingEnabled() || !s_Data.OcclusionHZBValid || !s_Data.OcclusionHZB.IsValid())
+            return inputs;
+
+        inputs.Enabled = true;
+        inputs.HZBTextureID = s_Data.OcclusionHZB.GetHZBTextureID();
+        inputs.MipCount = s_Data.OcclusionHZB.GetMipCount();
+        // The pyramid is in LAST frame's screen space; the transforms the cull
+        // reads are shifted by THIS frame's render origin, so the previous VP has
+        // to be made relative to that same origin or `clip = VP_world *
+        // relativePos` is garbage far from the origin (issue #429).
+        inputs.PrevViewProjection = MakeViewProjectionRelative(s_Data.PrevViewProjectionMatrix, s_Data.RenderOrigin);
         inputs.HZBSize = glm::vec2(static_cast<f32>(s_Data.OcclusionHZB.GetHZBWidth()),
                                    static_cast<f32>(s_Data.OcclusionHZB.GetHZBHeight()));
         inputs.HZBUVFactor = s_Data.OcclusionHZB.GetUVFactor();

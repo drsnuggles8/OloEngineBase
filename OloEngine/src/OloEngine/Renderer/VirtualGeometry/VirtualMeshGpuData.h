@@ -132,6 +132,12 @@ namespace OloEngine
     // Per-instance cull output header. The first field doubles as the
     // glMultiDrawElementsIndirectCount draw-count parameter (stride 16 keeps
     // each instance's count 4-byte aligned at offset instanceIndex * 16).
+    //
+    // The args array holds TWO regions of `instanceCount` entries (issue #682):
+    // [0, n) is the two-phase cull's phase 1, [n, 2n) is phase 2. Phase 2 needs
+    // its own draw count because the phase-1 MDI has already read its parameter
+    // word by the time phase 2 runs. Only phase 1 accumulates TestedCount /
+    // CutSelected — the DAG cut is decided once per frame.
     struct VirtualDrawArgs
     {
         u32 DrawCount = 0;   // hardware-path visible-cluster count (parameter-buffer word)
