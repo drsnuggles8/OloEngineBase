@@ -12,8 +12,6 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
-#include <glad/gl.h>
-
 #include <span>
 #include <string>
 
@@ -170,7 +168,7 @@ namespace OloEngine
         RenderCommand::SetBlendState(false);
         RenderCommand::DisableCulling();
         RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
         RenderCommand::SetColorMask(true, true, true, true);
         RenderCommand::SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
 

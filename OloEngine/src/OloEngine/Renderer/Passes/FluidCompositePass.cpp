@@ -190,7 +190,7 @@ namespace OloEngine
         // Restore scene-pass defaults.
         RenderCommand::SetDepthTest(true);
         RenderCommand::SetDepthMask(true);
-        RenderCommand::SetDepthFunc(GL_LESS);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         CommandDispatch::InvalidateRenderStateCache();
 
         // Unbind every sampler slot we touched — stale bindings leak into any

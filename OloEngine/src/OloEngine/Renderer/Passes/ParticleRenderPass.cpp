@@ -5,8 +5,6 @@
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Renderer/Renderer.h"
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
     ParticleRenderPass::ParticleRenderPass()
@@ -123,14 +121,14 @@ namespace OloEngine
             oitFB->Bind();
 
             context.SetDepthTest(true);
-            RenderCommand::SetDepthFunc(GL_LEQUAL);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::LessOrEqual);
             context.SetDepthMask(false);
 
             // Per-attachment blend state: both enabled, different factors.
-            RenderCommand::SetBlendStateForAttachment(0, true);                           // accum
-            RenderCommand::SetBlendStateForAttachment(1, true);                           // revealage
-            RenderCommand::SetBlendFuncForAttachment(0, GL_ONE, GL_ONE);                  // additive
-            RenderCommand::SetBlendFuncForAttachment(1, GL_ZERO, GL_ONE_MINUS_SRC_COLOR); // multiplicative
+            RenderCommand::SetBlendStateForAttachment(0, true);                                                      // accum
+            RenderCommand::SetBlendStateForAttachment(1, true);                                                      // revealage
+            RenderCommand::SetBlendFuncForAttachment(0, RHI::BlendFactor::One, RHI::BlendFactor::One);               // additive
+            RenderCommand::SetBlendFuncForAttachment(1, RHI::BlendFactor::Zero, RHI::BlendFactor::OneMinusSrcColor); // multiplicative
 
             ParticleBatchRenderer::SetOITMode(true);
 
@@ -142,10 +140,10 @@ namespace OloEngine
             // the per-attachment WB-OIT factors.
             RenderCommand::SetBlendStateForAttachment(0, false);
             RenderCommand::SetBlendStateForAttachment(1, false);
-            RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
             context.SetBlendState(false);
 
-            RenderCommand::SetDepthFunc(GL_LESS);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
             context.SetDepthMask(true);
 
             oitFB->Unbind();
@@ -156,7 +154,7 @@ namespace OloEngine
             m_SceneFramebuffer->Bind();
 
             context.SetDepthTest(true);
-            RenderCommand::SetDepthFunc(GL_LEQUAL);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::LessOrEqual);
             context.SetDepthMask(false);
 
             // Enable blending only on draw buffer 0 (color).
@@ -164,11 +162,11 @@ namespace OloEngine
             RenderCommand::SetBlendStateForAttachment(0, true);
             RenderCommand::SetBlendStateForAttachment(1, false);
             RenderCommand::SetBlendStateForAttachment(2, false);
-            RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
             m_RenderCallback();
 
-            RenderCommand::SetDepthFunc(GL_LESS);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
             context.SetDepthMask(true);
             RenderCommand::SetBlendStateForAttachment(0, false);
             context.SetBlendState(false);

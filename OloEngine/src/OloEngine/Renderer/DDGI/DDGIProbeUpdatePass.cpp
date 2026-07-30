@@ -70,12 +70,10 @@ namespace OloEngine
         static_assert(sizeof(DDGIPassDataUBO) == 160, "DDGIPassDataUBO std140 size drifted from GLSL expectation (160 B)");
         static_assert(sizeof(DDGIPassDataUBO) % 16 == 0, "DDGIPassDataUBO must be 16-byte aligned for std140");
 
-        void SetAtlasTextureParams(u32 texID, GLint filter)
+        void SetAtlasTextureParams(u32 texID, RHI::Filter filter)
         {
-            RenderCommand::SetTextureParameter(texID, GL_TEXTURE_MIN_FILTER, filter);
-            RenderCommand::SetTextureParameter(texID, GL_TEXTURE_MAG_FILTER, filter);
-            RenderCommand::SetTextureParameter(texID, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            RenderCommand::SetTextureParameter(texID, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            RenderCommand::SetTextureFilter(texID, filter, filter);
+            RenderCommand::SetTextureWrap(texID, RHI::AddressMode::ClampToEdge);
         }
 
         // Shared render state for the fullscreen-triangle stages (resample /
@@ -88,7 +86,7 @@ namespace OloEngine
             RenderCommand::SetBlendState(false);
             RenderCommand::DisableCulling();
             RenderCommand::DisableScissorTest();
-            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
             RenderCommand::SetColorMask(true, true, true, true);
         }
 
@@ -161,28 +159,25 @@ namespace OloEngine
             // 1x1 black RGBA16F — a single texture serves all three disabled
             // slots (sampler2D reads of .rg / .rgb / .w all see zero, and
             // state 0 == Uncaptured makes the sampler skip every probe).
-            m_PlaceholderTexture = RenderCommand::CreateTexture2D(1, 1, GL_RGBA16F);
+            m_PlaceholderTexture = RenderCommand::CreateTexture2D(1, 1, RHI::Format::RGBA16Float);
             glClearTexImage(m_PlaceholderTexture, 0, GL_RGBA, GL_FLOAT, nullptr);
-            SetAtlasTextureParams(m_PlaceholderTexture, GL_NEAREST);
+            SetAtlasTextureParams(m_PlaceholderTexture, RHI::Filter::Nearest);
         }
         if (m_WhiteTexture == 0)
         {
-            m_WhiteTexture = RenderCommand::CreateTexture2D(1, 1, GL_RGBA8);
+            m_WhiteTexture = RenderCommand::CreateTexture2D(1, 1, RHI::Format::RGBA8UNorm);
             constexpr u8 white[4] = { 255, 255, 255, 255 };
-            RenderCommand::UploadTextureSubImage2D(m_WhiteTexture, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, white);
-            SetAtlasTextureParams(m_WhiteTexture, GL_NEAREST);
+            RenderCommand::UploadTextureSubImage2D(m_WhiteTexture, 1, 1, RHI::Format::RGBA8UNorm, white);
+            SetAtlasTextureParams(m_WhiteTexture, RHI::Filter::Nearest);
         }
         if (m_BlackCubemap == 0)
         {
             // Environment fallback for the relight sky term when no global
             // IBL environment cubemap exists this frame.
-            m_BlackCubemap = RenderCommand::CreateTextureCubemap(1, 1, GL_RGBA16F);
+            m_BlackCubemap = RenderCommand::CreateTextureCubemap(1, 1, RHI::Format::RGBA16Float);
             glClearTexImage(m_BlackCubemap, 0, GL_RGBA, GL_FLOAT, nullptr);
-            RenderCommand::SetTextureParameter(m_BlackCubemap, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            RenderCommand::SetTextureParameter(m_BlackCubemap, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            RenderCommand::SetTextureParameter(m_BlackCubemap, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            RenderCommand::SetTextureParameter(m_BlackCubemap, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            RenderCommand::SetTextureParameter(m_BlackCubemap, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+            RenderCommand::SetTextureFilter(m_BlackCubemap, RHI::Filter::Linear, RHI::Filter::Linear);
+            RenderCommand::SetTextureWrap(m_BlackCubemap, RHI::AddressMode::ClampToEdge);
         }
 
         OLO_CORE_INFO("DDGIProbeUpdatePass: Initialized (atlases created lazily on first submitted volume)");
@@ -420,7 +415,7 @@ namespace OloEngine
         for (u32 i = 0; i < 2; ++i)
         {
             m_IrradianceFB[i] = makeAtlasFB(FramebufferTextureFormat::RGBA16F, DDGI::kIrradianceTileTexels);
-            SetAtlasTextureParams(m_IrradianceFB[i]->GetColorAttachmentRendererID(0), GL_LINEAR);
+            SetAtlasTextureParams(m_IrradianceFB[i]->GetColorAttachmentRendererID(0), RHI::Filter::Linear);
             m_IrradianceFB[i]->Bind();
             m_IrradianceFB[i]->ClearAllAttachments(glm::vec4(0.0f), -1);
         }
@@ -429,7 +424,7 @@ namespace OloEngine
         for (u32 i = 0; i < 2; ++i)
         {
             m_VisibilityFB[i] = makeAtlasFB(FramebufferTextureFormat::RG16F, DDGI::kVisibilityTileTexels);
-            SetAtlasTextureParams(m_VisibilityFB[i]->GetColorAttachmentRendererID(0), GL_LINEAR);
+            SetAtlasTextureParams(m_VisibilityFB[i]->GetColorAttachmentRendererID(0), RHI::Filter::Linear);
             m_VisibilityFB[i]->Bind();
             m_VisibilityFB[i]->ClearAllAttachments(glm::vec4(0.0f), -1);
         }
@@ -437,7 +432,7 @@ namespace OloEngine
         // Radiance cache (RGBA16F, HitCacheTexels tiles, no border) — NEAREST
         // (texelFetch-only consumer).
         m_RadianceFB = makeAtlasFB(FramebufferTextureFormat::RGBA16F, t);
-        SetAtlasTextureParams(m_RadianceFB->GetColorAttachmentRendererID(0), GL_NEAREST);
+        SetAtlasTextureParams(m_RadianceFB->GetColorAttachmentRendererID(0), RHI::Filter::Nearest);
         m_RadianceFB->Bind();
         m_RadianceFB->ClearAllAttachments(glm::vec4(0.0f), -1);
 
@@ -450,8 +445,8 @@ namespace OloEngine
             spec.Height = static_cast<u32>(tileDims.y * t);
             spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RGBA16F };
             m_HitFB = Framebuffer::Create(spec);
-            SetAtlasTextureParams(m_HitFB->GetColorAttachmentRendererID(0), GL_NEAREST);
-            SetAtlasTextureParams(m_HitFB->GetColorAttachmentRendererID(1), GL_NEAREST);
+            SetAtlasTextureParams(m_HitFB->GetColorAttachmentRendererID(0), RHI::Filter::Nearest);
+            SetAtlasTextureParams(m_HitFB->GetColorAttachmentRendererID(1), RHI::Filter::Nearest);
             m_HitFB->Bind();
             m_HitFB->ClearAttachment(0, glm::vec4(0.0f));
             // Geo cleared to "sky" so never-resampled tiles read as misses.
@@ -469,17 +464,17 @@ namespace OloEngine
             spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RGBA16F,
                                  FramebufferTextureFormat::ShadowDepth };
             m_CaptureFB = Framebuffer::Create(spec);
-            SetAtlasTextureParams(m_CaptureFB->GetColorAttachmentRendererID(0), GL_NEAREST);
-            SetAtlasTextureParams(m_CaptureFB->GetColorAttachmentRendererID(1), GL_NEAREST);
+            SetAtlasTextureParams(m_CaptureFB->GetColorAttachmentRendererID(0), RHI::Filter::Nearest);
+            SetAtlasTextureParams(m_CaptureFB->GetColorAttachmentRendererID(1), RHI::Filter::Nearest);
         }
 
         // Probe data: one texel per probe (xyz = relocation offset normalized
         // by spacing, w = state). CPU-written ONLY (glTextureSubImage2D from
         // the relocation/classification step); cleared to zero == Uncaptured.
         m_ProbeDataTexture = RenderCommand::CreateTexture2D(static_cast<u32>(tileDims.x),
-                                                            static_cast<u32>(tileDims.y), GL_RGBA16F);
+                                                            static_cast<u32>(tileDims.y), RHI::Format::RGBA16Float);
         glClearTexImage(m_ProbeDataTexture, 0, GL_RGBA, GL_FLOAT, nullptr);
-        SetAtlasTextureParams(m_ProbeDataTexture, GL_NEAREST);
+        SetAtlasTextureParams(m_ProbeDataTexture, RHI::Filter::Nearest);
 
         // Reset the CPU scheduling mirror — a new grid invalidates every record.
         const sizet total = static_cast<sizet>(m_Desc.Resolution.x) *
@@ -629,12 +624,12 @@ namespace OloEngine
         // the fragment stage tags them via gl_FrontFacing.
         RenderCommand::SetDepthTest(true);
         RenderCommand::SetDepthMask(true);
-        RenderCommand::SetDepthFunc(GL_LESS);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         RenderCommand::SetBlendState(false);
         RenderCommand::DisableCulling();
         RenderCommand::DisableScissorTest();
         RenderCommand::SetColorMask(true, true, true, true);
-        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
 
         m_CaptureShader->Bind();
         m_CaptureCameraUBO->Bind();

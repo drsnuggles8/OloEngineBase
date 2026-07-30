@@ -722,6 +722,84 @@ follow-up, not a Phase 6 dependency.
 
 ---
 
+## Amendments from Phase 2 (2026-07-30)
+
+Phase 1 said explicitly that "nothing here is load-bearing until Phase 2
+begins," and that if the sweep discovered a decision was wrong the ADR should be
+amended rather than silently diverged from. Four things were discovered while
+stripping `RendererAPI`'s GL-typed virtuals (§1.7's first task). None of them
+changes the model in §1.1–§1.5; all four are corrections to the *vocabulary*
+§1.7 promised.
+
+**(1) `SetPolygonMode` loses its face parameter entirely.** §1.7 listed the
+neutral replacement for `SetPolygonMode(GLenum, GLenum)` as
+`RHI::CullMode` (face) + `RHI::PolygonMode`. That is wrong, and preserving it
+would have re-exported a GL wart that GL itself deprecated: **core-profile
+`glPolygonMode` accepts only `GL_FRONT_AND_BACK`** — `GL_FRONT` or `GL_BACK`
+raises `GL_INVALID_ENUM` — and all 47 call sites in the engine passed
+`GL_FRONT_AND_BACK`. Vulkan's `VkPipelineRasterizationStateCreateInfo::polygonMode`
+has no face either. The signature is therefore `SetPolygonMode(RHI::PolygonMode)`
+and `PODRenderState::polygonFace` is deleted along with it.
+
+*Generalisable:* when translating a legacy parameter, check whether the source
+API still accepts more than one value for it. A parameter with exactly one legal
+value is not an abstraction to preserve — it is a fossil, and carrying it forward
+makes the neutral layer harder to implement on the backend that never had it.
+
+**(2) `SamplerDesc`'s two bools are not expressive enough; it gains real enums.**
+§1.2a modelled sampler state as `bool LinearFilter` / `bool ClampToEdge`. Those
+describe the typical texture but cannot describe the ones the sweep actually had
+to replace: `SSAORenderPass`'s noise texture is **Nearest + Repeat**, and
+`CreateDepthArrayCompareOffView` is **Nearest + ClampToBorder**. Under the
+two-bool model those call sites would have had to keep a GL escape hatch, which
+would have left `sweep_glad_includes` unable to reach zero for a reason that is
+purely a modelling shortfall. `RHI::Filter` and `RHI::AddressMode` are added to
+`RHITypes.h`, and `SamplerDesc` carries `MinFilter` / `MagFilter` /
+`AddressU|V|W`. This does not affect §1.2a's actual decision (sampler
+*deduplication* is still Phase 3/4 and still has no GL counterpart to port).
+
+**(3) `SetTextureParameter` decomposes into intent-named setters.** §1.7 flagged
+this as the one virtual that "resists a mechanical translation" and warned
+against mirroring GL's `pname` space with an `RHI::TextureParameterName`. The
+resolution: every call site in the engine sets exactly min filter, mag filter,
+and wrap S/T/R — and every one of them uses a single wrap value for all axes.
+So `SetTextureFilter(id, min, mag)` + `SetTextureWrap(id, mode)` covers 100% of
+usage with no open-ended enum. `SetTextureWrap` sets all three axes because
+`GL_TEXTURE_WRAP_R` is part of every texture object's sampler state and is inert
+on a 2D target, so doing so is a faithful reproduction rather than a widening.
+**There was no Phase 2 design gap here** — the escape hatch §1.7 held open (a
+comment on #691) was not needed.
+
+**(4) `UploadTextureSubImage2D`'s `(format, type)` pair collapses into one
+`RHI::Format` describing the *source buffer*.** Worth recording because the
+naming invites a bug: this parameter is **not** the texture's storage format.
+The engine relies on GL converting on upload — SSAO's noise texture is `RG16Float`
+storage fed from `RG32Float` host data — so a future backend must treat this as a
+staging-buffer layout, not a format reinterpretation.
+
+Also added to `RHITypes.h` for completeness of the sweep: `RHI::IndexType`
+(so the POD draw commands can describe their index buffer without a `GLenum`)
+and `RHI::Format::R32UInt` (used by five image bindings and absent from Phase 1's
+list).
+
+**One new guard, which is the real lesson.** The failure mode this phase is
+gated on is a *wrong enum mapping*: `GL_SRC_ALPHA → RHI::BlendFactor::SrcAlpha`
+has to be right ~270 times, and a wrong entry renders subtly wrong while every
+existing test stays green. Two mitigations are now in the tree, and the second
+matters more than the first:
+
+- `OloEngine/tests/Rendering/RHIEnumLoweringTest.cpp` asserts every enumerator
+  against the literal `GL_*` token it names.
+- That test also carries a `static_assert` on each enum's **last enumerator
+  ordinal**. Without it, adding a member without extending `ToGL()` falls through
+  the switch's `default:` and returns a *plausible* value — a silent wrong
+  mapping that a table-of-expectations cannot catch, because the new member has
+  no row in the table. A test that enumerates known values can only guard the
+  values it already knows about; pinning the count is what makes it guard the
+  ones it does not.
+
+---
+
 ## Consequences
 
 - The renderer carries **four** boundary concepts where it carries one today

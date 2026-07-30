@@ -1,7 +1,7 @@
 #include "OloEnginePCH.h"
 #include "SlugFontProcessor.h"
 
-#include <glad/gl.h>
+#include "OloEngine/Renderer/RenderCommand.h"
 
 #include <algorithm>
 #include <cmath>
@@ -581,13 +581,13 @@ namespace OloEngine
             bandTexelData.resize(totalTexels * 2, 0); // RG16UI: 2 u16s/texel
         }
 
-        // Create GPU textures only if a live GL context is bound. Headless
+        // Create GPU textures only if a device is available. Headless
         // harnesses (Functional tests, asset preprocessors) load fonts for
         // their metrics + glyph data without ever rendering them; calling
-        // glCreateTextures via Texture2D::Create without a context segfaults
-        // through the null glad function pointer. Probing one DSA entry point
-        // is sufficient because glad resolves them as a batch — if any one is
-        // non-null, a context exists and the rest do too.
+        // Texture2D::Create without a device segfaults inside the backend
+        // rather than raising an error, so the question has to be asked before
+        // the call. RenderCommand::IsDeviceAvailable() is the backend-neutral
+        // form of that check (issue #691 Phase 2).
         //
         // When NO context is bound we do NOT discard the packed data: it is
         // retained on the SlugFontData so EnsureGpuTextures() can upload it the
@@ -595,7 +595,7 @@ namespace OloEngine
         // headless (e.g. Font::GetDefault() from a metrics-only unit test) would
         // be cached as permanently textureless and silently drop its text on
         // every later render even once a context exists — issue #520.
-        if (const bool hasGLContext = (glad_glCreateTextures != nullptr); hasGLContext)
+        if (const bool hasDevice = RenderCommand::IsDeviceAvailable(); hasDevice)
         {
             if (curveWidth > 0)
             {
@@ -629,7 +629,7 @@ namespace OloEngine
             fontData.PendingBandTexels = std::move(bandTexelData);
             fontData.PendingBandWidth = bandWidth;
             fontData.PendingBandHeight = bandHeight;
-            OLO_CORE_TRACE("SlugFontProcessor: no GL context — deferring curve/band texture upload for lazy creation on first render.");
+            OLO_CORE_TRACE("SlugFontProcessor: no GPU device — deferring curve/band texture upload for lazy creation on first render.");
         }
 
         OLO_CORE_INFO("SlugFontProcessor: processed {} glyphs, {} curve texels, {} band texels",
@@ -647,8 +647,8 @@ namespace OloEngine
             return;
         }
 
-        // Still no context — leave the data pending for a later attempt.
-        if (glad_glCreateTextures == nullptr)
+        // Still no device — leave the data pending for a later attempt.
+        if (!RenderCommand::IsDeviceAvailable())
         {
             return;
         }

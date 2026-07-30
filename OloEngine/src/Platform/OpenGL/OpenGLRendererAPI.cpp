@@ -2,6 +2,7 @@
 #include "Platform/OpenGL/OpenGLRendererAPI.h"
 #include "Platform/OpenGL/OpenGLDebug.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
+#include "Platform/OpenGL/OpenGLRHIConversions.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
@@ -31,7 +32,7 @@ namespace OloEngine
         glDisable(GL_DITHER);
 
         SetDepthTest(true);
-        SetDepthFunc(GL_LESS);
+        SetDepthFunc(RHI::CompareOp::Less);
         glEnable(GL_LINE_SMOOTH);
 
         // Validate that the GPU supports enough combined texture units for our highest binding slot.
@@ -53,8 +54,8 @@ namespace OloEngine
         }
 
         EnableStencilTest();
-        SetStencilFunc(GL_ALWAYS, 1, 0xFF);
-        SetStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+        SetStencilFunc(RHI::CompareOp::Always, 1, 0xFF);
+        SetStencilOp(RHI::StencilOp::Keep, RHI::StencilOp::Keep, RHI::StencilOp::Replace);
 
         // Cache GL_MAX_DRAW_BUFFERS once — SetBlend*ForAttachment are hot paths
         // and glGetIntegerv on every call costs a driver round-trip.
@@ -394,11 +395,11 @@ namespace OloEngine
         glDisable(GL_CULL_FACE);
     }
 
-    void OpenGLRendererAPI::SetCullFace(GLenum face)
+    void OpenGLRendererAPI::SetCullFace(RHI::CullMode face)
     {
         OLO_PROFILE_FUNCTION();
 
-        glCullFace(face);
+        glCullFace(Utils::ToGL(face));
     }
 
     void OpenGLRendererAPI::FrontCull()
@@ -448,19 +449,19 @@ namespace OloEngine
             glDisable(GL_DEPTH_TEST);
         }
     }
-    void OpenGLRendererAPI::SetDepthFunc(GLenum func)
+    void OpenGLRendererAPI::SetDepthFunc(RHI::CompareOp func)
     {
         OLO_PROFILE_FUNCTION();
 
-        glDepthFunc(func);
+        glDepthFunc(Utils::ToGL(func));
         // Don't track this as state change - it's just parameter setting
     }
 
-    void OpenGLRendererAPI::SetStencilMask(GLuint mask)
+    void OpenGLRendererAPI::SetStencilMask(u32 mask)
     {
         OLO_PROFILE_FUNCTION();
 
-        glStencilMask(mask);
+        glStencilMask(static_cast<GLuint>(mask));
     }
 
     void OpenGLRendererAPI::ClearStencil()
@@ -504,17 +505,17 @@ namespace OloEngine
             glDisable(GL_BLEND);
         }
     }
-    void OpenGLRendererAPI::SetBlendFunc(GLenum sfactor, GLenum dfactor)
+    void OpenGLRendererAPI::SetBlendFunc(RHI::BlendFactor sfactor, RHI::BlendFactor dfactor)
     {
         OLO_PROFILE_FUNCTION();
 
-        glBlendFunc(sfactor, dfactor);
+        glBlendFunc(Utils::ToGL(sfactor), Utils::ToGL(dfactor));
         // Don't track this as state change - it's just parameter setting
     }
 
-    void OpenGLRendererAPI::SetBlendEquation(GLenum mode)
+    void OpenGLRendererAPI::SetBlendEquation(RHI::BlendOp mode)
     {
-        glBlendEquation(mode);
+        glBlendEquation(Utils::ToGL(mode));
     }
     void OpenGLRendererAPI::EnableStencilTest()
     {
@@ -547,31 +548,34 @@ namespace OloEngine
     {
         return m_StencilTestEnabled;
     }
-    void OpenGLRendererAPI::SetStencilFunc(GLenum func, GLint ref, GLuint mask)
+    void OpenGLRendererAPI::SetStencilFunc(RHI::CompareOp func, i32 ref, u32 mask)
     {
         OLO_PROFILE_FUNCTION();
 
-        glStencilFunc(func, ref, mask);
+        glStencilFunc(Utils::ToGL(func), static_cast<GLint>(ref), static_cast<GLuint>(mask));
         // Don't track this as state change - it's just parameter setting
     }
-    void OpenGLRendererAPI::SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass)
+    void OpenGLRendererAPI::SetStencilOp(RHI::StencilOp sfail, RHI::StencilOp dpfail, RHI::StencilOp dppass)
     {
         OLO_PROFILE_FUNCTION();
 
-        glStencilOp(sfail, dpfail, dppass);
+        glStencilOp(Utils::ToGL(sfail), Utils::ToGL(dpfail), Utils::ToGL(dppass));
         // Don't track this as state change - it's just parameter setting
     }
-    void OpenGLRendererAPI::SetPolygonMode(GLenum face, GLenum mode)
+    void OpenGLRendererAPI::SetPolygonMode(RHI::PolygonMode mode)
     {
         OLO_PROFILE_FUNCTION();
 
-        glPolygonMode(face, mode);
+        // GL_FRONT_AND_BACK is the only face core-profile glPolygonMode accepts,
+        // which is why the neutral signature carries no face parameter at all.
+        const GLenum glMode = Utils::ToGL(mode);
+        glPolygonMode(GL_FRONT_AND_BACK, glMode);
         // Only track as state change if switching to/from wireframe mode
         static GLenum s_LastMode = GL_FILL;
-        if (mode != s_LastMode)
+        if (glMode != s_LastMode)
         {
             RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
-            s_LastMode = mode;
+            s_LastMode = glMode;
         }
     }
     void OpenGLRendererAPI::EnableScissorTest()
@@ -600,11 +604,12 @@ namespace OloEngine
 
         glDisable(GL_SCISSOR_TEST);
     }
-    void OpenGLRendererAPI::SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height)
+    void OpenGLRendererAPI::SetScissorBox(i32 x, i32 y, u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
 
-        glScissor(x, y, width, height);
+        glScissor(static_cast<GLint>(x), static_cast<GLint>(y),
+                  static_cast<GLsizei>(width), static_cast<GLsizei>(height));
         // Don't track this as state change - it's just parameter setting
     }
 
@@ -634,11 +639,14 @@ namespace OloEngine
         glBindTextureUnit(slot, textureID);
     }
 
-    void OpenGLRendererAPI::BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format)
+    void OpenGLRendererAPI::BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer,
+                                             RHI::Access access, RHI::Format format)
     {
         OLO_PROFILE_FUNCTION();
 
-        glBindImageTexture(unit, textureID, static_cast<GLint>(mipLevel), layered ? GL_TRUE : GL_FALSE, static_cast<GLint>(layer), access, format);
+        glBindImageTexture(unit, textureID, static_cast<GLint>(mipLevel), layered ? GL_TRUE : GL_FALSE,
+                           static_cast<GLint>(layer), Utils::ToGLImageAccess(access),
+                           Utils::ToGLInternalFormat(format));
     }
 
     void OpenGLRendererAPI::DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ)
@@ -823,7 +831,7 @@ namespace OloEngine
         }
     }
 
-    void OpenGLRendererAPI::SetBlendFuncForAttachment(u32 attachment, GLenum src, GLenum dst)
+    void OpenGLRendererAPI::SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -834,7 +842,7 @@ namespace OloEngine
             return;
         }
 
-        glBlendFunci(attachment, src, dst);
+        glBlendFunci(attachment, Utils::ToGL(src), Utils::ToGL(dst));
     }
 
     static GLenum ToGLTextureTarget(RendererAPI::TextureTargetType target)
@@ -951,24 +959,24 @@ namespace OloEngine
         glDrawBuffers(static_cast<GLsizei>(colorAttachmentCount), allBuffers.data());
     }
 
-    u32 OpenGLRendererAPI::CreateTexture2D(u32 width, u32 height, GLenum internalFormat)
+    u32 OpenGLRendererAPI::CreateTexture2D(u32 width, u32 height, RHI::Format internalFormat)
     {
         OLO_PROFILE_FUNCTION();
 
         u32 textureID = 0;
         glCreateTextures(GL_TEXTURE_2D, 1, &textureID);
-        glTextureStorage2D(textureID, 1, internalFormat,
+        glTextureStorage2D(textureID, 1, Utils::ToGLInternalFormat(internalFormat),
                            static_cast<GLsizei>(width), static_cast<GLsizei>(height));
         return textureID;
     }
 
-    u32 OpenGLRendererAPI::CreateTextureCubemap(u32 width, u32 height, GLenum internalFormat)
+    u32 OpenGLRendererAPI::CreateTextureCubemap(u32 width, u32 height, RHI::Format internalFormat)
     {
         OLO_PROFILE_FUNCTION();
 
         u32 textureID = 0;
         glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &textureID);
-        glTextureStorage2D(textureID, 1, internalFormat,
+        glTextureStorage2D(textureID, 1, Utils::ToGLInternalFormat(internalFormat),
                            static_cast<GLsizei>(width), static_cast<GLsizei>(height));
         return textureID;
     }
@@ -1002,21 +1010,52 @@ namespace OloEngine
         return viewID;
     }
 
-    void OpenGLRendererAPI::SetTextureParameter(u32 textureID, GLenum pname, GLint value)
+    void OpenGLRendererAPI::SetTextureFilter(u32 textureID, RHI::Filter minFilter, RHI::Filter magFilter)
     {
         OLO_PROFILE_FUNCTION();
 
-        glTextureParameteri(textureID, pname, value);
+        glTextureParameteri(textureID, GL_TEXTURE_MIN_FILTER, static_cast<GLint>(Utils::ToGL(minFilter)));
+        glTextureParameteri(textureID, GL_TEXTURE_MAG_FILTER, static_cast<GLint>(Utils::ToGL(magFilter)));
+    }
+
+    void OpenGLRendererAPI::SetTextureWrap(u32 textureID, RHI::AddressMode wrap)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // All three axes. WRAP_R is part of every texture object's sampler state
+        // and is simply unused on a 2D target, so setting it there is a no-op
+        // rather than an error — which is why one mode for all axes faithfully
+        // reproduces every call site the sweep replaced.
+        const GLint glWrap = static_cast<GLint>(Utils::ToGL(wrap));
+        glTextureParameteri(textureID, GL_TEXTURE_WRAP_S, glWrap);
+        glTextureParameteri(textureID, GL_TEXTURE_WRAP_T, glWrap);
+        glTextureParameteri(textureID, GL_TEXTURE_WRAP_R, glWrap);
     }
 
     void OpenGLRendererAPI::UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
-                                                    GLenum format, GLenum type, const void* data)
+                                                    RHI::Format sourceFormat, const void* data)
     {
         OLO_PROFILE_FUNCTION();
 
         glTextureSubImage2D(textureID, 0, 0, 0,
                             static_cast<GLsizei>(width), static_cast<GLsizei>(height),
-                            format, type, data);
+                            Utils::ToGLPixelFormat(sourceFormat), Utils::ToGLPixelType(sourceFormat), data);
+    }
+
+    bool OpenGLRendererAPI::IsDeviceAvailable() const
+    {
+        // glad resolves every entry point as a batch inside gladLoadGL, so
+        // probing one DSA function pointer answers for all of them. A null
+        // pointer means no context has ever been made current in this process,
+        // and calling through it segfaults rather than raising a GL error —
+        // which is exactly why the check has to happen before the call, not
+        // after it via glGetError.
+        //
+        // Note this is process-wide, not per-thread: glad (built without MX)
+        // keeps one global pointer table. That matches the semantics the callers
+        // need — "was a device ever brought up" — and is deliberately unchanged
+        // from the probe this replaced.
+        return glad_glCreateTextures != nullptr;
     }
 
     void OpenGLRendererAPI::DeleteTexture(u32 textureID)

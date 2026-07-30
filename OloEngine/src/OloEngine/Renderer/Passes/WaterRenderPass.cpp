@@ -235,7 +235,7 @@ namespace OloEngine
         // Restore render state after water (water uses blending + depth write off)
         context.SetDepthMask(true);
         context.SetBlendState(false);
-        RenderCommand::SetDepthFunc(GL_LESS);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         RenderCommand::BackCull();
         CommandDispatch::InvalidateRenderStateCache();
 

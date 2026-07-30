@@ -11,8 +11,6 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 
-#include <glad/gl.h>
-
 #include <algorithm>
 #include <cmath>
 
@@ -190,7 +188,7 @@ namespace OloEngine
         // --- Scatter (inject + light scattering + temporal) ---
         m_ScatterShader->Bind();
         RenderCommand::BindImageTexture(0, m_ScatterVolume[m_CurrentScatter]->GetRendererID(),
-                                        0, true, 0, GL_WRITE_ONLY, GL_RGBA16F);
+                                        0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA16Float);
         RenderCommand::DispatchCompute((kVolumeWidth + 3) / 4, (kVolumeHeight + 3) / 4, (kVolumeDepth + 3) / 4);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
 
@@ -198,7 +196,7 @@ namespace OloEngine
         m_IntegrateShader->Bind();
         RenderCommand::BindTexture(0, m_ScatterVolume[m_CurrentScatter]->GetRendererID());
         RenderCommand::BindImageTexture(0, m_IntegratedVolume->GetRendererID(),
-                                        0, true, 0, GL_WRITE_ONLY, GL_RGBA16F);
+                                        0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA16Float);
         RenderCommand::DispatchCompute((kVolumeWidth + 7) / 8, (kVolumeHeight + 7) / 8, 1);
         // The composite pass samples the integrated volume as a texture.
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);

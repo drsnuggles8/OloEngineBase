@@ -2,8 +2,6 @@
 
 #include "OloEngine/Renderer/RendererAPI.h"
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
     class RenderCommand
@@ -119,7 +117,7 @@ namespace OloEngine
             s_RendererAPI->BackCull();
         }
 
-        static void SetCullFace(GLenum face)
+        static void SetCullFace(RHI::CullMode face)
         {
             s_RendererAPI->SetCullFace(face);
         }
@@ -135,7 +133,7 @@ namespace OloEngine
             s_RendererAPI->SetDepthTest(value);
         }
 
-        static void SetDepthFunc(GLenum func)
+        static void SetDepthFunc(RHI::CompareOp func)
         {
             s_RendererAPI->SetDepthFunc(func);
         }
@@ -156,12 +154,12 @@ namespace OloEngine
             s_RendererAPI->SetBlendState(value);
         }
 
-        static void SetBlendFunc(GLenum sfactor, GLenum dfactor)
+        static void SetBlendFunc(RHI::BlendFactor sfactor, RHI::BlendFactor dfactor)
         {
             s_RendererAPI->SetBlendFunc(sfactor, dfactor);
         }
 
-        static void SetBlendEquation(GLenum mode)
+        static void SetBlendEquation(RHI::BlendOp mode)
         {
             s_RendererAPI->SetBlendEquation(mode);
         }
@@ -182,17 +180,17 @@ namespace OloEngine
             return s_RendererAPI->IsStencilTestEnabled();
         }
 
-        static void SetStencilFunc(GLenum func, GLint ref, GLuint mask)
+        static void SetStencilFunc(RHI::CompareOp func, i32 ref, u32 mask)
         {
             s_RendererAPI->SetStencilFunc(func, ref, mask);
         }
 
-        static void SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass)
+        static void SetStencilOp(RHI::StencilOp sfail, RHI::StencilOp dpfail, RHI::StencilOp dppass)
         {
             s_RendererAPI->SetStencilOp(sfail, dpfail, dppass);
         }
 
-        static void SetStencilMask(GLuint mask)
+        static void SetStencilMask(u32 mask)
         {
             s_RendererAPI->SetStencilMask(mask);
         }
@@ -202,9 +200,9 @@ namespace OloEngine
             s_RendererAPI->ClearStencil();
         }
 
-        static void SetPolygonMode(GLenum face, GLenum mode)
+        static void SetPolygonMode(RHI::PolygonMode mode)
         {
-            s_RendererAPI->SetPolygonMode(face, mode);
+            s_RendererAPI->SetPolygonMode(mode);
         }
 
         static void EnableScissorTest()
@@ -217,7 +215,7 @@ namespace OloEngine
             s_RendererAPI->DisableScissorTest();
         }
 
-        static void SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height)
+        static void SetScissorBox(i32 x, i32 y, u32 width, u32 height)
         {
             s_RendererAPI->SetScissorBox(x, y, width, height);
         }
@@ -237,7 +235,8 @@ namespace OloEngine
             s_RendererAPI->BindTexture(slot, textureID);
         }
 
-        static void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format)
+        static void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer,
+                                     RHI::Access access, RHI::Format format)
         {
             s_RendererAPI->BindImageTexture(unit, textureID, mipLevel, layered, layer, access, format);
         }
@@ -312,7 +311,7 @@ namespace OloEngine
             s_RendererAPI->SetBlendStateForAttachment(attachment, enabled);
         }
 
-        static void SetBlendFuncForAttachment(u32 attachment, GLenum src, GLenum dst)
+        static void SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst)
         {
             s_RendererAPI->SetBlendFuncForAttachment(attachment, src, dst);
         }
@@ -352,12 +351,12 @@ namespace OloEngine
         }
 
         // Texture lifecycle
-        static u32 CreateTexture2D(u32 width, u32 height, GLenum internalFormat)
+        static u32 CreateTexture2D(u32 width, u32 height, RHI::Format internalFormat)
         {
             return s_RendererAPI->CreateTexture2D(width, height, internalFormat);
         }
 
-        static u32 CreateTextureCubemap(u32 width, u32 height, GLenum internalFormat)
+        static u32 CreateTextureCubemap(u32 width, u32 height, RHI::Format internalFormat)
         {
             return s_RendererAPI->CreateTextureCubemap(width, height, internalFormat);
         }
@@ -367,15 +366,20 @@ namespace OloEngine
             return s_RendererAPI->CreateDepthArrayCompareOffView(srcTextureID, numLayers);
         }
 
-        static void SetTextureParameter(u32 textureID, GLenum pname, GLint value)
+        static void SetTextureFilter(u32 textureID, RHI::Filter minFilter, RHI::Filter magFilter)
         {
-            s_RendererAPI->SetTextureParameter(textureID, pname, value);
+            s_RendererAPI->SetTextureFilter(textureID, minFilter, magFilter);
+        }
+
+        static void SetTextureWrap(u32 textureID, RHI::AddressMode wrap)
+        {
+            s_RendererAPI->SetTextureWrap(textureID, wrap);
         }
 
         static void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
-                                            GLenum format, GLenum type, const void* data)
+                                            RHI::Format sourceFormat, const void* data)
         {
-            s_RendererAPI->UploadTextureSubImage2D(textureID, width, height, format, type, data);
+            s_RendererAPI->UploadTextureSubImage2D(textureID, width, height, sourceFormat, data);
         }
 
         static void DeleteTexture(u32 textureID)
@@ -392,6 +396,15 @@ namespace OloEngine
         static void EndConditionalRender()
         {
             s_RendererAPI->EndConditionalRender();
+        }
+
+        // Total by design — safe to call before (or entirely without) renderer
+        // bring-up. RendererAPI::Create() returns null for API::None, and the
+        // asset paths that ask this question run in harnesses that never
+        // initialise a renderer at all.
+        [[nodiscard("Store this!")]] static bool IsDeviceAvailable()
+        {
+            return s_RendererAPI && s_RendererAPI->IsDeviceAvailable();
         }
 
         [[nodiscard("Store this!")]] static u32 GetMaxUniformBlockSize()

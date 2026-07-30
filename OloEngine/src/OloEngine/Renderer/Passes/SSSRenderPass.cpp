@@ -7,8 +7,6 @@
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 #include <span>
 
 namespace OloEngine
@@ -126,7 +124,7 @@ namespace OloEngine
         RenderCommand::DisableStencilTest();
         RenderCommand::DisableCulling();
         RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
         RenderCommand::SetColorMask(true, true, true, true);
         context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
 

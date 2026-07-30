@@ -2,7 +2,6 @@
 #include "OloEngine/Renderer/HZBGenerator.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 
-#include <glad/gl.h>
 #include <glm/glm.hpp>
 
 namespace OloEngine
@@ -167,12 +166,12 @@ namespace OloEngine
         for (u32 mip = startMip; mip < endMip; ++mip)
         {
             u32 localIdx = mip - startMip;
-            RenderCommand::BindImageTexture(localIdx, hzbTexID, mip, false, 0, GL_WRITE_ONLY, GL_R32F);
+            RenderCommand::BindImageTexture(localIdx, hzbTexID, mip, false, 0, RHI::Access::StorageWrite, RHI::Format::R32Float);
         }
         // Fill remaining image slots with the last valid mip to avoid undefined bindings
         for (u32 localIdx = endMip - startMip; localIdx < MAX_MIP_BATCH_SIZE; ++localIdx)
         {
-            RenderCommand::BindImageTexture(localIdx, hzbTexID, endMip - 1, false, 0, GL_WRITE_ONLY, GL_R32F);
+            RenderCommand::BindImageTexture(localIdx, hzbTexID, endMip - 1, false, 0, RHI::Access::StorageWrite, RHI::Format::R32Float);
         }
 
         // Bind input: scene depth for first pass, HZB itself for subsequent passes

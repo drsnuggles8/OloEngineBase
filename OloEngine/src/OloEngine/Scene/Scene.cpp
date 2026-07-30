@@ -2,6 +2,11 @@
 #include "Scene.h"
 #include "Entity.h"
 
+// Raw GL below is part of the issue #691 Phase 2 step-2 sweep backlog; the
+// include is direct rather than transitive through RendererAPI.h, which is
+// now GL-free.
+#include <glad/gl.h>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -1895,13 +1900,13 @@ namespace OloEngine
         switch (mode)
         {
             case ParticleBlendMode::Alpha:
-                RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
                 break;
             case ParticleBlendMode::Additive:
-                RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE);
+                RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::One);
                 break;
             case ParticleBlendMode::PremultipliedAlpha:
-                RenderCommand::SetBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+                RenderCommand::SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::OneMinusSrcAlpha);
                 break;
         }
     }
@@ -1909,7 +1914,7 @@ namespace OloEngine
     // Helper to restore default blend mode after particle rendering
     static void RestoreDefaultBlendMode()
     {
-        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
     }
 
     // Per-entity CPU morph-target deformation: deform the mesh by the component's
@@ -5724,7 +5729,7 @@ namespace OloEngine
         RenderCommand::SetDepthTest(false);
         RenderCommand::SetDepthMask(false);
         RenderCommand::SetBlendState(true);
-        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
         if (!m_UILayoutResolvedThisFrame)
         {

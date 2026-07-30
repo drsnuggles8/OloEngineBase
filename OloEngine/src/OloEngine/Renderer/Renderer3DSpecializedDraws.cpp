@@ -140,13 +140,13 @@ namespace OloEngine
             PODRenderState decalState = CreateDefaultPODRenderState();
             const bool blendForThisMode = (cmd->mode == DrawDecalCommand::DecalMode::Albedo);
             decalState.blendEnabled = blendForThisMode;
-            decalState.blendSrcFactor = GL_SRC_ALPHA;
-            decalState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+            decalState.blendSrcFactor = RHI::BlendFactor::SrcAlpha;
+            decalState.blendDstFactor = RHI::BlendFactor::OneMinusSrcAlpha;
             decalState.depthTestEnabled = true;
-            decalState.depthFunction = GL_LEQUAL;
+            decalState.depthFunction = RHI::CompareOp::LessOrEqual;
             decalState.depthWriteMask = false;
             decalState.cullingEnabled = true;
-            decalState.cullFace = GL_FRONT;
+            decalState.cullFace = RHI::CullMode::Front;
             cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(decalState);
         }
 
@@ -264,14 +264,14 @@ namespace OloEngine
         {
             PODRenderState foliageState = CreateDefaultPODRenderState();
             foliageState.depthTestEnabled = true;
-            foliageState.depthFunction = GL_LEQUAL;
+            foliageState.depthFunction = RHI::CompareOp::LessOrEqual;
             foliageState.depthWriteMask = true;
             foliageState.blendEnabled = false;
             // The impostor card is a camera-facing quad — draw it double-sided so
             // it never culls to nothing on either winding (matches the two-sided
             // foliage lighting); the flat billboard keeps back-face culling.
             foliageState.cullingEnabled = !useImpostor;
-            foliageState.cullFace = GL_BACK;
+            foliageState.cullFace = RHI::CullMode::Back;
             cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(foliageState);
         }
 
@@ -380,13 +380,13 @@ namespace OloEngine
         {
             PODRenderState waterState = CreateDefaultPODRenderState();
             waterState.depthTestEnabled = true;
-            waterState.depthFunction = GL_LEQUAL;
+            waterState.depthFunction = RHI::CompareOp::LessOrEqual;
             waterState.depthWriteMask = false;
             waterState.blendEnabled = true;
-            waterState.blendSrcFactor = GL_SRC_ALPHA;
-            waterState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+            waterState.blendSrcFactor = RHI::BlendFactor::SrcAlpha;
+            waterState.blendDstFactor = RHI::BlendFactor::OneMinusSrcAlpha;
             waterState.cullingEnabled = !params.renderFromBelow;
-            waterState.cullFace = GL_BACK;
+            waterState.cullFace = RHI::CullMode::Back;
             cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(waterState);
         }
 

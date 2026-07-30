@@ -12,8 +12,6 @@
 
 #include <span>
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
     UICompositeRenderPass::UICompositeRenderPass()
@@ -150,7 +148,7 @@ namespace OloEngine
         context.SetCulling(false);
         RenderCommand::DisableStencilTest();
         RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
         RenderCommand::SetColorMask(true, true, true, true);
         outputFramebuffer->ClearAllAttachments({ 0.0f, 0.0f, 0.0f, 1.0f }, -1);
 

@@ -628,9 +628,9 @@ namespace OloEngine
             ImGui::Text("Enabled: %s", state.blendEnabled ? "Yes" : "No");
             if (state.blendEnabled)
             {
-                ImGui::Text("Src Factor: 0x%X", state.blendSrcFactor);
-                ImGui::Text("Dst Factor: 0x%X", state.blendDstFactor);
-                ImGui::Text("Equation: 0x%X", state.blendEquation);
+                ImGui::Text("Src Factor: %d", static_cast<int>(state.blendSrcFactor));
+                ImGui::Text("Dst Factor: %d", static_cast<int>(state.blendDstFactor));
+                ImGui::Text("Equation: %d", static_cast<int>(state.blendEquation));
             }
             ImGui::TreePop();
         }
@@ -638,7 +638,7 @@ namespace OloEngine
         {
             ImGui::Text("Test: %s", state.depthTestEnabled ? "Yes" : "No");
             ImGui::Text("Write: %s", state.depthWriteMask ? "Yes" : "No");
-            ImGui::Text("Function: 0x%X", state.depthFunction);
+            ImGui::Text("Function: %d", static_cast<int>(state.depthFunction));
             ImGui::TreePop();
         }
         if (ImGui::TreeNode("Stencil"))
@@ -646,20 +646,20 @@ namespace OloEngine
             ImGui::Text("Enabled: %s", state.stencilEnabled ? "Yes" : "No");
             if (state.stencilEnabled)
             {
-                ImGui::Text("Function: 0x%X, Ref: %d, Mask: 0x%X", state.stencilFunction, state.stencilReference, state.stencilReadMask);
-                ImGui::Text("Fail: 0x%X, DepthFail: 0x%X, Pass: 0x%X", state.stencilFail, state.stencilDepthFail, state.stencilDepthPass);
+                ImGui::Text("Function: %d, Ref: %d, Mask: 0x%X", static_cast<int>(state.stencilFunction), state.stencilReference, state.stencilReadMask);
+                ImGui::Text("Fail: %d, DepthFail: %d, Pass: %d", static_cast<int>(state.stencilFail), static_cast<int>(state.stencilDepthFail), static_cast<int>(state.stencilDepthPass));
             }
             ImGui::TreePop();
         }
         if (ImGui::TreeNode("Culling"))
         {
             ImGui::Text("Enabled: %s", state.cullingEnabled ? "Yes" : "No");
-            ImGui::Text("Face: 0x%X", state.cullFace);
+            ImGui::Text("Face: %d", static_cast<int>(state.cullFace));
             ImGui::TreePop();
         }
         if (ImGui::TreeNode("Polygon"))
         {
-            ImGui::Text("Mode: 0x%X (Face: 0x%X)", state.polygonMode, state.polygonFace);
+            ImGui::Text("Mode: %d", static_cast<int>(state.polygonMode));
             ImGui::Text("Offset: %s (factor=%.2f, units=%.2f)", state.polygonOffsetEnabled ? "Yes" : "No", state.polygonOffsetFactor, state.polygonOffsetUnits);
             ImGui::Text("Line Width: %.1f", state.lineWidth);
             ImGui::TreePop();

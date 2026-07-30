@@ -155,6 +155,7 @@ add_executable(OloEngine-Tests
 		# Rendering/rhi_boundary_baseline.json. Also the only TU that compiles the
 		# declaration-only Renderer/RHI/ headers.
 		Rendering/RHIBoundaryRatchetTest.cpp
+		Rendering/RHIEnumLoweringTest.cpp
 		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`
 		# argument (#607 native-resolution capture): the top-left-origin rect must
 		# land on exactly those texels through GL's bottom-up rows. Needs a GL

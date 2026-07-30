@@ -123,7 +123,7 @@ namespace OloEngine
         RenderCommand::SetBlendStateForAttachment(0, true);
         RenderCommand::SetBlendStateForAttachment(1, false); // entity ID — integer
         RenderCommand::SetBlendStateForAttachment(2, false); // view normals
-        RenderCommand::SetBlendFunc(GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::OneMinusSrcAlpha, RHI::BlendFactor::SrcAlpha);
 
         // Don't touch entity ID or view-normals while compositing transparents.
         RenderCommand::SetColorMaskForAttachment(1, false, false, false, false);

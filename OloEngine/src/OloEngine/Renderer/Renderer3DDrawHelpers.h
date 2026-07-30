@@ -85,15 +85,15 @@ namespace OloEngine
         // Depth test - most materials want this enabled.
         state.depthTestEnabled = material.GetFlag(MaterialFlag::DepthTest);
         state.depthWriteMask = true; // Write to depth buffer for opaque materials.
-        state.depthFunction = GL_LESS;
+        state.depthFunction = RHI::CompareOp::Less;
 
         // Blend state - for transparent materials.
         if (material.GetFlag(MaterialFlag::Blend))
         {
             state.blendEnabled = true;
-            state.blendSrcFactor = GL_SRC_ALPHA;
-            state.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
-            state.blendEquation = GL_FUNC_ADD;
+            state.blendSrcFactor = RHI::BlendFactor::SrcAlpha;
+            state.blendDstFactor = RHI::BlendFactor::OneMinusSrcAlpha;
+            state.blendEquation = RHI::BlendOp::Add;
             // Transparent objects typically don't write to depth buffer.
             state.depthWriteMask = false;
         }
@@ -111,7 +111,7 @@ namespace OloEngine
         else
         {
             state.cullingEnabled = true;
-            state.cullFace = GL_BACK;
+            state.cullFace = RHI::CullMode::Back;
         }
 
         return state;

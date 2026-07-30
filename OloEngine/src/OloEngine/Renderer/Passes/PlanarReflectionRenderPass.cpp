@@ -177,11 +177,11 @@ namespace OloEngine
         m_ReflectionFB->Bind();
         RenderCommand::SetViewport(0, 0, m_Width, m_Height);
         rendererAPI.SetDepthTest(true);
-        rendererAPI.SetDepthFunc(GL_LESS);
+        rendererAPI.SetDepthFunc(RHI::CompareOp::Less);
         rendererAPI.SetDepthMask(true);
         rendererAPI.SetBlendState(false);
-        rendererAPI.SetCullFace(GL_BACK);
-        rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        rendererAPI.SetCullFace(RHI::CullMode::Back);
+        rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
         m_ReflectionFB->ClearAllAttachments({ 0.0f, 0.0f, 0.0f, 1.0f }, -1);
 
         // A reflection reverses handedness, so the geometry's front faces now wind

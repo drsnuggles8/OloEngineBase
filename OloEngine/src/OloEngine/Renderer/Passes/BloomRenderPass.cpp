@@ -224,7 +224,7 @@ namespace OloEngine
             context.SetCulling(false);
             RenderCommand::DisableStencilTest();
             RenderCommand::DisableScissorTest();
-            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
             RenderCommand::SetColorMask(true, true, true, true);
             context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
 
@@ -259,7 +259,7 @@ namespace OloEngine
             context.SetCulling(false);
             RenderCommand::DisableStencilTest();
             RenderCommand::DisableScissorTest();
-            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
             RenderCommand::SetColorMask(true, true, true, true);
             context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
 
@@ -300,14 +300,14 @@ namespace OloEngine
             context.SetCulling(false);
             RenderCommand::DisableStencilTest();
             RenderCommand::DisableScissorTest();
-            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
             RenderCommand::SetColorMask(true, true, true, true);
             context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
 
             // Enable additive blending AFTER Bind() — Framebuffer::Bind() may
             // unconditionally re-enable GL_BLEND; set our state after the call.
             context.SetBlendState(true);
-            RenderCommand::SetBlendFunc(GL_ONE, GL_ONE);
+            RenderCommand::SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One);
             // No clear — we're additively accumulating into existing content.
 
             m_BloomUpsampleShader->Bind();
@@ -329,7 +329,7 @@ namespace OloEngine
 
         // Restore blend to opaque default.
         context.SetBlendState(false);
-        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
         context.SetDepthMask(true);
 
         // Restore TexelSize to full resolution so the composite shader (and
@@ -354,7 +354,7 @@ namespace OloEngine
             context.SetCulling(false);
             RenderCommand::DisableStencilTest();
             RenderCommand::DisableScissorTest();
-            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
             RenderCommand::SetColorMask(true, true, true, true);
             context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
 

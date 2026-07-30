@@ -224,7 +224,7 @@ namespace OloEngine::Testing
         {
             Record("BackCull");
         }
-        void SetCullFace(GLenum /*face*/) override
+        void SetCullFace(RHI::CullMode /*face*/) override
         {
             Record("SetCullFace");
         }
@@ -240,7 +240,7 @@ namespace OloEngine::Testing
             c.ParamBool_0 = value;
             m_Calls.push_back(c);
         }
-        void SetDepthFunc(GLenum /*func*/) override
+        void SetDepthFunc(RHI::CompareOp /*func*/) override
         {
             Record("SetDepthFunc");
         }
@@ -250,11 +250,11 @@ namespace OloEngine::Testing
             c.ParamBool_0 = value;
             m_Calls.push_back(c);
         }
-        void SetBlendFunc(GLenum /*s*/, GLenum /*d*/) override
+        void SetBlendFunc(RHI::BlendFactor /*s*/, RHI::BlendFactor /*d*/) override
         {
             Record("SetBlendFunc");
         }
-        void SetBlendEquation(GLenum /*mode*/) override
+        void SetBlendEquation(RHI::BlendOp /*mode*/) override
         {
             Record("SetBlendEquation");
         }
@@ -272,15 +272,15 @@ namespace OloEngine::Testing
         {
             return m_StencilEnabled;
         }
-        void SetStencilFunc(GLenum /*f*/, GLint /*ref*/, GLuint /*mask*/) override
+        void SetStencilFunc(RHI::CompareOp /*f*/, i32 /*ref*/, u32 /*mask*/) override
         {
             Record("SetStencilFunc");
         }
-        void SetStencilOp(GLenum /*sfail*/, GLenum /*dpfail*/, GLenum /*dppass*/) override
+        void SetStencilOp(RHI::StencilOp /*sfail*/, RHI::StencilOp /*dpfail*/, RHI::StencilOp /*dppass*/) override
         {
             Record("SetStencilOp");
         }
-        void SetStencilMask(GLuint /*mask*/) override
+        void SetStencilMask(u32 /*mask*/) override
         {
             Record("SetStencilMask");
         }
@@ -288,7 +288,7 @@ namespace OloEngine::Testing
         {
             Record("ClearStencil");
         }
-        void SetPolygonMode(GLenum /*face*/, GLenum /*mode*/) override
+        void SetPolygonMode(RHI::PolygonMode /*mode*/) override
         {
             Record("SetPolygonMode");
         }
@@ -300,7 +300,7 @@ namespace OloEngine::Testing
         {
             Record("DisableScissorTest");
         }
-        void SetScissorBox(GLint /*x*/, GLint /*y*/, GLsizei /*w*/, GLsizei /*h*/) override
+        void SetScissorBox(i32 /*x*/, i32 /*y*/, u32 /*w*/, u32 /*h*/) override
         {
             Record("SetScissorBox");
         }
@@ -356,7 +356,8 @@ namespace OloEngine::Testing
             m_Calls.push_back(c);
             ++m_BindCount;
         }
-        void BindImageTexture(u32 /*unit*/, u32 /*texID*/, u32 /*mip*/, bool /*layered*/, u32 /*layer*/, GLenum /*access*/, GLenum /*fmt*/) override
+        void BindImageTexture(u32 /*unit*/, u32 /*texID*/, u32 /*mip*/, bool /*layered*/, u32 /*layer*/,
+                              RHI::Access /*access*/, RHI::Format /*fmt*/) override
         {
             Record("BindImageTexture");
             ++m_BindCount;
@@ -392,6 +393,13 @@ namespace OloEngine::Testing
         {
             Record("EndConditionalRender");
         }
+        // The mock stands in for a working device; the headless no-device path
+        // is exercised through the real RendererAPI, which probes the backend.
+        [[nodiscard("Store this!")]] bool IsDeviceAvailable() const override
+        {
+            return true;
+        }
+
         [[nodiscard("Store this!")]] u32 GetMaxUniformBlockSize() const override
         {
             return m_MaxUniformBlockSize;
@@ -408,7 +416,7 @@ namespace OloEngine::Testing
             m_Calls.push_back(c);
         }
 
-        void SetBlendFuncForAttachment(u32 attachment, GLenum src, GLenum dst) override
+        void SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst) override
         {
             RecordedCall c{ "SetBlendFuncForAttachment" };
             c.ParamU32_0 = attachment;
@@ -442,12 +450,12 @@ namespace OloEngine::Testing
             Record("RestoreAllDrawBuffers");
         }
 
-        u32 CreateTexture2D(u32 /*w*/, u32 /*h*/, GLenum /*fmt*/) override
+        u32 CreateTexture2D(u32 /*w*/, u32 /*h*/, RHI::Format /*fmt*/) override
         {
             Record("CreateTexture2D");
             return m_NextTextureID++;
         }
-        u32 CreateTextureCubemap(u32 /*w*/, u32 /*h*/, GLenum /*fmt*/) override
+        u32 CreateTextureCubemap(u32 /*w*/, u32 /*h*/, RHI::Format /*fmt*/) override
         {
             Record("CreateTextureCubemap");
             return m_NextTextureID++;
@@ -457,12 +465,16 @@ namespace OloEngine::Testing
             Record("CreateDepthArrayCompareOffView");
             return m_NextTextureID++;
         }
-        void SetTextureParameter(u32 /*texID*/, GLenum /*pname*/, GLint /*value*/) override
+        void SetTextureFilter(u32 /*texID*/, RHI::Filter /*minFilter*/, RHI::Filter /*magFilter*/) override
         {
-            Record("SetTextureParameter");
+            Record("SetTextureFilter");
+        }
+        void SetTextureWrap(u32 /*texID*/, RHI::AddressMode /*wrap*/) override
+        {
+            Record("SetTextureWrap");
         }
         void UploadTextureSubImage2D(u32 /*texID*/, u32 /*w*/, u32 /*h*/,
-                                     GLenum /*fmt*/, GLenum /*type*/, const void* /*data*/) override
+                                     RHI::Format /*sourceFormat*/, const void* /*data*/) override
         {
             Record("UploadTextureSubImage2D");
         }
