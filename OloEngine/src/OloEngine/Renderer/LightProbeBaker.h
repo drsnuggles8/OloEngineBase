@@ -47,7 +47,9 @@ namespace OloEngine
 
       private:
         // Render the scene into a cubemap FBO at the given position
-        static void RenderCubemapAtPosition(
+        // Returns false when the GPU readback of any face fails; `outPixels` is
+        // then not safe to project. Callers must not persist SH built from it.
+        [[nodiscard]] static bool RenderCubemapAtPosition(
             Ref<Scene>& scene,
             const glm::vec3& position,
             u32 resolution,

@@ -274,12 +274,10 @@ namespace OloEngine
             return;
         }
 
-        GLint maxPatchVerts = 0;
-        glGetIntegerv(GL_MAX_PATCH_VERTICES, &maxPatchVerts);
-        if (patchVertices > static_cast<u32>(maxPatchVerts))
+        if (m_MaxPatchVertices > 0 && patchVertices > static_cast<u32>(m_MaxPatchVertices))
         {
             OLO_CORE_ERROR("OpenGLRendererAPI::DrawIndexedPatches - patchVertices {} exceeds GL_MAX_PATCH_VERTICES {}",
-                           patchVertices, maxPatchVerts);
+                           patchVertices, m_MaxPatchVertices);
             return;
         }
 
@@ -361,12 +359,10 @@ namespace OloEngine
             return;
         }
 
-        GLint maxPatchVerts = 0;
-        glGetIntegerv(GL_MAX_PATCH_VERTICES, &maxPatchVerts);
-        if (patchVertices > static_cast<u32>(maxPatchVerts))
+        if (m_MaxPatchVertices > 0 && patchVertices > static_cast<u32>(m_MaxPatchVertices))
         {
             OLO_CORE_ERROR("OpenGLRendererAPI::DrawIndexedPatchesRaw - patchVertices {} exceeds GL_MAX_PATCH_VERTICES {}",
-                           patchVertices, maxPatchVerts);
+                           patchVertices, m_MaxPatchVertices);
             return;
         }
 
@@ -1311,6 +1307,31 @@ namespace OloEngine
             }
             glNamedFramebufferDrawBuffers(framebufferID, static_cast<GLsizei>(count), drawBuffers.data());
         }
+    }
+
+    void OpenGLRendererAPI::RestoreAllFramebufferDrawAttachments(u32 framebufferID, u32 colorAttachmentCount)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Build the identity list { 0, 1, ... count-1 } once, here, instead of at
+        // the nine call sites that used to open-code it.
+        u32 count = colorAttachmentCount;
+        const u32 maxBuf = static_cast<u32>(m_MaxDrawBuffers);
+        if (count > maxBuf)
+        {
+            OLO_CORE_WARN("OpenGLRendererAPI::RestoreAllFramebufferDrawAttachments - count {} exceeds "
+                          "GL_MAX_DRAW_BUFFERS {}, clamping",
+                          count, maxBuf);
+            count = maxBuf;
+        }
+
+        std::array<u32, 16> attachments{};
+        count = std::min(count, static_cast<u32>(attachments.size()));
+        for (u32 i = 0; i < count; ++i)
+        {
+            attachments[i] = i;
+        }
+        SetFramebufferDrawAttachments(framebufferID, std::span<const u32>(attachments.data(), count));
     }
 
     void OpenGLRendererAPI::SetFramebufferReadAttachment(u32 framebufferID, u32 attachmentIndex)

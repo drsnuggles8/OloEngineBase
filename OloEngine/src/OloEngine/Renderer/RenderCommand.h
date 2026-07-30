@@ -518,6 +518,11 @@ namespace OloEngine
             s_RendererAPI->SetFramebufferDrawAttachments(framebufferID, attachmentIndices);
         }
 
+        static void RestoreAllFramebufferDrawAttachments(u32 framebufferID, u32 colorAttachmentCount)
+        {
+            s_RendererAPI->RestoreAllFramebufferDrawAttachments(framebufferID, colorAttachmentCount);
+        }
+
         static void SetFramebufferReadAttachment(u32 framebufferID, u32 attachmentIndex)
         {
             s_RendererAPI->SetFramebufferReadAttachment(framebufferID, attachmentIndex);

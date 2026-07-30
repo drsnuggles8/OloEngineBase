@@ -722,7 +722,14 @@ namespace OloEngine
                                                 RHI::Format::RGBA32Float,
                                                 texels.size() * sizeof(glm::vec4), texels.data()))
         {
-            OLO_CORE_WARN("DDGIProbeUpdatePass: probe hit-geo tile readback failed");
+            // Skip this probe's relocation/classification for this frame rather
+            // than aggregating `texels`, whose contents are unspecified after a
+            // failed read — classifying from undefined data can park a probe
+            // inside geometry, which then leaks through every later gather.
+            // The update is amortized, so the probe simply retries next frame.
+            OLO_CORE_WARN("DDGIProbeUpdatePass: probe hit-geo tile readback failed; skipping probe {} this frame",
+                          probeIdx);
+            return;
         }
 
         DDGI::ProbeHitAggregates agg;

@@ -140,12 +140,15 @@ The safe predicate for removing an include is "zero GL calls **and** zero
 ratchet's call pattern, which is deliberately narrower because it is measuring
 something else.
 
-Step 2 hit the second case again, in the last four files standing:
-`UIRenderer.cpp` made **zero** GL calls but typed its clip-rect stack in
-`GLint`/`GLsizei`. The values are scissor-rect *coordinates* — `i32`/`u32` — and
-`RenderCommand::SetScissorBox` already took engine types, so the GL spelling was
-pure inertia. It was nonetheless load-bearing: delete the include without
-retyping the struct and the file does not compile.
+Step 2 finished with exactly four files still including `<glad/gl.h>`, and they
+split along this line. Three — `BloomRenderPass.cpp`, `OITResolveRenderPass.cpp`
+and `ShaderPack.cpp` — named no `GL*` identifier at all, so the include just fell
+out. The fourth hit the second case: `UIRenderer.cpp` made **zero** GL calls but
+typed its clip-rect stack in `GLint`/`GLsizei`. Those values are scissor-rect
+*coordinates* — `i32`/`u32` — and `RenderCommand::SetScissorBox` already took
+engine types, so the GL spelling was pure inertia. It was nonetheless
+load-bearing: delete the include without retyping the struct and the file does
+not compile.
 
 ### A `Platform/<Backend>/` include leaks just as much, and this scan cannot see it either
 
@@ -201,8 +204,13 @@ Step 1 rewrote the vocabulary of `RendererAPI`'s 74 existing virtuals. Step 2
 then discovered that stripping `GLenum` was the smaller half of the job:
 
 > **84 distinct GL entry points** appear across the 313 swept call sites, and
-> roughly **60% of them had no `RendererAPI` equivalent at all.** Closing the
-> sweep needed ~60 *new* virtuals — nearly doubling the facade.
+> **54 of them had no `RendererAPI` equivalent at all.** Closing that gap took
+> **60 new virtuals** — nearly doubling a 74-virtual facade.
+
+Keep those two numbers distinct rather than folding them into one percentage: an
+entry point can expand into more than one virtual (`glClearTexImage` becomes a
+float clear and a uint clear; the readbacks each gained a `bool` return). 54 is
+the size of the gap, 60 is the size of the fix.
 
 Whole categories had simply never been abstracted, so every pass reached past the
 facade to perform them: buffer binding points (`glBindBufferBase`, 26 sites),

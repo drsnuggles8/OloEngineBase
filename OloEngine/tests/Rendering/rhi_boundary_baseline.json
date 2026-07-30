@@ -104,7 +104,7 @@
     "   moved into OpenGLRendererAPI::PushDebugGroup. Same class as step 1's",
     "   `glad_glCreateTextures != nullptr` context probe."
   ],
-  "measured_on_commit": "188fea68 + phase-2 step 2 (working tree)",
+  "measured_on_commit": "11d7cea7",
   "measured_on_date": "2026-07-30",
 
   "sweep_gl_calls": 0,

@@ -24,6 +24,7 @@ namespace OloEngine::Testing
         f32 ParamF32_0 = 0.0f;
         bool ParamBool_0 = false;
         glm::vec4 ParamVec4_0 = glm::vec4(0);
+        std::vector<u32> ParamU32List;
     };
 
     class MockRendererAPI : public RendererAPI
@@ -604,6 +605,18 @@ namespace OloEngine::Testing
             RecordedCall c{ "SetFramebufferDrawAttachments" };
             c.ParamU32_0 = fb;
             c.ParamU32_1 = static_cast<u32>(attachmentIndices.size());
+            // The indices themselves, not just how many: the interesting
+            // assertions are about WHICH attachment a pass steers a draw into
+            // (and whether a slot is RHI::NoAttachment), which a count cannot
+            // distinguish — DecalRenderPass's four modes all pass 5 entries.
+            c.ParamU32List.assign(attachmentIndices.begin(), attachmentIndices.end());
+            m_Calls.push_back(c);
+        }
+        void RestoreAllFramebufferDrawAttachments(u32 fb, u32 colorAttachmentCount) override
+        {
+            RecordedCall c{ "RestoreAllFramebufferDrawAttachments" };
+            c.ParamU32_0 = fb;
+            c.ParamU32_1 = colorAttachmentCount;
             m_Calls.push_back(c);
         }
         void SetFramebufferReadAttachment(u32 fb, u32 attachmentIndex) override
@@ -792,7 +805,12 @@ namespace OloEngine::Testing
         [[nodiscard("Store this!")]] u64 CreateFence() override
         {
             Record("CreateFence");
-            return 0; // "no fence" — callers already handle a failed creation.
+            // A non-zero opaque handle, so the SUCCESS path is what tests
+            // exercise by default. Returning 0 made every caller take its
+            // creation-failed branch, which meant the mock could only ever
+            // cover the error path (and made FrameResourceManager log an error
+            // on a perfectly healthy test).
+            return m_NextFenceHandle++;
         }
         [[nodiscard("Store this!")]] RHI::FenceStatus ClientWaitFence(u64 /*fence*/, u64 /*timeoutNs*/) override
         {
@@ -856,6 +874,7 @@ namespace OloEngine::Testing
         u32 m_NextBufferID = 1;
         u32 m_NextVertexArrayID = 1;
         u32 m_NextQueryID = 1;
+        u64 m_NextFenceHandle = 1;
         u32 m_MaxUniformBlockSize = 65536u;
         bool m_SupportsInt64Atomics = false;
         Viewport m_Viewport{ 0, 0, 1920, 1080 };

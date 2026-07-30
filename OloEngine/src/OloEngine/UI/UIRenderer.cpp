@@ -26,10 +26,10 @@ namespace OloEngine
     // Clip rect stack for scissor testing
     struct ClipRect
     {
-        // i32/u32, not i32/u32: these are scissor-rect COORDINATES, not
-        // GL objects, and RenderCommand::SetScissorBox already takes engine
-        // types. Naming them in GL types was the only reason this translation
-        // unit needed <glad/gl.h> while making zero GL calls (issue //691).
+        // Engine types, not GL ones: these are scissor-rect COORDINATES, not GL
+        // objects, and RenderCommand::SetScissorBox already takes i32/u32.
+        // Spelling them GLint/GLsizei was the only reason this translation unit
+        // needed <glad/gl.h> while making zero GL calls (issue #691).
         i32 x, y;
         u32 width, height;
     };

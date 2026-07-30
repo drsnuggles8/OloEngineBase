@@ -252,6 +252,15 @@ namespace OloEngine
         virtual void AttachFramebufferDepthTexture(u32 framebufferID, u32 textureID, u32 mipLevel) = 0;
         [[nodiscard("Store this!")]] virtual bool IsFramebufferComplete(u32 framebufferID) = 0;
         virtual void SetFramebufferDrawAttachments(u32 framebufferID, std::span<const u32> attachmentIndices) = 0;
+        // The identity list { 0, 1, ... count-1 } — "draw to every colour
+        // attachment this framebuffer has". Nine call sites were open-coding the
+        // same std::array + fill loop + span; that is the named-framebuffer
+        // counterpart of RestoreAllDrawBuffers(u32) above, which already existed
+        // for the BOUND framebuffer. Restoring a narrower list than the target
+        // actually has silently drops later shader outputs (PBR_MultiLight's
+        // motion vector at location 3, breaking TAA), which is exactly the kind
+        // of off-by-one an open-coded loop invites.
+        virtual void RestoreAllFramebufferDrawAttachments(u32 framebufferID, u32 colorAttachmentCount) = 0;
         virtual void SetFramebufferReadAttachment(u32 framebufferID, u32 attachmentIndex) = 0;
         virtual void ClearFramebufferColorAttachment(u32 framebufferID, u32 attachmentIndex,
                                                      const glm::vec4& color) = 0;

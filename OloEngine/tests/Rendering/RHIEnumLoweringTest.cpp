@@ -16,11 +16,24 @@
 //   1. Every enumerator lowers to the exact GL constant it names. Checked
 //      against the literal GL_* token rather than a numeric value, so the test
 //      states the intended mapping rather than restating whatever the code does.
-//   2. Each enum's member COUNT is pinned by a static_assert on its last
-//      enumerator. Adding a member without extending ToGL() would otherwise fall
-//      through to the switch's error path, which logs and returns a plausible
-//      default — a silent wrong mapping, exactly what (1) cannot catch on its
-//      own because the new member has no table row.
+//   2. Each enum's shape is pinned by a static_assert on its last enumerator's
+//      ordinal. Be precise about what this does and does not catch, because the
+//      two halves are covered by different mechanisms:
+//
+//        * INSERTING a member mid-enum, REMOVING one, or REORDERING them all
+//          shift the last ordinal, so the static_assert fires. That is its job.
+//        * APPENDING a member after the current last one leaves that ordinal
+//          unchanged, so the static_assert CANNOT see it. What catches an append
+//          is the compiler: the lowering switches in OpenGLRHIConversions.h
+//          deliberately carry no `default:` label, so `-Wswitch` errors on the
+//          unhandled enumerator. That is why adding a `default:` there would be
+//          a downgrade, and why the clang-cl CI job is load-bearing (MSVC's
+//          C4062 is off by default even at /W4).
+//
+//      Either way the failure being prevented is the same: a new member falling
+//      through to the error path, which logs and returns a plausible value — a
+//      silent wrong mapping that (1) cannot catch on its own, because the new
+//      member has no table row.
 //
 // No GL context is required: the conversions are pure switches.
 

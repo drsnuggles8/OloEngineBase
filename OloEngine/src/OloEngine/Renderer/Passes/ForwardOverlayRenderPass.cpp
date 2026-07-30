@@ -150,11 +150,7 @@ namespace OloEngine
         // attachment count differs from the previous 4-entry hardcoded list.
         if (sceneColorAttachmentCount > 0)
         {
-            std::array<u32, 16> fullDrawBufs{};
-            const u32 n = std::min<u32>(sceneColorAttachmentCount, static_cast<u32>(fullDrawBufs.size()));
-            for (u32 i = 0; i < n; ++i)
-                fullDrawBufs[i] = i;
-            RenderCommand::SetFramebufferDrawAttachments(sceneFBID, std::span<const u32>(fullDrawBufs.data(), n));
+            RenderCommand::RestoreAllFramebufferDrawAttachments(sceneFBID, sceneColorAttachmentCount);
         }
 
         // Restores cull face + polygon mode too — skybox / debug commands inside

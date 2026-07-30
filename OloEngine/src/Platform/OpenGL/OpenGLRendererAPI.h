@@ -125,6 +125,7 @@ namespace OloEngine
         void AttachFramebufferDepthTexture(u32 framebufferID, u32 textureID, u32 mipLevel) override;
         [[nodiscard("Store this!")]] bool IsFramebufferComplete(u32 framebufferID) override;
         void SetFramebufferDrawAttachments(u32 framebufferID, std::span<const u32> attachmentIndices) override;
+        void RestoreAllFramebufferDrawAttachments(u32 framebufferID, u32 colorAttachmentCount) override;
         void SetFramebufferReadAttachment(u32 framebufferID, u32 attachmentIndex) override;
         void ClearFramebufferColorAttachment(u32 framebufferID, u32 attachmentIndex,
                                              const glm::vec4& color) override;

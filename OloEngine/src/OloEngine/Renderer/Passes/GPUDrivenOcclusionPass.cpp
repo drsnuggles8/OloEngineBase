@@ -132,11 +132,7 @@ namespace OloEngine
             m_SceneFramebuffer->Bind();
             if (sceneColorAttachmentCount > 0)
             {
-                std::array<u32, 16> drawBufs{};
-                const u32 n = std::min<u32>(sceneColorAttachmentCount, static_cast<u32>(drawBufs.size()));
-                for (u32 i = 0; i < n; ++i)
-                    drawBufs[i] = i;
-                RenderCommand::SetFramebufferDrawAttachments(sceneFBID, std::span<const u32>(drawBufs.data(), n));
+                RenderCommand::RestoreAllFramebufferDrawAttachments(sceneFBID, sceneColorAttachmentCount);
             }
             context.SetDepthTest(true);
             context.ResetOpaqueForwardDrawState();

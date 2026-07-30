@@ -125,11 +125,7 @@ namespace OloEngine
             targetFB->Bind();
             if (colorAttachmentCount > 0)
             {
-                std::array<u32, 16> drawBufs{};
-                const u32 n = std::min<u32>(colorAttachmentCount, static_cast<u32>(drawBufs.size()));
-                for (u32 i = 0; i < n; ++i)
-                    drawBufs[i] = i;
-                RenderCommand::SetFramebufferDrawAttachments(targetFBID, std::span<const u32>(drawBufs.data(), n));
+                RenderCommand::RestoreAllFramebufferDrawAttachments(targetFBID, colorAttachmentCount);
             }
             context.SetDepthTest(true);
             context.SetDepthMask(true);

@@ -372,10 +372,7 @@ namespace OloEngine
             targetFB->Bind();
             {
                 // All five G-Buffer MRTs, same set SceneRenderPass draws
-                std::array<u32, GBuffer::Count> drawBufs{};
-                for (u32 a = 0; a < GBuffer::Count; ++a)
-                    drawBufs[a] = a;
-                RenderCommand::SetFramebufferDrawAttachments(targetFB->GetRendererID(), drawBufs);
+                RenderCommand::RestoreAllFramebufferDrawAttachments(targetFB->GetRendererID(), GBuffer::Count);
             }
 
             // State set UNCONDITIONALLY, deliberately bypassing the context

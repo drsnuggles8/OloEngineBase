@@ -586,11 +586,6 @@ namespace OloEngine
             if (!isDepth && att.TextureFormat != FramebufferTextureFormat::None)
                 ++targetColorCount;
         }
-        std::array<u32, 16> fullDrawBufs{};
-        const u32 fullN = std::min<u32>(targetColorCount, static_cast<u32>(fullDrawBufs.size()));
-        for (u32 i = 0; i < fullN; ++i)
-            fullDrawBufs[i] = i;
-
         // Channel 3 (RMA) needs data from TWO attachments — RT0.a (metallic)
         // and RT1.zw (roughness, AO). glBlitFramebuffer cannot swizzle, so
         // use a dedicated fullscreen shader for this one channel.
@@ -627,7 +622,7 @@ namespace OloEngine
             // downstream passes (post-process, UI) find the expected slots
             // (including RT3 velocity for TAA). Count is computed from the
             // FB spec above rather than hardcoded.
-            RenderCommand::SetFramebufferDrawAttachments(dstFB, std::span<const u32>(fullDrawBufs.data(), fullN));
+            RenderCommand::RestoreAllFramebufferDrawAttachments(dstFB, targetColorCount);
 
             RenderCommand::SetDepthMask(true);
             RenderCommand::SetDepthTest(true);
@@ -689,7 +684,7 @@ namespace OloEngine
         // from the target FB spec above — narrowing to fewer attachments
         // would drop later-shader outputs (e.g. PBR_MultiLight's motion
         // vector at layout(location=3)), breaking TAA/MotionBlur.
-        RenderCommand::SetFramebufferDrawAttachments(dstFB, std::span<const u32>(fullDrawBufs.data(), fullN));
+        RenderCommand::RestoreAllFramebufferDrawAttachments(dstFB, targetColorCount);
 
         // Also copy depth so downstream passes (post-process, selection
         // outline, UI) have a coherent depth buffer.
@@ -740,11 +735,6 @@ namespace OloEngine
             if (!isDepth && att.TextureFormat != FramebufferTextureFormat::None)
                 ++colorCount;
         }
-        std::array<u32, 16> prevDrawBufs{};
-        const u32 n = std::min<u32>(colorCount, static_cast<u32>(prevDrawBufs.size()));
-        for (u32 i = 0; i < n; ++i)
-            prevDrawBufs[i] = i;
-
         RenderCommand::SetFramebufferReadAttachment(fb, 3);
         RenderCommand::SetFramebufferDrawAttachments(fb, kAttachment0Only);
 
@@ -756,7 +746,7 @@ namespace OloEngine
 
         // Restore the scene FB's full multi-attachment draw-buffer list for
         // downstream passes (post-process, UI composite); see comment above.
-        RenderCommand::SetFramebufferDrawAttachments(fb, std::span<const u32>(prevDrawBufs.data(), n));
+        RenderCommand::RestoreAllFramebufferDrawAttachments(fb, colorCount);
 
         // Reset the read buffer selection so subsequent reads on this FB
         // see the default (attachment 0) rather than the velocity slot.

@@ -15,11 +15,25 @@
 // values "for a free static_cast" is exactly how GL leaked upward the first
 // time.
 //
-// Every switch carries a `default:` that logs and falls back rather than
-// silently emitting 0 (which GL would take as GL_NONE / GL_ZERO / GL_POINTS
-// depending on where it landed — a wrong-but-legal value, the silent failure
-// mode this phase exists to avoid). Matches ToGLTextureTarget's existing idiom
-// in OpenGLRendererAPI.cpp.
+// Every switch logs and falls back rather than silently emitting 0 (which GL
+// would take as GL_NONE / GL_ZERO / GL_POINTS depending on where it landed — a
+// wrong-but-legal value, the silent failure mode this phase exists to avoid).
+//
+// WHERE that fallback lives is load-bearing, so do not "tidy" it. Sixteen of the
+// nineteen switches below put it AFTER the switch and carry no `default:` label
+// at all. That is deliberate: without a `default:`, the compiler's
+// switch-exhaustiveness warning (clang/clang-cl `-Wswitch`, on by default) fires
+// when someone APPENDS an enumerator to one of these enums — and that warning is
+// the only thing that catches an append, because RHIEnumLoweringTest's
+// last-enumerator `static_assert` cannot (appending leaves the previous last
+// member's ordinal unchanged). Adding a `default:` here to "be safe" would trade
+// a build error for a silent wrong mapping. Note MSVC's equivalent (C4062) is
+// off by default even at /W4, so the clang-cl CI job is what enforces this.
+//
+// The three exceptions are intentional: ToGLPixelFormat / ToGLPixelType take
+// RHI::Format, and ToGLImageAccess takes RHI::Access — enums whose members are
+// mostly NOT valid for those particular conversions, so an exhaustive list would
+// be noise rather than a guard.
 // =============================================================================
 
 #include "OloEngine/Core/Log.h"

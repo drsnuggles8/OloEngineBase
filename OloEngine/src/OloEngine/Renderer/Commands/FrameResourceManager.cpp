@@ -295,18 +295,25 @@ namespace OloEngine
         constexpr u64 TIMEOUT_NS = 1000000000ULL; // 1 second
         switch (RenderCommand::ClientWaitFence(fenceId, TIMEOUT_NS))
         {
+            case RHI::FenceStatus::AlreadySignaled:
+            case RHI::FenceStatus::ConditionSatisfied:
+                return true;
             case RHI::FenceStatus::TimeoutExpired:
                 OLO_CORE_WARN("FrameResourceManager::WaitForFence: Fence wait timed out!");
                 return false;
             case RHI::FenceStatus::Failed:
                 OLO_CORE_ERROR("FrameResourceManager::WaitForFence: Fence wait failed!");
                 return false;
-            case RHI::FenceStatus::AlreadySignaled:
-            case RHI::FenceStatus::ConditionSatisfied:
-                break;
         }
 
-        return true;
+        // Deliberately NO `default:` inside the switch — that would suppress the
+        // compiler's exhaustiveness warning, which is what actually catches a new
+        // RHI::FenceStatus member at build time. This fallthrough is the runtime
+        // backstop, and it FAILS CLOSED: a fence gates reuse of double-buffered
+        // GPU resources, so reporting success for a status we do not understand
+        // is the one answer that could hand a caller memory the GPU still owns.
+        OLO_CORE_ERROR("FrameResourceManager::WaitForFence: unrecognized fence status; treating as failure");
+        return false;
     }
 
     bool FrameResourceManager::IsFenceSignaled(u64 fenceId) const

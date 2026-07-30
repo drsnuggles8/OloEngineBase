@@ -814,10 +814,17 @@ matters more than the first:
 Step 1 converted the facade's *vocabulary*; step 2 swept the 313 raw `glXxx()`
 call sites in the sweep bucket to zero. The headline finding is that **the
 facade was not merely GL-typed, it was incomplete**: 84 distinct GL entry points
-appear at those call sites and only ~40% of them had any `RendererAPI`
-equivalent at all. The other ~60% is what this section designs.
+appear at those call sites, and **54 of them had no `RendererAPI` equivalent at
+all**. Closing that gap took **60 new virtuals**.
 
-### (5) The facade grows ~60 virtuals, and that number is the real measurement
+Those two numbers are deliberately not folded into one percentage, because they
+count different things: an entry point can expand into more than one virtual
+(`glClearTexImage` becomes a float clear and a uint clear, mirroring
+`VkClearColorValue`'s union; the two readbacks each gained a `bool` return). 54
+is the size of the *gap*; 60 is the size of the *fix*. Quoting 60 against 84 as a
+ratio would silently compare an operation count to an API count.
+
+### (5) The facade grows 60 virtuals, and that number is the real measurement
 
 §1.7 framed Phase 2 as "strip the `GLenum`s, then sweep". That undersells it.
 Stripping the enums (step 1) touched 74 existing virtuals; the sweep needed
@@ -953,7 +960,21 @@ engine-wrapper option and `MemoryResidency` are now the only two spellings, and
 Phase 5 collapses them when `StorageBuffer` moves onto `RHI::ResourceHandle`.
 
 Every new enum is pinned by the same last-ordinal `static_assert` + literal-token
-table in `RHIEnumLoweringTest.cpp` that amendment (4) established.
+table in `RHIEnumLoweringTest.cpp` that the "One new guard" paragraph above
+established (not amendment (4), which is about `UploadTextureSubImage2D`'s
+source-buffer format).
+
+One correction to that guard's stated reach, found in step 2: the last-ordinal
+`static_assert` catches an enumerator being **inserted, removed or reordered**,
+but *not* one **appended** after the current last member — appending leaves the
+asserted ordinal unchanged. Appends are caught by the compiler instead: the
+lowering switches in `OpenGLRHIConversions.h` deliberately carry no `default:`
+label, so `-Wswitch` errors on the unhandled enumerator. That makes the absence
+of `default:` load-bearing rather than an oversight, and makes the clang-cl CI
+job the one that enforces it (MSVC's C4062 is off by default even at `/W4`).
+A `Count` sentinel per enum was considered and rejected: it makes an invalid
+value representable in the neutral vocabulary and forces a dead `case` in every
+lowering switch.
 
 ---
 

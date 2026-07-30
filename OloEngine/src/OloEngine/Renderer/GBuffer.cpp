@@ -175,9 +175,7 @@ namespace OloEngine
 
         // Restore full draw-buffer set on the resolved FB so subsequent
         // passes that bind it for composition get all attachments.
-        static constexpr std::array<u32, 5> fullDrawBufs = { 0u, 1u, 2u, 3u, 4u };
-        RenderCommand::SetFramebufferDrawAttachments(
-            dstFB, std::span<const u32>(fullDrawBufs.data(), std::to_underlying(Count)));
+        RenderCommand::RestoreAllFramebufferDrawAttachments(dstFB, std::to_underlying(Count));
     }
 
     u32 GBuffer::GetColorAttachmentID(AttachmentIndex index) const

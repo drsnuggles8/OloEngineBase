@@ -288,7 +288,11 @@ namespace OloEngine::Ocean
                                                 N, N, 1, RHI::Format::RGBA32Float,
                                                 count * sizeof(glm::vec4), readback.data()))
         {
-            OLO_CORE_WARN("OceanFFTGpu: butterfly readback failed");
+            // Return empty rather than normalizing an unspecified buffer — this
+            // is a verification utility, so silently handing back plausible-looking
+            // garbage would corrupt the very comparison it exists to make.
+            OLO_CORE_WARN("OceanFFTGpu: butterfly readback failed; returning no result");
+            return {};
         }
 
         const f32 invN2 = 1.0f / (static_cast<f32>(N) * static_cast<f32>(N));
