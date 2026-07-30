@@ -8,8 +8,6 @@
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
-#include <glad/gl.h>
-
 #include <span>
 
 namespace OloEngine

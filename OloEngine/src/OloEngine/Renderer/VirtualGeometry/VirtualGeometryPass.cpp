@@ -21,8 +21,6 @@
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 
-#include <glad/gl.h>
-
 #include <array>
 #include <string>
 
@@ -273,7 +271,7 @@ namespace OloEngine
             m_CullShader->SetInt("u_OcclusionEnabled", hzb.IsUsable() ? 1 : 0);
             if (!hzb.IsUsable())
                 return;
-            ::glBindTextureUnit(0, hzb.HZBTextureID);
+            RenderCommand::BindTexture(0, hzb.HZBTextureID);
             CommandDispatch::InvalidateTextureSlot(0);
             m_CullShader->SetInt("u_HZB", 0);
             m_CullShader->SetMat4("u_OcclusionViewProjection", hzb.PrevViewProjection);
@@ -374,38 +372,40 @@ namespace OloEngine
             targetFB->Bind();
             {
                 // All five G-Buffer MRTs, same set SceneRenderPass draws
-                std::array<GLenum, GBuffer::Count> drawBufs{};
+                std::array<u32, GBuffer::Count> drawBufs{};
                 for (u32 a = 0; a < GBuffer::Count; ++a)
-                    drawBufs[a] = GL_COLOR_ATTACHMENT0 + a;
-                glNamedFramebufferDrawBuffers(targetFB->GetRendererID(), static_cast<GLsizei>(GBuffer::Count),
-                                              drawBufs.data());
+                    drawBufs[a] = a;
+                RenderCommand::SetFramebufferDrawAttachments(targetFB->GetRendererID(), drawBufs);
             }
 
-            // Raw GL state, deliberately bypassing the context caches: this pass
-            // runs between bucket executions whose dispatchers track state in
-            // their own caches — a cached "already true" here can leave the real
-            // GL depth test/mask off, which silently drops every depth write
-            // (color still lands) and downstream sky/overlay passes then overdraw
-            // the clusters. Same raw-GL discipline as GPUDrivenOcclusionPass.
-            ::glViewport(0, 0, static_cast<GLsizei>(gbuffer->GetWidth()), static_cast<GLsizei>(gbuffer->GetHeight()));
-            ::glEnable(GL_DEPTH_TEST);
-            ::glDepthFunc(GL_LESS);
-            ::glDepthMask(GL_TRUE);
-            ::glDisable(GL_BLEND);
-            ::glEnable(GL_CULL_FACE);
-            ::glCullFace(GL_BACK);
-            ::glDisable(GL_STENCIL_TEST);
-            ::glDisable(GL_SCISSOR_TEST);
-            ::glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            // State set UNCONDITIONALLY, deliberately bypassing the context
+            // caches: this pass runs between bucket executions whose dispatchers
+            // track state in their own caches — a cached "already true" there
+            // can leave the real depth test/mask off, which silently drops every
+            // depth write (color still lands) and downstream sky/overlay passes
+            // then overdraw the clusters. The facade preserves that property:
+            // none of these setters early-out on a cached value, they only gate
+            // the profiler StateChanges counter. Same discipline as
+            // GPUDrivenOcclusionPass.
+            RenderCommand::SetViewport(0, 0, gbuffer->GetWidth(), gbuffer->GetHeight());
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+            RenderCommand::SetDepthMask(true);
+            RenderCommand::SetBlendState(false);
+            RenderCommand::EnableCulling();
+            RenderCommand::SetCullFace(RHI::CullMode::Back);
+            RenderCommand::DisableStencilTest();
+            RenderCommand::DisableScissorTest();
+            RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
             // Per-attachment color masks can be left disabled by earlier passes
-            // (glColorMaski state is indexed and survives a plain glColorMask);
+            // (per-attachment mask state is indexed and survives a global mask);
             // a masked RT1/RT2 silently drops normal/emissive writes while RT0 +
             // depth land — the lighting pass then shades clusters with cleared
             // G-Buffer data.
-            ::glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            RenderCommand::SetColorMask(true, true, true, true);
             for (u32 attachment = 0; attachment < GBuffer::Count; ++attachment)
             {
-                ::glColorMaski(attachment, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                RenderCommand::SetColorMaskForAttachment(attachment, true, true, true, true);
             }
         };
 
@@ -418,8 +418,10 @@ namespace OloEngine
             if (debugActive)
             {
                 // Image units 0/1 (separate namespace from the sampler texture units).
-                ::glBindImageTexture(0, registry.GetDebugColorTextureID(), 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
-                ::glBindImageTexture(1, registry.GetDebugCountTextureID(), 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+                RenderCommand::BindImageTexture(0, registry.GetDebugColorTextureID(), 0, false, 0,
+                                                RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm);
+                RenderCommand::BindImageTexture(1, registry.GetDebugCountTextureID(), 0, false, 0,
+                                                RHI::Access::StorageReadWrite, RHI::Format::R32UInt);
             }
             m_DrawInfoUBO->Bind();
 
@@ -442,11 +444,11 @@ namespace OloEngine
                 // toggle the state itself.
                 if (instances[i].TwoSided)
                 {
-                    ::glDisable(GL_CULL_FACE);
+                    RenderCommand::DisableCulling();
                 }
                 else
                 {
-                    ::glEnable(GL_CULL_FACE);
+                    RenderCommand::EnableCulling();
                 }
 
                 RenderCommand::MultiDrawElementsIndirectCountRaw(
@@ -456,7 +458,7 @@ namespace OloEngine
                     static_cast<u32>((argsInstanceBase + i) * sizeof(VirtualDrawArgs)),
                     instances[i].Gpu.ClusterCount, 32u);
             }
-            ::glEnable(GL_CULL_FACE); // restore the pass-wide default
+            RenderCommand::EnableCulling(); // restore the pass-wide default
         };
 
         // ── 2. Phase-1 hardware raster ──
@@ -476,8 +478,8 @@ namespace OloEngine
         {
             // The phase-1 draws just wrote this depth through the fixed-function
             // pipeline; the Hi-Z build samples it as a texture. Order the
-            // framebuffer-write -> texture-fetch explicitly (GL 4.5 texture barrier).
-            ::glTextureBarrier();
+            // framebuffer-write -> texture-fetch explicitly (a texture barrier).
+            RenderCommand::TextureBarrier();
             const GPUFrustumCuller::HZBOcclusionInputs currentHZB = Renderer3D::BuildCurrentOcclusionHZB(
                 gbuffer->GetDepthAttachmentID(), gbuffer->GetWidth(), gbuffer->GetHeight());
 
@@ -517,8 +519,8 @@ namespace OloEngine
         {
             registry.GetVertexBuffer()->Bind();
             registry.GetVisbufferBuffer()->Bind();
-            ::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_VIRTUAL_INDICES,
-                               registry.GetIndexBufferID());
+            RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_VIRTUAL_INDICES,
+                                             registry.GetIndexBufferID());
 
             u32 const maxSwRecords = frameClusterCount;
             u32 const groupsX = std::min(maxSwRecords, 4096u);
@@ -572,7 +574,7 @@ namespace OloEngine
             // HW-rasterized ones from both phases.
             if (swEnabled)
             {
-                ::glDisable(GL_CULL_FACE); // fullscreen triangle
+                RenderCommand::DisableCulling(); // fullscreen triangle
                 m_ResolveShader->Bind();
                 registry.GetSwListBuffer()->Bind();
                 registry.GetVisbufferBuffer()->Bind();
@@ -591,7 +593,7 @@ namespace OloEngine
                     fullscreen->Bind();
                     context.DrawIndexed(fullscreen);
                 }
-                ::glEnable(GL_CULL_FACE);
+                RenderCommand::EnableCulling();
             }
 
             targetFB->Unbind();
@@ -603,8 +605,10 @@ namespace OloEngine
         if (debugMode == VirtualDebugMode::Overdraw && m_ColorizeShader)
         {
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess);
-            ::glBindImageTexture(0, registry.GetDebugColorTextureID(), 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8);
-            ::glBindImageTexture(1, registry.GetDebugCountTextureID(), 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32UI);
+            RenderCommand::BindImageTexture(0, registry.GetDebugColorTextureID(), 0, false, 0,
+                                            RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm);
+            RenderCommand::BindImageTexture(1, registry.GetDebugCountTextureID(), 0, false, 0,
+                                            RHI::Access::StorageRead, RHI::Format::R32UInt);
             m_ColorizeShader->Bind();
             m_ColorizeShader->SetUint("u_Width", registry.GetDebugWidth());
             m_ColorizeShader->SetUint("u_Height", registry.GetDebugHeight());
@@ -634,29 +638,28 @@ namespace OloEngine
         // and the editor grid see the clusters we just drew — ScenePass copied
         // its exports before we ran (DeferredGPUOcclusionPass idiom). Handles
         // that alias the live attachment self-skip.
-        const auto copyExport = [&context, &gbuffer](const RGTextureHandle handle, u32 sourceTextureID, GLenum target)
+        const auto copyExport = [&context, &gbuffer](const RGTextureHandle handle, u32 sourceTextureID,
+                                                     RendererAPI::TextureTargetType target)
         {
             if (!handle.IsValid() || sourceTextureID == 0u)
                 return;
             u32 const exportedID = context.ResolveTexture(handle);
             if (exportedID == 0u || exportedID == sourceTextureID)
                 return;
-            ::glCopyImageSubData(sourceTextureID, target, 0, 0, 0, 0,
-                                 exportedID, target, 0, 0, 0, 0,
-                                 static_cast<GLsizei>(gbuffer->GetWidth()),
-                                 static_cast<GLsizei>(gbuffer->GetHeight()), 1);
+            RenderCommand::CopyImageSubData(sourceTextureID, target, exportedID, target,
+                                            gbuffer->GetWidth(), gbuffer->GetHeight());
         };
-        copyExport(m_SelectedSceneDepth, gbuffer->GetDepthAttachmentID(), GL_TEXTURE_2D);
-        copyExport(m_SelectedVelocity, gbuffer->GetColorAttachmentID(GBuffer::Velocity), GL_TEXTURE_2D);
-        copyExport(m_SelectedGBufferAlbedo, gbuffer->GetColorAttachmentID(GBuffer::Albedo), GL_TEXTURE_2D);
-        copyExport(m_SelectedGBufferNormal, gbuffer->GetColorAttachmentID(GBuffer::Normal), GL_TEXTURE_2D);
-        copyExport(m_SelectedGBufferEmissive, gbuffer->GetColorAttachmentID(GBuffer::Emissive), GL_TEXTURE_2D);
+        copyExport(m_SelectedSceneDepth, gbuffer->GetDepthAttachmentID(), RendererAPI::TextureTargetType::Texture2D);
+        copyExport(m_SelectedVelocity, gbuffer->GetColorAttachmentID(GBuffer::Velocity), RendererAPI::TextureTargetType::Texture2D);
+        copyExport(m_SelectedGBufferAlbedo, gbuffer->GetColorAttachmentID(GBuffer::Albedo), RendererAPI::TextureTargetType::Texture2D);
+        copyExport(m_SelectedGBufferNormal, gbuffer->GetColorAttachmentID(GBuffer::Normal), RendererAPI::TextureTargetType::Texture2D);
+        copyExport(m_SelectedGBufferEmissive, gbuffer->GetColorAttachmentID(GBuffer::Emissive), RendererAPI::TextureTargetType::Texture2D);
 
         // Per-sample lighting samples the MULTISAMPLE G-Buffer, so re-export those
         // attachments too (they carry the clusters we just drew into the MS FBO).
         if (perSampleMSAA)
         {
-            constexpr GLenum kMS = GL_TEXTURE_2D_MULTISAMPLE;
+            constexpr auto kMS = RendererAPI::TextureTargetType::Texture2DMultisample;
             copyExport(m_SelectedSceneDepthMS, gbuffer->GetMSDepthAttachmentID(), kMS);
             copyExport(m_SelectedVelocityMS, gbuffer->GetMSColorAttachmentID(GBuffer::Velocity), kMS);
             copyExport(m_SelectedGBufferAlbedoMS, gbuffer->GetMSColorAttachmentID(GBuffer::Albedo), kMS);

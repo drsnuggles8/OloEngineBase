@@ -12,8 +12,6 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 
-#include <glad/gl.h>
-
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -198,7 +196,7 @@ namespace OloEngine
         }
 
         // Create GPU timer queries for performance monitoring
-        glGenQueries(2, s_Data.m_TimerQueries);
+        RenderCommand::CreateQueries(RHI::QueryType::TimeElapsed, s_Data.m_TimerQueries);
 
         s_Data.m_CurrentIntensity = 0.0f;
         s_Data.m_TargetIntensity = 0.0f;
@@ -221,7 +219,7 @@ namespace OloEngine
 
         if (s_Data.m_TimerQueries[0] != 0)
         {
-            glDeleteQueries(2, s_Data.m_TimerQueries);
+            RenderCommand::DeleteQueries(s_Data.m_TimerQueries);
             s_Data.m_TimerQueries[0] = 0;
             s_Data.m_TimerQueries[1] = 0;
         }
@@ -307,7 +305,7 @@ namespace OloEngine
 
         // --- Begin GPU timer ---
         u32 queryIdx = s_Data.m_CurrentTimerQuery;
-        glBeginQuery(GL_TIME_ELAPSED, s_Data.m_TimerQueries[queryIdx]);
+        RenderCommand::BeginQuery(RHI::QueryType::TimeElapsed, s_Data.m_TimerQueries[queryIdx]);
 
         // 1. Intensity interpolation
         s_Data.m_LastBaseEmissionRate = settings.BaseEmissionRate;
@@ -404,18 +402,15 @@ namespace OloEngine
         }
 
         // --- End GPU timer ---
-        glEndQuery(GL_TIME_ELAPSED);
+        RenderCommand::EndQuery(RHI::QueryType::TimeElapsed);
 
         // Read back previous frame's timer result (double-buffered to avoid stalls)
         u32 prevQueryIdx = 1 - queryIdx;
         if (s_Data.m_TimerQueryActive)
         {
-            GLint available = GL_FALSE;
-            glGetQueryObjectiv(s_Data.m_TimerQueries[prevQueryIdx], GL_QUERY_RESULT_AVAILABLE, &available);
-            if (available == GL_TRUE)
+            if (RenderCommand::IsQueryResultAvailable(s_Data.m_TimerQueries[prevQueryIdx]))
             {
-                GLuint64 elapsedNs = 0;
-                glGetQueryObjectui64v(s_Data.m_TimerQueries[prevQueryIdx], GL_QUERY_RESULT, &elapsedNs);
+                const u64 elapsedNs = RenderCommand::GetQueryResultU64(s_Data.m_TimerQueries[prevQueryIdx]);
                 s_Data.m_LastFrameTimeMs = static_cast<f32>(elapsedNs) / 1000000.0f;
             }
             // If not available yet, keep the previous value — avoids CPU stall

@@ -23,7 +23,6 @@
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Asset/AssetManager.h"
 
-#include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
 
 #include <atomic>
@@ -164,7 +163,7 @@ namespace OloEngine
     }
 
     // Conditionally bind a UBO only when the binding point has changed,
-    // avoiding redundant glBindBufferBase calls each draw.
+    // avoiding a redundant binding-point update each draw.
     static void BindUBOIfNeeded(u32 bindingPoint, u32 rendererID)
     {
         if (bindingPoint < CommandDispatchData::MAX_TRACKED_UBO_BINDINGS)
@@ -173,15 +172,18 @@ namespace OloEngine
                 return;
             s_Data.BoundUBOIDs[bindingPoint] = rendererID;
         }
-        glBindBufferBase(GL_UNIFORM_BUFFER, bindingPoint, rendererID);
+        RenderCommand::BindUniformBuffer(bindingPoint, rendererID);
     }
 
     // Conditionally bind a VAO only when it differs from the currently bound one.
+    // This cache is why the draws below use the DrawBound* family rather than the
+    // DrawIndexedRaw(vaoID, ...) one: the latter binds the VAO itself, which would
+    // make the cache pointless.
     static void BindVAOIfNeeded(u32 vaoID)
     {
         if (s_Data.CurrentBoundVAO != vaoID)
         {
-            glBindVertexArray(vaoID);
+            RenderCommand::BindVertexArrayRaw(vaoID);
             s_Data.CurrentBoundVAO = vaoID;
         }
     }
@@ -404,12 +406,18 @@ namespace OloEngine
     // Skips entirely when materialDataIndex matches the last-used index.
     // Helper: Conditionally bind a texture only when the slot isn't already
     // bound to the same ID, updating tracking and stats.
-    static void BindTrackedTexture(RendererID textureID, u32 slot, GLenum target)
+    //
+    // The texture TARGET parameter is gone. It existed because this used the
+    // legacy glActiveTexture + glBindTexture(target, id) pair, which needs to be
+    // told which target of the unit to touch; the facade's BindTexture is the
+    // DSA form, where the target is a property of the texture object itself. The
+    // 2D-vs-cubemap distinction was therefore never carrying information the
+    // driver did not already have (issue #691 Phase 2 step 2).
+    static void BindTrackedTexture(RendererID textureID, u32 slot)
     {
         if (textureID != 0 && s_Data.BoundTextureIDs[slot] != textureID)
         {
-            glActiveTexture(GL_TEXTURE0 + slot);
-            glBindTexture(target, textureID);
+            RenderCommand::BindTexture(slot, textureID);
             s_Data.BoundTextureIDs[slot] = textureID;
             ++s_Data.Stats.TextureBinds;
         }
@@ -419,22 +427,22 @@ namespace OloEngine
     // AO, emissive, environment cubemap, irradiance, prefilter, BRDF LUT).
     static void BindPBRTextures(const PODMaterialData& mat)
     {
-        BindTrackedTexture(mat.albedoMapID, ShaderBindingLayout::TEX_DIFFUSE, GL_TEXTURE_2D);
-        BindTrackedTexture(mat.metallicRoughnessMapID, ShaderBindingLayout::TEX_SPECULAR, GL_TEXTURE_2D);
-        BindTrackedTexture(mat.normalMapID, ShaderBindingLayout::TEX_NORMAL, GL_TEXTURE_2D);
-        BindTrackedTexture(mat.aoMapID, ShaderBindingLayout::TEX_AMBIENT, GL_TEXTURE_2D);
-        BindTrackedTexture(mat.emissiveMapID, ShaderBindingLayout::TEX_EMISSIVE, GL_TEXTURE_2D);
-        BindTrackedTexture(mat.environmentMapID, ShaderBindingLayout::TEX_ENVIRONMENT, GL_TEXTURE_CUBE_MAP);
-        BindTrackedTexture(mat.irradianceMapID, ShaderBindingLayout::TEX_USER_0, GL_TEXTURE_CUBE_MAP);
-        BindTrackedTexture(mat.prefilterMapID, ShaderBindingLayout::TEX_USER_1, GL_TEXTURE_CUBE_MAP);
-        BindTrackedTexture(mat.brdfLutMapID, ShaderBindingLayout::TEX_USER_2, GL_TEXTURE_2D);
+        BindTrackedTexture(mat.albedoMapID, ShaderBindingLayout::TEX_DIFFUSE);
+        BindTrackedTexture(mat.metallicRoughnessMapID, ShaderBindingLayout::TEX_SPECULAR);
+        BindTrackedTexture(mat.normalMapID, ShaderBindingLayout::TEX_NORMAL);
+        BindTrackedTexture(mat.aoMapID, ShaderBindingLayout::TEX_AMBIENT);
+        BindTrackedTexture(mat.emissiveMapID, ShaderBindingLayout::TEX_EMISSIVE);
+        BindTrackedTexture(mat.environmentMapID, ShaderBindingLayout::TEX_ENVIRONMENT);
+        BindTrackedTexture(mat.irradianceMapID, ShaderBindingLayout::TEX_USER_0);
+        BindTrackedTexture(mat.prefilterMapID, ShaderBindingLayout::TEX_USER_1);
+        BindTrackedTexture(mat.brdfLutMapID, ShaderBindingLayout::TEX_USER_2);
     }
 
     // Helper: Bind legacy material textures (diffuse, specular).
     static void BindLegacyTextures(const PODMaterialData& mat)
     {
-        BindTrackedTexture(mat.diffuseMapID, ShaderBindingLayout::TEX_DIFFUSE, GL_TEXTURE_2D);
-        BindTrackedTexture(mat.specularMapID, ShaderBindingLayout::TEX_SPECULAR, GL_TEXTURE_2D);
+        BindTrackedTexture(mat.diffuseMapID, ShaderBindingLayout::TEX_DIFFUSE);
+        BindTrackedTexture(mat.specularMapID, ShaderBindingLayout::TEX_SPECULAR);
     }
 
     static void UploadMaterialState(const PODMaterialData& mat, u16 materialDataIndex)
@@ -545,7 +553,7 @@ namespace OloEngine
             return;
         if (s_Data.BoundTextureIDs[slot] != textureID)
         {
-            glBindTextureUnit(slot, textureID);
+            RenderCommand::BindTexture(slot, textureID);
             s_Data.BoundTextureIDs[slot] = textureID;
             ++s_Data.Stats.TextureBinds;
         }
@@ -1235,47 +1243,7 @@ namespace OloEngine
         }
     }
 
-    // Local lowering for the two POD draw-command fields that are now RHI enums
-    // (Commands/RenderCommand.h). These three glDraw* sites are still raw GL —
-    // they are part of the Phase 2 step-2 call-site sweep, not step 1 — so the
-    // lowering lives here rather than pulling Platform/OpenGL/ into this file.
-    // Delete both helpers together with the raw calls when the sweep reaches
-    // this dispatcher.
-    static GLenum ToGLIndexType(RHI::IndexType type)
-    {
-        switch (type)
-        {
-            case RHI::IndexType::UInt16:
-                return GL_UNSIGNED_SHORT;
-            case RHI::IndexType::UInt32:
-                return GL_UNSIGNED_INT;
-        }
-        OLO_CORE_ERROR("CommandDispatch: unhandled RHI::IndexType {}", static_cast<int>(type));
-        return GL_UNSIGNED_INT;
-    }
-
-    static GLenum ToGLPrimitive(RHI::PrimitiveTopology topology)
-    {
-        switch (topology)
-        {
-            case RHI::PrimitiveTopology::TriangleList:
-                return GL_TRIANGLES;
-            case RHI::PrimitiveTopology::TriangleStrip:
-                return GL_TRIANGLE_STRIP;
-            case RHI::PrimitiveTopology::LineList:
-                return GL_LINES;
-            case RHI::PrimitiveTopology::LineStrip:
-                return GL_LINE_STRIP;
-            case RHI::PrimitiveTopology::PointList:
-                return GL_POINTS;
-            case RHI::PrimitiveTopology::PatchList:
-                return GL_PATCHES;
-        }
-        OLO_CORE_ERROR("CommandDispatch: unhandled RHI::PrimitiveTopology {}", static_cast<int>(topology));
-        return GL_TRIANGLES;
-    }
-
-    void CommandDispatch::DrawIndexed(const void* data, [[maybe_unused]] RendererAPI& api)
+    void CommandDispatch::DrawIndexed(const void* data, RendererAPI& api)
     {
         auto const* cmd = static_cast<const DrawIndexedCommand*>(data);
 
@@ -1287,10 +1255,10 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw
         BindVAOIfNeeded(cmd->vertexArrayID);
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), ToGLIndexType(cmd->indexType), nullptr);
+        api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, cmd->indexType, 0);
     }
 
-    void CommandDispatch::DrawIndexedInstanced(const void* data, [[maybe_unused]] RendererAPI& api)
+    void CommandDispatch::DrawIndexedInstanced(const void* data, RendererAPI& api)
     {
         auto const* cmd = static_cast<const DrawIndexedInstancedCommand*>(data);
 
@@ -1302,11 +1270,11 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw instanced
         BindVAOIfNeeded(cmd->vertexArrayID);
-        glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), ToGLIndexType(cmd->indexType),
-                                nullptr, static_cast<GLsizei>(cmd->instanceCount));
+        api.DrawBoundIndexedInstanced(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, cmd->indexType,
+                                      0, cmd->instanceCount);
     }
 
-    void CommandDispatch::DrawArrays(const void* data, [[maybe_unused]] RendererAPI& api)
+    void CommandDispatch::DrawArrays(const void* data, RendererAPI& api)
     {
         auto const* cmd = static_cast<const DrawArraysCommand*>(data);
 
@@ -1318,10 +1286,10 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw arrays
         BindVAOIfNeeded(cmd->vertexArrayID);
-        glDrawArrays(ToGLPrimitive(cmd->primitiveType), 0, static_cast<GLsizei>(cmd->vertexCount));
+        api.DrawBoundArrays(cmd->primitiveType, 0, cmd->vertexCount);
     }
 
-    void CommandDispatch::DrawLines(const void* data, [[maybe_unused]] RendererAPI& api)
+    void CommandDispatch::DrawLines(const void* data, RendererAPI& api)
     {
         auto const* cmd = static_cast<const DrawLinesCommand*>(data);
 
@@ -1333,7 +1301,7 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw lines
         BindVAOIfNeeded(cmd->vertexArrayID);
-        glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(cmd->vertexCount));
+        api.DrawBoundArrays(RHI::PrimitiveTopology::LineList, 0, cmd->vertexCount);
     }
 
     void CommandDispatch::DrawMesh(const void* data, RendererAPI& api)
@@ -1391,7 +1359,7 @@ namespace OloEngine
         }
         if (s_Data.CurrentBoundShaderID != shaderToBind)
         {
-            glUseProgram(shaderToBind);
+            api.BindShaderProgram(shaderToBind);
             s_Data.CurrentBoundShaderID = shaderToBind;
             ++s_Data.Stats.ShaderBinds;
         }
@@ -1502,10 +1470,11 @@ namespace OloEngine
             }
         }
 
-        // Use baseIndex offset for multi-submesh MeshSources sharing a single IBO
-        const void* indexOffset = reinterpret_cast<const void*>(static_cast<uintptr_t>(cmd->baseIndex) * sizeof(u32));
-
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, indexOffset);
+        // baseIndex offsets into a single IBO shared by a multi-submesh
+        // MeshSource. The index-count-to-byte-offset conversion now lives in
+        // the backend, which is the only layer that knows the index stride.
+        api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount,
+                             RHI::IndexType::UInt32, cmd->baseIndex);
         ++s_Data.Stats.DrawCalls;
 
         if (startedConditionalRender)
@@ -1569,7 +1538,7 @@ namespace OloEngine
         }
         if (s_Data.CurrentBoundShaderID != shaderToBind)
         {
-            glUseProgram(shaderToBind);
+            api.BindShaderProgram(shaderToBind);
             s_Data.CurrentBoundShaderID = shaderToBind;
             ++s_Data.Stats.ShaderBinds;
         }
@@ -1599,8 +1568,7 @@ namespace OloEngine
             // Rebind slot 15 to the per-submission output buffer. The engine-
             // wide `s_Data.ModelInstanceBuffer` is unchanged so it can be
             // reused by subsequent CPU-path draws in the same frame.
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_INSTANCE_DATA,
-                             cmd->cullOutputInstanceBufferID);
+            api.BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_DATA, cmd->cullOutputInstanceBufferID);
 
             // Shadow/snow textures (per-frame, outside material diffing).
             // Depth-only prepass draws never sample shadows.
@@ -1742,8 +1710,8 @@ namespace OloEngine
         // Bind VAO (cached) and draw instanced
         BindVAOIfNeeded(cmd->vertexArrayID);
         ++s_Data.Stats.DrawCalls;
-        const void* indexOffset = reinterpret_cast<const void*>(static_cast<uintptr_t>(cmd->baseIndex) * sizeof(u32));
-        glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, indexOffset, static_cast<GLsizei>(instanceCount));
+        api.DrawBoundIndexedInstanced(RHI::PrimitiveTopology::TriangleList, cmd->indexCount,
+                                      RHI::IndexType::UInt32, cmd->baseIndex, instanceCount);
 
         // RendererProfiler: surface the batching savings. One instanced draw
         // covers `instanceCount` entities; `InstancesBatched` reports the
@@ -1805,7 +1773,7 @@ namespace OloEngine
         // Bind skybox shader using renderer ID directly
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
         {
-            glUseProgram(cmd->shaderRendererID);
+            api.BindShaderProgram(cmd->shaderRendererID);
             s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
             ++s_Data.Stats.ShaderBinds;
         }
@@ -1819,15 +1787,14 @@ namespace OloEngine
         // Bind skybox cubemap texture using renderer ID directly
         if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] != cmd->skyboxTextureID)
         {
-            glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_ENVIRONMENT);
-            glBindTexture(GL_TEXTURE_CUBE_MAP, cmd->skyboxTextureID);
+            api.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, cmd->skyboxTextureID);
             s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] = cmd->skyboxTextureID;
             ++s_Data.Stats.TextureBinds;
         }
 
         // Bind VAO (cached) and draw
         BindVAOIfNeeded(cmd->vertexArrayID);
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
 
         // Update statistics
         ++s_Data.Stats.DrawCalls;
@@ -1858,7 +1825,7 @@ namespace OloEngine
         // Bind shader using renderer ID directly
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
         {
-            glUseProgram(cmd->shaderRendererID);
+            api.BindShaderProgram(cmd->shaderRendererID);
             s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
             ++s_Data.Stats.ShaderBinds;
         }
@@ -1881,8 +1848,7 @@ namespace OloEngine
         // Bind texture using renderer ID directly
         if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != cmd->textureID)
         {
-            glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_DIFFUSE);
-            glBindTexture(GL_TEXTURE_2D, cmd->textureID);
+            api.BindTexture(ShaderBindingLayout::TEX_DIFFUSE, cmd->textureID);
             s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = cmd->textureID;
             ++s_Data.Stats.TextureBinds;
         }
@@ -1890,7 +1856,7 @@ namespace OloEngine
         // Bind VAO (cached) and draw quad
         BindVAOIfNeeded(cmd->quadVAID);
         ++s_Data.Stats.DrawCalls;
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
+        api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, 6, RHI::IndexType::UInt32, 0);
     }
 
     void CommandDispatch::DrawInfiniteGrid(const void* data, RendererAPI& api)
@@ -1912,7 +1878,7 @@ namespace OloEngine
         // Bind grid shader using renderer ID directly
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
         {
-            glUseProgram(cmd->shaderRendererID);
+            api.BindShaderProgram(cmd->shaderRendererID);
             s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
             ++s_Data.Stats.ShaderBinds;
         }
@@ -1924,15 +1890,18 @@ namespace OloEngine
             BindUBOIfNeeded(ShaderBindingLayout::UBO_CAMERA, s_Data.CameraUBO->GetRendererID());
         }
 
-        // Set grid scale uniform if the shader supports it
-        if (GLint gridScaleLoc = glGetUniformLocation(cmd->shaderRendererID, "u_GridScale"); gridScaleLoc != -1)
-        {
-            glUniform1f(gridScaleLoc, cmd->gridScale);
-        }
+        // Set grid scale uniform if the shader supports it.
+        //
+        // This is the one facade call with no faithful Vulkan lowering — SPIR-V
+        // has push constants and UBO members, not a name-queryable default
+        // uniform block. Phase 6 folds u_GridScale into a UBO and deletes
+        // SetProgramUniformFloat (ADR 0011 amendment (9)); the debt is recorded
+        // rather than hidden so Phase 7 bring-up is not surprised by it.
+        api.SetProgramUniformFloat(cmd->shaderRendererID, "u_GridScale", cmd->gridScale);
 
         // Bind fullscreen quad VAO (cached) and draw
         BindVAOIfNeeded(cmd->quadVAOID);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+        api.DrawBoundArrays(RHI::PrimitiveTopology::TriangleList, 0, 6);
 
         ++s_Data.Stats.DrawCalls;
     }
@@ -1955,7 +1924,7 @@ namespace OloEngine
         // Bind shader
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
         {
-            glUseProgram(cmd->shaderRendererID);
+            api.BindShaderProgram(cmd->shaderRendererID);
             s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
             ++s_Data.Stats.ShaderBinds;
         }
@@ -1983,33 +1952,33 @@ namespace OloEngine
         if (auto terrainUBO = Renderer3D::GetTerrainUBO(); terrainUBO)
         {
             terrainUBO->SetData(&cmd->terrainUBOData, ShaderBindingLayout::TerrainUBO::GetSize());
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_TERRAIN, terrainUBO->GetRendererID());
+            api.BindUniformBuffer(ShaderBindingLayout::UBO_TERRAIN, terrainUBO->GetRendererID());
         }
 
         // Bind terrain textures
         if (cmd->heightmapTextureID != 0)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP, cmd->heightmapTextureID);
+            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP, cmd->heightmapTextureID);
         }
         if (cmd->splatmapTextureID != 0)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP, cmd->splatmapTextureID);
+            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP, cmd->splatmapTextureID);
         }
         if (cmd->splatmap1TextureID != 0)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP_1, cmd->splatmap1TextureID);
+            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP_1, cmd->splatmap1TextureID);
         }
         if (cmd->albedoArrayTextureID != 0)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, cmd->albedoArrayTextureID);
+            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, cmd->albedoArrayTextureID);
         }
         if (cmd->normalArrayTextureID != 0)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, cmd->normalArrayTextureID);
+            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, cmd->normalArrayTextureID);
         }
         if (cmd->armArrayTextureID != 0)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID);
+            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID);
         }
 
         // Bind the full shadow contract the terrain shaders sample — CSM, spot,
@@ -2022,8 +1991,8 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw with GL_PATCHES
         BindVAOIfNeeded(cmd->vertexArrayID);
-        glPatchParameteri(GL_PATCH_VERTICES, static_cast<GLint>(cmd->patchVertexCount));
-        glDrawElements(GL_PATCHES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        api.SetPatchVertexCount(cmd->patchVertexCount);
+        api.DrawBoundIndexed(RHI::PrimitiveTopology::PatchList, cmd->indexCount, RHI::IndexType::UInt32, 0);
         ++s_Data.Stats.DrawCalls;
     }
 
@@ -2045,7 +2014,7 @@ namespace OloEngine
         // Bind shader
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
         {
-            glUseProgram(cmd->shaderRendererID);
+            api.BindShaderProgram(cmd->shaderRendererID);
             s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
             ++s_Data.Stats.ShaderBinds;
         }
@@ -2072,15 +2041,15 @@ namespace OloEngine
         // Bind textures for triplanar sampling
         if (cmd->albedoArrayTextureID != 0)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, cmd->albedoArrayTextureID);
+            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, cmd->albedoArrayTextureID);
         }
         if (cmd->normalArrayTextureID != 0)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, cmd->normalArrayTextureID);
+            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, cmd->normalArrayTextureID);
         }
         if (cmd->armArrayTextureID != 0)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID);
+            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID);
         }
 
         // Bind the shadow contract Terrain_Voxel.glsl samples (CSM + spot + PCSS
@@ -2090,7 +2059,7 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw
         BindVAOIfNeeded(cmd->vertexArrayID);
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
         ++s_Data.Stats.DrawCalls;
     }
 
@@ -2120,7 +2089,7 @@ namespace OloEngine
                                  : cmd->shaderRendererID;
         if (s_Data.CurrentBoundShaderID != decalProgramID)
         {
-            glUseProgram(decalProgramID);
+            api.BindShaderProgram(decalProgramID);
             s_Data.CurrentBoundShaderID = decalProgramID;
             ++s_Data.Stats.ShaderBinds;
         }
@@ -2151,7 +2120,7 @@ namespace OloEngine
             decalData.DecalColor = cmd->decalColor;
             decalData.DecalParams = cmd->decalParams;
             decalUBO->SetData(&decalData, ShaderBindingLayout::DecalUBO::GetSize());
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_DECAL, decalUBO->GetRendererID());
+            api.BindUniformBuffer(ShaderBindingLayout::UBO_DECAL, decalUBO->GetRendererID());
         }
 
         // Bind albedo texture (with redundancy check)
@@ -2159,7 +2128,7 @@ namespace OloEngine
         {
             if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] != cmd->albedoTextureID)
             {
-                glBindTextureUnit(ShaderBindingLayout::TEX_USER_0, cmd->albedoTextureID);
+                api.BindTexture(ShaderBindingLayout::TEX_USER_0, cmd->albedoTextureID);
                 s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_0] = cmd->albedoTextureID;
                 ++s_Data.Stats.TextureBinds;
             }
@@ -2171,21 +2140,21 @@ namespace OloEngine
         if (cmd->normalTextureID != 0 &&
             s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] != cmd->normalTextureID)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_USER_1, cmd->normalTextureID);
+            api.BindTexture(ShaderBindingLayout::TEX_USER_1, cmd->normalTextureID);
             s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_1] = cmd->normalTextureID;
             ++s_Data.Stats.TextureBinds;
         }
         if (cmd->rmaTextureID != 0 &&
             s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] != cmd->rmaTextureID)
         {
-            glBindTextureUnit(ShaderBindingLayout::TEX_USER_2, cmd->rmaTextureID);
+            api.BindTexture(ShaderBindingLayout::TEX_USER_2, cmd->rmaTextureID);
             s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_USER_2] = cmd->rmaTextureID;
             ++s_Data.Stats.TextureBinds;
         }
 
         // Bind VAO (cached) and draw decal cube
         BindVAOIfNeeded(cmd->vertexArrayID);
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, cmd->indexCount, RHI::IndexType::UInt32, 0);
         ++s_Data.Stats.DrawCalls;
     }
 
@@ -2208,7 +2177,7 @@ namespace OloEngine
         // Bind shader (cached)
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
         {
-            glUseProgram(cmd->shaderRendererID);
+            api.BindShaderProgram(cmd->shaderRendererID);
             s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
             ++s_Data.Stats.ShaderBinds;
         }
@@ -2241,7 +2210,7 @@ namespace OloEngine
             foliageData.ImpostorParams0 = glm::vec4(cmd->impostorFramesPerAxis, cmd->impostorHemi, cmd->impostorStartDistance, cmd->impostorBand);
             foliageData.ImpostorParams1 = glm::vec4(cmd->impostorEnabled, cmd->impostorRadius, cmd->impostorParallaxScale, 0.0f);
             foliageUBO->SetData(&foliageData, ShaderBindingLayout::FoliageUBO::GetSize());
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_FOLIAGE, foliageUBO->GetRendererID());
+            api.BindUniformBuffer(ShaderBindingLayout::UBO_FOLIAGE, foliageUBO->GetRendererID());
         }
 
         // Bind albedo texture (with redundancy check). On the impostor path this
@@ -2250,7 +2219,7 @@ namespace OloEngine
         {
             if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] != cmd->albedoTextureID)
             {
-                glBindTextureUnit(ShaderBindingLayout::TEX_DIFFUSE, cmd->albedoTextureID);
+                api.BindTexture(ShaderBindingLayout::TEX_DIFFUSE, cmd->albedoTextureID);
                 s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_DIFFUSE] = cmd->albedoTextureID;
                 ++s_Data.Stats.TextureBinds;
             }
@@ -2262,7 +2231,8 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw instanced foliage
         BindVAOIfNeeded(cmd->vertexArrayID);
-        glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(cmd->instanceCount));
+        api.DrawBoundIndexedInstanced(RHI::PrimitiveTopology::TriangleList, cmd->indexCount,
+                                      RHI::IndexType::UInt32, 0, cmd->instanceCount);
         ++s_Data.Stats.DrawCalls;
     }
     void CommandDispatch::DrawWater(const void* data, RendererAPI& api)
@@ -2283,7 +2253,7 @@ namespace OloEngine
         // Bind shader (cached).
         if (s_Data.CurrentBoundShaderID != cmd->shaderRendererID)
         {
-            glUseProgram(cmd->shaderRendererID);
+            api.BindShaderProgram(cmd->shaderRendererID);
             s_Data.CurrentBoundShaderID = cmd->shaderRendererID;
             ++s_Data.Stats.ShaderBinds;
         }
@@ -2328,17 +2298,17 @@ namespace OloEngine
             waterData.TessParams = cmd->tessParams;
             waterData.FFTParams = cmd->fftParams;
             waterUBO->SetData(&waterData, ShaderBindingLayout::WaterUBO::GetSize());
-            glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_WATER, waterUBO->GetRendererID());
+            api.BindUniformBuffer(ShaderBindingLayout::UBO_WATER, waterUBO->GetRendererID());
         }
 
         // Bind normal map and noise textures (tracked for redundancy elimination and stats)
-        BindTrackedTexture(cmd->normalMap0ID, ShaderBindingLayout::TEX_WATER_NORMAL_0, GL_TEXTURE_2D);
-        BindTrackedTexture(cmd->normalMap1ID, ShaderBindingLayout::TEX_WATER_NORMAL_1, GL_TEXTURE_2D);
-        BindTrackedTexture(cmd->noiseTextureID, ShaderBindingLayout::TEX_WATER_NOISE, GL_TEXTURE_2D);
-        BindTrackedTexture(cmd->foamTextureID, ShaderBindingLayout::TEX_WATER_FOAM, GL_TEXTURE_2D);
+        BindTrackedTexture(cmd->normalMap0ID, ShaderBindingLayout::TEX_WATER_NORMAL_0);
+        BindTrackedTexture(cmd->normalMap1ID, ShaderBindingLayout::TEX_WATER_NORMAL_1);
+        BindTrackedTexture(cmd->noiseTextureID, ShaderBindingLayout::TEX_WATER_NOISE);
+        BindTrackedTexture(cmd->foamTextureID, ShaderBindingLayout::TEX_WATER_FOAM);
         // FFT ocean cascade textures (sampled when u_FFTParams.x > 0.5)
-        BindTrackedTexture(cmd->fftDisplacementID, ShaderBindingLayout::TEX_WATER_FFT_DISPLACEMENT, GL_TEXTURE_2D);
-        BindTrackedTexture(cmd->fftDerivativesID, ShaderBindingLayout::TEX_WATER_FFT_DERIVATIVES, GL_TEXTURE_2D);
+        BindTrackedTexture(cmd->fftDisplacementID, ShaderBindingLayout::TEX_WATER_FFT_DISPLACEMENT);
+        BindTrackedTexture(cmd->fftDerivativesID, ShaderBindingLayout::TEX_WATER_FFT_DERIVATIVES);
 
         // Bind the global environment cubemap for water reflections (binding 9).
         // The water pass doesn't otherwise touch this slot, so set it explicitly
@@ -2350,12 +2320,11 @@ namespace OloEngine
         // so clear it directly and update the tracking).
         if (const auto envMapID = Renderer3D::GetGlobalEnvironmentMapID(); envMapID != 0)
         {
-            BindTrackedTexture(envMapID, ShaderBindingLayout::TEX_ENVIRONMENT, GL_TEXTURE_CUBE_MAP);
+            BindTrackedTexture(envMapID, ShaderBindingLayout::TEX_ENVIRONMENT);
         }
         else if (s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] != 0)
         {
-            glActiveTexture(GL_TEXTURE0 + ShaderBindingLayout::TEX_ENVIRONMENT);
-            glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+            api.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, 0);
             s_Data.BoundTextureIDs[ShaderBindingLayout::TEX_ENVIRONMENT] = 0;
         }
 
@@ -2369,8 +2338,8 @@ namespace OloEngine
         // consumed by TCS to collapse tess factors toward 1.0 when disabled,
         // so we can keep a single, valid primitive mode at draw time.
         BindVAOIfNeeded(cmd->vertexArrayID);
-        glPatchParameteri(GL_PATCH_VERTICES, 3);
-        glDrawElements(GL_PATCHES, static_cast<GLsizei>(cmd->indexCount), GL_UNSIGNED_INT, nullptr);
+        api.SetPatchVertexCount(3);
+        api.DrawBoundIndexed(RHI::PrimitiveTopology::PatchList, cmd->indexCount, RHI::IndexType::UInt32, 0);
         ++s_Data.Stats.DrawCalls;
     }
 } // namespace OloEngine

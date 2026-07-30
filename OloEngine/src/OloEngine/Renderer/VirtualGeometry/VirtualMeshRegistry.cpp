@@ -4,12 +4,11 @@
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.h"
-#include "Platform/OpenGL/OpenGLUtilities.h"
 
-#include <glad/gl.h>
 #include <glm/geometric.hpp>
 #include <glm/matrix.hpp>
 
@@ -181,8 +180,7 @@ namespace OloEngine
         if (m_RingPtr == nullptr || bytes > m_RingSize)
         {
             // Payload larger than the ring (pathological page size): direct upload.
-            glNamedBufferSubData(targetBufferID, static_cast<GLintptr>(targetOffset),
-                                 static_cast<GLsizeiptr>(bytes), payload);
+            RenderCommand::UploadBufferSubData(targetBufferID, targetOffset, bytes, payload);
             return true;
         }
 
@@ -193,14 +191,12 @@ namespace OloEngine
             // memcpy), so a wrap only conflicts with copies still in flight
             // from EARLIER offsets this frame — wait them out. Rare at the
             // 8 MB ring size vs the per-frame upload cap.
-            ::glFinish();
+            RenderCommand::WaitForDeviceIdle();
             m_RingHead = 0;
         }
 
         std::memcpy(m_RingPtr + m_RingHead, payload, bytes);
-        glCopyNamedBufferSubData(m_RingBufferID, targetBufferID,
-                                 static_cast<GLintptr>(m_RingHead), static_cast<GLintptr>(targetOffset),
-                                 static_cast<GLsizeiptr>(bytes));
+        RenderCommand::CopyBufferSubData(m_RingBufferID, targetBufferID, m_RingHead, targetOffset, bytes);
         m_RingHead += bytes;
         return true;
     }
@@ -418,23 +414,21 @@ namespace OloEngine
         u64 const indexArenaBytes = static_cast<u64>(m_SlotIndexCapacity) * slotCount * sizeof(u32);
         if (m_IndexBufferID == 0)
         {
-            glCreateBuffers(1, &m_IndexBufferID);
+            m_IndexBufferID = RenderCommand::CreateBuffer();
         }
-        glNamedBufferData(m_IndexBufferID, static_cast<GLsizeiptr>(indexArenaBytes), nullptr, GL_DYNAMIC_COPY);
+        RenderCommand::AllocateBufferStorage(m_IndexBufferID, indexArenaBytes, RHI::MemoryResidency::DeviceLocal);
         if (m_VaoID == 0)
         {
-            glCreateVertexArrays(1, &m_VaoID);
+            m_VaoID = RenderCommand::CreateVertexArray();
         }
-        glVertexArrayElementBuffer(m_VaoID, m_IndexBufferID);
+        RenderCommand::SetVertexArrayIndexBuffer(m_VaoID, m_IndexBufferID);
 
         // Persistent-mapped upload ring
         if (m_RingBufferID == 0)
         {
-            glCreateBuffers(1, &m_RingBufferID);
-            glNamedBufferStorage(m_RingBufferID, static_cast<GLsizeiptr>(kUploadRingBytes), nullptr,
-                                 GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
-            m_RingPtr = static_cast<u8*>(glMapNamedBufferRange(m_RingBufferID, 0, static_cast<GLsizeiptr>(kUploadRingBytes),
-                                                               GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT));
+            m_RingBufferID = RenderCommand::CreateBuffer();
+            m_RingPtr = static_cast<u8*>(
+                RenderCommand::AllocatePersistentUploadStorage(m_RingBufferID, kUploadRingBytes));
             m_RingSize = (m_RingPtr != nullptr) ? kUploadRingBytes : 0;
             m_RingHead = 0;
         }
@@ -547,9 +541,8 @@ namespace OloEngine
         // Clear to "empty" (all bits set: farthest depth + sentinel payload)
         if (m_VisbufferBuffer)
         {
-            Utils::GLClearProgramGuard programGuard;
             u32 const clearValue = 0xFFFFFFFFu;
-            glClearNamedBufferData(m_VisbufferBuffer->GetRendererID(), GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, &clearValue);
+            RenderCommand::ClearBufferUInt(m_VisbufferBuffer->GetRendererID(), clearValue);
         }
     }
 
@@ -577,15 +570,14 @@ namespace OloEngine
         {
             if (m_ArgsReadbackID != 0)
             {
-                glDeleteBuffers(1, &m_ArgsReadbackID);
+                RenderCommand::DeleteBuffer(m_ArgsReadbackID);
             }
-            glCreateBuffers(1, &m_ArgsReadbackID);
-            glNamedBufferData(m_ArgsReadbackID, static_cast<GLsizeiptr>(bytes), nullptr, GL_DYNAMIC_READ);
+            m_ArgsReadbackID = RenderCommand::CreateBuffer();
+            RenderCommand::AllocateBufferStorage(m_ArgsReadbackID, bytes, RHI::MemoryResidency::DeviceToHost);
             m_ArgsReadbackBytes = bytes;
         }
-        glCopyNamedBufferSubData(m_ArgsBuffer->GetRendererID(), m_ArgsReadbackID, 0, 0,
-                                 static_cast<GLsizeiptr>(bytes));
-        glGetNamedBufferSubData(m_ArgsReadbackID, 0, static_cast<GLsizeiptr>(bytes), args.data());
+        RenderCommand::CopyBufferSubData(m_ArgsBuffer->GetRendererID(), m_ArgsReadbackID, 0, 0, bytes);
+        RenderCommand::ReadBufferSubData(m_ArgsReadbackID, 0, bytes, args.data());
         sizet const phaseStride = m_FrameInstances.size();
         for (sizet i = 0; i < args.size(); ++i)
         {
@@ -617,25 +609,21 @@ namespace OloEngine
         if (m_DebugColorTexID == 0 || m_DebugWidth != viewportWidth || m_DebugHeight != viewportHeight)
         {
             if (m_DebugColorTexID != 0)
-                glDeleteTextures(1, &m_DebugColorTexID);
+                RenderCommand::DeleteTexture(m_DebugColorTexID);
             if (m_DebugCountTexID != 0)
-                glDeleteTextures(1, &m_DebugCountTexID);
+                RenderCommand::DeleteTexture(m_DebugCountTexID);
 
             // RGBA8 colour target — imageStore'd by both raster paths, imported
             // into the graph as "VirtualGeometryDebug", captured via MCP.
-            glCreateTextures(GL_TEXTURE_2D, 1, &m_DebugColorTexID);
-            glTextureStorage2D(m_DebugColorTexID, 1, GL_RGBA8, static_cast<GLsizei>(viewportWidth),
-                               static_cast<GLsizei>(viewportHeight));
-            glTextureParameteri(m_DebugColorTexID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            glTextureParameteri(m_DebugColorTexID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            m_DebugColorTexID = RenderCommand::CreateTexture2D(viewportWidth, viewportHeight,
+                                                               RHI::Format::RGBA8UNorm);
+            RenderCommand::SetTextureFilter(m_DebugColorTexID, RHI::Filter::Nearest, RHI::Filter::Nearest);
 
             // R32UI overdraw-count target — imageAtomicAdd'd per fragment, then
             // colorized into the colour target by VirtualDebugColorize.comp.
-            glCreateTextures(GL_TEXTURE_2D, 1, &m_DebugCountTexID);
-            glTextureStorage2D(m_DebugCountTexID, 1, GL_R32UI, static_cast<GLsizei>(viewportWidth),
-                               static_cast<GLsizei>(viewportHeight));
-            glTextureParameteri(m_DebugCountTexID, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            glTextureParameteri(m_DebugCountTexID, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            m_DebugCountTexID = RenderCommand::CreateTexture2D(viewportWidth, viewportHeight,
+                                                               RHI::Format::R32UInt);
+            RenderCommand::SetTextureFilter(m_DebugCountTexID, RHI::Filter::Nearest, RHI::Filter::Nearest);
 
             m_DebugWidth = viewportWidth;
             m_DebugHeight = viewportHeight;
@@ -653,11 +641,9 @@ namespace OloEngine
         //
         // Nothing reads this alpha as colour: the debug capture target is inspected per-RGB.
         {
-            Utils::GLClearProgramGuard programGuard;
-            f32 const clearColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-            glClearTexImage(m_DebugColorTexID, 0, GL_RGBA, GL_FLOAT, clearColor);
-            u32 const clearCount = 0u;
-            glClearTexImage(m_DebugCountTexID, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, &clearCount);
+            constexpr glm::vec4 kTransparentBlack(0.0f);
+            RenderCommand::ClearTextureFloat(m_DebugColorTexID, 0, kTransparentBlack);
+            RenderCommand::ClearTextureUInt(m_DebugCountTexID, 0, 0u);
         }
     }
 
@@ -917,7 +903,7 @@ namespace OloEngine
         m_VisbufferHeight = 0;
         if (m_ArgsReadbackID != 0)
         {
-            glDeleteBuffers(1, &m_ArgsReadbackID);
+            RenderCommand::DeleteBuffer(m_ArgsReadbackID);
             m_ArgsReadbackID = 0;
             m_ArgsReadbackBytes = 0;
         }
@@ -925,32 +911,32 @@ namespace OloEngine
         {
             if (m_RingPtr != nullptr)
             {
-                glUnmapNamedBuffer(m_RingBufferID);
+                RenderCommand::UnmapBuffer(m_RingBufferID);
                 m_RingPtr = nullptr;
             }
-            glDeleteBuffers(1, &m_RingBufferID);
+            RenderCommand::DeleteBuffer(m_RingBufferID);
             m_RingBufferID = 0;
             m_RingSize = 0;
             m_RingHead = 0;
         }
         if (m_VaoID != 0)
         {
-            glDeleteVertexArrays(1, &m_VaoID);
+            RenderCommand::DeleteVertexArray(m_VaoID);
             m_VaoID = 0;
         }
         if (m_IndexBufferID != 0)
         {
-            glDeleteBuffers(1, &m_IndexBufferID);
+            RenderCommand::DeleteBuffer(m_IndexBufferID);
             m_IndexBufferID = 0;
         }
         if (m_DebugColorTexID != 0)
         {
-            glDeleteTextures(1, &m_DebugColorTexID);
+            RenderCommand::DeleteTexture(m_DebugColorTexID);
             m_DebugColorTexID = 0;
         }
         if (m_DebugCountTexID != 0)
         {
-            glDeleteTextures(1, &m_DebugCountTexID);
+            RenderCommand::DeleteTexture(m_DebugCountTexID);
             m_DebugCountTexID = 0;
         }
         m_DebugWidth = 0;

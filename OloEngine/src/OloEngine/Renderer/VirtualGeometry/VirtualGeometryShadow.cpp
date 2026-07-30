@@ -13,7 +13,6 @@
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 
-#include <glad/gl.h>
 #include <glm/geometric.hpp>
 
 #include <algorithm>
@@ -120,7 +119,7 @@ namespace OloEngine::VirtualGeometryShadow
                 argsBufferID, static_cast<u32>(i * sizeof(VirtualDrawArgs)),
                 instances[i].Gpu.ClusterCount, 32u);
         }
-        ::glBindVertexArray(0);
+        RenderCommand::BindVertexArrayRaw(0);
     }
 
     void Shutdown()

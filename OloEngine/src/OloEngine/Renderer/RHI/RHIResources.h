@@ -109,17 +109,9 @@ namespace OloEngine::RHI
         return (static_cast<u32>(value) & static_cast<u32>(flag)) != 0u;
     }
 
-    // Where the memory lives, expressed as intent rather than as a heap index.
-    // The GL backend maps these onto buffer-storage flags; a Vulkan backend maps
-    // them onto VMA usage hints. Naming them by intent is what keeps the choice
-    // reviewable — "this buffer is written once per frame by the CPU" is a fact
-    // about the engine, "VK_MEMORY_PROPERTY_HOST_COHERENT_BIT" is not.
-    enum class MemoryResidency : u8
-    {
-        DeviceLocal = 0, ///< GPU-only; upload via a transfer
-        HostToDevice,    ///< CPU writes each frame, GPU reads (per-frame UBOs)
-        DeviceToHost,    ///< GPU writes, CPU reads back (readback, queries)
-    };
+    // MemoryResidency MOVED to RHITypes.h in Phase 2 step 2. It turned out to be
+    // vocabulary rather than resource description: RendererAPI::AllocateBufferStorage
+    // needs it, and RendererAPI.h includes only RHITypes.h. See the note there.
 
     struct BufferDesc
     {

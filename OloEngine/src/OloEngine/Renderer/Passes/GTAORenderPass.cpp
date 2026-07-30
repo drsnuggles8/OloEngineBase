@@ -5,8 +5,6 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
     // Hilbert curve LUT: maps (x,y) in a 64×64 grid to a 1D index.
@@ -332,10 +330,9 @@ namespace OloEngine
                 MemoryBarrierFlags::TextureFetch |
                 MemoryBarrierFlags::TextureUpdate);
 
-            glCopyImageSubData(
-                finalAOTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                aoOutputTexID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height), 1);
+            RenderCommand::CopyImageSubData(finalAOTextureID, RendererAPI::TextureTargetType::Texture2D,
+                                            aoOutputTexID, RendererAPI::TextureTargetType::Texture2D,
+                                            m_Width, m_Height);
         }
     }
 

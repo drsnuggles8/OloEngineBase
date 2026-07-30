@@ -8,7 +8,6 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Debug/Instrumentor.h"
 
-#include <glad/gl.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
 
@@ -69,9 +68,13 @@ namespace OloEngine
 
             // Read back RGBA16F pixel data from the color attachment
             u32 const colorAttachmentID = fbo->GetColorAttachmentRendererID(0);
-            glGetTextureImage(colorAttachmentID, 0, GL_RGBA, GL_FLOAT,
-                              static_cast<GLsizei>(rgbaBuffer.size() * sizeof(f32)),
-                              rgbaBuffer.data());
+            const bool readOk = RenderCommand::ReadTextureImage(
+                colorAttachmentID, 0, RHI::Format::RGBA32Float,
+                rgbaBuffer.size() * sizeof(f32), rgbaBuffer.data());
+            if (!readOk)
+            {
+                OLO_CORE_WARN("LightProbeBaker: probe face readback failed");
+            }
 
             fbo->Unbind();
 

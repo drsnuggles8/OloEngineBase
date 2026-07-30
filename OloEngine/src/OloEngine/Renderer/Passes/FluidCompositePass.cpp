@@ -11,8 +11,6 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 #include <algorithm>
 
 namespace OloEngine
@@ -137,10 +135,9 @@ namespace OloEngine
         GLStateGuard guard("FluidCompositePass", GLStateGuard::Policy::Ignore);
 
         // Snapshot the pre-fluid scene colour for refraction sampling.
-        glCopyImageSubData(
-            sceneColorID, GL_TEXTURE_2D, 0, 0, 0, 0,
-            refractionTexID, GL_TEXTURE_2D, 0, 0, 0, 0,
-            static_cast<GLsizei>(fbWidth), static_cast<GLsizei>(fbHeight), 1);
+        RenderCommand::CopyImageSubData(sceneColorID, RendererAPI::TextureTargetType::Texture2D,
+                                        refractionTexID, RendererAPI::TextureTargetType::Texture2D,
+                                        fbWidth, fbHeight);
 
         // Upload the appearance parameters of this frame's fluid. Counts.z
         // carries the environment-map-present flag for the reflection branch.

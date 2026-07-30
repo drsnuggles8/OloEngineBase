@@ -4,8 +4,6 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
     void RGCommandContext::SetViewport(const u32 x, const u32 y, const u32 width, const u32 height) const
@@ -115,21 +113,18 @@ namespace OloEngine
     void RGCommandContext::BeginAsyncBatch(const u32 batchIndex) const
     {
         // GL 4.6 runs a single command stream — no true async queue overlap.
-        // Insert a KHR_debug group label so the batch region is visible in
-        // RenderDoc / Nsight.  The guard prevents crashes in headless / test
-        // contexts where glad has not been initialised.
-        if (GLAD_GL_KHR_debug)
-        {
-            const std::string label = "AsyncBatch[" + std::to_string(batchIndex) + "]";
-            glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, batchIndex,
-                             static_cast<GLsizei>(label.size()), label.c_str());
-        }
+        // Insert a debug group label so the batch region is visible in
+        // RenderDoc / Nsight. The backend no-ops when the capability is absent
+        // (or when no device is up), which is why the GLAD_GL_KHR_debug probe
+        // that used to guard this is gone — a loader-symbol test is not a
+        // portable way to ask "does this backend support debug markers".
+        const std::string label = "AsyncBatch[" + std::to_string(batchIndex) + "]";
+        RenderCommand::PushDebugGroup(batchIndex, label);
     }
 
     void RGCommandContext::EndAsyncBatch([[maybe_unused]] const u32 batchIndex) const
     {
-        if (GLAD_GL_KHR_debug)
-            glPopDebugGroup();
+        RenderCommand::PopDebugGroup();
     }
 
     u32 RGCommandContext::ResolveTexture(const RGTextureHandle handle) const

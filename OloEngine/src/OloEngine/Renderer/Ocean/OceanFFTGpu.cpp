@@ -4,8 +4,6 @@
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 
-#include <glad/gl.h>
-
 #include <bit>
 #include <cmath>
 
@@ -270,15 +268,15 @@ namespace OloEngine::Ocean
         // Clear both arrays (the butterfly chain transforms all 4 layers; the
         // unused ones must not feed NaN/garbage through imageLoad).
         const glm::vec4 zero(0.0f);
-        glClearTexImage(m_PingPong[0]->GetRendererID(), 0, GL_RGBA, GL_FLOAT, &zero);
-        glClearTexImage(m_PingPong[1]->GetRendererID(), 0, GL_RGBA, GL_FLOAT, &zero);
+        RenderCommand::ClearTextureFloat(m_PingPong[0]->GetRendererID(), 0, zero);
+        RenderCommand::ClearTextureFloat(m_PingPong[1]->GetRendererID(), 0, zero);
 
         // Upload the input into layer 0 (rg = complex, ba unused).
         m_Scratch.assign(count, glm::vec4(0.0f));
         for (sizet i = 0; i < count; ++i)
             m_Scratch[i] = glm::vec4(freq[i].real(), freq[i].imag(), 0.0f, 0.0f);
-        glTextureSubImage3D(m_PingPong[0]->GetRendererID(), 0, 0, 0, 0, static_cast<GLsizei>(N),
-                            static_cast<GLsizei>(N), 1, GL_RGBA, GL_FLOAT, m_Scratch.data());
+        RenderCommand::UploadTextureSubImage3D(m_PingPong[0]->GetRendererID(), 0, 0, 0, N, N, 1,
+                                               RHI::Format::RGBA32Float, m_Scratch.data());
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
 
         const u32 finalIndex = RunButterflyPasses(0u);
@@ -286,9 +284,12 @@ namespace OloEngine::Ocean
         // Read back layer 0 and apply the 1/N² normalisation the production
         // path defers to the assemble pass.
         std::vector<glm::vec4> readback(count);
-        glGetTextureSubImage(m_PingPong[finalIndex]->GetRendererID(), 0, 0, 0, 0, static_cast<GLsizei>(N),
-                             static_cast<GLsizei>(N), 1, GL_RGBA, GL_FLOAT,
-                             static_cast<GLsizei>(count * sizeof(glm::vec4)), readback.data());
+        if (!RenderCommand::ReadTextureSubImage(m_PingPong[finalIndex]->GetRendererID(), 0, 0, 0, 0,
+                                                N, N, 1, RHI::Format::RGBA32Float,
+                                                count * sizeof(glm::vec4), readback.data()))
+        {
+            OLO_CORE_WARN("OceanFFTGpu: butterfly readback failed");
+        }
 
         const f32 invN2 = 1.0f / (static_cast<f32>(N) * static_cast<f32>(N));
         std::vector<Complex> result(count);

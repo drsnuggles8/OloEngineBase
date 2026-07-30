@@ -4,7 +4,6 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 
-#include <glad/gl.h>
 #include <fstream>
 
 namespace OloEngine

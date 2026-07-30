@@ -3,9 +3,8 @@
 
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
 #include "OloEngine/Renderer/RGBuilder.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
-
-#include <glad/gl.h>
 
 namespace OloEngine
 {
@@ -139,11 +138,9 @@ namespace OloEngine
             if (exportedTextureID == 0u || exportedTextureID == sourceTextureID)
                 return;
 
-            glCopyImageSubData(sourceTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                               exportedTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                               static_cast<GLsizei>(m_GBuffer->GetWidth()),
-                               static_cast<GLsizei>(m_GBuffer->GetHeight()),
-                               1);
+            RenderCommand::CopyImageSubData(sourceTextureID, RendererAPI::TextureTargetType::Texture2D,
+                                            exportedTextureID, RendererAPI::TextureTargetType::Texture2D,
+                                            m_GBuffer->GetWidth(), m_GBuffer->GetHeight());
         };
 
         const auto copyMultisampleGBufferExport = [this, &context](const RGTextureHandle handle, const u32 sourceTextureID)
@@ -155,11 +152,9 @@ namespace OloEngine
             if (exportedTextureID == 0u || exportedTextureID == sourceTextureID)
                 return;
 
-            glCopyImageSubData(sourceTextureID, GL_TEXTURE_2D_MULTISAMPLE, 0, 0, 0, 0,
-                               exportedTextureID, GL_TEXTURE_2D_MULTISAMPLE, 0, 0, 0, 0,
-                               static_cast<GLsizei>(m_GBuffer->GetWidth()),
-                               static_cast<GLsizei>(m_GBuffer->GetHeight()),
-                               1);
+            RenderCommand::CopyImageSubData(sourceTextureID, RendererAPI::TextureTargetType::Texture2DMultisample,
+                                            exportedTextureID, RendererAPI::TextureTargetType::Texture2DMultisample,
+                                            m_GBuffer->GetWidth(), m_GBuffer->GetHeight());
         };
 
         const u32 albedoID = m_GBuffer->GetColorAttachmentID(GBuffer::Albedo);

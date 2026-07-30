@@ -14,8 +14,6 @@
 #include <stb_image/stb_image.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <glad/gl.h>
-
 #include <chrono>
 #include <cstring>
 
@@ -364,7 +362,7 @@ namespace OloEngine
             std::forward<decltype(work)>(work)();
             // Sync — flushes the GL command queue so the elapsed time covers
             // the actual rasterisation work, not just submission.
-            ::glFinish();
+            RenderCommand::WaitForDeviceIdle();
             const auto end = std::chrono::steady_clock::now();
             return std::chrono::duration<f64, std::milli>(end - start).count();
         }
@@ -829,7 +827,7 @@ namespace OloEngine
 
         // Sync so the elapsed-time measurement covers GPU work, not just
         // command submission — matches MeasureMillisecondsWithGPUSync above.
-        ::glFinish();
+        RenderCommand::WaitForDeviceIdle();
         const auto pathEnd = std::chrono::steady_clock::now();
         const f64 elapsedMs = std::chrono::duration<f64, std::milli>(pathEnd - pathStart).count();
         OLO_CORE_INFO("SH-based irradiance map generation complete ({:.2f} ms, L2 SH, 9 coefficients)", elapsedMs);

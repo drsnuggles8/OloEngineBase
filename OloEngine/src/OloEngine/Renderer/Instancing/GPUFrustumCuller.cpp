@@ -9,8 +9,6 @@
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 
-#include <glad/gl.h>
-
 #include <vector>
 
 namespace OloEngine
@@ -285,8 +283,8 @@ namespace OloEngine
         slot.InputBuffer->Bind();    // 16 — full input
         slot.OutputBuffer->Bind();   // 15 — phase-1 survivors
         slot.IndirectBuffer->Bind(); // 17 — phase-1 indirect
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, kRejectedBinding, slot.RejectedBuffer->GetRendererID());
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, kRejectedCountBinding, slot.RejectedCounter->GetRendererID());
+        RenderCommand::BindStorageBuffer(kRejectedBinding, slot.RejectedBuffer->GetRendererID());
+        RenderCommand::BindStorageBuffer(kRejectedCountBinding, slot.RejectedCounter->GetRendererID());
 
         // Use the occlusion variant when a previous-frame HZB is available; else
         // (frame 0 / no HZB) fall back to the frustum-only shader — no rejects
@@ -354,12 +352,12 @@ namespace OloEngine
         // Bind the reject buffer AS the input (16); phase-2 survivors (15) and
         // indirect (17) are this slot's phase-2 buffers; the reject counter (19)
         // bounds the dispatch in-shader.
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_INSTANCE_CULL_INPUT,
-                         result.RejectedBuffer->GetRendererID());
+        RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_CULL_INPUT,
+                                         result.RejectedBuffer->GetRendererID());
         result.Phase2Output->Bind(); // 15
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_INSTANCE_DRAW_INDIRECT,
-                         result.Phase2Indirect->GetRendererID());
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, kRejectedCountBinding, result.RejectedCounter->GetRendererID());
+        RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_DRAW_INDIRECT,
+                                         result.Phase2Indirect->GetRendererID());
+        RenderCommand::BindStorageBuffer(kRejectedCountBinding, result.RejectedCounter->GetRendererID());
         RenderCommand::BindTexture(0, currentHZB.HZBTextureID); // current-frame HZB
 
         m_OcclusionCullShader->Bind();
