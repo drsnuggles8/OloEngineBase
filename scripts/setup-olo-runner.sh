@@ -78,7 +78,12 @@ if [ -x "$RUNNER_DIR/config.sh" ]; then
     echo "already unpacked"
 else
     install -o "$RUNNER_USER" -g "$RUNNER_USER" -m 700 -d "$RUNNER_DIR"
-    sudo -u "$RUNNER_USER" tar xzf "$TARBALL" -C "$RUNNER_DIR"
+    # Extract as ROOT, then hand ownership over. The tarball sits under
+    # /home/obueker, which is mode 0700 — the runner user cannot traverse into
+    # it, exactly like the Vulkan SDK above. Running tar as the runner user
+    # fails with "Cannot open: Permission denied" before it reads a byte.
+    tar xzf "$TARBALL" -C "$RUNNER_DIR"
+    chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_DIR"
     echo "unpacked $(basename "$TARBALL")"
 fi
 
