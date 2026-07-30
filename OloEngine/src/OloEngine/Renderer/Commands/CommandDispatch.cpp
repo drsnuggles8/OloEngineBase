@@ -206,7 +206,7 @@ namespace OloEngine
             api.DisableStencilTest();
             api.DisableCulling();
             api.SetLineWidth(s_Default.lineWidth);
-            api.SetPolygonMode(s_Default.polygonFace, s_Default.polygonMode);
+            api.SetPolygonMode(s_Default.polygonMode);
             api.DisableScissorTest();
             api.SetColorMask(s_Default.colorMaskR, s_Default.colorMaskG, s_Default.colorMaskB, s_Default.colorMaskA);
             api.SetPolygonOffset(0.0f, 0.0f);
@@ -221,13 +221,13 @@ namespace OloEngine
                 api.SetColorMask(false, false, false, false);
                 api.SetDepthTest(true);
                 api.SetDepthMask(true);
-                api.SetDepthFunc(GL_LESS);
+                api.SetDepthFunc(RHI::CompareOp::Less);
                 api.SetBlendState(false);
             }
             // During color pass of depth prepass, override depth to GL_LEQUAL + no writes
             else if (s_Data.DepthPrepassColorPassActive)
             {
-                api.SetDepthFunc(GL_LEQUAL);
+                api.SetDepthFunc(RHI::CompareOp::LessOrEqual);
                 api.SetDepthMask(false);
             }
             // During the overdraw debug view, count every covered fragment:
@@ -239,8 +239,8 @@ namespace OloEngine
                 api.SetDepthTest(false);
                 api.SetDepthMask(false);
                 api.SetBlendState(true);
-                api.SetBlendFunc(GL_ONE, GL_ONE);
-                api.SetBlendEquation(GL_FUNC_ADD);
+                api.SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One);
+                api.SetBlendEquation(RHI::BlendOp::Add);
             }
             else
             {
@@ -291,7 +291,7 @@ namespace OloEngine
         }
 
         api.SetLineWidth(state.lineWidth);
-        api.SetPolygonMode(state.polygonFace, state.polygonMode);
+        api.SetPolygonMode(state.polygonMode);
 
         if (state.scissorEnabled)
             api.EnableScissorTest();
@@ -356,7 +356,7 @@ namespace OloEngine
                 api.SetColorMask(false, false, false, false);
                 api.SetDepthTest(true);
                 api.SetDepthMask(true);
-                api.SetDepthFunc(GL_LESS);
+                api.SetDepthFunc(RHI::CompareOp::Less);
                 api.SetBlendState(false);
                 api.SetStencilMask(0); // Depth-prepass opaques emit depth only — leave stencil alone.
             }
@@ -364,7 +364,7 @@ namespace OloEngine
         // During color pass of depth prepass, override depth to GL_LEQUAL + no writes
         else if (s_Data.DepthPrepassColorPassActive)
         {
-            api.SetDepthFunc(GL_LEQUAL);
+            api.SetDepthFunc(RHI::CompareOp::LessOrEqual);
             api.SetDepthMask(false);
         }
         // During the overdraw debug view, count every covered fragment regardless
@@ -379,8 +379,8 @@ namespace OloEngine
             api.SetDepthTest(false);
             api.SetDepthMask(false);
             api.SetBlendState(true);
-            api.SetBlendFunc(GL_ONE, GL_ONE);
-            api.SetBlendEquation(GL_FUNC_ADD);
+            api.SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One);
+            api.SetBlendEquation(RHI::BlendOp::Add);
             api.SetStencilMask(0);
         }
         else
@@ -395,7 +395,7 @@ namespace OloEngine
             api.SetColorMask(false, false, false, false);
             api.SetDepthTest(true);
             api.SetDepthMask(true);
-            api.SetDepthFunc(GL_LESS);
+            api.SetDepthFunc(RHI::CompareOp::Less);
             api.SetBlendState(false);
         }
     }
@@ -1161,7 +1161,7 @@ namespace OloEngine
     void CommandDispatch::SetPolygonMode(const void* data, RendererAPI& api)
     {
         auto const* cmd = static_cast<const SetPolygonModeCommand*>(data);
-        api.SetPolygonMode(cmd->face, cmd->mode);
+        api.SetPolygonMode(cmd->mode);
     }
 
     void CommandDispatch::SetPolygonOffset(const void* data, RendererAPI& api)
@@ -1235,6 +1235,46 @@ namespace OloEngine
         }
     }
 
+    // Local lowering for the two POD draw-command fields that are now RHI enums
+    // (Commands/RenderCommand.h). These three glDraw* sites are still raw GL —
+    // they are part of the Phase 2 step-2 call-site sweep, not step 1 — so the
+    // lowering lives here rather than pulling Platform/OpenGL/ into this file.
+    // Delete both helpers together with the raw calls when the sweep reaches
+    // this dispatcher.
+    static GLenum ToGLIndexType(RHI::IndexType type)
+    {
+        switch (type)
+        {
+            case RHI::IndexType::UInt16:
+                return GL_UNSIGNED_SHORT;
+            case RHI::IndexType::UInt32:
+                return GL_UNSIGNED_INT;
+        }
+        OLO_CORE_ERROR("CommandDispatch: unhandled RHI::IndexType {}", static_cast<int>(type));
+        return GL_UNSIGNED_INT;
+    }
+
+    static GLenum ToGLPrimitive(RHI::PrimitiveTopology topology)
+    {
+        switch (topology)
+        {
+            case RHI::PrimitiveTopology::TriangleList:
+                return GL_TRIANGLES;
+            case RHI::PrimitiveTopology::TriangleStrip:
+                return GL_TRIANGLE_STRIP;
+            case RHI::PrimitiveTopology::LineList:
+                return GL_LINES;
+            case RHI::PrimitiveTopology::LineStrip:
+                return GL_LINE_STRIP;
+            case RHI::PrimitiveTopology::PointList:
+                return GL_POINTS;
+            case RHI::PrimitiveTopology::PatchList:
+                return GL_PATCHES;
+        }
+        OLO_CORE_ERROR("CommandDispatch: unhandled RHI::PrimitiveTopology {}", static_cast<int>(topology));
+        return GL_TRIANGLES;
+    }
+
     void CommandDispatch::DrawIndexed(const void* data, [[maybe_unused]] RendererAPI& api)
     {
         auto const* cmd = static_cast<const DrawIndexedCommand*>(data);
@@ -1247,7 +1287,7 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw
         BindVAOIfNeeded(cmd->vertexArrayID);
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), cmd->indexType, nullptr);
+        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), ToGLIndexType(cmd->indexType), nullptr);
     }
 
     void CommandDispatch::DrawIndexedInstanced(const void* data, [[maybe_unused]] RendererAPI& api)
@@ -1262,7 +1302,8 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw instanced
         BindVAOIfNeeded(cmd->vertexArrayID);
-        glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), cmd->indexType, nullptr, static_cast<GLsizei>(cmd->instanceCount));
+        glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(cmd->indexCount), ToGLIndexType(cmd->indexType),
+                                nullptr, static_cast<GLsizei>(cmd->instanceCount));
     }
 
     void CommandDispatch::DrawArrays(const void* data, [[maybe_unused]] RendererAPI& api)
@@ -1277,7 +1318,7 @@ namespace OloEngine
 
         // Bind VAO (cached) and draw arrays
         BindVAOIfNeeded(cmd->vertexArrayID);
-        glDrawArrays(cmd->primitiveType, 0, static_cast<GLsizei>(cmd->vertexCount));
+        glDrawArrays(ToGLPrimitive(cmd->primitiveType), 0, static_cast<GLsizei>(cmd->vertexCount));
     }
 
     void CommandDispatch::DrawLines(const void* data, [[maybe_unused]] RendererAPI& api)

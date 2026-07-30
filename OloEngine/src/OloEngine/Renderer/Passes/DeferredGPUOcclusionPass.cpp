@@ -135,10 +135,10 @@ namespace OloEngine
             }
             context.SetDepthTest(true);
             context.SetDepthMask(true);
-            rendererAPI.SetDepthFunc(GL_LESS);
+            rendererAPI.SetDepthFunc(RHI::CompareOp::Less);
             context.SetBlendState(false);
-            rendererAPI.SetCullFace(GL_BACK);
-            rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            rendererAPI.SetCullFace(RHI::CullMode::Back);
+            rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
             CommandDispatch::BindSceneResources();
         };
 
@@ -222,10 +222,10 @@ namespace OloEngine
 
         // Restore a sane default GL state for whatever runs next.
         context.SetDepthMask(true);
-        rendererAPI.SetDepthFunc(GL_LESS);
+        rendererAPI.SetDepthFunc(RHI::CompareOp::Less);
         context.SetBlendState(false);
-        rendererAPI.SetCullFace(GL_BACK);
-        rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        rendererAPI.SetCullFace(RHI::CullMode::Back);
+        rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
         ::glBindVertexArray(0);
         ::glUseProgram(0);
 

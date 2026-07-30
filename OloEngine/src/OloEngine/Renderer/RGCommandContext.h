@@ -51,6 +51,19 @@ namespace OloEngine
         void SetClearColor(const glm::vec4& color) const;
         void Clear() const;
         void ResetGraphicsStateToDefault() const;
+        // The opaque-forward draw state that forward passes re-establish around a
+        // CommandBucket execution, because skybox / debug / grid commands inside
+        // the bucket flip these and would otherwise leak into the next pass.
+        //
+        // Deliberately narrower than ResetGraphicsStateToDefault(), which also
+        // DISABLES culling and resets stencil / scissor / colour mask / polygon
+        // offset / multisampling — none of which these sites want touched.
+        //
+        // Deliberately does NOT set the depth *test*: callers entering the pass
+        // enable it themselves, while the post-bucket restore sites leave it
+        // alone, and re-enabling one a bucket command legitimately disabled
+        // would change what renders.
+        void ResetOpaqueForwardDrawState() const;
         void BindDefaultFramebuffer() const;
         void SetDepthTest(bool enabled) const;
         void SetDepthMask(bool enabled) const;

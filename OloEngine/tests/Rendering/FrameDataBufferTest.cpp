@@ -312,8 +312,8 @@ TEST(FrameDataBuffer, RenderStateTableDifferentStatesGetDifferentIndices)
     PODRenderState transparent{};
     transparent.depthTestEnabled = true;
     transparent.blendEnabled = true;
-    transparent.blendSrcFactor = GL_SRC_ALPHA;
-    transparent.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+    transparent.blendSrcFactor = RHI::BlendFactor::SrcAlpha;
+    transparent.blendDstFactor = RHI::BlendFactor::OneMinusSrcAlpha;
 
     u16 opaqueIdx = buffer.AllocateRenderState(opaque);
     u16 transIdx = buffer.AllocateRenderState(transparent);
@@ -329,12 +329,12 @@ TEST(FrameDataBuffer, RenderStateTableRoundTrip)
 
     PODRenderState state{};
     state.blendEnabled = true;
-    state.blendSrcFactor = GL_ONE;
-    state.blendDstFactor = GL_ZERO;
+    state.blendSrcFactor = RHI::BlendFactor::One;
+    state.blendDstFactor = RHI::BlendFactor::Zero;
     state.depthTestEnabled = false;
     state.cullingEnabled = true;
-    state.cullFace = GL_FRONT;
-    state.polygonMode = GL_LINE;
+    state.cullFace = RHI::CullMode::Front;
+    state.polygonMode = RHI::PolygonMode::Line;
 
     u16 index = buffer.AllocateRenderState(state);
     const PODRenderState& retrieved = buffer.GetRenderState(index);

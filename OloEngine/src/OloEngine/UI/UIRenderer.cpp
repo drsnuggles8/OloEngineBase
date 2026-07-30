@@ -1,6 +1,11 @@
 #include "OloEnginePCH.h"
 #include "UIRenderer.h"
 
+// Raw GL below is part of the issue #691 Phase 2 step-2 sweep backlog; the
+// include is direct rather than transitive through RendererAPI.h, which is
+// now GL-free.
+#include <glad/gl.h>
+
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Font.h"

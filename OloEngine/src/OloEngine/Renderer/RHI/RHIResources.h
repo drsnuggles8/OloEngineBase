@@ -272,15 +272,24 @@ namespace OloEngine::RHI
     // not use them, and adding them speculatively would buy nothing — but any
     // middleware that wants them becomes a sampler-heap management problem, so
     // this is a Phase 4 device-bring-up checklist item, not a silent omission.
+    // Phase 2 widened the filter/wrap members from bools to RHI::Filter /
+    // RHI::AddressMode. The bools could not express the combinations the sweep
+    // actually had to replace — SSAORenderPass's noise texture is Nearest+Repeat,
+    // and CreateDepthArrayCompareOffView is Nearest+ClampToBorder — so a
+    // two-bool sampler would have forced those call sites to keep a GL escape
+    // hatch. See RHITypes.h's Filter/AddressMode note.
     struct SamplerDesc
     {
         // `Compare`, not `CompareOp` — a member sharing the enum's name hides it
         // and breaks the default member initializer (same trap as
         // TextureDesc::PixelFormat above).
         CompareOp Compare = CompareOp::Never; ///< Never = comparison disabled
-        bool LinearFilter = true;
+        Filter MinFilter = Filter::Linear;
+        Filter MagFilter = Filter::Linear;
         bool LinearMipFilter = true;
-        bool ClampToEdge = true;
+        AddressMode AddressU = AddressMode::ClampToEdge;
+        AddressMode AddressV = AddressMode::ClampToEdge;
+        AddressMode AddressW = AddressMode::ClampToEdge;
         f32 MaxAnisotropy = 1.0f;
 
         [[nodiscard]] auto operator==(const SamplerDesc& other) const -> bool = default;

@@ -3,7 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
-#include <glad/gl.h>
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include <glm/glm.hpp>
 #include <type_traits>
 
@@ -44,32 +44,32 @@ namespace OloEngine
     {
         // Blend state
         bool blendEnabled = false;
-        GLenum blendSrcFactor = GL_SRC_ALPHA;
-        GLenum blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
-        GLenum blendEquation = GL_FUNC_ADD;
+        RHI::BlendFactor blendSrcFactor = RHI::BlendFactor::SrcAlpha;
+        RHI::BlendFactor blendDstFactor = RHI::BlendFactor::OneMinusSrcAlpha;
+        RHI::BlendOp blendEquation = RHI::BlendOp::Add;
 
         // Depth state
         bool depthTestEnabled = true;
         bool depthWriteMask = true;
-        GLenum depthFunction = GL_LESS;
+        RHI::CompareOp depthFunction = RHI::CompareOp::Less;
 
         // Stencil state
         bool stencilEnabled = false;
-        GLenum stencilFunction = GL_ALWAYS;
-        GLint stencilReference = 0;
-        GLuint stencilReadMask = 0xFF;
-        GLuint stencilWriteMask = 0xFF;
-        GLenum stencilFail = GL_KEEP;
-        GLenum stencilDepthFail = GL_KEEP;
-        GLenum stencilDepthPass = GL_KEEP;
+        RHI::CompareOp stencilFunction = RHI::CompareOp::Always;
+        i32 stencilReference = 0;
+        u32 stencilReadMask = 0xFF;
+        u32 stencilWriteMask = 0xFF;
+        RHI::StencilOp stencilFail = RHI::StencilOp::Keep;
+        RHI::StencilOp stencilDepthFail = RHI::StencilOp::Keep;
+        RHI::StencilOp stencilDepthPass = RHI::StencilOp::Keep;
 
         // Culling state
         bool cullingEnabled = false;
-        GLenum cullFace = GL_BACK;
+        RHI::CullMode cullFace = RHI::CullMode::Back;
 
-        // Polygon mode
-        GLenum polygonFace = GL_FRONT_AND_BACK;
-        GLenum polygonMode = GL_FILL;
+        // Polygon mode. No face member: core-profile glPolygonMode accepts only
+        // GL_FRONT_AND_BACK, and Vulkan's polygonMode has no face either.
+        RHI::PolygonMode polygonMode = RHI::PolygonMode::Fill;
 
         // Polygon offset
         bool polygonOffsetEnabled = false;
@@ -78,10 +78,10 @@ namespace OloEngine
 
         // Scissor
         bool scissorEnabled = false;
-        GLint scissorX = 0;
-        GLint scissorY = 0;
-        GLsizei scissorWidth = 0;
-        GLsizei scissorHeight = 0;
+        i32 scissorX = 0;
+        i32 scissorY = 0;
+        u32 scissorWidth = 0;
+        u32 scissorHeight = 0;
 
         // Color mask
         bool colorMaskR = true;
@@ -101,7 +101,7 @@ namespace OloEngine
         // Field-wise equality (safe against struct padding, unlike memcmp)
         bool operator==(const PODRenderState& o) const
         {
-            return blendEnabled == o.blendEnabled && blendSrcFactor == o.blendSrcFactor && blendDstFactor == o.blendDstFactor && blendEquation == o.blendEquation && depthTestEnabled == o.depthTestEnabled && depthWriteMask == o.depthWriteMask && depthFunction == o.depthFunction && stencilEnabled == o.stencilEnabled && stencilFunction == o.stencilFunction && stencilReference == o.stencilReference && stencilReadMask == o.stencilReadMask && stencilWriteMask == o.stencilWriteMask && stencilFail == o.stencilFail && stencilDepthFail == o.stencilDepthFail && stencilDepthPass == o.stencilDepthPass && cullingEnabled == o.cullingEnabled && cullFace == o.cullFace && polygonFace == o.polygonFace && polygonMode == o.polygonMode && polygonOffsetEnabled == o.polygonOffsetEnabled && polygonOffsetFactor == o.polygonOffsetFactor && polygonOffsetUnits == o.polygonOffsetUnits && scissorEnabled == o.scissorEnabled && scissorX == o.scissorX && scissorY == o.scissorY && scissorWidth == o.scissorWidth && scissorHeight == o.scissorHeight && colorMaskR == o.colorMaskR && colorMaskG == o.colorMaskG && colorMaskB == o.colorMaskB && colorMaskA == o.colorMaskA && colorAttachmentWriteMask == o.colorAttachmentWriteMask && multisamplingEnabled == o.multisamplingEnabled && lineWidth == o.lineWidth;
+            return blendEnabled == o.blendEnabled && blendSrcFactor == o.blendSrcFactor && blendDstFactor == o.blendDstFactor && blendEquation == o.blendEquation && depthTestEnabled == o.depthTestEnabled && depthWriteMask == o.depthWriteMask && depthFunction == o.depthFunction && stencilEnabled == o.stencilEnabled && stencilFunction == o.stencilFunction && stencilReference == o.stencilReference && stencilReadMask == o.stencilReadMask && stencilWriteMask == o.stencilWriteMask && stencilFail == o.stencilFail && stencilDepthFail == o.stencilDepthFail && stencilDepthPass == o.stencilDepthPass && cullingEnabled == o.cullingEnabled && cullFace == o.cullFace && polygonMode == o.polygonMode && polygonOffsetEnabled == o.polygonOffsetEnabled && polygonOffsetFactor == o.polygonOffsetFactor && polygonOffsetUnits == o.polygonOffsetUnits && scissorEnabled == o.scissorEnabled && scissorX == o.scissorX && scissorY == o.scissorY && scissorWidth == o.scissorWidth && scissorHeight == o.scissorHeight && colorMaskR == o.colorMaskR && colorMaskG == o.colorMaskG && colorMaskB == o.colorMaskB && colorMaskA == o.colorMaskA && colorAttachmentWriteMask == o.colorAttachmentWriteMask && multisamplingEnabled == o.multisamplingEnabled && lineWidth == o.lineWidth;
         }
     };
 
@@ -358,14 +358,14 @@ namespace OloEngine
     struct SetBlendFuncCommand
     {
         CommandHeader header;
-        GLenum sourceFactor;
-        GLenum destFactor;
+        RHI::BlendFactor sourceFactor;
+        RHI::BlendFactor destFactor;
     };
 
     struct SetBlendEquationCommand
     {
         CommandHeader header;
-        GLenum mode;
+        RHI::BlendOp mode;
     };
 
     struct SetDepthTestCommand
@@ -383,7 +383,7 @@ namespace OloEngine
     struct SetDepthFuncCommand
     {
         CommandHeader header;
-        GLenum function;
+        RHI::CompareOp function;
     };
 
     struct SetStencilTestCommand
@@ -395,23 +395,23 @@ namespace OloEngine
     struct SetStencilFuncCommand
     {
         CommandHeader header;
-        GLenum function;
-        GLint reference;
-        GLuint mask;
+        RHI::CompareOp function;
+        i32 reference;
+        u32 mask;
     };
 
     struct SetStencilMaskCommand
     {
         CommandHeader header;
-        GLuint mask;
+        u32 mask;
     };
 
     struct SetStencilOpCommand
     {
         CommandHeader header;
-        GLenum stencilFail;
-        GLenum depthFail;
-        GLenum depthPass;
+        RHI::StencilOp stencilFail;
+        RHI::StencilOp depthFail;
+        RHI::StencilOp depthPass;
     };
 
     struct SetCullingCommand
@@ -423,7 +423,7 @@ namespace OloEngine
     struct SetCullFaceCommand
     {
         CommandHeader header;
-        GLenum face;
+        RHI::CullMode face;
     };
 
     struct SetLineWidthCommand
@@ -435,8 +435,7 @@ namespace OloEngine
     struct SetPolygonModeCommand
     {
         CommandHeader header;
-        GLenum face;
-        GLenum mode;
+        RHI::PolygonMode mode;
     };
 
     struct SetPolygonOffsetCommand
@@ -456,10 +455,10 @@ namespace OloEngine
     struct SetScissorBoxCommand
     {
         CommandHeader header;
-        GLint x;
-        GLint y;
-        GLsizei width;
-        GLsizei height;
+        i32 x;
+        i32 y;
+        u32 width;
+        u32 height;
     };
 
     struct SetColorMaskCommand
@@ -505,7 +504,7 @@ namespace OloEngine
         CommandHeader header;
         RendererID vertexArrayID; // VAO renderer ID
         u32 indexCount;
-        GLenum indexType;
+        RHI::IndexType indexType;
     };
 
     struct DrawIndexedInstancedCommand
@@ -514,7 +513,7 @@ namespace OloEngine
         RendererID vertexArrayID; // VAO renderer ID
         u32 indexCount;
         u32 instanceCount;
-        GLenum indexType;
+        RHI::IndexType indexType;
     };
 
     struct DrawArraysCommand
@@ -522,7 +521,7 @@ namespace OloEngine
         CommandHeader header;
         RendererID vertexArrayID; // VAO renderer ID
         u32 vertexCount;
-        GLenum primitiveType;
+        RHI::PrimitiveTopology primitiveType;
     };
 
     struct DrawLinesCommand

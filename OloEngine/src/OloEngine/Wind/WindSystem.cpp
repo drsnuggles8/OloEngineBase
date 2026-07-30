@@ -7,8 +7,6 @@
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 #include <algorithm>
 #include <cmath>
 
@@ -148,7 +146,7 @@ namespace OloEngine
 
         // Bind wind field as image for writing (unit 0, mip 0, layered for 3D)
         RenderCommand::BindImageTexture(0, s_Data.m_WindField->GetRendererID(),
-                                        0, true, 0, GL_WRITE_ONLY, GL_RGBA16F);
+                                        0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA16Float);
 
         // Dispatch: local_size(8,8,8) → ceil(resolution/8) groups per axis
         u32 groups = (resolvedResolution + 7) / 8;

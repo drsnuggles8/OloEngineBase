@@ -29,16 +29,27 @@ namespace OloEngine
         RenderCommand::SetBlendState(false);
         RenderCommand::SetDepthTest(true);
         RenderCommand::SetDepthMask(true);
-        RenderCommand::SetDepthFunc(GL_LESS);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         RenderCommand::DisableStencilTest();
         RenderCommand::DisableCulling();
-        RenderCommand::SetCullFace(GL_BACK);
+        RenderCommand::SetCullFace(RHI::CullMode::Back);
         RenderCommand::SetLineWidth(1.0f);
-        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
         RenderCommand::DisableScissorTest();
         RenderCommand::SetColorMask(true, true, true, true);
         RenderCommand::SetPolygonOffset(0.0f, 0.0f);
         RenderCommand::EnableMultisampling();
+    }
+
+    void RGCommandContext::ResetOpaqueForwardDrawState() const
+    {
+        // Order matches the four call sites this replaced, so the emitted GL
+        // sequence is unchanged. See the header for why depth test is excluded.
+        RenderCommand::SetDepthMask(true);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+        RenderCommand::SetBlendState(false);
+        RenderCommand::SetCullFace(RHI::CullMode::Back);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
     }
 
     void RGCommandContext::BindDefaultFramebuffer() const
@@ -63,12 +74,12 @@ namespace OloEngine
 
     void RGCommandContext::SetAlphaBlendStandard() const
     {
-        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
     }
 
     void RGCommandContext::SetOpaqueReplaceBlend() const
     {
-        RenderCommand::SetBlendFunc(GL_ONE, GL_ZERO);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::Zero);
     }
 
     void RGCommandContext::SetCulling(const bool enabled) const

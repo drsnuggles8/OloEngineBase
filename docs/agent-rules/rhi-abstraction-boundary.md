@@ -78,6 +78,80 @@ prove has not changed. Strip the `GLenum`/`GLuint` parameters out of
 guarantee, and at that point most of the 40 zero-call includers fall out
 mechanically because they only ever wanted `GL_SRC_ALPHA` and friends.
 
+### There was a SECOND transitive source, and it was wider — check the PCH
+
+Phase 2 found this the hard way, and it is the more important half of the trap.
+`RendererAPI.h` is the *renderer's* transitive glad source. There was another one
+that bypassed the renderer entirely:
+
+> `OloEngine/Debug/Instrumentor.h` included `<tracy/TracyOpenGL.hpp>`, which
+> needs the GL loader's symbols and therefore pulls in `<glad/gl.h>`. And
+> `Instrumentor.h` is included by **`OloEnginePCH.h`** — so *every translation
+> unit in the engine* could see the entire OpenGL API, whether or not it went
+> anywhere near the renderer.
+
+With that in place, `sweep_glad_includes` could have been driven to zero while
+the property it claims to prove — "this TU cannot name a GL symbol" — stayed
+false everywhere. The counter would have looked like a completed phase.
+
+It surfaced only because removing the per-file includes made Tracy's header the
+*first* thing to need GL in those TUs, and it failed to compile. That is luck,
+not method: had `Instrumentor.h` been listed after the renderer includes in more
+files, it would have kept silently supplying the symbols.
+
+**Method, generalisable to any "this module cannot see X" boundary:**
+
+1. Enumerate every *transitive* path to the forbidden header, not just the
+   direct includes. Start from the PCH — a precompiled header is an include that
+   does not appear in any file, so grep will never show it to you.
+2. Third-party headers are a live source of these. `TracyOpenGL.hpp`,
+   `imgui_impl_opengl3.h`, and anything else named after a backend will drag it
+   in. Their include sites need the same audit as your own.
+3. Prefer deleting the dependency to relocating it. Here the three
+   `OLO_PROFILE_GPU*` macros the include existed to serve were **used nowhere in
+   the repo** — engine, editor, runtime and server — so the whole thing was dead
+   weight buying an engine-wide leak. GPU zones now belong in a
+   `Platform/OpenGL/` TU, which may legitimately see GL.
+
+The ratchet cannot catch this class of problem on its own, because a transitive
+include is invisible to a per-file `#include` scan. Only a compile failure or a
+deliberate include-graph walk finds it.
+
+### "Makes no `glXxx()` calls" is NOT sufficient reason to delete its glad include
+
+Two ways a file needs `<glad/gl.h>` while the call-count pattern reports zero,
+both hit during Phase 2's de-glad pass:
+
+- **`GLenum`/`GLint`/`GLsizei`-typed locals and `GL_*` constants** with no call of
+  their own. Obvious in hindsight; check for the *types* as well as the calls.
+- **glad's own loader symbols.** `SlugFontProcessor.cpp` contains
+  `if (glad_glCreateTextures != nullptr)` — using the loader's function-pointer
+  table as a *"do we have a GL context yet?"* probe. `glad_glCreateTextures` does
+  not match `gl[A-Z]`, because the character after `gl` is `a`. The ratchet is
+  right to not count it (it is a null test, not a call), but the file genuinely
+  cannot compile without the header.
+
+  Note this pattern also needs a neutral replacement before Step 2 can finish —
+  a context-presence probe is a legitimate need, but reaching into the GL
+  loader's symbol table is not a portable way to express it.
+
+The safe predicate for removing an include is "zero GL calls **and** zero
+`GL*`-prefixed identifiers of any kind", verified by a compile — not by the
+ratchet's call pattern, which is deliberately narrower because it is measuring
+something else.
+
+### Expect to ADD a few includes, and do not read that as a regression
+
+ADR 0011 §0 measured that 3 of the 42 GL-calling files had no direct
+`#include <glad/gl.h>` and were relying on `RendererAPI.h`'s transitive one.
+Closing that transitive path makes exactly those files fail to compile, and the
+correct fix is to give them a direct include — they really do call GL, and they
+stay on the step-2 sweep backlog. `sweep_glad_includes` therefore does not fall
+monotonically during Phase 2: it drops by the number of zero-call includers
+removed and rises by ~3. That is the counter becoming *honest*, not a
+regression, and it is worth predicting so nobody "fixes" it by re-hiding those
+files behind a transitive include.
+
 ---
 
 ## 3. `Renderer/Debug/` is 43% of the problem and is *not* exempt

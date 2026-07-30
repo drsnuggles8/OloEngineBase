@@ -197,7 +197,7 @@ namespace OloEngine
         }
 
         RenderCommand::SetDepthTest(true);
-        RenderCommand::SetDepthFunc(GL_LESS);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         RenderCommand::SetDepthMask(true);
         RenderCommand::SetBlendState(false);
         RenderCommand::DisableCulling(); // camera-facing quads — winding is irrelevant
@@ -222,7 +222,7 @@ namespace OloEngine
         RenderCommand::SetDepthTest(false);
         RenderCommand::SetDepthMask(false);
         RenderCommand::SetBlendState(true);
-        RenderCommand::SetBlendFunc(GL_ONE, GL_ONE);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One);
 
         m_ThicknessShader->Bind();
         m_SplatVAO->Bind();
@@ -246,8 +246,8 @@ namespace OloEngine
         u32 smoothDst = m_DepthTexB;
         for (u32 i = 0; i < kSmoothIterations; ++i)
         {
-            RenderCommand::BindImageTexture(0, smoothSrc, 0, false, 0, GL_READ_ONLY, GL_R32F);
-            RenderCommand::BindImageTexture(1, smoothDst, 0, false, 0, GL_WRITE_ONLY, GL_R32F);
+            RenderCommand::BindImageTexture(0, smoothSrc, 0, false, 0, RHI::Access::StorageRead, RHI::Format::R32Float);
+            RenderCommand::BindImageTexture(1, smoothDst, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R32Float);
             RenderCommand::DispatchCompute(groupsX, groupsY, 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
             std::swap(smoothSrc, smoothDst);
@@ -257,9 +257,9 @@ namespace OloEngine
         // --- Restore state + unbind everything we bound --------------------
         RenderCommand::SetDepthTest(true);
         RenderCommand::SetDepthMask(true);
-        RenderCommand::SetDepthFunc(GL_LESS);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         RenderCommand::SetBlendState(false);
-        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
         RenderCommand::BackCull();
         CommandDispatch::InvalidateRenderStateCache();
 

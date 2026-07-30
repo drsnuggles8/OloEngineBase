@@ -181,11 +181,11 @@ namespace OloEngine
         // Reset to default OpenGL state to ensure consistent rendering
         auto& rendererAPI = RenderCommand::GetRendererAPI();
         rendererAPI.SetDepthTest(true);
-        rendererAPI.SetDepthFunc(GL_LESS);
+        rendererAPI.SetDepthFunc(RHI::CompareOp::Less);
         rendererAPI.SetDepthMask(true);
         rendererAPI.SetBlendState(false);
-        rendererAPI.SetCullFace(GL_BACK);
-        rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        rendererAPI.SetCullFace(RHI::CullMode::Back);
+        rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
 
         // Capture hooks — minimal overhead when not capturing (helped by branch prediction)
         auto& captureManager = FrameCaptureManager::GetInstance();
@@ -285,7 +285,7 @@ namespace OloEngine
         bool const wireframe = Renderer3D::GetRendererSettings().WireframeOverlay;
         if (wireframe)
         {
-            rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            rendererAPI.SetPolygonMode(RHI::PolygonMode::Line);
         }
 
         // "Color" is emitted even without a depth prepass, so a missing
@@ -303,13 +303,13 @@ namespace OloEngine
         {
             CommandDispatch::SetDepthPrepassColorPassActive(false);
             rendererAPI.SetDepthMask(true);
-            rendererAPI.SetDepthFunc(GL_LESS);
+            rendererAPI.SetDepthFunc(RHI::CompareOp::Less);
         }
 
         // Restore polygon mode after color pass
         if (wireframe)
         {
-            rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
         }
 
         // Unbind Forward+ SSBOs after the color pass

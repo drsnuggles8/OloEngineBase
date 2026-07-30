@@ -2,9 +2,9 @@
 
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 
 #include <glm/glm.hpp>
-#include <glad/gl.h>
 #include <span>
 
 namespace OloEngine
@@ -69,27 +69,32 @@ namespace OloEngine
         virtual void DisableCulling() = 0;
         virtual void FrontCull() = 0;
         virtual void BackCull() = 0;
-        virtual void SetCullFace(GLenum face) = 0;
+        // CullMode::None is not a face — culling-off is DisableCulling().
+        virtual void SetCullFace(RHI::CullMode face) = 0;
         virtual void SetDepthMask(bool value) = 0;
         virtual void SetDepthTest(bool value) = 0;
-        virtual void SetDepthFunc(GLenum func) = 0;
+        virtual void SetDepthFunc(RHI::CompareOp func) = 0;
         virtual void SetBlendState(bool value) = 0;
-        virtual void SetBlendFunc(GLenum sfactor, GLenum dfactor) = 0;
-        virtual void SetBlendEquation(GLenum mode) = 0;
+        virtual void SetBlendFunc(RHI::BlendFactor sfactor, RHI::BlendFactor dfactor) = 0;
+        virtual void SetBlendEquation(RHI::BlendOp mode) = 0;
 
         virtual void EnableStencilTest() = 0;
         virtual void DisableStencilTest() = 0;
         virtual bool IsStencilTestEnabled() const = 0;
-        virtual void SetStencilFunc(GLenum func, GLint ref, GLuint mask) = 0;
-        virtual void SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass) = 0;
-        virtual void SetStencilMask(GLuint mask) = 0;
+        virtual void SetStencilFunc(RHI::CompareOp func, i32 ref, u32 mask) = 0;
+        virtual void SetStencilOp(RHI::StencilOp sfail, RHI::StencilOp dpfail, RHI::StencilOp dppass) = 0;
+        virtual void SetStencilMask(u32 mask) = 0;
         virtual void ClearStencil() = 0;
 
-        virtual void SetPolygonMode(GLenum face, GLenum mode) = 0;
+        // No face parameter, deliberately. Core-profile glPolygonMode accepts
+        // only GL_FRONT_AND_BACK (anything else is GL_INVALID_ENUM) and every
+        // call site in the engine passed it; Vulkan's polygonMode has no face
+        // either. Carrying one would re-export a wart GL itself deprecated.
+        virtual void SetPolygonMode(RHI::PolygonMode mode) = 0;
 
         virtual void EnableScissorTest() = 0;
         virtual void DisableScissorTest() = 0;
-        virtual void SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height) = 0;
+        virtual void SetScissorBox(i32 x, i32 y, u32 width, u32 height) = 0;
 
         // Indirect draw calls (GPU-driven rendering)
         virtual void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) = 0;
@@ -114,7 +119,8 @@ namespace OloEngine
         virtual void BindDefaultFramebuffer() = 0;
         virtual void BlitFramebufferToDefault(u32 srcFboID, u32 width, u32 height) = 0;
         virtual void BindTexture(u32 slot, u32 textureID) = 0;
-        virtual void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format) = 0;
+        virtual void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer,
+                                      RHI::Access access, RHI::Format format) = 0;
 
         virtual void SetPolygonOffset(f32 factor, f32 units) = 0;
         virtual void EnableMultisampling() = 0;
@@ -125,7 +131,7 @@ namespace OloEngine
         // Per-attachment blend control (needed for mixed integer/float framebuffer attachments)
         virtual void SetBlendStateForAttachment(u32 attachment, bool enabled) = 0;
         // Per-attachment blend function (needed for weighted-blended OIT — accum/revealage differ)
-        virtual void SetBlendFuncForAttachment(u32 attachment, GLenum src, GLenum dst) = 0;
+        virtual void SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst) = 0;
 
         // GPU-side image copy (used for staging textures to avoid read-write hazards)
         virtual void CopyImageSubData(u32 srcID, TextureTargetType srcTarget, u32 dstID, TextureTargetType dstTarget,
@@ -143,8 +149,8 @@ namespace OloEngine
         virtual void RestoreAllDrawBuffers(u32 colorAttachmentCount) = 0;
 
         // Texture lifecycle abstractions (avoid raw gl* calls in passes)
-        virtual u32 CreateTexture2D(u32 width, u32 height, GLenum internalFormat) = 0;
-        virtual u32 CreateTextureCubemap(u32 width, u32 height, GLenum internalFormat) = 0;
+        virtual u32 CreateTexture2D(u32 width, u32 height, RHI::Format internalFormat) = 0;
+        virtual u32 CreateTextureCubemap(u32 width, u32 height, RHI::Format internalFormat) = 0;
         // Create a GL_TEXTURE_2D_ARRAY *view* aliasing the storage of an existing
         // immutable depth array, but with hardware depth comparison DISABLED, so
         // it can be sampled as a plain sampler2DArray to read raw depth (needed by
@@ -152,9 +158,21 @@ namespace OloEngine
         // provide). Source must be DEPTH_COMPONENT32F immutable storage. Returns 0
         // if the platform lacks texture-view support.
         virtual u32 CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers) = 0;
-        virtual void SetTextureParameter(u32 textureID, GLenum pname, GLint value) = 0;
+        // Replaces SetTextureParameter(id, GLenum pname, GLint value). `pname`
+        // was an open-ended GL enum space, and mirroring it with an
+        // RHI::TextureParameterName would have re-exported GL under a new name.
+        // Every call site in the engine sets exactly min/mag filter and wrap
+        // S/T/R, so two intent-named setters cover all of them; SetTextureWrap
+        // applies one mode to all three axes because no call site ever used
+        // different modes per axis (WRAP_R is inert on a 2D target).
+        virtual void SetTextureFilter(u32 textureID, RHI::Filter minFilter, RHI::Filter magFilter) = 0;
+        virtual void SetTextureWrap(u32 textureID, RHI::AddressMode wrap) = 0;
+        // `sourceFormat` describes the layout of `data` — the CPU-side buffer —
+        // NOT the texture's storage format. GL converts on upload, and the
+        // engine relies on that: SSAO's noise texture is RG16Float storage fed
+        // from RG32Float host data.
         virtual void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
-                                             GLenum format, GLenum type, const void* data) = 0;
+                                             RHI::Format sourceFormat, const void* data) = 0;
         virtual void DeleteTexture(u32 textureID) = 0;
 
         // Occlusion / conditional rendering
@@ -162,6 +180,24 @@ namespace OloEngine
         virtual void EndConditionalRender() = 0;
 
         // GPU capability queries
+
+        // True when the backend can service resource creation and draws *right
+        // now*. This is not "has Renderer::Init run" — it asks whether the
+        // underlying device is usable in this process at all.
+        //
+        // It exists because asset code legitimately runs without one: headless
+        // harnesses (Functional tests, asset preprocessors) load fonts and
+        // meshes for their CPU-side data and never render them. Those paths must
+        // build the data and defer the GPU upload rather than crash, so they
+        // need to ask the question before calling Texture2D::Create.
+        //
+        // Replaces a `glad_glCreateTextures != nullptr` probe in
+        // SlugFontProcessor — reaching into the GL loader's symbol table is a
+        // real need expressed unportably, and it is invisible to the boundary
+        // ratchet's `gl[A-Z]` scan because the character after `gl` is `a`
+        // (issue #691 Phase 2).
+        [[nodiscard("Store this!")]] virtual bool IsDeviceAvailable() const = 0;
+
         [[nodiscard("Store this!")]] virtual u32 GetMaxUniformBlockSize() const = 0;
         // True when the driver exposes 64-bit shader integers AND 64-bit shader
         // atomics (GL_ARB_gpu_shader_int64 + GL_NV_shader_atomic_int64), which

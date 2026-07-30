@@ -6,8 +6,6 @@
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 
-#include <glad/gl.h>
-
 #include <algorithm>
 #include <cmath>
 
@@ -37,13 +35,11 @@ namespace OloEngine
         {
             if (s_Data.m_TextureID == 0)
             {
-                s_Data.m_TextureID = RenderCommand::CreateTexture2D(kShadowResolution, kShadowResolution, GL_R8);
+                s_Data.m_TextureID = RenderCommand::CreateTexture2D(kShadowResolution, kShadowResolution, RHI::Format::R8UNorm);
                 if (s_Data.m_TextureID != 0)
                 {
-                    RenderCommand::SetTextureParameter(s_Data.m_TextureID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                    RenderCommand::SetTextureParameter(s_Data.m_TextureID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                    RenderCommand::SetTextureParameter(s_Data.m_TextureID, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                    RenderCommand::SetTextureParameter(s_Data.m_TextureID, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                    RenderCommand::SetTextureFilter(s_Data.m_TextureID, RHI::Filter::Linear, RHI::Filter::Linear);
+                    RenderCommand::SetTextureWrap(s_Data.m_TextureID, RHI::AddressMode::ClampToEdge);
                 }
             }
             if (!s_Data.m_GenerateShader)
@@ -84,7 +80,7 @@ namespace OloEngine
         s_Data.m_GenerateShader->SetFloat("u_ShadowWorldSize", worldSize);
         s_Data.m_GenerateShader->SetInt("u_ShadowResolution", static_cast<int>(kShadowResolution));
 
-        RenderCommand::BindImageTexture(0, s_Data.m_TextureID, 0, false, 0, GL_WRITE_ONLY, GL_R8);
+        RenderCommand::BindImageTexture(0, s_Data.m_TextureID, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R8UNorm);
         constexpr u32 kGroups = (kShadowResolution + kLocalSize - 1) / kLocalSize;
         RenderCommand::DispatchCompute(kGroups, kGroups, 1);
 

@@ -10,8 +10,6 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -120,7 +118,7 @@ namespace OloEngine
         context.SetCulling(false);
         RenderCommand::DisableStencilTest();
         RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
         RenderCommand::SetColorMask(true, true, true, true);
 
         constexpr std::array<u32, 2> drawBuffers = { 0u, 1u };

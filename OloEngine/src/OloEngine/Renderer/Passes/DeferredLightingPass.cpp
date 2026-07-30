@@ -200,7 +200,7 @@ namespace OloEngine
         context.SetDepthTest(false);
         context.SetDepthMask(false);
         context.SetBlendState(false);
-        RenderCommand::SetCullFace(GL_BACK);
+        RenderCommand::SetCullFace(RHI::CullMode::Back);
 
         const u32 sampleCount = m_GBuffer->GetSampleCount();
         const bool useMSAAShading = m_UseMSAAShading;

@@ -10,8 +10,6 @@
 #include <algorithm>
 #include <span>
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
     SelectionOutlineRenderPass::SelectionOutlineRenderPass()
@@ -216,7 +214,7 @@ namespace OloEngine
         context.SetCulling(false);
         RenderCommand::DisableStencilTest();
         RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
         RenderCommand::SetColorMask(true, true, true, true);
         context.Clear();
 
@@ -253,7 +251,7 @@ namespace OloEngine
             context.SetCulling(false);
             RenderCommand::DisableStencilTest();
             RenderCommand::DisableScissorTest();
-            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
             RenderCommand::SetColorMask(true, true, true, true);
             context.Clear();
 
@@ -286,7 +284,7 @@ namespace OloEngine
         context.SetCulling(false);
         RenderCommand::DisableStencilTest();
         RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
         RenderCommand::SetColorMask(true, true, true, true);
 
         // Slot 0: scene color from the selected dynamic post-chain texture view.

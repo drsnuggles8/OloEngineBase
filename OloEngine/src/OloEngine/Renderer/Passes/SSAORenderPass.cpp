@@ -132,12 +132,10 @@ namespace OloEngine
             n = (len > 1e-6f) ? v / len : glm::vec2(1.0f, 0.0f);
         }
 
-        m_NoiseTexture = RenderCommand::CreateTexture2D(4, 4, GL_RG16F);
-        RenderCommand::UploadTextureSubImage2D(m_NoiseTexture, 4, 4, GL_RG, GL_FLOAT, noise.data());
-        RenderCommand::SetTextureParameter(m_NoiseTexture, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        RenderCommand::SetTextureParameter(m_NoiseTexture, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        RenderCommand::SetTextureParameter(m_NoiseTexture, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        RenderCommand::SetTextureParameter(m_NoiseTexture, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        m_NoiseTexture = RenderCommand::CreateTexture2D(4, 4, RHI::Format::RG16Float);
+        RenderCommand::UploadTextureSubImage2D(m_NoiseTexture, 4, 4, RHI::Format::RG32Float, noise.data());
+        RenderCommand::SetTextureFilter(m_NoiseTexture, RHI::Filter::Nearest, RHI::Filter::Nearest);
+        RenderCommand::SetTextureWrap(m_NoiseTexture, RHI::AddressMode::Repeat);
     }
 
     void SSAORenderPass::Execute(RGCommandContext& context)

@@ -185,10 +185,10 @@ namespace OloEngine::Ocean
             for (u32 stage = 0u; stage < stages; ++stage)
             {
                 m_ButterflyShader->SetInt("u_Stage", static_cast<int>(stage));
-                RenderCommand::BindImageTexture(0, m_PingPong[src]->GetRendererID(), 0, true, 0, GL_READ_ONLY,
-                                                GL_RGBA32F);
-                RenderCommand::BindImageTexture(1, m_PingPong[1u - src]->GetRendererID(), 0, true, 0, GL_WRITE_ONLY,
-                                                GL_RGBA32F);
+                RenderCommand::BindImageTexture(0, m_PingPong[src]->GetRendererID(), 0, true, 0, RHI::Access::StorageRead,
+                                                RHI::Format::RGBA32Float);
+                RenderCommand::BindImageTexture(1, m_PingPong[1u - src]->GetRendererID(), 0, true, 0, RHI::Access::StorageWrite,
+                                                RHI::Format::RGBA32Float);
                 RenderCommand::DispatchCompute(groups, groups, kSpectraLayers);
                 RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess);
                 src = 1u - src;
@@ -222,7 +222,7 @@ namespace OloEngine::Ocean
             m_EvolveShader->SetFloat("u_Gravity", m_Gravity);
             m_EvolveShader->SetFloat("u_Time", time);
             RenderCommand::BindTexture(0, m_H0Tex->GetRendererID());
-            RenderCommand::BindImageTexture(0, m_PingPong[0]->GetRendererID(), 0, true, 0, GL_WRITE_ONLY, GL_RGBA32F);
+            RenderCommand::BindImageTexture(0, m_PingPong[0]->GetRendererID(), 0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA32Float);
             RenderCommand::DispatchCompute(groups, groups, 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess);
         }
@@ -240,12 +240,12 @@ namespace OloEngine::Ocean
             m_AssembleShader->Bind();
             m_AssembleShader->SetInt("u_Resolution", static_cast<int>(N));
             m_AssembleShader->SetFloat("u_Choppiness", choppiness);
-            RenderCommand::BindImageTexture(0, m_PingPong[finalIndex]->GetRendererID(), 0, true, 0, GL_READ_ONLY,
-                                            GL_RGBA32F);
-            RenderCommand::BindImageTexture(1, displacementTex->GetRendererID(), 0, false, 0, GL_WRITE_ONLY,
-                                            GL_RGBA32F);
-            RenderCommand::BindImageTexture(2, derivativesTex->GetRendererID(), 0, false, 0, GL_WRITE_ONLY,
-                                            GL_RGBA32F);
+            RenderCommand::BindImageTexture(0, m_PingPong[finalIndex]->GetRendererID(), 0, true, 0, RHI::Access::StorageRead,
+                                            RHI::Format::RGBA32Float);
+            RenderCommand::BindImageTexture(1, displacementTex->GetRendererID(), 0, false, 0, RHI::Access::StorageWrite,
+                                            RHI::Format::RGBA32Float);
+            RenderCommand::BindImageTexture(2, derivativesTex->GetRendererID(), 0, false, 0, RHI::Access::StorageWrite,
+                                            RHI::Format::RGBA32Float);
             RenderCommand::DispatchCompute(groups, groups, 1);
             // The water shader samples these textures next; image stores must
             // be visible to texture fetches (and any later image loads).

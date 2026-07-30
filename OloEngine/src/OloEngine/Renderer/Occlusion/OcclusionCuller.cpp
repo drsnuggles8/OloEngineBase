@@ -74,7 +74,7 @@ namespace OloEngine
         api.SetColorMask(false, false, false, false);
         api.SetDepthMask(false);
         api.SetDepthTest(true);
-        api.SetDepthFunc(GL_LEQUAL);
+        api.SetDepthFunc(RHI::CompareOp::LessOrEqual);
         api.SetBlendState(false);
         api.DisableCulling();
         api.DisableStencilTest();
@@ -139,7 +139,7 @@ namespace OloEngine
         // Restore default state
         api.SetColorMask(true, true, true, true);
         api.SetDepthMask(true);
-        api.SetDepthFunc(GL_LESS);
+        api.SetDepthFunc(RHI::CompareOp::Less);
 
         m_PendingQueries.clear();
     }

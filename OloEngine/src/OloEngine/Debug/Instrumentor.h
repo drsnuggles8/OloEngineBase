@@ -4,8 +4,19 @@
 
 #if TRACY_ENABLE
 #include <tracy/Tracy.hpp>
-#include <glad/gl.h>
-#include <tracy/TracyOpenGL.hpp>
+// <tracy/TracyOpenGL.hpp> is deliberately NOT included here (issue #691 Phase 2).
+//
+// It needs the GL loader's symbols, so including it forces <glad/gl.h> into this
+// header — and this header is in OloEnginePCH.h, which means EVERY translation
+// unit in the engine would see the whole OpenGL API. That is the same transitive
+// leak RendererAPI.h used to be (ADR 0011 §1.7's "ordering trap"), except wider:
+// it bypasses the renderer entirely and would keep the sweep_glad_includes
+// ratchet meaningless no matter how many per-file includes were removed.
+//
+// The OLO_PROFILE_GPU* macros below are therefore no-ops in every build config.
+// Nothing in the engine, editor, runtime or server used them. To add GPU zones,
+// include <tracy/TracyOpenGL.hpp> from a translation unit under Platform/OpenGL/
+// — which may legitimately see GL — and use the TracyGpu* macros there directly.
 #endif
 
 #include <algorithm>
@@ -312,9 +323,10 @@ namespace OloEngine
 #define OLO_PROFILE_FRAMEMARK_START(name) FrameMarkStart(name)
 #define OLO_PROFILE_FRAMEMARK_END(name) FrameMarkEnd(name)
 #define OLO_PROFILE_SETVALUE(value) ZoneValue(value)
-#define OLO_PROFILE_GPU(name) TracyGpuZone(name)
-#define OLO_PROFILE_GPU_COLOR(name, color) TracyGpuZoneC(name, color)
-#define OLO_PROFILE_GPU_COLLECT() TracyGpuCollect
+// No-ops: see the <tracy/TracyOpenGL.hpp> note at the top of this header.
+#define OLO_PROFILE_GPU(name)
+#define OLO_PROFILE_GPU_COLOR(name, color)
+#define OLO_PROFILE_GPU_COLLECT()
 #else
 #define OLO_PROFILE_BEGIN_SESSION(name, filepath)
 #define OLO_PROFILE_END_SESSION()

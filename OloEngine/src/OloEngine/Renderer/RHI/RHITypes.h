@@ -193,6 +193,7 @@ namespace OloEngine::RHI
         // 32-bit
         R32Float,
         R32Int,
+        R32UInt,
         RG32Float,
         RGB32Float,
         RGBA32Float,
@@ -314,6 +315,47 @@ namespace OloEngine::RHI
         LineStrip,
         PointList,
         PatchList, ///< tessellation; patch control-point count lives in PipelineDesc
+    };
+
+    // -------------------------------------------------------------------------
+    // Sampler state — added in Phase 2 (ADR 0011 amendment, see §1.7).
+    //
+    // Phase 1 modelled sampler state as two bools on SamplerDesc
+    // (`LinearFilter` / `ClampToEdge`), which was enough to describe the
+    // *typical* texture but not enough to replace the call sites Phase 2 had to
+    // sweep: RendererAPI::SetTextureParameter(id, GLenum pname, GLint value)
+    // took an open-ended GL enum space, and SSAORenderPass's noise texture uses
+    // the combination the bools cannot express — Nearest filtering with Repeat
+    // wrapping.
+    //
+    // Mirroring GL's pname space with an RHI::TextureParameterName would have
+    // re-exported GL under a new spelling. Instead the call sites decompose into
+    // two intent-named setters (SetTextureFilter / SetTextureWrap) over these
+    // two enums, which is a complete description of every use in the engine:
+    // min/mag filter and wrap S/T/R, and every call site sets one wrap value for
+    // all axes.
+    // -------------------------------------------------------------------------
+    enum class Filter : u8
+    {
+        Nearest = 0,
+        Linear,
+    };
+
+    enum class AddressMode : u8
+    {
+        Repeat = 0,
+        MirroredRepeat,
+        ClampToEdge,
+        ClampToBorder,
+    };
+
+    // Index buffer element width. Added in Phase 2 so the POD draw commands in
+    // Commands/RenderCommand.h can describe their index buffer without a
+    // GLenum field; the direct Vulkan counterpart is VkIndexType.
+    enum class IndexType : u8
+    {
+        UInt16 = 0,
+        UInt32,
     };
 
     // -------------------------------------------------------------------------

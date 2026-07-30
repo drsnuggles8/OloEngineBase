@@ -33,24 +33,24 @@ namespace OloEngine
 
         void EnableCulling() override;
         void DisableCulling() override;
-        void SetCullFace(GLenum face) override;
+        void SetCullFace(RHI::CullMode face) override;
         void FrontCull() override;
         void BackCull() override;
         void SetDepthMask(bool value) override;
         void SetDepthTest(bool value) override;
         void SetBlendState(bool value) override;
-        void SetBlendFunc(GLenum sfactor, GLenum dfactor) override;
-        void SetBlendEquation(GLenum mode) override;
-        void SetDepthFunc(GLenum func) override;
+        void SetBlendFunc(RHI::BlendFactor sfactor, RHI::BlendFactor dfactor) override;
+        void SetBlendEquation(RHI::BlendOp mode) override;
+        void SetDepthFunc(RHI::CompareOp func) override;
         void EnableStencilTest() override;
         void DisableStencilTest() override;
         bool IsStencilTestEnabled() const override;
-        void SetStencilFunc(GLenum func, GLint ref, GLuint mask) override;
-        void SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass) override;
-        void SetStencilMask(GLuint mask) override;
+        void SetStencilFunc(RHI::CompareOp func, i32 ref, u32 mask) override;
+        void SetStencilOp(RHI::StencilOp sfail, RHI::StencilOp dpfail, RHI::StencilOp dppass) override;
+        void SetStencilMask(u32 mask) override;
         void ClearStencil() override;
 
-        void SetPolygonMode(GLenum face, GLenum mode) override;
+        void SetPolygonMode(RHI::PolygonMode mode) override;
         void SetPolygonOffset(f32 factor, f32 units) override;
         void EnableMultisampling() override;
         void DisableMultisampling() override;
@@ -59,7 +59,7 @@ namespace OloEngine
 
         void EnableScissorTest() override;
         void DisableScissorTest() override;
-        void SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height) override;
+        void SetScissorBox(i32 x, i32 y, u32 width, u32 height) override;
 
         void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) override;
         void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) override;
@@ -74,10 +74,11 @@ namespace OloEngine
         void BindDefaultFramebuffer() override;
         void BlitFramebufferToDefault(u32 srcFboID, u32 width, u32 height) override;
         void BindTexture(u32 slot, u32 textureID) override;
-        void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format) override;
+        void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer,
+                              RHI::Access access, RHI::Format format) override;
 
         void SetBlendStateForAttachment(u32 attachment, bool enabled) override;
-        void SetBlendFuncForAttachment(u32 attachment, GLenum src, GLenum dst) override;
+        void SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst) override;
         void CopyImageSubData(u32 srcID, TextureTargetType srcTarget, u32 dstID, TextureTargetType dstTarget,
                               u32 width, u32 height) override;
         void CopyImageSubDataFull(u32 srcID, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
@@ -86,17 +87,19 @@ namespace OloEngine
         void CopyFramebufferToTexture(u32 textureID, u32 width, u32 height) override;
         void SetDrawBuffers(std::span<const u32> attachments) override;
         void RestoreAllDrawBuffers(u32 colorAttachmentCount) override;
-        u32 CreateTexture2D(u32 width, u32 height, GLenum internalFormat) override;
-        u32 CreateTextureCubemap(u32 width, u32 height, GLenum internalFormat) override;
+        u32 CreateTexture2D(u32 width, u32 height, RHI::Format internalFormat) override;
+        u32 CreateTextureCubemap(u32 width, u32 height, RHI::Format internalFormat) override;
         u32 CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers) override;
-        void SetTextureParameter(u32 textureID, GLenum pname, GLint value) override;
+        void SetTextureFilter(u32 textureID, RHI::Filter minFilter, RHI::Filter magFilter) override;
+        void SetTextureWrap(u32 textureID, RHI::AddressMode wrap) override;
         void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
-                                     GLenum format, GLenum type, const void* data) override;
+                                     RHI::Format sourceFormat, const void* data) override;
         void DeleteTexture(u32 textureID) override;
 
         void BeginConditionalRender(u32 queryID) override;
         void EndConditionalRender() override;
 
+        [[nodiscard("Store this!")]] bool IsDeviceAvailable() const override;
         [[nodiscard("Store this!")]] u32 GetMaxUniformBlockSize() const override;
         [[nodiscard("Store this!")]] bool SupportsInt64ShaderAtomics() const override
         {

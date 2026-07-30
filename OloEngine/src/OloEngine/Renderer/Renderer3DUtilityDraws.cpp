@@ -212,7 +212,7 @@ namespace OloEngine
         {
             PODRenderState skyboxState = CreateDefaultPODRenderState();
             skyboxState.depthTestEnabled = true;
-            skyboxState.depthFunction = GL_LEQUAL;
+            skyboxState.depthFunction = RHI::CompareOp::LessOrEqual;
             skyboxState.depthWriteMask = false;
             skyboxState.cullingEnabled = false;
             cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(skyboxState);
@@ -588,8 +588,8 @@ namespace OloEngine
             else
             {
                 gridState.blendEnabled = true;
-                gridState.blendSrcFactor = GL_SRC_ALPHA;
-                gridState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+                gridState.blendSrcFactor = RHI::BlendFactor::SrcAlpha;
+                gridState.blendDstFactor = RHI::BlendFactor::OneMinusSrcAlpha;
                 gridState.depthTestEnabled = true;
                 gridState.depthWriteMask = false;
             }

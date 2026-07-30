@@ -208,13 +208,13 @@ namespace OloEngine
             oitFB->Bind();
 
             RenderCommand::SetDepthTest(true);
-            RenderCommand::SetDepthFunc(GL_LEQUAL);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::LessOrEqual);
             RenderCommand::SetDepthMask(false);
 
             RenderCommand::SetBlendStateForAttachment(0, true);
             RenderCommand::SetBlendStateForAttachment(1, true);
-            RenderCommand::SetBlendFuncForAttachment(0, GL_ONE, GL_ONE);
-            RenderCommand::SetBlendFuncForAttachment(1, GL_ZERO, GL_ONE_MINUS_SRC_COLOR);
+            RenderCommand::SetBlendFuncForAttachment(0, RHI::BlendFactor::One, RHI::BlendFactor::One);
+            RenderCommand::SetBlendFuncForAttachment(1, RHI::BlendFactor::Zero, RHI::BlendFactor::OneMinusSrcColor);
 
             // Install Decal_OIT program override directly on each queued
             // DrawDecalCommand packet. Keeping the override on the command
@@ -246,11 +246,11 @@ namespace OloEngine
 
             RenderCommand::SetBlendStateForAttachment(0, false);
             RenderCommand::SetBlendStateForAttachment(1, false);
-            RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
             context.SetBlendState(false);
 
             context.SetDepthMask(true);
-            RenderCommand::SetDepthFunc(GL_LESS);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
             RenderCommand::BackCull();
             CommandDispatch::InvalidateRenderStateCache();
 
@@ -281,7 +281,7 @@ namespace OloEngine
         // Restore render state after decals
         context.SetDepthMask(true);
         context.SetBlendState(false);
-        RenderCommand::SetDepthFunc(GL_LESS);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         RenderCommand::BackCull();
 
         m_SceneFramebuffer->Unbind();
@@ -454,7 +454,7 @@ namespace OloEngine
 
         RenderCommand::SetDepthMask(true);
         RenderCommand::SetBlendState(false);
-        RenderCommand::SetDepthFunc(GL_LESS);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         RenderCommand::BackCull();
 
         // Restore full colour masks + draw buffers for subsequent passes.

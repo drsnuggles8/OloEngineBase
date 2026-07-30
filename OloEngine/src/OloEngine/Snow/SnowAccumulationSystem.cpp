@@ -8,8 +8,6 @@
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 #include <algorithm>
 #include <cmath>
 
@@ -183,7 +181,7 @@ namespace OloEngine
         {
             s_Data.m_ClearShader->Bind();
             RenderCommand::BindImageTexture(0, s_Data.m_SnowDepthTexture->GetRendererID(),
-                                            0, false, 0, GL_WRITE_ONLY, GL_R32F);
+                                            0, false, 0, RHI::Access::StorageWrite, RHI::Format::R32Float);
             u32 groups = (kSnowDepthResolution + 15) / 16;
             RenderCommand::DispatchCompute(groups, groups, 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
@@ -207,7 +205,7 @@ namespace OloEngine
         s_Data.m_AccumulateShader->SetFloat("u_ClipmapExtent", ce.z);
 
         RenderCommand::BindImageTexture(0, s_Data.m_SnowDepthTexture->GetRendererID(),
-                                        0, false, 0, GL_READ_WRITE, GL_R32F);
+                                        0, false, 0, RHI::Access::StorageReadWrite, RHI::Format::R32Float);
 
         u32 accumGroups = (s_Data.m_TextureResolution + 15) / 16;
         RenderCommand::DispatchCompute(accumGroups, accumGroups, 1);
@@ -251,7 +249,7 @@ namespace OloEngine
         s_Data.m_DeformShader->SetFloat("u_ClipmapExtent", ce.z);
 
         RenderCommand::BindImageTexture(0, s_Data.m_SnowDepthTexture->GetRendererID(),
-                                        0, false, 0, GL_READ_WRITE, GL_R32F);
+                                        0, false, 0, RHI::Access::StorageReadWrite, RHI::Format::R32Float);
 
         u32 deformGroups = (s_Data.m_TextureResolution + 15) / 16;
         RenderCommand::DispatchCompute(deformGroups, deformGroups, 1);
@@ -267,7 +265,7 @@ namespace OloEngine
             return;
         }
         RenderCommand::BindImageTexture(imageUnit, s_Data.m_SnowDepthTexture->GetRendererID(),
-                                        0, false, 0, GL_READ_WRITE, GL_R32F);
+                                        0, false, 0, RHI::Access::StorageReadWrite, RHI::Format::R32Float);
     }
 
     void SnowAccumulationSystem::BindSnowDepthImageUint(u32 imageUnit)
@@ -281,7 +279,7 @@ namespace OloEngine
         // Bind as R32UI so the feed shader can use imageAtomicCompSwap for race-free float accumulation.
         // The float bits are reinterpreted as uint; the shader uses floatBitsToUint/uintBitsToFloat.
         RenderCommand::BindImageTexture(imageUnit, s_Data.m_SnowDepthTexture->GetRendererID(),
-                                        0, false, 0, GL_READ_WRITE, GL_R32UI);
+                                        0, false, 0, RHI::Access::StorageReadWrite, RHI::Format::R32UInt);
     }
 
     glm::vec4 SnowAccumulationSystem::GetClipmapParams()
