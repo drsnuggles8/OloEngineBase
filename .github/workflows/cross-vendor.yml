@@ -8,8 +8,16 @@ name: Cross-Vendor Conformance
 # for deterministic CI regression detection we prefer llvmpipe, which gives
 # identical output regardless of the underlying host.
 #
-# Hardware-GPU cross-vendor coverage (NVIDIA / AMD / Intel) is tracked
-# separately on a self-hosted runner matrix — see issue tracker.
+# Hardware-GPU cross-vendor coverage:
+#   AMD    — gpu-conformance-amd.yml, nightly on a self-hosted Navi 10 runner
+#            (docs/ops/self-hosted-gpu-runner.md). Real radeonsi, headless EGL.
+#   NVIDIA — no CI coverage. The goldens in assets/tests/golden/ are baselined
+#            on NVIDIA hardware, but only ever on a developer machine, so an
+#            NVIDIA-specific regression is caught by a human noticing it.
+#   Intel  — no coverage of any kind.
+# llvmpipe (this job) is a third *software* implementation, not a second
+# vendor, so it cannot substitute for any of the above — it catches
+# spec-compliance drift, not driver divergence.
 #
 # Manual-dispatch + scheduled nightly: the llvmpipe job takes ~25 minutes
 # compared to ~6 minutes on hardware, so it is not wired into the per-PR

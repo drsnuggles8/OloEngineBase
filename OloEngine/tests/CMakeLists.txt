@@ -851,6 +851,31 @@ target_link_libraries(OloEngine-Tests
 	gtest
 	cpp_httplib)
 
+# Headless GPU support (docs/ops/self-hosted-gpu-runner.md).
+#
+# The fixture normally gets its GL 4.6 context from GLFW, which on Linux needs
+# an X11 or Wayland display. A headless CI box has neither, so every test gated
+# on RenderPropertyFixture::IsGpuAvailable() skips even when a perfectly good
+# GPU is sitting there. Linking libEGL lets the fixture fall back to EGL's
+# surfaceless platform and talk to the DRM render node directly.
+#
+# Strictly optional: where libEGL is absent we keep the GLFW-only path and
+# those tests skip exactly as they did before, so this cannot break a build.
+if(UNIX AND NOT APPLE)
+	find_library(OLO_EGL_LIBRARY NAMES EGL)
+	find_path(OLO_EGL_INCLUDE_DIR NAMES EGL/egl.h)
+	if(OLO_EGL_LIBRARY AND OLO_EGL_INCLUDE_DIR)
+		# Plain signature to match the target_link_libraries call above — CMake
+		# rejects mixing the plain and keyword forms on a single target.
+		target_link_libraries(OloEngine-Tests ${OLO_EGL_LIBRARY})
+		target_include_directories(OloEngine-Tests PRIVATE ${OLO_EGL_INCLUDE_DIR})
+		target_compile_definitions(OloEngine-Tests PRIVATE OLO_TESTS_HAVE_EGL=1)
+		message(STATUS "OloEngine-Tests: headless EGL context path enabled (${OLO_EGL_LIBRARY})")
+	else()
+		message(STATUS "OloEngine-Tests: libEGL not found - headless GPU tests will skip")
+	endif()
+endif()
+
 # Copy FFmpeg DLLs next to the test exe so OLO_VIDEO_FFMPEG decode tests can run.
 olo_copy_ffmpeg_runtime(OloEngine-Tests)
 
