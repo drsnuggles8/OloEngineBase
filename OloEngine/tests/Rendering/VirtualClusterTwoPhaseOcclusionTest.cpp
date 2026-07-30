@@ -36,6 +36,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm>
 #include <functional>
 #include <set>
 #include <vector>
@@ -358,24 +359,55 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
-    // The reject list can never overflow: phase 1 dispatches exactly one thread
-    // per cluster of each instance, so at most `frame cluster count` rejects can
-    // be appended — which is precisely the capacity the registry allocates.
-    // (The shader still bounds-checks and DRAWS the cluster instead of dropping
-    // it if the append ever failed, since a lost reject is a hole.)
+    // The reject list can never overflow. Phase 1 dispatches exactly one thread
+    // per cluster of each instance, so the worst case is "every cluster rejected"
+    // = the frame's cluster count, which is also the bound VirtualGeometryPass
+    // hands the shader as `u_RejectCapacity`.
+    //
+    // The load-bearing part is that the ALLOCATION actually holds that many
+    // records. The buffer is a 16-byte header followed by the record array, so
+    // the sizing expression has to add the header — drop it and the capacity is
+    // one record short of the bound the shader trusts, which is a silent
+    // out-of-bounds write on the fullest possible frame. So this re-derives the
+    // record capacity from the production byte expression rather than from the
+    // cluster count, which would just restate the premise.
+    //
+    // (The shader also bounds-checks the append and DRAWS the cluster instead of
+    // dropping it if it ever failed, since a lost reject is a hole.)
     // -------------------------------------------------------------------------
-    TEST(VirtualClusterTwoPhaseOcclusion, RejectListCapacityCoversTheWorstCase)
+    TEST(VirtualClusterTwoPhaseOcclusion, RejectListAllocationHoldsTheWorstCaseRejectCount)
     {
-        const std::vector<u32> clusterCounts{ 4u, 7u, 5u };
-        u32 frameClusterCount = 0;
-        for (u32 count : clusterCounts)
-            frameClusterCount += count;
+        // VirtualMeshRegistry::EnsureFrameBuffers, verbatim:
+        //   rejectBytes = 16 + totalFrameClusterCount * sizeof(VirtualVisibleCluster)
+        //   allocated   = max(rejectBytes, 1024)
+        const auto allocatedBytes = [](u32 frameClusterCount) -> u32
+        {
+            const u32 rejectBytes = 16u + frameClusterCount * static_cast<u32>(sizeof(VirtualVisibleCluster));
+            return std::max(rejectBytes, 1024u);
+        };
+        // Records that fit AFTER the header — what the shader may index.
+        const auto recordCapacity = [&allocatedBytes](u32 frameClusterCount) -> u32
+        {
+            return (allocatedBytes(frameClusterCount) - 16u) / static_cast<u32>(sizeof(VirtualVisibleCluster));
+        };
 
-        u32 worstCaseRejects = 0;
-        for (u32 count : clusterCounts)
-            worstCaseRejects += count; // every cluster occluded in phase 1
+        // 0 and the small counts exercise the 1024-byte floor; the larger ones the
+        // exact-fit path where a missing header byte-count would bite.
+        for (const u32 frameClusterCount : { 0u, 1u, 16u, 63u, 64u, 65u, 4860u, 100000u })
+        {
+            // One phase-1 thread per cluster => this is the most rejects possible.
+            const u32 worstCaseRejects = frameClusterCount;
+            // VirtualGeometryPass passes exactly this as u_RejectCapacity.
+            const u32 shaderCapacityBound = frameClusterCount;
 
-        EXPECT_LE(worstCaseRejects, frameClusterCount)
-            << "the reject list is sized to the frame's cluster count; phase 1 must not be able to exceed it";
+            EXPECT_GE(recordCapacity(frameClusterCount), shaderCapacityBound)
+                << "the reject buffer allocated for " << frameClusterCount
+                << " clusters holds only " << recordCapacity(frameClusterCount)
+                << " records after its 16-byte header, but the shader is told it may write "
+                << shaderCapacityBound << " — the sizing expression is missing the header";
+            EXPECT_LE(worstCaseRejects, recordCapacity(frameClusterCount))
+                << "phase 1 can append " << worstCaseRejects << " rejects at " << frameClusterCount
+                << " clusters, past the allocation's " << recordCapacity(frameClusterCount) << " records";
+        }
     }
 } // namespace OloEngine::Tests

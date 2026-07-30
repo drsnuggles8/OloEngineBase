@@ -793,9 +793,17 @@ namespace OloEngine::Tests
             << " clusters drawn vs a " << off.DrawnClusters()
             << "-cluster baseline. Five of six statues are completely hidden BY OTHER VIRTUAL GEOMETRY, "
                "which is exactly the case the single-phase cull could not see.";
-        EXPECT_LT(on.SoftwareRasterized, static_cast<u32>(static_cast<f64>(off.SoftwareRasterized) * 0.6))
-            << "the software-raster invocation count did not drop (" << on.SoftwareRasterized << " vs "
-            << off.SoftwareRasterized << ") — hidden clusters are still being routed to the SW rasterizer";
+        // Only meaningful when the baseline actually routed clusters to the SW
+        // rasterizer. Whether it does depends on the projected-radius threshold
+        // against this scene's cluster sizes, so a zero baseline is a legitimate
+        // configuration — and `0 < 0` would fail spuriously. The drawn-cluster
+        // assertion above already covers the total either way.
+        if (off.SoftwareRasterized > 0)
+        {
+            EXPECT_LT(on.SoftwareRasterized, static_cast<u32>(static_cast<f64>(off.SoftwareRasterized) * 0.6))
+                << "the software-raster invocation count did not drop (" << on.SoftwareRasterized << " vs "
+                << off.SoftwareRasterized << ") — hidden clusters are still being routed to the SW rasterizer";
+        }
 
         // AC2: no visual difference. The front statue's silhouette is unchanged;
         // a false cull would eat red pixels out of it.

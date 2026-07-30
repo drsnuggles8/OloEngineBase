@@ -1,7 +1,7 @@
 # Two-phase occlusion culling: which pyramid, which region, and how to prove it
 
 Distilled from issue **#682** (virtualized geometry), which mirrors the scheme
-#431 / #486 already run for instanced batches. Read this before touching
+already run for instanced batches in #431 / #486. Read this before touching
 `VirtualClusterCull.comp`, `InstanceOcclusionCull.comp`, or any pass that builds
 an occlusion HZB.
 
