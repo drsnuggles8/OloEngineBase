@@ -150,6 +150,11 @@ add_executable(OloEngine-Tests
 		Rendering/CommandBucketTest.cpp
 		#Rendering/CommandDispatchTest.cpp  # Requires full engine (calls CommandDispatch::Initialize which pulls in OpenGL statics)
 		Rendering/RenderGraphTest.cpp
+		# Phase 2 ratchet for the Vulkan-RHI epic (#691, ADR 0011): counts raw
+		# glXxx() outside Platform/OpenGL/ and fails when it rises above
+		# Rendering/rhi_boundary_baseline.json. Also the only TU that compiles the
+		# declaration-only Renderer/RHI/ headers.
+		Rendering/RHIBoundaryRatchetTest.cpp
 		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`
 		# argument (#607 native-resolution capture): the top-left-origin rect must
 		# land on exactly those texels through GL's bottom-up rows. Needs a GL
