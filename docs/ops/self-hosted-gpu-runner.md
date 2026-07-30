@@ -106,9 +106,17 @@ If you add a third GPU gate with new wording, add its phrase there too.
 Most of the toolchain is already present. Mirroring `asan.yml`'s Linux
 dependency set, on Rocky 10:
 
+**Everything the build needs must be installed system-wide** (`/usr`, `/opt`) —
+never in a person's home directory. `/home/obueker` is mode `0700`, so anything
+under it is invisible to `gh-runner-olo`. This bit three separate times during
+bring-up: the Vulkan SDK, the runner tarball, and finally `cmake`/`ninja`, which
+were pip installs in `/home/obueker/.local/bin` and produced a bare `cmake:
+command not found`. The workflow now preflights the toolchain so the error names
+the cause.
+
 ```bash
 sudo dnf install -y \
-  ccache \
+  cmake ninja-build ccache gcc gcc-c++ \
   vulkan-loader-devel vulkan-headers \
   mesa-libGL-devel mesa-libEGL-devel libglvnd-devel \
   libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libXext-devel \

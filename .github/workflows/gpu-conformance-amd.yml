@@ -217,6 +217,32 @@ jobs:
           fi
           echo "Hardware GL 4.6 context confirmed."
 
+      # A self-hosted runner has whatever the box happens to have, and the runner
+      # user's PATH is NOT the admin's. cmake and ninja were originally pip
+      # installs under /home/obueker/.local/bin — on this host /home/obueker is
+      # mode 0700, so gh-runner-olo could not see them and the first run died
+      # with a bare `cmake: command not found` after a 39 s checkout. Everything
+      # the build needs must be system-wide (/usr, /opt), never in a person's
+      # home. Check that up front so the error names the cause.
+      - name: Preflight — build toolchain
+        run: |
+          set -euo pipefail
+          missing=0
+          for tool in cmake ninja ccache gcc g++ python3; do
+            if command -v "$tool" >/dev/null 2>&1; then
+              printf '  %-8s %s\n' "$tool" "$(command -v "$tool")"
+            else
+              echo "::error::$tool not found on the runner's PATH"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Provision the runner: sudo dnf install -y cmake ninja-build ccache gcc gcc-c++ python3"
+            echo "::error::See docs/ops/self-hosted-gpu-runner.md. Tools must be system-wide, not under a 0700 home."
+            exit 1
+          fi
+          cmake --version | head -1
+
       # The engine hard-fails configure without the Vulkan SDK: it needs not just
       # libvulkan but shaderc / glslang / SPIRV-Tools / SPIRV-Cross, and
       # OloEngine/CMakeLists.txt raises FATAL_ERROR on the first one missing.
