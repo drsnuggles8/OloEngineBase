@@ -131,9 +131,12 @@ those, so configure fails with:
 Required shader library not found: SHADERC_LIB.
 ```
 
-Install the LunarG SDK (unpacked under the runner user's home is fine — it needs
-no root) and point CMake at it with a single prefix, which resolves Vulkan *and*
-all the shader libraries at once:
+Install the LunarG SDK **somewhere the runner user can actually reach** — on this
+host that means `/opt/vulkan-sdk/<version>/`, root-owned and world-readable. It
+must *not* live in a person's home directory: `/home/obueker` is mode `0700`, so
+the runner user cannot traverse into it even though the SDK's own subdirectories
+are world-readable. Point CMake at it with a single prefix, which resolves Vulkan
+*and* all the shader libraries at once:
 
 ```
 -DCMAKE_PREFIX_PATH="$VULKAN_SDK"
@@ -143,7 +146,7 @@ Export `VULKAN_SDK` for the runner service — add it to `actions-runner/.env`, 
 every job inherits it:
 
 ```
-VULKAN_SDK=/path/to/vulkan-sdk/<version>/x86_64
+VULKAN_SDK=/opt/vulkan-sdk/1.4.350.1/x86_64
 ```
 
 The workflow preflights this and fails with a "provision the runner" message
@@ -210,9 +213,9 @@ directory, or any credential with `gh-runner-1/2/3`.
 group is belt-and-braces rather than strictly required — but set it anyway, in
 case the permissive mode is a distribution default that changes.
 
-### 3. Register the runner (ephemeral)
+### 3. Register the runner
 
-A tarball is already staged at `~/actions-runner-linux-x64-2.336.0.tar.gz`.
+A tarball is staged at `/home/obueker/actions-runner-linux-x64-2.336.0.tar.gz`.
 
 ```bash
 sudo -iu gh-runner-olo
@@ -225,22 +228,51 @@ tar xzf /home/obueker/actions-runner-linux-x64-2.336.0.tar.gz
   --name olo-gpu-amd \
   --labels self-hosted,linux,x64,gpu-amd \
   --work _work \
-  --ephemeral \
-  --unattended
+  --unattended --replace
 ```
 
-`--ephemeral` retires the runner after a single job, so no state carries between
-jobs. Pair it with a systemd unit that re-registers on exit, or accept a manual
-re-register per nightly — see the runner docs for the auto-reconfigure pattern.
+Mint the token with `gh api -X POST
+repos/drsnuggles8/OloEngineBase/actions/runners/registration-token --jq .token`
+(or **Settings → Actions → Runners → New self-hosted runner**). It expires after
+an hour.
 
-Get the registration token from **Settings → Actions → Runners → New self-hosted
-runner** (it expires after an hour).
+**Not `--ephemeral`, deliberately.** An ephemeral runner deregisters after one
+job and must be re-registered with a fresh token, which in practice means
+storing a long-lived PAT on the box — trading one risk for another. The value of
+ephemerality is low here because the workflow has no `pull_request` trigger, so
+only repo-owned code ever runs, and it wipes the workspace as its first step.
+Revisit this if the runner is ever pointed at a workflow that untrusted code can
+reach.
 
 ### 4. Service
 
+The host's existing runners start via **user-level systemd with lingering**
+(`/var/lib/systemd/linger/`), so match that rather than installing a system unit
+with `svc.sh`:
+
 ```bash
-sudo ./svc.sh install gh-runner-olo
-sudo ./svc.sh start
+sudo loginctl enable-linger gh-runner-olo
+# ~/.config/systemd/user/actions-runner-olo.service -> ExecStart=<dir>/run.sh
+sudo -u gh-runner-olo XDG_RUNTIME_DIR=/run/user/$(id -u gh-runner-olo) \
+    systemctl --user enable --now actions-runner-olo.service
+```
+
+### 5. One-shot setup script
+
+All of the above — user, SDK relocation, unpack, register, `.env`, caches,
+linger, unit — is scripted and idempotent. Run it as root with a freshly minted
+token:
+
+```bash
+sudo bash scripts/setup-olo-runner.sh \
+  "$(gh api -X POST repos/drsnuggles8/OloEngineBase/actions/runners/registration-token --jq .token)"
+```
+
+Verify afterwards:
+
+```bash
+gh api repos/drsnuggles8/OloEngineBase/actions/runners \
+  --jq '.runners[]|{name,status,busy,labels:[.labels[].name]}'
 ```
 
 ## GitHub-side settings
