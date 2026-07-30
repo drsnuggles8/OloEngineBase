@@ -217,12 +217,19 @@ case the permissive mode is a distribution default that changes.
 
 A tarball is staged at `/home/obueker/actions-runner-linux-x64-2.336.0.tar.gz`.
 
-```bash
-sudo -iu gh-runner-olo
-mkdir -p ~/actions-runner && cd ~/actions-runner
-tar xzf /home/obueker/actions-runner-linux-x64-2.336.0.tar.gz
+**Extract it as root, not as the runner user.** `/home/obueker` is mode `0700`,
+so `gh-runner-olo` cannot traverse into it and `tar` fails with `Cannot open:
+Permission denied` before reading a byte — the same reason the Vulkan SDK has to
+be relocated to `/opt` above. Extract, hand ownership over, then register as the
+runner user:
 
-./config.sh \
+```bash
+RUNNER_DIR=/home/gh-runner-olo/actions-runner
+sudo install -o gh-runner-olo -g gh-runner-olo -m 700 -d "$RUNNER_DIR"
+sudo tar xzf /home/obueker/actions-runner-linux-x64-2.336.0.tar.gz -C "$RUNNER_DIR"
+sudo chown -R gh-runner-olo:gh-runner-olo "$RUNNER_DIR"
+
+sudo -u gh-runner-olo -- "$RUNNER_DIR/config.sh" \
   --url https://github.com/drsnuggles8/OloEngineBase \
   --token <REGISTRATION_TOKEN> \
   --name olo-gpu-amd \
@@ -230,6 +237,10 @@ tar xzf /home/obueker/actions-runner-linux-x64-2.336.0.tar.gz
   --work _work \
   --unattended --replace
 ```
+
+`config.sh` prints a few `ldd: ./bin/lib*.so: No such file or directory` lines
+from its dependency probe (it uses relative paths from the wrong directory).
+They are cosmetic — registration and `Runner.Listener` both work regardless.
 
 Mint the token with `gh api -X POST
 repos/drsnuggles8/OloEngineBase/actions/runners/registration-token --jq .token`

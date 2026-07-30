@@ -46,6 +46,21 @@ name: GPU Conformance (AMD, self-hosted)
 
 on:
   workflow_dispatch:
+    # Baselining an AMD golden set is a documented manual step (see the ops
+    # doc's "Bootstrapping the AMD golden baseline"), but there was no way to
+    # perform it: the rebase env vars could only be set by editing this file or
+    # by running the suite by hand on the box. Expose them as explicit opt-in
+    # inputs instead. They default to false and are only settable on a manual
+    # dispatch, so a *scheduled* run can never rewrite a baseline.
+    inputs:
+      golden_rebase:
+        description: 'Rewrite the AMD golden images from this run (inspect the diffs first)'
+        type: boolean
+        default: false
+      perf_rebase:
+        description: 'Rewrite the perf baselines for this machine'
+        type: boolean
+        default: false
   schedule:
     # 00:47 UTC — roughly 02:00 German local (02:47 CEST / 01:47 CET; GitHub cron
     # is UTC-only and does not follow DST, so it drifts an hour across the year).
@@ -89,6 +104,15 @@ jobs:
       # vendor set. Both dirs live in the runner user's home, not the workspace.
       CPM_SOURCE_CACHE: /home/gh-runner-olo/.cache/cpm
       CCACHE_DIR: /home/gh-runner-olo/.cache/ccache
+      # Rebase opt-ins from the manual-dispatch inputs above. On a scheduled run
+      # `inputs.*` is null, so both resolve to '0'. Emit '0' rather than '' or
+      # 'false': all three readers (GoldenImageTests::ShouldRebase,
+      # AtmosphereVisualEvidenceTest::GoldenRebaseRequested,
+      # PerfRegressionTests::PerfShouldRebase) agree that '0' means off, whereas
+      # they disagree about the string 'false' — one of them tests only the
+      # first character, so 'false' would *enable* a rebase there.
+      OLOENGINE_GOLDEN_REBASE: ${{ inputs.golden_rebase && '1' || '0' }}
+      OLOENGINE_PERF_REBASE: ${{ inputs.perf_rebase && '1' || '0' }}
 
     steps:
       # A self-hosted runner's workspace PERSISTS between jobs. Even with an
@@ -102,8 +126,21 @@ jobs:
           # Never let an empty/unexpected expansion turn this into `rm -rf /*`.
           # A self-hosted runner has a real filesystem behind it, unlike a
           # throwaway hosted VM — this guard is not paranoia.
+          #
+          # Normalise trailing slashes first, then test longest-match-first.
+          # An earlier version matched '/home/'*/ which requires a TRAILING
+          # slash — github.workspace never has one, so it rejected the form
+          # that cannot occur and allowed the bare '/home/gh-runner-olo' that
+          # would have wiped the runner user's entire home, runner install and
+          # caches included.
+          while [ "${ws%/}" != "$ws" ]; do ws="${ws%/}"; done
           case "$ws" in
-            ''|'/'|'/home'|'/home/'*/) echo "::error::refusing to wipe '$ws'"; exit 1 ;;
+            ''|'/'|'/home')
+              echo "::error::refusing to wipe '$ws'"; exit 1 ;;
+            /home/*/*)
+              : ;;  # below a home directory — the expected shape
+            /home/*)
+              echo "::error::refusing to wipe bare home directory '$ws'"; exit 1 ;;
           esac
           [ -d "$ws/_actions" ] && { echo "::error::'$ws' looks like the runner root"; exit 1; }
           echo "Wiping $ws"
