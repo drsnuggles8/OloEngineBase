@@ -1039,6 +1039,8 @@
 		"OloEngine/Scene/SceneSerializer.h"
 		"OloEngine/Scene/SceneBinaryFormat.h"
 		"OloEngine/Scene/SceneBinarySerializer.cpp"
+		"OloEngine/Scene/SceneTransition.cpp"
+		"OloEngine/Scene/SceneTransition.h"
 		"OloEngine/Scene/SpatialAcceleration.cpp"
 		"OloEngine/Scene/SpatialAcceleration.h"
 		"OloEngine/Scene/SystemScheduler.cpp"

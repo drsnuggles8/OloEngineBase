@@ -175,3 +175,28 @@ the same throw/catch plumbing. Do NOT "fix" this by changing the
 malformed input or widening the catch — both were tried and both still
 crash; input-shuffling is version roulette. Track state and the list of
 known-vulnerable tests in issue #661.
+
+**Expect this to bite whenever you add the FIRST test that throws through a
+given entry point**, not only when you touch known-vulnerable code. The
+guarded set so far:
+
+| Test | Throwing entry point |
+| --- | --- |
+| `ExperienceCurveTest.SerializerRejectsMalformedYAML` | `ExperienceCurveSerializer::TestDeserializeFromYAML` |
+| `CharacterClassDatabaseTest` (malformed-YAML branch) | `CharacterClassDatabaseSerializer` |
+| `SceneTransitionTest.AMissingOrMalformedTargetFailsWithoutASceneAndWithAReason` | `SceneSerializer::Deserialize` → `YAML::LoadFile` (issue #642) |
+
+The #642 case is instructive about how the bug hides: the suite already had
+`SceneSerializerFuzzRegressionTest` firing a dozen malformed payloads at
+`SceneSerializer::DeserializeFromYAML` under ASan without trouble — because
+every one of those inputs **parses** cleanly and fails later in the schema
+walk, so yaml-cpp never throws. The first genuinely *unparseable* bytes handed
+to the sibling file-path overload crashed immediately. So "a nearby
+malformed-input test already passes under ASan" is not evidence your new one
+will: check whether the existing inputs actually reach a `throw`.
+
+A corollary for writing the guard comment: don't claim a same-plumbing sibling
+carries the coverage unless one really does. For `SceneSerializer::Deserialize`
+none does — nothing else in the suite throws through it — so the honest note is
+that the file-path throw is uncovered under Windows ASan while the
+non-throwing branches of the same test stay active everywhere.

@@ -28,5 +28,28 @@ namespace OloEngine
 		{
 			InternalCalls.Scene_ReloadCurrentScene();
 		}
+
+		/// <summary>
+		/// Switch to another scene — the main-menu -> level -> next-level primitive.
+		/// </summary>
+		/// <param name="path">
+		/// The scene to load. A bare name ("Level2"), a file name ("Level2.olo") or a
+		/// path relative to the game's scene directory ("Scenes/Level2.olo") all work.
+		/// </param>
+		/// <remarks>
+		/// DEFERRED, like <see cref="ReloadCurrentScene"/>: the request is recorded and
+		/// applied after the current tick finishes, because the scene being torn down is
+		/// the one your script is running in. Everything after this call still runs on the
+		/// old scene, and any script state that isn't serialized into the new scene is gone
+		/// once the swap happens. Calling it more than once in a tick keeps the last request.
+		/// The switch is a hard cut — there is no fade or loading screen.
+		/// </remarks>
+		public static void LoadScene(string path)
+		{
+			if (string.IsNullOrWhiteSpace(path))
+				return;
+
+			InternalCalls.Scene_LoadScene(path);
+		}
 	}
 }

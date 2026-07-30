@@ -13,7 +13,7 @@
 #include "OloEngine/Events/KeyEvent.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Scene/Scene.h"
-#include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Scene/SceneTransition.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
 #include "OloEngine/Renderer/Renderer.h"
@@ -48,6 +48,25 @@ namespace OloEngine
             RenderCommand::Clear();
             Application::Get().GetWindow().SwapBuffers();
 
+            // Mount an in-memory project rooted at the game directory BEFORE
+            // anything loads. A shipped game has no .oloproj — the build
+            // pipeline flattens it into game.manifest + the asset pack — but the
+            // engine still resolves asset-relative paths through the Project
+            // statics, which assert without an active project. The one that
+            // bites hardest is `Scene::OnRuntimeStart`'s Lua sweep
+            // (`Project::GetAssetFileSystemPath(LuaScriptComponent::ScriptFile)`):
+            // without this, a shipped game died the instant it loaded a scene
+            // carrying a Lua script, so Lua scripting was editor-only. The
+            // asset root mirrors the layout the build pipeline writes —
+            // `<game>/Assets/<asset-relative path>` — which is where
+            // CopyScriptFiles puts the loose .lua files.
+            //
+            // The manifest is read once here and handed to each consumer, so
+            // the project config, the start scene and the rendering mode can't
+            // disagree about what the file said.
+            const YAML::Node manifest = LoadGameManifest();
+            MountGameProject(manifest);
+
             // Set up runtime asset manager with pack-based loading
             auto runtimeAssetManager = Ref<RuntimeAssetManager>::Create();
             Project::SetAssetManager(runtimeAssetManager);
@@ -70,7 +89,7 @@ namespace OloEngine
             }
 
             // Find the start scene — check manifest first, then scan Scenes/ directory
-            std::filesystem::path startScenePath = FindStartScene();
+            std::filesystem::path startScenePath = FindStartScene(manifest);
             if (startScenePath.empty())
             {
                 OLO_CORE_ERROR("[Runtime] No scene files found. Cannot start game.");
@@ -79,27 +98,9 @@ namespace OloEngine
             }
 
             OLO_CORE_INFO("[Runtime] Loading start scene: {}", startScenePath.string());
-            m_ScenePath = startScenePath;
-
-            m_ActiveScene = Ref<Scene>::Create();
-            if (SceneSerializer serializer(m_ActiveScene); !serializer.Deserialize(startScenePath.string()))
-            {
-                OLO_CORE_ERROR("[Runtime] Failed to deserialize scene: {}", startScenePath.string());
-                Application::Get().Close();
-                return;
-            }
-
-            // Validate the scene has a primary camera
-            if (Entity cameraEntity = m_ActiveScene->GetPrimaryCameraEntity(); !cameraEntity)
-            {
-                OLO_CORE_ERROR("[Runtime] Start scene has no primary camera. "
-                               "Add an entity with CameraComponent (Primary = true) in the editor before building.");
-                Application::Get().Close();
-                return;
-            }
 
             // Determine rendering mode from manifest
-            m_Is3DMode = ReadIs3DModeFromManifest();
+            m_Is3DMode = ReadIs3DModeFromManifest(manifest);
 
             if (m_Is3DMode)
             {
@@ -125,18 +126,15 @@ namespace OloEngine
                 }
             }
 
-            // Start the runtime (physics, scripts, audio, animations)
-            m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
+            // Load + start the runtime (physics, scripts, audio, animations).
+            // Shares ActivateScene with reload and script-driven scene switching
+            // (issue #642), so the start scene is validated by exactly the same
+            // rules a switched-to scene is.
+            if (!ActivateScene(startScenePath))
             {
-                const auto& win = Application::Get().GetWindow();
-                u32 vpW = win.GetFramebufferWidth();
-                u32 vpH = win.GetFramebufferHeight();
-                if (vpW > 0 && vpH > 0)
-                {
-                    m_ActiveScene->OnViewportResize(vpW, vpH);
-                }
+                Application::Get().Close();
+                return;
             }
-            m_ActiveScene->OnRuntimeStart();
 
             LoadInputActions();
 
@@ -282,8 +280,19 @@ namespace OloEngine
                 }
             }
 
-            // Handle script-triggered scene reload (e.g., death/respawn)
-            if (m_ActiveScene->GetPendingReload())
+            // Handle script-triggered scene transitions at the END of the frame
+            // (issue #642) — never mid-tick, since the swap destroys the scene
+            // the requesting script is running in. A load and a reload are
+            // mutually exclusive by construction (Scene's setters clear each
+            // other), so the order of these two branches is not a precedence
+            // rule, just a check order.
+            if (m_ActiveScene->HasPendingSceneLoad())
+            {
+                const std::string request = m_ActiveScene->GetPendingSceneLoad();
+                m_ActiveScene->ClearPendingSceneLoad();
+                SwitchScene(request);
+            }
+            else if (m_ActiveScene->GetPendingReload())
             {
                 m_ActiveScene->SetPendingReload(false);
                 ReloadScene();
@@ -352,42 +361,102 @@ namespace OloEngine
             return false;
         }
 
-        /// Find the start scene path — reads manifest if available, then scans Scenes/
-        [[nodiscard]] static std::filesystem::path FindStartScene()
+        /// Make the game directory the active (in-memory) project.
+        ///
+        /// A shipped game has no `.oloproj`, so the config is reconstructed from
+        /// `game.manifest` + the fixed layout the build pipeline writes. Only
+        /// `AssetDirectory` really matters at runtime — it is what turns a
+        /// project-relative `LuaScriptComponent::ScriptFile` into a real file —
+        /// but Name/StartScene are filled in so diagnostics read sensibly.
+        static void MountGameProject(const YAML::Node& manifest)
         {
-            // 1. Check game.manifest for an explicit start scene
-            if (const std::filesystem::path manifestPath = "game.manifest"; std::filesystem::exists(manifestPath))
-            {
-                try
-                {
-                    YAML::Node manifest = YAML::LoadFile(manifestPath.string());
-                    if (manifest["StartScene"])
-                    {
-                        auto startScene = manifest["StartScene"].as<std::string>();
-                        // Try the path as-is (relative to game root)
-                        if (std::filesystem::exists(startScene))
-                        {
-                            return startScene;
-                        }
-                        // Try under Scenes/ in case it's just a filename
-                        if (std::filesystem::path scenePath = "Scenes" / std::filesystem::path(startScene); std::filesystem::exists(scenePath))
-                        {
-                            return scenePath;
-                        }
-                        OLO_CORE_WARN("[Runtime] Start scene from manifest not found: {}", startScene);
-                    }
+            ProjectConfig config;
+            config.AssetDirectory = "Assets";
 
-                    // Check for scene directory override
-                    if (manifest["Assets"] && manifest["Assets"]["SceneDirectory"])
-                    {
-                        auto sceneDir = manifest["Assets"]["SceneDirectory"].as<std::string>();
-                        return FindFirstSceneInDirectory(sceneDir);
-                    }
-                }
-                catch (const std::exception& e)
+            std::error_code ec;
+            const auto gameRoot = std::filesystem::current_path(ec);
+
+            try
+            {
+                if (manifest["Game"] && manifest["Game"]["Name"])
                 {
-                    OLO_CORE_WARN("[Runtime] Failed to parse game manifest: {}", e.what());
+                    config.Name = manifest["Game"]["Name"].as<std::string>();
                 }
+                if (manifest["StartScene"])
+                {
+                    config.StartScene = manifest["StartScene"].as<std::string>();
+                }
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_WARN("[Runtime] Failed to read project config from manifest: {}", e.what());
+            }
+
+            Project::NewInMemory(ec ? std::filesystem::path{} : gameRoot, config);
+            OLO_CORE_INFO("[Runtime] Mounted game project '{}' at '{}' (assets: '{}')",
+                          config.Name, Project::GetProjectDirectory().string(), Project::GetAssetDirectory().string());
+        }
+
+        /// Read and parse `game.manifest` once per launch.
+        ///
+        /// Startup needs three unrelated things out of it (project config, the
+        /// start scene, the rendering mode) and each used to open, read and
+        /// parse the file for itself — three chances for the same file to be
+        /// read inconsistently, and three yaml-cpp throw sites for one small
+        /// document. Returns an invalid Node when the manifest is missing or
+        /// unparseable; every consumer already treats "key absent" as "use the
+        /// default", and an invalid Node answers `operator[]` that way.
+        [[nodiscard]] static YAML::Node LoadGameManifest()
+        {
+            const std::filesystem::path manifestPath = "game.manifest";
+            if (!std::filesystem::exists(manifestPath))
+            {
+                return {};
+            }
+
+            try
+            {
+                return YAML::LoadFile(manifestPath.string());
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_WARN("[Runtime] Failed to parse game manifest: {}", e.what());
+                return {};
+            }
+        }
+
+        /// Find the start scene path — uses the manifest if it named one, then scans Scenes/
+        [[nodiscard]] static std::filesystem::path FindStartScene(const YAML::Node& manifest)
+        {
+            // 1. An explicit start scene from game.manifest
+            try
+            {
+                if (manifest["StartScene"])
+                {
+                    auto startScene = manifest["StartScene"].as<std::string>();
+                    // Try the path as-is (relative to game root)
+                    if (std::filesystem::exists(startScene))
+                    {
+                        return startScene;
+                    }
+                    // Try under Scenes/ in case it's just a filename
+                    if (std::filesystem::path scenePath = "Scenes" / std::filesystem::path(startScene); std::filesystem::exists(scenePath))
+                    {
+                        return scenePath;
+                    }
+                    OLO_CORE_WARN("[Runtime] Start scene from manifest not found: {}", startScene);
+                }
+
+                // Check for scene directory override
+                if (manifest["Assets"] && manifest["Assets"]["SceneDirectory"])
+                {
+                    auto sceneDir = manifest["Assets"]["SceneDirectory"].as<std::string>();
+                    return FindFirstSceneInDirectory(sceneDir);
+                }
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_WARN("[Runtime] Failed to read the start scene from the manifest: {}", e.what());
             }
 
             // 2. Fallback: scan Scenes/ directory for the first .olo file
@@ -421,18 +490,11 @@ namespace OloEngine
             return scenes.front();
         }
 
-        /// Read the Is3DMode flag from game.manifest. Defaults to true if missing.
-        [[nodiscard]] static bool ReadIs3DModeFromManifest()
+        /// Read the Is3DMode flag from the manifest. Defaults to true if missing.
+        [[nodiscard]] static bool ReadIs3DModeFromManifest(const YAML::Node& manifest)
         {
-            const std::filesystem::path manifestPath = "game.manifest";
-            if (!std::filesystem::exists(manifestPath))
-            {
-                return true;
-            }
-
             try
             {
-                YAML::Node manifest = YAML::LoadFile(manifestPath.string());
                 if (manifest["Rendering"] && manifest["Rendering"]["Is3DMode"])
                 {
                     return manifest["Rendering"]["Is3DMode"].as<bool>();
@@ -462,6 +524,57 @@ namespace OloEngine
         void ReloadScene()
         {
             OLO_CORE_INFO("[Runtime] Reloading scene: {}", m_ScenePath.string());
+            if (!ActivateScene(m_ScenePath))
+            {
+                // A reload of the scene we are already running is a path we
+                // validated at load time, so a failure here means the file
+                // changed or vanished underneath us. There is nothing sane
+                // left to run.
+                OLO_CORE_ERROR("[Runtime] Failed to reload scene — closing.");
+                Application::Get().Close();
+            }
+        }
+
+        /// Service a script-requested scene switch (issue #642). `request` is
+        /// whatever the script passed; it is resolved against the game
+        /// directory here. A failure is NON-FATAL — the current scene keeps
+        /// running — because a bad scene name from script is a content bug, and
+        /// killing the game gives the player nothing to act on while the log
+        /// says exactly what was wrong.
+        void SwitchScene(const std::string& request)
+        {
+            // The game's data directory is the working directory (that is where
+            // game.manifest and Scenes/ are looked up from at startup).
+            const auto resolved = SceneTransition::ResolveScenePath(request);
+            if (resolved.empty())
+            {
+                OLO_CORE_ERROR("[Runtime] Scene switch to '{}' failed: no matching scene file under the game directory. "
+                               "Staying on '{}'.",
+                               request, m_ScenePath.string());
+                return;
+            }
+
+            OLO_CORE_INFO("[Runtime] Switching scene: {} -> {}", m_ScenePath.string(), resolved.string());
+            if (!ActivateScene(resolved))
+            {
+                OLO_CORE_ERROR("[Runtime] Staying on '{}'.", m_ScenePath.string());
+            }
+        }
+
+        /// Load `path` and make it the running scene — the shared body of both
+        /// reload and switch.
+        ///
+        /// The new scene is deserialized and validated BEFORE the current one
+        /// is stopped, so a bad target leaves the game running on the scene it
+        /// already had instead of dropping it into a torn-down state.
+        [[nodiscard]] bool ActivateScene(const std::filesystem::path& path)
+        {
+            auto loaded = SceneTransition::LoadSceneFile(path, /*requirePrimaryCamera=*/true);
+            if (!loaded)
+            {
+                OLO_CORE_ERROR("[Runtime] {}", loaded.Error);
+                return false;
+            }
 
             // Close the rebind menu first — it holds a Scene* / entity handles into the scene
             // we are about to destroy, which would dangle on the next OnUpdate.
@@ -470,15 +583,16 @@ namespace OloEngine
             // Reset time scale in case we were paused
             Application::Get().SetTimeScale(1.0f);
 
-            m_ActiveScene->OnRuntimeStop();
-
-            m_ActiveScene = Ref<Scene>::Create();
-            if (SceneSerializer serializer(m_ActiveScene); !serializer.Deserialize(m_ScenePath.string()))
+            // Stop before starting: ScriptEngine / LuaScriptEngine hold a single
+            // process-wide scene context, so the outgoing scene must release it
+            // before the incoming one claims it.
+            if (m_ActiveScene)
             {
-                OLO_CORE_ERROR("[Runtime] Failed to reload scene");
-                Application::Get().Close();
-                return;
+                m_ActiveScene->OnRuntimeStop();
             }
+
+            m_ActiveScene = loaded.LoadedScene;
+            m_ScenePath = path;
 
             m_ActiveScene->SetIs3DModeEnabled(m_Is3DMode);
 
@@ -488,9 +602,12 @@ namespace OloEngine
             if (w > 0 && h > 0)
             {
                 m_ActiveScene->OnViewportResize(w, h);
+                m_ViewportWidth = w;
+                m_ViewportHeight = h;
             }
 
             m_ActiveScene->OnRuntimeStart();
+            return true;
         }
     };
 

@@ -118,6 +118,19 @@ namespace OloEngine
         static Ref<Project> Load(const std::filesystem::path& path);
         static bool SaveActive(const std::filesystem::path& path);
 
+        /// Make an in-memory project rooted at `directory` the active one, with
+        /// no `.oloproj` on disk.
+        ///
+        /// This is what a SHIPPED GAME uses. A built game has no project file —
+        /// the build pipeline flattens it into `game.manifest` plus an asset
+        /// pack — but the engine still resolves asset-relative paths through the
+        /// statics above (`LuaScriptComponent::ScriptFile`,
+        /// `AnimationStateComponent::m_SourceFilePath`, the audio-events YAML),
+        /// and every one of them asserts without an active project. Without
+        /// this, a shipped game crashes the moment it loads a scene carrying a
+        /// Lua script.
+        static Ref<Project> NewInMemory(const std::filesystem::path& directory, const ProjectConfig& config);
+
       private:
         ProjectConfig m_Config;
         std::filesystem::path m_ProjectDirectory;

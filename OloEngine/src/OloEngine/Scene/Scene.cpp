@@ -1345,6 +1345,12 @@ namespace OloEngine
         // longer exists, and applying them would spawn phantom entities into
         // tick 0 of the new run.
         ClearPendingEntityCommands();
+        // Likewise for a scene-transition request (issue #642): a reload/load
+        // asked for by the previous session has already been serviced by the
+        // host, and re-firing it here would bounce straight back out of the
+        // scene we just started.
+        m_PendingReload = false;
+        m_PendingSceneLoad.clear();
         // Floating-origin (issue #429): every play-through starts at the authored
         // coordinates, so the rebased origin coincides with absolute origin.
         m_WorldOrigin = glm::vec3(0.0f);
@@ -1443,8 +1449,17 @@ namespace OloEngine
                 auto const& luaComp = entity.GetComponent<LuaScriptComponent>();
                 if (!luaComp.ScriptFile.empty())
                 {
-                    auto scriptPath = Project::GetAssetFileSystemPath(luaComp.ScriptFile);
-                    LuaScriptEngine::OnCreateEntity(entity, scriptPath.string());
+                    // ScriptFile is project-relative when a project is mounted
+                    // (the editor, and OloRuntime since it began mounting an
+                    // in-memory game project) and an absolute path when it
+                    // isn't (headless harnesses, which set it directly).
+                    // GetAssetFileSystemPath asserts without an active project,
+                    // so resolve only when there is one — same rule as the
+                    // deferred-spawn path in FireSpawnScriptLifecycle.
+                    const std::string scriptPath = Project::GetActive()
+                                                       ? Project::GetAssetFileSystemPath(luaComp.ScriptFile).string()
+                                                       : luaComp.ScriptFile;
+                    LuaScriptEngine::OnCreateEntity(entity, scriptPath);
                 }
             }
         }

@@ -149,6 +149,23 @@ namespace OloEngine
             std::string& errorMessage);
 
         /**
+         * @brief Copy Lua script files (.lua) from the project to the output directory
+         *
+         * `LuaScriptEngine::OnCreateEntity` loads a script with `lua_State::load_file`
+         * — a plain filesystem read, not an asset-pack lookup — and
+         * `Scene::OnRuntimeStart` resolves the component's project-relative
+         * `ScriptFile` through `Project::GetAssetFileSystemPath`. So the shipped game
+         * needs the loose .lua files laid out under `<game>/Assets/` at the SAME
+         * asset-relative paths they had in the project, which is exactly what the
+         * runtime's in-memory project (`AssetDirectory = "Assets"`) resolves to.
+         *
+         * Non-fatal when the project has no scripts — plenty of games don't use Lua.
+         */
+        static bool CopyScriptFiles(
+            const std::filesystem::path& outputDir,
+            std::string& errorMessage);
+
+        /**
          * @brief Write the game manifest file with runtime configuration
          */
         static bool WriteGameManifest(

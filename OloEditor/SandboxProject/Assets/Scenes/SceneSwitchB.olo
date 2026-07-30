@@ -1,0 +1,40 @@
+Scene: SceneSwitchB.olo
+Entities:
+  - Entity: 6420000000000000011
+    TagComponent:
+      Tag: SceneB_Arrived
+    TransformComponent:
+      Translation: [0, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [0.2, 1.0, 0.4, 1]
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/SceneSwitchTo.lua
+  - Entity: 6420000000000000012
+    TagComponent:
+      Tag: SceneB_Marker
+    TransformComponent:
+      Translation: [-2, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpriteRendererComponent:
+      Color: [0.1, 0.7, 0.2, 1]
+  - Entity: 6420000000000000013
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 1, 8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785
+        PerspectiveNear: 0.1
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
