@@ -4010,6 +4010,32 @@ namespace OloEngine
             meshSource = AssetManager::GetAsset<MeshSource>(meshSourceHandle);
         }
 
+        // Validate before constructing, mirroring TryLoadData's discipline (issue #694).
+        // This is the SHIPPED-RUNTIME path: OloRuntime reaches it for a packaged game, and
+        // both inputs come straight off a binary stream — meshSourceHandle may not resolve
+        // and submeshIndex is whatever bytes the file happened to contain. The Mesh ctor no
+        // longer aborts on either, but a truncated or malformed pack should still say so
+        // once, here, rather than surface later as an entity that silently renders nothing.
+        if (!meshSource)
+        {
+            OLO_CORE_ERROR("MeshSerializer: Mesh {0} references MeshSource {1}, which did not resolve from the asset "
+                           "pack - this mesh renders nothing",
+                           assetInfo.Handle, meshSourceHandle);
+        }
+        else if (const i32 submeshCount = meshSource->GetSubmeshes().Num(); submeshCount <= 0)
+        {
+            OLO_CORE_ERROR("MeshSerializer: Mesh {0} references MeshSource {1}, which has no submeshes - this mesh "
+                           "renders nothing",
+                           assetInfo.Handle, meshSourceHandle);
+        }
+        else if (submeshIndex >= static_cast<u32>(submeshCount))
+        {
+            OLO_CORE_WARN("MeshSerializer: Mesh {0} has SubmeshIndex {1} out of range (MeshSource {2} has {3} "
+                          "submeshes), clamping to 0",
+                          assetInfo.Handle, submeshIndex, meshSourceHandle, submeshCount);
+            submeshIndex = 0;
+        }
+
         Ref<Mesh> mesh = Ref<Mesh>(new Mesh(meshSource, submeshIndex));
         mesh->SetHandle(assetInfo.Handle);
 

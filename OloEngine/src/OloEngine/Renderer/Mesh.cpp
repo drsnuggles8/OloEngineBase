@@ -9,16 +9,67 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Handed out by the accessors below when the Mesh is not valid. Construction no
+        // longer aborts (see the constructor), so every accessor has to be TOTAL — "fail
+        // soft" that still dereferences a null MeshSource one call deeper is not a fix,
+        // it just moves the crash.
+        const TArray<Vertex> s_NoVertices;
+        const TArray<u32> s_NoIndices;
+        const Submesh s_NoSubmesh;
+    } // namespace
+
     Mesh::Mesh(Ref<MeshSource> meshSource, u32 submeshIndex)
         : m_MeshSource(meshSource), m_SubmeshIndex(submeshIndex)
     {
-        OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
-        OLO_CORE_ASSERT(m_SubmeshIndex < static_cast<u32>(m_MeshSource->GetSubmeshes().Num()), "Submesh index out of range!");
+        // Deliberately a warning and a not-valid state, NOT an assert (issue #694).
+        //
+        // A Mesh is constructed from data the engine does not control: an asset handle
+        // that failed to resolve, a submesh index read straight off a binary asset pack,
+        // or the stand-in the asset manager substitutes when an opt-in asset was never
+        // fetched. Aborting here delegated safety to every one of the ~30 construction
+        // sites, and they disagreed — MeshSerializer::TryLoadData clamped and warned while
+        // MeshSerializer::DeserializeFromAssetPack (the shipped-runtime path) validated
+        // nothing at all, and PlaceholderMesh built its cube over a MeshSource with no
+        // submesh, so the recovery path for a missing asset WAS the crash. A fresh clone
+        // that had not run scripts\Fetch-Assets.ps1 died opening VirtualGeometryStress.olo.
+        //
+        // The class already models the invalid state — Mesh() = default produces one,
+        // IsValid() reports it, and GetIndexCount()/GetBoundingBox()/IsRigged() already
+        // degraded — so failing soft into it costs nothing and makes such a mesh render as
+        // nothing instead of taking the process down.
+        //
+        // The out-of-range index is deliberately NOT clamped to 0 the way SetMeshSource
+        // clamps: silently drawing a different submesh is a wrong picture, whereas drawing
+        // nothing is an honest one. A caller that genuinely wants the clamp does it at its
+        // own seam, with its own message (MeshSerializer::TryLoadData does exactly that).
+        if (!m_MeshSource)
+        {
+            OLO_CORE_WARN("Mesh: constructed with a null MeshSource - this mesh is not valid and renders nothing.");
+            return;
+        }
+
+        if (const i32 submeshCount = m_MeshSource->GetSubmeshes().Num();
+            m_SubmeshIndex >= static_cast<u32>(submeshCount))
+        {
+            OLO_CORE_WARN("Mesh: submesh index {} is out of range (the MeshSource has {} submesh(es)) - this mesh is "
+                          "not valid and renders nothing.",
+                          m_SubmeshIndex, submeshCount);
+        }
     }
 
     void Mesh::SetMeshSource(Ref<MeshSource> meshSource)
     {
-        OLO_CORE_ASSERT(meshSource, "MeshSource cannot be null!");
+        // Same contract as the constructor: a null source leaves the mesh not-valid rather
+        // than aborting. Assigning it is still the right move — the caller asked for it,
+        // and IsValid() then reports the truth.
+        if (!meshSource)
+        {
+            OLO_CORE_WARN("Mesh::SetMeshSource: null MeshSource - this mesh is not valid and renders nothing.");
+            m_MeshSource = nullptr;
+            return;
+        }
 
         // If changing to a different MeshSource, validate submesh index is still valid
         if (meshSource != m_MeshSource)
@@ -37,39 +88,65 @@ namespace OloEngine
 
     void Mesh::SetSubmeshIndex(u32 submeshIndex)
     {
-        OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null! Cannot set submesh index on invalid Mesh.");
-        if (submeshIndex >= static_cast<u32>(m_MeshSource->GetSubmeshes().Num()))
+        // Reject rather than abort (issue #694), and keep the previous index: a rejected
+        // write leaves the mesh exactly as valid as it already was.
+        if (!m_MeshSource)
         {
-            OLO_CORE_ERROR("Submesh index {} out of range! MeshSource has {} submeshes.",
-                           submeshIndex, m_MeshSource->GetSubmeshes().Num());
-            OLO_CORE_ASSERT(false, "Submesh index {} out of range", submeshIndex);
+            OLO_CORE_WARN("Mesh::SetSubmeshIndex: no MeshSource - ignoring index {}.", submeshIndex);
+            return;
         }
+
+        if (const i32 submeshCount = m_MeshSource->GetSubmeshes().Num();
+            submeshIndex >= static_cast<u32>(submeshCount))
+        {
+            OLO_CORE_ERROR("Mesh::SetSubmeshIndex: index {} out of range (the MeshSource has {} submesh(es)) - "
+                           "keeping {}.",
+                           submeshIndex, submeshCount, m_SubmeshIndex);
+            return;
+        }
+
         m_SubmeshIndex = submeshIndex;
     }
 
     const TArray<Vertex>& Mesh::GetVertices() const
     {
-        OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
+        if (!m_MeshSource)
+            return s_NoVertices;
+
         return m_MeshSource->GetVertices();
     }
 
     const TArray<u32>& Mesh::GetIndices() const
     {
-        OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
+        if (!m_MeshSource)
+            return s_NoIndices;
+
         return m_MeshSource->GetIndices();
     }
 
     Ref<VertexArray> Mesh::GetVertexArray() const
     {
-        OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
+        if (!m_MeshSource)
+            return nullptr;
+
         return m_MeshSource->GetVertexArray();
     }
 
     const Submesh& Mesh::GetSubmesh() const
     {
-        OLO_CORE_ASSERT(m_MeshSource, "MeshSource is null!");
-        OLO_CORE_ASSERT(m_SubmeshIndex < static_cast<u32>(m_MeshSource->GetSubmeshes().Num()), "Submesh index out of range!");
-        return m_MeshSource->GetSubmeshes()[m_SubmeshIndex];
+        // An empty submesh (index 0, count 0) rather than a read past the end. Every
+        // consumer of the returned range already treats a zero index count as "nothing to
+        // draw", so a not-valid mesh renders as nothing here too — the same guarantee the
+        // constructor now makes. This assert was the second copy of the ctor's, and just
+        // as reachable: SceneMeshRaycast and Model call it on meshes they did not build.
+        if (!m_MeshSource)
+            return s_NoSubmesh;
+
+        const auto& submeshes = m_MeshSource->GetSubmeshes();
+        if (m_SubmeshIndex >= static_cast<u32>(submeshes.Num()))
+            return s_NoSubmesh;
+
+        return submeshes[m_SubmeshIndex];
     }
 
     bool Mesh::IsRigged() const

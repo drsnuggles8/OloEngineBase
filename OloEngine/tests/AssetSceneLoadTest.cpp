@@ -59,10 +59,12 @@
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/PlaceholderAsset.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/RendererTypes.h"
 #include "OloEngine/Scene/Components.h"
@@ -276,8 +278,19 @@ namespace OloEngine::Tests
 
                 // An asset that is registered but absent from disk is a fetch step, not a defect:
                 // some assets are deliberately not committed (scripts/Fetch-Assets.ps1).
+                //
+                // It must still DEGRADE rather than abort, so resolve it anyway and only then
+                // skip the "did it load" check. Resolving it IS the assertion: before issue #694
+                // this line took the process down. A missing asset substitutes a PlaceholderMesh
+                // (AssetManager::ResolveAssetOrPlaceholder), whose MeshSource carries no submesh,
+                // and Mesh's constructor asserted `submeshIndex < submeshCount` — i.e. 0 < 0. The
+                // recovery path for a missing asset was itself the crash. MissingOptionalAsset-
+                // DegradesInsteadOfAsserting below pins the same contract without needing an
+                // un-fetched asset to be present, since a clone that HAS run the fetcher never
+                // reaches this branch.
                 if (!metadata.FilePath.empty() && !fs::exists(tempRoot / metadata.FilePath))
                 {
+                    (void)AssetManager::GetAsset<MeshSource>(vm.m_MeshSource);
                     continue;
                 }
 
@@ -303,6 +316,102 @@ namespace OloEngine::Tests
         }
 
         EXPECT_GE(scenes.size(), 1u);
+    }
+
+    // The "a missing opt-in asset degrades, it does not assert" contract (issue #694),
+    // pinned without depending on an un-fetched asset actually being absent — on a clone
+    // that has run scripts\Fetch-Assets.ps1 the scene-loop branch above never executes,
+    // so this is the test that always runs.
+    //
+    // Two written contracts promise this behaviour and both used to be false:
+    //   * scripts/Fetch-Assets.ps1's .DESCRIPTION — "must degrade gracefully when it is
+    //     missing ... never fail".
+    //   * VirtualGeometryStress.olo's header — "the dragons simply do not resolve and you
+    //     get an empty hall. It will not crash."
+    //
+    // Needs no GL context: nothing here calls MeshSource::Build().
+    TEST(AssetSceneLoad, MissingOptionalAssetDegradesInsteadOfAsserting)
+    {
+        // 1. A MeshSource that exists but carries no submesh. This is not a contrived
+        //    input: MeshSource's (vertices, indices) constructor does not create one, so
+        //    every in-memory MeshSource starts out like this. The old Mesh ctor asserted
+        //    `submeshIndex < submeshCount`, which is 0 < 0 here — the perfectly ordinary
+        //    submeshIndex = 0 aborted.
+        auto emptySource = Ref<MeshSource>::Create(std::vector<Vertex>{}, std::vector<u32>{});
+        auto meshOverEmptySource = Ref<Mesh>::Create(emptySource, 0u);
+        ASSERT_TRUE(meshOverEmptySource);
+        EXPECT_FALSE(meshOverEmptySource->IsValid());
+
+        // 2. A null MeshSource — what MeshSerializer::DeserializeFromAssetPack hands the
+        //    ctor when a packed handle does not resolve in a shipped OloRuntime game.
+        auto meshOverNullSource = Ref<Mesh>::Create(Ref<MeshSource>{}, 0u);
+        ASSERT_TRUE(meshOverNullSource);
+        EXPECT_FALSE(meshOverNullSource->IsValid());
+
+        // 3. An out-of-range index over a populated source.
+        auto populatedSource = Ref<MeshSource>::Create(std::vector<Vertex>(3), std::vector<u32>{ 0u, 1u, 2u });
+        Submesh only;
+        only.m_VertexCount = 3;
+        only.m_IndexCount = 3;
+        populatedSource->AddSubmesh(only);
+        auto meshOutOfRange = Ref<Mesh>::Create(populatedSource, 7u);
+        ASSERT_TRUE(meshOutOfRange);
+        EXPECT_FALSE(meshOutOfRange->IsValid());
+        EXPECT_TRUE(Ref<Mesh>::Create(populatedSource, 0u)->IsValid());
+
+        // Every accessor must be TOTAL on a not-valid mesh, or "fail soft" just moves the
+        // crash one call deeper: the whole point is that such a mesh renders as nothing.
+        // Note GetVertices()/GetIndices() are MeshSource-scoped, so meshOutOfRange still
+        // reports the source's geometry — it is the SUBMESH range that must come back
+        // empty, and that is what every draw path reads.
+        for (const auto& invalid : { meshOverEmptySource, meshOverNullSource, meshOutOfRange })
+        {
+            EXPECT_EQ(invalid->GetIndexCount(), 0u);
+            EXPECT_EQ(invalid->GetBaseIndex(), 0u);
+            EXPECT_EQ(invalid->GetRendererID(), 0u);
+            EXPECT_FALSE(invalid->IsRigged());
+            // The draw paths spell "nothing to draw" as `if (!mesh->GetVertexArray())`.
+            EXPECT_FALSE(invalid->GetVertexArray());
+            // GetSubmesh() on a not-valid mesh yields an empty range, not a read past the end.
+            EXPECT_EQ(invalid->GetSubmesh().m_IndexCount, 0u);
+            EXPECT_EQ(invalid->GetSubmesh().m_VertexCount, 0u);
+            EXPECT_NO_THROW((void)invalid->GetBoundingBox());
+        }
+
+        // A null MeshSource has no arrays to delegate to at all, so these must be handed a
+        // stable empty container rather than dereferencing null.
+        EXPECT_TRUE(meshOverNullSource->GetVertices().IsEmpty());
+        EXPECT_TRUE(meshOverNullSource->GetIndices().IsEmpty());
+        EXPECT_TRUE(meshOverEmptySource->GetVertices().IsEmpty());
+        EXPECT_TRUE(meshOverEmptySource->GetIndices().IsEmpty());
+
+        // 4. The stand-in the asset manager substitutes for an unresolvable handle. This is
+        //    the frame that actually fired for VirtualGeometryStress.olo on a fresh clone:
+        //    GetAsset<MeshSource>(<un-fetched dragon>) -> ResolveAssetOrPlaceholder ->
+        //    GetPlaceholderAsset(MeshSource) -> PlaceholderMesh -> Ref<Mesh>::Create over a
+        //    submesh-less MeshSource. It must construct, and its cube must be drawable.
+        PlaceholderAssetManager::Initialize();
+        struct PlaceholderShutdown
+        {
+            ~PlaceholderShutdown()
+            {
+                PlaceholderAssetManager::Shutdown();
+            }
+        } placeholderShutdown;
+
+        for (const AssetType type : { AssetType::Mesh, AssetType::StaticMesh, AssetType::MeshSource })
+        {
+            Ref<Asset> placeholder = PlaceholderAssetManager::GetPlaceholderAsset(type);
+            ASSERT_TRUE(placeholder) << "no placeholder for asset type " << static_cast<int>(type);
+
+            Ref<PlaceholderMesh> placeholderMesh = placeholder.As<PlaceholderMesh>();
+            ASSERT_TRUE(placeholderMesh);
+            ASSERT_TRUE(placeholderMesh->GetMesh());
+            // Not merely "did not abort": the stand-in cube was never renderable, because
+            // nothing ever gave its MeshSource a submesh to address.
+            EXPECT_TRUE(placeholderMesh->GetMesh()->IsValid());
+            EXPECT_GT(placeholderMesh->GetMesh()->GetIndexCount(), 0u);
+        }
     }
 
 } // namespace OloEngine::Tests

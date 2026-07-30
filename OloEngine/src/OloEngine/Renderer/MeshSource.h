@@ -397,9 +397,17 @@ namespace OloEngine
         void Build();                  // Build GPU resources
 
         // GPU resource accessors (with lazy initialization)
+        //
+        // GetVertexArray deliberately does NOT assert on an unbuilt source (issue #694).
+        // "Is there anything to draw?" is spelled `if (!mesh->GetVertexArray())` all over
+        // the submission paths — Renderer3D::DrawMesh does exactly that and logs an error —
+        // so asserting here fires on the very null-check written to avoid it, and does so
+        // precisely in the cases that must degrade: a source that never built because its
+        // asset was missing, or the memory-only stand-in substituted for one. The sibling
+        // buffer accessors keep their asserts: nothing null-checks those, so reaching one
+        // unbuilt really is a call-order bug.
         const Ref<VertexArray>& GetVertexArray() const
         {
-            OLO_CORE_ASSERT(m_VertexArray, "VertexArray not initialized. Call Build() first.");
             return m_VertexArray;
         }
         const Ref<VertexBuffer>& GetVertexBuffer() const
