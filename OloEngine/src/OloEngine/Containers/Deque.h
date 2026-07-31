@@ -4,6 +4,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Templates/UnrealTypeTraits.h"
 #include "OloEngine/Containers/ContainerAllocationPolicies.h"
 #include "OloEngine/Memory/MemoryOps.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
@@ -159,6 +160,10 @@ namespace OloEngine
 
         ~TDeque()
         {
+            // UE guards TDeque with the same assert (Containers/Deque.h).
+            OLO_STATIC_ASSERT_WARN(TIsTriviallyRelocatable_V<InElementType>,
+                                   "This container can only be used with trivially relocatable types");
+
             Empty();
         }
 
