@@ -490,6 +490,43 @@ function written for it. Same for `RGCommandContext::BindTexture`. Add a sibling
 at every layer the intended caller actually traverses, and confirm by naming the
 call site before writing it.
 
+### The command layer's bind cache is ONE unit, and its GL-name keying has already shipped a bug
+
+Scoping note for whoever migrates `Renderer/Commands/`. It looks like several
+independent migrations (material textures, shadow maps, UBOs, VAO/shader
+binding) and it is exactly one, because they share
+`CommandDispatchData::BoundTextureIDs` — the redundant-bind cache. Migrating
+`PODMaterialData`'s texture ids alone does not compile past its own file: those
+textures bind through `BindTrackedTexture`, which keys the same array that
+`BindTrackedTextureUnit` uses for CSM / shadow atlas / their raw-depth views /
+snow depth / cloud shadow. So the unit is: that array, `BoundUBOIDs`,
+`CurrentBoundShaderID`, `CurrentBoundVAO`, `DepthPrepassShaderIDs`, the six
+per-frame shadow id fields, **and** handle-returning siblings on `ShadowMap`
+(`GetCSMRendererID` / `GetAtlasRendererID` and the raw + placeholder variants).
+Every producer involved can already mint (`Texture2DArray`, `UniformBuffer`,
+`Shader`, `VertexArray` all expose `GetRHIHandle()`), so it is unblocked — it is
+just indivisible. Expect ~180 compile errors from the field-type change alone,
+concentrated in `CommandDispatch.cpp`, with `Renderer3DUtilityDraws.cpp`,
+`Renderer3DSpecializedDraws.cpp`, `CommandPacketDebugger.cpp` and
+`CommandBucket.cpp` following.
+
+Do NOT start it as "migrate PODMaterialData" and discover the rest downstream;
+that is the same mistake as picking a slice by what looks self-contained in one
+file.
+
+The reason it is worth doing rather than deferring: **this cache has already
+caused a real, debugged visual bug of exactly the kind the identity currency
+prevents.** The comments on `InvalidateTextureSlot` / `InvalidateTextureBinding`
+record it — `VirtualGeometryPass` binds the Hi-Z pyramid to unit 0 for its cull
+compute, unit 0 is also `u_AlbedoMap`, and "any material whose albedo ID matched
+the stale cache entry silently sampled the HZB depth texture as its albedo."
+The current fix is manual invalidation that every future raw-GL binder must
+remember to call. Keyed on identities the stale entry cannot collide, so the
+invalidation calls stop being load-bearing correctness and become a pure
+optimisation. That is a genuine behavioural win, not just a type change — say so
+in the commit, and keep the invalidation calls (they still avoid redundant
+binds) rather than deleting them as "no longer needed".
+
 ### Delegating to the native path and stamping the identity on afterwards silently disables generation bumping
 
 `RenderGraph::ImportTextureHandle` was first written to reuse the native
