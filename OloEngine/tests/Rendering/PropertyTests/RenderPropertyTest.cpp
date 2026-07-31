@@ -90,6 +90,7 @@ namespace OloEngine::Tests
 #if defined(OLO_TESTS_HAVE_EGL)
             EGLDisplay m_EglDisplay = EGL_NO_DISPLAY;
             EGLContext m_EglContext = EGL_NO_CONTEXT;
+            EGLSurface m_EglSurface = EGL_NO_SURFACE;
 #endif
 
             static GpuContext& Get()
@@ -243,17 +244,42 @@ namespace OloEngine::Tests
                 if (context == EGL_NO_CONTEXT)
                     return false;
 
-                // Surfaceless on purpose: every pixel the suite inspects is read
-                // back from an FBO, so a default framebuffer would go unused.
-                if (!::eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, context))
+                // Bind a small pbuffer rather than going surfaceless.
+                //
+                // A surfaceless context has NO default framebuffer, and the
+                // renderer does touch framebuffer 0 — every RendererAttachedTest
+                // render tick then failed with
+                //
+                //     GL_INVALID_FRAMEBUFFER_OPERATION
+                //
+                // which is how the whole visual/golden layer failed on the
+                // headless runner while the non-rendering tests sailed past. The
+                // pbuffer is 1x1 because nothing is ever presented to it; its
+                // only job is to give framebuffer 0 something complete to be.
+                constexpr EGLint pbufferAttribs[] = {
+                    EGL_WIDTH, 1,
+                    EGL_HEIGHT, 1,
+                    EGL_NONE
+                };
+                EGLSurface surface = ::eglCreatePbufferSurface(display, config, pbufferAttribs);
+                if (surface == EGL_NO_SURFACE)
                 {
                     ::eglDestroyContext(display, context);
                     return false;
                 }
 
+                if (!::eglMakeCurrent(display, surface, surface, context))
+                {
+                    ::eglDestroySurface(display, surface);
+                    ::eglDestroyContext(display, context);
+                    return false;
+                }
+                m_EglSurface = surface;
+
                 if (!LoadGladAndCheckVersion(reinterpret_cast<GLADloadfunc>(::eglGetProcAddress)))
                 {
                     ::eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+                    ::eglDestroySurface(display, surface);
                     ::eglDestroyContext(display, context);
                     return false;
                 }
