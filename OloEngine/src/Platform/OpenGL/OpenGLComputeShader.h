@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/ComputeShader.h"
 #include <glad/gl.h>
 
@@ -34,6 +35,11 @@ namespace OloEngine
         {
             return m_RendererID;
         }
+
+        [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const override
+        {
+            return m_RHIHandle.Get();
+        }
         [[nodiscard]] const std::string& GetName() const override
         {
             return m_Name;
@@ -52,6 +58,11 @@ namespace OloEngine
 
       private:
         u32 m_RendererID = 0;
+        // Generation-checked identity for m_RendererID above, kept in
+        // lockstep by m_RHIHandle.Sync() at every site that assigns the
+        // native name. RAII retires the entry, so a handle to a destroyed
+        // object can never resolve to a recycled GL name (issue #691).
+        RHI::ScopedResourceHandle m_RHIHandle;
         bool m_IsValid = false;
         std::string m_Name;
         std::string m_FilePath;

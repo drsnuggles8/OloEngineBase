@@ -91,6 +91,7 @@ namespace OloEngine
         }
 
         glCreateFramebuffers(1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Framebuffer, m_RendererID, RHI::Backend::OpenGL);
         glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
 
         const bool multisample = m_Specification.Samples > 1;

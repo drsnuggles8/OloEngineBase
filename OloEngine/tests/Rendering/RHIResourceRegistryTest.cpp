@@ -144,6 +144,61 @@ namespace OloEngine::Tests
         EXPECT_EQ(registry.ResolveNativeForBackend(handle), 0u);
     }
 
+    // A recreate path zeroes its native name transiently between destroying the
+    // old object and creating the new one, so ScopedResourceHandle::Sync sees
+    // `0` in the middle of a sequence that must PRESERVE identity. An earlier
+    // version treated any zero as a release and retired the handle here, which
+    // broke in-place hot-reload — caught first by the GL-gated
+    // RHIHandleNativeIdentityTest, and pinned headlessly here so the fast suite
+    // catches a regression without needing a device.
+    TEST(RHIResourceRegistry, SyncTreatsATransientZeroAsRecreateNotRelease)
+    {
+        auto& registry = Registry();
+
+        RHI::ScopedResourceHandle holder;
+        holder.Sync(RHI::ResourceKind::Texture, 100u, RHI::Backend::OpenGL);
+        const auto before = holder.Get();
+        ASSERT_TRUE(before.IsValid());
+
+        // The exact shape of OpenGLTexture2D::InvalidateImpl's reload:
+        // release the old name, then create a new one.
+        holder.Sync(RHI::ResourceKind::Texture, 0u, RHI::Backend::OpenGL);
+        holder.Sync(RHI::ResourceKind::Texture, 200u, RHI::Backend::OpenGL);
+
+        EXPECT_EQ(holder.Get(), before) << "A recreate must not change identity — materials cache "
+                                           "the handle alongside their Ref<T> (ADR 0011 §1.2)";
+        EXPECT_TRUE(registry.IsLive(before));
+        EXPECT_EQ(registry.ResolveNativeForBackend(before), 200u)
+            << "...and the preserved handle must resolve to the NEW native name";
+    }
+
+    TEST(RHIResourceRegistry, SyncMintsNothingForAnObjectThatNeverGotAResource)
+    {
+        // Construction-failure paths assign 0 before any create. There is no
+        // object to name, so no identity should be minted — a consumer asking
+        // `handle.IsValid()` must see "no resource".
+        RHI::ScopedResourceHandle holder;
+        holder.Sync(RHI::ResourceKind::Texture, 0u, RHI::Backend::OpenGL);
+        EXPECT_FALSE(holder.Get().IsValid());
+    }
+
+    TEST(RHIResourceRegistry, ScopedHandleRetiresItsEntryOnDestruction)
+    {
+        auto& registry = Registry();
+        RHI::ResourceHandle observed;
+        {
+            RHI::ScopedResourceHandle holder;
+            holder.Sync(RHI::ResourceKind::Buffer, 55u, RHI::Backend::OpenGL);
+            observed = holder.Get();
+            ASSERT_TRUE(registry.IsLive(observed));
+        }
+        // RAII is now the ONLY thing that retires an identity, since Sync no
+        // longer does — so this is the assertion that keeps handles from
+        // outliving their objects.
+        EXPECT_FALSE(registry.IsLive(observed));
+        EXPECT_EQ(registry.ResolveNativeForBackend(observed), 0u);
+    }
+
     TEST(RHIResourceRegistry, StaleResolveIsCounted)
     {
         auto& registry = Registry();

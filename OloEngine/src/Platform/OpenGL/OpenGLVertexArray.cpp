@@ -49,6 +49,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glCreateVertexArrays(1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::VertexArray, m_RendererID, RHI::Backend::OpenGL);
     }
 
     OpenGLVertexArray::~OpenGLVertexArray()

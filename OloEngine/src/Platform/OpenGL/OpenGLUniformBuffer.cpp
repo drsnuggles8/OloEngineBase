@@ -16,6 +16,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glCreateBuffers(1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Buffer, m_RendererID, RHI::Backend::OpenGL);
         glNamedBufferData(m_RendererID, size, nullptr, GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_UNIFORM_BUFFER, binding, m_RendererID);
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::BufferBinds, 1);
@@ -34,6 +35,7 @@ namespace OloEngine
         OLO_CORE_ASSERT(flags & GL_DYNAMIC_STORAGE_BIT,
                         "OpenGLUniformBuffer storage flags must include GL_DYNAMIC_STORAGE_BIT for SetData() to work");
         glCreateBuffers(1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Buffer, m_RendererID, RHI::Backend::OpenGL);
         glNamedBufferStorage(m_RendererID, size, nullptr, flags);
         glBindBufferRange(GL_UNIFORM_BUFFER, binding, m_RendererID, 0, size);
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::BufferBinds, 1);

@@ -1061,6 +1061,27 @@ the FBO's. They are separate GL texture objects that the engine samples through
 `ResolveTexture`, so "the framebuffer's handle" would have been the wrong answer
 to "which texture is this".
 
+**A recreate zeroes the native name transiently, and that nearly inverted the
+whole feature.** `ScopedResourceHandle::Sync` originally treated
+`nativeHandle == 0` as "released" and retired the identity. That reads as
+obviously right and is wrong: `OpenGLTexture2D::InvalidateImpl` zeroes
+`m_RendererID` *between* deleting the old GL object and creating the new one, so
+every in-place reload retired the handle and minted a fresh one — leaving exactly
+the cached-handle-goes-stale behaviour this amendment claims to fix, while the
+amendment said otherwise.
+
+`Sync` cannot distinguish a transient zero from a final one; the two are
+textually identical at the call site and only the caller knows which it meant. So
+`Sync` is now non-destructive ("this object's native name is now X") and
+retirement is RAII-only, with `Reset()` for a deliberate early release — the
+destructive act has to be named. **Generalisable: when a helper cannot infer
+intent from its arguments, do not let it guess; make the rarer, more dangerous
+intent the one that must be spelled out.**
+
+Found by the GL-gated `RHIHandleNativeIdentityTest` reload case. Four other
+identity assertions (registration, resolution, staleness, distinctness) passed
+while this was broken — only a real reload against a real driver showed it.
+
 **Identity-stability has a cost, and it lands on redundant-bind caches.**
 `CommandDispatch::InvalidateTextureBinding` existed to stop a recycled GL name
 from being skipped by the cache. That failure is now structurally impossible — a

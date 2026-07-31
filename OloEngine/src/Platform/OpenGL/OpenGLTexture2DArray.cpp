@@ -35,6 +35,7 @@ namespace OloEngine
         GLenum internalFormat = Texture2DArrayFormatToGL(spec.Format);
 
         glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
 
         // Calculate mip levels
         GLsizei mipLevels = 1;

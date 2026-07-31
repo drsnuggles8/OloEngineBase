@@ -153,6 +153,7 @@ namespace OloEngine
             OLO_CORE_ERROR("OpenGLTextureCubemap: block-compressed format {} is not supported for cubemaps",
                            static_cast<u32>(m_CubemapSpecification.Format));
             m_RendererID = 0;
+            m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
             m_IsLoaded = false;
             return;
         }
@@ -161,6 +162,7 @@ namespace OloEngine
         m_DataFormat = Utils::OloEngineImageFormatToGLDataFormat(m_CubemapSpecification.Format);
 
         glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
 
         const u32 mipLevels = GetMipLevelCount();
 
@@ -181,6 +183,7 @@ namespace OloEngine
             OLO_CORE_ERROR("OpenGLTextureCubemap: Unsupported image format during initialization");
             glDeleteTextures(1, &m_RendererID);
             m_RendererID = 0;
+            m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
             return;
         }
         const sizet cubemapMemory = CalculateCubemapMemory(formatInfo.BytesPerPixel, mipLevels);
@@ -232,6 +235,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
 
         int width;
         int height;

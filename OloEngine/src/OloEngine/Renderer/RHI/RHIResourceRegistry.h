@@ -238,28 +238,39 @@ namespace OloEngine::RHI
         }
 
         // The form backend classes call, right after assigning their native
-        // object name. Idempotent and safe at every creation, recreation and
-        // release site, so a class with several such paths (OpenGLTexture2D has
-        // seven) does not need each one to reason about which case it is in:
+        // object name. Says only "this object's native name is now X":
         //
-        //   first creation      -> registers, minting the identity
-        //   recreation/resize   -> repoints, PRESERVING the identity so that
-        //                          materials holding this object stay valid
-        //   release (native 0)  -> retires, so outstanding handles go stale
+        //   no identity yet, name != 0 -> registers, minting the identity
+        //   already has one            -> repoints, PRESERVING the identity
+        //   no identity yet, name == 0 -> nothing to name; stays null
+        //
+        // SYNC NEVER RETIRES, and that is a correction rather than a
+        // simplification. It used to treat `nativeHandle == 0` as "released" and
+        // Reset(), which looked reasonable and was wrong: a recreate path zeroes
+        // the native name transiently between destroying the old object and
+        // creating the new one (OpenGLTexture2D::InvalidateImpl does exactly
+        // this), so an in-place hot-reload retired the identity and minted a
+        // fresh one. Materials caching the handle alongside their Ref<Texture2D>
+        // — the practice §1.2 sanctions — would have been left holding a dead
+        // handle after every reload.
+        //
+        // `Sync` cannot tell a transient zero from a final one; only the caller
+        // knows, and the two look identical at the call site. So the destructive
+        // act is spelled separately: RAII retires at destruction, and `Reset()`
+        // is there for a deliberate early release. Caught by
+        // RHIHandleNativeIdentityTest's reload case, which is the whole reason
+        // that test exists.
         //
         // Called at object-lifetime frequency, not per frame, so taking the
         // registry's write lock here is not a hot-path cost.
         void Sync(ResourceKind kind, u64 nativeHandle, Backend owner)
         {
-            if (nativeHandle == 0u)
-            {
-                Reset();
-                return;
-            }
-
             if (!m_Handle.IsValid())
             {
-                Adopt(kind, nativeHandle, owner);
+                if (nativeHandle != 0u)
+                {
+                    Adopt(kind, nativeHandle, owner);
+                }
                 return;
             }
 

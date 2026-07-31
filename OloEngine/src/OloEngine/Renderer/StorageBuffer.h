@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/Base.h"
 
@@ -53,6 +54,13 @@ namespace OloEngine
         virtual void Resize(u32 newSize) = 0;
 
         [[nodiscard]] virtual u32 GetRendererID() const = 0;
+
+        // Generation-checked identity, minted by RHI::ResourceRegistry
+        // (issue #691 Phase 2 step 3). Sibling of GetRendererID() during the
+        // migration: that one hands out the raw backend name and is deleted once
+        // every caller has moved. Turning a handle back into a native object is
+        // Platform/<Backend>/'s business.
+        [[nodiscard]] virtual RHI::ResourceHandle GetRHIHandle() const = 0;
         [[nodiscard]] virtual u32 GetSize() const = 0;
         [[nodiscard]] virtual u32 GetBinding() const = 0;
 

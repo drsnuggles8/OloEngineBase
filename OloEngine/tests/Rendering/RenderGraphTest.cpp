@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include <gtest/gtest.h>
 
 #include "RenderingTestUtils.h"
@@ -295,6 +296,14 @@ class StubFramebuffer : public Framebuffer
     [[nodiscard]] u32 GetRendererID() const override
     {
         return m_RendererID;
+    }
+
+    // No GPU object behind this stub, so it has no identity to hand out.
+    // Spelled out rather than inherited: GetRHIHandle() is pure virtual
+    // precisely so a null return is a decision, not an accident.
+    [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const override
+    {
+        return {};
     }
     void AttachDepthTextureArrayLayer(u32 /*textureArrayRendererID*/, u32 /*layer*/) override {}
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include <cstring>
 #include <type_traits>
 #include <utility>
@@ -31,6 +32,13 @@ namespace OloEngine
 
         // Phase 6.1: Resource handle caching support
         virtual u32 GetRendererID() const = 0;
+
+        // Generation-checked identity, minted by RHI::ResourceRegistry
+        // (issue #691 Phase 2 step 3). Sibling of GetRendererID() during the
+        // migration: that one hands out the raw backend name and is deleted once
+        // every caller has moved. Turning a handle back into a native object is
+        // Platform/<Backend>/'s business.
+        [[nodiscard]] virtual RHI::ResourceHandle GetRHIHandle() const = 0;
         virtual u32 GetSize() const
         {
             return m_Size;
