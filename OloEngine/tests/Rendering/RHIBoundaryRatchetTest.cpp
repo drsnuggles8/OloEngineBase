@@ -34,6 +34,7 @@
 // (that is the point — Phase 1 is "no code motion"), so without this they would
 // never be parsed by a compiler and could rot into non-compiling code before
 // Phase 2 picks them up.
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 
@@ -44,6 +45,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <string>
@@ -314,6 +316,20 @@ namespace OloEngine::Tests
             u32 ToolsGLCalls = 0;
             u32 DebugEscapeHatch = 0;
 
+            // Phase 2 step 3 (the identity currency). `sweep_renderer_id` counts
+            // the identifier `RendererID` in any spelling — the `GetRendererID()`
+            // accessor, the `using RendererID = u32` alias, and the backend's
+            // `m_RendererID` member — anywhere outside Platform/ and
+            // Renderer/Debug/. A native object name may not be NAMED in the
+            // sweep bucket, let alone held.
+            u32 SweepRendererId = 0;
+            // Uses of the backend's handle->native escape hatch outside
+            // Platform/. Sibling of DebugEscapeHatch: two hatches, two baselines,
+            // both zero where they do not belong.
+            u32 BackendResolveHatch = 0;
+
+            std::map<std::string, u32> SweepRendererIdByFile;
+
             // Sanity anchors — see the FloorGuards test. Without these, a broken
             // scanner or a wrong repo root reports every counter as zero and the
             // ratchet passes forever while measuring nothing.
@@ -393,6 +409,37 @@ namespace OloEngine::Tests
                 {
                     tally.DebugEscapeHatch += CountOccurrences(blanked, "GetNativeHandleForDebug");
                 }
+
+                // --- Phase 2 step 3: the identity currency -------------------
+                //
+                // `Platform/` owns native names, and `Renderer/Debug/` still
+                // holds them pending its Phase 8 relocation. Everywhere else,
+                // naming one at all is the regression.
+                //
+                // Renderer/RHI/ is NOT exempted here, unlike for the debug
+                // escape hatch: the registry names no native object, it stores
+                // an opaque u64, so a `RendererID` appearing there would be a
+                // real leak rather than a declaration.
+                const bool nativeNamesAllowed =
+                    rel.starts_with("Platform/") || rel.starts_with("OloEngine/Renderer/Debug/");
+                if (!nativeNamesAllowed)
+                {
+                    const u32 rendererIds = CountOccurrences(blanked, "RendererID");
+                    tally.SweepRendererId += rendererIds;
+                    if (rendererIds > 0)
+                    {
+                        tally.SweepRendererIdByFile[rel] = rendererIds;
+                    }
+                }
+
+                // Renderer/RHI/ is excluded for the same reason the debug hatch
+                // excludes it: the registry DECLARES and DEFINES this function,
+                // so counting those would put the baseline above zero and hide
+                // the first real caller — which is the only thing worth seeing.
+                if (!rel.starts_with("Platform/") && !rel.starts_with("OloEngine/Renderer/RHI/"))
+                {
+                    tally.BackendResolveHatch += CountOccurrences(blanked, "ResolveNativeForBackend");
+                }
             }
 
             return tally;
@@ -449,6 +496,8 @@ namespace OloEngine::Tests
         ExpectRatchet("sweep_glad_includes", tally.SweepGladIncludes, baseline);
         ExpectRatchet("tools_gl_calls", tally.ToolsGLCalls, baseline);
         ExpectRatchet("debug_escape_hatch", tally.DebugEscapeHatch, baseline);
+        ExpectRatchet("sweep_renderer_id", tally.SweepRendererId, baseline);
+        ExpectRatchet("backend_resolve_hatch", tally.BackendResolveHatch, baseline);
 
         if (::testing::Test::HasFailure())
         {
@@ -459,6 +508,126 @@ namespace OloEngine::Tests
             {
                 work << "      " << count << "\t" << file << "\n";
             }
+            work << "\n  Files still naming a native renderer ID ("
+                 << tally.SweepRendererIdByFile.size() << " files, " << tally.SweepRendererId
+                 << " mentions):\n";
+            for (const auto& [file, count] : tally.SweepRendererIdByFile)
+            {
+                work << "      " << count << "\t" << file << "\n";
+            }
+            GTEST_LOG_(INFO) << work.str();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // The structural half of Phase 2 step 3, and the reason the counters above
+    // are a regression guard rather than the proof.
+    //
+    // A count of `RendererID` mentions is gameable: rename the accessor and the
+    // number goes to zero while a native GL name still crosses the boundary.
+    // What is NOT gameable is the type system. `RHI::ResourceHandle` is not
+    // constructible or convertible from an integer, so a translation unit
+    // holding a native name literally cannot call the facade with it — the same
+    // "provable rather than measured" property ADR 0011 §1.7 credits
+    // `sweep_glad_includes` with, one level up.
+    //
+    // This test pins the two things that property rests on, both of which a
+    // well-meaning refactor could remove without any counter noticing.
+    // -------------------------------------------------------------------------
+    TEST(RHIBoundaryRatchet, ResourceHandleCannotBeSpelledAsANativeId)
+    {
+        // (a) NO IMPLICIT CONVERSION EITHER WAY. This is the property the sweep
+        //     rests on: once the facade takes handles, `BindTexture(slot, myU32)`
+        //     does not compile, so a translation unit holding a native name
+        //     cannot reach the driver through it.
+        static_assert(!std::is_convertible_v<u32, RHI::ResourceHandle>);
+        static_assert(!std::is_convertible_v<RHI::ResourceHandle, u32>);
+
+        // (b) `is_constructible_v<ResourceHandle, u32>` is deliberately NOT
+        //     asserted false, because it is TRUE and cannot be made false without
+        //     giving up the aggregate.
+        //
+        //     Handle is an aggregate `{ u32 Index; u32 Generation; }`, and C++20
+        //     parenthesized aggregate initialization (P0960) makes
+        //     `RHI::ResourceHandle(someNativeId)` well-formed — it initialises
+        //     Index and value-initialises Generation. An earlier version of this
+        //     test asserted the opposite and failed to compile, which is how the
+        //     hole was found.
+        //
+        //     It is a narrow and self-defusing hole, and the assertions below are
+        //     what make that true rather than merely hoped:
+        //       * it needs EXPLICIT direct-init syntax, so it cannot happen by
+        //         accident at a call site — copy-init `ResourceHandle h = id;` is
+        //         still rejected, which is what (a) pins;
+        //       * the result carries Generation == 0, which `IsValid()` rejects
+        //         by construction, so it names no object and resolves to 0.
+        //     A native id smuggled through this route is therefore inert, not
+        //     mistaken for a live resource.
+        static_assert(std::is_constructible_v<RHI::ResourceHandle, u32>,
+                      "If this ever becomes false the comment above is stale — good news, "
+                      "but re-check whether Handle is still an aggregate.");
+        {
+            constexpr RHI::ResourceHandle smuggled(42u);
+            static_assert(smuggled.Index == 42u);
+            static_assert(smuggled.Generation == 0u);
+            static_assert(!smuggled.IsValid(),
+                          "A handle built from a bare integer must name nothing. If a future "
+                          "Handle gains a non-zero default Generation this stops holding and "
+                          "the aggregate-init hole stops being inert.");
+            EXPECT_EQ(RHI::ResourceRegistry::Get().ResolveNativeForBackend(smuggled), 0u);
+        }
+
+        // (c) The two identity levels stay mutually unrelated, so Phase 3 can
+        //     introduce ViewHandle over the top of this without a sweep. See
+        //     ADR 0011 amendment (11) for why ViewHandle is deferred rather than
+        //     built now.
+        static_assert(!std::is_convertible_v<RHI::ResourceHandle, RHI::ViewHandle>);
+        static_assert(!std::is_convertible_v<RHI::ViewHandle, RHI::ResourceHandle>);
+        static_assert(!std::is_constructible_v<RHI::ResourceHandle, RHI::ViewHandle>);
+        static_assert(!std::is_constructible_v<RHI::ViewHandle, RHI::ResourceHandle>);
+    }
+
+    // -------------------------------------------------------------------------
+    // The facade is where the boundary is actually drawn, so assert on it
+    // directly rather than only on the aggregate corpus count. A new virtual
+    // taking `u32 someTextureID` would keep every counter above at zero while
+    // handing the sweep bucket a native name to produce.
+    // -------------------------------------------------------------------------
+    TEST(RHIBoundaryRatchet, FacadeNativeIdParametersOnlyEverShrink)
+    {
+        const fs::path header = RepoRoot() / "OloEngine" / "src" / "OloEngine" / "Renderer" / "RendererAPI.h";
+        const std::string blanked = BlankLiterals(ReadFile(header));
+        ASSERT_FALSE(blanked.empty()) << "Could not read " << header.string();
+
+        // `u32 <something>ID` / `<something>Id` in a declaration. The engine's
+        // own non-resource u32s (slot, unit, mipLevel, attachmentIndex, width,
+        // bindingPoint, ...) do not end in ID, and the one that does — the
+        // debug-marker `u32 id` in PushDebugGroup — is not a resource and is
+        // spelled without a prefix, so it is excluded by requiring at least one
+        // leading character.
+        const std::regex nativeIdParam(R"(\bu32\s+[A-Za-z_]\w*(ID|Id)\b)");
+
+        std::vector<std::string> offenders;
+        for (std::sregex_iterator it(blanked.begin(), blanked.end(), nativeIdParam), end; it != end; ++it)
+        {
+            offenders.push_back(it->str());
+        }
+
+        const nlohmann::json baseline = LoadBaseline();
+        ASSERT_FALSE(baseline.is_discarded()) << "rhi_boundary_baseline.json failed to parse";
+        ExpectRatchet("facade_native_id_params", static_cast<u32>(offenders.size()), baseline);
+
+        if (::testing::Test::HasFailure())
+        {
+            std::ostringstream work;
+            work << "\n  RendererAPI parameters still naming a native resource id ("
+                 << offenders.size() << "):\n";
+            for (const auto& o : offenders)
+            {
+                work << "      " << o << "\n";
+            }
+            work << "  ADR 0011 §1.1: the facade's currency is identity, not a driver name.\n"
+                 << "  Take RHI::ResourceHandle and resolve it inside Platform/<Backend>/.\n";
             GTEST_LOG_(INFO) << work.str();
         }
     }

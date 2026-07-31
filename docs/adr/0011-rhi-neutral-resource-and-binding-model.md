@@ -978,6 +978,186 @@ lowering switch.
 
 ---
 
+## Amendments from Phase 2 step 3, part 1 (2026-07-31) — the mint
+
+Steps 1 and 2 removed GL's *vocabulary* and GL's *calls* from the sweep bucket.
+What remains is GL's *currency*: `u32 GetRendererID()` and its aliases, which
+§1.1 identified as the one integer conflating three concepts.
+
+**This part ships the producer, not the conversion.** `Renderer/RHI/RHIResourceRegistry.{h,cpp}`
+mints generation-checked `RHI::ResourceHandle`s and finally *defines* the
+`GetNativeHandleForDebug` that Phase 1 declared and left undefined. Nothing is
+converted onto it yet — which is deliberately the same shape Phase 1 shipped in
+(a vocabulary plus a ratchet), and the three new counters in
+`rhi_boundary_baseline.json` measure the remaining distance rather than
+asserting zero: `sweep_renderer_id` 700, `facade_native_id_params` 68,
+`backend_resolve_hatch` 0.
+
+**Why part 1 and part 2 rather than one change.** A full sweep was attempted and
+abandoned. It reached 127 compiler errors from an initial 1163 and would have
+converged, but it touched ~230 files and was driven largely by name-based
+scripted edits, and four defect classes surfaced along the way (§(16)). The
+decisive one rewrote a comparison on `WaterComponent::m_NoiseTexture` — an
+`AssetHandle`, not a GPU handle — because `SSAORenderPass` has a member of the
+same name that genuinely is one. It reached `Scene.cpp` and the editor's
+property panel: code with no relationship to the RHI boundary. The compiler
+caught it only because `UUID` happens to lack an `IsValid()` method.
+
+The conversion is therefore redone **subsystem by subsystem against this
+foundation**, each step small enough to read. Ordering: drive
+`facade_native_id_params` to zero first, for the same reason §1.7 gives for
+stripping the `GLenum`s before counting includes — while the facade still
+accepts a native id, every caller can keep producing one and the type system
+enforces nothing. Once it takes handles, a translation unit holding a native
+name *cannot* call it, and the remaining counters become compiler-enforced
+rather than grep-enforced.
+
+### (11) `ViewHandle` is deferred to Phase 3, paired with `HeapOffset` — decided, not skipped
+
+§1.1 names three types. Step 3 builds one of them. The reasoning, recorded here
+because the handover flagged it as the decision most likely to be got wrong:
+
+**A `ViewHandle` with no heap behind it has no behaviour that distinguishes it
+from a `ResourceHandle`.** Today every sampled resource is sampled through its
+whole self; there is no view cache, and the only view-producing API in the engine
+(`CreateDepthArrayCompareOffView`, 2 call sites) returns a *separate GL texture
+object* with its own name. Introducing a second handle type now would mean one
+view per resource, minted and retired in lockstep with it — a type whose
+generation can never disagree with the resource's, and therefore a type that
+detects nothing. That is precisely the "rename, not an abstraction" failure §1.1
+warns about, repeated one level up.
+
+**Deferring costs Phase 3 nothing**, which is the load-bearing half of the
+argument. The ~230 `BindTexture`/`BindImageTexture` sites are *already* Phase 3's
+to delete (§1.3 item 1): they become `Heap::OffsetOf(view)` written into a UBO.
+Phase 3 therefore edits every one of them regardless of whether its argument is
+spelled `ResourceHandle` or `ViewHandle` today. The only sites that would take a
+`ViewHandle` and are *not* bind sites are the two above. So deferral adds two
+call sites to Phase 3's work, not a second sweep.
+
+`HeapOffset` stays deferred for the same reason and is the matched pair: a heap
+offset without a heap is a `u32` with a wrapper. Both remain **declared** in
+`RHITypes.h` and unbuilt, which is exactly their Phase 1 status —
+`RHIResourceRegistryTest` keeps the mutual-non-convertibility `static_assert`
+alive so the property Phase 3 depends on cannot rot in the meantime.
+
+### (12) Identity is the C++ resource object, not the native name
+
+The registry entry is minted per resource *object* and survives that object's
+storage being recreated (`ResourceRegistry::UpdateNative`, reached through
+`ScopedResourceHandle::Sync`). Two consequences, and the second is a small
+correctness win rather than plumbing:
+
+- Two distinct objects never compare equal, which is the `Texture::operator==`
+  defect §1.1 names — it compared `GetRendererID()`, and GL recycles names.
+- One object stays equal to itself across an in-place hot-reload. That closes a
+  documented sharp edge: `TextureInPlaceReloadTest`'s header told consumers they
+  "must read the RendererID off the object each frame rather than caching it",
+  because GL may hand recreated storage a different name. A handle survives the
+  reload and resolves to the new name, so caching it is now safe.
+
+A framebuffer's colour/depth **attachments** get their own handles, separate from
+the FBO's. They are separate GL texture objects that the engine samples through
+`ResolveTexture`, so "the framebuffer's handle" would have been the wrong answer
+to "which texture is this".
+
+**Identity-stability has a cost, and it lands on redundant-bind caches.**
+`CommandDispatch::InvalidateTextureBinding` existed to stop a recycled GL name
+from being skipped by the cache. That failure is now structurally impossible — a
+new object always gets a new handle. But the call is still load-bearing, for the
+opposite reason: on an in-place reload the handle *deliberately does not change*,
+so a cache keyed on it can no longer detect that the storage underneath was
+replaced, and the skipped rebind would leave the texture unit empty. Any cache
+keyed on a handle needs an explicit invalidation hook on the reload path. This
+generalises to §1.2's persistent-slot caching rule: "revalidate through
+`Heap::OffsetOf` whenever the view could have changed" is the same obligation,
+and a reload is one of the changes it means.
+
+### (13) Retiring the identity is a separate act from destroying the object
+
+**An obligation part 2 must honour.** Every `Delete*` virtual needs *two*
+changes, and only the first is obvious. It must resolve its handle to a native
+name to call `glDelete*` — and it must then `Unregister` the handle. Omitting the
+second leaves the slot's generation unchanged, so a handle to a destroyed object
+keeps resolving to a name the driver is free to reissue: the recycled-name
+failure the layer exists to prevent, silently reintroduced at the one place most
+likely to be treated as mechanical. The abandoned sweep's scripted pass did the
+first and not the second, which is exactly how easy it is to miss.
+
+### (14) `.data()` erases the type you just changed
+
+`CreateQueries(RHI::QueryType, std::span<u32> outQueryIDs)` passes
+`outQueryIDs.data()` straight to `glCreateQueries`. Re-typing the span to
+`std::span<RHI::ResourceHandle>` **keeps that compiling** — and a handle is 8
+bytes where a `GLuint` is 4, so GL writes names over the first half of the handle
+array and leaves the rest zeroed. No diagnostic, no test failure, a corrupted
+query pool. (The abandoned sweep hit this; the fix is to stage through a scratch
+`std::vector<GLuint>` and register each result.)
+
+Everywhere else in step 3 the compiler was an exhaustive checker: a type change
+to a facade virtual breaks every call site at once, which is the same
+"provable rather than measured" property §1.7 credits `sweep_glad_includes` with.
+**A `.data()` boundary is where that property stops holding**, because the
+pointer type is erased at exactly the place the payload layout matters. Any
+future re-typing of a container whose contents reach a C API by pointer needs
+that call site inspected by hand; grep for `.data()` on the changed container
+before trusting a green build.
+
+### (15) The bind sites keep the call and change the currency
+
+§1.3 says `BindTexture` "does not get abstracted, it **disappears**", and that
+disappearance is Phase 3's. Step 3 must nevertheless re-type its parameter,
+because the producers (`ResolveTexture`, `GetRHIHandle`) and the consumer
+(`BindTexture`) are the two ends of one dataflow — leaving the consumer on `u32`
+means resolving a handle back to a native name in every pass, which is the
+boundary breach the whole phase exists to close. **Scope a currency change by
+dataflow, not by the phase table.**
+
+This is worth stating precisely because it looks like scope creep and is not: the
+~230 call sites stay **textually unchanged**; only the type flowing through them
+moves. Phase 3 still deletes the call, from exactly the same sites, with exactly
+the same operand.
+
+### (16) Why the sweep is not automatable by name, and what part 2 does instead
+
+The abandoned attempt is worth recording as a negative result, because the
+obvious way to do a 700-site currency change — script it — has a failure mode
+that this codebase makes concrete.
+
+**The compiler is an exhaustive checker for *types* and no checker at all for
+*intent*.** Re-typing a facade virtual breaks every caller at once, which is the
+property that makes the conversion tractable. But every diagnostic it produces
+has more than one valid repair, and the four defect classes below are all cases
+where the tooling picked a valid-looking wrong one. Three of the four were found
+by reading output, not by a failing test.
+
+| Class | Concrete instance | Blast radius | Found by |
+| --- | --- | --- | --- |
+| Unanchored identifier match | `Sort.h` matched `IntroSort.h`; `Components.h` matched seven `*Components.h` | 15 legitimate `#include`s deleted across 9 files unrelated to the task, incl. `Scene/Components.h` | reading the diff |
+| Rewrite that mangles the expression | `X.field == 0` → `X.!field.IsValid()` — negation inside the member access | 6 sites | syntax error (but the same rewrite on a form that *parses* silently inverts a guard) |
+| Wrong side of a type mismatch | `DrawKey::SetShaderID` (packs into a sort-key bit field) and `GPUResourceInspector` (calls `glBindBuffer` on the value) re-typed to take handles | 2 confirmed | one loud, one by reading the code |
+| **Cross-file name collision** | `m_NoiseTexture` is an RHI texture in `SSAORenderPass` and an **`AssetHandle`** in `WaterComponent` | 3 sites in `Scene.cpp` and the editor's property panel — the asset system, not the renderer | compiler, *by luck*: `UUID` has no `IsValid()` |
+
+The last row is the one that decided the split. A name-keyed transformation
+cannot distinguish two members that share a spelling and mean different things,
+and this codebase has at least one such pair on the exact axis being converted
+(GPU identity vs asset identity). Had the colliding type carried an `IsValid()`,
+the change would have compiled and altered a conditional in scene rendering.
+
+**Two consequences for how part 2 is done:**
+
+1. **Subsystem at a time, with a readable diff.** Not because it is faster — it
+   is not — but because the failure mode is a change that compiles and passes
+   tests. Review has to be able to see it.
+2. **Review the conditionals first.** Every defect above is either a boolean
+   guard or an include; none is a type. The type changes are the part the
+   compiler already checked.
+
+The one place the type system stops helping is recorded separately in (14); it
+is not a scripting artefact and applies however the sweep is done.
+
+---
+
 ## Consequences
 
 - The renderer carries **four** boundary concepts where it carries one today

@@ -597,6 +597,8 @@
 		# project tree; RHIBoundaryRatchetTest is what actually compiles them.
 		"OloEngine/Renderer/RHI/RHITypes.h"
 		"OloEngine/Renderer/RHI/RHIResources.h"
+		"OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+		"OloEngine/Renderer/RHI/RHIResourceRegistry.cpp"
 		"OloEngine/Renderer/RGCommandContext.cpp"
 		"OloEngine/Renderer/RGCommandContext.h"
 		"OloEngine/Renderer/RGBuilder.cpp"
