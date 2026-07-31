@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Asset/Asset.h"
+#include "OloEngine/Containers/String.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -313,6 +314,18 @@ namespace YAML
 // These provide streaming support for writing YAML files
 #ifndef OLOENGINE_YAML_EMITTER_GLM_DEFINED
 #define OLOENGINE_YAML_EMITTER_GLM_DEFINED
+
+    // FString emits as a plain scalar, exactly like std::string. Without this
+    // every FString-keyed map (Material's uniform tables, for one) fails to
+    // serialize with "no match for operator<<".
+    //
+    // Uses the raw buffer rather than ToStdString() so emitting a key costs no
+    // allocation — `*Str` is always a valid null-terminated pointer.
+    inline Emitter& operator<<(Emitter& out, const OloEngine::FString& s)
+    {
+        out << *s;
+        return out;
+    }
 
     inline Emitter& operator<<(Emitter& out, const glm::vec2& v)
     {

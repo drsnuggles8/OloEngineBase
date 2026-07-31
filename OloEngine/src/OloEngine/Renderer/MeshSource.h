@@ -13,6 +13,7 @@
 #include "OloEngine/Renderer/IndexBuffer.h"
 
 #include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 #include "OloEngine/Containers/Map.h"
 
 #include <glm/glm.hpp>
@@ -42,8 +43,13 @@ namespace OloEngine
         u32 m_IndexCount = 0;
         u32 m_VertexCount = 0;
 
-        // Variable-sized members and bool at the end
-        std::string m_NodeName, m_MeshName;
+        // Variable-sized members and bool at the end.
+        //
+        // FString, not std::string: Submesh lives in a TArray, which relocates
+        // its elements bitwise (see Containers/String.h). libstdc++'s
+        // std::string points into its own SSO buffer and does not survive that
+        // — it aborted with "free(): invalid pointer" in ~TArray<Submesh>.
+        FString m_NodeName, m_MeshName;
         bool m_IsRigged = false;
 
         // Static assertions to verify expected size optimization

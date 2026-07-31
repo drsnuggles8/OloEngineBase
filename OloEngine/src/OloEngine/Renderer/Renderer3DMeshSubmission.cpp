@@ -45,10 +45,13 @@ namespace OloEngine
                 return nullptr;
 
             const Submesh& submesh = submeshes[submeshIndex];
-            if (!submesh.m_NodeName.empty())
-                return submesh.m_NodeName.c_str();
-            if (!submesh.m_MeshName.empty())
-                return submesh.m_MeshName.c_str();
+            // UE spells the raw-buffer accessor `*Str`; it always returns a
+            // valid null-terminated pointer, and the storage outlives the call
+            // because `submesh` is a reference into the MeshSource's array.
+            if (!submesh.m_NodeName.IsEmpty())
+                return *submesh.m_NodeName;
+            if (!submesh.m_MeshName.IsEmpty())
+                return *submesh.m_MeshName;
             return nullptr;
         }
     } // namespace

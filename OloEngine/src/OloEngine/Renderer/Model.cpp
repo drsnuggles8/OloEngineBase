@@ -792,7 +792,7 @@ namespace OloEngine
                         const bool inRange = matIdx < m_Materials.size();
                         const std::string matName = (inRange && m_Materials[matIdx]) ? m_Materials[matIdx]->GetName() : "<oob>";
                         OLO_CORE_INFO("Model: cache submesh[{}] '{}' -> matIdx={} ({})",
-                                      i, sub.m_NodeName.empty() ? "<unnamed>" : sub.m_NodeName,
+                                      i, sub.m_NodeName.IsEmpty() ? "<unnamed>" : *sub.m_NodeName,
                                       matIdx, matName);
                     }
                 }

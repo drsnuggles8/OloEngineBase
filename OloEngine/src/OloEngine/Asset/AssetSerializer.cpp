@@ -2739,21 +2739,21 @@ namespace OloEngine
                 stream.WriteRaw<u32>(sub.m_VertexCount);
                 {
                     constexpr u32 MAX_SUBMESH_NAME_LEN = 1'024;
-                    if (sub.m_NodeName.size() > MAX_SUBMESH_NAME_LEN)
+                    if (static_cast<u32>(sub.m_NodeName.Len()) > MAX_SUBMESH_NAME_LEN)
                     {
                         OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Submesh {} NodeName length ({}) exceeds limit ({})",
-                                       i, sub.m_NodeName.size(), MAX_SUBMESH_NAME_LEN);
+                                       i, sub.m_NodeName.Len(), MAX_SUBMESH_NAME_LEN);
                         return false;
                     }
-                    if (sub.m_MeshName.size() > MAX_SUBMESH_NAME_LEN)
+                    if (static_cast<u32>(sub.m_MeshName.Len()) > MAX_SUBMESH_NAME_LEN)
                     {
                         OLO_CORE_ERROR("MeshSourceSerializer::SerializeToAssetPack - Submesh {} MeshName length ({}) exceeds limit ({})",
-                                       i, sub.m_MeshName.size(), MAX_SUBMESH_NAME_LEN);
+                                       i, sub.m_MeshName.Len(), MAX_SUBMESH_NAME_LEN);
                         return false;
                     }
                 }
-                stream.WriteString(sub.m_NodeName);
-                stream.WriteString(sub.m_MeshName);
+                stream.WriteString(sub.m_NodeName.ToStdString());
+                stream.WriteString(sub.m_MeshName.ToStdString());
                 stream.WriteRaw<bool>(sub.m_IsRigged);
             }
         }
@@ -3169,20 +3169,29 @@ namespace OloEngine
                 stream.ReadRaw<u32>(sub.m_MaterialIndex);
                 stream.ReadRaw<u32>(sub.m_IndexCount);
                 stream.ReadRaw<u32>(sub.m_VertexCount);
-                stream.ReadString(sub.m_NodeName);
-                stream.ReadString(sub.m_MeshName);
+                // ReadString fills a std::string&; go through temporaries and
+                // assign, so the on-disk format is untouched by the FString
+                // conversion.
+                {
+                    std::string nodeName;
+                    std::string meshName;
+                    stream.ReadString(nodeName);
+                    stream.ReadString(meshName);
+                    sub.m_NodeName = FString(nodeName);
+                    sub.m_MeshName = FString(meshName);
+                }
                 {
                     constexpr u32 MAX_SUBMESH_NAME_LEN = 1'024;
-                    if (sub.m_NodeName.size() > MAX_SUBMESH_NAME_LEN)
+                    if (static_cast<u32>(sub.m_NodeName.Len()) > MAX_SUBMESH_NAME_LEN)
                     {
                         OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Submesh {} NodeName length ({}) exceeds limit ({})",
-                                       i, sub.m_NodeName.size(), MAX_SUBMESH_NAME_LEN);
+                                       i, sub.m_NodeName.Len(), MAX_SUBMESH_NAME_LEN);
                         return false;
                     }
-                    if (sub.m_MeshName.size() > MAX_SUBMESH_NAME_LEN)
+                    if (static_cast<u32>(sub.m_MeshName.Len()) > MAX_SUBMESH_NAME_LEN)
                     {
                         OLO_CORE_ERROR("MeshSourceSerializer::DeserializeFromAssetPack - Submesh {} MeshName length ({}) exceeds limit ({})",
-                                       i, sub.m_MeshName.size(), MAX_SUBMESH_NAME_LEN);
+                                       i, sub.m_MeshName.Len(), MAX_SUBMESH_NAME_LEN);
                         return false;
                     }
                 }
