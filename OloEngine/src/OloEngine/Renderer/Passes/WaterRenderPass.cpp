@@ -54,10 +54,29 @@ namespace OloEngine
             [[maybe_unused]] const auto sceneColorRead = builder.Read(board.Scene.SceneColorTexture, RGReadUsage::ShaderSample);
         }
 
-        if (board.Scene.SceneDepthAttachment.IsValid())
+        // Sample the SNAPSHOT depth, never the live attachment.
+        //
+        // This pass renders INTO SceneColor (WriteNewVersion above), and
+        // SceneDepthAttachment is that same framebuffer's depth attachment.
+        // Sampling a texture while it is attached to the bound framebuffer is a
+        // feedback loop -- undefined behaviour in GL, not merely discouraged.
+        //
+        // Water.glsl leans on this sample hard: it reconstructs the floor
+        // behind the surface (`hasFloorBehind`, `viewPosFromDepth`) to refract
+        // it. With garbage depth the refraction shows the floor at full
+        // strength, which on Mesa/radeonsi made the magenta seafloor 20 units
+        // below the surface read straight through the water in the near field.
+        // NVIDIA happened to return usable values from the loop, so it only
+        // ever surfaced on AMD.
+        //
+        // Scene.SceneDepth is the semantic snapshot for exactly this purpose,
+        // and is what ContactShadowRenderPass and FogRenderPass already read.
+        const RGTextureHandle waterSceneDepth =
+            board.Scene.SceneDepth.IsValid() ? board.Scene.SceneDepth : board.Scene.SceneDepthAttachment;
+        if (waterSceneDepth.IsValid())
         {
-            m_SelectedSceneDepthTexture = board.Scene.SceneDepthAttachment;
-            [[maybe_unused]] const auto sceneDepthRead = builder.Read(board.Scene.SceneDepthAttachment, RGReadUsage::ShaderSample);
+            m_SelectedSceneDepthTexture = waterSceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead = builder.Read(waterSceneDepth, RGReadUsage::ShaderSample);
         }
 
         if (board.Scene.SceneViewNormals.IsValid())
