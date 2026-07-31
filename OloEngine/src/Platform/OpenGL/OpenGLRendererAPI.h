@@ -94,8 +94,12 @@ namespace OloEngine
         u32 CreateTextureCubemap(u32 width, u32 height, RHI::Format internalFormat) override;
         u32 CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers) override;
         void SetTextureFilter(u32 textureID, RHI::Filter minFilter, RHI::Filter magFilter) override;
+        void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter) override;
         void SetTextureWrap(u32 textureID, RHI::AddressMode wrap) override;
+        void SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap) override;
         void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
+                                     RHI::Format sourceFormat, const void* data) override;
+        void UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
                                      RHI::Format sourceFormat, const void* data) override;
         void DeleteTexture(u32 textureID) override;
 

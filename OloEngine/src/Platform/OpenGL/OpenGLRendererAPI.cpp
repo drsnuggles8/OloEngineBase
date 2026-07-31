@@ -1944,4 +1944,20 @@ namespace OloEngine
         RHI::ResourceRegistry::Get().Unregister(vertexArray);
     }
 
+    void OpenGLRendererAPI::SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter)
+    {
+        SetTextureFilter(Utils::ResolveNative(texture), minFilter, magFilter);
+    }
+
+    void OpenGLRendererAPI::SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap)
+    {
+        SetTextureWrap(Utils::ResolveNative(texture), wrap);
+    }
+
+    void OpenGLRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
+                                                    RHI::Format sourceFormat, const void* data)
+    {
+        UploadTextureSubImage2D(Utils::ResolveNative(texture), width, height, sourceFormat, data);
+    }
+
 } // namespace OloEngine

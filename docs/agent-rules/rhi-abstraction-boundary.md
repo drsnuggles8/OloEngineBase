@@ -467,6 +467,62 @@ Also: a framebuffer's colour/depth **attachments** are separate GL objects that
 the engine samples through `ResolveTexture`, so they need handles of their own.
 "The framebuffer's handle" is the wrong answer to "which texture is this".
 
+### The migration grain is a RESOURCE, not a layer — and migrating one is the only way to find the missing facade surface
+
+The first real call-site migration (SSAO's 4×4 noise texture) had to move its
+whole chain in one commit — create, configure, import, bind, delete — because
+`native -> handle` is unrecoverable, so a half-migrated chain has a step that
+cannot get back to the currency the next step wants.
+
+Doing it that way immediately turned up **three facade entry points that a
+breadth-first read of `RendererAPI` had missed**: `SetTextureFilter`,
+`SetTextureWrap`, `UploadTextureSubImage2D`. They were missed because the survey
+was organised around the *bind* family and the *create/delete* family, and
+texture configuration is neither. There is no reading of the facade that
+reliably enumerates what a migration needs; **migrate one real resource and let
+the compiler enumerate it for you.** Budget for it: the first pass cost 4 files
+per missing entry point (`RendererAPI`, the backend, `RenderCommand`, the mock).
+
+Related: **a sibling added at the wrong layer is invisible until a caller needs
+it.** `ImportTextureHandle` was added to `RenderGraph`, but passes reach the
+graph through `RGBuilder`, which had no forwarder — the pass could not call the
+function written for it. Same for `RGCommandContext::BindTexture`. Add a sibling
+at every layer the intended caller actually traverses, and confirm by naming the
+call site before writing it.
+
+### Delegating to the native path and stamping the identity on afterwards silently disables generation bumping
+
+`RenderGraph::ImportTextureHandle` was first written to reuse the native
+importer — `ImportTexture(name, 0u, desc)` — and then assign `phys.Handle`
+afterwards, with a comment explaining that forking the import logic would be a
+second place to fix. The reasoning was right and the implementation still broke
+the core invariant, because `AllocateTextureHandle` decides whether to retire
+prior handles with
+
+```cpp
+const bool resourceChanged = (phys.TextureID != textureID) || (phys.IsHistory != isHistory);
+```
+
+which for a handle import compares `0 != 0` on every call. Re-importing a name
+with a *different* texture kept the slot generation, so every cached
+`RGTextureHandle` stayed valid and resolved to the slot's **new** occupant —
+the recycled-name hazard the phase exists to eliminate, recreated inside the fix
+for it.
+
+The rule: **when a resource's identity is passed to a routine as an
+afterthought, it is not available to that routine's invalidation logic.** Thread
+it in as a parameter (defaulted, so the native path still compiles) and let one
+change test cover both currencies; the native path then also *clears* a stale
+identity for free, keeping "alternatives, never both" true without a second
+assignment site.
+
+Why no test caught it: the first migrated pass creates its texture once at init
+and never recreates it, so the bug is inert exactly where it was introduced. A
+pass that recreates on resize would be the first to hit it, and it would look
+like a stale frame rather than a crash. **A migration's first subject is
+usually its least demanding one** — do not treat "the migrated pass works" as
+evidence that the shared machinery it exercises is correct.
+
 ---
 
 ## 5. `ResourceTransition` looks backend-neutral and is neutral only by accident

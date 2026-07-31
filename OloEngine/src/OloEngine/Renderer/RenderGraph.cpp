@@ -646,7 +646,7 @@ namespace OloEngine
     // Typed import / resolve / extract
     // =========================================================================
 
-    RGTextureHandle RenderGraph::AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory, bool isPlaceholder, std::string_view placeholderReason)
+    RGTextureHandle RenderGraph::AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory, bool isPlaceholder, std::string_view placeholderReason, RHI::ResourceHandle identity)
     {
         RGTextureHandle handle;
 
@@ -680,7 +680,8 @@ namespace OloEngine
             // the generation when something the handle actually identifies has
             // changed; otherwise re-importing the same resource keeps prior
             // handle copies valid (avoids invalidating every consumer each frame).
-            const bool resourceChanged = (phys.TextureID != textureID) || (phys.IsHistory != isHistory);
+            const bool resourceChanged = (phys.TextureID != textureID) || !(phys.Handle == identity) ||
+                                         (phys.IsHistory != isHistory);
             const bool placeholderChanged = (slot.IsPlaceholder != isPlaceholder) ||
                                             (slot.PlaceholderReason != placeholderReason);
             const bool needsGenBump = wasOnFreeList || !slot.Alive || resourceChanged || placeholderChanged;
@@ -698,6 +699,7 @@ namespace OloEngine
             handle.Generation = slot.Generation;
 
             phys.TextureID = textureID;
+            phys.Handle = identity;
             phys.IsHistory = isHistory;
 
             m_TextureHandlesByName[std::string(name)] = handle;
@@ -729,6 +731,7 @@ namespace OloEngine
 
             auto& phys = m_PhysicalTextures[handle.Index];
             phys.TextureID = textureID;
+            phys.Handle = identity;
             phys.IsHistory = isHistory;
         }
         else
@@ -747,6 +750,7 @@ namespace OloEngine
 
             PhysicalTexture phys;
             phys.TextureID = textureID;
+            phys.Handle = identity;
             phys.IsHistory = isHistory;
             m_PhysicalTextures.push_back(std::move(phys));
         }
@@ -1143,14 +1147,22 @@ namespace OloEngine
         // The two importers must agree on naming, placeholder handling and
         // registry invalidation; forking that would be a second place to fix
         // every time the import rules change.
-        const RGTextureHandle handle = ImportTexture(name, 0u, desc);
-        if (handle.IsValid() && handle.Index < m_PhysicalTextures.size())
-        {
-            auto& phys = m_PhysicalTextures[handle.Index];
-            phys.Handle = texture;
-            phys.TextureID = 0u; // alternatives, never both — see PhysicalTexture
-        }
-        return handle;
+        RGResourceDesc importDesc = desc;
+        importDesc.Imported = true;
+        if (importDesc.Kind == RGResourceHandle::Kind::Unknown)
+            importDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        if (importDesc.DebugName.empty())
+            importDesc.DebugName = std::string(name);
+
+        m_ImportedResources[std::string(name)] = importDesc;
+        m_ResourceRegistryDirty = true;
+
+        // textureID 0 + a valid identity: alternatives, never both — see
+        // PhysicalTexture. Passing the identity down rather than stamping it
+        // on afterwards is what lets the generation bump see a recreated
+        // texture; the stamp-after form compared 0 against 0 and never did.
+        return AllocateTextureHandle(name, 0u, false, importDesc.IsPlaceholder,
+                                     importDesc.PlaceholderReason, texture);
     }
 
     RGFramebufferHandle RenderGraph::ImportFramebuffer(std::string_view name,

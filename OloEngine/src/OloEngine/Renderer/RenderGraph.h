@@ -1579,7 +1579,7 @@ namespace OloEngine
 
         // Allocate or recycle a texture handle slot and record the physical
         // resource. Called by ImportTexture / ImportHistory.
-        RGTextureHandle AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory, bool isPlaceholder = false, std::string_view placeholderReason = "");
+        RGTextureHandle AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory, bool isPlaceholder = false, std::string_view placeholderReason = "", RHI::ResourceHandle identity = {});
         RGFramebufferHandle AllocateFramebufferHandle(std::string_view name, const Ref<Framebuffer>& fb, bool isPlaceholder = false, std::string_view placeholderReason = "");
         RGBufferHandle AllocateBufferHandle(std::string_view name, u32 bufferID, bool isPlaceholder = false, std::string_view placeholderReason = "");
         [[nodiscard]] RGTextureHandle CreateVersionedTextureHandle(RGTextureHandle sourceHandle,

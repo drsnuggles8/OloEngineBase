@@ -872,6 +872,76 @@ TEST(RenderGraph, HandleImportResolvesAsAnIdentityAndNotNatively)
     registry.Unregister(identity);
 }
 
+// Re-importing the SAME name with a DIFFERENT identity must retire the old
+// RGTextureHandle, exactly as re-importing with a different native id does.
+//
+// The first implementation of ImportTextureHandle could not do this: it called
+// ImportTexture(name, 0u, ...) and stamped the identity on afterwards, so the
+// allocator's change test compared 0 against 0 and never bumped the
+// generation. Every cached handle from before the swap kept resolving — to the
+// NEW texture, since the slot is reused by name.
+//
+// Nothing in the engine catches this today: SSAO, the first migrated pass,
+// creates its noise texture once in Init and never recreates it. A pass that
+// recreates on resize (FluidIntermediatesPass' shape) would have been the
+// first to hit it, in the form of a stale-looking frame rather than a crash.
+TEST(RenderGraph, ReimportingANameWithADifferentIdentityRetiresTheOldHandle)
+{
+    auto& registry = RHI::ResourceRegistry::Get();
+    const auto first = registry.Register(RHI::ResourceKind::Texture, 7001u, RHI::Backend::OpenGL);
+    const auto second = registry.Register(RHI::ResourceKind::Texture, 7002u, RHI::Backend::OpenGL);
+    ASSERT_FALSE(first == second);
+
+    const auto desc =
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer);
+
+    RenderGraph graph;
+    const auto before = graph.ImportTextureHandle(ResourceNames::AOBuffer, first, desc);
+    ASSERT_TRUE(before.IsValid());
+    ASSERT_EQ(graph.ResolveTextureHandle(before), first);
+
+    const auto after = graph.ImportTextureHandle(ResourceNames::AOBuffer, second, desc);
+    ASSERT_TRUE(after.IsValid());
+
+    EXPECT_EQ(after.Index, before.Index) << "Import reuses the slot by name; that part is intended.";
+    EXPECT_NE(after.Generation, before.Generation)
+        << "The identity changed, so the old handle must stop being valid. Sharing a slot without "
+           "bumping the generation is precisely the recycled-name hazard this phase exists to close.";
+    EXPECT_EQ(graph.ResolveTextureHandle(after), second);
+    EXPECT_FALSE(graph.ResolveTextureHandle(before).IsValid())
+        << "A stale handle resolving to the slot's new occupant is worse than resolving to nothing: "
+           "the caller gets a real texture and no indication it is the wrong one.";
+
+    registry.Unregister(first);
+    registry.Unregister(second);
+}
+
+// The inverse direction of the same invariant. A slot that held an identity and
+// is re-imported natively must forget the identity, or PhysicalTexture would
+// carry both currencies at once and the two resolvers would disagree about what
+// the resource is.
+TEST(RenderGraph, ReimportingAHandleResourceNativelyClearsTheStaleIdentity)
+{
+    auto& registry = RHI::ResourceRegistry::Get();
+    const auto identity = registry.Register(RHI::ResourceKind::Texture, 7003u, RHI::Backend::OpenGL);
+
+    const auto desc =
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer);
+
+    RenderGraph graph;
+    const auto handleImport = graph.ImportTextureHandle(ResourceNames::AOBuffer, identity, desc);
+    ASSERT_TRUE(handleImport.IsValid());
+
+    const auto nativeImport = graph.ImportTexture(ResourceNames::AOBuffer, 55u, desc);
+    ASSERT_TRUE(nativeImport.IsValid());
+
+    EXPECT_EQ(graph.ResolveTexture(nativeImport), 55u);
+    EXPECT_FALSE(graph.ResolveTextureHandle(nativeImport).IsValid())
+        << "The identity belonged to the previous occupant of this slot.";
+
+    registry.Unregister(identity);
+}
+
 TEST(RenderGraph, PassNodesAreRetrievableAsRenderPasses)
 {
     RenderGraph graph;

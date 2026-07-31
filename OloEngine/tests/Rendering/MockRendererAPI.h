@@ -458,6 +458,29 @@ namespace OloEngine::Testing
             RHI::ResourceRegistry::Get().Unregister(vertexArray);
         }
 
+        // Texture-configuration handle forms. Added because migrating a real
+        // pass (SSAO's noise texture) needed them — the earlier breadth-first
+        // survey of the facade had missed all three, since none of them appear
+        // in the bind or create/delete families it was organised around.
+        //
+        // These deliberately record under the SAME name as their u32 siblings:
+        // a test asserting "the pass configured its texture" should keep
+        // passing across the migration, and one that wants to distinguish the
+        // currencies has the registry to check instead.
+        void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter) override
+        {
+            SetTextureFilter(Native(texture), minFilter, magFilter);
+        }
+        void SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap) override
+        {
+            SetTextureWrap(Native(texture), wrap);
+        }
+        void UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
+                                     RHI::Format sourceFormat, const void* data) override
+        {
+            UploadTextureSubImage2D(Native(texture), width, height, sourceFormat, data);
+        }
+
       private:
         [[nodiscard]] static u32 Native(RHI::ResourceHandle handle) noexcept
         {

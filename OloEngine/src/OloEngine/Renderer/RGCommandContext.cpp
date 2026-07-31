@@ -98,6 +98,11 @@ namespace OloEngine
         RenderCommand::BindTexture(slot, textureID);
     }
 
+    void RGCommandContext::BindTexture(const u32 slot, const RHI::ResourceHandle texture) const
+    {
+        RenderCommand::BindTexture(slot, texture);
+    }
+
     void RGCommandContext::MemoryBarrier(const MemoryBarrierFlags flags) const
     {
         if (flags == MemoryBarrierFlags::None)

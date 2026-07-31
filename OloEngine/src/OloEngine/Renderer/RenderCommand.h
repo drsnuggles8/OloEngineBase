@@ -377,6 +377,19 @@ namespace OloEngine
             return s_RendererAPI->CreateDepthArrayCompareOffView(srcTextureID, numLayers);
         }
 
+        static void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter)
+        {
+            s_RendererAPI->SetTextureFilter(texture, minFilter, magFilter);
+        }
+        static void SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap)
+        {
+            s_RendererAPI->SetTextureWrap(texture, wrap);
+        }
+        static void UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
+                                            RHI::Format sourceFormat, const void* data)
+        {
+            s_RendererAPI->UploadTextureSubImage2D(texture, width, height, sourceFormat, data);
+        }
         static void SetTextureFilter(u32 textureID, RHI::Filter minFilter, RHI::Filter magFilter)
         {
             s_RendererAPI->SetTextureFilter(textureID, minFilter, magFilter);

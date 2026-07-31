@@ -74,6 +74,7 @@ namespace OloEngine
         void SetCulling(bool enabled) const;
         void SetDrawBuffers(std::span<const u32> attachments) const;
         void BindTexture(u32 slot, u32 textureID) const;
+        void BindTexture(u32 slot, RHI::ResourceHandle texture) const;
         void MemoryBarrier(MemoryBarrierFlags flags) const;
         void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount = 0) const;
         // Async-compute batch boundaries.

@@ -193,12 +193,16 @@ namespace OloEngine
         // applies one mode to all three axes because no call site ever used
         // different modes per axis (WRAP_R is inert on a 2D target).
         virtual void SetTextureFilter(u32 textureID, RHI::Filter minFilter, RHI::Filter magFilter) = 0;
+        virtual void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter) = 0;
         virtual void SetTextureWrap(u32 textureID, RHI::AddressMode wrap) = 0;
+        virtual void SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap) = 0;
         // `sourceFormat` describes the layout of `data` — the CPU-side buffer —
         // NOT the texture's storage format. GL converts on upload, and the
         // engine relies on that: SSAO's noise texture is RG16Float storage fed
         // from RG32Float host data.
         virtual void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
+                                             RHI::Format sourceFormat, const void* data) = 0;
+        virtual void UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
                                              RHI::Format sourceFormat, const void* data) = 0;
         virtual void DeleteTexture(u32 textureID) = 0;
 
