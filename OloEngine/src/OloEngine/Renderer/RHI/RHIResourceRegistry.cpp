@@ -1,3 +1,4 @@
+#include <atomic>
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 
@@ -199,6 +200,14 @@ namespace OloEngine::RHI
         const u32 before = slot->Generation.load(std::memory_order_acquire);
         const u64 native = slot->Native.load(std::memory_order_relaxed);
         const auto owner = static_cast<Backend>(slot->Owner.load(std::memory_order_relaxed));
+        // The acquire on `before` stops later reads floating ABOVE it, but an
+        // acquire load does not stop earlier reads from sinking BELOW it — so
+        // without this fence the payload reads may be reordered past the second
+        // generation load and the tearing check above would validate a
+        // generation pair while returning a payload read outside it. The fence
+        // orders the preceding loads against everything after it, which is the
+        // half the two acquire loads cannot express on their own.
+        std::atomic_thread_fence(std::memory_order_acquire);
         const u32 after = slot->Generation.load(std::memory_order_acquire);
 
         if (before != handle.Generation || after != before)
@@ -222,6 +231,29 @@ namespace OloEngine::RHI
 
         const Slot* slot = SlotAt(handle.Index);
         return (slot != nullptr) && slot->Generation.load(std::memory_order_acquire) == handle.Generation;
+    }
+
+    auto ResourceRegistry::GetKind(ResourceHandle handle) const -> ResourceKind
+    {
+        if (!handle.IsValid() || handle.Index >= m_SlotCount.load(std::memory_order_acquire))
+            return ResourceKind::Unknown;
+
+        const Slot* slot = SlotAt(handle.Index);
+        if (slot == nullptr)
+            return ResourceKind::Unknown;
+
+        // Same seqlock discipline as ResolveTaggedForBackend: read the
+        // generation on both sides so a slot changing hands mid-read reports
+        // Unknown rather than the new tenant's kind.
+        const u32 before = slot->Generation.load(std::memory_order_acquire);
+        const auto kind = static_cast<ResourceKind>(slot->Kind.load(std::memory_order_relaxed));
+        std::atomic_thread_fence(std::memory_order_acquire);
+        const u32 after = slot->Generation.load(std::memory_order_acquire);
+
+        if (before != handle.Generation || after != before)
+            return ResourceKind::Unknown;
+
+        return kind;
     }
 
     auto ResourceRegistry::KindOf(ResourceHandle handle) const -> ResourceKind

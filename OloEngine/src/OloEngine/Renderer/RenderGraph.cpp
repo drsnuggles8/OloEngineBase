@@ -1123,8 +1123,19 @@ namespace OloEngine
         return versionHandle;
     }
 
-    RGTextureHandle RenderGraph::ImportTexture(std::string_view name, u32 textureID,
-                                               const RGResourceDesc& desc)
+    // The one place the texture-import rules live. Both importers route through
+    // it so they cannot drift on naming, placeholder handling or registry
+    // invalidation — and, critically, so the identity reaches
+    // AllocateTextureHandle as a PARAMETER. Stamping it onto the record after
+    // the fact (the first shape of ImportTextureHandle) left it invisible to
+    // that function's change detection, which then never bumped the generation
+    // for a handle import.
+    //
+    // `textureID` and `identity` are ALTERNATIVES, never both — see
+    // PhysicalTexture. Each importer supplies one and the null form of the other.
+    RGTextureHandle RenderGraph::ImportTextureCommon(std::string_view name, u32 textureID,
+                                                     RHI::ResourceHandle identity,
+                                                     const RGResourceDesc& desc)
     {
         RGResourceDesc importDesc = desc;
         importDesc.Imported = true;
@@ -1136,33 +1147,20 @@ namespace OloEngine
         m_ImportedResources[std::string(name)] = importDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateTextureHandle(name, textureID, false, importDesc.IsPlaceholder, importDesc.PlaceholderReason);
+        return AllocateTextureHandle(name, textureID, false, importDesc.IsPlaceholder,
+                                     importDesc.PlaceholderReason, identity);
+    }
+
+    RGTextureHandle RenderGraph::ImportTexture(std::string_view name, u32 textureID,
+                                               const RGResourceDesc& desc)
+    {
+        return ImportTextureCommon(name, textureID, RHI::ResourceHandle{}, desc);
     }
 
     RGTextureHandle RenderGraph::ImportTextureHandle(std::string_view name, RHI::ResourceHandle texture,
                                                      const RGResourceDesc& desc)
     {
-        // Deliberately reuses the native path's bookkeeping and then stamps the
-        // identity onto the record, rather than duplicating the import logic.
-        // The two importers must agree on naming, placeholder handling and
-        // registry invalidation; forking that would be a second place to fix
-        // every time the import rules change.
-        RGResourceDesc importDesc = desc;
-        importDesc.Imported = true;
-        if (importDesc.Kind == RGResourceHandle::Kind::Unknown)
-            importDesc.Kind = RGResourceHandle::Kind::Texture2D;
-        if (importDesc.DebugName.empty())
-            importDesc.DebugName = std::string(name);
-
-        m_ImportedResources[std::string(name)] = importDesc;
-        m_ResourceRegistryDirty = true;
-
-        // textureID 0 + a valid identity: alternatives, never both — see
-        // PhysicalTexture. Passing the identity down rather than stamping it
-        // on afterwards is what lets the generation bump see a recreated
-        // texture; the stamp-after form compared 0 against 0 and never did.
-        return AllocateTextureHandle(name, 0u, false, importDesc.IsPlaceholder,
-                                     importDesc.PlaceholderReason, texture);
+        return ImportTextureCommon(name, 0u, texture, desc);
     }
 
     RGFramebufferHandle RenderGraph::ImportFramebuffer(std::string_view name,
@@ -1701,6 +1699,40 @@ namespace OloEngine
             // texture, which the native path walks by name. Those chains are
             // migrated per resource, so leave them to the native resolver until
             // their own slice.
+            return {};
+        }
+
+        // A WriteNewVersion rename is bookkeeping over the SAME physical
+        // resource: the version's own slot carries no backing, so the identity
+        // lives on the base resource. The native resolver walks this chain and
+        // this one must too — without it a migrated resource in any
+        // read-modify-write chain resolves to the null handle on every
+        // versioned read, which is indistinguishable at the call site from the
+        // documented "imported as a native id" meaning below.
+        //
+        // Mirrors ResolveTexture's walk exactly: by-name (NOT GetTextureHandle,
+        // whose latest-version redirect would loop), ITERATIVE and depth-capped
+        // so a self- or mutually-referencing alias map cannot recurse the stack
+        // to death.
+        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name);
+            aliasIt != m_VersionAliasTargets.end())
+        {
+            const std::string* current = &aliasIt->second;
+            for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
+            {
+                const auto sourceIt = m_TextureHandlesByName.find(*current);
+                if (sourceIt == m_TextureHandlesByName.end() || !IsTextureHandleCurrent(sourceIt->second))
+                    return {};
+
+                // Terminal link — resolve it so view/placeholder handling still
+                // runs. It is not itself a rename, so this cannot re-enter here.
+                const auto nextIt = m_VersionAliasTargets.find(*current);
+                if (nextIt == m_VersionAliasTargets.end())
+                    return ResolveTextureHandle(sourceIt->second);
+
+                current = &nextIt->second;
+            }
+
             return {};
         }
 

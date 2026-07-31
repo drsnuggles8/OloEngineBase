@@ -141,7 +141,7 @@
     "                           u32` alias, the backend's m_RendererID member)",
     "                           outside Platform/ and Renderer/Debug/. A native",
     "                           object name may not be NAMED there, let alone held.",
-    "                           700 across 79 files; the heaviest are",
+    "                           699 across 79 files; the heaviest are",
     "                           Renderer3DMeshSubmission.cpp (70),",
     "                           Commands/RenderCommand.h (68),",
     "                           Commands/CommandDispatch.cpp (67), Scene.cpp (65).",

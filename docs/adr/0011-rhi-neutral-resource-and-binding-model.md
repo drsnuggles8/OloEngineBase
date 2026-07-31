@@ -993,6 +993,20 @@ converted onto it yet — which is deliberately the same shape Phase 1 shipped i
 asserting zero: `sweep_renderer_id` 700, `facade_native_id_params` 68,
 `backend_resolve_hatch` 0.
 
+> **Status note (post-part-1).** The paragraph above describes what *part 1*
+> shipped and is kept as written for that reason. Conversion has since begun:
+> SSAO migrated end-to-end and `sweep_renderer_id` now stands at **699**. The
+> live values are always the ones in `rhi_boundary_baseline.json`; numbers
+> quoted in prose here and in
+> [rhi-abstraction-boundary.md](../agent-rules/rhi-abstraction-boundary.md) date
+> their paragraph rather than tracking the ratchet.
+>
+> Note also that `sweep_renderer_id` matches the *accessor name* `RendererID`,
+> not the currency, so it is a regression ratchet rather than a burn-down: a
+> resource whose call sites never spell `RendererID` can migrate completely
+> without moving it. `facade_native_id_params` reaching 0 is the completion
+> criterion.
+
 **Why part 1 and part 2 rather than one change.** A full sweep was attempted and
 abandoned. It reached 127 compiler errors from an initial 1163 and would have
 converged, but it touched ~230 files and was driven largely by name-based

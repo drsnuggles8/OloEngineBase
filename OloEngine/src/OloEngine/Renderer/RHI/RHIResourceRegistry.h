@@ -106,6 +106,13 @@ namespace OloEngine::RHI
         // null handle. This says the object it names is still alive.
         [[nodiscard]] auto IsLive(ResourceHandle handle) const -> bool;
 
+        // The kind this handle was registered as, or ResourceKind::Unknown when
+        // the handle is stale. GL names are per-object-type, so a texture and a
+        // buffer can both be name 1 — the generation cannot tell those apart
+        // because both handles are live. Backends use this to refuse a handle
+        // handed to the wrong family.
+        [[nodiscard]] auto GetKind(ResourceHandle handle) const -> ResourceKind;
+
         [[nodiscard]] auto KindOf(ResourceHandle handle) const -> ResourceKind;
 
         // ---------------------------------------------------------------------
@@ -265,8 +272,16 @@ namespace OloEngine::RHI
         // registry's write lock here is not a hot-path cost.
         void Sync(ResourceKind kind, u64 nativeHandle, Backend owner)
         {
-            if (!m_Handle.IsValid())
+            // IsValid() is a STRUCTURAL test on the handle's own bits — it says
+            // nothing about whether the registry still holds the entry. After a
+            // ResourceRegistry::Clear() every handle still reads as valid while
+            // its slot is gone, so rebinding on IsValid() alone would write the
+            // native id into a slot that may since have been handed to someone
+            // else. Ask the registry instead, and re-adopt when the entry is no
+            // longer ours.
+            if (!ResourceRegistry::Get().IsLive(m_Handle))
             {
+                m_Handle = {};
                 if (nativeHandle != 0u)
                 {
                     Adopt(kind, nativeHandle, owner);

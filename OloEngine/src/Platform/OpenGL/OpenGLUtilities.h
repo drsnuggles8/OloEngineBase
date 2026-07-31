@@ -28,6 +28,27 @@ namespace OloEngine::Utils
     {
         return static_cast<GLuint>(RHI::ResourceRegistry::Get().ResolveNativeForBackend(handle));
     }
+
+    // Kind-checked form. GL names are per-object-type, so a buffer and a texture
+    // can both legitimately be name 1 — meaning a handle passed to the wrong
+    // family resolves to a real, valid, completely unrelated GL object rather
+    // than failing. The generation cannot catch that: both handles are live.
+    //
+    // Prefer this wherever the call site knows the family it wants (every
+    // texture bind, every buffer bind). Returns 0 on a mismatch, which lands on
+    // the same benign degradation the unchecked form documents above: binding 0
+    // unbinds, glDelete*(0) is a no-op.
+    [[nodiscard]] inline GLuint ResolveNativeAs(RHI::ResourceHandle handle, RHI::ResourceKind expected) noexcept
+    {
+        auto& registry = RHI::ResourceRegistry::Get();
+        if (handle.IsValid() && registry.GetKind(handle) != expected)
+        {
+            OLO_CORE_WARN("ResolveNativeAs: handle {} is not a {} — refusing to resolve it as one.",
+                          handle, RHI::ToString(expected));
+            return 0u;
+        }
+        return static_cast<GLuint>(registry.ResolveNativeForBackend(handle));
+    }
     // Drain any pending GL error(s) so a subsequent glGetError() check reflects
     // only the operation it guards, not an error leaked in by an unrelated earlier
     // GL call in the same context. Without this, a leaked error is misattributed

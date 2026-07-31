@@ -1844,38 +1844,38 @@ namespace OloEngine
     // -------------------------------------------------------------------------
     void OpenGLRendererAPI::BindTexture(u32 slot, RHI::ResourceHandle texture)
     {
-        BindTexture(slot, Utils::ResolveNative(texture));
+        BindTexture(slot, Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture));
     }
 
     void OpenGLRendererAPI::BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
                                              u32 layer, RHI::Access access, RHI::Format format)
     {
-        BindImageTexture(unit, Utils::ResolveNative(texture), mipLevel, layered, layer, access, format);
+        BindImageTexture(unit, Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), mipLevel, layered, layer, access, format);
     }
 
     void OpenGLRendererAPI::BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
     {
-        BindUniformBuffer(bindingPoint, Utils::ResolveNative(buffer));
+        BindUniformBuffer(bindingPoint, Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer));
     }
 
     void OpenGLRendererAPI::BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
     {
-        BindStorageBuffer(bindingPoint, Utils::ResolveNative(buffer));
+        BindStorageBuffer(bindingPoint, Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer));
     }
 
     void OpenGLRendererAPI::BindShaderProgram(RHI::ResourceHandle program)
     {
-        BindShaderProgram(Utils::ResolveNative(program));
+        BindShaderProgram(Utils::ResolveNativeAs(program, RHI::ResourceKind::ShaderProgram));
     }
 
     void OpenGLRendererAPI::BindVertexArrayRaw(RHI::ResourceHandle vertexArray)
     {
-        BindVertexArrayRaw(Utils::ResolveNative(vertexArray));
+        BindVertexArrayRaw(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray));
     }
 
     void OpenGLRendererAPI::BindFramebuffer(RHI::ResourceHandle framebuffer)
     {
-        BindFramebuffer(Utils::ResolveNative(framebuffer));
+        BindFramebuffer(Utils::ResolveNativeAs(framebuffer, RHI::ResourceKind::Framebuffer));
     }
 
     // -------------------------------------------------------------------------
@@ -1922,42 +1922,42 @@ namespace OloEngine
 
     void OpenGLRendererAPI::DeleteTexture(RHI::ResourceHandle texture)
     {
-        DeleteTexture(Utils::ResolveNative(texture));
+        DeleteTexture(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture));
         RHI::ResourceRegistry::Get().Unregister(texture);
     }
 
     void OpenGLRendererAPI::DeleteFramebuffer(RHI::ResourceHandle framebuffer)
     {
-        DeleteFramebuffer(Utils::ResolveNative(framebuffer));
+        DeleteFramebuffer(Utils::ResolveNativeAs(framebuffer, RHI::ResourceKind::Framebuffer));
         RHI::ResourceRegistry::Get().Unregister(framebuffer);
     }
 
     void OpenGLRendererAPI::DeleteBuffer(RHI::ResourceHandle buffer)
     {
-        DeleteBuffer(Utils::ResolveNative(buffer));
+        DeleteBuffer(Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer));
         RHI::ResourceRegistry::Get().Unregister(buffer);
     }
 
     void OpenGLRendererAPI::DeleteVertexArray(RHI::ResourceHandle vertexArray)
     {
-        DeleteVertexArray(Utils::ResolveNative(vertexArray));
+        DeleteVertexArray(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray));
         RHI::ResourceRegistry::Get().Unregister(vertexArray);
     }
 
     void OpenGLRendererAPI::SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter)
     {
-        SetTextureFilter(Utils::ResolveNative(texture), minFilter, magFilter);
+        SetTextureFilter(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), minFilter, magFilter);
     }
 
     void OpenGLRendererAPI::SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap)
     {
-        SetTextureWrap(Utils::ResolveNative(texture), wrap);
+        SetTextureWrap(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), wrap);
     }
 
     void OpenGLRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
                                                     RHI::Format sourceFormat, const void* data)
     {
-        UploadTextureSubImage2D(Utils::ResolveNative(texture), width, height, sourceFormat, data);
+        UploadTextureSubImage2D(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), width, height, sourceFormat, data);
     }
 
 } // namespace OloEngine

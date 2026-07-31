@@ -358,10 +358,18 @@ with no heap behind it has one view per resource and therefore detects nothing,
 and deferring adds *two* call sites to Phase 3, not a second sweep, because the
 ~230 bind sites are already Phase 3's to delete).
 
-**The conversion itself is deliberately NOT done yet, and a full-sweep attempt
-was abandoned rather than finished.** The counters say how far there is to go:
-`sweep_renderer_id` 700 across 79 files, `facade_native_id_params` 68. Everything
-below is what that attempt learned — treat it as a checklist, not history.
+**A full-sweep attempt was abandoned rather than finished; conversion is now
+proceeding slice by slice instead.** The counters say how far there is to go —
+read the live values from `rhi_boundary_baseline.json`, not from this paragraph
+(at the time of writing `sweep_renderer_id` is 699, `facade_native_id_params`
+68). Everything below is what that attempt learned — treat it as a checklist,
+not history.
+
+**Do not use `sweep_renderer_id` as a progress meter.** It matches the accessor
+*name* `RendererID`, not the currency. The first fully-migrated resource (SSAO's
+noise texture) was five native-id call sites and zero `RendererID` spellings, so
+migrating it end-to-end moved the counter by 0. It is a regression ratchet;
+`facade_native_id_params` reaching 0 is the completion criterion.
 
 **Do `facade_native_id_params` first.** Same ordering logic §1.7 gives for
 stripping the `GLenum`s before counting includes: while `RendererAPI` still
