@@ -9,8 +9,6 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 
-#include <glad/gl.h>
-
 #include <array>
 
 namespace OloEngine
@@ -134,11 +132,7 @@ namespace OloEngine
             m_SceneFramebuffer->Bind();
             if (sceneColorAttachmentCount > 0)
             {
-                std::array<GLenum, 16> drawBufs{};
-                const u32 n = std::min<u32>(sceneColorAttachmentCount, static_cast<u32>(drawBufs.size()));
-                for (u32 i = 0; i < n; ++i)
-                    drawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
-                glNamedFramebufferDrawBuffers(sceneFBID, static_cast<GLsizei>(n), drawBufs.data());
+                RenderCommand::RestoreAllFramebufferDrawAttachments(sceneFBID, sceneColorAttachmentCount);
             }
             context.SetDepthTest(true);
             context.ResetOpaqueForwardDrawState();
@@ -172,7 +166,7 @@ namespace OloEngine
             // pipeline; the Hi-Z build samples it as a texture. Order the
             // framebuffer-write → texture-fetch (UE gets this from RDG; here it
             // is an explicit GL 4.5 texture barrier).
-            ::glTextureBarrier();
+            RenderCommand::TextureBarrier();
 
             const GPUFrustumCuller::HZBOcclusionInputs currentHZB =
                 Renderer3D::BuildCurrentOcclusionHZB(depthTexID, sceneSpec.Width, sceneSpec.Height);
@@ -202,27 +196,28 @@ namespace OloEngine
             const u32 sceneDepthExportID = m_SelectedSceneDepth.IsValid() ? context.ResolveTexture(m_SelectedSceneDepth) : 0u;
             if (sceneDepthExportID != 0u && fbDepthID != 0u && sceneDepthExportID != fbDepthID)
             {
-                ::glCopyImageSubData(fbDepthID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                                     sceneDepthExportID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                                     static_cast<GLsizei>(sceneSpec.Width), static_cast<GLsizei>(sceneSpec.Height), 1);
+                RenderCommand::CopyImageSubData(fbDepthID, RendererAPI::TextureTargetType::Texture2D,
+                                                sceneDepthExportID, RendererAPI::TextureTargetType::Texture2D,
+                                                sceneSpec.Width, sceneSpec.Height);
             }
             // RT2 is the octahedral view-normal attachment in the forward layout.
             const u32 fbNormalsID = sceneColorAttachmentCount > 2 ? m_SceneFramebuffer->GetColorAttachmentRendererID(2) : 0u;
             const u32 sceneNormalsExportID = m_SelectedSceneNormals.IsValid() ? context.ResolveTexture(m_SelectedSceneNormals) : 0u;
             if (sceneNormalsExportID != 0u && fbNormalsID != 0u && sceneNormalsExportID != fbNormalsID)
             {
-                ::glCopyImageSubData(fbNormalsID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                                     sceneNormalsExportID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                                     static_cast<GLsizei>(sceneSpec.Width), static_cast<GLsizei>(sceneSpec.Height), 1);
+                RenderCommand::CopyImageSubData(fbNormalsID, RendererAPI::TextureTargetType::Texture2D,
+                                                sceneNormalsExportID, RendererAPI::TextureTargetType::Texture2D,
+                                                sceneSpec.Width, sceneSpec.Height);
             }
         }
 
         context.ResetOpaqueForwardDrawState();
-        ::glBlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
+        RenderCommand::SetBlendFuncSeparate(RHI::BlendFactor::One, RHI::BlendFactor::Zero,
+                                            RHI::BlendFactor::One, RHI::BlendFactor::Zero);
 
         m_SceneFramebuffer->Unbind();
-        ::glBindVertexArray(0);
-        ::glUseProgram(0);
+        RenderCommand::BindVertexArrayRaw(0);
+        RenderCommand::BindShaderProgram(0);
 
         m_Phase2Packets.clear();
         m_Phase2Culls.clear();

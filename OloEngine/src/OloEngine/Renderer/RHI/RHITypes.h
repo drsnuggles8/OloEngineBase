@@ -448,4 +448,81 @@ namespace OloEngine::RHI
         Compute,
         Transfer,
     };
+
+    // -------------------------------------------------------------------------
+    // Added in Phase 2 step 2 (the call-site sweep) — ADR 0011 amendment (10).
+    //
+    // Step 1 converted the facade's existing vocabulary; step 2 discovered the
+    // facade was also INCOMPLETE. 84 distinct GL entry points appear at the 313
+    // swept call sites and roughly 60% of them had no RendererAPI equivalent at
+    // all — whole categories (buffer lifecycle, named-framebuffer state,
+    // queries, fences) that every pass reached past the facade to perform. The
+    // enums below are the neutral vocabulary those ~60 new virtuals needed.
+    // -------------------------------------------------------------------------
+
+    // The two query kinds the engine actually issues: OcclusionQueryPool's
+    // visibility test and PrecipitationSystem's GPU timer. Deliberately NOT a
+    // mirror of GL's query-target space — that would re-export GL under a new
+    // spelling, the mistake amendment (3) called out for SetTextureParameter.
+    enum class QueryType : u8
+    {
+        OcclusionAnySamples = 0, ///< GL_ANY_SAMPLES_PASSED / VK_QUERY_TYPE_OCCLUSION
+        TimeElapsed,             ///< GL_TIME_ELAPSED / a VK_QUERY_TYPE_TIMESTAMP pair
+    };
+
+    // The four outcomes of a client-side fence wait. Mirrors glClientWaitSync's
+    // return set; a Vulkan backend folds VK_SUCCESS into ConditionSatisfied and
+    // VK_TIMEOUT into TimeoutExpired. AlreadySignaled is kept distinct from
+    // ConditionSatisfied because the caller uses it to skip a flush.
+    enum class FenceStatus : u8
+    {
+        AlreadySignaled = 0,
+        ConditionSatisfied,
+        TimeoutExpired,
+        Failed,
+    };
+
+    // Which aspect(s) of a framebuffer a blit moves. Colour and depth are never
+    // combined at any call site in the engine (an MRT resolve must select one
+    // read/draw attachment pair at a time), so this is a plain enum rather than
+    // a flag set.
+    enum class BlitAspect : u8
+    {
+        Color = 0,
+        Depth,
+        Stencil,
+        DepthStencil,
+    };
+
+    // Where a buffer's memory lives, expressed as intent rather than as a heap
+    // index. The GL backend maps these onto buffer-storage usage hints; a Vulkan
+    // backend maps them onto VMA usage hints. Naming them by intent is what keeps
+    // the choice reviewable — "this buffer is written once per frame by the CPU"
+    // is a fact about the engine, "VK_MEMORY_PROPERTY_HOST_COHERENT_BIT" is not.
+    //
+    // MOVED here from RHIResources.h in Phase 2 step 2. Phase 1 had already
+    // designed exactly this and put it next to BufferDesc, where nothing outside
+    // the (then declaration-only) resource header could reach it; the sweep
+    // started to reinvent it as a "BufferUsage" access-pattern enum and only the
+    // resulting NAME COLLISION with RHIResources.h's bind-flag BufferUsage
+    // surfaced the duplication. Recorded because the near-miss is the lesson:
+    // when a phase leaves a declaration-only header, later phases must read it
+    // for vocabulary they are about to invent, not just for the types they
+    // consume. RendererAPI.h includes only RHITypes.h, which is why it lives
+    // here now rather than being reachable only alongside BufferDesc.
+    enum class MemoryResidency : u8
+    {
+        DeviceLocal = 0, ///< GPU-only; GPU writes and reads (compute output, copy target)
+        HostToDevice,    ///< CPU writes each frame, GPU reads (per-frame UBOs, upload arenas)
+        DeviceToHost,    ///< GPU writes, CPU reads back (readback staging, query results)
+    };
+
+    // "This draw slot writes nowhere" in a framebuffer draw-attachment list.
+    //
+    // Not expressible as an attachment index, and BOTH backends need it:
+    // GL spells it GL_NONE inside glNamedFramebufferDrawBuffers, Vulkan spells
+    // it VK_ATTACHMENT_UNUSED inside VkSubpassDescription::pColorAttachments.
+    // DecalRenderPass depends on it to steer one decal into exactly one
+    // G-Buffer attachment while leaving the others untouched.
+    inline constexpr u32 NoAttachment = std::numeric_limits<u32>::max();
 } // namespace OloEngine::RHI

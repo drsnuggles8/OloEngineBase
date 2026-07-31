@@ -15,10 +15,12 @@
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
+    // Draw slot 0 -> colour attachment 0, nothing else. Hoisted to file
+    // scope so the several blit helpers below share one definition.
+    static constexpr std::array<u32, 1> kAttachment0Only = { 0u };
+
     SceneRenderPass::SceneRenderPass()
     {
         SetName("SceneRenderPass");
@@ -418,11 +420,9 @@ namespace OloEngine
             if (exportedTextureID == 0u || exportedTextureID == sourceTextureID)
                 return;
 
-            glCopyImageSubData(sourceTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                               exportedTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                               static_cast<GLsizei>(m_FramebufferSpec.Width),
-                               static_cast<GLsizei>(m_FramebufferSpec.Height),
-                               1);
+            RenderCommand::CopyImageSubData(sourceTextureID, RendererAPI::TextureTargetType::Texture2D,
+                                            exportedTextureID, RendererAPI::TextureTargetType::Texture2D,
+                                            m_FramebufferSpec.Width, m_FramebufferSpec.Height);
         };
 
         const u32 sourceDepthID = deferredActive && m_GBuffer
@@ -586,11 +586,6 @@ namespace OloEngine
             if (!isDepth && att.TextureFormat != FramebufferTextureFormat::None)
                 ++targetColorCount;
         }
-        std::array<GLenum, 16> fullDrawBufs{};
-        const u32 fullN = std::min<u32>(targetColorCount, static_cast<u32>(fullDrawBufs.size()));
-        for (u32 i = 0; i < fullN; ++i)
-            fullDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
-
         // Channel 3 (RMA) needs data from TWO attachments — RT0.a (metallic)
         // and RT1.zw (roughness, AO). glBlitFramebuffer cannot swizzle, so
         // use a dedicated fullscreen shader for this one channel.
@@ -604,8 +599,7 @@ namespace OloEngine
             m_Target->Bind();
 
             const u32 dstFB = m_Target->GetRendererID();
-            const GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0 };
-            glNamedFramebufferDrawBuffers(dstFB, 1, drawBufs);
+            RenderCommand::SetFramebufferDrawAttachments(dstFB, kAttachment0Only);
 
             const u32 w = m_GBuffer->GetWidth();
             const u32 h = m_GBuffer->GetHeight();
@@ -628,24 +622,24 @@ namespace OloEngine
             // downstream passes (post-process, UI) find the expected slots
             // (including RT3 velocity for TAA). Count is computed from the
             // FB spec above rather than hardcoded.
-            glNamedFramebufferDrawBuffers(dstFB, static_cast<GLsizei>(fullN), fullDrawBufs.data());
+            RenderCommand::RestoreAllFramebufferDrawAttachments(dstFB, targetColorCount);
 
             RenderCommand::SetDepthMask(true);
             RenderCommand::SetDepthTest(true);
 
             // Copy depth across so selection-outline / UI still depth-test.
             const u32 srcFB = m_GBuffer->GetSamplingFramebuffer()->GetRendererID();
-            glBlitNamedFramebuffer(
+            RenderCommand::BlitFramebuffer(
                 srcFB, dstFB,
-                0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-                0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-                GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+                0, 0, static_cast<i32>(w), static_cast<i32>(h),
+                0, 0, static_cast<i32>(w), static_cast<i32>(h),
+                RHI::BlitAspect::Depth, RHI::Filter::Nearest);
 
             // Unbind the blit shader + VAO so the RAII guard sees us leave
             // shader/program/VAO state at zero, matching entry expectations
             // for downstream passes that rebind their own.
-            ::glUseProgram(0);
-            ::glBindVertexArray(0);
+            RenderCommand::BindShaderProgram(0);
+            RenderCommand::BindVertexArrayRaw(0);
             return;
         }
 
@@ -675,37 +669,35 @@ namespace OloEngine
         const u32 h = m_GBuffer->GetHeight();
 
         // Select source attachment on the read FB and destination attachment 0
-        // on the draw FB. glBlitNamedFramebuffer requires both FBs to have
-        // the read/draw buffers pre-selected; do so via DSA.
-        const GLenum srcAttach = GL_COLOR_ATTACHMENT0 + attachmentIndex;
-        glNamedFramebufferReadBuffer(srcFB, srcAttach);
-        const GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0 };
-        glNamedFramebufferDrawBuffers(dstFB, 1, drawBufs);
+        // on the draw FB. A framebuffer blit requires both FBs to have their
+        // read / draw attachments pre-selected.
+        RenderCommand::SetFramebufferReadAttachment(srcFB, attachmentIndex);
+        RenderCommand::SetFramebufferDrawAttachments(dstFB, kAttachment0Only);
 
-        glBlitNamedFramebuffer(
+        RenderCommand::BlitFramebuffer(
             srcFB, dstFB,
-            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-            GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            0, 0, static_cast<i32>(w), static_cast<i32>(h),
+            0, 0, static_cast<i32>(w), static_cast<i32>(h),
+            RHI::BlitAspect::Color, RHI::Filter::Nearest);
 
         // Restore the draw FB's draw-buffer list using the count captured
         // from the target FB spec above — narrowing to fewer attachments
         // would drop later-shader outputs (e.g. PBR_MultiLight's motion
         // vector at layout(location=3)), breaking TAA/MotionBlur.
-        glNamedFramebufferDrawBuffers(dstFB, static_cast<GLsizei>(fullN), fullDrawBufs.data());
+        RenderCommand::RestoreAllFramebufferDrawAttachments(dstFB, targetColorCount);
 
         // Also copy depth so downstream passes (post-process, selection
         // outline, UI) have a coherent depth buffer.
-        glBlitNamedFramebuffer(
+        RenderCommand::BlitFramebuffer(
             srcFB, dstFB,
-            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-            GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+            0, 0, static_cast<i32>(w), static_cast<i32>(h),
+            0, 0, static_cast<i32>(w), static_cast<i32>(h),
+            RHI::BlitAspect::Depth, RHI::Filter::Nearest);
 
         // Reset the G-Buffer's read buffer to attachment 0 so any downstream
         // read on that FB picks up a deterministic default instead of the
         // last debug channel we selected.
-        glNamedFramebufferReadBuffer(srcFB, GL_COLOR_ATTACHMENT0);
+        RenderCommand::SetFramebufferReadAttachment(srcFB, 0);
     }
 
     void SceneRenderPass::BlitForwardVelocityDebug()
@@ -743,28 +735,22 @@ namespace OloEngine
             if (!isDepth && att.TextureFormat != FramebufferTextureFormat::None)
                 ++colorCount;
         }
-        std::array<GLenum, 16> prevDrawBufs{};
-        const u32 n = std::min<u32>(colorCount, static_cast<u32>(prevDrawBufs.size()));
-        for (u32 i = 0; i < n; ++i)
-            prevDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
+        RenderCommand::SetFramebufferReadAttachment(fb, 3);
+        RenderCommand::SetFramebufferDrawAttachments(fb, kAttachment0Only);
 
-        glNamedFramebufferReadBuffer(fb, GL_COLOR_ATTACHMENT3);
-        const GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0 };
-        glNamedFramebufferDrawBuffers(fb, 1, drawBufs);
-
-        glBlitNamedFramebuffer(
+        RenderCommand::BlitFramebuffer(
             fb, fb,
-            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-            GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            0, 0, static_cast<i32>(w), static_cast<i32>(h),
+            0, 0, static_cast<i32>(w), static_cast<i32>(h),
+            RHI::BlitAspect::Color, RHI::Filter::Nearest);
 
         // Restore the scene FB's full multi-attachment draw-buffer list for
         // downstream passes (post-process, UI composite); see comment above.
-        glNamedFramebufferDrawBuffers(fb, static_cast<GLsizei>(n), prevDrawBufs.data());
+        RenderCommand::RestoreAllFramebufferDrawAttachments(fb, colorCount);
 
         // Reset the read buffer selection so subsequent reads on this FB
         // see the default (attachment 0) rather than the velocity slot.
-        glNamedFramebufferReadBuffer(fb, GL_COLOR_ATTACHMENT0);
+        RenderCommand::SetFramebufferReadAttachment(fb, 0);
     }
 
     void SceneRenderPass::OnReset()

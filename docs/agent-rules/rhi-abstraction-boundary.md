@@ -140,6 +140,50 @@ The safe predicate for removing an include is "zero GL calls **and** zero
 ratchet's call pattern, which is deliberately narrower because it is measuring
 something else.
 
+Step 2 finished with exactly four files still including `<glad/gl.h>`, and they
+split along this line. Three — `BloomRenderPass.cpp`, `OITResolveRenderPass.cpp`
+and `ShaderPack.cpp` — named no `GL*` identifier at all, so the include just fell
+out. The fourth hit the second case: `UIRenderer.cpp` made **zero** GL calls but
+typed its clip-rect stack in `GLint`/`GLsizei`. Those values are scissor-rect
+*coordinates* — `i32`/`u32` — and `RenderCommand::SetScissorBox` already took
+engine types, so the GL spelling was pure inertia. It was nonetheless
+load-bearing: delete the include without retyping the struct and the file does
+not compile.
+
+### A `Platform/<Backend>/` include leaks just as much, and this scan cannot see it either
+
+The PCH is the transitive path everyone warns about. There is a second one that
+is much easier to walk into, because it looks like ordinary engine code:
+
+> Three passes — `FluidIntermediatesPass`, `WaterRenderPass`,
+> `VirtualMeshRegistry` — included `Platform/OpenGL/OpenGLUtilities.h` to
+> construct `Utils::GLClearProgramGuard` around their clears. That header
+> includes `<glad/gl.h>`. Deleting each file's *direct* glad include would have
+> driven `sweep_glad_includes` to zero while all three TUs could still name
+> every symbol in OpenGL.
+
+That is the counter-gaming the baseline's own `_comment` warns about, arrived at
+honestly rather than deliberately — which is what makes it worth recording.
+
+**The fix is a layering question, not an include question.** `GLClearProgramGuard`
+exists because an NVIDIA driver revalidates the bound program at clear time
+(`gl-clear-program-revalidation.md`). That is *backend knowledge*. It belongs
+inside `OpenGLRendererAPI::Clear{Texture,Buffer,FramebufferColorAttachment,
+FramebufferDepth}` — where `ClearDepthOnly()` had been carrying it correctly all
+along. Once the guard moved down, the passes needed no backend header at all.
+
+Generalisable: when a module outside a boundary constructs a helper from inside
+it, the helper is usually on the wrong side. Ask what knowledge the helper
+encodes; if the answer names a vendor, a driver or an API, it belongs to the
+backend, and the call site should be getting the behaviour for free rather than
+opting into it.
+
+Audit `Platform/<Backend>/` includes from the sweep bucket **by hand**, on the
+same schedule as the PCH. Note the *factory* files (`Texture.cpp`, `Shader.cpp`,
+`VertexBuffer.cpp`, …) legitimately include their backend counterparts to
+construct one in `Create()` — those are the pattern working as intended, not
+leaks, and Phase 4 adds a Vulkan branch beside them.
+
 ### Expect to ADD a few includes, and do not read that as a regression
 
 ADR 0011 §0 measured that 3 of the 42 GL-calling files had no direct
@@ -151,6 +195,94 @@ monotonically during Phase 2: it drops by the number of zero-call includers
 removed and rises by ~3. That is the counter becoming *honest*, not a
 regression, and it is worth predicting so nobody "fixes" it by re-hiding those
 files behind a transitive include.
+
+---
+
+## 2b. The facade was not just GL-typed, it was **incomplete** — and that is the bigger number
+
+Step 1 rewrote the vocabulary of `RendererAPI`'s 74 existing virtuals. Step 2
+then discovered that stripping `GLenum` was the smaller half of the job:
+
+> **84 distinct GL entry points** appear across the 313 swept call sites, and
+> **54 of them had no `RendererAPI` equivalent at all.** Closing that gap took
+> **60 new virtuals** — nearly doubling a 74-virtual facade.
+
+Keep those two numbers distinct rather than folding them into one percentage: an
+entry point can expand into more than one virtual (`glClearTexImage` becomes a
+float clear and a uint clear; the readbacks each gained a `bool` return). 54 is
+the size of the gap, 60 is the size of the fix.
+
+Whole categories had simply never been abstracted, so every pass reached past the
+facade to perform them: buffer binding points (`glBindBufferBase`, 26 sites),
+raw buffer lifecycle (the virtual-geometry arena + persistent-mapped upload
+ring), named-framebuffer state (draw/read attachment selection, clears, blits,
+attachment, completeness), occlusion and timer queries, fences, VAO lifecycle,
+texture clear/readback, debug markers.
+
+**The lesson, and it generalises past this phase:** an abstraction's
+completeness is not measured by how many call sites it already serves, but by
+how many distinct *operations* the layer above performs. 74 virtuals looked like
+a thorough facade while 60 operations went around it — because each of those was
+rare enough (1–3 sites) to read as a special case. Frequency was not the signal
+either: `glBindBufferBase` had 26 sites and was still missing.
+
+Practical consequence for a future phase: before starting a sweep, histogram the
+**distinct entry points**, not the call count. The call count tells you how much
+typing you face; the entry-point histogram tells you how much *designing* you
+face, and that is the part that cannot be delegated or hurried.
+
+### Read the previous phase's declaration-only header for VOCABULARY, not just for types
+
+The sweep needed to tell `AllocateBufferStorage` how a buffer's memory is used,
+and began inventing `RHI::BufferUsage { DynamicDraw, DynamicCopy, DynamicRead }`
+— a straight transcription of GL's `glNamedBufferData` hints, which is exactly
+the mistake this whole phase exists to stop.
+
+Phase 1 had **already designed that concept**, and better: `RHI::MemoryResidency
+{ DeviceLocal, HostToDevice, DeviceToHost }`, named by intent rather than by GL's
+spelling, three members mapping one-to-one onto the need. It was invisible
+because it sat beside `BufferDesc` in `RHIResources.h` — a header nothing
+consumed yet — while `RendererAPI.h` includes only `RHITypes.h`.
+
+**What caught it was a name collision, not review.** `RHIResources.h` also had a
+`BufferUsage` (the *bind-flags* enum: `Vertex`/`Index`/`Storage`/…), so the two
+could not coexist. And the collision only fired in the **test** build: the engine
+library compiles without ever including `RHIResources.h`; only
+`RHIBoundaryRatchetTest` includes it, precisely so the declaration-only
+vocabulary keeps compiling. Rename either enum and the duplicate concept ships
+silently.
+
+Method, for any phase that inherits a declaration-only header:
+
+1. Before adding a type to the shared vocabulary header, grep the whole
+   `Renderer/RHI/` directory for the **concept**, not the name you picked.
+2. Treat "this header is declaration-only, nothing consumes it" as a reason to
+   read it *more* carefully, not less — unconsumed means uncorrected, so it holds
+   the design intent at its cleanest and its most easily missed.
+3. If the concept exists but lives in the wrong header for your consumer, **move
+   it** rather than duplicating it. `MemoryResidency` moved to `RHITypes.h`; it
+   was vocabulary all along, filed under resource description.
+
+### Behaviour deltas a sweep introduces even when it changes no logic
+
+Three showed up here. None is a bug, all three are visible, and a reviewer
+should know to expect them:
+
+- **The backend's own state cache becomes truthful.** `VirtualGeometryPass` set
+  depth state with raw `glEnable(GL_DEPTH_TEST)`, which left
+  `OpenGLRendererAPI::m_DepthTestEnabled` stale; `Clear()` derives its
+  `GLbitfield` from that member. Routing the pass through `SetDepthTest(true)`
+  fixes the divergence — which means a later `Clear()` can now clear depth where
+  it previously did not. Verify visually rather than reasoning about it.
+- **Profiler counters move.** The facade's state setters bump
+  `RendererProfiler::StateChanges`; the raw calls they replaced did not. Draw
+  counters deliberately did *not* move: the new `DrawBound*` family does not
+  touch `RendererProfiler`, because the call sites it replaced never did and
+  several keep their own `CommandDispatch::Statistics`.
+- **The mock gets safer, and records more.** Call sites that used to issue raw
+  `glXxx()` under a `MockRendererAPI` were calling a null glad function pointer
+  in a headless test. They now land on the mock. Tests asserting *exact* recorded
+  call counts will need updating; ones using `HasCall` / `GE` will not.
 
 ---
 

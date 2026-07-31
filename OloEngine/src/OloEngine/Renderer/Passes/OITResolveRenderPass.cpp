@@ -9,8 +9,6 @@
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 #include <algorithm>
 #include <array>
 #include <span>

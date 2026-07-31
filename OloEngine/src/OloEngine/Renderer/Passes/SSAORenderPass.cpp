@@ -7,8 +7,6 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 #include <array>
 #include <random>
 
@@ -243,10 +241,9 @@ namespace OloEngine
 
         if (const u32 blurredAOTextureID = blurFB->GetColorAttachmentRendererID(0); blurredAOTextureID != 0 && blurredAOTextureID != aoOutputTexID)
         {
-            glCopyImageSubData(
-                blurredAOTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                aoOutputTexID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                static_cast<GLsizei>(m_HalfWidth), static_cast<GLsizei>(m_HalfHeight), 1);
+            RenderCommand::CopyImageSubData(blurredAOTextureID, RendererAPI::TextureTargetType::Texture2D,
+                                            aoOutputTexID, RendererAPI::TextureTargetType::Texture2D,
+                                            m_HalfWidth, m_HalfHeight);
         }
 
         // Restore full-res viewport (will be set by next pass anyway, but be clean)

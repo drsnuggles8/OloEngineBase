@@ -9,8 +9,6 @@
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
 
-#include <glad/gl.h>
-
 #include <array>
 
 namespace OloEngine
@@ -127,11 +125,7 @@ namespace OloEngine
             targetFB->Bind();
             if (colorAttachmentCount > 0)
             {
-                std::array<GLenum, 16> drawBufs{};
-                const u32 n = std::min<u32>(colorAttachmentCount, static_cast<u32>(drawBufs.size()));
-                for (u32 i = 0; i < n; ++i)
-                    drawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
-                glNamedFramebufferDrawBuffers(targetFBID, static_cast<GLsizei>(n), drawBufs.data());
+                RenderCommand::RestoreAllFramebufferDrawAttachments(targetFBID, colorAttachmentCount);
             }
             context.SetDepthTest(true);
             context.SetDepthMask(true);
@@ -151,7 +145,7 @@ namespace OloEngine
         // pipeline; the Hi-Z build samples it as a texture. Order the
         // framebuffer-write → texture-fetch explicitly (the forward pass gets
         // the same guarantee from GPUDrivenOcclusionPass::Execute).
-        ::glTextureBarrier();
+        RenderCommand::TextureBarrier();
 
         const GPUFrustumCuller::HZBOcclusionInputs currentHZB =
             Renderer3D::BuildCurrentOcclusionHZB(depthTexID, m_GBuffer->GetWidth(), m_GBuffer->GetHeight());
@@ -179,16 +173,17 @@ namespace OloEngine
             const u32 width = m_GBuffer->GetWidth();
             const u32 height = m_GBuffer->GetHeight();
 
-            const auto copyExport = [&context, width, height](const RGTextureHandle handle, const u32 sourceTextureID, const GLenum textureTarget)
+            const auto copyExport = [&context, width, height](const RGTextureHandle handle, const u32 sourceTextureID,
+                                                              const RendererAPI::TextureTargetType textureTarget)
             {
                 if (!handle.IsValid() || sourceTextureID == 0u)
                     return;
                 const u32 exportedTextureID = context.ResolveTexture(handle);
                 if (exportedTextureID == 0u || exportedTextureID == sourceTextureID)
                     return;
-                ::glCopyImageSubData(sourceTextureID, textureTarget, 0, 0, 0, 0,
-                                     exportedTextureID, textureTarget, 0, 0, 0, 0,
-                                     static_cast<GLsizei>(width), static_cast<GLsizei>(height), 1);
+                RenderCommand::CopyImageSubData(sourceTextureID, textureTarget,
+                                                exportedTextureID, textureTarget,
+                                                width, height);
             };
 
             const u32 albedoID = m_GBuffer->GetColorAttachmentID(GBuffer::Albedo);
@@ -197,12 +192,12 @@ namespace OloEngine
             const u32 velocityID = m_GBuffer->GetColorAttachmentID(GBuffer::Velocity);
             const u32 gbufferDepthID = m_GBuffer->GetDepthAttachmentID();
 
-            copyExport(m_SelectedSceneDepthExport, gbufferDepthID, GL_TEXTURE_2D);
-            copyExport(m_SelectedSceneNormalsExport, normalID, GL_TEXTURE_2D);
-            copyExport(m_SelectedVelocityExport, velocityID, GL_TEXTURE_2D);
-            copyExport(m_SelectedGBufferAlbedoExport, albedoID, GL_TEXTURE_2D);
-            copyExport(m_SelectedGBufferNormalExport, normalID, GL_TEXTURE_2D);
-            copyExport(m_SelectedGBufferEmissiveExport, emissiveID, GL_TEXTURE_2D);
+            copyExport(m_SelectedSceneDepthExport, gbufferDepthID, RendererAPI::TextureTargetType::Texture2D);
+            copyExport(m_SelectedSceneNormalsExport, normalID, RendererAPI::TextureTargetType::Texture2D);
+            copyExport(m_SelectedVelocityExport, velocityID, RendererAPI::TextureTargetType::Texture2D);
+            copyExport(m_SelectedGBufferAlbedoExport, albedoID, RendererAPI::TextureTargetType::Texture2D);
+            copyExport(m_SelectedGBufferNormalExport, normalID, RendererAPI::TextureTargetType::Texture2D);
+            copyExport(m_SelectedGBufferEmissiveExport, emissiveID, RendererAPI::TextureTargetType::Texture2D);
 
             // Only re-export the multisample attachments when phase-2 actually
             // rasterized into them (per-sample MSAA path). Non-per-sample mode
@@ -212,11 +207,11 @@ namespace OloEngine
             // Resolve() above.
             if (perSampleMSAA)
             {
-                copyExport(m_SelectedGBufferAlbedoMSExport, m_GBuffer->GetMSColorAttachmentID(GBuffer::Albedo), GL_TEXTURE_2D_MULTISAMPLE);
-                copyExport(m_SelectedGBufferNormalMSExport, m_GBuffer->GetMSColorAttachmentID(GBuffer::Normal), GL_TEXTURE_2D_MULTISAMPLE);
-                copyExport(m_SelectedGBufferEmissiveMSExport, m_GBuffer->GetMSColorAttachmentID(GBuffer::Emissive), GL_TEXTURE_2D_MULTISAMPLE);
-                copyExport(m_SelectedVelocityMSExport, m_GBuffer->GetMSColorAttachmentID(GBuffer::Velocity), GL_TEXTURE_2D_MULTISAMPLE);
-                copyExport(m_SelectedSceneDepthMSExport, m_GBuffer->GetMSDepthAttachmentID(), GL_TEXTURE_2D_MULTISAMPLE);
+                copyExport(m_SelectedGBufferAlbedoMSExport, m_GBuffer->GetMSColorAttachmentID(GBuffer::Albedo), RendererAPI::TextureTargetType::Texture2DMultisample);
+                copyExport(m_SelectedGBufferNormalMSExport, m_GBuffer->GetMSColorAttachmentID(GBuffer::Normal), RendererAPI::TextureTargetType::Texture2DMultisample);
+                copyExport(m_SelectedGBufferEmissiveMSExport, m_GBuffer->GetMSColorAttachmentID(GBuffer::Emissive), RendererAPI::TextureTargetType::Texture2DMultisample);
+                copyExport(m_SelectedVelocityMSExport, m_GBuffer->GetMSColorAttachmentID(GBuffer::Velocity), RendererAPI::TextureTargetType::Texture2DMultisample);
+                copyExport(m_SelectedSceneDepthMSExport, m_GBuffer->GetMSDepthAttachmentID(), RendererAPI::TextureTargetType::Texture2DMultisample);
             }
         }
 
@@ -226,8 +221,8 @@ namespace OloEngine
         context.SetBlendState(false);
         rendererAPI.SetCullFace(RHI::CullMode::Back);
         rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
-        ::glBindVertexArray(0);
-        ::glUseProgram(0);
+        RenderCommand::BindVertexArrayRaw(0);
+        RenderCommand::BindShaderProgram(0);
 
         m_Phase2Packets.clear();
         m_Phase2Culls.clear();

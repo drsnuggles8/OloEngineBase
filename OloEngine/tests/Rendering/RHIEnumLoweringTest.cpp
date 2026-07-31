@@ -16,11 +16,24 @@
 //   1. Every enumerator lowers to the exact GL constant it names. Checked
 //      against the literal GL_* token rather than a numeric value, so the test
 //      states the intended mapping rather than restating whatever the code does.
-//   2. Each enum's member COUNT is pinned by a static_assert on its last
-//      enumerator. Adding a member without extending ToGL() would otherwise fall
-//      through to the switch's error path, which logs and returns a plausible
-//      default — a silent wrong mapping, exactly what (1) cannot catch on its
-//      own because the new member has no table row.
+//   2. Each enum's shape is pinned by a static_assert on its last enumerator's
+//      ordinal. Be precise about what this does and does not catch, because the
+//      two halves are covered by different mechanisms:
+//
+//        * INSERTING a member mid-enum, REMOVING one, or REORDERING them all
+//          shift the last ordinal, so the static_assert fires. That is its job.
+//        * APPENDING a member after the current last one leaves that ordinal
+//          unchanged, so the static_assert CANNOT see it. What catches an append
+//          is the compiler: the lowering switches in OpenGLRHIConversions.h
+//          deliberately carry no `default:` label, so `-Wswitch` errors on the
+//          unhandled enumerator. That is why adding a `default:` there would be
+//          a downgrade, and why the clang-cl CI job is load-bearing (MSVC's
+//          C4062 is off by default even at /W4).
+//
+//      Either way the failure being prevented is the same: a new member falling
+//      through to the error path, which logs and returns a plausible value — a
+//      silent wrong mapping that (1) cannot catch on its own, because the new
+//      member has no table row.
 //
 // No GL context is required: the conversions are pure switches.
 
@@ -68,6 +81,26 @@ namespace
                   "RHI::Access changed — update ToGLImageAccess() and ImageAccessLowering");
     static_assert(static_cast<int>(RHI::PrimitiveTopology::PatchList) == 5,
                   "RHI::PrimitiveTopology changed — update ToGL() and PrimitiveTopologyLowering");
+
+    // Phase 2 step 2 vocabulary (ADR 0011 amendment (10)). Same tripwire
+    // discipline: IndexType in particular has only two members, which makes a
+    // swapped mapping look harmless right up until a u16-indexed mesh reads its
+    // element buffer at 4-byte stride and renders as scattered triangles.
+    static_assert(static_cast<int>(RHI::IndexType::UInt32) == 1,
+                  "RHI::IndexType changed — update ToGL() and IndexTypeLowering");
+    static_assert(static_cast<int>(RHI::FrontFace::Clockwise) == 1,
+                  "RHI::FrontFace changed — update ToGL() and FrontFaceLowering");
+    static_assert(static_cast<int>(RHI::QueryType::TimeElapsed) == 1,
+                  "RHI::QueryType changed — update ToGL() and QueryTypeLowering");
+    static_assert(static_cast<int>(RHI::MemoryResidency::DeviceToHost) == 2,
+                  "RHI::MemoryResidency changed — update ToGL() and MemoryResidencyLowering");
+    static_assert(static_cast<int>(RHI::BlitAspect::DepthStencil) == 3,
+                  "RHI::BlitAspect changed — update ToGLBlitMask() and BlitAspectLowering");
+    // FenceStatus has no ToGL() — it is produced BY the backend, not consumed by
+    // it — so its tripwire lives with ClientWaitFence's switch instead. Pinned
+    // here anyway so a new member is noticed at the same place as its siblings.
+    static_assert(static_cast<int>(RHI::FenceStatus::Failed) == 3,
+                  "RHI::FenceStatus changed — update OpenGLRendererAPI::ClientWaitFence");
 } // namespace
 
 TEST(RHIEnumLowering, CompareOpLowersToTheNamedGLConstant)
@@ -206,4 +239,71 @@ TEST(RHIEnumLowering, PrimitiveTopologyLowersToTheNamedGLPrimitive)
     EXPECT_EQ(Utils::ToGL(RHI::PrimitiveTopology::LineStrip), GLenum{ GL_LINE_STRIP });
     EXPECT_EQ(Utils::ToGL(RHI::PrimitiveTopology::PointList), GLenum{ GL_POINTS });
     EXPECT_EQ(Utils::ToGL(RHI::PrimitiveTopology::PatchList), GLenum{ GL_PATCHES });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 step 2 vocabulary (ADR 0011 amendment (10)).
+// ---------------------------------------------------------------------------
+
+TEST(RHIEnumLowering, IndexTypeLowersToTheNamedGLType)
+{
+    // Two members, so a swap is invisible to a reviewer and catastrophic at run
+    // time: a u16 index buffer read at u32 stride draws from the wrong vertices
+    // AND overruns the buffer's tail.
+    EXPECT_EQ(Utils::ToGL(RHI::IndexType::UInt16), GLenum{ GL_UNSIGNED_SHORT });
+    EXPECT_EQ(Utils::ToGL(RHI::IndexType::UInt32), GLenum{ GL_UNSIGNED_INT });
+}
+
+TEST(RHIEnumLowering, FrontFaceLowersToTheNamedGLWinding)
+{
+    // PlanarReflectionRenderPass flips this to compensate for the mirror matrix
+    // reversing triangle winding; a swap silently culls exactly the faces that
+    // should be visible in the reflection.
+    EXPECT_EQ(Utils::ToGL(RHI::FrontFace::CounterClockwise), GLenum{ GL_CCW });
+    EXPECT_EQ(Utils::ToGL(RHI::FrontFace::Clockwise), GLenum{ GL_CW });
+}
+
+TEST(RHIEnumLowering, QueryTypeLowersToTheNamedGLTarget)
+{
+    EXPECT_EQ(Utils::ToGL(RHI::QueryType::OcclusionAnySamples), GLenum{ GL_ANY_SAMPLES_PASSED });
+    EXPECT_EQ(Utils::ToGL(RHI::QueryType::TimeElapsed), GLenum{ GL_TIME_ELAPSED });
+}
+
+TEST(RHIEnumLowering, MemoryResidencyLowersToTheNamedGLHint)
+{
+    // GL treats these as hints, so a wrong entry costs bandwidth rather than
+    // correctness — which is exactly why it needs a table test. Nothing would
+    // render wrong and no other assertion in the suite would notice.
+    EXPECT_EQ(Utils::ToGL(RHI::MemoryResidency::HostToDevice), GLenum{ GL_DYNAMIC_DRAW });
+    EXPECT_EQ(Utils::ToGL(RHI::MemoryResidency::DeviceLocal), GLenum{ GL_DYNAMIC_COPY });
+    EXPECT_EQ(Utils::ToGL(RHI::MemoryResidency::DeviceToHost), GLenum{ GL_DYNAMIC_READ });
+}
+
+TEST(RHIEnumLowering, BlitAspectLowersToTheNamedGLBitfield)
+{
+    EXPECT_EQ(Utils::ToGLBlitMask(RHI::BlitAspect::Color), GLbitfield{ GL_COLOR_BUFFER_BIT });
+    EXPECT_EQ(Utils::ToGLBlitMask(RHI::BlitAspect::Depth), GLbitfield{ GL_DEPTH_BUFFER_BIT });
+    EXPECT_EQ(Utils::ToGLBlitMask(RHI::BlitAspect::Stencil), GLbitfield{ GL_STENCIL_BUFFER_BIT });
+    EXPECT_EQ(Utils::ToGLBlitMask(RHI::BlitAspect::DepthStencil),
+              GLbitfield{ GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT });
+}
+
+// The sentinel is the whole reason draw-attachment lists go through a lowering
+// function instead of `GL_COLOR_ATTACHMENT0 + i` at each call site: GL_NONE is
+// not GL_COLOR_ATTACHMENT0 + anything. DecalRenderPass writes lists like
+// { attachment 0, NONE, NONE, NONE, NONE } to steer a decal into exactly one
+// G-Buffer target, and folding the sentinel into the arithmetic would turn
+// "writes nowhere" into "writes to attachment 4294967295" — a GL_INVALID_ENUM
+// that drops the whole draw-buffer assignment, leaving the PREVIOUS list live.
+TEST(RHIEnumLowering, ColorAttachmentLoweringHonoursTheNoAttachmentSentinel)
+{
+    EXPECT_EQ(Utils::ToGLColorAttachment(0), GLenum{ GL_COLOR_ATTACHMENT0 });
+    EXPECT_EQ(Utils::ToGLColorAttachment(1), GLenum{ GL_COLOR_ATTACHMENT1 });
+    EXPECT_EQ(Utils::ToGLColorAttachment(4), GLenum{ GL_COLOR_ATTACHMENT4 });
+    EXPECT_EQ(Utils::ToGLColorAttachment(RHI::NoAttachment), GLenum{ GL_NONE });
+
+    // GL_NONE is 0, and so is GL_COLOR_ATTACHMENT0 + 0 in no sane reading —
+    // pin that they are genuinely different values so the sentinel cannot be
+    // "simplified" into attachment 0.
+    EXPECT_NE(Utils::ToGLColorAttachment(RHI::NoAttachment), Utils::ToGLColorAttachment(0));
 }

@@ -8,7 +8,6 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Debug/Instrumentor.h"
 
-#include <glad/gl.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
 
@@ -33,7 +32,7 @@ namespace OloEngine
         { 0.0f, -1.0f, 0.0f }
     };
 
-    void LightProbeBaker::RenderCubemapAtPosition(
+    bool LightProbeBaker::RenderCubemapAtPosition(
         Ref<Scene>& scene,
         const glm::vec3& position,
         u32 resolution,
@@ -69,11 +68,21 @@ namespace OloEngine
 
             // Read back RGBA16F pixel data from the color attachment
             u32 const colorAttachmentID = fbo->GetColorAttachmentRendererID(0);
-            glGetTextureImage(colorAttachmentID, 0, GL_RGBA, GL_FLOAT,
-                              static_cast<GLsizei>(rgbaBuffer.size() * sizeof(f32)),
-                              rgbaBuffer.data());
+            const bool readOk = RenderCommand::ReadTextureImage(
+                colorAttachmentID, 0, RHI::Format::RGBA32Float,
+                rgbaBuffer.size() * sizeof(f32), rgbaBuffer.data());
 
             fbo->Unbind();
+
+            if (!readOk)
+            {
+                // Fail the whole bake rather than folding an unspecified buffer
+                // into the SH projection: these coefficients are PERSISTED into
+                // LightProbeVolumeAsset, so a rare readback failure would write
+                // bad lighting to disk that no later run would recompute.
+                OLO_CORE_ERROR("LightProbeBaker: cubemap face {} readback failed; abandoning this probe", face);
+                return false;
+            }
 
             // Convert RGBA to RGB and store
             auto const faceOffset = static_cast<size_t>(face) * resolution * resolution;
@@ -85,6 +94,8 @@ namespace OloEngine
                     rgbaBuffer[i * 4 + 2]);
             }
         }
+
+        return true;
     }
 
     SHCoefficients LightProbeBaker::ProjectToSH(
@@ -183,7 +194,16 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         std::vector<glm::vec3> pixels;
-        RenderCubemapAtPosition(scene, position, cubemapResolution, pixels);
+        if (!RenderCubemapAtPosition(scene, position, cubemapResolution, pixels))
+        {
+            // Readback failed — report the probe as invalid so the caller stores
+            // nothing rather than persisting SH derived from undefined pixels.
+            if (outValid)
+            {
+                *outValid = false;
+            }
+            return {};
+        }
 
         SHCoefficients sh = ProjectToSH(pixels, cubemapResolution);
 

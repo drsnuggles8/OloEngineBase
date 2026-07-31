@@ -11,8 +11,6 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 
-#include <glad/gl.h>
-
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -160,7 +158,7 @@ namespace OloEngine
             // slots (sampler2D reads of .rg / .rgb / .w all see zero, and
             // state 0 == Uncaptured makes the sampler skip every probe).
             m_PlaceholderTexture = RenderCommand::CreateTexture2D(1, 1, RHI::Format::RGBA16Float);
-            glClearTexImage(m_PlaceholderTexture, 0, GL_RGBA, GL_FLOAT, nullptr);
+            RenderCommand::ClearTextureFloat(m_PlaceholderTexture, 0, glm::vec4(0.0f));
             SetAtlasTextureParams(m_PlaceholderTexture, RHI::Filter::Nearest);
         }
         if (m_WhiteTexture == 0)
@@ -175,7 +173,7 @@ namespace OloEngine
             // Environment fallback for the relight sky term when no global
             // IBL environment cubemap exists this frame.
             m_BlackCubemap = RenderCommand::CreateTextureCubemap(1, 1, RHI::Format::RGBA16Float);
-            glClearTexImage(m_BlackCubemap, 0, GL_RGBA, GL_FLOAT, nullptr);
+            RenderCommand::ClearTextureFloat(m_BlackCubemap, 0, glm::vec4(0.0f));
             RenderCommand::SetTextureFilter(m_BlackCubemap, RHI::Filter::Linear, RHI::Filter::Linear);
             RenderCommand::SetTextureWrap(m_BlackCubemap, RHI::AddressMode::ClampToEdge);
         }
@@ -473,7 +471,7 @@ namespace OloEngine
         // the relocation/classification step); cleared to zero == Uncaptured.
         m_ProbeDataTexture = RenderCommand::CreateTexture2D(static_cast<u32>(tileDims.x),
                                                             static_cast<u32>(tileDims.y), RHI::Format::RGBA16Float);
-        glClearTexImage(m_ProbeDataTexture, 0, GL_RGBA, GL_FLOAT, nullptr);
+        RenderCommand::ClearTextureFloat(m_ProbeDataTexture, 0, glm::vec4(0.0f));
         SetAtlasTextureParams(m_ProbeDataTexture, RHI::Filter::Nearest);
 
         // Reset the CPU scheduling mirror — a new grid invalidates every record.
@@ -719,8 +717,20 @@ namespace OloEngine
         // Read the probe's hit-geo tile back (rg = octNormal, b = distance
         // [< 0 = sky], a = DDGI_HIT_* flag). RGBA16F -> GL converts to float.
         std::vector<glm::vec4> texels(static_cast<sizet>(t) * static_cast<sizet>(t));
-        glGetTextureSubImage(geoTex, 0, tile.x * t, tile.y * t, 0, t, t, 1, GL_RGBA, GL_FLOAT,
-                             static_cast<GLsizei>(texels.size() * sizeof(glm::vec4)), texels.data());
+        if (!RenderCommand::ReadTextureSubImage(geoTex, 0, tile.x * t, tile.y * t, 0,
+                                                static_cast<u32>(t), static_cast<u32>(t), 1,
+                                                RHI::Format::RGBA32Float,
+                                                texels.size() * sizeof(glm::vec4), texels.data()))
+        {
+            // Skip this probe's relocation/classification for this frame rather
+            // than aggregating `texels`, whose contents are unspecified after a
+            // failed read — classifying from undefined data can park a probe
+            // inside geometry, which then leaks through every later gather.
+            // The update is amortized, so the probe simply retries next frame.
+            OLO_CORE_WARN("DDGIProbeUpdatePass: probe hit-geo tile readback failed; skipping probe {} this frame",
+                          probeIdx);
+            return;
+        }
 
         DDGI::ProbeHitAggregates agg;
         i32 backfaceCount = 0;
@@ -792,7 +802,8 @@ namespace OloEngine
 
         const f32 texel[4] = { newOffset.x, newOffset.y, newOffset.z,
                                static_cast<f32>(std::to_underlying(newState)) };
-        glTextureSubImage2D(m_ProbeDataTexture, 0, tile.x, tile.y, 1, 1, GL_RGBA, GL_FLOAT, texel);
+        RenderCommand::UploadTextureSubImage2D(m_ProbeDataTexture, tile.x, tile.y, 1, 1,
+                                               RHI::Format::RGBA32Float, texel);
     }
 
     void DDGIProbeUpdatePass::BlendVisibility(const std::vector<i32>& capturedProbes)

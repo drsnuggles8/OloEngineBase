@@ -11,7 +11,7 @@
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 
-#include <glad/gl.h>
+#include <array>
 
 namespace OloEngine
 {
@@ -353,19 +353,19 @@ namespace OloEngine
         // Manual per-packet dispatch — each DrawDecalCommand::mode selects a
         // different drawbuffer + colorMask configuration so the decal only
         // writes into the intended G-Buffer channels. Arrays are sized to
-        // `GBuffer::Count` so RT4 (entity ID) stays at GL_NONE during decal
+        // `GBuffer::Count` so RT4 (entity ID) stays unwritten during decal
         // rendering — decals must not stamp their own pickability over the
         // underlying mesh's entity ID.
-        constexpr GLsizei kGBufferCount = static_cast<GLsizei>(std::to_underlying(GBuffer::Count));
-        const GLenum drawAlbedoOnly[kGBufferCount] = { GL_COLOR_ATTACHMENT0, GL_NONE, GL_NONE, GL_NONE, GL_NONE };
-        const GLenum drawNormalOnly[kGBufferCount] = { GL_NONE, GL_COLOR_ATTACHMENT1, GL_NONE, GL_NONE, GL_NONE };
-        const GLenum drawAlbedoAndNormal[kGBufferCount] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_NONE, GL_NONE, GL_NONE };
-        const GLenum drawEmissiveOnly[kGBufferCount] = { GL_NONE, GL_NONE, GL_COLOR_ATTACHMENT2, GL_NONE, GL_NONE };
-        const GLenum fullDrawBufs[kGBufferCount] = {
-            GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1,
-            GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3,
-            GL_COLOR_ATTACHMENT4
-        };
+        // RHI::NoAttachment is the neutral spelling of "this draw slot writes
+        // nowhere". It exists precisely for these lists: it is not an attachment
+        // index, and both backends need it (GL_NONE / VK_ATTACHMENT_UNUSED).
+        constexpr sizet kGBufferCount = static_cast<sizet>(std::to_underlying(GBuffer::Count));
+        constexpr u32 kNone = RHI::NoAttachment;
+        const std::array<u32, kGBufferCount> drawAlbedoOnly = { 0, kNone, kNone, kNone, kNone };
+        const std::array<u32, kGBufferCount> drawNormalOnly = { kNone, 1, kNone, kNone, kNone };
+        const std::array<u32, kGBufferCount> drawAlbedoAndNormal = { 0, 1, kNone, kNone, kNone };
+        const std::array<u32, kGBufferCount> drawEmissiveOnly = { kNone, kNone, 2, kNone, kNone };
+        const std::array<u32, kGBufferCount> fullDrawBufs = { 0, 1, 2, 3, 4 };
 
         using DecalMode = DrawDecalCommand::DecalMode;
         // Sentinel outside the valid enumerator range — forces the first
@@ -403,47 +403,44 @@ namespace OloEngine
                 // other modes overwrite (the previous value is preserved for
                 // channels outside the colour mask).
                 const bool wantAdditive = (packetMode == DecalMode::Emissive);
-                glBlendFunci(2, GL_ONE, GL_ONE);
-                if (wantAdditive)
-                    glEnablei(GL_BLEND, 2);
-                else
-                    glDisablei(GL_BLEND, 2);
+                RenderCommand::SetBlendFuncForAttachment(2, RHI::BlendFactor::One, RHI::BlendFactor::One);
+                RenderCommand::SetBlendStateForAttachment(2, wantAdditive);
 
                 switch (packetMode)
                 {
                     case DecalMode::Normal: // RT1 only, xy writable, zw preserved
-                        glNamedFramebufferDrawBuffers(gbufferID, kGBufferCount, drawNormalOnly);
-                        glColorMaski(0, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-                        glColorMaski(1, GL_TRUE, GL_TRUE, GL_FALSE, GL_FALSE);
-                        glColorMaski(2, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-                        glColorMaski(3, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                        RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawNormalOnly);
+                        RenderCommand::SetColorMaskForAttachment(0, false, false, false, false);
+                        RenderCommand::SetColorMaskForAttachment(1, true, true, false, false);
+                        RenderCommand::SetColorMaskForAttachment(2, false, false, false, false);
+                        RenderCommand::SetColorMaskForAttachment(3, false, false, false, false);
                         break;
                     case DecalMode::RMA: // RT0.a + RT1.zw writable
-                        glNamedFramebufferDrawBuffers(gbufferID, kGBufferCount, drawAlbedoAndNormal);
-                        glColorMaski(0, GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
-                        glColorMaski(1, GL_FALSE, GL_FALSE, GL_TRUE, GL_TRUE);
-                        glColorMaski(2, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-                        glColorMaski(3, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                        RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawAlbedoAndNormal);
+                        RenderCommand::SetColorMaskForAttachment(0, false, false, false, true);
+                        RenderCommand::SetColorMaskForAttachment(1, false, false, true, true);
+                        RenderCommand::SetColorMaskForAttachment(2, false, false, false, false);
+                        RenderCommand::SetColorMaskForAttachment(3, false, false, false, false);
                         break;
                     case DecalMode::Emissive: // RT2.rgb writable, RT2.a (unlit flag) preserved
-                        glNamedFramebufferDrawBuffers(gbufferID, kGBufferCount, drawEmissiveOnly);
-                        glColorMaski(0, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-                        glColorMaski(1, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-                        glColorMaski(2, GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
-                        glColorMaski(3, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                        RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawEmissiveOnly);
+                        RenderCommand::SetColorMaskForAttachment(0, false, false, false, false);
+                        RenderCommand::SetColorMaskForAttachment(1, false, false, false, false);
+                        RenderCommand::SetColorMaskForAttachment(2, true, true, true, false);
+                        RenderCommand::SetColorMaskForAttachment(3, false, false, false, false);
                         break;
                     case DecalMode::Albedo:
                     default: // RT0.rgb writable, RT0.a preserved
-                        glNamedFramebufferDrawBuffers(gbufferID, kGBufferCount, drawAlbedoOnly);
-                        glColorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
-                        glColorMaski(1, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-                        glColorMaski(2, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-                        glColorMaski(3, GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                        RenderCommand::SetFramebufferDrawAttachments(gbufferID, drawAlbedoOnly);
+                        RenderCommand::SetColorMaskForAttachment(0, true, true, true, false);
+                        RenderCommand::SetColorMaskForAttachment(1, false, false, false, false);
+                        RenderCommand::SetColorMaskForAttachment(2, false, false, false, false);
+                        RenderCommand::SetColorMaskForAttachment(3, false, false, false, false);
                         break;
                 }
                 currentMode = packetMode;
 
-                // The raw GL calls above bypass our cached render-state
+                // The per-attachment state above bypasses our cached render-state
                 // tracking; invalidate so the next dispatched packet
                 // re-applies its POD state instead of skipping as a no-op.
                 CommandDispatch::InvalidateRenderStateCache();
@@ -459,20 +456,20 @@ namespace OloEngine
 
         // Restore full colour masks + draw buffers for subsequent passes.
         // Only the RGBA-colour attachments (RT0-RT3) need a colour-mask
-        // restore — RT4 is integer (R32I, entity ID) and `glColorMaski`
-        // on integer attachments is a no-op (per OpenGL spec the mask only
-        // applies to floating-point/normalised outputs).
-        for (GLuint rt = 0; rt < 4; ++rt)
-            glColorMaski(rt, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        glNamedFramebufferDrawBuffers(gbufferID, kGBufferCount, fullDrawBufs);
+        // restore — RT4 is integer (R32I, entity ID) and a per-attachment
+        // colour mask is a no-op there (the mask only applies to
+        // floating-point / normalised outputs).
+        for (u32 rt = 0; rt < 4; ++rt)
+            RenderCommand::SetColorMaskForAttachment(rt, true, true, true, true);
+        RenderCommand::SetFramebufferDrawAttachments(gbufferID, fullDrawBufs);
 
         // Restore RT2 blend state — emissive additive blending leaks into
         // the next pass otherwise (observed as SSAO / GTAO darkening the
         // emissive channel during composite).
-        glDisablei(GL_BLEND, 2);
+        RenderCommand::SetBlendStateForAttachment(2, false);
 
-        // The raw glColorMaski/glDisablei/glNamedFramebufferDrawBuffers calls
-        // above bypass the cached render-state tracking; invalidate so the
+        // The per-attachment mask / blend / draw-buffer calls above bypass the
+        // cached render-state tracking; invalidate so the
         // next pass's first packet reapplies its POD state instead of being
         // elided as a no-op against the now-stale cache snapshot.
         CommandDispatch::InvalidateRenderStateCache();

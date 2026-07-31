@@ -9,9 +9,6 @@
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
-#include "Platform/OpenGL/OpenGLUtilities.h"
-
-#include <glad/gl.h>
 
 namespace OloEngine
 {
@@ -163,10 +160,9 @@ namespace OloEngine
             return;
         }
 
-        glCopyImageSubData(
-            sceneColorID, GL_TEXTURE_2D, 0, 0, 0, 0,
-            refractionTexID, GL_TEXTURE_2D, 0, 0, 0, 0,
-            static_cast<GLsizei>(fbWidth), static_cast<GLsizei>(fbHeight), 1);
+        RenderCommand::CopyImageSubData(sceneColorID, RendererAPI::TextureTargetType::Texture2D,
+                                        refractionTexID, RendererAPI::TextureTargetType::Texture2D,
+                                        fbWidth, fbHeight);
 
         m_SceneFramebuffer->Bind();
 
@@ -208,14 +204,12 @@ namespace OloEngine
         if (m_WaterDepthFB)
         {
             m_WaterDepthFB->Bind();
-            glDepthMask(GL_TRUE);
-            glClearDepth(1.0);
-            {
-                // Unbind any stale program for the clear — NVIDIA revalidates
-                // the bound program against the new FBO during glClear (id 131218).
-                Utils::GLClearProgramGuard programGuard;
-                glClear(GL_DEPTH_BUFFER_BIT); // far = "no water at this pixel"
-            }
+            RenderCommand::SetDepthMask(true);
+            RenderCommand::SetClearDepth(1.0f);
+            // ClearDepthOnly() carries the clear-program guard inside the
+            // backend (NVIDIA revalidates the bound program against the new FBO
+            // during a clear, debug id 131218).
+            RenderCommand::ClearDepthOnly(); // far = "no water at this pixel"
             CommandDispatch::SetWaterDepthCaptureActive(true);
             m_CommandBucket.Execute(rendererAPI);
             CommandDispatch::SetWaterDepthCaptureActive(false);

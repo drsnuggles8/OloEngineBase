@@ -411,6 +411,15 @@ Three counters, all monotonically non-increasing, all baselined in
 | `sweep_glad_includes` — files there including `<glad/gl.h>` | 70 | **0** | 2 |
 | `tools_gl_calls` — GL calls in `OloEngine/Renderer/Debug/` | 236 | 0 (relocated) | 8 |
 
+**Status (2026-07-30): both Phase 2 counters reached zero.** Step 1 took
+`sweep_glad_includes` 70 → 39 by stripping the `GLenum`/`GLuint` virtuals (which
+is what made the counter meaningful at all, per the ordering constraint below);
+step 2 took `sweep_gl_calls` 313 → 0 and `sweep_glad_includes` 39 → 0. See
+"Amendments from Phase 2 step 2" for what the sweep cost — chiefly that the
+facade had to grow ~60 virtuals, because it was not merely GL-typed but
+incomplete. `tools_gl_calls` is unchanged at 236 and remains Phase 8's
+relocation, not an exemption (§1.6).
+
 `sweep_glad_includes` is the counter that actually *proves* the property. A call
 count is a progress measure that a clever workaround can game (wrap the call in
 a helper that still lives in `Renderer/`); a translation unit that cannot see
@@ -797,6 +806,175 @@ matters more than the first:
   no row in the table. A test that enumerates known values can only guard the
   values it already knows about; pinning the count is what makes it guard the
   ones it does not.
+
+---
+
+## Amendments from Phase 2 step 2 (2026-07-30) — the call-site sweep
+
+Step 1 converted the facade's *vocabulary*; step 2 swept the 313 raw `glXxx()`
+call sites in the sweep bucket to zero. The headline finding is that **the
+facade was not merely GL-typed, it was incomplete**: 84 distinct GL entry points
+appear at those call sites, and **54 of them had no `RendererAPI` equivalent at
+all**. Closing that gap took **60 new virtuals**.
+
+Those two numbers are deliberately not folded into one percentage, because they
+count different things: an entry point can expand into more than one virtual
+(`glClearTexImage` becomes a float clear and a uint clear, mirroring
+`VkClearColorValue`'s union; the two readbacks each gained a `bool` return). 54
+is the size of the *gap*; 60 is the size of the *fix*. Quoting 60 against 84 as a
+ratio would silently compare an operation count to an API count.
+
+### (5) The facade grows 60 virtuals, and that number is the real measurement
+
+§1.7 framed Phase 2 as "strip the `GLenum`s, then sweep". That undersells it.
+Stripping the enums (step 1) touched 74 existing virtuals; the sweep needed
+**60 new ones**, because whole categories of GPU work had simply never been
+abstracted and every pass reached past the facade to do them:
+
+| Category | New virtuals | Why it had no facade entry |
+| --- | ---: | --- |
+| Buffer binding points (`glBindBufferBase`) | 2 | The single biggest gap — 26 call sites, UBO and SSBO |
+| Buffer lifecycle (create / storage / map / copy / clear / readback / delete) | 9 | `UniformBuffer` / `StorageBuffer` wrap *their* buffers; `VirtualMeshRegistry` hand-rolls an arena + a persistent-mapped upload ring |
+| Named-framebuffer state (draw/read attachment, clear, blit, attach, completeness) | 10 | `SetDrawBuffers` existed but only for the *bound* FBO; every call site names a specific one via DSA |
+| Queries (occlusion + timer) | 7 | `BeginConditionalRender` existed; the pools that feed it did not |
+| Fences | 4 | `FrameResourceManager` used `GLsync` directly |
+| Draws from bound geometry | 4 | The `*Raw(vaoID, …)` family binds its own VAO; `CommandDispatch` keeps a redundant-bind cache and needs a draw that does not re-bind |
+| Program / VAO / framebuffer binding | 5 | `Shader::Bind()` exists, but the POD dispatcher holds only a `u32` program id |
+| Texture clear / offset upload / readback / dimensions / barrier | 8 | — |
+| Vertex-array lifecycle | 3 | — |
+| Debug groups, device idle, sample-count caps, separate blend func, front face, clear depth, patch count | 8 | — |
+
+*Generalisable, and the thing to carry into Phase 5:* **an abstraction's
+completeness is not measured by how many call sites it already serves, but by
+how many distinct operations the layer above performs.** 74 virtuals looked like
+a thorough facade while 60 operations went around it, because the ones that went
+around it were each rare enough (1–3 sites) to feel like a special case. The
+`glBindBufferBase` count (26 sites, one missing pair of virtuals) is the
+counter-example that shows frequency was never the signal either.
+
+### (6) Named framebuffers need a "writes nowhere" sentinel
+
+`glNamedFramebufferDrawBuffers` is 24 of the 313, and the interesting half of
+them (`DecalRenderPass`) pass arrays containing `GL_NONE` — *slot i writes
+nothing* — to steer a decal into exactly one G-Buffer attachment. The existing
+`SetDrawBuffers(std::span<const u32>)` maps `attachments[i] →
+GL_COLOR_ATTACHMENT0 + attachments[i]` and **cannot express that**.
+
+`RHI::NoAttachment` (a `u32` sentinel, `numeric_limits<u32>::max()`) is added and
+honoured by every draw-attachment lowering. This matters beyond GL: a Vulkan
+backend maps the same list onto `VkSubpassDescription::pColorAttachments` where
+the equivalent is `VK_ATTACHMENT_UNUSED` — also a sentinel, also not
+representable as an index. Both APIs need it; only the neutral layer was missing
+it.
+
+`glNamedFramebufferDrawBuffer` (singular) folds into the same virtual as a
+one-element span — it sets draw slot 0 to the named attachment, which is exactly
+what a one-element list does.
+
+### (7) `glGetError` disappears rather than being abstracted
+
+`ThumbnailCapture` reads a texture back and then checks `glGetError()`. A
+neutral `GetError()` would be the wrong shape twice over: GL's error model is a
+global sticky flag, Vulkan's is a per-call `VkResult`, and exposing either forces
+the other backend to fake it.
+
+The readback virtuals therefore **return `bool`** and swallow the check inside
+the backend. One entry point vanished from the sweep with no replacement, which
+is the outcome to prefer whenever a GL call exists only to interrogate a
+GL-specific mechanism. Same reasoning as amendment (1)'s `SetPolygonMode` face:
+check whether the parameter/call is a fossil before translating it.
+
+### (8) Draws that do *not* bind their geometry are the Vulkan-shaped ones
+
+`CommandDispatch` keeps a `CurrentBoundVAO` cache and calls `glDrawElements`
+directly, so routing it through the existing `DrawIndexedRaw(vaoID, …)` family
+would have made the backend re-bind on every draw and defeated the cache.
+
+The new `DrawBoundIndexed` / `DrawBoundIndexedInstanced` / `DrawBoundArrays` draw
+from *previously bound* geometry — which is not a GL-ism to be apologised for,
+it is the **native Vulkan shape** (`vkCmdBindVertexBuffers` +
+`vkCmdBindIndexBuffer` then `vkCmdDrawIndexed`). The combined `*Raw(vaoID, …)`
+form that binds-and-draws is the less portable of the two. They also carry
+`RHI::PrimitiveTopology` and `RHI::IndexType` explicitly rather than hard-coding
+`GL_TRIANGLES`/`GL_UNSIGNED_INT` as the `*Raw` family does.
+
+`SetPatchVertexCount` is split out rather than folded into a patch-draw variant,
+because the tessellation call sites set it once and draw many times.
+
+### (9) One recorded debt: `SetProgramUniformFloat` is not portable, deliberately
+
+`CommandDispatch::DrawInfiniteGrid` does `glGetUniformLocation(program,
+"u_GridScale")` + `glUniform1f`. A name-keyed default-block uniform has **no
+Vulkan counterpart** — SPIR-V has push constants and UBO members, not a
+queryable default uniform block.
+
+Three options were weighed: move `u_GridScale` into the camera/grid UBO (a
+shader change, and this branch is a call-site sweep whose safety net is
+golden-image parity — a shader edit forfeits that), reach for the `Shader` class
+(the dispatcher holds a `u32` program id by design, not a `Ref<Shader>`), or add
+the virtual and record the debt. The third is taken: `SetProgramUniformFloat(u32
+programID, std::string_view name, f32 value)` exists, has exactly one call site,
+and is **the one virtual on the facade that a Vulkan backend cannot implement
+faithfully.** Phase 6 must fold `u_GridScale` into a UBO and delete it. It is
+called out here rather than left as a surprise, because a single unimplementable
+virtual discovered during Phase 7 bring-up reads as a design failure when it is
+actually a scheduled one.
+
+### (10) New `RHITypes.h` vocabulary
+
+`RHI::QueryType` (`OcclusionAnySamples`, `TimeElapsed` — the two the engine
+actually uses; deliberately not a mirror of GL's target space),
+`RHI::FenceStatus` (`AlreadySignaled` / `ConditionSatisfied` / `TimeoutExpired` /
+`Failed`, matching `glClientWaitSync`'s four returns and `vkWaitForFences`'
+`VK_SUCCESS`/`VK_TIMEOUT` split), `RHI::BlitAspect`, and `RHI::NoAttachment`.
+
+**`MemoryResidency` moved from `RHIResources.h` to `RHITypes.h`, and the near-miss
+is the lesson.** `AllocateBufferStorage` needs to say how a buffer's memory is
+used, and the sweep started inventing a `RHI::BufferUsage` enum
+(`DynamicDraw`/`DynamicCopy`/`DynamicRead`) for it — a straight transcription of
+GL's usage hints. Phase 1 had **already designed exactly this concept**, better,
+as `MemoryResidency` (`DeviceLocal` / `HostToDevice` / `DeviceToHost`): named by
+intent rather than by GL's spelling, and the three members map one-to-one onto
+what the sweep needed. It was invisible because it sat next to `BufferDesc` in a
+header nothing consumed yet, and because `RendererAPI.h` includes only
+`RHITypes.h`.
+
+What surfaced it was not review — it was a **name collision**: `RHIResources.h`
+already had a `BufferUsage`, a *bind-flags* enum (`Vertex`/`Index`/`Uniform`/
+`Storage`/…), and the two could not coexist. The engine library compiled fine
+(nothing in it includes `RHIResources.h`); only the ratchet test, which includes
+that header precisely so the declaration-only vocabulary keeps compiling, caught
+it.
+
+*Generalisable:* **a declaration-only header from an earlier phase must be read
+for the vocabulary you are about to invent, not just for the types you consume.**
+Phase 1 wrote that header so Phase 2 would have "a fixed target to convert
+toward"; the sweep nearly added a second, worse spelling of one of its concepts
+anyway. The collision was luck. The habit that would not need luck is: before
+adding an enum to `RHITypes.h`, grep `Renderer/RHI/` for the concept, not the
+name.
+
+Note this also resolves what would otherwise have been recorded as debt against
+`StorageBufferUsage` (`StorageBuffer.h`, `DynamicDraw`/`DynamicCopy`): that
+engine-wrapper option and `MemoryResidency` are now the only two spellings, and
+Phase 5 collapses them when `StorageBuffer` moves onto `RHI::ResourceHandle`.
+
+Every new enum is pinned by the same last-ordinal `static_assert` + literal-token
+table in `RHIEnumLoweringTest.cpp` that the "One new guard" paragraph above
+established (not amendment (4), which is about `UploadTextureSubImage2D`'s
+source-buffer format).
+
+One correction to that guard's stated reach, found in step 2: the last-ordinal
+`static_assert` catches an enumerator being **inserted, removed or reordered**,
+but *not* one **appended** after the current last member — appending leaves the
+asserted ordinal unchanged. Appends are caught by the compiler instead: the
+lowering switches in `OpenGLRHIConversions.h` deliberately carry no `default:`
+label, so `-Wswitch` errors on the unhandled enumerator. That makes the absence
+of `default:` load-bearing rather than an oversight, and makes the clang-cl CI
+job the one that enforces it (MSVC's C4062 is off by default even at `/W4`).
+A `Count` sentinel per enum was considered and rejected: it makes an invalid
+value representable in the neutral vocabulary and forces a dead `case` in every
+lowering switch.
 
 ---
 

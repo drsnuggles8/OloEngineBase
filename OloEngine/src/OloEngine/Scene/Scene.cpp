@@ -5,8 +5,6 @@
 // Raw GL below is part of the issue #691 Phase 2 step-2 sweep backlog; the
 // include is direct rather than transitive through RendererAPI.h, which is
 // now GL-free.
-#include <glad/gl.h>
-
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -9610,10 +9608,9 @@ namespace OloEngine
                 SoftParticleParams softParams;
                 if (auto sceneDepthTextureID = Renderer3D::ResolveFrameGraphTexture(ResourceNames::SceneDepth); sceneDepthTextureID != 0)
                 {
-                    i32 viewportWidth = 0;
-                    i32 viewportHeight = 0;
-                    glGetTextureLevelParameteriv(sceneDepthTextureID, 0, GL_TEXTURE_WIDTH, &viewportWidth);
-                    glGetTextureLevelParameteriv(sceneDepthTextureID, 0, GL_TEXTURE_HEIGHT, &viewportHeight);
+                    u32 viewportWidth = 0;
+                    u32 viewportHeight = 0;
+                    RenderCommand::GetTextureDimensions(sceneDepthTextureID, 0, viewportWidth, viewportHeight);
 
                     softParams.Enabled = sys.SoftParticlesEnabled;
                     softParams.Distance = sys.SoftParticleDistance;

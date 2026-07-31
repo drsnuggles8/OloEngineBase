@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/RenderGraph.h"
 
 #include "OloEngine/Core/PerformanceProfiler.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraphBarrierPlanner.h"
 #include "OloEngine/Renderer/RenderGraphHandleAllocator.h"
 #include "OloEngine/Renderer/RenderGraphHazardValidator.h"
@@ -12,8 +13,6 @@
 #include "OloEngine/Renderer/RenderGraphTransientPlanner.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
-
-#include <glad/gl.h>
 
 #include <algorithm>
 #include <atomic>
@@ -171,11 +170,13 @@ namespace OloEngine
             const sizet texelCount = static_cast<sizet>(spec.Width) * spec.Height;
             static thread_local std::vector<f32> s_Scratch;
             s_Scratch.resize(texelCount * 4u);
-            glGetTextureSubImage(textureID, 0, 0, 0, 0,
-                                 static_cast<GLsizei>(spec.Width), static_cast<GLsizei>(spec.Height), 1,
-                                 GL_RGBA, GL_FLOAT,
-                                 static_cast<GLsizei>(s_Scratch.size() * sizeof(f32)),
-                                 s_Scratch.data());
+            if (!RenderCommand::ReadTextureSubImage(textureID, 0, 0, 0, 0,
+                                                    spec.Width, spec.Height, 1,
+                                                    RHI::Format::RGBA32Float,
+                                                    s_Scratch.size() * sizeof(f32), s_Scratch.data()))
+            {
+                return;
+            }
 
             // NaN census first: a single NaN texel in the scene input snowballs
             // through bloom's 13-tap downsample/upsample chain into a ~300px
@@ -307,7 +308,8 @@ namespace OloEngine
                 return;
             const u32 mipLevels = std::max(spec.MipLevels, 1u);
             for (u32 level = 0; level < mipLevels; ++level)
-                glClearTexImage(texture->GetRendererID(), static_cast<GLint>(level), GL_RGBA, GL_FLOAT, color.RGBA);
+                RenderCommand::ClearTextureFloat(texture->GetRendererID(), level,
+                                                 glm::vec4(color.RGBA[0], color.RGBA[1], color.RGBA[2], color.RGBA[3]));
         }
 
         void PoisonBuffer(const Ref<StorageBuffer>& buffer)
@@ -320,7 +322,7 @@ namespace OloEngine
             // plausibly wrong. NaN would be even louder but risks GPU hangs
             // in indirect-dispatch consumers, so stay finite.
             constexpr f32 kPoisonValue = 1.0e9f;
-            glClearNamedBufferData(buffer->GetRendererID(), GL_R32F, GL_RED, GL_FLOAT, &kPoisonValue);
+            RenderCommand::ClearBufferFloat(buffer->GetRendererID(), kPoisonValue);
         }
 
         void PoisonFramebuffer(const Ref<Framebuffer>& framebuffer, const PoisonColor& color)
@@ -339,7 +341,9 @@ namespace OloEngine
                     case FramebufferTextureFormat::RGB32F:
                     case FramebufferTextureFormat::RG16F:
                     case FramebufferTextureFormat::RG32F:
-                        glClearTexImage(framebuffer->GetColorAttachmentRendererID(colorIndex), 0, GL_RGBA, GL_FLOAT, color.RGBA);
+                        RenderCommand::ClearTextureFloat(
+                            framebuffer->GetColorAttachmentRendererID(colorIndex), 0,
+                            glm::vec4(color.RGBA[0], color.RGBA[1], color.RGBA[2], color.RGBA[3]));
                         ++colorIndex;
                         break;
                     case FramebufferTextureFormat::RED_INTEGER:
@@ -2186,11 +2190,9 @@ namespace OloEngine
             if (sourceTextureID == 0)
                 continue;
 
-            glCopyImageSubData(sourceTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                               sink.TextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                               static_cast<GLsizei>(sink.Width),
-                               static_cast<GLsizei>(sink.Height),
-                               1);
+            RenderCommand::CopyImageSubData(sourceTextureID, RendererAPI::TextureTargetType::Texture2D,
+                                            sink.TextureID, RendererAPI::TextureTargetType::Texture2D,
+                                            sink.Width, sink.Height);
             if (sink.ValidFlag)
                 *sink.ValidFlag = true;
         }
@@ -2232,11 +2234,9 @@ namespace OloEngine
             if (sourceTextureID == 0)
                 continue;
 
-            glCopyImageSubData(sourceTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                               sink.TextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                               static_cast<GLsizei>(sink.Width),
-                               static_cast<GLsizei>(sink.Height),
-                               1);
+            RenderCommand::CopyImageSubData(sourceTextureID, RendererAPI::TextureTargetType::Texture2D,
+                                            sink.TextureID, RendererAPI::TextureTargetType::Texture2D,
+                                            sink.Width, sink.Height);
             if (sink.ValidFlag)
                 *sink.ValidFlag = true;
         }

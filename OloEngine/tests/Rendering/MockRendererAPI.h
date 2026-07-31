@@ -24,6 +24,7 @@ namespace OloEngine::Testing
         f32 ParamF32_0 = 0.0f;
         bool ParamBool_0 = false;
         glm::vec4 ParamVec4_0 = glm::vec4(0);
+        std::vector<u32> ParamU32List;
     };
 
     class MockRendererAPI : public RendererAPI
@@ -483,6 +484,382 @@ namespace OloEngine::Testing
             Record("DeleteTexture");
         }
 
+        // ----------------------------------------------------------------
+        // Phase 2 step 2 additions (issue #691). Same recording convention as
+        // above. Note these make the mock STRICTLY safer than before: the call
+        // sites they replace issued raw glXxx() through glad, which in a
+        // headless test is a null function pointer.
+        // ----------------------------------------------------------------
+        void BindUniformBuffer(u32 bindingPoint, u32 bufferID) override
+        {
+            RecordedCall c{ "BindUniformBuffer" };
+            c.ParamU32_0 = bindingPoint;
+            c.ParamU32_1 = bufferID;
+            m_Calls.push_back(c);
+            ++m_BindCount;
+        }
+        void BindStorageBuffer(u32 bindingPoint, u32 bufferID) override
+        {
+            RecordedCall c{ "BindStorageBuffer" };
+            c.ParamU32_0 = bindingPoint;
+            c.ParamU32_1 = bufferID;
+            m_Calls.push_back(c);
+            ++m_BindCount;
+        }
+        void BindShaderProgram(u32 programID) override
+        {
+            RecordedCall c{ "BindShaderProgram" };
+            c.ParamU32_0 = programID;
+            m_Calls.push_back(c);
+            ++m_BindCount;
+        }
+        void BindVertexArrayRaw(u32 vaoID) override
+        {
+            RecordedCall c{ "BindVertexArrayRaw" };
+            c.ParamU32_0 = vaoID;
+            m_Calls.push_back(c);
+            ++m_BindCount;
+        }
+        void BindFramebuffer(u32 framebufferID) override
+        {
+            RecordedCall c{ "BindFramebuffer" };
+            c.ParamU32_0 = framebufferID;
+            m_Calls.push_back(c);
+            ++m_BindCount;
+        }
+
+        void DrawBoundIndexed(RHI::PrimitiveTopology /*topology*/, u32 indexCount,
+                              RHI::IndexType /*indexType*/, u32 baseIndex) override
+        {
+            RecordedCall c{ "DrawBoundIndexed" };
+            c.ParamU32_0 = indexCount;
+            c.ParamU32_1 = baseIndex;
+            m_Calls.push_back(c);
+            ++m_DrawCallCount;
+        }
+        void DrawBoundIndexedInstanced(RHI::PrimitiveTopology /*topology*/, u32 indexCount,
+                                       RHI::IndexType /*indexType*/, u32 baseIndex, u32 instanceCount) override
+        {
+            RecordedCall c{ "DrawBoundIndexedInstanced" };
+            c.ParamU32_0 = indexCount;
+            c.ParamU32_1 = baseIndex;
+            c.ParamU32_2 = instanceCount;
+            m_Calls.push_back(c);
+            ++m_DrawCallCount;
+        }
+        void DrawBoundArrays(RHI::PrimitiveTopology /*topology*/, u32 firstVertex, u32 vertexCount) override
+        {
+            RecordedCall c{ "DrawBoundArrays" };
+            c.ParamU32_0 = firstVertex;
+            c.ParamU32_1 = vertexCount;
+            m_Calls.push_back(c);
+            ++m_DrawCallCount;
+        }
+        void SetPatchVertexCount(u32 patchVertices) override
+        {
+            RecordedCall c{ "SetPatchVertexCount" };
+            c.ParamU32_0 = patchVertices;
+            m_Calls.push_back(c);
+        }
+
+        void SetFrontFace(RHI::FrontFace /*face*/) override
+        {
+            Record("SetFrontFace");
+        }
+        void SetBlendFuncSeparate(RHI::BlendFactor /*srcRGB*/, RHI::BlendFactor /*dstRGB*/,
+                                  RHI::BlendFactor /*srcAlpha*/, RHI::BlendFactor /*dstAlpha*/) override
+        {
+            Record("SetBlendFuncSeparate");
+        }
+        void SetClearDepth(f32 depth) override
+        {
+            RecordedCall c{ "SetClearDepth" };
+            c.ParamF32_0 = depth;
+            m_Calls.push_back(c);
+        }
+
+        u32 CreateFramebuffer() override
+        {
+            Record("CreateFramebuffer");
+            return m_NextFramebufferID++;
+        }
+        void DeleteFramebuffer(u32 /*framebufferID*/) override
+        {
+            Record("DeleteFramebuffer");
+        }
+        void AttachFramebufferColorTexture(u32 /*fb*/, u32 /*attachmentIndex*/, u32 /*texID*/, u32 /*mip*/) override
+        {
+            Record("AttachFramebufferColorTexture");
+        }
+        void AttachFramebufferDepthTexture(u32 /*fb*/, u32 /*texID*/, u32 /*mip*/) override
+        {
+            Record("AttachFramebufferDepthTexture");
+        }
+        [[nodiscard("Store this!")]] bool IsFramebufferComplete(u32 /*fb*/) override
+        {
+            Record("IsFramebufferComplete");
+            return true;
+        }
+        void SetFramebufferDrawAttachments(u32 fb, std::span<const u32> attachmentIndices) override
+        {
+            RecordedCall c{ "SetFramebufferDrawAttachments" };
+            c.ParamU32_0 = fb;
+            c.ParamU32_1 = static_cast<u32>(attachmentIndices.size());
+            // The indices themselves, not just how many: the interesting
+            // assertions are about WHICH attachment a pass steers a draw into
+            // (and whether a slot is RHI::NoAttachment), which a count cannot
+            // distinguish — DecalRenderPass's four modes all pass 5 entries.
+            c.ParamU32List.assign(attachmentIndices.begin(), attachmentIndices.end());
+            m_Calls.push_back(c);
+        }
+        void RestoreAllFramebufferDrawAttachments(u32 fb, u32 colorAttachmentCount) override
+        {
+            RecordedCall c{ "RestoreAllFramebufferDrawAttachments" };
+            c.ParamU32_0 = fb;
+            c.ParamU32_1 = colorAttachmentCount;
+            m_Calls.push_back(c);
+        }
+        void SetFramebufferReadAttachment(u32 fb, u32 attachmentIndex) override
+        {
+            RecordedCall c{ "SetFramebufferReadAttachment" };
+            c.ParamU32_0 = fb;
+            c.ParamU32_1 = attachmentIndex;
+            m_Calls.push_back(c);
+        }
+        void ClearFramebufferColorAttachment(u32 fb, u32 attachmentIndex, const glm::vec4& color) override
+        {
+            RecordedCall c{ "ClearFramebufferColorAttachment" };
+            c.ParamU32_0 = fb;
+            c.ParamU32_1 = attachmentIndex;
+            c.ParamVec4_0 = color;
+            m_Calls.push_back(c);
+        }
+        void ClearFramebufferDepth(u32 fb, f32 depth) override
+        {
+            RecordedCall c{ "ClearFramebufferDepth" };
+            c.ParamU32_0 = fb;
+            c.ParamF32_0 = depth;
+            m_Calls.push_back(c);
+        }
+        void BlitFramebuffer(u32 src, u32 dst, i32 /*sx0*/, i32 /*sy0*/, i32 /*sx1*/, i32 /*sy1*/,
+                             i32 /*dx0*/, i32 /*dy0*/, i32 /*dx1*/, i32 /*dy1*/,
+                             RHI::BlitAspect /*aspect*/, RHI::Filter /*filter*/) override
+        {
+            RecordedCall c{ "BlitFramebuffer" };
+            c.ParamU32_0 = src;
+            c.ParamU32_1 = dst;
+            m_Calls.push_back(c);
+        }
+
+        u32 CreateBuffer() override
+        {
+            Record("CreateBuffer");
+            return m_NextBufferID++;
+        }
+        void DeleteBuffer(u32 /*bufferID*/) override
+        {
+            Record("DeleteBuffer");
+        }
+        void AllocateBufferStorage(u32 /*bufferID*/, u64 /*sizeBytes*/, RHI::MemoryResidency /*residency*/) override
+        {
+            Record("AllocateBufferStorage");
+        }
+        void* AllocatePersistentUploadStorage(u32 /*bufferID*/, u64 /*sizeBytes*/) override
+        {
+            Record("AllocatePersistentUploadStorage");
+            // Null is the documented "mapping failed" answer, and every caller
+            // already has a fallback path for it (VirtualMeshRegistry falls back
+            // to direct uploads). Handing back a fake pointer the caller would
+            // memcpy into is the option that would actually crash a test.
+            return nullptr;
+        }
+        void UnmapBuffer(u32 /*bufferID*/) override
+        {
+            Record("UnmapBuffer");
+        }
+        void UploadBufferSubData(u32 /*bufferID*/, u64 /*offset*/, u64 /*size*/, const void* /*data*/) override
+        {
+            Record("UploadBufferSubData");
+        }
+        void ReadBufferSubData(u32 /*bufferID*/, u64 /*offset*/, u64 /*size*/, void* /*dest*/) override
+        {
+            Record("ReadBufferSubData");
+        }
+        void CopyBufferSubData(u32 /*src*/, u32 /*dst*/, u64 /*srcOff*/, u64 /*dstOff*/, u64 /*size*/) override
+        {
+            Record("CopyBufferSubData");
+        }
+        void ClearBufferUInt(u32 /*bufferID*/, u32 /*value*/) override
+        {
+            Record("ClearBufferUInt");
+        }
+        void ClearBufferFloat(u32 /*bufferID*/, f32 /*value*/) override
+        {
+            Record("ClearBufferFloat");
+        }
+
+        u32 CreateVertexArray() override
+        {
+            Record("CreateVertexArray");
+            return m_NextVertexArrayID++;
+        }
+        void SetVertexArrayIndexBuffer(u32 /*vaoID*/, u32 /*bufferID*/) override
+        {
+            Record("SetVertexArrayIndexBuffer");
+        }
+        void DeleteVertexArray(u32 /*vaoID*/) override
+        {
+            Record("DeleteVertexArray");
+        }
+
+        void ClearTextureFloat(u32 texID, u32 /*mip*/, const glm::vec4& color) override
+        {
+            RecordedCall c{ "ClearTextureFloat" };
+            c.ParamU32_0 = texID;
+            c.ParamVec4_0 = color;
+            m_Calls.push_back(c);
+        }
+        void ClearTextureUInt(u32 texID, u32 /*mip*/, u32 value) override
+        {
+            RecordedCall c{ "ClearTextureUInt" };
+            c.ParamU32_0 = texID;
+            c.ParamU32_1 = value;
+            m_Calls.push_back(c);
+        }
+        void UploadTextureSubImage2D(u32 /*texID*/, i32 /*x*/, i32 /*y*/, u32 /*w*/, u32 /*h*/,
+                                     RHI::Format /*sourceFormat*/, const void* /*data*/) override
+        {
+            Record("UploadTextureSubImage2DOffset");
+        }
+        void UploadTextureSubImage3D(u32 /*texID*/, i32 /*x*/, i32 /*y*/, i32 /*z*/,
+                                     u32 /*w*/, u32 /*h*/, u32 /*d*/,
+                                     RHI::Format /*sourceFormat*/, const void* /*data*/) override
+        {
+            Record("UploadTextureSubImage3D");
+        }
+        [[nodiscard("Store this!")]] bool ReadTextureImage(u32 /*texID*/, u32 /*mip*/, RHI::Format /*fmt*/,
+                                                           sizet /*destSizeBytes*/, void* /*dest*/) override
+        {
+            Record("ReadTextureImage");
+            // False, not true: there is no device behind the mock, so `dest` is
+            // untouched. Claiming success would let a caller consume
+            // uninitialised memory and call it a readback.
+            return false;
+        }
+        [[nodiscard("Store this!")]] bool ReadTextureSubImage(u32 /*texID*/, u32 /*mip*/, i32 /*x*/, i32 /*y*/, i32 /*z*/,
+                                                              u32 /*w*/, u32 /*h*/, u32 /*d*/, RHI::Format /*fmt*/,
+                                                              sizet /*destSizeBytes*/, void* /*dest*/) override
+        {
+            Record("ReadTextureSubImage");
+            return false;
+        }
+        void GetTextureDimensions(u32 /*texID*/, u32 /*mip*/, u32& outWidth, u32& outHeight) override
+        {
+            Record("GetTextureDimensions");
+            outWidth = m_Viewport.width;
+            outHeight = m_Viewport.height;
+        }
+        void TextureBarrier() override
+        {
+            Record("TextureBarrier");
+        }
+
+        void CreateQueries(RHI::QueryType /*type*/, std::span<u32> outQueryIDs) override
+        {
+            Record("CreateQueries");
+            for (u32& id : outQueryIDs)
+            {
+                id = m_NextQueryID++;
+            }
+        }
+        void DeleteQueries(std::span<const u32> /*queryIDs*/) override
+        {
+            Record("DeleteQueries");
+        }
+        void BeginQuery(RHI::QueryType /*type*/, u32 queryID) override
+        {
+            RecordedCall c{ "BeginQuery" };
+            c.ParamU32_0 = queryID;
+            m_Calls.push_back(c);
+        }
+        void EndQuery(RHI::QueryType /*type*/) override
+        {
+            Record("EndQuery");
+        }
+        [[nodiscard("Store this!")]] bool IsQueryResultAvailable(u32 /*queryID*/) override
+        {
+            Record("IsQueryResultAvailable");
+            return false;
+        }
+        [[nodiscard("Store this!")]] u32 GetQueryResultU32(u32 /*queryID*/) override
+        {
+            Record("GetQueryResultU32");
+            return 0;
+        }
+        [[nodiscard("Store this!")]] u64 GetQueryResultU64(u32 /*queryID*/) override
+        {
+            Record("GetQueryResultU64");
+            return 0;
+        }
+
+        [[nodiscard("Store this!")]] u64 CreateFence() override
+        {
+            Record("CreateFence");
+            // A non-zero opaque handle, so the SUCCESS path is what tests
+            // exercise by default. Returning 0 made every caller take its
+            // creation-failed branch, which meant the mock could only ever
+            // cover the error path (and made FrameResourceManager log an error
+            // on a perfectly healthy test).
+            return m_NextFenceHandle++;
+        }
+        [[nodiscard("Store this!")]] RHI::FenceStatus ClientWaitFence(u64 /*fence*/, u64 /*timeoutNs*/) override
+        {
+            Record("ClientWaitFence");
+            return RHI::FenceStatus::AlreadySignaled;
+        }
+        [[nodiscard("Store this!")]] bool IsFenceSignaled(u64 /*fence*/) override
+        {
+            Record("IsFenceSignaled");
+            return true;
+        }
+        void DestroyFence(u64 /*fence*/) override
+        {
+            Record("DestroyFence");
+        }
+
+        void PushDebugGroup(u32 /*id*/, std::string_view /*label*/) override
+        {
+            Record("PushDebugGroup");
+        }
+        void PopDebugGroup() override
+        {
+            Record("PopDebugGroup");
+        }
+
+        void WaitForDeviceIdle() override
+        {
+            Record("WaitForDeviceIdle");
+        }
+        [[nodiscard("Store this!")]] u32 GetMaxFramebufferSamples() const override
+        {
+            return 8;
+        }
+        [[nodiscard("Store this!")]] u32 GetMaxColorTextureSamples() const override
+        {
+            return 8;
+        }
+        [[nodiscard("Store this!")]] u32 GetMaxDepthTextureSamples() const override
+        {
+            return 8;
+        }
+        void SetProgramUniformFloat(u32 programID, std::string_view /*name*/, f32 value) override
+        {
+            RecordedCall c{ "SetProgramUniformFloat" };
+            c.ParamU32_0 = programID;
+            c.ParamF32_0 = value;
+            m_Calls.push_back(c);
+        }
+
       private:
         void Record(const std::string& name)
         {
@@ -493,6 +870,11 @@ namespace OloEngine::Testing
         u32 m_BindCount = 0;
         u32 m_DrawCallCount = 0;
         u32 m_NextTextureID = 1;
+        u32 m_NextFramebufferID = 1;
+        u32 m_NextBufferID = 1;
+        u32 m_NextVertexArrayID = 1;
+        u32 m_NextQueryID = 1;
+        u64 m_NextFenceHandle = 1;
         u32 m_MaxUniformBlockSize = 65536u;
         bool m_SupportsInt64Atomics = false;
         Viewport m_Viewport{ 0, 0, 1920, 1080 };

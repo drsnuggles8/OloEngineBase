@@ -11,8 +11,6 @@
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
     PlanarReflectionRenderPass::PlanarReflectionRenderPass()
@@ -187,7 +185,7 @@ namespace OloEngine
         // A reflection reverses handedness, so the geometry's front faces now wind
         // clockwise — declare CW the front winding for the replay so back-face
         // culling still removes the correct triangles.
-        ::glFrontFace(GL_CW);
+        RenderCommand::SetFrontFace(RHI::FrontFace::Clockwise);
 
         // Re-establish shared scene resources the scene pass left bound (camera
         // UBO binding, shadow maps, IBL) and replay the already-batched opaque
@@ -195,7 +193,7 @@ namespace OloEngine
         CommandDispatch::BindSceneResources();
         m_ScenePass->GetCommandBucket().Execute(rendererAPI);
 
-        ::glFrontFace(GL_CCW);
+        RenderCommand::SetFrontFace(RHI::FrontFace::CounterClockwise);
         m_ReflectionFB->Unbind();
 
         // Put back everything the mirror replay reconfigured (depth test/func/mask,

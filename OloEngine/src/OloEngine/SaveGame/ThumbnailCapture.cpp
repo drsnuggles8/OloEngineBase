@@ -1,7 +1,7 @@
 #include "OloEnginePCH.h"
 #include "ThumbnailCapture.h"
 
-#include <glad/gl.h>
+#include "OloEngine/Renderer/RenderCommand.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image/stb_image_write.h>
@@ -47,12 +47,13 @@ namespace OloEngine
         }
 
         std::vector<u8> pixelData(fbWidth * fbHeight * 4);
-        glGetTextureImage(texID, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                          static_cast<GLsizei>(pixelData.size()), pixelData.data());
-
-        if (GLenum err = glGetError(); err != GL_NO_ERROR)
+        // The readback reports its own success — the backend owns the error
+        // model (a sticky global flag on GL, a per-call result on Vulkan), so
+        // there is deliberately no facade-level GetError() to ask afterwards.
+        if (!RenderCommand::ReadTextureImage(texID, 0, RHI::Format::RGBA8UNorm,
+                                             pixelData.size(), pixelData.data()))
         {
-            OLO_CORE_ERROR("[ThumbnailCapture] GL error reading framebuffer: {}", err);
+            OLO_CORE_ERROR("[ThumbnailCapture] Failed to read back the framebuffer colour attachment");
             return {};
         }
 

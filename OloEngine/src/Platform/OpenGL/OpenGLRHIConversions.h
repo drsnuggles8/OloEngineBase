@@ -15,11 +15,25 @@
 // values "for a free static_cast" is exactly how GL leaked upward the first
 // time.
 //
-// Every switch carries a `default:` that logs and falls back rather than
-// silently emitting 0 (which GL would take as GL_NONE / GL_ZERO / GL_POINTS
-// depending on where it landed — a wrong-but-legal value, the silent failure
-// mode this phase exists to avoid). Matches ToGLTextureTarget's existing idiom
-// in OpenGLRendererAPI.cpp.
+// Every switch logs and falls back rather than silently emitting 0 (which GL
+// would take as GL_NONE / GL_ZERO / GL_POINTS depending on where it landed — a
+// wrong-but-legal value, the silent failure mode this phase exists to avoid).
+//
+// WHERE that fallback lives is load-bearing, so do not "tidy" it. Sixteen of the
+// nineteen switches below put it AFTER the switch and carry no `default:` label
+// at all. That is deliberate: without a `default:`, the compiler's
+// switch-exhaustiveness warning (clang/clang-cl `-Wswitch`, on by default) fires
+// when someone APPENDS an enumerator to one of these enums — and that warning is
+// the only thing that catches an append, because RHIEnumLoweringTest's
+// last-enumerator `static_assert` cannot (appending leaves the previous last
+// member's ordinal unchanged). Adding a `default:` here to "be safe" would trade
+// a build error for a silent wrong mapping. Note MSVC's equivalent (C4062) is
+// off by default even at /W4, so the clang-cl CI job is what enforces this.
+//
+// The three exceptions are intentional: ToGLPixelFormat / ToGLPixelType take
+// RHI::Format, and ToGLImageAccess takes RHI::Access — enums whose members are
+// mostly NOT valid for those particular conversions, so an exhaustive list would
+// be noise rather than a guard.
 // =============================================================================
 
 #include "OloEngine/Core/Log.h"
@@ -353,6 +367,97 @@ namespace OloEngine::Utils
         }
         OLO_CORE_ERROR("ToGLPixelType: unhandled RHI::Format {}", static_cast<int>(format));
         return GL_UNSIGNED_BYTE;
+    }
+
+    [[nodiscard]] inline GLenum ToGL(RHI::IndexType type)
+    {
+        switch (type)
+        {
+            case RHI::IndexType::UInt16:
+                return GL_UNSIGNED_SHORT;
+            case RHI::IndexType::UInt32:
+                return GL_UNSIGNED_INT;
+        }
+        OLO_CORE_ERROR("ToGL(RHI::IndexType): unhandled value {}", static_cast<int>(type));
+        return GL_UNSIGNED_INT;
+    }
+
+    [[nodiscard]] inline GLenum ToGL(RHI::FrontFace face)
+    {
+        switch (face)
+        {
+            case RHI::FrontFace::CounterClockwise:
+                return GL_CCW;
+            case RHI::FrontFace::Clockwise:
+                return GL_CW;
+        }
+        OLO_CORE_ERROR("ToGL(RHI::FrontFace): unhandled value {}", static_cast<int>(face));
+        return GL_CCW;
+    }
+
+    // The GL query target a RHI::QueryType begins/ends against.
+    [[nodiscard]] inline GLenum ToGL(RHI::QueryType type)
+    {
+        switch (type)
+        {
+            case RHI::QueryType::OcclusionAnySamples:
+                return GL_ANY_SAMPLES_PASSED;
+            case RHI::QueryType::TimeElapsed:
+                return GL_TIME_ELAPSED;
+        }
+        OLO_CORE_ERROR("ToGL(RHI::QueryType): unhandled value {}", static_cast<int>(type));
+        return GL_ANY_SAMPLES_PASSED;
+    }
+
+    // glNamedBufferData's usage hint. GL treats it as a hint only, so a wrong
+    // value here costs bandwidth rather than correctness — which is precisely why
+    // it needs a table test: nothing would render wrong, and no other assertion
+    // in the suite would notice.
+    [[nodiscard]] inline GLenum ToGL(RHI::MemoryResidency residency)
+    {
+        switch (residency)
+        {
+            case RHI::MemoryResidency::HostToDevice:
+                return GL_DYNAMIC_DRAW;
+            case RHI::MemoryResidency::DeviceLocal:
+                return GL_DYNAMIC_COPY;
+            case RHI::MemoryResidency::DeviceToHost:
+                return GL_DYNAMIC_READ;
+        }
+        OLO_CORE_ERROR("ToGL(RHI::MemoryResidency): unhandled value {}", static_cast<int>(residency));
+        return GL_DYNAMIC_DRAW;
+    }
+
+    // glBlitNamedFramebuffer's mask. A GLbitfield rather than a GLenum — the
+    // return type is the tell that this one is not an enum lowering.
+    [[nodiscard]] inline GLbitfield ToGLBlitMask(RHI::BlitAspect aspect)
+    {
+        switch (aspect)
+        {
+            case RHI::BlitAspect::Color:
+                return GL_COLOR_BUFFER_BIT;
+            case RHI::BlitAspect::Depth:
+                return GL_DEPTH_BUFFER_BIT;
+            case RHI::BlitAspect::Stencil:
+                return GL_STENCIL_BUFFER_BIT;
+            case RHI::BlitAspect::DepthStencil:
+                return GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
+        }
+        OLO_CORE_ERROR("ToGLBlitMask: unhandled RHI::BlitAspect {}", static_cast<int>(aspect));
+        return GL_COLOR_BUFFER_BIT;
+    }
+
+    // A colour-attachment index, or RHI::NoAttachment for "writes nowhere".
+    // The sentinel is the reason this is not a bare `GL_COLOR_ATTACHMENT0 + i`
+    // at each call site: GL_NONE is not GL_COLOR_ATTACHMENT0 + anything, and a
+    // Vulkan backend needs the same distinction for VK_ATTACHMENT_UNUSED.
+    [[nodiscard]] inline GLenum ToGLColorAttachment(u32 attachmentIndex)
+    {
+        if (attachmentIndex == RHI::NoAttachment)
+        {
+            return GL_NONE;
+        }
+        return GL_COLOR_ATTACHMENT0 + attachmentIndex;
     }
 
     // glBindImageTexture's access parameter. Only the three storage accesses are
