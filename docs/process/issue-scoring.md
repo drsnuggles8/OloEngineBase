@@ -285,7 +285,8 @@ still isn't a feature (e.g. #411's SonarQube setup issues).
 
 This is a **policy lens on top of the rubric, not a rubric change** — the
 underlying score/rank is untouched; `--freeze` only filters the candidate set
-before sorting. Adopted 2026-07 for a month-long feature freeze (perf /
-robustness / architecture / cleanup focus, MCP+codegen exempted); drop the flag
-once the freeze ends. If an issue that's clearly freeze-eligible doesn't show
-up, it's very likely mislabeled — fix the label, not the filter.
+before sorting. First used 2026-07 for a month-long feature freeze (perf /
+robustness / architecture / cleanup focus, MCP+codegen exempted), **ended
+2026-07-31**; the flag is opt-in, so plain `rank` is the live lens again and the
+lens stays available for the next one. If an issue that's clearly freeze-eligible
+doesn't show up, it's very likely mislabeled — fix the label, not the filter.
