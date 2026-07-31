@@ -67,12 +67,17 @@ TEST(ContainerSmoke, TSetAddDuplicateAndContains)
 
 TEST(ContainerSmoke, TMapAddFindRemove)
 {
-    TMap<i32, std::string> map;
-    map.Add(1, "one");
-    map.Add(2, "two");
+    // FString, not std::string. TMap stores its pairs in a TSparseArray, which
+    // relocates bitwise, and libstdc++'s std::string does not survive that (see
+    // the TMapRelocation cases below). The relocatability guard flags it, and
+    // the guard is right -- a std::string value here was always unsound, it
+    // just happened not to grow enough in this smoke test to corrupt.
+    TMap<i32, FString> map;
+    map.Add(1, FString("one"));
+    map.Add(2, FString("two"));
     auto* found = map.Find(1);
     ASSERT_NE(found, nullptr);
-    EXPECT_EQ(*found, "one");
+    EXPECT_TRUE(found->Equals(FString("one")));
     map.Remove(1);
     EXPECT_EQ(map.Find(1), nullptr);
     EXPECT_EQ(map.Num(), 1);
