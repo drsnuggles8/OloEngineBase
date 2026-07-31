@@ -101,18 +101,40 @@ namespace
         EXPECT_TRUE(BitwiseEqual(42, 42));
         EXPECT_FALSE(BitwiseEqual(42, 43));
 
+        // A struct with implicit padding after the trailing bool.
         struct Trivial
         {
             f32 X;
             i32 Y;
             bool Z;
-            // Pad to force a struct with implicit padding bytes. Bit-exact
-            // comparison includes padding, so callers must zero-init for
-            // predictable equality — same rule as std::memcmp.
         };
+        static_assert(sizeof(Trivial) > sizeof(f32) + sizeof(i32) + sizeof(bool),
+                      "this case only exercises anything while Trivial actually has padding");
 
-        const Trivial a{ 1.0f, 7, true };
-        Trivial b = a;
+        // `BitwiseEqual` is `memcmp` over `sizeof(T)`, so it compares PADDING
+        // bytes as well as members — and the language does not guarantee that
+        // copying an object reproduces them. This case previously wrote
+        // `const Trivial a{ 1.0f, 7, true }; Trivial b = a;` and asserted the
+        // two compared equal. That holds on MSVC and Clang, which copy the
+        // whole object representation, but GCC's implicit copy constructor
+        // copies member-wise and leaves the destination's padding as whatever
+        // was on the stack — so every member matched and only bytes 9-11
+        // differed. It went unnoticed until the suite first ran under GCC.
+        //
+        // Value-initialisation zeroes padding bits (guaranteed since C++20),
+        // so initialising both objects that way and assigning members gives a
+        // deterministic comparison. This is exactly the "zero-init for
+        // predictable equality" rule the helper's callers must follow.
+        Trivial a{};
+        a.X = 1.0f;
+        a.Y = 7;
+        a.Z = true;
+
+        Trivial b{};
+        b.X = 1.0f;
+        b.Y = 7;
+        b.Z = true;
+
         EXPECT_TRUE(BitwiseEqual(a, b));
         b.Y = 8;
         EXPECT_FALSE(BitwiseEqual(a, b));
