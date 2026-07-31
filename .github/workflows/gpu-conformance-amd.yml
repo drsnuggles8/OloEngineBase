@@ -256,7 +256,21 @@ jobs:
           : "${VULKAN_SDK:?VULKAN_SDK is not set - see docs/ops/self-hosted-gpu-runner.md}"
           test -d "$VULKAN_SDK/include/vulkan" || { echo "::error::no headers under $VULKAN_SDK"; exit 1; }
           test -e "$VULKAN_SDK/lib/libshaderc_shared.so" || { echo "::error::no shaderc under $VULKAN_SDK"; exit 1; }
+
+          # The LunarG SDK does NOT place the loader in lib/ — it nests it under
+          # lib/VulkanLoader/lib/. CMAKE_PREFIX_PATH therefore resolves the
+          # headers and the *version* but not Vulkan_LIBRARY, and configure dies
+          # with "Could NOT find Vulkan (missing: Vulkan_LIBRARY) (found version
+          # 1.4.350)" — found-but-not-found, which reads like a version problem
+          # and is not one. Locate the loader and hand the configure step an
+          # exact path rather than letting it guess at a layout that varies
+          # between SDK versions.
+          loader=$(find "$VULKAN_SDK" -name 'libvulkan.so' -print -quit 2>/dev/null || true)
+          [ -n "$loader" ] || { echo "::error::no libvulkan.so anywhere under $VULKAN_SDK"; exit 1; }
+
           echo "Vulkan SDK: $VULKAN_SDK"
+          echo "  loader:   $loader"
+          echo "OLO_VULKAN_LIBRARY=$loader" >> "$GITHUB_ENV"
 
       - name: Configure CMake
         # Heavy optional interchange deps (USD/Alembic/MaterialX) and the FFmpeg
@@ -272,6 +286,7 @@ jobs:
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
           -DCMAKE_PREFIX_PATH="$VULKAN_SDK"
+          -DVulkan_LIBRARY="$OLO_VULKAN_LIBRARY"
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           -DOLO_VIDEO_FFMPEG=OFF
