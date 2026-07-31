@@ -115,7 +115,7 @@ namespace OloEngine
         {
             if (textureID == 0)
                 return;
-            RGResourceDesc desc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, name);
+            RGResourceDesc desc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, name);
             desc.Format = format;
             desc.Width = width;
             desc.Height = height;

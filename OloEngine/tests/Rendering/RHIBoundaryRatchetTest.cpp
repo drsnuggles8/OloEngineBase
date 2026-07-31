@@ -543,7 +543,7 @@ namespace OloEngine::Tests
         static_assert(!std::is_convertible_v<u32, RHI::ResourceHandle>);
         static_assert(!std::is_convertible_v<RHI::ResourceHandle, u32>);
 
-        // (b) `is_constructible_v<ResourceHandle, u32>` is deliberately NOT
+        // (b) `is_constructible_v<RHI::ResourceHandle, u32>` is deliberately NOT
         //     asserted false, because it is TRUE and cannot be made false without
         //     giving up the aggregate.
         //

@@ -86,7 +86,7 @@ namespace OloEngine::RenderGraphTransientPlanner
             }
         };
 
-        if (desc.Kind == ResourceHandle::Kind::StorageBuffer || desc.Kind == ResourceHandle::Kind::UniformBuffer)
+        if (desc.Kind == RGResourceHandle::Kind::StorageBuffer || desc.Kind == RGResourceHandle::Kind::UniformBuffer)
             return desc.Width;
 
         if (desc.Width == 0 || desc.Height == 0)
@@ -124,15 +124,15 @@ namespace OloEngine::RenderGraphTransientPlanner
 
         switch (desc.Kind)
         {
-            case ResourceHandle::Kind::Texture2D:
-            case ResourceHandle::Kind::Texture2DArray:
-            case ResourceHandle::Kind::TextureCube:
-            case ResourceHandle::Kind::TextureCubeArray:
+            case RGResourceHandle::Kind::Texture2D:
+            case RGResourceHandle::Kind::Texture2DArray:
+            case RGResourceHandle::Kind::TextureCube:
+            case RGResourceHandle::Kind::TextureCubeArray:
                 return desc.Width > 0 &&
                        desc.Height > 0 &&
                        desc.Format != RGResourceFormat::Unknown &&
                        RenderGraph::ToImageFormat(desc.Format) != ImageFormat::None;
-            case ResourceHandle::Kind::Framebuffer:
+            case RGResourceHandle::Kind::Framebuffer:
                 // MRT: at least one valid attachment required; dims must be set.
                 if (!desc.Attachments.empty())
                 {
@@ -148,10 +148,10 @@ namespace OloEngine::RenderGraphTransientPlanner
                        desc.Height > 0 &&
                        desc.Format != RGResourceFormat::Unknown &&
                        RenderGraph::ToFramebufferFormat(desc.Format) != FramebufferTextureFormat::None;
-            case ResourceHandle::Kind::StorageBuffer:
-            case ResourceHandle::Kind::UniformBuffer:
+            case RGResourceHandle::Kind::StorageBuffer:
+            case RGResourceHandle::Kind::UniformBuffer:
                 return desc.Width > 0;
-            case ResourceHandle::Kind::Unknown:
+            case RGResourceHandle::Kind::Unknown:
             default:
                 return false;
         }
@@ -164,10 +164,10 @@ namespace OloEngine::RenderGraphTransientPlanner
 
         switch (desc.Kind)
         {
-            case ResourceHandle::Kind::Texture2D:
-            case ResourceHandle::Kind::Texture2DArray:
-            case ResourceHandle::Kind::TextureCube:
-            case ResourceHandle::Kind::TextureCubeArray:
+            case RGResourceHandle::Kind::Texture2D:
+            case RGResourceHandle::Kind::Texture2DArray:
+            case RGResourceHandle::Kind::TextureCube:
+            case RGResourceHandle::Kind::TextureCubeArray:
             {
                 if (desc.Width == 0 || desc.Height == 0)
                     return "missing-dimensions";
@@ -177,7 +177,7 @@ namespace OloEngine::RenderGraphTransientPlanner
                     return "unsupported-image-format";
                 return "descriptor-incomplete";
             }
-            case ResourceHandle::Kind::Framebuffer:
+            case RGResourceHandle::Kind::Framebuffer:
             {
                 if (desc.Width == 0 || desc.Height == 0)
                     return "missing-dimensions";
@@ -199,14 +199,14 @@ namespace OloEngine::RenderGraphTransientPlanner
                     return "unsupported-framebuffer-format";
                 return "descriptor-incomplete";
             }
-            case ResourceHandle::Kind::StorageBuffer:
-            case ResourceHandle::Kind::UniformBuffer:
+            case RGResourceHandle::Kind::StorageBuffer:
+            case RGResourceHandle::Kind::UniformBuffer:
             {
                 if (desc.Width == 0)
                     return "zero-size-buffer";
                 return "descriptor-incomplete";
             }
-            case ResourceHandle::Kind::Unknown:
+            case RGResourceHandle::Kind::Unknown:
             default:
                 return "unknown-kind";
         }

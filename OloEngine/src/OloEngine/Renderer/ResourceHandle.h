@@ -23,7 +23,25 @@ namespace OloEngine
     // is informational today — validation is currently name-based — but the
     // type system is in place for the next iteration (automatic barriers,
     // transient memory aliasing, etc.).
-    struct ResourceHandle
+    // NAMED FOR ITS SIBLINGS, AND DELIBERATELY NOT `ResourceHandle`.
+    //
+    // `RHI::ResourceHandle` (Renderer/RHI/RHITypes.h) is a different type
+    // entirely — a generation-checked GPU object identity — and `RHI` is a
+    // namespace that is frequently in scope. While this type was called plain
+    // `ResourceHandle`, a header that used `RHI::ResourceHandle` WITHOUT
+    // including RHITypes.h did not fail with "unknown type": the name silently
+    // degraded to this one, which was in scope and valid. That happened during
+    // issue #691 step 3 (RGCommandContext.h) and only surfaced because a
+    // separately-compiled definition disagreed; in a header-only path it would
+    // have compiled with the wrong type.
+    //
+    // ADR 0011 §1.7 chose the `RHI::` namespace so the two could not be confused
+    // at a CALL SITE. This rename closes the other half: they can no longer be
+    // confused by a missing include either. Do not shorten it back — the prefix
+    // also matches every other type in this header (RGTextureHandle,
+    // RGBufferHandle, RGFramebufferHandle, RGResourceDesc, ...), of which this
+    // was the sole exception.
+    struct RGResourceHandle
     {
         enum class Kind : u8
         {
@@ -44,13 +62,13 @@ namespace OloEngine
         std::string Name;
         Kind Type = Kind::Unknown;
 
-        ResourceHandle() = default;
-        ResourceHandle(std::string_view name, Kind type = Kind::Unknown)
+        RGResourceHandle() = default;
+        RGResourceHandle(std::string_view name, Kind type = Kind::Unknown)
             : Name(name), Type(type)
         {
         }
 
-        [[nodiscard]] bool operator==(const ResourceHandle& other) const
+        [[nodiscard]] bool operator==(const RGResourceHandle& other) const
         {
             // Name is the identity. Kind is metadata for diagnostics and
             // future barrier synthesis; two declarations of the same name
@@ -159,27 +177,27 @@ namespace OloEngine
         Copy,
     };
 
-    [[nodiscard]] inline auto ToString(ResourceHandle::Kind kind) -> std::string_view
+    [[nodiscard]] inline auto ToString(RGResourceHandle::Kind kind) -> std::string_view
     {
         switch (kind)
         {
-            case ResourceHandle::Kind::Unknown:
+            case RGResourceHandle::Kind::Unknown:
                 return "Unknown";
-            case ResourceHandle::Kind::Texture2D:
+            case RGResourceHandle::Kind::Texture2D:
                 return "Texture2D";
-            case ResourceHandle::Kind::Texture2DArray:
+            case RGResourceHandle::Kind::Texture2DArray:
                 return "Texture2DArray";
-            case ResourceHandle::Kind::Texture3D:
+            case RGResourceHandle::Kind::Texture3D:
                 return "Texture3D";
-            case ResourceHandle::Kind::TextureCube:
+            case RGResourceHandle::Kind::TextureCube:
                 return "TextureCube";
-            case ResourceHandle::Kind::TextureCubeArray:
+            case RGResourceHandle::Kind::TextureCubeArray:
                 return "TextureCubeArray";
-            case ResourceHandle::Kind::Framebuffer:
+            case RGResourceHandle::Kind::Framebuffer:
                 return "Framebuffer";
-            case ResourceHandle::Kind::UniformBuffer:
+            case RGResourceHandle::Kind::UniformBuffer:
                 return "UniformBuffer";
-            case ResourceHandle::Kind::StorageBuffer:
+            case RGResourceHandle::Kind::StorageBuffer:
                 return "StorageBuffer";
         }
 
@@ -188,7 +206,7 @@ namespace OloEngine
 
     struct RGResourceDesc
     {
-        ResourceHandle::Kind Kind = ResourceHandle::Kind::Unknown;
+        RGResourceHandle::Kind Kind = RGResourceHandle::Kind::Unknown;
         RGResourceFormat Format = RGResourceFormat::Unknown;
         RGLoadAction LoadAction = RGLoadAction::DontCare;
         RGStoreAction StoreAction = RGStoreAction::Store;
@@ -211,7 +229,7 @@ namespace OloEngine
         std::string PlaceholderReason;
         std::string DebugName;
 
-        [[nodiscard]] static auto FromHandleKind(ResourceHandle::Kind kind,
+        [[nodiscard]] static auto FromHandleKind(RGResourceHandle::Kind kind,
                                                  std::string_view debugName = {}) -> RGResourceDesc
         {
             RGResourceDesc desc;
@@ -238,9 +256,9 @@ namespace OloEngine
 namespace std
 {
     template<>
-    struct hash<OloEngine::ResourceHandle>
+    struct hash<OloEngine::RGResourceHandle>
     {
-        std::size_t operator()(const OloEngine::ResourceHandle& h) const noexcept
+        std::size_t operator()(const OloEngine::RGResourceHandle& h) const noexcept
         {
             return std::hash<std::string>{}(h.Name);
         }

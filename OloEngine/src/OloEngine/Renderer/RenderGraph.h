@@ -556,7 +556,7 @@ namespace OloEngine
         struct ExternalTextureSinkContract
         {
             std::string SourceResource;
-            ResourceHandle::Kind SourceKind = ResourceHandle::Kind::Unknown;
+            RGResourceHandle::Kind SourceKind = RGResourceHandle::Kind::Unknown;
             u32 ColorAttachmentIndex = 0;
             bool SourceReachable = false;
         };
@@ -747,7 +747,7 @@ namespace OloEngine
         struct TransientPlanEntry
         {
             std::string Resource;
-            ResourceHandle::Kind Kind = ResourceHandle::Kind::Unknown;
+            RGResourceHandle::Kind Kind = RGResourceHandle::Kind::Unknown;
             u32 FirstPassIndex = std::numeric_limits<u32>::max();
             u32 LastPassIndex = 0;
             std::string FirstPass;
@@ -1592,7 +1592,7 @@ namespace OloEngine
                                                                  std::string_view versionedName,
                                                                  std::string_view ownerPassName);
         [[nodiscard]] RGResourceDesc BuildVersionedResourceDesc(std::string_view sourceResource,
-                                                                ResourceHandle::Kind fallbackKind,
+                                                                RGResourceHandle::Kind fallbackKind,
                                                                 std::string_view versionedName) const;
 
         void EnsureResourceRegistryBuilt() const;

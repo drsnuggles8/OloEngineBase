@@ -78,7 +78,7 @@ namespace OloEngine
         if (m_NoiseTexture != 0)
         {
             RGResourceDesc noiseDesc =
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, kNoiseTargetName);
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, kNoiseTargetName);
             noiseDesc.Format = RGResourceFormat::RG16Float;
             noiseDesc.Width = 4;
             noiseDesc.Height = 4;

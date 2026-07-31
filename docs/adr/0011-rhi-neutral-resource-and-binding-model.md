@@ -1189,6 +1189,41 @@ the change would have compiled and altered a conditional in scene rendering.
 The one place the type system stops helping is recorded separately in (14); it
 is not a scripting artefact and applies however the sweep is done.
 
+### (17) Namespacing was necessary but not sufficient — the graph's type is renamed
+
+§1.7 chose `RHI::`-namespacing partly so that *"`RHI::ResourceHandle` cannot be
+confused with the render graph's existing `OloEngine::ResourceHandle`"*. That
+reasoning was right about **call sites** and incomplete about **headers**.
+
+During step 3, `RGCommandContext.h` declared a member returning
+`RHI::ResourceHandle` without including `RHITypes.h`. The compiler did not report
+an unknown type: `RHI::` was unresolvable, so the name degraded to the
+unqualified `ResourceHandle` — which *was* in scope and *was* a valid type, the
+graph's string-named resource handle. A completely different concept silently
+substituted for the intended one. It surfaced only because a separately-compiled
+definition disagreed about the return type; in a header-only path (an inline
+function, or a member defined in the same header) it would have compiled.
+
+**The graph's type is therefore renamed `ResourceHandle` -> `RGResourceHandle`**,
+which also makes it consistent with every one of its siblings in the same header
+(`RGTextureHandle`, `RGBufferHandle`, `RGFramebufferHandle`, `RGResourceDesc`,
+`RGResourceFormat`, …) — it was the sole unprefixed type there. 664 uses across
+117 files; `Renderer/RHI/` deliberately excluded, because inside
+`namespace OloEngine::RHI` the unqualified name means the RHI type.
+
+The generalisable point, worth more than the rename: **two types with the same
+unqualified name in overlapping scopes make a missing include a silent
+type-substitution rather than an error.** Namespacing one of them fixes the
+call-site confusion and leaves the header confusion in place. Where both names
+can be in scope, they need to *differ*, not merely be qualifiable.
+
+A secondary lesson from applying it, consistent with (16): a flat identifier
+rename is the reliable scripted edit **in code only**. The same token appears in
+`#include` paths (105 files broke loudly) and in prose — three comments in the
+RHI tests were rewritten to say the opposite of their point, silently, in the
+very files that exist to prevent this confusion. Comments are the dangerous half,
+because nothing checks them.
+
 ---
 
 ## Consequences
