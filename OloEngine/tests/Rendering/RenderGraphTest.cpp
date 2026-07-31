@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include <gtest/gtest.h>
 
@@ -827,6 +828,49 @@ static Ref<TestGraphNode> AddSetupNode(RenderGraph& graph,
 // =============================================================================
 // Basic Graph Construction
 // =============================================================================
+
+// =============================================================================
+// Issue #691 step 3, slice 5 — the graph carries BOTH currencies during the
+// migration, as alternatives rather than duplicates. Exactly one is set per
+// entry, and neither is derivable from the other: `native -> handle` is
+// unrecoverable, and `handle -> native` may only happen inside
+// Platform/<Backend>/, which RenderGraph is not. These pin that contract so a
+// later "unify them" tidy-up fails loudly instead of silently returning zero.
+// =============================================================================
+TEST(RenderGraph, NativeImportResolvesNativelyAndHasNoIdentity)
+{
+    RenderGraph graph;
+    const auto imported = graph.ImportTexture(
+        ResourceNames::AOBuffer, 42u,
+        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer));
+    ASSERT_TRUE(imported.IsValid());
+
+    EXPECT_EQ(graph.ResolveTexture(imported), 42u);
+    EXPECT_FALSE(graph.ResolveTextureHandle(imported).IsValid())
+        << "A natively-imported resource has no identity to give. Fabricating one here would name "
+           "nothing while claiming to name something — which is why a resource migrates its whole "
+           "creator/import/resolve/bind chain in a single slice.";
+}
+
+TEST(RenderGraph, HandleImportResolvesAsAnIdentityAndNotNatively)
+{
+    auto& registry = RHI::ResourceRegistry::Get();
+    const auto identity = registry.Register(RHI::ResourceKind::Texture, 4242u, RHI::Backend::OpenGL);
+
+    RenderGraph graph;
+    const auto imported = graph.ImportTextureHandle(
+        ResourceNames::AOBuffer, identity,
+        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer));
+    ASSERT_TRUE(imported.IsValid());
+
+    EXPECT_EQ(graph.ResolveTextureHandle(imported), identity);
+    EXPECT_EQ(graph.ResolveTexture(imported), 0u)
+        << "The native form must NOT resolve a handle-imported resource. RenderGraph lives in "
+           "Renderer/ and may not perform handle->native resolution; returning the underlying GL "
+           "name here would breach the boundary the whole phase exists to close.";
+
+    registry.Unregister(identity);
+}
 
 TEST(RenderGraph, PassNodesAreRetrievableAsRenderPasses)
 {

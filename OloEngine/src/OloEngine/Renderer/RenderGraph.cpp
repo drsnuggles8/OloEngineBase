@@ -1135,6 +1135,24 @@ namespace OloEngine
         return AllocateTextureHandle(name, textureID, false, importDesc.IsPlaceholder, importDesc.PlaceholderReason);
     }
 
+    RGTextureHandle RenderGraph::ImportTextureHandle(std::string_view name, RHI::ResourceHandle texture,
+                                                     const RGResourceDesc& desc)
+    {
+        // Deliberately reuses the native path's bookkeeping and then stamps the
+        // identity onto the record, rather than duplicating the import logic.
+        // The two importers must agree on naming, placeholder handling and
+        // registry invalidation; forking that would be a second place to fix
+        // every time the import rules change.
+        const RGTextureHandle handle = ImportTexture(name, 0u, desc);
+        if (handle.IsValid() && handle.Index < m_PhysicalTextures.size())
+        {
+            auto& phys = m_PhysicalTextures[handle.Index];
+            phys.Handle = texture;
+            phys.TextureID = 0u; // alternatives, never both — see PhysicalTexture
+        }
+        return handle;
+    }
+
     RGFramebufferHandle RenderGraph::ImportFramebuffer(std::string_view name,
                                                        const Ref<Framebuffer>& fb,
                                                        const RGResourceDesc& desc)
@@ -1637,6 +1655,47 @@ namespace OloEngine
         m_ResourceRegistryDirty = true;
 
         return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason);
+    }
+
+    RHI::ResourceHandle RenderGraph::ResolveTextureHandle(RGTextureHandle handle) const
+    {
+        EnsureResourceRegistryBuilt();
+
+        if (!handle.IsValid() || handle.Index >= m_PhysicalTextures.size())
+            return {};
+        if (handle.Index >= m_TextureHandleSlots.size())
+            return {};
+        const auto& slot = m_TextureHandleSlots[handle.Index];
+        if (!slot.Alive || slot.Generation != handle.Generation)
+            return {};
+
+        // Attachment views resolve to the framebuffer's own attachment
+        // identities, which migrated in slice 3 — so this path is fully on the
+        // new currency regardless of how the parent was imported.
+        if (const auto viewIt = m_TextureViewDefinitions.find(slot.Name);
+            viewIt != m_TextureViewDefinitions.end())
+        {
+            if (const auto parentIt = m_FramebufferHandlesByName.find(viewIt->second.ParentResource);
+                parentIt != m_FramebufferHandlesByName.end() && IsFramebufferHandleCurrent(parentIt->second))
+            {
+                if (auto framebuffer = ResolveFramebuffer(parentIt->second))
+                {
+                    if (viewIt->second.Kind == TextureViewKind::FramebufferDepthAttachment)
+                        return framebuffer->GetDepthAttachmentHandle();
+                    return framebuffer->GetColorAttachmentHandle(viewIt->second.AttachmentIndex);
+                }
+            }
+            // Subresource / multisample-resolve views defer to their parent
+            // texture, which the native path walks by name. Those chains are
+            // migrated per resource, so leave them to the native resolver until
+            // their own slice.
+            return {};
+        }
+
+        // An entry imported as a native id has no identity to give. Callers must
+        // migrate a resource's whole chain together; returning a fabricated
+        // handle here would name nothing while claiming to name something.
+        return m_PhysicalTextures[handle.Index].Handle;
     }
 
     u32 RenderGraph::ResolveTexture(RGTextureHandle handle) const
