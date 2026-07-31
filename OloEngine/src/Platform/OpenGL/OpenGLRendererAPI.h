@@ -74,8 +74,11 @@ namespace OloEngine
         void BindDefaultFramebuffer() override;
         void BlitFramebufferToDefault(u32 srcFboID, u32 width, u32 height) override;
         void BindTexture(u32 slot, u32 textureID) override;
+        void BindTexture(u32 slot, RHI::ResourceHandle texture) override;
         void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer,
                               RHI::Access access, RHI::Format format) override;
+        void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
+                              u32 layer, RHI::Access access, RHI::Format format) override;
 
         void SetBlendStateForAttachment(u32 attachment, bool enabled) override;
         void SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst) override;
@@ -101,10 +104,15 @@ namespace OloEngine
 
         // --- Phase 2 step 2 additions (issue #691) ---------------------------
         void BindUniformBuffer(u32 bindingPoint, u32 bufferID) override;
+        void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override;
         void BindStorageBuffer(u32 bindingPoint, u32 bufferID) override;
+        void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override;
         void BindShaderProgram(u32 programID) override;
+        void BindShaderProgram(RHI::ResourceHandle program) override;
         void BindVertexArrayRaw(u32 vaoID) override;
+        void BindVertexArrayRaw(RHI::ResourceHandle vertexArray) override;
         void BindFramebuffer(u32 framebufferID) override;
+        void BindFramebuffer(RHI::ResourceHandle framebuffer) override;
 
         void DrawBoundIndexed(RHI::PrimitiveTopology topology, u32 indexCount,
                               RHI::IndexType indexType, u32 baseIndex) override;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 
@@ -364,6 +365,53 @@ namespace OloEngine::Testing
             ++m_BindCount;
         }
 
+        // ----------------------------------------------------------------
+        // Handle-taking siblings (issue #691 step 3, slice 2).
+        //
+        // The mock plays the part of a backend, so it resolves exactly as a
+        // backend does and delegates to the u32 form. That keeps every existing
+        // assertion on recorded call names and parameters working unchanged,
+        // and means a test driving the handle API observes the same native
+        // values a real backend would have used — including 0 for a stale
+        // handle, which is the behaviour worth being able to assert on.
+        // ----------------------------------------------------------------
+        void BindTexture(u32 slot, RHI::ResourceHandle texture) override
+        {
+            BindTexture(slot, Native(texture));
+        }
+        void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
+                              u32 layer, RHI::Access access, RHI::Format format) override
+        {
+            BindImageTexture(unit, Native(texture), mipLevel, layered, layer, access, format);
+        }
+        void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override
+        {
+            BindUniformBuffer(bindingPoint, Native(buffer));
+        }
+        void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override
+        {
+            BindStorageBuffer(bindingPoint, Native(buffer));
+        }
+        void BindShaderProgram(RHI::ResourceHandle program) override
+        {
+            BindShaderProgram(Native(program));
+        }
+        void BindVertexArrayRaw(RHI::ResourceHandle vertexArray) override
+        {
+            BindVertexArrayRaw(Native(vertexArray));
+        }
+        void BindFramebuffer(RHI::ResourceHandle framebuffer) override
+        {
+            BindFramebuffer(Native(framebuffer));
+        }
+
+      private:
+        [[nodiscard]] static u32 Native(RHI::ResourceHandle handle) noexcept
+        {
+            return static_cast<u32>(RHI::ResourceRegistry::Get().ResolveNativeForBackend(handle));
+        }
+
+      public:
         void SetPolygonOffset(f32 /*factor*/, f32 /*units*/) override
         {
             Record("SetPolygonOffset");

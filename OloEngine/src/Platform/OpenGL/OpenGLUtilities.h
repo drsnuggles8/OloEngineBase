@@ -1,10 +1,33 @@
 #pragma once
 
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+
 #include <glad/gl.h>
 
 namespace OloEngine::Utils
 {
+    // ---------------------------------------------------------------------
+    // Handle -> GL name. The backend's half of issue #691 Phase 2 step 3.
+    //
+    // One of the two sanctioned ways out of an RHI::ResourceHandle (the other
+    // is GetNativeHandleForDebug, for Renderer/Debug/). It lives HERE, inside
+    // Platform/OpenGL/, because this is the only place a GL name may be named
+    // at all — RHIBoundaryRatchetTest's backend_resolve_hatch counter baselines
+    // uses of the underlying ResolveNativeForBackend outside Platform/ at zero,
+    // and putting a resolving helper in Renderer/ to save typing would breach
+    // exactly the boundary this phase exists to close.
+    //
+    // A stale or null handle yields 0, which is benign in every GL call the
+    // backend makes: binding 0 unbinds, and glDelete*(0) is a defined no-op. So
+    // a use-after-free degrades to "nothing bound" — visibly wrong rather than
+    // silently sampling whatever object inherited the recycled name, which is
+    // the failure the bare u32 could not distinguish.
+    // ---------------------------------------------------------------------
+    [[nodiscard]] inline GLuint ResolveNative(RHI::ResourceHandle handle) noexcept
+    {
+        return static_cast<GLuint>(RHI::ResourceRegistry::Get().ResolveNativeForBackend(handle));
+    }
     // Drain any pending GL error(s) so a subsequent glGetError() check reflects
     // only the operation it guards, not an error leaked in by an unrelated earlier
     // GL call in the same context. Without this, a leaked error is misattributed

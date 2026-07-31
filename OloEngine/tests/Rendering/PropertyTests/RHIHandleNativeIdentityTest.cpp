@@ -27,6 +27,7 @@
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -212,6 +213,88 @@ namespace OloEngine::Tests
 
         std::error_code ec;
         std::filesystem::remove(path, ec);
+    }
+
+    // ==========================================================================
+    // The facade's handle overloads (slice 2) have no callers yet — the call
+    // sites migrate in later slices. Untested dead code is how a "purely
+    // mechanical" delegation ships with the arguments transposed, so exercise
+    // them here against real GL state rather than waiting for a caller.
+    // ==========================================================================
+    TEST(RHIHandleNativeIdentity, FacadeHandleOverloadBindsTheSameObjectAsTheLegacyForm)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        TextureSpecification spec;
+        spec.Width = 2;
+        spec.Height = 2;
+        spec.Format = ImageFormat::RGBA8;
+        const auto texture = Texture2D::Create(spec);
+        ASSERT_TRUE(texture);
+
+        constexpr u32 kSlot = 6u;
+        const auto expected = static_cast<GLint>(texture->GetRendererID());
+
+        // Bind through the handle overload...
+        RenderCommand::BindTexture(kSlot, texture->GetRHIHandle());
+        glActiveTexture(GL_TEXTURE0 + kSlot);
+        GLint boundViaHandle = 0;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundViaHandle);
+        EXPECT_EQ(boundViaHandle, expected)
+            << "The handle overload must reach GL with the same object the u32 form does — "
+               "it resolves and delegates, so a transposed argument would land here.";
+
+        // ...and confirm the legacy form still agrees, since both must coexist
+        // until the final slice deletes the u32 spelling.
+        RenderCommand::BindTexture(kSlot, 0u);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundViaHandle);
+        ASSERT_EQ(boundViaHandle, 0) << "precondition: slot cleared";
+
+        RenderCommand::BindTexture(kSlot, texture->GetRendererID());
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundViaHandle);
+        EXPECT_EQ(boundViaHandle, expected);
+
+        RenderCommand::BindTexture(kSlot, 0u);
+        glActiveTexture(GL_TEXTURE0);
+    }
+
+    // A stale handle must unbind rather than bind whatever inherited its name.
+    // This is the degradation the whole layer promises, and it is only
+    // observable through the facade — the registry alone cannot show it.
+    TEST(RHIHandleNativeIdentity, FacadeHandleOverloadUnbindsForAStaleHandle)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        TextureSpecification spec;
+        spec.Width = 2;
+        spec.Height = 2;
+        spec.Format = ImageFormat::RGBA8;
+
+        RHI::ResourceHandle dead;
+        {
+            const auto doomed = Texture2D::Create(spec);
+            ASSERT_TRUE(doomed);
+            dead = doomed->GetRHIHandle();
+        }
+        ASSERT_FALSE(RHI::ResourceRegistry::Get().IsLive(dead));
+
+        constexpr u32 kSlot = 7u;
+        const auto live = Texture2D::Create(spec);
+        ASSERT_TRUE(live);
+
+        glActiveTexture(GL_TEXTURE0 + kSlot);
+        RenderCommand::BindTexture(kSlot, live->GetRHIHandle());
+        GLint bound = 0;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
+        ASSERT_EQ(bound, static_cast<GLint>(live->GetRendererID())) << "precondition";
+
+        RenderCommand::BindTexture(kSlot, dead);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
+        EXPECT_EQ(bound, 0) << "A stale handle must resolve to 0 and unbind. Binding anything else "
+                               "would mean a use-after-free samples whatever object inherited the "
+                               "recycled GL name — the failure a bare u32 could not detect.";
+
+        glActiveTexture(GL_TEXTURE0);
     }
 
     // Destroying a resource must retire its identity, so a handle held across

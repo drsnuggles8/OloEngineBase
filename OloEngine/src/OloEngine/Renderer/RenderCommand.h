@@ -230,9 +230,20 @@ namespace OloEngine
             s_RendererAPI->BlitFramebufferToDefault(srcFboID, width, height);
         }
 
+        static void BindTexture(u32 slot, RHI::ResourceHandle texture)
+        {
+            s_RendererAPI->BindTexture(slot, texture);
+        }
+
         static void BindTexture(u32 slot, u32 textureID)
         {
             s_RendererAPI->BindTexture(slot, textureID);
+        }
+
+        static void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
+                                     u32 layer, RHI::Access access, RHI::Format format)
+        {
+            s_RendererAPI->BindImageTexture(unit, texture, mipLevel, layered, layer, access, format);
         }
 
         static void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer,
@@ -423,9 +434,19 @@ namespace OloEngine
         // ADR 0011's "Amendments from Phase 2 step 2" for the design.
         // =====================================================================
 
+        static void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
+        {
+            s_RendererAPI->BindUniformBuffer(bindingPoint, buffer);
+        }
+
         static void BindUniformBuffer(u32 bindingPoint, u32 bufferID)
         {
             s_RendererAPI->BindUniformBuffer(bindingPoint, bufferID);
+        }
+
+        static void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
+        {
+            s_RendererAPI->BindStorageBuffer(bindingPoint, buffer);
         }
 
         static void BindStorageBuffer(u32 bindingPoint, u32 bufferID)
@@ -433,14 +454,29 @@ namespace OloEngine
             s_RendererAPI->BindStorageBuffer(bindingPoint, bufferID);
         }
 
+        static void BindShaderProgram(RHI::ResourceHandle program)
+        {
+            s_RendererAPI->BindShaderProgram(program);
+        }
+
         static void BindShaderProgram(u32 programID)
         {
             s_RendererAPI->BindShaderProgram(programID);
         }
 
+        static void BindVertexArrayRaw(RHI::ResourceHandle vertexArray)
+        {
+            s_RendererAPI->BindVertexArrayRaw(vertexArray);
+        }
+
         static void BindVertexArrayRaw(u32 vaoID)
         {
             s_RendererAPI->BindVertexArrayRaw(vaoID);
+        }
+
+        static void BindFramebuffer(RHI::ResourceHandle framebuffer)
+        {
+            s_RendererAPI->BindFramebuffer(framebuffer);
         }
 
         static void BindFramebuffer(u32 framebufferID)

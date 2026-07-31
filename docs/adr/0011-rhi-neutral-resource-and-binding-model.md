@@ -1004,13 +1004,25 @@ property panel: code with no relationship to the RHI boundary. The compiler
 caught it only because `UUID` happens to lack an `IsValid()` method.
 
 The conversion is therefore redone **subsystem by subsystem against this
-foundation**, each step small enough to read. Ordering: drive
-`facade_native_id_params` to zero first, for the same reason §1.7 gives for
-stripping the `GLenum`s before counting includes — while the facade still
-accepts a native id, every caller can keep producing one and the type system
-enforces nothing. Once it takes handles, a translation unit holding a native
-name *cannot* call it, and the remaining counters become compiler-enforced
-rather than grep-enforced.
+foundation**, each step small enough to read.
+
+**Ordering is forced by an asymmetry**, and it is the opposite of what an
+all-at-once conversion suggests. `handle -> native` is a registry lookup;
+`native -> handle` is **not recoverable**, because a driver name does not
+identify a registry slot. A facade that takes handles therefore *cannot* serve a
+caller still holding a `u32`, while a facade offering both can serve either. So:
+
+1. add handle-taking overloads beside the `u32` ones, with the backend resolving
+   internally (resolution stays inside `Platform/<Backend>/`);
+2. migrate callers one subsystem per commit — `sweep_renderer_id` falls;
+3. delete the `u32` forms once nothing calls them — `facade_native_id_params`
+   drops to zero in one step, and from then on a TU holding a native name
+   *cannot* call the facade at all.
+
+Only step 3 makes the boundary compiler-enforced; steps 1–2 are grep-enforced by
+the counters. That is the price of keeping every intermediate state compiling and
+reviewable, and it is worth paying — the alternative is the single atomic change
+that was already attempted and abandoned.
 
 ### (11) `ViewHandle` is deferred to Phase 3, paired with `HeapOffset` — decided, not skipped
 

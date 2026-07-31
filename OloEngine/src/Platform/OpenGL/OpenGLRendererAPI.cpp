@@ -1829,4 +1829,53 @@ namespace OloEngine
         // explicitly instead of acting on whatever happens to be bound.
         glProgramUniform1f(programID, location, value);
     }
+
+    // -------------------------------------------------------------------------
+    // Handle-taking siblings of the bind family (issue #691 step 3, slice 2).
+    //
+    // Each resolves the identity to a driver name and delegates to the existing
+    // u32 form, so there is exactly one place per operation that talks to GL and
+    // the two spellings cannot drift. Resolution happens here, inside
+    // Platform/OpenGL/, which is the whole point — see Utils::ResolveNative.
+    //
+    // A stale handle resolves to 0, and every one of these treats 0 as "unbind",
+    // which is the correct degradation: a use-after-free leaves the slot empty
+    // rather than bound to whatever object inherited the recycled name.
+    // -------------------------------------------------------------------------
+    void OpenGLRendererAPI::BindTexture(u32 slot, RHI::ResourceHandle texture)
+    {
+        BindTexture(slot, Utils::ResolveNative(texture));
+    }
+
+    void OpenGLRendererAPI::BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
+                                             u32 layer, RHI::Access access, RHI::Format format)
+    {
+        BindImageTexture(unit, Utils::ResolveNative(texture), mipLevel, layered, layer, access, format);
+    }
+
+    void OpenGLRendererAPI::BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
+    {
+        BindUniformBuffer(bindingPoint, Utils::ResolveNative(buffer));
+    }
+
+    void OpenGLRendererAPI::BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
+    {
+        BindStorageBuffer(bindingPoint, Utils::ResolveNative(buffer));
+    }
+
+    void OpenGLRendererAPI::BindShaderProgram(RHI::ResourceHandle program)
+    {
+        BindShaderProgram(Utils::ResolveNative(program));
+    }
+
+    void OpenGLRendererAPI::BindVertexArrayRaw(RHI::ResourceHandle vertexArray)
+    {
+        BindVertexArrayRaw(Utils::ResolveNative(vertexArray));
+    }
+
+    void OpenGLRendererAPI::BindFramebuffer(RHI::ResourceHandle framebuffer)
+    {
+        BindFramebuffer(Utils::ResolveNative(framebuffer));
+    }
+
 } // namespace OloEngine
