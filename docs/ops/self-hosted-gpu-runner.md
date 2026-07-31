@@ -121,9 +121,16 @@ sudo dnf install -y \
   mesa-libGL-devel mesa-libEGL-devel libglvnd-devel \
   libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libXext-devel \
   wayland-devel wayland-protocols-devel libxkbcommon-devel \
-  glslang-devel spirv-tools
-python3 -m pip install --user jinja2   # OloHeaderTool codegen
+  glslang-devel spirv-tools \
+  python3-jinja2
 ```
+
+**`python3-jinja2` from dnf, not `pip install --user`.** glad2's code generation
+imports jinja2, and `--user` installs it into the *installing* user's home —
+invisible to `gh-runner-olo` for the same `0700` reason as everything else. That
+mistake cost a run: all three preflights passed and the build died four minutes
+in on `ModuleNotFoundError: No module named 'jinja2'`. The toolchain preflight
+now checks importable modules as well as binaries.
 
 The X11/Wayland `-devel` packages are needed to *build* GLFW even though no
 display server runs — GLFW compiles its backends unconditionally.
