@@ -29,6 +29,7 @@
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RHI/RHIResources.h"
+#include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -213,6 +214,85 @@ namespace OloEngine::Tests
 
         std::error_code ec;
         std::filesystem::remove(path, ec);
+    }
+
+    // ==========================================================================
+    // Framebuffer ATTACHMENT identity — a migration root, because
+    // RenderGraph::ResolveTexture returns attachment ids for its
+    // framebuffer-view resources and cannot hand out handles until these do.
+    //
+    // The resize case is the interesting one, and its semantics are the OPPOSITE
+    // of a texture hot-reload: a reload preserves identity (the C++ object
+    // survives, only its storage is recreated), whereas a resize genuinely
+    // destroys the attachment textures. Anything holding an old attachment
+    // handle must therefore see it go STALE rather than silently follow the
+    // resize onto a different texture.
+    // ==========================================================================
+    TEST(RHIHandleNativeIdentity, FramebufferAttachmentsHaveTheirOwnLiveIdentities)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        FramebufferSpecification spec;
+        spec.Width = 32;
+        spec.Height = 32;
+        spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+        const auto fb = Framebuffer::Create(spec);
+        ASSERT_TRUE(fb);
+
+        const auto colour = fb->GetColorAttachmentHandle(0);
+        const auto depth = fb->GetDepthAttachmentHandle();
+        ASSERT_TRUE(colour.IsValid());
+        ASSERT_TRUE(depth.IsValid());
+
+        // Each attachment names its own GL texture, not the framebuffer.
+        EXPECT_EQ(NativeOf(colour), static_cast<u64>(fb->GetColorAttachmentRendererID(0)));
+        EXPECT_EQ(NativeOf(depth), static_cast<u64>(fb->GetDepthAttachmentRendererID()));
+        EXPECT_TRUE(glIsTexture(static_cast<GLuint>(NativeOf(colour))) == GL_TRUE);
+        EXPECT_TRUE(glIsTexture(static_cast<GLuint>(NativeOf(depth))) == GL_TRUE);
+
+        // ...and none of the three identities collide. "The framebuffer's
+        // handle" is the wrong answer to "which texture is this?".
+        const auto self = fb->GetRHIHandle();
+        EXPECT_NE(colour, depth);
+        EXPECT_NE(colour, self);
+        EXPECT_NE(depth, self);
+        EXPECT_EQ(RHI::ResourceRegistry::Get().KindOf(self), RHI::ResourceKind::Framebuffer);
+        EXPECT_EQ(RHI::ResourceRegistry::Get().KindOf(colour), RHI::ResourceKind::Texture);
+    }
+
+    TEST(RHIHandleNativeIdentity, FramebufferResizeRetiresTheOldAttachmentIdentities)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        FramebufferSpecification spec;
+        spec.Width = 16;
+        spec.Height = 16;
+        spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+        // Non-const: Resize() mutates, recreating the attachments — the very
+        // thing under test.
+        auto fb = Framebuffer::Create(spec);
+        ASSERT_TRUE(fb);
+
+        const auto colourBefore = fb->GetColorAttachmentHandle(0);
+        const auto depthBefore = fb->GetDepthAttachmentHandle();
+        ASSERT_TRUE(colourBefore.IsValid());
+
+        fb->Resize(48u, 48u);
+
+        const auto colourAfter = fb->GetColorAttachmentHandle(0);
+        ASSERT_TRUE(colourAfter.IsValid());
+
+        // NEW objects, so NEW identities — the inverse of the hot-reload rule.
+        EXPECT_NE(colourBefore, colourAfter)
+            << "A resize destroys and recreates the attachment textures, so their identities must "
+               "not carry over. Preserving them here would be the reload rule misapplied: a holder "
+               "of the old handle would silently follow onto a different texture.";
+        EXPECT_FALSE(RHI::ResourceRegistry::Get().IsLive(colourBefore));
+        EXPECT_FALSE(RHI::ResourceRegistry::Get().IsLive(depthBefore));
+        EXPECT_EQ(NativeOf(colourBefore), 0u);
+
+        EXPECT_TRUE(RHI::ResourceRegistry::Get().IsLive(colourAfter));
+        EXPECT_EQ(NativeOf(colourAfter), static_cast<u64>(fb->GetColorAttachmentRendererID(0)));
     }
 
     // ==========================================================================

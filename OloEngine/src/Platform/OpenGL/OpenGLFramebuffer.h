@@ -47,6 +47,16 @@ namespace OloEngine
         {
             return m_DepthAttachment;
         }
+
+        [[nodiscard("Store this!")]] RHI::ResourceHandle GetColorAttachmentHandle(const u32 index) const override
+        {
+            OLO_CORE_ASSERT(index < m_ColorAttachmentHandles.size());
+            return m_ColorAttachmentHandles[index].Get();
+        }
+        [[nodiscard("Store this!")]] RHI::ResourceHandle GetDepthAttachmentHandle() const override
+        {
+            return m_DepthAttachmentHandle.Get();
+        }
         [[nodiscard("Store this!")]] const FramebufferSpecification& GetSpecification() const override
         {
             return m_Specification;
@@ -87,6 +97,12 @@ namespace OloEngine
 
         std::vector<u32> m_ColorAttachments;
         u32 m_DepthAttachment = 0;
+        // Identities parallel to the native names above. A resize genuinely
+        // destroys and recreates the attachment textures, so unlike a texture
+        // hot-reload these become NEW objects and must get new handles —
+        // anything still holding the old ones has to see them go stale.
+        std::vector<RHI::ScopedResourceHandle> m_ColorAttachmentHandles;
+        RHI::ScopedResourceHandle m_DepthAttachmentHandle;
 
         // Shared post-processing shader (static to avoid recompilation for each framebuffer)
         static Ref<class Shader> s_PostProcessShader;

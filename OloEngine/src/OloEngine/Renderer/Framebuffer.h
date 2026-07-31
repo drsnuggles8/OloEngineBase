@@ -90,6 +90,19 @@ namespace OloEngine
 
         [[nodiscard("Store this!")]] virtual u32 GetColorAttachmentRendererID(u32 index) const = 0;
         [[nodiscard("Store this!")]] virtual u32 GetDepthAttachmentRendererID() const = 0;
+
+        // Attachment IDENTITIES (issue #691 step 3). Separate from the
+        // framebuffer's own GetRHIHandle(): the attachments are distinct GPU
+        // objects that the engine samples through ResolveTexture, so "the
+        // framebuffer's handle" is the wrong answer to "which texture is this?".
+        //
+        // These are a migration ROOT. RenderGraph::ResolveTexture returns
+        // attachment ids for its framebuffer-view resources, so it cannot hand
+        // out handles until these do — and almost every pass reads through
+        // ResolveTexture. Ordering is forced: `native -> handle` is not
+        // recoverable, so producers migrate before consumers.
+        [[nodiscard("Store this!")]] virtual RHI::ResourceHandle GetColorAttachmentHandle(u32 index) const = 0;
+        [[nodiscard("Store this!")]] virtual RHI::ResourceHandle GetDepthAttachmentHandle() const = 0;
         [[nodiscard("Store this!")]] virtual const FramebufferSpecification& GetSpecification() const = 0;
         [[nodiscard("Store this!")]] virtual u32 GetRendererID() const = 0;
 

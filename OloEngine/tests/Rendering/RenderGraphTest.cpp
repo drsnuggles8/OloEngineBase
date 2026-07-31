@@ -289,6 +289,20 @@ class StubFramebuffer : public Framebuffer
     {
         return 0;
     }
+
+    // These stubs model the graph's bookkeeping with synthetic ids and own no
+    // GPU objects, so they have no attachment identities to hand out. Declared
+    // here on the base only; the subclasses that override the native accessors
+    // inherit these unchanged, which is correct — a fabricated handle would
+    // claim to name something.
+    [[nodiscard]] RHI::ResourceHandle GetColorAttachmentHandle(u32 /*index*/) const override
+    {
+        return {};
+    }
+    [[nodiscard]] RHI::ResourceHandle GetDepthAttachmentHandle() const override
+    {
+        return {};
+    }
     [[nodiscard]] const FramebufferSpecification& GetSpecification() const override
     {
         return m_Specification;
