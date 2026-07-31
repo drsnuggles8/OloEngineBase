@@ -154,6 +154,53 @@ jobs:
           # it — the same reasoning as Windows.yml's checkout.
           persist-credentials: false
 
+      # A self-hosted runner has whatever the box happens to have, and the runner
+      # user's PATH is NOT the admin's. cmake and ninja were originally pip
+      # installs under /home/obueker/.local/bin — on this host /home/obueker is
+      # mode 0700, so gh-runner-olo could not see them and the first run died
+      # with a bare `cmake: command not found` after a 39 s checkout. Everything
+      # the build needs must be system-wide (/usr, /opt), never in a person's
+      # home. Check that up front so the error names the cause.
+      #
+      # This runs FIRST, before the GL probe below, because that probe compiles
+      # its test program with gcc. With the order reversed a missing compiler
+      # surfaces as a bare `gcc: command not found` from the GL step instead of
+      # the remediation message here — do not reorder these two.
+      - name: Preflight — build toolchain
+        run: |
+          set -euo pipefail
+          missing=0
+          for tool in cmake ninja ccache gcc g++ python3; do
+            if command -v "$tool" >/dev/null 2>&1; then
+              printf '  %-8s %s\n' "$tool" "$(command -v "$tool")"
+            else
+              echo "::error::$tool not found on the runner's PATH"
+              missing=1
+            fi
+          done
+          # Python modules count as toolchain too. glad2's code generation
+          # imports jinja2, and a `pip install --user` puts it in the INSTALLING
+          # user's home — invisible to the runner user for the same 0700 reason
+          # as everything else. Checking only binaries let this through: the
+          # preflight passed and the build then died on ModuleNotFoundError
+          # four minutes in. Check what the build actually imports.
+          for mod in jinja2; do
+            if python3 -c "import $mod" 2>/dev/null; then
+              printf '  %-8s %s\n' "$mod" "$(python3 -c "import $mod,os; print(os.path.dirname($mod.__file__))")"
+            else
+              echo "::error::python module '$mod' not importable by $(id -un)"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Provision the runner: sudo dnf install -y cmake ninja-build ccache gcc gcc-c++ python3 python3-jinja2"
+            echo "::error::See docs/ops/self-hosted-gpu-runner.md. Everything must be system-wide —"
+            echo "::error::not under a 0700 home, and not a 'pip install --user' in someone else's account."
+            exit 1
+          fi
+          cmake --version | head -1
+
       # ---------------------------------------------------------------------
       # Preflight: prove we have a HARDWARE context before spending an hour
       # building. This is the anti-silent-failure guard, and it is the whole
@@ -216,48 +263,6 @@ jobs:
             exit 1
           fi
           echo "Hardware GL 4.6 context confirmed."
-
-      # A self-hosted runner has whatever the box happens to have, and the runner
-      # user's PATH is NOT the admin's. cmake and ninja were originally pip
-      # installs under /home/obueker/.local/bin — on this host /home/obueker is
-      # mode 0700, so gh-runner-olo could not see them and the first run died
-      # with a bare `cmake: command not found` after a 39 s checkout. Everything
-      # the build needs must be system-wide (/usr, /opt), never in a person's
-      # home. Check that up front so the error names the cause.
-      - name: Preflight — build toolchain
-        run: |
-          set -euo pipefail
-          missing=0
-          for tool in cmake ninja ccache gcc g++ python3; do
-            if command -v "$tool" >/dev/null 2>&1; then
-              printf '  %-8s %s\n' "$tool" "$(command -v "$tool")"
-            else
-              echo "::error::$tool not found on the runner's PATH"
-              missing=1
-            fi
-          done
-          # Python modules count as toolchain too. glad2's code generation
-          # imports jinja2, and a `pip install --user` puts it in the INSTALLING
-          # user's home — invisible to the runner user for the same 0700 reason
-          # as everything else. Checking only binaries let this through: the
-          # preflight passed and the build then died on ModuleNotFoundError
-          # four minutes in. Check what the build actually imports.
-          for mod in jinja2; do
-            if python3 -c "import $mod" 2>/dev/null; then
-              printf '  %-8s %s\n' "$mod" "$(python3 -c "import $mod,os; print(os.path.dirname($mod.__file__))")"
-            else
-              echo "::error::python module '$mod' not importable by $(id -un)"
-              missing=1
-            fi
-          done
-
-          if [ "$missing" -ne 0 ]; then
-            echo "::error::Provision the runner: sudo dnf install -y cmake ninja-build ccache gcc gcc-c++ python3 python3-jinja2"
-            echo "::error::See docs/ops/self-hosted-gpu-runner.md. Everything must be system-wide —"
-            echo "::error::not under a 0700 home, and not a 'pip install --user' in someone else's account."
-            exit 1
-          fi
-          cmake --version | head -1
 
       # The engine hard-fails configure without the Vulkan SDK: it needs not just
       # libvulkan but shaderc / glslang / SPIRV-Tools / SPIRV-Cross, and
