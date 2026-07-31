@@ -156,6 +156,15 @@ namespace OloEngine
         void ClearBufferFloat(u32 bufferID, f32 value) override;
 
         u32 CreateVertexArray() override;
+        [[nodiscard]] RHI::ResourceHandle CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat) override;
+        [[nodiscard]] RHI::ResourceHandle CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format internalFormat) override;
+        [[nodiscard]] RHI::ResourceHandle CreateFramebufferHandle() override;
+        [[nodiscard]] RHI::ResourceHandle CreateBufferHandle() override;
+        [[nodiscard]] RHI::ResourceHandle CreateVertexArrayHandle() override;
+        void DeleteTexture(RHI::ResourceHandle texture) override;
+        void DeleteFramebuffer(RHI::ResourceHandle framebuffer) override;
+        void DeleteBuffer(RHI::ResourceHandle buffer) override;
+        void DeleteVertexArray(RHI::ResourceHandle vertexArray) override;
         void SetVertexArrayIndexBuffer(u32 vaoID, u32 bufferID) override;
         void DeleteVertexArray(u32 vaoID) override;
 

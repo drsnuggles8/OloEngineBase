@@ -405,6 +405,59 @@ namespace OloEngine::Testing
             BindFramebuffer(Native(framebuffer));
         }
 
+        // Raw-creator siblings (slice 4). The mock plays a backend: it creates
+        // through its own u32 form and registers, so a test driving the handle
+        // API sees the same identities a real backend would mint — and the
+        // Delete* pair genuinely retires them, which is what makes
+        // "handle goes stale after delete" assertable without a GL context.
+        [[nodiscard]] RHI::ResourceHandle CreateTexture2DHandle(u32 width, u32 height, RHI::Format fmt) override
+        {
+            return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture,
+                                                         CreateTexture2D(width, height, fmt),
+                                                         RHI::Backend::OpenGL);
+        }
+        [[nodiscard]] RHI::ResourceHandle CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format fmt) override
+        {
+            return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture,
+                                                         CreateTextureCubemap(width, height, fmt),
+                                                         RHI::Backend::OpenGL);
+        }
+        [[nodiscard]] RHI::ResourceHandle CreateFramebufferHandle() override
+        {
+            return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Framebuffer, CreateFramebuffer(),
+                                                         RHI::Backend::OpenGL);
+        }
+        [[nodiscard]] RHI::ResourceHandle CreateBufferHandle() override
+        {
+            return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Buffer, CreateBuffer(),
+                                                         RHI::Backend::OpenGL);
+        }
+        [[nodiscard]] RHI::ResourceHandle CreateVertexArrayHandle() override
+        {
+            return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::VertexArray, CreateVertexArray(),
+                                                         RHI::Backend::OpenGL);
+        }
+        void DeleteTexture(RHI::ResourceHandle texture) override
+        {
+            DeleteTexture(Native(texture));
+            RHI::ResourceRegistry::Get().Unregister(texture);
+        }
+        void DeleteFramebuffer(RHI::ResourceHandle framebuffer) override
+        {
+            DeleteFramebuffer(Native(framebuffer));
+            RHI::ResourceRegistry::Get().Unregister(framebuffer);
+        }
+        void DeleteBuffer(RHI::ResourceHandle buffer) override
+        {
+            DeleteBuffer(Native(buffer));
+            RHI::ResourceRegistry::Get().Unregister(buffer);
+        }
+        void DeleteVertexArray(RHI::ResourceHandle vertexArray) override
+        {
+            DeleteVertexArray(Native(vertexArray));
+            RHI::ResourceRegistry::Get().Unregister(vertexArray);
+        }
+
       private:
         [[nodiscard]] static u32 Native(RHI::ResourceHandle handle) noexcept
         {

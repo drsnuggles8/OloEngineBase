@@ -637,6 +637,45 @@ namespace OloEngine
         }
 
         // Vertex arrays
+        // Handle-returning raw creators (issue #691 step 3, slice 4). Siblings of
+        // the u32 forms above; the final slice deletes those and takes the names
+        // back. Delete* are overloads because their parameter differs.
+        [[nodiscard]] static RHI::ResourceHandle CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat)
+        {
+            return s_RendererAPI->CreateTexture2DHandle(width, height, internalFormat);
+        }
+        [[nodiscard]] static RHI::ResourceHandle CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format internalFormat)
+        {
+            return s_RendererAPI->CreateTextureCubemapHandle(width, height, internalFormat);
+        }
+        [[nodiscard]] static RHI::ResourceHandle CreateFramebufferHandle()
+        {
+            return s_RendererAPI->CreateFramebufferHandle();
+        }
+        [[nodiscard]] static RHI::ResourceHandle CreateBufferHandle()
+        {
+            return s_RendererAPI->CreateBufferHandle();
+        }
+        [[nodiscard]] static RHI::ResourceHandle CreateVertexArrayHandle()
+        {
+            return s_RendererAPI->CreateVertexArrayHandle();
+        }
+        static void DeleteTexture(RHI::ResourceHandle texture)
+        {
+            s_RendererAPI->DeleteTexture(texture);
+        }
+        static void DeleteFramebuffer(RHI::ResourceHandle framebuffer)
+        {
+            s_RendererAPI->DeleteFramebuffer(framebuffer);
+        }
+        static void DeleteBuffer(RHI::ResourceHandle buffer)
+        {
+            s_RendererAPI->DeleteBuffer(buffer);
+        }
+        static void DeleteVertexArray(RHI::ResourceHandle vertexArray)
+        {
+            s_RendererAPI->DeleteVertexArray(vertexArray);
+        }
         static u32 CreateVertexArray()
         {
             return s_RendererAPI->CreateVertexArray();

@@ -317,6 +317,28 @@ namespace OloEngine
 
         // --- Vertex array lifecycle ---------------------------------------------
         virtual u32 CreateVertexArray() = 0;
+
+        // ---------------------------------------------------------------------
+        // Handle-returning siblings of the raw creators (issue #691 step 3,
+        // slice 4). These are the last migration ROOT: the u32 members that
+        // passes hold come from here, and ImportTexture -> ResolveTexture -> every
+        // pass sits downstream. See HANDOVER's dependency chart.
+        //
+        // Spelled `...Handle` rather than overloaded because a creator's
+        // signature is identical apart from the return type. The spelling is
+        // temporary — the final slice deletes the u32 forms and takes the name
+        // back. The Delete* siblings below ARE overloads, and each must both
+        // destroy the object and retire its identity.
+        // ---------------------------------------------------------------------
+        [[nodiscard]] virtual RHI::ResourceHandle CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat) = 0;
+        [[nodiscard]] virtual RHI::ResourceHandle CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format internalFormat) = 0;
+        [[nodiscard]] virtual RHI::ResourceHandle CreateFramebufferHandle() = 0;
+        [[nodiscard]] virtual RHI::ResourceHandle CreateBufferHandle() = 0;
+        [[nodiscard]] virtual RHI::ResourceHandle CreateVertexArrayHandle() = 0;
+        virtual void DeleteTexture(RHI::ResourceHandle texture) = 0;
+        virtual void DeleteFramebuffer(RHI::ResourceHandle framebuffer) = 0;
+        virtual void DeleteBuffer(RHI::ResourceHandle buffer) = 0;
+        virtual void DeleteVertexArray(RHI::ResourceHandle vertexArray) = 0;
         virtual void SetVertexArrayIndexBuffer(u32 vaoID, u32 bufferID) = 0;
         virtual void DeleteVertexArray(u32 vaoID) = 0;
 

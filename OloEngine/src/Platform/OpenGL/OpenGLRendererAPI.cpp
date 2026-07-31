@@ -1878,4 +1878,70 @@ namespace OloEngine
         BindFramebuffer(Utils::ResolveNative(framebuffer));
     }
 
+    // -------------------------------------------------------------------------
+    // Handle-returning raw creators (issue #691 step 3, slice 4).
+    //
+    // Each creates through the existing u32 form and registers the result, so
+    // there is one place per operation that talks to GL. The Delete* siblings
+    // resolve, delegate, and then RETIRE the identity — the second half is the
+    // one that is easy to omit and impossible to notice: without it the slot
+    // keeps its generation and a handle to the destroyed object goes on
+    // resolving to a name the driver is free to reissue.
+    // -------------------------------------------------------------------------
+    RHI::ResourceHandle OpenGLRendererAPI::CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat)
+    {
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture,
+                                                     CreateTexture2D(width, height, internalFormat),
+                                                     RHI::Backend::OpenGL);
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format internalFormat)
+    {
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture,
+                                                     CreateTextureCubemap(width, height, internalFormat),
+                                                     RHI::Backend::OpenGL);
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateFramebufferHandle()
+    {
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Framebuffer, CreateFramebuffer(),
+                                                     RHI::Backend::OpenGL);
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateBufferHandle()
+    {
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Buffer, CreateBuffer(),
+                                                     RHI::Backend::OpenGL);
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateVertexArrayHandle()
+    {
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::VertexArray, CreateVertexArray(),
+                                                     RHI::Backend::OpenGL);
+    }
+
+    void OpenGLRendererAPI::DeleteTexture(RHI::ResourceHandle texture)
+    {
+        DeleteTexture(Utils::ResolveNative(texture));
+        RHI::ResourceRegistry::Get().Unregister(texture);
+    }
+
+    void OpenGLRendererAPI::DeleteFramebuffer(RHI::ResourceHandle framebuffer)
+    {
+        DeleteFramebuffer(Utils::ResolveNative(framebuffer));
+        RHI::ResourceRegistry::Get().Unregister(framebuffer);
+    }
+
+    void OpenGLRendererAPI::DeleteBuffer(RHI::ResourceHandle buffer)
+    {
+        DeleteBuffer(Utils::ResolveNative(buffer));
+        RHI::ResourceRegistry::Get().Unregister(buffer);
+    }
+
+    void OpenGLRendererAPI::DeleteVertexArray(RHI::ResourceHandle vertexArray)
+    {
+        DeleteVertexArray(Utils::ResolveNative(vertexArray));
+        RHI::ResourceRegistry::Get().Unregister(vertexArray);
+    }
+
 } // namespace OloEngine

@@ -377,6 +377,70 @@ namespace OloEngine::Tests
         glActiveTexture(GL_TEXTURE0);
     }
 
+    // ==========================================================================
+    // Raw facade creators (slice 4) — the last migration root, and like slice
+    // 2's overloads they have no callers yet. The Delete* half is what needs
+    // proving: destroying the object and RETIRING the identity are two separate
+    // acts, and a sibling that does only the first leaves a handle resolving to
+    // a name the driver may reissue. That is the exact omission the abandoned
+    // scripted sweep made.
+    // ==========================================================================
+    TEST(RHIHandleNativeIdentity, RawCreatorMintsALiveIdentityAndDeleteRetiresIt)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const auto texture = RenderCommand::CreateTexture2DHandle(8u, 8u, RHI::Format::RGBA8UNorm);
+        ASSERT_TRUE(texture.IsValid());
+        EXPECT_TRUE(RHI::ResourceRegistry::Get().IsLive(texture));
+        EXPECT_EQ(RHI::ResourceRegistry::Get().KindOf(texture), RHI::ResourceKind::Texture);
+
+        const u64 native = NativeOf(texture);
+        ASSERT_NE(native, 0u);
+        EXPECT_TRUE(glIsTexture(static_cast<GLuint>(native)) == GL_TRUE);
+
+        RenderCommand::DeleteTexture(texture);
+
+        EXPECT_FALSE(RHI::ResourceRegistry::Get().IsLive(texture))
+            << "Delete must retire the identity as well as the object. Without the Unregister, the "
+               "slot keeps its generation and this handle goes on resolving to a GL name the driver "
+               "is free to hand to something else.";
+        EXPECT_EQ(NativeOf(texture), 0u);
+    }
+
+    TEST(RHIHandleNativeIdentity, RawBufferAndVertexArrayCreatorsMintDistinctKinds)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const auto buffer = RenderCommand::CreateBufferHandle();
+        const auto vertexArray = RenderCommand::CreateVertexArrayHandle();
+        const auto framebuffer = RenderCommand::CreateFramebufferHandle();
+        ASSERT_TRUE(buffer.IsValid());
+        ASSERT_TRUE(vertexArray.IsValid());
+        ASSERT_TRUE(framebuffer.IsValid());
+
+        auto& registry = RHI::ResourceRegistry::Get();
+        EXPECT_EQ(registry.KindOf(buffer), RHI::ResourceKind::Buffer);
+        EXPECT_EQ(registry.KindOf(vertexArray), RHI::ResourceKind::VertexArray);
+        EXPECT_EQ(registry.KindOf(framebuffer), RHI::ResourceKind::Framebuffer);
+
+        // Three different object types created back to back: GL may well hand
+        // them the same numeric name, since names are per-type. The identities
+        // must still differ — which a bare renderer ID could not promise.
+        EXPECT_NE(buffer, vertexArray);
+        EXPECT_NE(buffer, framebuffer);
+        EXPECT_NE(vertexArray, framebuffer);
+
+        EXPECT_TRUE(glIsBuffer(static_cast<GLuint>(NativeOf(buffer))) == GL_TRUE);
+        EXPECT_TRUE(glIsVertexArray(static_cast<GLuint>(NativeOf(vertexArray))) == GL_TRUE);
+
+        RenderCommand::DeleteBuffer(buffer);
+        RenderCommand::DeleteVertexArray(vertexArray);
+        RenderCommand::DeleteFramebuffer(framebuffer);
+        EXPECT_FALSE(registry.IsLive(buffer));
+        EXPECT_FALSE(registry.IsLive(vertexArray));
+        EXPECT_FALSE(registry.IsLive(framebuffer));
+    }
+
     // Destroying a resource must retire its identity, so a handle held across
     // the destruction reports "gone" rather than resolving into whatever object
     // inherits the recycled GL name.
