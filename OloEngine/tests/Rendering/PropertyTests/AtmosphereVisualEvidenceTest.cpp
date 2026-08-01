@@ -153,7 +153,24 @@ namespace OloEngine::Tests
             fs::path base = fs::path("assets") / "tests" / "visual";
             if (const char* vendor = std::getenv("OLOENGINE_GOLDEN_VENDOR"); vendor != nullptr && vendor[0] != '\0')
             {
-                base /= vendor;
+                // The vendor must name ONE directory below the baseline root,
+                // nothing else. `base /= vendor` is not safe on its own: an
+                // absolute value REPLACES base outright (fs::path semantics),
+                // and "../.." walks out of the tree — so with
+                // OLOENGINE_GOLDEN_REBASE=1 a stray value would write goldens
+                // anywhere the process can reach. Accept only a plain name.
+                const std::string_view name(vendor);
+                const bool safe = name.find('/') == std::string_view::npos &&
+                                  name.find('\\') == std::string_view::npos &&
+                                  name != "." && name != "..";
+                if (!safe)
+                {
+                    ADD_FAILURE() << "OLOENGINE_GOLDEN_VENDOR must be a single directory name "
+                                     "(no separators, '.' or '..') — got '"
+                                  << name << "'";
+                    return base;
+                }
+                base /= name;
             }
             return base;
         }

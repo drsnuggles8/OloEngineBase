@@ -388,3 +388,48 @@ TEST(TMapRelocation, TraitPropagatesThroughPair)
            "the ~TCompactSet guard can never catch TMap<std::string, T>";
     EXPECT_TRUE((TIsTriviallyRelocatable_V<TPair<FString, f32>>)) << "FString pair should be relocatable";
 }
+
+// =============================================================================
+// FString self-aliasing appends (PR #701 review).
+//
+// AppendChars used to hold a raw `const char*` across
+// Data.SetNumUninitialized(), which grows through FMemory::Realloc and MOVES
+// the buffer. When the source pointed into that same buffer the copy then read
+// freed heap: `s += s` spliced garbage into the middle of the result. Both
+// cases below reproduce it if the aliasing guard is removed.
+// =============================================================================
+TEST(FStringSelfAppend, SelfAppendAcrossGrowthKeepsContent)
+{
+    // Long enough that the append forces a reallocation rather than fitting in
+    // the existing slack.
+    std::string seed(64, 'A');
+    seed += "-TAIL";
+
+    FString s(seed.c_str());
+    const std::string expected = seed + seed;
+
+    s += s;
+
+    ASSERT_EQ(static_cast<std::size_t>(s.Len()), expected.size());
+    EXPECT_EQ(std::string(*s, static_cast<std::size_t>(s.Len())), expected)
+        << "self-append read through a dangling pointer after the buffer moved";
+}
+
+TEST(FStringSelfAppend, AppendingOwnSuffixOverlapsAndStillCopies)
+{
+    // A view over this string's own tail: after the guard re-derives the
+    // source, it sits in the same buffer as the destination AND the two ranges
+    // overlap across the old terminator, which is why the copy must be a
+    // memmove rather than a memcpy.
+    std::string seed(48, 'B');
+    seed += "-SUFFIX";
+
+    FString s(seed.c_str());
+    const std::string_view suffix(*s + (s.Len() - 7), 7); // "-SUFFIX"
+    const std::string expected = seed + std::string("-SUFFIX");
+
+    s.Append(suffix);
+
+    ASSERT_EQ(static_cast<std::size_t>(s.Len()), expected.size());
+    EXPECT_EQ(std::string(*s, static_cast<std::size_t>(s.Len())), expected);
+}

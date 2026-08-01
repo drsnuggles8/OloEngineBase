@@ -58,6 +58,12 @@
 
 namespace OloEngine
 {
+    // NAMING EXCEPTION. This is a port of UE's FString, and its members and
+    // constants deliberately keep UE's spelling (`Data`, `InvalidIndex`)
+    // rather than the engine's usual `m_PascalCase` / `k`-prefixed forms. The
+    // point of a port is that UE source and documentation can be read against
+    // it directly; renaming the members breaks that for a cosmetic gain. New
+    // engine types outside this file follow the normal conventions.
     class FString
     {
       public:
@@ -233,9 +239,27 @@ namespace OloEngine
                 return *this;
 
             const SizeType oldLen = Len();
+
+            // `str` may point INTO our own buffer — `s += s`, or a
+            // std::string_view taken over this string. The growth below goes
+            // through FMemory::Realloc, which moves the raw byte buffer, so a
+            // pointer captured before it dangles afterwards and the copy then
+            // reads freed heap. Capture the offset while the old buffer is
+            // still valid and re-derive the pointer after the growth instead
+            // of carrying one across it.
+            const char* const oldBegin = Data.GetData();
+            const bool selfAliased =
+                (oldBegin != nullptr) && (str >= oldBegin) && (str < oldBegin + Data.Num());
+            const SizeType srcOffset = selfAliased ? static_cast<SizeType>(str - oldBegin) : 0;
+
             // +1 for the terminator; Data may be completely empty here.
             Data.SetNumUninitialized(oldLen + count + 1);
-            std::memcpy(Data.GetData() + oldLen, str, static_cast<sizet>(count));
+
+            // memmove, not memcpy: once re-derived, source and destination are
+            // in the SAME buffer and can overlap (appending a suffix of
+            // yourself puts the source range across the old terminator).
+            const char* const src = selfAliased ? (Data.GetData() + srcOffset) : str;
+            std::memmove(Data.GetData() + oldLen, src, static_cast<sizet>(count));
             Data.GetData()[oldLen + count] = '\0';
             CheckInvariants();
             return *this;
@@ -299,6 +323,17 @@ namespace OloEngine
         // Comparison
         // ------------------------------------------------------------------
 
+        // DELIBERATE DEVIATION FROM UE. Every search/compare entry point here
+        // defaults to CaseSensitive. UE's FString splits it: Equals/Compare
+        // default to CaseSensitive, but Find/Contains/StartsWith/EndsWith
+        // default to IgnoreCase — so in UE `Contains` quietly matches "FOO"
+        // against "foo" while `Equals` does not.
+        //
+        // A uniform default is chosen over UE parity because the surprising
+        // direction is the dangerous one: a case-insensitive match that the
+        // caller did not ask for silently accepts input it should reject, and
+        // reads identically at the call site. Callers wanting UE's behaviour
+        // pass ESearchCase::IgnoreCase explicitly.
         enum class ESearchCase
         {
             CaseSensitive,

@@ -104,9 +104,9 @@ namespace
         // A struct with implicit padding after the trailing bool.
         struct Trivial
         {
-            f32 X;
-            i32 Y;
-            bool Z;
+            f32 m_X;
+            i32 m_Y;
+            bool m_Z;
         };
         static_assert(sizeof(Trivial) > sizeof(f32) + sizeof(i32) + sizeof(bool),
                       "this case only exercises anything while Trivial actually has padding");
@@ -121,22 +121,31 @@ namespace
         // was on the stack — so every member matched and only bytes 9-11
         // differed. It went unnoticed until the suite first ran under GCC.
         //
-        // Value-initialisation zeroes padding bits (guaranteed since C++20),
-        // so initialising both objects that way and assigning members gives a
-        // deterministic comparison. This is exactly the "zero-init for
-        // predictable equality" rule the helper's callers must follow.
-        Trivial a{};
-        a.X = 1.0f;
-        a.Y = 7;
-        a.Z = true;
+        // Value-initialisation zero-initializes the whole object
+        // representation, padding included, so initialising both objects that
+        // way and assigning members gives a deterministic comparison. This is
+        // exactly the "zero-init for predictable equality" rule the helper's
+        // callers must follow.
+        //
+        // The spelling matters, and `Trivial a{}` is NOT it. `Trivial` is an
+        // aggregate, and for an aggregate the empty-brace form performs
+        // AGGREGATE initialization — each member is initialized from `{}`,
+        // which says nothing about the bytes between them. `Trivial()` is a
+        // value-initialized prvalue, and since C++17's guaranteed elision it
+        // initializes `a` directly with no intervening copy, so the padding
+        // guarantee actually reaches the object being compared.
+        Trivial a = Trivial();
+        a.m_X = 1.0f;
+        a.m_Y = 7;
+        a.m_Z = true;
 
-        Trivial b{};
-        b.X = 1.0f;
-        b.Y = 7;
-        b.Z = true;
+        Trivial b = Trivial();
+        b.m_X = 1.0f;
+        b.m_Y = 7;
+        b.m_Z = true;
 
         EXPECT_TRUE(BitwiseEqual(a, b));
-        b.Y = 8;
+        b.m_Y = 8;
         EXPECT_FALSE(BitwiseEqual(a, b));
     }
 

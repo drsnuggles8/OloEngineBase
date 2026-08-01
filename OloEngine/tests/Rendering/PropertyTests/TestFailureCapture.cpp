@@ -367,6 +367,19 @@ namespace OloEngine::Tests::TestFailureCapture
                 fs::remove_all(DirectoryFor(info.test_suite_name(), info.name()), ec);
             }
 
+            void OnTestEnd(const ::testing::TestInfo&) override
+            {
+                // Drop the identity as soon as the test is over. A failure in
+                // a suite-level or global fixture (SetUpTestSuite, or an
+                // environment's SetUp/TearDown) still reaches
+                // OnTestPartResult, but with NO test active — and a stale
+                // identity here would file those diagnostics under whichever
+                // test happened to run last, which is worse than not
+                // capturing them: it looks like evidence about that test.
+                m_SuiteName.clear();
+                m_TestName.clear();
+            }
+
             void OnTestPartResult(const ::testing::TestPartResult& result) override
             {
                 if (!result.failed() || m_Captured)
@@ -393,8 +406,11 @@ namespace OloEngine::Tests::TestFailureCapture
                 // stalled a nightly for an hour on a test whose only crime was
                 // to fail, and it masks the real failure completely.
                 //
-                // OnTestStart already gave us the identity; use that.
-                if (m_SuiteName.empty())
+                // OnTestStart already gave us the identity; use that. Both
+                // halves must be present — OnTestEnd clears them, so an empty
+                // pair means no test is active and there is nothing sensible
+                // to file the capture under.
+                if (m_SuiteName.empty() || m_TestName.empty())
                     return;
                 CaptureAll(m_SuiteName, m_TestName, m_FirstMessage);
             }
