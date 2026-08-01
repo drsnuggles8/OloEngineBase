@@ -148,11 +148,18 @@ namespace OloEngine
             }
         }
 
+        const bool restoreColorMasks = LiftAttachmentColorMasksForClear();
+
         // A program left bound by the previous pass would be revalidated
         // against this framebuffer by the driver during the clear (NVIDIA
         // id 131218 vertex-shader recompile) — unbind it for the clear.
         Utils::GLClearProgramGuard programGuard;
         glClear(clearFlags);
+
+        if (restoreColorMasks)
+        {
+            RestoreAttachmentColorMasks();
+        }
 
         if (restoreStencilWriteMask)
         {
@@ -190,9 +197,16 @@ namespace OloEngine
             glDepthMask(GL_TRUE);
         }
 
+        const bool restoreColorMasks = LiftAttachmentColorMasksForClear();
+
         // See Clear(): don't let a stale bound program get revalidated here.
         Utils::GLClearProgramGuard programGuard;
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        if (restoreColorMasks)
+        {
+            RestoreAttachmentColorMasks();
+        }
 
         if (!m_DepthMaskEnabled)
         {
@@ -793,6 +807,12 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glColorMask(red, green, blue, alpha);
+
+        // glColorMask sets EVERY draw buffer, so it also clears any
+        // per-attachment mask a previous draw installed via glColorMaski.
+        const AttachmentColorMask mask{ red, green, blue, alpha };
+        m_AttachmentColorMasks.fill(mask);
+        m_AnyAttachmentColorMaskDisabled = !mask.IsFullyEnabled();
     }
 
     void OpenGLRendererAPI::SetColorMaskForAttachment(u32 attachment, bool red, bool green, bool blue, bool alpha)
@@ -800,6 +820,49 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glColorMaski(attachment, red, green, blue, alpha);
+
+        if (attachment < kMaxTrackedDrawBuffers)
+        {
+            m_AttachmentColorMasks[attachment] = { red, green, blue, alpha };
+            m_AnyAttachmentColorMaskDisabled = false;
+            for (const AttachmentColorMask& tracked : m_AttachmentColorMasks)
+            {
+                if (!tracked.IsFullyEnabled())
+                {
+                    m_AnyAttachmentColorMaskDisabled = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    bool OpenGLRendererAPI::LiftAttachmentColorMasksForClear()
+    {
+        if (!m_AnyAttachmentColorMaskDisabled)
+        {
+            return false;
+        }
+
+        // glClear honours the colour write mask, so an attachment a previous
+        // draw masked off (the infinite grid keeps itself out of the view-
+        // normals attachment; skeleton/joint debug draws mask everything but
+        // RT0) would silently keep last frame's contents. That stale data then
+        // feeds whatever samples it — GTAO reads the view normals, and a
+        // never-cleared sky region there reads as occluded geometry.
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        return true;
+    }
+
+    void OpenGLRendererAPI::RestoreAttachmentColorMasks()
+    {
+        const u32 trackedCount =
+            m_MaxDrawBuffers > 0 ? std::min(static_cast<u32>(m_MaxDrawBuffers), kMaxTrackedDrawBuffers)
+                                 : kMaxTrackedDrawBuffers;
+        for (u32 i = 0; i < trackedCount; ++i)
+        {
+            const AttachmentColorMask& mask = m_AttachmentColorMasks[i];
+            glColorMaski(i, mask.R, mask.G, mask.B, mask.A);
+        }
     }
 
     void OpenGLRendererAPI::SetBlendStateForAttachment(u32 attachment, bool enabled)
