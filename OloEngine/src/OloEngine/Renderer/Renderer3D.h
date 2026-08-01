@@ -814,6 +814,24 @@ namespace OloEngine
             return s_Data.RGraph->ResolveTexture(s_Data.RGraph->GetTextureHandle(resourceName));
         }
 
+        // Identity sibling of the above (issue #691 step 3). NOT interchangeable
+        // with it: `textureID` and `identity` are ALTERNATIVES on a
+        // PhysicalTexture, so a resource imported through ImportTextureHandle
+        // has an identity and NO native id — ResolveTexture answers 0 for it —
+        // while a natively-imported one is the other way round. A caller that
+        // wants "whichever this resource happens to carry" must try both; the
+        // MCP diagnostics do exactly that, and must, or migrating an import
+        // silently deletes the resource from olo_render_capture_target.
+        static RHI::ResourceHandle ResolveFrameGraphTextureHandle(std::string_view resourceName)
+        {
+            if (!s_Data.RGraph)
+            {
+                return RHI::NullResource;
+            }
+
+            return s_Data.RGraph->ResolveTextureHandle(s_Data.RGraph->GetTextureHandle(resourceName));
+        }
+
         // Dynamic Resolution Scaling.
         // scale is clamped to [0.25, 1.0]; use 1.0 to disable DRS.
         // The render graph forwards the scale to all registered render passes
