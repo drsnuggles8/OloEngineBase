@@ -727,6 +727,8 @@
 		"OloEngine/Renderer/Debug/RenderGraphFrameCapture.cpp"
 		"OloEngine/Renderer/Debug/RenderGraphPassSnapshot.h"
 		"OloEngine/Renderer/Debug/RenderGraphPassSnapshot.cpp"
+		"OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
+		"OloEngine/Renderer/Debug/RenderGraphResourceIdentity.cpp"
 		"OloEngine/Renderer/Debug/CapturedFrameData.h"
 		"OloEngine/Renderer/Debug/CapturedFrameData.cpp"
 		"OloEngine/Renderer/Debug/CommandPacketDebugger.h"

@@ -38,7 +38,7 @@
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 #include "OloEngine/Renderer/Passes/VolumetricFogPass.h"
 #include "OloEngine/Renderer/RenderGraph.h"
-#include "OloEngine/Renderer/RHI/RHIResources.h"
+#include "OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 #include "OloEngine/Renderer/TransientPool.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -273,32 +273,6 @@ namespace OloEngine::MCP
             return "Graphics";
         }
 
-        // "Whichever currency this graph resource carries" (issue #691 step 3).
-        //
-        // A PhysicalTexture holds a native id OR an identity, never both, so
-        // RenderGraph::ResolveTexture answers 0 for anything imported through
-        // ImportTextureHandle — and every id this file reports went through it.
-        // Without this fallback, migrating a resource's import DELETES it from
-        // olo_render_list_targets / olo_render_capture_target with no warning
-        // and no visible difference from a resource that has no backing at all.
-        // (#732 did exactly that to SSAO's noise texture.)
-        //
-        // GetNativeHandleForDebug is the sanctioned hatch for precisely this —
-        // see RHIResources.h, which names "the MCP capture endpoints" as a
-        // legitimate caller. It is used HERE, in the editor, and not in
-        // Renderer/: RHIBoundaryRatchetTest walks OloEngine/src only, so
-        // debug_escape_hatch stays honest at 0 rather than being waived.
-        u32 NativeIdOfGraphTexture(const RenderGraph& graph, RGTextureHandle handle)
-        {
-            if (const u32 nativeId = graph.ResolveTexture(handle); nativeId != 0)
-                return nativeId;
-
-            const RHI::ResourceHandle identity = graph.ResolveTextureHandle(handle);
-            if (!identity.IsValid())
-                return 0;
-            return static_cast<u32>(RHI::GetNativeHandleForDebug(identity).Value);
-        }
-
         // Layers addressable through one render-graph resource name, and the layer
         // it addresses inside its parent texture object (issue #607). Shared by
         // olo_render_list_targets (which reports the count so an agent can
@@ -441,7 +415,7 @@ namespace OloEngine::MCP
                     // frame's (transients can re-alias next frame).
                     if (resource.TextureHandle.IsValid())
                     {
-                        info.GLTextureId = NativeIdOfGraphTexture(*graph, resource.TextureHandle);
+                        info.GLTextureId = Debug::NativeTextureIdForDiagnostics(*graph, resource.TextureHandle);
                         info.ViewOfParentLayer = graph->GetTextureViewLayerIndex(resource.Name);
                     }
                     if (resource.FramebufferHandle.IsValid())
@@ -501,16 +475,14 @@ namespace OloEngine::MCP
             if (const u32 textureId = Renderer3D::ResolveFrameGraphTexture(name); textureId != 0)
                 return textureId;
 
-            // Same fallback as NativeIdOfGraphTexture, by name rather than by
-            // handle — this path is what olo_render_capture_target uses.
-            if (const RHI::ResourceHandle identity = Renderer3D::ResolveFrameGraphTextureHandle(name);
-                identity.IsValid())
+            // Same fallback, by name rather than by handle — this path is what
+            // olo_render_capture_target uses, and the by-name lookups live on
+            // Renderer3D rather than on RenderGraph.
+            if (const u32 nativeId =
+                    Debug::NativeTextureIdForDiagnostics(Renderer3D::ResolveFrameGraphTextureHandle(name));
+                nativeId != 0)
             {
-                if (const auto nativeId = static_cast<u32>(RHI::GetNativeHandleForDebug(identity).Value);
-                    nativeId != 0)
-                {
-                    return nativeId;
-                }
+                return nativeId;
             }
 
             const Ref<Framebuffer> framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(name);
@@ -3735,7 +3707,7 @@ namespace OloEngine::MCP
                     RenderValidate::ResourceIdentity identity;
                     identity.Name = resource.Name;
                     if (resource.TextureHandle.IsValid())
-                        identity.GLTextureId = NativeIdOfGraphTexture(*graph, resource.TextureHandle);
+                        identity.GLTextureId = Debug::NativeTextureIdForDiagnostics(*graph, resource.TextureHandle);
                     else if (resource.FramebufferHandle.IsValid())
                         identity.GLTextureId = ResolveTargetTexture(resource.Name);
                     if (resource.BufferHandle.IsValid())

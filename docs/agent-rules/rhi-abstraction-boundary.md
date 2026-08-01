@@ -588,9 +588,23 @@ removes the check on itself.
 The fix is a fallback, not a new resolver: try the native id, and when it is 0
 ask the identity and go through `RHI::GetNativeHandleForDebug` — the hatch
 documented in `RHIResources.h` for exactly "the introspection tools in
-`Renderer/Debug/` and the MCP capture endpoints they back". It belongs in the
-editor, which `RHIBoundaryRatchetTest` does not scan (it walks `OloEngine/src`
-only), so `debug_escape_hatch` legitimately stays 0.
+`Renderer/Debug/` and the MCP capture endpoints they back". It lives in
+`Renderer/Debug/RenderGraphResourceIdentity.{h,cpp}` as
+`Debug::NativeTextureIdForDiagnostics`.
+
+**Where it lives is the load-bearing part, and it was wrong first.** The
+obvious home is the caller — `OloEditor/src/MCP/`, which `RHIBoundaryRatchetTest`
+does not scan, so `debug_escape_hatch` stays 0 for free. That is what this fix
+did initially and it is a trap: `OloEngine-Tests` does not link `OloEditor`, so
+the *composition* had no test — only its individual legs did. That is precisely
+the configuration that let the original defect through, so "fixing" it there
+re-arms the same trap one layer out. `Renderer/Debug/` satisfies both
+constraints at once: it is a sanctioned home for the hatch **and** it is inside
+the engine library, so `RenderGraph.Diagnostics*` can pin it.
+
+Do **not** make it a `RenderGraph` member. That puts the hatch inside
+`Renderer/`, where `backend_resolve_hatch` bans it at 0 — moving that boundary
+is a decision on its own merits, not a side effect of a bug fix.
 
 **Sequencing rule this gives you:** a resource's import may only move to
 `ImportTextureHandle` *after* the diagnostics can read a handle-imported

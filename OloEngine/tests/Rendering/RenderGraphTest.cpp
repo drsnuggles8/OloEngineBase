@@ -6,6 +6,7 @@
 #include "RenderingTestUtils.h"
 #include "PropertyTests/RenderPropertyTest.h"
 #include "TestDeclarativeNode.h"
+#include "OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -870,6 +871,75 @@ TEST(RenderGraph, HandleImportResolvesAsAnIdentityAndNotNatively)
            "name here would breach the boundary the whole phase exists to close.";
 
     registry.Unregister(identity);
+}
+
+// =============================================================================
+// The DIAGNOSTICS side of the two tests above, and the reason it needs its own.
+//
+// Both currencies being correct is not enough: every id the introspection tools
+// and the MCP capture endpoints report goes through ONE resolution, and if that
+// resolution only knows the native currency then migrating a resource's import
+// deletes it from the tooling. It reports 0, which is indistinguishable from a
+// resource that has no backing — no warning, no failing test. #732 did exactly
+// that to SSAO's noise texture.
+//
+// Debug::NativeTextureIdForDiagnostics is the composition that must not regress.
+// It was originally written inline in OloEditor/src/MCP/, which OloEngine-Tests
+// does not link — so the composition could not be tested at all, which is the
+// same configuration that let the original defect through. It lives in
+// Renderer/Debug/ now precisely so these two tests can exist.
+// =============================================================================
+TEST(RenderGraph, DiagnosticsResolveANativelyImportedResource)
+{
+    RenderGraph graph;
+    const auto imported = graph.ImportTexture(
+        ResourceNames::AOBuffer, 4242u,
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer));
+    ASSERT_TRUE(imported.IsValid());
+
+    EXPECT_EQ(Debug::NativeTextureIdForDiagnostics(graph, imported), 4242u)
+        << "The native currency must still work — the fallback is additive, not a replacement.";
+}
+
+TEST(RenderGraph, DiagnosticsResolveAHandleImportedResourceTheNativePathCannotSee)
+{
+    auto& registry = RHI::ResourceRegistry::Get();
+    const auto identity = registry.Register(RHI::ResourceKind::Texture, 6161u, RHI::Backend::OpenGL);
+
+    RenderGraph graph;
+    const auto imported = graph.ImportTextureHandle(
+        ResourceNames::AOBuffer, identity,
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer));
+    ASSERT_TRUE(imported.IsValid());
+
+    ASSERT_EQ(graph.ResolveTexture(imported), 0u)
+        << "Test precondition: this is the case the native path structurally cannot answer.";
+
+    EXPECT_EQ(Debug::NativeTextureIdForDiagnostics(graph, imported), 6161u)
+        << "A handle-imported resource must still report its backing object to the tooling. "
+           "Returning 0 here is the regression that silently removes a migrated resource from "
+           "olo_render_list_targets and olo_render_capture_target.";
+
+    registry.Unregister(identity);
+}
+
+TEST(RenderGraph, DiagnosticsReportZeroOnlyWhenThereIsGenuinelyNoBacking)
+{
+    RenderGraph graph;
+
+    EXPECT_EQ(Debug::NativeTextureIdForDiagnostics(graph, RGTextureHandle{}), 0u)
+        << "An invalid handle names nothing.";
+    EXPECT_EQ(Debug::NativeTextureIdForDiagnostics(RHI::NullResource), 0u)
+        << "A null identity names nothing.";
+
+    // A RETIRED identity must also report nothing rather than the name the
+    // driver may since have reissued — a diagnostic showing a live object for a
+    // dead resource is worse than one showing none.
+    auto& registry = RHI::ResourceRegistry::Get();
+    const auto identity = registry.Register(RHI::ResourceKind::Texture, 7373u, RHI::Backend::OpenGL);
+    ASSERT_EQ(Debug::NativeTextureIdForDiagnostics(identity), 7373u);
+    registry.Unregister(identity);
+    EXPECT_EQ(Debug::NativeTextureIdForDiagnostics(identity), 0u);
 }
 
 // Re-importing the SAME name with a DIFFERENT identity must retire the old
