@@ -47,6 +47,24 @@ namespace OloEngine
         return format == ImageFormat::BC7 || format == ImageFormat::BC5 || format == ImageFormat::BC6H;
     }
 
+    // True for the integer (non-normalised) ImageFormat values — the ones a
+    // shader reads through an isampler/usampler rather than a float sampler.
+    //
+    // These MUST be sampled with GL_NEAREST. GL requires a texture whose base
+    // format is integer to use a NEAREST mag filter; with GL_LINEAR it is
+    // *incomplete*, and sampling an incomplete texture yields zero — including
+    // through texelFetch. NVIDIA quietly tolerates the linear filter, Mesa
+    // does not, so a linear-filtered integer texture reads as all-zero on AMD
+    // and correct on NVIDIA. That asymmetry silently erased every glyph the
+    // Slug text renderer drew (its RG16UI band texture returned zero bands, so
+    // each glyph covered no pixels) while leaving the geometry, draw calls and
+    // logs looking perfectly healthy.
+    [[nodiscard]] constexpr bool IsIntegerFormat(ImageFormat format) noexcept
+    {
+        return format == ImageFormat::R8UI || format == ImageFormat::R16UI ||
+               format == ImageFormat::RG16UI || format == ImageFormat::R32I;
+    }
+
     struct TextureSpecification
     {
         u32 Width = 1;

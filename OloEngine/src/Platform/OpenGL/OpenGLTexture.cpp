@@ -285,9 +285,14 @@ namespace OloEngine
 
         if (m_Specification.Samples == 1u)
         {
+            // An integer-format texture is INCOMPLETE under a linear filter and
+            // then samples as zero (texelFetch included) — see IsIntegerFormat.
+            const bool integerFormat = IsIntegerFormat(m_Specification.Format);
             // NOTE: Texture Wrapping
-            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER,
+                                integerFormat ? (m_MipLevels > 1u ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST)
+                                              : GL_LINEAR_MIPMAP_LINEAR);
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, integerFormat ? GL_NEAREST : GL_LINEAR);
 
             // NOTE: Texture Filtering
             glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -692,9 +697,14 @@ namespace OloEngine
 
         if (m_Specification.Samples == 1u)
         {
+            // Keep the integer-format NEAREST rule across a resize too — see
+            // IsIntegerFormat; a linear filter here re-breaks the texture.
+            const bool integerFormat = IsIntegerFormat(m_Specification.Format);
             // Reapply sampler state
-            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, m_MipLevels > 1 ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
-            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER,
+                                integerFormat ? (m_MipLevels > 1 ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST)
+                                              : (m_MipLevels > 1 ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR));
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, integerFormat ? GL_NEAREST : GL_LINEAR);
             glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
             glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
         }
