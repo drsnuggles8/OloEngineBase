@@ -91,18 +91,59 @@ namespace OloEngine::Tests
         namespace fs = std::filesystem;
 
         // Stage the entire SandboxProject into a fresh temp dir.
-        // Returns the temp project's root path (or empty on failure).
-        fs::path StageSandboxProjectIntoTemp()
+        // Returns the temp project's root path (or empty on failure, with the
+        // reason written to `error` — a bare empty path made a permission
+        // failure here indistinguishable from a copy failure).
+        fs::path StageSandboxProjectIntoTemp(std::string& error)
         {
             const fs::path sandboxRoot = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject";
-            const fs::path tempRoot =
-                fs::temp_directory_path() / "OloEngineSceneLoad";
 
             std::error_code ec;
-            fs::remove_all(tempRoot, ec);
-            fs::create_directories(tempRoot, ec);
+            const fs::path tempDir = fs::temp_directory_path(ec);
             if (ec)
+            {
+                error = "temp_directory_path failed: " + ec.message();
                 return {};
+            }
+
+            // A FIXED name under a shared, sticky /tmp is not usable. This
+            // repo's self-hosted CI runs the suite as its own account, so
+            // /tmp/OloEngineSceneLoad can already exist owned by a different
+            // user — and the sticky bit then makes it un-removable AND
+            // un-recreatable for everyone else, failing this test forever.
+            // Two concurrent runs on one box (several runners share this
+            // host) would likewise fight over the same tree mid-copy.
+            // Claim the first candidate we can actually create so each run
+            // stages into a private root, reclaiming our own leftovers from a
+            // crashed run while stepping over anyone else's.
+            fs::path tempRoot;
+            for (u32 attempt = 0; attempt < 64; ++attempt)
+            {
+                const fs::path candidate = tempDir / ("OloEngineSceneLoad-" + std::to_string(attempt));
+
+                ec.clear();
+                if (fs::exists(candidate, ec))
+                {
+                    ec.clear();
+                    fs::remove_all(candidate, ec);
+                    if (ec)
+                        continue; // someone else's — leave it alone, try the next name
+                }
+
+                ec.clear();
+                if (fs::create_directory(candidate, ec) && !ec)
+                {
+                    tempRoot = candidate;
+                    break;
+                }
+            }
+
+            if (tempRoot.empty())
+            {
+                error = "could not create a staging dir under " + tempDir.string() +
+                        " (last error: " + ec.message() + ")";
+                return {};
+            }
 
             // Recursive copy: every file, every subdirectory. We need
             // Assets/, AssetRegistry.oar, and the .oloproj at minimum;
@@ -113,7 +154,12 @@ namespace OloEngine::Tests
                          fs::copy_options::copy_symlinks,
                      ec);
             if (ec)
+            {
+                error = "copy " + sandboxRoot.string() + " -> " + tempRoot.string() + " failed: " + ec.message();
+                std::error_code cleanupEc;
+                fs::remove_all(tempRoot, cleanupEc);
                 return {};
+            }
 
             return tempRoot;
         }
@@ -158,9 +204,10 @@ namespace OloEngine::Tests
         // shared process+context.
         GLStateGuard glGuard("AssetSceneLoad.Deserialize", GLStateGuard::Policy::Restore);
 
-        const fs::path tempRoot = StageSandboxProjectIntoTemp();
+        std::string stageError;
+        const fs::path tempRoot = StageSandboxProjectIntoTemp(stageError);
         ASSERT_FALSE(tempRoot.empty())
-            << "Failed to stage SandboxProject into temp dir.";
+            << "Failed to stage SandboxProject into temp dir: " << stageError;
 
         // RAII cleanup: delete the temp dir on test exit regardless of
         // assertion outcome.
