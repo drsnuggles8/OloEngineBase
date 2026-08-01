@@ -377,32 +377,32 @@ namespace OloEngine::Testing
         // ----------------------------------------------------------------
         void BindTexture(u32 slot, RHI::ResourceHandle texture) override
         {
-            BindTexture(slot, Native(texture));
+            BindTexture(slot, Native(texture, RHI::ResourceKind::Texture));
         }
         void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
                               u32 layer, RHI::Access access, RHI::Format format) override
         {
-            BindImageTexture(unit, Native(texture), mipLevel, layered, layer, access, format);
+            BindImageTexture(unit, Native(texture, RHI::ResourceKind::Texture), mipLevel, layered, layer, access, format);
         }
         void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override
         {
-            BindUniformBuffer(bindingPoint, Native(buffer));
+            BindUniformBuffer(bindingPoint, Native(buffer, RHI::ResourceKind::Buffer));
         }
         void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override
         {
-            BindStorageBuffer(bindingPoint, Native(buffer));
+            BindStorageBuffer(bindingPoint, Native(buffer, RHI::ResourceKind::Buffer));
         }
         void BindShaderProgram(RHI::ResourceHandle program) override
         {
-            BindShaderProgram(Native(program));
+            BindShaderProgram(Native(program, RHI::ResourceKind::ShaderProgram));
         }
         void BindVertexArrayRaw(RHI::ResourceHandle vertexArray) override
         {
-            BindVertexArrayRaw(Native(vertexArray));
+            BindVertexArrayRaw(Native(vertexArray, RHI::ResourceKind::VertexArray));
         }
         void BindFramebuffer(RHI::ResourceHandle framebuffer) override
         {
-            BindFramebuffer(Native(framebuffer));
+            BindFramebuffer(Native(framebuffer, RHI::ResourceKind::Framebuffer));
         }
 
         // Raw-creator siblings (slice 4). The mock plays a backend: it creates
@@ -439,22 +439,22 @@ namespace OloEngine::Testing
         }
         void DeleteTexture(RHI::ResourceHandle texture) override
         {
-            DeleteTexture(Native(texture));
+            DeleteTexture(Native(texture, RHI::ResourceKind::Texture));
             RHI::ResourceRegistry::Get().Unregister(texture);
         }
         void DeleteFramebuffer(RHI::ResourceHandle framebuffer) override
         {
-            DeleteFramebuffer(Native(framebuffer));
+            DeleteFramebuffer(Native(framebuffer, RHI::ResourceKind::Framebuffer));
             RHI::ResourceRegistry::Get().Unregister(framebuffer);
         }
         void DeleteBuffer(RHI::ResourceHandle buffer) override
         {
-            DeleteBuffer(Native(buffer));
+            DeleteBuffer(Native(buffer, RHI::ResourceKind::Buffer));
             RHI::ResourceRegistry::Get().Unregister(buffer);
         }
         void DeleteVertexArray(RHI::ResourceHandle vertexArray) override
         {
-            DeleteVertexArray(Native(vertexArray));
+            DeleteVertexArray(Native(vertexArray, RHI::ResourceKind::VertexArray));
             RHI::ResourceRegistry::Get().Unregister(vertexArray);
         }
 
@@ -469,16 +469,16 @@ namespace OloEngine::Testing
         // currencies has the registry to check instead.
         void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter) override
         {
-            SetTextureFilter(Native(texture), minFilter, magFilter);
+            SetTextureFilter(Native(texture, RHI::ResourceKind::Texture), minFilter, magFilter);
         }
         void SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap) override
         {
-            SetTextureWrap(Native(texture), wrap);
+            SetTextureWrap(Native(texture, RHI::ResourceKind::Texture), wrap);
         }
         void UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
                                      RHI::Format sourceFormat, const void* data) override
         {
-            UploadTextureSubImage2D(Native(texture), width, height, sourceFormat, data);
+            UploadTextureSubImage2D(Native(texture, RHI::ResourceKind::Texture), width, height, sourceFormat, data);
         }
 
         // Copy / clear / upload-at-offset / readback handle forms (slice 5).
@@ -487,7 +487,8 @@ namespace OloEngine::Testing
                               RHI::ResourceHandle dst, TextureTargetType dstTarget,
                               u32 width, u32 height) override
         {
-            CopyImageSubData(Native(src), srcTarget, Native(dst), dstTarget, width, height);
+            CopyImageSubData(Native(src, RHI::ResourceKind::Texture), srcTarget,
+                             Native(dst, RHI::ResourceKind::Texture), dstTarget, width, height);
         }
         [[nodiscard("Store this!")]] bool ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel,
                                                               i32 x, i32 y, i32 z,
@@ -495,51 +496,51 @@ namespace OloEngine::Testing
                                                               RHI::Format destFormat,
                                                               sizet destSizeBytes, void* dest) override
         {
-            return ReadTextureSubImage(Native(texture), mipLevel, x, y, z, width, height, depth,
+            return ReadTextureSubImage(Native(texture, RHI::ResourceKind::Texture), mipLevel, x, y, z, width, height, depth,
                                        destFormat, destSizeBytes, dest);
         }
         void CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
                                   RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
                                   u32 width, u32 height) override
         {
-            CopyImageSubDataFull(Native(src), srcTarget, srcLevel, srcZ,
-                                 Native(dst), dstTarget, dstLevel, dstZ, width, height);
+            CopyImageSubDataFull(Native(src, RHI::ResourceKind::Texture), srcTarget, srcLevel, srcZ,
+                                 Native(dst, RHI::ResourceKind::Texture), dstTarget, dstLevel, dstZ, width, height);
         }
         void ClearTextureFloat(RHI::ResourceHandle texture, u32 mipLevel, const glm::vec4& color) override
         {
-            ClearTextureFloat(Native(texture), mipLevel, color);
+            ClearTextureFloat(Native(texture, RHI::ResourceKind::Texture), mipLevel, color);
         }
         [[nodiscard("Store this!")]] bool ReadTextureImage(RHI::ResourceHandle texture, u32 mipLevel,
                                                            RHI::Format destFormat,
                                                            sizet destSizeBytes, void* dest) override
         {
-            return ReadTextureImage(Native(texture), mipLevel, destFormat, destSizeBytes, dest);
+            return ReadTextureImage(Native(texture, RHI::ResourceKind::Texture), mipLevel, destFormat, destSizeBytes, dest);
         }
         void DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 patchVertices) override
         {
-            DrawIndexedPatchesRaw(Native(vertexArray), indexCount, patchVertices);
+            DrawIndexedPatchesRaw(Native(vertexArray, RHI::ResourceKind::VertexArray), indexCount, patchVertices);
         }
         void DrawIndexedInstancedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex,
                                      u32 instanceCount) override
         {
-            DrawIndexedInstancedRaw(Native(vertexArray), indexCount, baseIndex, instanceCount);
+            DrawIndexedInstancedRaw(Native(vertexArray, RHI::ResourceKind::VertexArray), indexCount, baseIndex, instanceCount);
         }
         void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount) override
         {
-            DrawIndexedRaw(Native(vertexArray), indexCount);
+            DrawIndexedRaw(Native(vertexArray, RHI::ResourceKind::VertexArray), indexCount);
         }
         void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex) override
         {
-            DrawIndexedRaw(Native(vertexArray), indexCount, baseIndex);
+            DrawIndexedRaw(Native(vertexArray, RHI::ResourceKind::VertexArray), indexCount, baseIndex);
         }
         void SetProgramUniformFloat(RHI::ResourceHandle program, std::string_view name, f32 value) override
         {
-            SetProgramUniformFloat(Native(program), name, value);
+            SetProgramUniformFloat(Native(program, RHI::ResourceKind::ShaderProgram), name, value);
         }
         [[nodiscard]] RHI::ResourceHandle CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture,
                                                                                u32 numLayers) override
         {
-            const u32 nativeView = CreateDepthArrayCompareOffView(Native(srcTexture), numLayers);
+            const u32 nativeView = CreateDepthArrayCompareOffView(Native(srcTexture, RHI::ResourceKind::Texture), numLayers);
             if (nativeView == 0u)
                 return RHI::NullResource;
             return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture, nativeView,
@@ -547,9 +548,16 @@ namespace OloEngine::Testing
         }
 
       private:
-        [[nodiscard]] static u32 Native(RHI::ResourceHandle handle) noexcept
+        // Kind-checked, mirroring Platform/OpenGL's Utils::ResolveNativeAs. An
+        // untyped resolve would let a wrong-family handle (a buffer passed where
+        // a texture is wanted) succeed here and fail in the real backend, so a
+        // green mock test would say nothing about the shipping path.
+        [[nodiscard]] static u32 Native(RHI::ResourceHandle handle, RHI::ResourceKind expected) noexcept
         {
-            return static_cast<u32>(RHI::ResourceRegistry::Get().ResolveNativeForBackend(handle));
+            auto& registry = RHI::ResourceRegistry::Get();
+            if (handle.IsValid() && registry.KindOf(handle) != expected)
+                return 0u;
+            return static_cast<u32>(registry.ResolveNativeForBackend(handle));
         }
 
       public:

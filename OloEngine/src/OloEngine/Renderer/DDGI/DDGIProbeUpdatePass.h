@@ -44,7 +44,7 @@ namespace OloEngine
         glm::mat4 transform{ 1.0f }; // ABSOLUTE world
         BoundingBox worldBounds = NoBounds;
         glm::vec4 baseColor{ 1.0f };           // material base color factor
-        RHI::ResourceHandle albedoTextureID{}; // 0 = white
+        RHI::ResourceHandle albedoTextureID{}; // invalid = fall back to the white texture
         bool twoSided = false;
     };
 

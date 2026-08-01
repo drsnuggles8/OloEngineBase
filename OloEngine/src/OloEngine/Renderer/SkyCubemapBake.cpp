@@ -87,6 +87,11 @@ namespace OloEngine::SkyBake
             return false;
         }
 
+        // Hoisted out of the face loop: the framebuffer is not recreated between
+        // faces, so its attachment identity is constant for the whole bake
+        // (matches ReflectionProbeBaker::CaptureSceneCubemap).
+        const RHI::ResourceHandle fbColor = framebuffer->GetColorAttachmentHandle(0);
+
         for (u32 i = 0; i < 6; ++i)
         {
             OLO_PROFILE_SCOPE("SkyBake::Face");
@@ -112,7 +117,6 @@ namespace OloEngine::SkyBake
             vao->Bind();
             RenderCommand::DrawIndexed(vao);
 
-            const RHI::ResourceHandle fbColor = framebuffer->GetColorAttachmentHandle(0);
             RenderCommand::CopyImageSubDataFull(
                 fbColor, RendererAPI::TextureTargetType::Texture2D, 0, 0,
                 cubemap->GetRHIHandle(), RendererAPI::TextureTargetType::TextureCubeMap, 0, static_cast<i32>(i),

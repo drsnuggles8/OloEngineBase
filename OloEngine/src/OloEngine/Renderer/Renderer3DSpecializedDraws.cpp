@@ -157,7 +157,7 @@ namespace OloEngine
         // rendered after opaque geometry; in Deferred they write into the
         // G-Buffer pre-lighting so they are opaque from the sorter's POV.
         PacketMetadata metadata = packet->GetMetadata();
-        const u32 shaderID = decalShader->GetRendererID() & 0xFFFF;
+        const u32 shaderID = cmd->shaderRendererID.Index & 0xFFFF;
         const u32 depth = ComputeDepthForSortKey(decalTransform);
         metadata.m_SortKey = deferredPath
                                  ? DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth)
@@ -280,7 +280,7 @@ namespace OloEngine
 
         // Sort key: opaque, sorted by shader then depth (front-to-back).
         PacketMetadata metadata = packet->GetMetadata();
-        const u32 shaderID = activeShader->GetRendererID() & 0xFFFF;
+        const u32 shaderID = cmd->shaderRendererID.Index & 0xFFFF;
         const u32 depth = ComputeDepthForSortKey(modelTransform);
         metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
         metadata.m_IsStatic = false;
@@ -400,7 +400,7 @@ namespace OloEngine
 
         // Sort key: translucent, sorted back-to-front for correct blending.
         PacketMetadata metadata = packet->GetMetadata();
-        const u32 shaderID = s_Data.WaterShader->GetRendererID() & 0xFFFF;
+        const u32 shaderID = cmd->shaderRendererID.Index & 0xFFFF;
         const u32 depth = ComputeDepthForSortKey(modelTransform);
         metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, 0, depth);
         metadata.m_IsStatic = false;

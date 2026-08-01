@@ -569,7 +569,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         ImGui::Text("Mesh Handle: %llu", static_cast<u64>(cmd.meshHandle));
-        ImGui::Text("VAO: %u", cmd.vertexArrayID);
+        ImGui::Text("VAO: %s", FormatHandle(cmd.vertexArrayID).c_str());
         ImGui::Text("Index Count: %u", cmd.indexCount);
         ImGui::Text("Entity ID: %d", cmd.entityID);
 
@@ -595,8 +595,12 @@ namespace OloEngine
             ImGui::Text("  Normal Scale: %.2f", matPtr->normalScale);
             ImGui::Text("  Occlusion: %.2f", matPtr->occlusionStrength);
             ImGui::Text("  IBL: %s (intensity=%.2f)", matPtr->enableIBL ? "Yes" : "No", matPtr->iblIntensity);
-            ImGui::Text("  Textures: albedo=%u, metallicRough=%u, normal=%u, ao=%u, emissive=%u",
-                        matPtr->albedoMapID, matPtr->metallicRoughnessMapID, matPtr->normalMapID, matPtr->aoMapID, matPtr->emissiveMapID);
+            ImGui::Text("  Textures: albedo=%s, metallicRough=%s, normal=%s, ao=%s, emissive=%s",
+                        FormatHandle(matPtr->albedoMapID).c_str(),
+                        FormatHandle(matPtr->metallicRoughnessMapID).c_str(),
+                        FormatHandle(matPtr->normalMapID).c_str(),
+                        FormatHandle(matPtr->aoMapID).c_str(),
+                        FormatHandle(matPtr->emissiveMapID).c_str());
         }
         else if (matPtr)
         {
@@ -622,7 +626,7 @@ namespace OloEngine
     void CommandPacketDebugger::RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd, const CapturedFrameData* frame) const
     {
         ImGui::Text("Mesh Handle: %llu", static_cast<u64>(cmd.meshHandle));
-        ImGui::Text("VAO: %u", cmd.vertexArrayID);
+        ImGui::Text("VAO: %s", FormatHandle(cmd.vertexArrayID).c_str());
         ImGui::Text("Index Count: %u", cmd.indexCount);
         ImGui::Text("Instance Count: %u", cmd.instanceCount);
         ImGui::Text("Transform Buffer: offset=%u, count=%u", cmd.transformBufferOffset, cmd.transformCount);

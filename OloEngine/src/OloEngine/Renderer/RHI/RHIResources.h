@@ -6,9 +6,12 @@
 //
 // Issue #691 Phase 1, ADR 0011 (docs/adr/0011-rhi-neutral-resource-and-binding-model.md).
 //
-// **Not yet load-bearing: only RHIResourceRegistry.cpp includes these so far.**
-// (Phase 2 step 3 minted RHI::ResourceHandle, but that lives in RHITypes.h — the
-// resource *descriptions* below are still waiting on their consumers.) Same two
+// **Partly live.** GetNativeHandleForDebug at the bottom is in use — by
+// RHIResourceRegistry.cpp, which defines it, and by
+// Renderer/Debug/RenderGraphResourceIdentity.cpp, which is the sanctioned
+// caller for the introspection tools. The resource *descriptions* below are
+// still forward-looking (Phase 2 step 3 minted RHI::ResourceHandle, but that
+// lives in RHITypes.h). Same two
 // rules as RHITypes.h: no backend headers, no backend types, and these are engine
 // enums that a backend converts explicitly.
 //

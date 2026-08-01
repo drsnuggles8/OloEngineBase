@@ -595,8 +595,9 @@
 		# declaration-only: RHIResourceRegistry.{h,cpp} mints the generation-checked
 		# RHI::ResourceHandle (defined in RHITypes.h) that the Platform/OpenGL
 		# resource classes, RenderCommand and the render graph now carry.
-		# RHIResources.h is the exception — still forward-looking vocabulary that
-		# only RHIResourceRegistry.cpp includes so far.
+		# RHIResources.h is mostly still forward-looking vocabulary; its live part
+		# is GetNativeHandleForDebug, included by RHIResourceRegistry.cpp and by
+		# Renderer/Debug/RenderGraphResourceIdentity.cpp.
 		# RHIBoundaryRatchetTest guards the no-backend-types boundary.
 		"OloEngine/Renderer/RHI/RHITypes.h"
 		"OloEngine/Renderer/RHI/RHIResources.h"

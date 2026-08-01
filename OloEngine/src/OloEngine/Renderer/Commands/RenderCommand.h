@@ -144,7 +144,8 @@ namespace OloEngine
         i32 alphaMode = 0;
         f32 alphaCutoff = 0.5f;
 
-        // PBR texture IDs (renderer IDs, 0 = none)
+        // PBR texture identities (an invalid handle means no map for that slot;
+        // test with .IsValid(), never against a literal 0)
         RHI::ResourceHandle albedoMapID{};
         RHI::ResourceHandle metallicRoughnessMapID{};
         RHI::ResourceHandle normalMapID{};
@@ -508,7 +509,7 @@ namespace OloEngine
     struct DrawIndexedCommand
     {
         CommandHeader header;
-        RHI::ResourceHandle vertexArrayID{}; // VAO renderer ID
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         RHI::IndexType indexType;
     };
@@ -516,7 +517,7 @@ namespace OloEngine
     struct DrawIndexedInstancedCommand
     {
         CommandHeader header;
-        RHI::ResourceHandle vertexArrayID{}; // VAO renderer ID
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         u32 instanceCount;
         RHI::IndexType indexType;
@@ -525,7 +526,7 @@ namespace OloEngine
     struct DrawArraysCommand
     {
         CommandHeader header;
-        RHI::ResourceHandle vertexArrayID{}; // VAO renderer ID
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 vertexCount;
         RHI::PrimitiveTopology primitiveType;
     };
@@ -533,7 +534,7 @@ namespace OloEngine
     struct DrawLinesCommand
     {
         CommandHeader header;
-        RHI::ResourceHandle vertexArrayID{}; // VAO renderer ID
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 vertexCount;
     };
 
@@ -545,7 +546,7 @@ namespace OloEngine
 
         // Mesh data (POD identifiers)
         AssetHandle meshHandle;              // Mesh asset handle for resolution
-        RHI::ResourceHandle vertexArrayID{}; // VAO renderer ID
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         u32 baseIndex = 0; // Starting index offset in shared index buffer (for multi-submesh MeshSources)
         glm::mat4 transform;
@@ -598,7 +599,7 @@ namespace OloEngine
 
         // Mesh data (POD identifiers)
         AssetHandle meshHandle;              // Mesh asset handle
-        RHI::ResourceHandle vertexArrayID{}; // VAO renderer ID
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         u32 baseIndex = 0; // Starting index offset in shared index buffer (for multi-submesh MeshSources)
         u32 instanceCount;
@@ -655,12 +656,12 @@ namespace OloEngine
     {
         CommandHeader header;
         AssetHandle meshHandle;              // Skybox mesh handle
-        RHI::ResourceHandle vertexArrayID{}; // VAO renderer ID
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         glm::mat4 transform;                               // Usually identity matrix
         AssetHandle shaderHandle;                          // Skybox shader handle (for asset tracking)
-        RHI::ResourceHandle shaderRendererID{};            // Shader program ID for glUseProgram
-        RHI::ResourceHandle skyboxTextureID{};             // Cubemap texture renderer ID
+        RHI::ResourceHandle shaderRendererID{};            // Shader program identity
+        RHI::ResourceHandle skyboxTextureID{};             // Cubemap texture identity
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX; // Render state index
     };
 
@@ -671,8 +672,8 @@ namespace OloEngine
     {
         CommandHeader header;
         AssetHandle shaderHandle;                          // Grid shader handle (for asset tracking)
-        RHI::ResourceHandle shaderRendererID{};            // Shader program ID for glUseProgram
-        RHI::ResourceHandle quadVAOID{};                   // Fullscreen quad VAO renderer ID
+        RHI::ResourceHandle shaderRendererID{};            // Shader program identity
+        RHI::ResourceHandle quadVAOID{};                   // Fullscreen quad VAO identity
         f32 gridScale;                                     // Grid spacing scale factor
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX; // Render state index
     };
@@ -684,10 +685,10 @@ namespace OloEngine
     {
         CommandHeader header;
         glm::mat4 transform;
-        RHI::ResourceHandle textureID{};                   // Texture renderer ID
+        RHI::ResourceHandle textureID{};                   // Texture identity
         AssetHandle shaderHandle;                          // Shader asset handle (for asset tracking)
-        RHI::ResourceHandle shaderRendererID{};            // Shader program ID for glUseProgram
-        RHI::ResourceHandle quadVAID{};                    // Quad vertex array renderer ID
+        RHI::ResourceHandle shaderRendererID{};            // Shader program identity
+        RHI::ResourceHandle quadVAID{};                    // Quad vertex array identity
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX; // Render state index
     };
 

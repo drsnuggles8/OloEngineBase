@@ -59,7 +59,7 @@ namespace OloEngine
         /// @return true after the first successful Update() dispatch.
         [[nodiscard]] static bool IsReady();
 
-        /// @return GL renderer id of the R8 512² shadow map (0 when not ready).
+        /// @return Identity of the R8 512² shadow map; RHI::NullResource when not ready.
         [[nodiscard]] static RHI::ResourceHandle GetTextureHandle();
 
         /// @return world-XZ center of the current map (texel-snapped).

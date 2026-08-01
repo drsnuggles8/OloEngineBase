@@ -34,7 +34,7 @@ namespace OloEngine
         u32 indexCount = 0;
         u32 baseIndex = 0; // Offset (in u32 entries) into the IBO — non-zero for submeshes sharing a combined IBO
         glm::mat4 transform = glm::mat4(1.0f);
-        RHI::ResourceHandle shadowVaoID{};  // Position-merged shadow IB; 0 = use vaoID
+        RHI::ResourceHandle shadowVaoID{};  // Position-merged shadow IB; invalid = use vaoID
         BoundingBox WorldBounds = NoBounds; // World-space AABB; NoBounds = always include
         // Material is MaterialFlag::TwoSided — rendered into the shadow map with culling DISABLED
         // instead of the default front-face cull, so single-sided planar geometry (a quad, a

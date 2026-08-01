@@ -340,12 +340,15 @@ backend-private native handle reachable only through a deliberately conspicuous
 
 Two details worth keeping:
 
-- **The generation is load-bearing.** GL recycles object names, so today two
-  genuinely different objects can compare equal through `Texture::operator==`
-  (which compares `GetRendererID()`) when one was deleted and another created.
-  `TransientPool`'s alias reporting — the tooling built in #607 specifically to
-  answer "did these two plan entries get the same object?" — depends on telling
-  those apart.
+- **The generation is load-bearing.** GL recycles object names, so two genuinely
+  different objects *could* compare equal through `Texture::operator==` when one
+  was deleted and another created. `TransientPool`'s alias reporting — the
+  tooling built in #607 specifically to answer "did these two plan entries get
+  the same object?" — depends on telling those apart. Step 3 closed this: the
+  operator compares `GetRHIHandle()`, so the generation now makes the collision
+  unrepresentable rather than merely unlikely. Note the fix had to be made in
+  the *operator*; minting handles everywhere did not fix it on its own, because
+  a comparison keeps reading whatever currency it names.
 - **`HeapOffset` must stay layout-compatible with `u32`.** It gets written into
   a UBO and read by GLSL as an array index; it cannot be opaque.
 

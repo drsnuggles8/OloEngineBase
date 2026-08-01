@@ -235,25 +235,25 @@ namespace OloEngine::Tests
             Access::ImportedIBL changed = base;
             changed.Irradiance = TestHandle(99u);
             EXPECT_NE(Access::FingerprintWithIBL(changed), baseFp)
-                << "GlobalIrradianceMapID is imported by raw GL ID — a change must repopulate the blackboard.";
+                << "GlobalIrradianceMapID is hashed by IDENTITY — a change must repopulate the blackboard.";
         }
         {
             Access::ImportedIBL changed = base;
             changed.Prefilter = TestHandle(99u);
             EXPECT_NE(Access::FingerprintWithIBL(changed), baseFp)
-                << "GlobalPrefilterMapID is imported by raw GL ID — a change must repopulate the blackboard.";
+                << "GlobalPrefilterMapID is hashed by IDENTITY — a change must repopulate the blackboard.";
         }
         {
             Access::ImportedIBL changed = base;
             changed.BRDFLut = TestHandle(99u);
             EXPECT_NE(Access::FingerprintWithIBL(changed), baseFp)
-                << "GlobalBRDFLutMapID is imported by raw GL ID — a change must repopulate the blackboard.";
+                << "GlobalBRDFLutMapID is hashed by IDENTITY — a change must repopulate the blackboard.";
         }
         {
             Access::ImportedIBL changed = base;
             changed.Environment = TestHandle(99u);
             EXPECT_NE(Access::FingerprintWithIBL(changed), baseFp)
-                << "GlobalEnvironmentMapID is imported by raw GL ID — a change must repopulate the blackboard.";
+                << "GlobalEnvironmentMapID is hashed by IDENTITY — a change must repopulate the blackboard.";
         }
 
         // And the teardown case: a scene with NO environment map clears the IDs to 0. That is

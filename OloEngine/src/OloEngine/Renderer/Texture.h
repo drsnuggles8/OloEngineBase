@@ -110,9 +110,14 @@ namespace OloEngine
          */
         virtual bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const = 0;
 
+        // Compares IDENTITIES, not driver names (issue #691 step 3). GL recycles
+        // object names, so a name comparison could report two genuinely different
+        // textures as equal once one had been destroyed — the defect the
+        // generation exists to make unrepresentable. A handle carries one, so
+        // two distinct objects can never compare equal here.
         bool operator==(const Texture& other) const
         {
-            return GetRendererID() == other.GetRendererID();
+            return GetRHIHandle() == other.GetRHIHandle();
         }
 
         // Asset interface

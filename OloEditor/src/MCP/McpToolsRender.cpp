@@ -4132,12 +4132,17 @@ namespace OloEngine::MCP
         Json ResolvedMaterialJson(const Material& material, const PODMaterialData& data,
                                   u32 submeshIndex, std::string_view source)
         {
+            // NATIVE ids, matching this tool's published schema ("Bound GL
+            // texture id per slot ... 0 = none") and comparable with the ids
+            // olo_render_list_targets reports. The fields are identities since
+            // issue #691 step 3, so resolve rather than reformat — printing
+            // "#3:1" here would silently break every existing consumer.
             Json textures;
-            textures["albedo"] = fmt::format("{}", data.albedoMapID);
-            textures["metallicRoughness"] = fmt::format("{}", data.metallicRoughnessMapID);
-            textures["normal"] = fmt::format("{}", data.normalMapID);
-            textures["ao"] = fmt::format("{}", data.aoMapID);
-            textures["emissive"] = fmt::format("{}", data.emissiveMapID);
+            textures["albedo"] = Debug::NativeTextureIdForDiagnostics(data.albedoMapID);
+            textures["metallicRoughness"] = Debug::NativeTextureIdForDiagnostics(data.metallicRoughnessMapID);
+            textures["normal"] = Debug::NativeTextureIdForDiagnostics(data.normalMapID);
+            textures["ao"] = Debug::NativeTextureIdForDiagnostics(data.aoMapID);
+            textures["emissive"] = Debug::NativeTextureIdForDiagnostics(data.emissiveMapID);
 
             Json useMaps;
             useMaps["useAlbedoMap"] = data.albedoMapID.IsValid();
