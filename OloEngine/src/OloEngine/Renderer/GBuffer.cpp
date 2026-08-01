@@ -3,8 +3,7 @@
 
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Instrumentor.h"
-
-#include <glad/gl.h>
+#include "OloEngine/Renderer/RenderCommand.h"
 
 #include <algorithm>
 
@@ -26,7 +25,7 @@ namespace OloEngine
                 FramebufferTextureSpecification{ FramebufferTextureFormat::RED_INTEGER }, // RT4 EntityID (picking)
                 // Depth must match the scene framebuffer's depth format
                 // (`FramebufferTextureFormat::Depth` = DEPTH24STENCIL8) so that
-                // `glBlitNamedFramebuffer(GL_DEPTH_BUFFER_BIT, …)` — the path used
+                // `RenderCommand::BlitFramebuffer(RHI::BlitAspect::Depth, …)` — the path used
                 // by `DeferredLightingPass` to hand G-Buffer depth to downstream
                 // passes and by `SceneRenderPass::ResolveToScene` in forward+ —
                 // succeeds. A format mismatch here surfaces as a per-frame flood
@@ -74,8 +73,7 @@ namespace OloEngine
         // incomplete and every subsequent blit/lighting pass silently no-ops.
         if (sampleCount > 1)
         {
-            GLint maxSamples = 1;
-            glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
+            const u32 maxSamples = std::max(RenderCommand::GetMaxFramebufferSamples(), 1u);
             const u32 deviceMax = static_cast<u32>(maxSamples);
             if (sampleCount > deviceMax)
             {
@@ -153,39 +151,31 @@ namespace OloEngine
 
         const u32 srcFB = m_Framebuffer->GetRendererID();
         const u32 dstFB = m_ResolvedFramebuffer->GetRendererID();
-        const GLint w = static_cast<GLint>(m_Width);
-        const GLint h = static_cast<GLint>(m_Height);
+        const i32 w = static_cast<i32>(m_Width);
+        const i32 h = static_cast<i32>(m_Height);
 
-        // Resolve each colour attachment independently — glBlitNamedFramebuffer
-        // only reads/writes the currently-selected read-/draw-buffer so this
-        // is the safe pattern for MRT MSAA resolve.
+        // Resolve each colour attachment independently — a framebuffer blit
+        // only reads/writes the currently-selected read / draw attachment, so
+        // this is the safe pattern for an MRT MSAA resolve.
         for (u32 i = 0; i < std::to_underlying(Count); ++i)
         {
-            const GLenum attachment = GL_COLOR_ATTACHMENT0 + i;
-            glNamedFramebufferReadBuffer(srcFB, attachment);
-            glNamedFramebufferDrawBuffer(dstFB, attachment);
-            glBlitNamedFramebuffer(srcFB, dstFB,
-                                   0, 0, w, h,
-                                   0, 0, w, h,
-                                   GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            RenderCommand::SetFramebufferReadAttachment(srcFB, i);
+            RenderCommand::SetFramebufferDrawAttachments(dstFB, std::array<u32, 1>{ i });
+            RenderCommand::BlitFramebuffer(srcFB, dstFB,
+                                           0, 0, w, h,
+                                           0, 0, w, h,
+                                           RHI::BlitAspect::Color, RHI::Filter::Nearest);
         }
 
         // Resolve depth (no sample filtering — GL_NEAREST is the only legal choice).
-        glBlitNamedFramebuffer(srcFB, dstFB,
-                               0, 0, w, h,
-                               0, 0, w, h,
-                               GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+        RenderCommand::BlitFramebuffer(srcFB, dstFB,
+                                       0, 0, w, h,
+                                       0, 0, w, h,
+                                       RHI::BlitAspect::Depth, RHI::Filter::Nearest);
 
         // Restore full draw-buffer set on the resolved FB so subsequent
         // passes that bind it for composition get all attachments.
-        const GLenum fullDrawBufs[] = {
-            GL_COLOR_ATTACHMENT0,
-            GL_COLOR_ATTACHMENT1,
-            GL_COLOR_ATTACHMENT2,
-            GL_COLOR_ATTACHMENT3,
-            GL_COLOR_ATTACHMENT4
-        };
-        glNamedFramebufferDrawBuffers(dstFB, static_cast<GLsizei>(std::to_underlying(Count)), fullDrawBufs);
+        RenderCommand::RestoreAllFramebufferDrawAttachments(dstFB, std::to_underlying(Count));
     }
 
     u32 GBuffer::GetColorAttachmentID(AttachmentIndex index) const
@@ -202,6 +192,22 @@ namespace OloEngine
         if (!fb)
             return 0;
         return fb->GetDepthAttachmentRendererID();
+    }
+
+    RHI::ResourceHandle GBuffer::GetColorAttachmentHandle(AttachmentIndex index) const
+    {
+        const auto& fb = m_ResolvedFramebuffer ? m_ResolvedFramebuffer : m_Framebuffer;
+        if (!fb)
+            return RHI::NullResource;
+        return fb->GetColorAttachmentHandle(std::to_underlying(index));
+    }
+
+    RHI::ResourceHandle GBuffer::GetDepthAttachmentHandle() const
+    {
+        const auto& fb = m_ResolvedFramebuffer ? m_ResolvedFramebuffer : m_Framebuffer;
+        if (!fb)
+            return RHI::NullResource;
+        return fb->GetDepthAttachmentHandle();
     }
 
     u32 GBuffer::GetMSColorAttachmentID(AttachmentIndex index) const
@@ -227,14 +233,14 @@ namespace OloEngine
 
         const u32 srcFB = m_Framebuffer->GetRendererID();
         const u32 dstFB = m_ResolvedFramebuffer->GetRendererID();
-        const GLint w = static_cast<GLint>(m_Width);
-        const GLint h = static_cast<GLint>(m_Height);
+        const i32 w = static_cast<i32>(m_Width);
+        const i32 h = static_cast<i32>(m_Height);
 
         // Depth-only blit — skips colour resolves so per-sample colour data
         // stays intact for the MSAA deferred lighting shader to consume.
-        glBlitNamedFramebuffer(srcFB, dstFB,
-                               0, 0, w, h,
-                               0, 0, w, h,
-                               GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+        RenderCommand::BlitFramebuffer(srcFB, dstFB,
+                                       0, 0, w, h,
+                                       0, 0, w, h,
+                                       RHI::BlitAspect::Depth, RHI::Filter::Nearest);
     }
 } // namespace OloEngine

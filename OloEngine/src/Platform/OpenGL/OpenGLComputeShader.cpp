@@ -116,6 +116,7 @@ namespace OloEngine
         }
 
         m_RendererID = glCreateProgram();
+        m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
         glAttachShader(m_RendererID, shader);
         glLinkProgram(m_RendererID);
 
@@ -130,6 +131,7 @@ namespace OloEngine
             glDeleteProgram(m_RendererID);
             glDeleteShader(shader);
             m_RendererID = 0;
+            m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
             OLO_CORE_ERROR("Compute shader link failed ({0}):\n{1}", m_Name, infoLog);
             OLO_CORE_ASSERT(false, "Compute shader link failure!");
             return;
@@ -275,6 +277,7 @@ namespace OloEngine
                                                           glDeleteProgram(oldProgramId); });
 
         m_RendererID = 0;
+        m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
         m_IsValid = false;
         m_UniformLocationCache.clear();
 

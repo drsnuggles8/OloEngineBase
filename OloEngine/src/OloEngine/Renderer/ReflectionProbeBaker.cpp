@@ -6,13 +6,13 @@
 #include "OloEngine/Renderer/Camera/Camera.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Scene.h"
 
-#include <glad/gl.h>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -170,7 +170,10 @@ namespace OloEngine
         }
         else
         {
-            u32 const colorAttachmentID = sceneFb->GetColorAttachmentRendererID(0);
+            // Hoisted outside the face loop, as the native id was: SceneColor's
+            // attachment is not recreated between faces, and the handle stays
+            // valid across an in-place recreate (issue #691 step 3).
+            RHI::ResourceHandle const colorAttachment = sceneFb->GetColorAttachmentHandle(0);
             for (u32 face = 0; face < 6; ++face)
             {
                 glm::mat4 const view = glm::lookAt(position, position + s_FaceTargets[face], s_FaceUps[face]);
@@ -179,11 +182,13 @@ namespace OloEngine
                 scene->RenderScene3D(captureCamera, transform);
 
                 // Read back this face's lit HDR radiance from the graph's
-                // SceneColor RT0. glGetTextureImage reads the texture directly
+                // SceneColor RT0. The readback reads the texture directly
                 // (no FBO-bound restriction) and lets the driver pick its path.
-                glGetTextureImage(colorAttachmentID, 0, GL_RGBA, GL_FLOAT,
-                                  static_cast<GLsizei>(faceBytes),
-                                  pixelBuffer.data());
+                if (!RenderCommand::ReadTextureImage(colorAttachment, 0, RHI::Format::RGBA32Float,
+                                                     faceBytes, pixelBuffer.data()))
+                {
+                    OLO_CORE_WARN("ReflectionProbeBaker: cubemap face readback failed");
+                }
 
                 // Upload into the cubemap face. SetFaceData triggers
                 // glGenerateTextureMipmap on every call; redundant on faces

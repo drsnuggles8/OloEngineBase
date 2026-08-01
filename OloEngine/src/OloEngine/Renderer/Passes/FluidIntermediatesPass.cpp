@@ -12,9 +12,8 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
-#include "Platform/OpenGL/OpenGLUtilities.h"
 
-#include <glad/gl.h>
+#include <array>
 
 #include <algorithm>
 #include <cmath>
@@ -116,7 +115,7 @@ namespace OloEngine
         {
             if (textureID == 0)
                 return;
-            RGResourceDesc desc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, name);
+            RGResourceDesc desc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, name);
             desc.Format = format;
             desc.Width = width;
             desc.Height = height;
@@ -169,9 +168,8 @@ namespace OloEngine
         // The pass renders into raw pass-owned FBOs, so the viewport must be
         // set (and restored) by hand — engine Framebuffer::Bind() would
         // normally do this.
-        GLint previousViewport[4] = { 0, 0, 0, 0 };
-        glGetIntegerv(GL_VIEWPORT, previousViewport);
-        glViewport(0, 0, static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height));
+        const Viewport previousViewport = RenderCommand::GetViewport();
+        RenderCommand::SetViewport(0, 0, m_Width, m_Height);
 
         // Scene depth for behind-geometry discard in both splat shaders
         // (water-identical slot/uniform name so IsKnownTextureBinding passes).
@@ -179,25 +177,26 @@ namespace OloEngine
 
         auto bindDrawBuffers = [](const FluidRenderData& draw)
         {
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_FLUID_POSITIONS, draw.PositionsSSBOId);
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_FLUID_VELOCITIES, draw.VelocitiesSSBOId);
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_FLUID_COUNTERS, draw.CountersSSBOId);
+            RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_POSITIONS, draw.PositionsSSBOId);
+            RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_VELOCITIES, draw.VelocitiesSSBOId);
+            RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_COUNTERS, draw.CountersSSBOId);
         };
 
         // --- 1. Depth splat: nearest sphere-impostor view depth into A ------
-        glBindFramebuffer(GL_FRAMEBUFFER, m_DepthFBO);
+        RenderCommand::BindFramebuffer(m_DepthFBO);
         {
-            // Unbind any stale program for the clears — NVIDIA revalidates the
-            // bound program against the new FBO during clears (debug id 131218).
-            Utils::GLClearProgramGuard programGuard;
-            constexpr f32 kNoFluidSentinel[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-            glClearNamedFramebufferfv(m_DepthFBO, GL_COLOR, 0, kNoFluidSentinel);
+            // The clear-program guard that used to be constructed here now lives
+            // inside the backend clear (issue #691 Phase 2 step 2) — it is an
+            // OpenGL driver hazard, so it is backend knowledge, and keeping it
+            // here meant including a Platform/OpenGL header from a render pass.
+            constexpr glm::vec4 kNoFluidSentinel(0.0f);
+            RenderCommand::ClearFramebufferColorAttachment(m_DepthFBO, 0, kNoFluidSentinel);
             constexpr f32 kFarDepth = 1.0f;
-            glClearNamedFramebufferfv(m_DepthFBO, GL_DEPTH, 0, &kFarDepth);
+            RenderCommand::ClearFramebufferDepth(m_DepthFBO, kFarDepth);
         }
 
         RenderCommand::SetDepthTest(true);
-        RenderCommand::SetDepthFunc(GL_LESS);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         RenderCommand::SetDepthMask(true);
         RenderCommand::SetBlendState(false);
         RenderCommand::DisableCulling(); // camera-facing quads — winding is irrelevant
@@ -212,17 +211,16 @@ namespace OloEngine
         }
 
         // --- 2. Thickness: additive chord accumulation --------------------
-        glBindFramebuffer(GL_FRAMEBUFFER, m_ThicknessFBO);
+        RenderCommand::BindFramebuffer(m_ThicknessFBO);
         {
-            Utils::GLClearProgramGuard programGuard;
-            constexpr f32 kZero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-            glClearNamedFramebufferfv(m_ThicknessFBO, GL_COLOR, 0, kZero);
+            constexpr glm::vec4 kZero(0.0f);
+            RenderCommand::ClearFramebufferColorAttachment(m_ThicknessFBO, 0, kZero);
         }
 
         RenderCommand::SetDepthTest(false);
         RenderCommand::SetDepthMask(false);
         RenderCommand::SetBlendState(true);
-        RenderCommand::SetBlendFunc(GL_ONE, GL_ONE);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One);
 
         m_ThicknessShader->Bind();
         m_SplatVAO->Bind();
@@ -233,7 +231,7 @@ namespace OloEngine
             RenderCommand::DrawIndexedInstanced(m_SplatVAO, 6, draw.ParticleUpperBound);
         }
 
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        RenderCommand::BindDefaultFramebuffer();
 
         // --- 3. Bilateral smooth: A -> B -> A ------------------------------
         // The last-uploaded FluidRenderUBO stays bound; with multiple fluids
@@ -246,8 +244,8 @@ namespace OloEngine
         u32 smoothDst = m_DepthTexB;
         for (u32 i = 0; i < kSmoothIterations; ++i)
         {
-            RenderCommand::BindImageTexture(0, smoothSrc, 0, false, 0, GL_READ_ONLY, GL_R32F);
-            RenderCommand::BindImageTexture(1, smoothDst, 0, false, 0, GL_WRITE_ONLY, GL_R32F);
+            RenderCommand::BindImageTexture(0, smoothSrc, 0, false, 0, RHI::Access::StorageRead, RHI::Format::R32Float);
+            RenderCommand::BindImageTexture(1, smoothDst, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R32Float);
             RenderCommand::DispatchCompute(groupsX, groupsY, 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
             std::swap(smoothSrc, smoothDst);
@@ -257,19 +255,19 @@ namespace OloEngine
         // --- Restore state + unbind everything we bound --------------------
         RenderCommand::SetDepthTest(true);
         RenderCommand::SetDepthMask(true);
-        RenderCommand::SetDepthFunc(GL_LESS);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         RenderCommand::SetBlendState(false);
-        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
         RenderCommand::BackCull();
         CommandDispatch::InvalidateRenderStateCache();
 
         context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_FLUID_POSITIONS, 0);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_FLUID_VELOCITIES, 0);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_FLUID_COUNTERS, 0);
+        RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_POSITIONS, 0);
+        RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_VELOCITIES, 0);
+        RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_COUNTERS, 0);
 
-        glViewport(previousViewport[0], previousViewport[1],
-                   static_cast<GLsizei>(previousViewport[2]), static_cast<GLsizei>(previousViewport[3]));
+        RenderCommand::SetViewport(previousViewport.x, previousViewport.y,
+                                   previousViewport.width, previousViewport.height);
 
         m_LastAppearance = draws.front();
         m_RanThisFrame = true;
@@ -323,39 +321,35 @@ namespace OloEngine
         m_Width = width;
         m_Height = height;
 
-        const auto createTexture = [width, height](GLenum internalFormat, GLint filter)
+        const auto createTexture = [width, height](RHI::Format internalFormat, RHI::Filter filter)
         {
-            u32 id = 0;
-            glCreateTextures(GL_TEXTURE_2D, 1, &id);
-            glTextureStorage2D(id, 1, internalFormat,
-                               static_cast<GLsizei>(width), static_cast<GLsizei>(height));
-            glTextureParameteri(id, GL_TEXTURE_MIN_FILTER, filter);
-            glTextureParameteri(id, GL_TEXTURE_MAG_FILTER, filter);
-            glTextureParameteri(id, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTextureParameteri(id, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            const u32 id = RenderCommand::CreateTexture2D(width, height, internalFormat);
+            RenderCommand::SetTextureFilter(id, filter, filter);
+            RenderCommand::SetTextureWrap(id, RHI::AddressMode::ClampToEdge);
             return id;
         };
 
         // NEAREST on the depth pair: the smooth compute and the composite's
         // normal reconstruction both want unfiltered texel values. LINEAR on
         // thickness: it's a smooth accumulation sampled once per pixel.
-        m_DepthTexA = createTexture(GL_R32F, GL_NEAREST);
-        m_DepthTexB = createTexture(GL_R32F, GL_NEAREST);
-        m_ThicknessTex = createTexture(GL_RG16F, GL_LINEAR);
-        m_SplatZTex = createTexture(GL_DEPTH_COMPONENT32F, GL_NEAREST);
+        m_DepthTexA = createTexture(RHI::Format::R32Float, RHI::Filter::Nearest);
+        m_DepthTexB = createTexture(RHI::Format::R32Float, RHI::Filter::Nearest);
+        m_ThicknessTex = createTexture(RHI::Format::RG16Float, RHI::Filter::Linear);
+        m_SplatZTex = createTexture(RHI::Format::D32Float, RHI::Filter::Nearest);
 
-        glCreateFramebuffers(1, &m_DepthFBO);
-        glNamedFramebufferTexture(m_DepthFBO, GL_COLOR_ATTACHMENT0, m_DepthTexA, 0);
-        glNamedFramebufferTexture(m_DepthFBO, GL_DEPTH_ATTACHMENT, m_SplatZTex, 0);
-        constexpr GLenum kColor0 = GL_COLOR_ATTACHMENT0;
-        glNamedFramebufferDrawBuffers(m_DepthFBO, 1, &kColor0);
+        static constexpr std::array<u32, 1> kColor0 = { 0u };
 
-        glCreateFramebuffers(1, &m_ThicknessFBO);
-        glNamedFramebufferTexture(m_ThicknessFBO, GL_COLOR_ATTACHMENT0, m_ThicknessTex, 0);
-        glNamedFramebufferDrawBuffers(m_ThicknessFBO, 1, &kColor0);
+        m_DepthFBO = RenderCommand::CreateFramebuffer();
+        RenderCommand::AttachFramebufferColorTexture(m_DepthFBO, 0, m_DepthTexA, 0);
+        RenderCommand::AttachFramebufferDepthTexture(m_DepthFBO, m_SplatZTex, 0);
+        RenderCommand::SetFramebufferDrawAttachments(m_DepthFBO, kColor0);
 
-        if (glCheckNamedFramebufferStatus(m_DepthFBO, GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE ||
-            glCheckNamedFramebufferStatus(m_ThicknessFBO, GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        m_ThicknessFBO = RenderCommand::CreateFramebuffer();
+        RenderCommand::AttachFramebufferColorTexture(m_ThicknessFBO, 0, m_ThicknessTex, 0);
+        RenderCommand::SetFramebufferDrawAttachments(m_ThicknessFBO, kColor0);
+
+        if (!RenderCommand::IsFramebufferComplete(m_DepthFBO) ||
+            !RenderCommand::IsFramebufferComplete(m_ThicknessFBO))
         {
             OLO_CORE_ERROR("FluidIntermediatesPass: fluid intermediate framebuffers incomplete ({}x{})",
                            width, height);
@@ -367,12 +361,12 @@ namespace OloEngine
     {
         if (m_DepthFBO != 0)
         {
-            glDeleteFramebuffers(1, &m_DepthFBO);
+            RenderCommand::DeleteFramebuffer(m_DepthFBO);
             m_DepthFBO = 0;
         }
         if (m_ThicknessFBO != 0)
         {
-            glDeleteFramebuffers(1, &m_ThicknessFBO);
+            RenderCommand::DeleteFramebuffer(m_ThicknessFBO);
             m_ThicknessFBO = 0;
         }
 
@@ -380,7 +374,7 @@ namespace OloEngine
         {
             if (id != 0)
             {
-                glDeleteTextures(1, &id);
+                RenderCommand::DeleteTexture(id);
                 id = 0;
             }
         };

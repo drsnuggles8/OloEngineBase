@@ -1,6 +1,9 @@
 #include "OloEnginePCH.h"
 #include "UIRenderer.h"
 
+// Raw GL below is part of the issue #691 Phase 2 step-2 sweep backlog; the
+// include is direct rather than transitive through RendererAPI.h, which is
+// now GL-free.
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Font.h"
@@ -23,8 +26,12 @@ namespace OloEngine
     // Clip rect stack for scissor testing
     struct ClipRect
     {
-        GLint x, y;
-        GLsizei width, height;
+        // Engine types, not GL ones: these are scissor-rect COORDINATES, not GL
+        // objects, and RenderCommand::SetScissorBox already takes i32/u32.
+        // Spelling them GLint/GLsizei was the only reason this translation unit
+        // needed <glad/gl.h> while making zero GL calls (issue #691).
+        i32 x, y;
+        u32 width, height;
     };
     static std::stack<ClipRect> s_ClipStack;
     static f32 s_ViewportHeight = 0.0f;
@@ -70,23 +77,23 @@ namespace OloEngine
         Renderer2D::EndScene();
 
         // Convert from UI space (Y-down) to OpenGL scissor space (Y-up)
-        GLint x = static_cast<GLint>(position.x);
-        GLint y = static_cast<GLint>(s_ViewportHeight - position.y - size.y);
-        GLsizei w = static_cast<GLsizei>(size.x);
-        GLsizei h = static_cast<GLsizei>(size.y);
+        i32 x = static_cast<i32>(position.x);
+        i32 y = static_cast<i32>(s_ViewportHeight - position.y - size.y);
+        u32 w = static_cast<u32>(size.x);
+        u32 h = static_cast<u32>(size.y);
 
         // Intersect with parent clip rect if any
         if (!s_ClipStack.empty())
         {
             const auto& parent = s_ClipStack.top();
-            GLint x2 = glm::max(x, parent.x);
-            GLint y2 = glm::max(y, parent.y);
-            GLint right = glm::min(x + static_cast<GLint>(w), parent.x + static_cast<GLint>(parent.width));
-            GLint top = glm::min(y + static_cast<GLint>(h), parent.y + static_cast<GLint>(parent.height));
+            i32 x2 = glm::max(x, parent.x);
+            i32 y2 = glm::max(y, parent.y);
+            i32 right = glm::min(x + static_cast<i32>(w), parent.x + static_cast<i32>(parent.width));
+            i32 top = glm::min(y + static_cast<i32>(h), parent.y + static_cast<i32>(parent.height));
             x = x2;
             y = y2;
-            w = static_cast<GLsizei>(glm::max(right - x2, 0));
-            h = static_cast<GLsizei>(glm::max(top - y2, 0));
+            w = static_cast<u32>(glm::max(right - x2, 0));
+            h = static_cast<u32>(glm::max(top - y2, 0));
         }
 
         s_ClipStack.push({ x, y, w, h });

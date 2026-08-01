@@ -32,3 +32,17 @@ target_link_libraries(OloEditor
 # OloEngine already adopts the same stance for the engine library; matching here
 # keeps the editor consistent and avoids per-call-site noise across the panels.
 target_compile_definitions(OloEditor PRIVATE _CRT_SECURE_NO_WARNINGS)
+
+# GLFW_INCLUDE_NONE stops <GLFW/glfw3.h> pulling in the system <GL/gl.h>, which
+# defines __gl_h_ and makes a later <glad/gl.h> hard-error with C1189
+# ("OpenGL (gl.h) header already included"). EditorLayer.cpp includes GLFW near
+# the top and glad further down, so without this the order alone decides whether
+# the editor compiles.
+#
+# OloEngine sets the same define, but PRIVATE, so it never reached this target.
+# It went unnoticed because glad used to arrive first anyway, transitively via
+# OloEnginePCH.h -> RendererAPI.h; issue #691 Phase 2 made RendererAPI.h GL-free
+# and removed that accident. Declared per-target to match _CRT_SECURE_NO_WARNINGS
+# above, and set on the whole target rather than fixing one include order so the
+# next file to combine GLFW with glad cannot reintroduce it.
+target_compile_definitions(OloEditor PRIVATE GLFW_INCLUDE_NONE)

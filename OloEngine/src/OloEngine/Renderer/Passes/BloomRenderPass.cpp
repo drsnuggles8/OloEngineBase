@@ -8,8 +8,6 @@
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
-#include <glad/gl.h>
-
 #include <span>
 
 namespace OloEngine
@@ -224,7 +222,7 @@ namespace OloEngine
             context.SetCulling(false);
             RenderCommand::DisableStencilTest();
             RenderCommand::DisableScissorTest();
-            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
             RenderCommand::SetColorMask(true, true, true, true);
             context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
 
@@ -259,7 +257,7 @@ namespace OloEngine
             context.SetCulling(false);
             RenderCommand::DisableStencilTest();
             RenderCommand::DisableScissorTest();
-            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
             RenderCommand::SetColorMask(true, true, true, true);
             context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
 
@@ -267,8 +265,8 @@ namespace OloEngine
             context.Clear();
 
             m_BloomDownsampleShader->Bind();
-            const u32 srcID = srcMip->GetColorAttachmentRendererID(0);
-            context.BindTexture(0, srcID);
+            const RHI::ResourceHandle srcTexture = srcMip->GetColorAttachmentHandle(0);
+            context.BindTexture(0, srcTexture);
 
             if (m_GPUData && m_PostProcessUBO)
             {
@@ -300,19 +298,19 @@ namespace OloEngine
             context.SetCulling(false);
             RenderCommand::DisableStencilTest();
             RenderCommand::DisableScissorTest();
-            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
             RenderCommand::SetColorMask(true, true, true, true);
             context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
 
             // Enable additive blending AFTER Bind() — Framebuffer::Bind() may
             // unconditionally re-enable GL_BLEND; set our state after the call.
             context.SetBlendState(true);
-            RenderCommand::SetBlendFunc(GL_ONE, GL_ONE);
+            RenderCommand::SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One);
             // No clear — we're additively accumulating into existing content.
 
             m_BloomUpsampleShader->Bind();
-            const u32 srcID = srcMip->GetColorAttachmentRendererID(0);
-            context.BindTexture(0, srcID);
+            const RHI::ResourceHandle srcTexture = srcMip->GetColorAttachmentHandle(0);
+            context.BindTexture(0, srcTexture);
 
             if (m_GPUData && m_PostProcessUBO)
             {
@@ -329,7 +327,7 @@ namespace OloEngine
 
         // Restore blend to opaque default.
         context.SetBlendState(false);
-        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
         context.SetDepthMask(true);
 
         // Restore TexelSize to full resolution so the composite shader (and
@@ -354,7 +352,7 @@ namespace OloEngine
             context.SetCulling(false);
             RenderCommand::DisableStencilTest();
             RenderCommand::DisableScissorTest();
-            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
             RenderCommand::SetColorMask(true, true, true, true);
             context.SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
 
@@ -366,8 +364,8 @@ namespace OloEngine
             context.BindTexture(0, inputColorTextureID);
             m_BloomCompositeShader->SetInt("u_SceneColor", 0);
 
-            const u32 bloomColorID = bloomMips[0]->GetColorAttachmentRendererID(0);
-            context.BindTexture(1, bloomColorID);
+            const RHI::ResourceHandle bloomColor = bloomMips[0]->GetColorAttachmentHandle(0);
+            context.BindTexture(1, bloomColor);
             m_BloomCompositeShader->SetInt("u_BloomColor", 1);
 
             const auto va = MeshPrimitives::GetFullscreenTriangle();

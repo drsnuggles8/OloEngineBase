@@ -1,8 +1,9 @@
 #include "OloEnginePCH.h"
 #include "MorphTargetEvaluator.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Renderer/MemoryBarrierFlags.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 
-#include <glad/gl.h>
 #include <glm/glm.hpp>
 
 #include <algorithm>
@@ -93,23 +94,23 @@ namespace OloEngine
         //   binding 2: Weights      (readonly SSBO)
         //   binding 3: OutputVerts  (writeonly SSBO)
 
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, baseVertexSSBO);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, morphDeltaSSBO);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, weightsSSBO);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, outputVertexSSBO);
+        RenderCommand::BindStorageBuffer(0, baseVertexSSBO);
+        RenderCommand::BindStorageBuffer(1, morphDeltaSSBO);
+        RenderCommand::BindStorageBuffer(2, weightsSSBO);
+        RenderCommand::BindStorageBuffer(3, outputVertexSSBO);
 
         // Dispatch compute shader with enough work groups to cover all vertices
         const u32 workGroupSize = 256;
         const u32 numGroups = (vertexCount + workGroupSize - 1) / workGroupSize;
-        glDispatchCompute(numGroups, 1, 1);
+        RenderCommand::DispatchCompute(numGroups, 1, 1);
 
         // Memory barrier to ensure compute shader writes are visible
-        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
 
         // Unbind SSBOs
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, 0);
+        RenderCommand::BindStorageBuffer(0, 0);
+        RenderCommand::BindStorageBuffer(1, 0);
+        RenderCommand::BindStorageBuffer(2, 0);
+        RenderCommand::BindStorageBuffer(3, 0);
     }
 } // namespace OloEngine

@@ -7,8 +7,6 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 #include <array>
 #include <random>
 
@@ -77,21 +75,21 @@ namespace OloEngine
         // HashBool(SSAOEnabled) / HashU32(ActiveAOTechnique)), so the
         // topology-keyed caches invalidate correctly when it flips
         // (docs/agent-rules/render-pipeline-caches.md).
-        if (m_NoiseTexture != 0)
+        if (m_NoiseTexture.IsValid())
         {
             RGResourceDesc noiseDesc =
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, kNoiseTargetName);
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, kNoiseTargetName);
             noiseDesc.Format = RGResourceFormat::RG16Float;
             noiseDesc.Width = 4;
             noiseDesc.Height = 4;
             [[maybe_unused]] const RGTextureHandle noiseHandle =
-                builder.ImportTexture(kNoiseTargetName, m_NoiseTexture, noiseDesc);
+                builder.ImportTextureHandle(kNoiseTargetName, m_NoiseTexture, noiseDesc);
         }
     }
 
     SSAORenderPass::~SSAORenderPass()
     {
-        if (m_NoiseTexture != 0)
+        if (m_NoiseTexture.IsValid())
         {
             RenderCommand::DeleteTexture(m_NoiseTexture);
         }
@@ -132,12 +130,10 @@ namespace OloEngine
             n = (len > 1e-6f) ? v / len : glm::vec2(1.0f, 0.0f);
         }
 
-        m_NoiseTexture = RenderCommand::CreateTexture2D(4, 4, GL_RG16F);
-        RenderCommand::UploadTextureSubImage2D(m_NoiseTexture, 4, 4, GL_RG, GL_FLOAT, noise.data());
-        RenderCommand::SetTextureParameter(m_NoiseTexture, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        RenderCommand::SetTextureParameter(m_NoiseTexture, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        RenderCommand::SetTextureParameter(m_NoiseTexture, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        RenderCommand::SetTextureParameter(m_NoiseTexture, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        m_NoiseTexture = RenderCommand::CreateTexture2DHandle(4, 4, RHI::Format::RG16Float);
+        RenderCommand::UploadTextureSubImage2D(m_NoiseTexture, 4, 4, RHI::Format::RG32Float, noise.data());
+        RenderCommand::SetTextureFilter(m_NoiseTexture, RHI::Filter::Nearest, RHI::Filter::Nearest);
+        RenderCommand::SetTextureWrap(m_NoiseTexture, RHI::AddressMode::Repeat);
     }
 
     void SSAORenderPass::Execute(RGCommandContext& context)
@@ -154,16 +150,20 @@ namespace OloEngine
         // Phase F slice 37 — self-resolving SceneDepth and SceneNormals: look
         // up directly from the render graph blackboard so no per-frame
         // side-channel setter calls are needed from EndScene().
-        u32 depthID = 0;
-        u32 normalsID = 0;
-        u32 aoOutputTexID = 0;
+        // Identities (issue #691 step 3, slice 7). These resolve now that the
+        // transient planner records a handle alongside the native id — before
+        // that, ResolveTextureHandle answered null for every pooled texture and
+        // this pass had to stay on driver names.
+        RHI::ResourceHandle depthTexture{};
+        RHI::ResourceHandle normalsTexture{};
+        RHI::ResourceHandle aoOutputTexture{};
         if (m_SelectedSceneDepthTexture.IsValid())
-            depthID = context.ResolveTexture(m_SelectedSceneDepthTexture);
+            depthTexture = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
         if (m_SelectedSceneNormalsTexture.IsValid())
-            normalsID = context.ResolveTexture(m_SelectedSceneNormalsTexture);
+            normalsTexture = context.ResolveTextureHandle(m_SelectedSceneNormalsTexture);
         if (m_SelectedAOOutputTexture.IsValid())
-            aoOutputTexID = context.ResolveTexture(m_SelectedAOOutputTexture);
-        if (depthID == 0 || normalsID == 0 || aoOutputTexID == 0)
+            aoOutputTexture = context.ResolveTextureHandle(m_SelectedAOOutputTexture);
+        if (!depthTexture.IsValid() || !normalsTexture.IsValid() || !aoOutputTexture.IsValid())
         {
             return;
         }
@@ -212,10 +212,10 @@ namespace OloEngine
         m_SSAOShader->Bind();
 
         // Bind scene depth at TEX_POSTPROCESS_DEPTH (slot 19)
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture);
 
         // Bind scene view-space normals at TEX_SCENE_NORMALS (slot 22)
-        context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsID);
+        context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsTexture);
 
         // Bind noise texture at TEX_SSAO_NOISE (slot 21)
         context.BindTexture(ShaderBindingLayout::TEX_SSAO_NOISE, m_NoiseTexture);
@@ -233,22 +233,26 @@ namespace OloEngine
 
         m_SSAOBlurShader->Bind();
 
-        // Bind raw SSAO result at slot 0 (texture from the transient or fallback FB)
-        u32 rawSSAOID = rawFB->GetColorAttachmentRendererID(0);
-        context.BindTexture(0, rawSSAOID);
+        // Bind raw SSAO result at slot 0 (texture from the transient or fallback FB).
+        // The attachment's identity, not its GL name — attachments started
+        // minting handles in slice 3, so this consumer can take one.
+        context.BindTexture(0, rawFB->GetColorAttachmentHandle(0));
 
         // Bind scene depth at TEX_POSTPROCESS_DEPTH (slot 19) for bilateral edge detection
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture);
 
         DrawFullscreenTriangle();
         blurFB->Unbind();
 
-        if (const u32 blurredAOTextureID = blurFB->GetColorAttachmentRendererID(0); blurredAOTextureID != 0 && blurredAOTextureID != aoOutputTexID)
+        // Both operands are identities now, so the self-copy guard compares
+        // OBJECTS rather than driver names — a recycled name can no longer make
+        // two distinct textures look like the same one and skip a real copy.
+        if (const RHI::ResourceHandle blurredAO = blurFB->GetColorAttachmentHandle(0);
+            blurredAO.IsValid() && blurredAO != aoOutputTexture)
         {
-            glCopyImageSubData(
-                blurredAOTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                aoOutputTexID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                static_cast<GLsizei>(m_HalfWidth), static_cast<GLsizei>(m_HalfHeight), 1);
+            RenderCommand::CopyImageSubData(blurredAO, RendererAPI::TextureTargetType::Texture2D,
+                                            aoOutputTexture, RendererAPI::TextureTargetType::Texture2D,
+                                            m_HalfWidth, m_HalfHeight);
         }
 
         // Restore full-res viewport (will be set by next pass anyway, but be clean)

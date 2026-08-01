@@ -1,5 +1,6 @@
 // OLO_TEST_LAYER: unit
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include <gtest/gtest.h>
 
 // Unit tests for the pure result-shaping behind olo_shader_reload (issue #316
@@ -61,6 +62,14 @@ namespace
         {
             return 7u;
         }
+
+        // No GPU object behind this stub, so it has no identity to hand out.
+        // Spelled out rather than inherited: GetRHIHandle() is pure virtual
+        // precisely so a null return is a decision, not an accident.
+        [[nodiscard]] OloEngine::RHI::ResourceHandle GetRHIHandle() const override
+        {
+            return {};
+        }
         [[nodiscard]] const std::string& GetName() const override
         {
             return m_Name;
@@ -114,6 +123,14 @@ namespace
         [[nodiscard]] u32 GetRendererID() const override
         {
             return 11u;
+        }
+
+        // No GPU object behind this stub, so it has no identity to hand out.
+        // Spelled out rather than inherited: GetRHIHandle() is pure virtual
+        // precisely so a null return is a decision, not an accident.
+        [[nodiscard]] OloEngine::RHI::ResourceHandle GetRHIHandle() const override
+        {
+            return {};
         }
         [[nodiscard]] const std::string& GetName() const override
         {

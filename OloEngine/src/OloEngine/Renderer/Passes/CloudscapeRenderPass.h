@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -114,9 +115,9 @@ namespace OloEngine
         // target) + its validity for this frame. Must be set AFTER
         // PopulateBlackboard ran (EnsureHistoryStorage may recreate the
         // texture on resize) — UploadExecutionState is the call site.
-        void SetHistory(u32 historyTextureID, bool valid) noexcept
+        void SetHistory(RHI::ResourceHandle historyTexture, bool valid) noexcept
         {
-            m_HistoryTextureID = historyTextureID;
+            m_HistoryTexture = historyTexture;
             m_HistoryValid = valid;
         }
 
@@ -149,7 +150,7 @@ namespace OloEngine
         u32 m_BaseNoiseTextureID = 0;
         u32 m_DetailNoiseTextureID = 0;
         u32 m_WeatherMapTextureID = 0;
-        u32 m_HistoryTextureID = 0;
+        RHI::ResourceHandle m_HistoryTexture{};
         bool m_HistoryValid = false;
 
         RGFramebufferHandle m_SelectedCloudsRawFramebuffer{};

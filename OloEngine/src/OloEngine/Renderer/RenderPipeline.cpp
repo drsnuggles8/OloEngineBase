@@ -204,8 +204,8 @@ namespace OloEngine
         // unconditionally (ToneMap's underwater-fog water-depth slot) would
         // bind a texture name whose owning framebuffer died in an earlier graph
         // resize/rebuild — the #505 stale-texture GL_INVALID_OPERATION.
-        data.WaterSurfaceDepthTextureID = 0;
-        data.PlanarReflectionTextureID = 0;
+        data.WaterSurfaceDepthTextureID = {};
+        data.PlanarReflectionTextureID = {};
 
         // GPU frustum-cull pool reset — slot cursor recycles from 0 each
         // frame. Buffers stay allocated (lifetime = engine, not frame) so
@@ -424,11 +424,11 @@ namespace OloEngine
         CommandDispatch::ResetState();
 
         // Set shadow texture IDs AFTER ResetState() so they aren't zeroed out.
-        CommandDispatch::SetShadowTextureIDs(
-            data.Shadow.GetCSMRendererID(),
-            data.Shadow.GetAtlasRendererID(),
-            data.Shadow.GetCSMRawRendererID(),
-            data.Shadow.GetAtlasRawRendererID());
+        CommandDispatch::SetShadowTextures(
+            data.Shadow.GetCSMHandle(),
+            data.Shadow.GetAtlasHandle(),
+            data.Shadow.GetCSMRawHandle(),
+            data.Shadow.GetAtlasRawHandle());
 
         // Initialize parallel scene context with immutable frame data.
         data.ParallelContext.ViewMatrix = data.ViewMatrix;
@@ -1191,7 +1191,7 @@ namespace OloEngine
             {
                 SnowAccumulationSystem::Update(data.SnowAccumulation, data.ViewPos, Timestep(dt));
                 SnowAccumulationSystem::BindSnowDepthTexture();
-                CommandDispatch::SetSnowDepthTextureID(SnowAccumulationSystem::GetSnowDepthTextureID());
+                CommandDispatch::SetSnowDepthTexture(SnowAccumulationSystem::GetSnowDepthTextureHandle());
             }
 
             // Update snow ejecta particle simulation
@@ -1266,7 +1266,7 @@ namespace OloEngine
                 // have (re)created the texture this frame, so the id handed
                 // to the pass must be read post-populate.
                 PostProcessPasses.Cloudscape->SetHistory(
-                    CloudsHistoryTexture ? CloudsHistoryTexture->GetRendererID() : 0u,
+                    CloudsHistoryTexture ? CloudsHistoryTexture->GetRHIHandle() : RHI::NullResource,
                     CloudsHistoryValid);
 
                 PostProcessPasses.Cloudscape->UploadAndBindUBO();
@@ -1287,7 +1287,7 @@ namespace OloEngine
                     // TEX_CLOUD_SHADOW (62); CommandDispatch::ResetState()
                     // zeroed it in PrepareFrame (same lifecycle as the snow
                     // depth id above).
-                    CommandDispatch::SetCloudShadowTextureID(CloudShadowMap::GetTextureID());
+                    CommandDispatch::SetCloudShadowTexture(CloudShadowMap::GetTextureHandle());
                 }
             }
             else
@@ -1442,14 +1442,20 @@ namespace OloEngine
         // blackboard imports them by raw GL ID so a change must invalidate.
         HashU32(h, data.Shadow.GetResolution());
         HashU32(h, data.Shadow.GetAtlasResolution());
-        HashU32(h, data.Shadow.GetCSMRendererID());
-        HashU32(h, data.Shadow.GetAtlasRendererID());
+        // By IDENTITY, not driver name — the same defect the DDGI atlases had
+        // (issue #691 step 3). ShadowMap::SetSettings calls Shutdown() BEFORE
+        // Init() on a resolution change, so the old textures are freed first
+        // and GL may reissue their names to the replacements; a raw-id hash
+        // then sees no change and the graph keeps an import describing the OLD
+        // resolution. A generation cannot be reissued.
+        HashU64(h, RHI::HashKey(data.Shadow.GetCSMHandle()));
+        HashU64(h, RHI::HashKey(data.Shadow.GetAtlasHandle()));
         // The comparison-OFF raw-depth views (issue #607) are declared as graph
         // resources only when their ids are non-zero — a declaration-PRESENCE
         // gate, which by the #530 rule must be hashed or PopulateBlackboard
         // never re-runs and the resource never appears.
-        HashU32(h, data.Shadow.GetCSMRawRendererID());
-        HashU32(h, data.Shadow.GetAtlasRawRendererID());
+        HashU64(h, RHI::HashKey(data.Shadow.GetCSMRawHandle()));
+        HashU64(h, RHI::HashKey(data.Shadow.GetAtlasRawHandle()));
 
         // IBL renderer IDs — same rule as the shadow IDs above, and for the same
         // reason: PopulateBlackboard imports them by raw GL ID.
@@ -1462,10 +1468,10 @@ namespace OloEngine
         // name", thousands of times. It masqueraded as intermittent because GL often
         // recycles the freed texture names, in which case the stale ID happens to be
         // valid again and nothing looks wrong.
-        HashU32(h, data.GlobalIrradianceMapID);
-        HashU32(h, data.GlobalPrefilterMapID);
-        HashU32(h, data.GlobalBRDFLutMapID);
-        HashU32(h, data.GlobalEnvironmentMapID);
+        HashU64(h, RHI::HashKey(data.GlobalIrradianceMapID));
+        HashU64(h, RHI::HashKey(data.GlobalPrefilterMapID));
+        HashU64(h, RHI::HashKey(data.GlobalBRDFLutMapID));
+        HashU64(h, RHI::HashKey(data.GlobalEnvironmentMapID));
 
         // Post-process technique selection + per-effect toggles
         HashU32(h, static_cast<u32>(std::to_underlying(data.PostProcess.ActiveAOTechnique)));
@@ -1565,16 +1571,25 @@ namespace OloEngine
         // DDGI atlas imports (issue #607): DDGIProbeUpdatePass::Setup imports
         // the ping-pong atlases + probe-data texture, which are created lazily
         // (first submitted volume) and recreated on a Resolution /
-        // HitCacheTexels edit — the ids change with NO pass-enable change.
-        // Hash the raw ids so the rebuild that (re)imports them actually
+        // HitCacheTexels edit — the resources change with NO pass-enable
+        // change. Hash them so the rebuild that (re)imports them actually
         // happens — the exact VirtualGeometryDebug rule below.
+        //
+        // The four atlases hash by IDENTITY, not by driver name (issue #691
+        // step 3). EnsureResources calls DestroyResources BEFORE recreating, so
+        // the old attachment textures are gone by the time the new ones are
+        // made and GL may reissue the same names — under which a raw-id hash
+        // sees no change at all and the graph keeps an import still describing
+        // the OLD resolution. A generation cannot be reissued. m_ProbeDataTexture
+        // has no identity yet (it is a pass-owned native texture, deferred to a
+        // later slice) and keeps its raw id.
         if (FrameCorePasses.DDGIProbeUpdate)
         {
             const auto& ddgiPass = *FrameCorePasses.DDGIProbeUpdate;
-            HashU32(h, ddgiPass.GetIrradianceAtlasID(0u));
-            HashU32(h, ddgiPass.GetIrradianceAtlasID(1u));
-            HashU32(h, ddgiPass.GetVisibilityAtlasID(0u));
-            HashU32(h, ddgiPass.GetVisibilityAtlasID(1u));
+            HashU64(h, RHI::HashKey(ddgiPass.GetIrradianceAtlasHandle(0u)));
+            HashU64(h, RHI::HashKey(ddgiPass.GetIrradianceAtlasHandle(1u)));
+            HashU64(h, RHI::HashKey(ddgiPass.GetVisibilityAtlasHandle(0u)));
+            HashU64(h, RHI::HashKey(ddgiPass.GetVisibilityAtlasHandle(1u)));
             HashU32(h, ddgiPass.GetProbeDataTextureID());
         }
         HashPassState(h, SceneCompositePasses.DeferredLighting);
@@ -1737,7 +1752,7 @@ namespace OloEngine
             if (sceneSpec.Width > 0u && sceneSpec.Height > 0u)
             {
                 RGResourceDesc sceneDesc;
-                sceneDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
                 sceneDesc.Width = sceneSpec.Width;
                 sceneDesc.Height = sceneSpec.Height;
                 sceneDesc.Attachments = {
@@ -1767,7 +1782,7 @@ namespace OloEngine
             if (sceneSpec.Width > 0u && sceneSpec.Height > 0u && !deferredActive)
             {
                 RGResourceDesc depthDesc;
-                depthDesc.Kind = ResourceHandle::Kind::Texture2D;
+                depthDesc.Kind = RGResourceHandle::Kind::Texture2D;
                 depthDesc.Format = RGResourceFormat::Depth24Stencil8;
                 depthDesc.Width = sceneSpec.Width;
                 depthDesc.Height = sceneSpec.Height;
@@ -1775,7 +1790,7 @@ namespace OloEngine
                 board.Scene.SceneDepth = graph.AllocateTransientTextureHandle(ResourceNames::SceneDepth, depthDesc);
 
                 RGResourceDesc normalsDesc;
-                normalsDesc.Kind = ResourceHandle::Kind::Texture2D;
+                normalsDesc.Kind = RGResourceHandle::Kind::Texture2D;
                 normalsDesc.Format = RGResourceFormat::RG16Float;
                 normalsDesc.Width = sceneSpec.Width;
                 normalsDesc.Height = sceneSpec.Height;
@@ -1810,7 +1825,7 @@ namespace OloEngine
             auto buildGBufferFramebufferDesc = [&gbuffer](const u32 sampleCount, std::string_view debugName) -> RGResourceDesc
             {
                 RGResourceDesc desc;
-                desc.Kind = ResourceHandle::Kind::Framebuffer;
+                desc.Kind = RGResourceHandle::Kind::Framebuffer;
                 desc.Width = gbuffer->GetWidth();
                 desc.Height = gbuffer->GetHeight();
                 desc.Samples = sampleCount;
@@ -1923,7 +1938,7 @@ namespace OloEngine
             if (sceneSpec.Width > 0u && sceneSpec.Height > 0u)
             {
                 RGResourceDesc velocityDesc;
-                velocityDesc.Kind = ResourceHandle::Kind::Texture2D;
+                velocityDesc.Kind = RGResourceHandle::Kind::Texture2D;
                 velocityDesc.Format = RGResourceFormat::RG16Float;
                 velocityDesc.Width = sceneSpec.Width;
                 velocityDesc.Height = sceneSpec.Height;
@@ -1957,7 +1972,7 @@ namespace OloEngine
                 }
 
                 RGResourceDesc aoDesc;
-                aoDesc.Kind = ResourceHandle::Kind::Texture2D;
+                aoDesc.Kind = RGResourceHandle::Kind::Texture2D;
                 aoDesc.Format = RGResourceFormat::RG16Float;
                 aoDesc.Width = aoWidth;
                 aoDesc.Height = aoHeight;
@@ -1976,7 +1991,7 @@ namespace OloEngine
                 }
 
                 RGResourceDesc aoDesc;
-                aoDesc.Kind = ResourceHandle::Kind::Texture2D;
+                aoDesc.Kind = RGResourceHandle::Kind::Texture2D;
                 aoDesc.Format = RGResourceFormat::R8UNorm;
                 aoDesc.Width = aoWidth;
                 aoDesc.Height = aoHeight;
@@ -2034,7 +2049,7 @@ namespace OloEngine
             board.Shadows.ShadowMapCSMRawID = data.Shadow.GetCSMRawRendererID();
             board.Shadows.ShadowMapAtlasRawID = data.Shadow.GetAtlasRawRendererID();
 
-            const auto buildShadowTextureDesc = [shadowResolution](const ResourceHandle::Kind kind,
+            const auto buildShadowTextureDesc = [shadowResolution](const RGResourceHandle::Kind kind,
                                                                    std::string_view debugName,
                                                                    const u32 depthOrLayers)
             {
@@ -2052,7 +2067,7 @@ namespace OloEngine
             {
                 board.Shadows.ShadowMapCSM = graph.DeclareTransientTexture(
                     ResourceNames::ShadowMapCSM,
-                    buildShadowTextureDesc(ResourceHandle::Kind::Texture2DArray,
+                    buildShadowTextureDesc(RGResourceHandle::Kind::Texture2DArray,
                                            ResourceNames::ShadowMapCSM,
                                            FrameBlackboard::MaxShadowMapCascades),
                     csmID);
@@ -2069,7 +2084,7 @@ namespace OloEngine
             if (atlasID != 0)
             {
                 const u32 atlasResolution = std::max(data.Shadow.GetAtlasResolution(), 1u);
-                auto atlasDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray,
+                auto atlasDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2DArray,
                                                                 ResourceNames::ShadowMapAtlas);
                 atlasDesc.Format = RGResourceFormat::Depth32Float;
                 atlasDesc.Width = atlasResolution;
@@ -2103,14 +2118,14 @@ namespace OloEngine
             {
                 [[maybe_unused]] const RGTextureHandle csmRaw = graph.DeclareTransientTexture(
                     ShadowMap::kCSMRawTargetName,
-                    buildShadowTextureDesc(ResourceHandle::Kind::Texture2DArray,
+                    buildShadowTextureDesc(RGResourceHandle::Kind::Texture2DArray,
                                            ShadowMap::kCSMRawTargetName,
                                            FrameBlackboard::MaxShadowMapCascades),
                     csmRawID);
             }
             if (atlasRawID != 0)
             {
-                auto atlasRawDesc = buildShadowTextureDesc(ResourceHandle::Kind::Texture2DArray,
+                auto atlasRawDesc = buildShadowTextureDesc(RGResourceHandle::Kind::Texture2DArray,
                                                            ShadowMap::kAtlasRawTargetName, 1u);
                 atlasRawDesc.Width = std::max(data.Shadow.GetAtlasResolution(), 1u);
                 atlasRawDesc.Height = atlasRawDesc.Width;
@@ -2166,7 +2181,7 @@ namespace OloEngine
             [&postProcessWidth, &postProcessHeight, &declareGraphOnlyFramebuffer](std::string_view name, const RGResourceFormat fmt) -> RGFramebufferHandle
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Kind = RGResourceHandle::Kind::Framebuffer;
             desc.Width = postProcessWidth;
             desc.Height = postProcessHeight;
             desc.Format = fmt;
@@ -2203,7 +2218,7 @@ namespace OloEngine
                 const RGResourceFormat fmt) -> GraphOnlyPostProcessOutput
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Kind = RGResourceHandle::Kind::Framebuffer;
             desc.Width = sceneBandWidth;
             desc.Height = sceneBandHeight;
             desc.Format = fmt;
@@ -2233,7 +2248,7 @@ namespace OloEngine
             if (ssaoWidth > 0u && ssaoHeight > 0u)
             {
                 RGResourceDesc rawDesc;
-                rawDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                rawDesc.Kind = RGResourceHandle::Kind::Framebuffer;
                 rawDesc.Format = RGResourceFormat::RG16Float;
                 rawDesc.Width = ssaoWidth;
                 rawDesc.Height = ssaoHeight;
@@ -2282,7 +2297,7 @@ namespace OloEngine
             }
 
             RGResourceDesc hzbDesc;
-            hzbDesc.Kind = ResourceHandle::Kind::Texture2D;
+            hzbDesc.Kind = RGResourceHandle::Kind::Texture2D;
             hzbDesc.Format = RGResourceFormat::R32Float;
             hzbDesc.Width = hzbW;
             hzbDesc.Height = hzbH;
@@ -2301,7 +2316,7 @@ namespace OloEngine
             }
 
             RGResourceDesc edgeDesc;
-            edgeDesc.Kind = ResourceHandle::Kind::Texture2D;
+            edgeDesc.Kind = RGResourceHandle::Kind::Texture2D;
             edgeDesc.Format = RGResourceFormat::R8UNorm;
             edgeDesc.Width = sceneBandWidth;
             edgeDesc.Height = sceneBandHeight;
@@ -2309,7 +2324,7 @@ namespace OloEngine
             board.Scratch.GTAOEdge = declareGraphOnlyTexture("GTAOEdge", edgeDesc);
 
             RGResourceDesc denoiseDesc;
-            denoiseDesc.Kind = ResourceHandle::Kind::Texture2D;
+            denoiseDesc.Kind = RGResourceHandle::Kind::Texture2D;
             denoiseDesc.Format = RGResourceFormat::R8UNorm;
             denoiseDesc.Width = sceneBandWidth;
             denoiseDesc.Height = sceneBandHeight;
@@ -2325,7 +2340,7 @@ namespace OloEngine
             board.Scene.SceneColor.IsValid())
         {
             RGResourceDesc refrDesc;
-            refrDesc.Kind = ResourceHandle::Kind::Texture2D;
+            refrDesc.Kind = RGResourceHandle::Kind::Texture2D;
             refrDesc.Format = RGResourceFormat::RGBA16Float;
             refrDesc.Width = postProcessWidth;
             refrDesc.Height = postProcessHeight;
@@ -2340,7 +2355,7 @@ namespace OloEngine
             board.Scene.SceneColor.IsValid())
         {
             RGResourceDesc fluidRefrDesc;
-            fluidRefrDesc.Kind = ResourceHandle::Kind::Texture2D;
+            fluidRefrDesc.Kind = RGResourceHandle::Kind::Texture2D;
             fluidRefrDesc.Format = RGResourceFormat::RGBA16Float;
             fluidRefrDesc.Width = postProcessWidth;
             fluidRefrDesc.Height = postProcessHeight;
@@ -2466,7 +2481,7 @@ namespace OloEngine
                 pipeline.PostProcessPasses.DepthVelocityUpscale->IsReadyForExecution())
             {
                 RGResourceDesc dvDesc;
-                dvDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                dvDesc.Kind = RGResourceHandle::Kind::Framebuffer;
                 dvDesc.Width = postProcessWidth;
                 dvDesc.Height = postProcessHeight;
                 dvDesc.Attachments = { RGResourceFormat::R32Float, RGResourceFormat::RG16Float };
@@ -2602,7 +2617,7 @@ namespace OloEngine
                         break;
 
                     RGResourceDesc mipDesc;
-                    mipDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                    mipDesc.Kind = RGResourceHandle::Kind::Framebuffer;
                     mipDesc.Format = RGResourceFormat::RGBA16Float;
                     mipDesc.Width = mipW;
                     mipDesc.Height = mipH;
@@ -2669,7 +2684,7 @@ namespace OloEngine
             if (cloudsSpec.Width > 0u && cloudsSpec.Height > 0u)
             {
                 RGResourceDesc cloudsHalfDesc;
-                cloudsHalfDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                cloudsHalfDesc.Kind = RGResourceHandle::Kind::Framebuffer;
                 cloudsHalfDesc.Format = RGResourceFormat::RGBA16Float;
                 cloudsHalfDesc.Width = (cloudsSpec.Width + 1u) / 2u;
                 cloudsHalfDesc.Height = (cloudsSpec.Height + 1u) / 2u;
@@ -2711,7 +2726,7 @@ namespace OloEngine
             if (fogSpec.Width > 0u && fogSpec.Height > 0u)
             {
                 RGResourceDesc fogHalfDesc;
-                fogHalfDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                fogHalfDesc.Kind = RGResourceHandle::Kind::Framebuffer;
                 fogHalfDesc.Format = RGResourceFormat::RGBA16Float;
                 fogHalfDesc.Width = (fogSpec.Width + 1u) / 2u;
                 fogHalfDesc.Height = (fogSpec.Height + 1u) / 2u;
@@ -2815,7 +2830,7 @@ namespace OloEngine
             if (outlineSpec.Width > 0u && outlineSpec.Height > 0u)
             {
                 RGResourceDesc jfaDesc;
-                jfaDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                jfaDesc.Kind = RGResourceHandle::Kind::Framebuffer;
                 jfaDesc.Format = RGResourceFormat::RGBA32Float;
                 jfaDesc.Width = outlineSpec.Width;
                 jfaDesc.Height = outlineSpec.Height;
@@ -2855,7 +2870,7 @@ namespace OloEngine
         if (pipeline.PostProcessPasses.UIComposite)
         {
             RGResourceDesc uiCompositeDesc;
-            uiCompositeDesc.Kind = ResourceHandle::Kind::Framebuffer;
+            uiCompositeDesc.Kind = RGResourceHandle::Kind::Framebuffer;
             uiCompositeDesc.Width = postProcessWidth;
             uiCompositeDesc.Height = postProcessHeight;
             uiCompositeDesc.Attachments = { RGResourceFormat::RGBA8UNorm, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
@@ -2869,7 +2884,7 @@ namespace OloEngine
         // FinalPass presents via RGCommandContext::BindDefaultFramebuffer().
         board.Post.Backbuffer = graph.ImportFramebuffer(
             ResourceNames::Backbuffer, nullptr,
-            RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, ResourceNames::Backbuffer));
+            RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, ResourceNames::Backbuffer));
 
         // ------------------------------------------------------------------
         // OIT buffers
@@ -2889,7 +2904,7 @@ namespace OloEngine
             // Both blackboard handles point to the same physical transient FB;
             // passes distinguish the two colour attachments by index (0 and 1).
             RGResourceDesc oitDesc;
-            oitDesc.Kind = ResourceHandle::Kind::Framebuffer;
+            oitDesc.Kind = RGResourceHandle::Kind::Framebuffer;
             oitDesc.Width = postProcessWidth;
             oitDesc.Height = postProcessHeight;
             oitDesc.Attachments = {
@@ -2959,23 +2974,23 @@ namespace OloEngine
         // ------------------------------------------------------------------
         // IBL resources
         // ------------------------------------------------------------------
-        if (data.GlobalIrradianceMapID != 0)
+        if (data.GlobalIrradianceMapNativeID != 0)
         {
             board.IBL.IrradianceMap = graph.ImportTexture(
-                ResourceNames::IrradianceMap, data.GlobalIrradianceMapID,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, ResourceNames::IrradianceMap));
+                ResourceNames::IrradianceMap, data.GlobalIrradianceMapNativeID,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::TextureCube, ResourceNames::IrradianceMap));
         }
-        if (data.GlobalPrefilterMapID != 0)
+        if (data.GlobalPrefilterMapNativeID != 0)
         {
             board.IBL.PrefilterMap = graph.ImportTexture(
-                ResourceNames::PrefilterMap, data.GlobalPrefilterMapID,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, ResourceNames::PrefilterMap));
+                ResourceNames::PrefilterMap, data.GlobalPrefilterMapNativeID,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::TextureCube, ResourceNames::PrefilterMap));
         }
-        if (data.GlobalBRDFLutMapID != 0)
+        if (data.GlobalBRDFLutMapNativeID != 0)
         {
             board.IBL.BrdfLut = graph.ImportTexture(
-                ResourceNames::BrdfLut, data.GlobalBRDFLutMapID,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::BrdfLut));
+                ResourceNames::BrdfLut, data.GlobalBRDFLutMapNativeID,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::BrdfLut));
         }
     }
 

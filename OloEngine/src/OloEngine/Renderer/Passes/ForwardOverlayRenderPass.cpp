@@ -4,11 +4,10 @@
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
-
-#include <glad/gl.h>
 
 #include <array>
 
@@ -116,19 +115,19 @@ namespace OloEngine
         // Bind attachments 0-2 (clamped to what the scene FB actually has) so
         // those side buffers are repopulated per-frame. RT3 (velocity) is
         // intentionally left off: overlay shaders don't track motion vectors.
-        std::array<GLenum, 3> drawBufs = {
-            GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2
+        std::array<u32, 3> drawBufs = {
+            0u, 1u, 2u
         };
-        if (const GLsizei overlayDrawBufCount = static_cast<GLsizei>(std::min<u32>(sceneColorAttachmentCount, static_cast<u32>(drawBufs.size()))); overlayDrawBufCount > 0)
-            glNamedFramebufferDrawBuffers(sceneFBID, overlayDrawBufCount, drawBufs.data());
+        if (const u32 overlayDrawBufCount = std::min<u32>(sceneColorAttachmentCount, static_cast<u32>(drawBufs.size()));
+            overlayDrawBufCount > 0)
+        {
+            RenderCommand::SetFramebufferDrawAttachments(
+                sceneFBID, std::span<const u32>(drawBufs.data(), overlayDrawBufCount));
+        }
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();
         context.SetDepthTest(true);
-        context.SetDepthMask(true);
-        rendererAPI.SetDepthFunc(GL_LESS);
-        context.SetBlendState(false);
-        rendererAPI.SetCullFace(GL_BACK);
-        rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        context.ResetOpaqueForwardDrawState();
 
         // Rebind shared scene resources so overlay shaders see the same
         // view/projection/light data forward shaders expect.
@@ -151,20 +150,12 @@ namespace OloEngine
         // attachment count differs from the previous 4-entry hardcoded list.
         if (sceneColorAttachmentCount > 0)
         {
-            std::array<GLenum, 16> fullDrawBufs{};
-            const u32 n = std::min<u32>(sceneColorAttachmentCount, static_cast<u32>(fullDrawBufs.size()));
-            for (u32 i = 0; i < n; ++i)
-                fullDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
-            glNamedFramebufferDrawBuffers(sceneFBID, static_cast<GLsizei>(n), fullDrawBufs.data());
+            RenderCommand::RestoreAllFramebufferDrawAttachments(sceneFBID, sceneColorAttachmentCount);
         }
 
-        context.SetDepthMask(true);
-        rendererAPI.SetDepthFunc(GL_LESS);
-        context.SetBlendState(false);
-        // Restore cull face + polygon mode — skybox / debug commands inside the
-        // bucket may flip these and would otherwise leak into the next pass.
-        rendererAPI.SetCullFace(GL_BACK);
-        rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        // Restores cull face + polygon mode too — skybox / debug commands inside
+        // the bucket may flip these and would otherwise leak into the next pass.
+        context.ResetOpaqueForwardDrawState();
 
         // Reset blend func to the default (GL_ONE, GL_ZERO). Bucket commands
         // (skybox / debug / grid) call glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
@@ -172,15 +163,16 @@ namespace OloEngine
         // above disables blending but leaves the func sticky. Any downstream
         // pass that enables blending without setting its own func would inherit
         // the leak.
-        ::glBlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
+        RenderCommand::SetBlendFuncSeparate(RHI::BlendFactor::One, RHI::BlendFactor::Zero,
+                                            RHI::BlendFactor::One, RHI::BlendFactor::Zero);
 
         m_SceneFramebuffer->Unbind();
 
         // Unbind shader program + VAO so the GLStateGuard surfaces only
         // genuine regressions in downstream passes (the bucket's last
         // command leaves both bound).
-        ::glBindVertexArray(0);
-        ::glUseProgram(0);
+        RenderCommand::BindVertexArrayRaw(0);
+        RenderCommand::BindShaderProgram(0);
 
         ResetCommandBucket();
     }

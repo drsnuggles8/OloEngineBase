@@ -5,10 +5,15 @@
 //
 // Issue #691 Phase 1, ADR 0011 (docs/adr/0011-rhi-neutral-resource-and-binding-model.md).
 //
-// **This header is declaration-only and nothing consumes it yet.** It exists so
-// that the Phase 2 sweep of ~313 raw `glXxx()` call sites has a fixed target to
-// convert *toward*, instead of inventing a vocabulary one file at a time and
-// discovering the disagreements at merge time.
+// Written declaration-only in Phase 1, so that the Phase 2 sweep of ~313 raw
+// `glXxx()` call sites had a fixed target to convert *toward* instead of
+// inventing a vocabulary one file at a time and discovering the disagreements at
+// merge time. **That is history now** — `ResourceHandle` below is the live
+// identity currency: minted by RHI::ResourceRegistry, carried by the
+// Platform/OpenGL resource classes, RenderCommand's handle-taking siblings, the
+// render graph, and the framebuffer attachment getters. `ViewHandle` /
+// `HeapOffset` are still forward-looking and land in Phase 3 as a matched pair
+// (ADR 0011 amendment (11)).
 //
 // Two hard rules, both enforced by RHIBoundaryRatchetTest:
 //
@@ -28,7 +33,10 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <spdlog/fmt/fmt.h>
+
 #include <limits>
+#include <string>
 
 namespace OloEngine::RHI
 {
@@ -69,7 +77,11 @@ namespace OloEngine::RHI
         u32 Index = InvalidIndex;
         u32 Generation = 0;
 
-        [[nodiscard]] auto IsValid() const -> bool
+        // constexpr so the invariant can be asserted at compile time — see
+        // RHIBoundaryRatchetTest's ResourceHandleCannotBeSpelledAsANativeId,
+        // which needs it to pin that a parenthesized-aggregate-initialised
+        // handle (C++20 P0960) carries Generation == 0 and is therefore inert.
+        [[nodiscard]] constexpr auto IsValid() const -> bool
         {
             return Index != InvalidIndex && Generation > 0;
         }
@@ -81,6 +93,27 @@ namespace OloEngine::RHI
     struct ViewTag;
 
     using ResourceHandle = Handle<ResourceTag>;
+
+    // Sentinel spelling for "no resource". Reads better than a bare `{}` at a
+    // call site that used to pass a literal 0, and is the value every
+    // `handle.IsValid()` guard is testing against.
+    inline constexpr ResourceHandle NullResource{};
+
+    // A 64-bit key identifying a handle uniquely, for hashing and for the sort
+    // keys that used to pack a raw renderer ID. The (Generation << 32) | Index
+    // packing deliberately matches what std::hash<RGTextureHandle> and friends
+    // already do in Renderer/ResourceHandle.h — §1.1 says this type mirrors
+    // those, and that has to include how it is keyed or the graph acquires a
+    // second, subtly different scheme after all.
+    //
+    // For a *bucketing* key (a radix-sort field, a material hash) `Index` alone
+    // is usually the better choice: it is dense from zero where a driver-assigned
+    // name is arbitrary, and two live handles can never share one.
+    template<typename Tag>
+    [[nodiscard]] constexpr u64 HashKey(Handle<Tag> handle) noexcept
+    {
+        return (static_cast<u64>(handle.Generation) << 32u) | static_cast<u64>(handle.Index);
+    }
 
     // -------------------------------------------------------------------------
     // View identity — "which *view* of which resource?"
@@ -123,7 +156,7 @@ namespace OloEngine::RHI
 
         u32 Value = Invalid;
 
-        [[nodiscard]] auto IsValid() const -> bool
+        [[nodiscard]] constexpr auto IsValid() const -> bool
         {
             return Value != Invalid;
         }
@@ -193,6 +226,7 @@ namespace OloEngine::RHI
         // 32-bit
         R32Float,
         R32Int,
+        R32UInt,
         RG32Float,
         RGB32Float,
         RGBA32Float,
@@ -317,6 +351,47 @@ namespace OloEngine::RHI
     };
 
     // -------------------------------------------------------------------------
+    // Sampler state — added in Phase 2 (ADR 0011 amendment, see §1.7).
+    //
+    // Phase 1 modelled sampler state as two bools on SamplerDesc
+    // (`LinearFilter` / `ClampToEdge`), which was enough to describe the
+    // *typical* texture but not enough to replace the call sites Phase 2 had to
+    // sweep: RendererAPI::SetTextureParameter(id, GLenum pname, GLint value)
+    // took an open-ended GL enum space, and SSAORenderPass's noise texture uses
+    // the combination the bools cannot express — Nearest filtering with Repeat
+    // wrapping.
+    //
+    // Mirroring GL's pname space with an RHI::TextureParameterName would have
+    // re-exported GL under a new spelling. Instead the call sites decompose into
+    // two intent-named setters (SetTextureFilter / SetTextureWrap) over these
+    // two enums, which is a complete description of every use in the engine:
+    // min/mag filter and wrap S/T/R, and every call site sets one wrap value for
+    // all axes.
+    // -------------------------------------------------------------------------
+    enum class Filter : u8
+    {
+        Nearest = 0,
+        Linear,
+    };
+
+    enum class AddressMode : u8
+    {
+        Repeat = 0,
+        MirroredRepeat,
+        ClampToEdge,
+        ClampToBorder,
+    };
+
+    // Index buffer element width. Added in Phase 2 so the POD draw commands in
+    // Commands/RenderCommand.h can describe their index buffer without a
+    // GLenum field; the direct Vulkan counterpart is VkIndexType.
+    enum class IndexType : u8
+    {
+        UInt16 = 0,
+        UInt32,
+    };
+
+    // -------------------------------------------------------------------------
     // Access — the unified barrier lattice.
     //
     // ADR 0011 §1.5. RenderGraph::ResourceTransition currently types its
@@ -406,4 +481,118 @@ namespace OloEngine::RHI
         Compute,
         Transfer,
     };
+
+    // -------------------------------------------------------------------------
+    // Added in Phase 2 step 2 (the call-site sweep) — ADR 0011 amendment (10).
+    //
+    // Step 1 converted the facade's existing vocabulary; step 2 discovered the
+    // facade was also INCOMPLETE. 84 distinct GL entry points appear at the 313
+    // swept call sites and roughly 60% of them had no RendererAPI equivalent at
+    // all — whole categories (buffer lifecycle, named-framebuffer state,
+    // queries, fences) that every pass reached past the facade to perform. The
+    // enums below are the neutral vocabulary those ~60 new virtuals needed.
+    // -------------------------------------------------------------------------
+
+    // The two query kinds the engine actually issues: OcclusionQueryPool's
+    // visibility test and PrecipitationSystem's GPU timer. Deliberately NOT a
+    // mirror of GL's query-target space — that would re-export GL under a new
+    // spelling, the mistake amendment (3) called out for SetTextureParameter.
+    enum class QueryType : u8
+    {
+        OcclusionAnySamples = 0, ///< GL_ANY_SAMPLES_PASSED / VK_QUERY_TYPE_OCCLUSION
+        TimeElapsed,             ///< GL_TIME_ELAPSED / a VK_QUERY_TYPE_TIMESTAMP pair
+    };
+
+    // The four outcomes of a client-side fence wait. Mirrors glClientWaitSync's
+    // return set; a Vulkan backend folds VK_SUCCESS into ConditionSatisfied and
+    // VK_TIMEOUT into TimeoutExpired. AlreadySignaled is kept distinct from
+    // ConditionSatisfied because the caller uses it to skip a flush.
+    enum class FenceStatus : u8
+    {
+        AlreadySignaled = 0,
+        ConditionSatisfied,
+        TimeoutExpired,
+        Failed,
+    };
+
+    // Which aspect(s) of a framebuffer a blit moves. Colour and depth are never
+    // combined at any call site in the engine (an MRT resolve must select one
+    // read/draw attachment pair at a time), so this is a plain enum rather than
+    // a flag set.
+    enum class BlitAspect : u8
+    {
+        Color = 0,
+        Depth,
+        Stencil,
+        DepthStencil,
+    };
+
+    // Where a buffer's memory lives, expressed as intent rather than as a heap
+    // index. The GL backend maps these onto buffer-storage usage hints; a Vulkan
+    // backend maps them onto VMA usage hints. Naming them by intent is what keeps
+    // the choice reviewable — "this buffer is written once per frame by the CPU"
+    // is a fact about the engine, "VK_MEMORY_PROPERTY_HOST_COHERENT_BIT" is not.
+    //
+    // MOVED here from RHIResources.h in Phase 2 step 2. Phase 1 had already
+    // designed exactly this and put it next to BufferDesc, where nothing outside
+    // the (then declaration-only) resource header could reach it; the sweep
+    // started to reinvent it as a "BufferUsage" access-pattern enum and only the
+    // resulting NAME COLLISION with RHIResources.h's bind-flag BufferUsage
+    // surfaced the duplication. Recorded because the near-miss is the lesson:
+    // when a phase leaves a declaration-only header, later phases must read it
+    // for vocabulary they are about to invent, not just for the types they
+    // consume. RendererAPI.h includes only RHITypes.h, which is why it lives
+    // here now rather than being reachable only alongside BufferDesc.
+    enum class MemoryResidency : u8
+    {
+        DeviceLocal = 0, ///< GPU-only; GPU writes and reads (compute output, copy target)
+        HostToDevice,    ///< CPU writes each frame, GPU reads (per-frame UBOs, upload arenas)
+        DeviceToHost,    ///< GPU writes, CPU reads back (readback staging, query results)
+    };
+
+    // "This draw slot writes nowhere" in a framebuffer draw-attachment list.
+    //
+    // Not expressible as an attachment index, and BOTH backends need it:
+    // GL spells it GL_NONE inside glNamedFramebufferDrawBuffers, Vulkan spells
+    // it VK_ATTACHMENT_UNUSED inside VkSubpassDescription::pColorAttachments.
+    // DecalRenderPass depends on it to steer one decal into exactly one
+    // G-Buffer attachment while leaving the others untouched.
+    inline constexpr u32 NoAttachment = std::numeric_limits<u32>::max();
 } // namespace OloEngine::RHI
+
+// -----------------------------------------------------------------------------
+// Logging support, added in Phase 2 step 3.
+//
+// The ~100 diagnostic sites that used to print a bare renderer ID
+// ("aoTex={}, depthTex={}") keep working, and say more than they did: a handle
+// prints as `#<index>:<generation>`, so a log line now distinguishes "the same
+// object" from "the same recycled slot" — the exact distinction the bare u32
+// could not express and TransientPool's alias reporting needs.
+//
+// No new dependency: RHITypes.h already includes Core/Base.h, which includes
+// Core/Log.h, which includes fmt. Nothing backend-specific enters this header.
+// -----------------------------------------------------------------------------
+// Hashing, so a handle can key a map exactly where a renderer ID used to.
+// Mirrors std::hash<RGTextureHandle> and friends (Renderer/ResourceHandle.h),
+// which pack the same way — see RHI::HashKey above for why that matters.
+template<typename Tag>
+struct std::hash<OloEngine::RHI::Handle<Tag>>
+{
+    [[nodiscard]] std::size_t operator()(const OloEngine::RHI::Handle<Tag>& handle) const noexcept
+    {
+        return std::hash<u64>{}(OloEngine::RHI::HashKey(handle));
+    }
+};
+
+template<typename Tag>
+struct fmt::formatter<OloEngine::RHI::Handle<Tag>> : formatter<std::string>
+{
+    template<typename FormatContext>
+    auto format(const OloEngine::RHI::Handle<Tag>& handle, FormatContext& ctx) const
+    {
+        if (!handle.IsValid())
+            return formatter<std::string>::format("<null>", ctx);
+
+        return formatter<std::string>::format(fmt::format("#{}:{}", handle.Index, handle.Generation), ctx);
+    }
+};

@@ -56,15 +56,19 @@ namespace OloEngine
         }
     } // namespace
 
-    auto Renderer3D::ValidateDrawMeshRendererIDs(const char* context, const u32 vaoID, const u32 shaderID) -> bool
+    auto Renderer3D::ValidateDrawMeshResources(const char* context, const RHI::ResourceHandle vertexArray,
+                                               const RHI::ResourceHandle shader) -> bool
     {
-        if (vaoID != 0 && shaderID != 0)
+        if (vertexArray.IsValid() && shader.IsValid())
             return true;
 
-        if (static std::atomic<u64> s_InvalidRendererIDWarnCount{ 0 }; s_InvalidRendererIDWarnCount.fetch_add(1, std::memory_order_relaxed) < 1)
+        if (static std::atomic<u64> s_InvalidResourceWarnCount{ 0 }; s_InvalidResourceWarnCount.fetch_add(1, std::memory_order_relaxed) < 1)
         {
-            OLO_CORE_WARN("{}: Dropping draw with invalid renderer IDs (VAO={}, Shader={})",
-                          context, vaoID, shaderID);
+            // The handles format as #Index:Generation, which is more useful here
+            // than a driver name was: a <null> tells you the producer never
+            // minted, a stale one tells you it was retired underneath the draw.
+            OLO_CORE_WARN("{}: Dropping draw with invalid resources (VAO={}, Shader={})",
+                          context, vertexArray, shader);
         }
 
         return false;
@@ -160,7 +164,7 @@ namespace OloEngine
             const Material& resolved = ResolveSubmeshMaterial(overrideMaterial, meshSource.get(), entry.SubmeshIndex, defaultMaterial);
             const Material* material = &resolved;
 
-            PODMaterialData const materialData = CreatePODMaterialDataForMaterial(*material, 0);
+            PODMaterialData const materialData = CreatePODMaterialDataForMaterial(*material, RHI::NullResource);
             submission.MaterialDataIndices.push_back(FrameDataBufferManager::Get().AllocateMaterialData(materialData));
 
             // Anything that is not fully opaque needs the cutout/blend test, which only the
@@ -176,7 +180,7 @@ namespace OloEngine
         registry.Submit(submission);
     }
 
-    auto Renderer3D::CreatePODMaterialDataForMaterial(const Material& material, RendererID shaderRendererID) -> PODMaterialData
+    auto Renderer3D::CreatePODMaterialDataForMaterial(const Material& material, RHI::ResourceHandle shaderRendererID) -> PODMaterialData
     {
         PODMaterialData data{};
         data.shaderRendererID = shaderRendererID;
@@ -187,8 +191,8 @@ namespace OloEngine
         data.specular = material.GetSpecular();
         data.shininess = material.GetShininess();
         data.useTextureMaps = material.IsUsingTextureMaps();
-        data.diffuseMapID = material.GetDiffuseMap() ? material.GetDiffuseMap()->GetRendererID() : 0;
-        data.specularMapID = material.GetSpecularMap() ? material.GetSpecularMap()->GetRendererID() : 0;
+        data.diffuseMapID = material.GetDiffuseMap() ? material.GetDiffuseMap()->GetRHIHandle() : RHI::NullResource;
+        data.specularMapID = material.GetSpecularMap() ? material.GetSpecularMap()->GetRHIHandle() : RHI::NullResource;
 
         // PBR material properties.
         data.enablePBR = (material.GetType() == MaterialType::PBR);
@@ -203,24 +207,24 @@ namespace OloEngine
         data.alphaCutoff = material.GetAlphaCutoff();
 
         // PBR texture renderer IDs.
-        data.albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRendererID() : 0;
-        data.metallicRoughnessMapID = material.GetMetallicRoughnessMap() ? material.GetMetallicRoughnessMap()->GetRendererID() : 0;
-        data.normalMapID = material.GetNormalMap() ? material.GetNormalMap()->GetRendererID() : 0;
-        data.aoMapID = material.GetAOMap() ? material.GetAOMap()->GetRendererID() : 0;
-        data.emissiveMapID = material.GetEmissiveMap() ? material.GetEmissiveMap()->GetRendererID() : 0;
-        data.environmentMapID = material.GetEnvironmentMap() ? material.GetEnvironmentMap()->GetRendererID() : 0;
-        data.irradianceMapID = material.GetIrradianceMap() ? material.GetIrradianceMap()->GetRendererID() : 0;
-        data.prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRendererID() : 0;
-        data.brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRendererID() : 0;
+        data.albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRHIHandle() : RHI::NullResource;
+        data.metallicRoughnessMapID = material.GetMetallicRoughnessMap() ? material.GetMetallicRoughnessMap()->GetRHIHandle() : RHI::NullResource;
+        data.normalMapID = material.GetNormalMap() ? material.GetNormalMap()->GetRHIHandle() : RHI::NullResource;
+        data.aoMapID = material.GetAOMap() ? material.GetAOMap()->GetRHIHandle() : RHI::NullResource;
+        data.emissiveMapID = material.GetEmissiveMap() ? material.GetEmissiveMap()->GetRHIHandle() : RHI::NullResource;
+        data.environmentMapID = material.GetEnvironmentMap() ? material.GetEnvironmentMap()->GetRHIHandle() : RHI::NullResource;
+        data.irradianceMapID = material.GetIrradianceMap() ? material.GetIrradianceMap()->GetRHIHandle() : RHI::NullResource;
+        data.prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRHIHandle() : RHI::NullResource;
+        data.brdfLutMapID = material.GetBRDFLutMap() ? material.GetBRDFLutMap()->GetRHIHandle() : RHI::NullResource;
 
         // Fall back to global IBL when the material has no IBL configured.
-        if (data.enablePBR && data.irradianceMapID == 0 && Renderer3D::GetGlobalIrradianceMapID() != 0)
+        if (data.enablePBR && !data.irradianceMapID.IsValid() && Renderer3D::GetGlobalIrradianceMapHandle().IsValid())
         {
-            data.irradianceMapID = Renderer3D::GetGlobalIrradianceMapID();
-            data.prefilterMapID = Renderer3D::GetGlobalPrefilterMapID();
-            data.brdfLutMapID = Renderer3D::GetGlobalBRDFLutMapID();
-            if (data.environmentMapID == 0)
-                data.environmentMapID = Renderer3D::GetGlobalEnvironmentMapID();
+            data.irradianceMapID = Renderer3D::GetGlobalIrradianceMapHandle();
+            data.prefilterMapID = Renderer3D::GetGlobalPrefilterMapHandle();
+            data.brdfLutMapID = Renderer3D::GetGlobalBRDFLutMapHandle();
+            if (!data.environmentMapID.IsValid())
+                data.environmentMapID = Renderer3D::GetGlobalEnvironmentMapHandle();
             data.enableIBL = true;
             data.iblIntensity = Renderer3D::GetGlobalIBLIntensity();
         }
@@ -367,9 +371,9 @@ namespace OloEngine
             return nullptr;
         }
 
-        const u32 vertexArrayID = meshToUse->GetVertexArray()->GetRendererID();
-        const u32 shaderRendererID = shaderToUse->GetRendererID();
-        if (!ValidateDrawMeshRendererIDs("Renderer3D::DrawMesh", vertexArrayID, shaderRendererID))
+        const RHI::ResourceHandle vertexArrayID = meshToUse->GetVertexArray()->GetRHIHandle();
+        const RHI::ResourceHandle shaderRendererID = shaderToUse->GetRHIHandle();
+        if (!ValidateDrawMeshResources("Renderer3D::DrawMesh", vertexArrayID, shaderRendererID))
             return nullptr;
 
         // Create POD command using asset handles and renderer IDs.
@@ -427,7 +431,7 @@ namespace OloEngine
 
         // Set sort key for optimal command sorting.
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = shaderRendererID & 0xFFFF; // 16-bit shader ID.
+        u32 shaderID = shaderRendererID.Index & 0xFFFF; // 16-bit shader ID.
         u32 materialID = ComputeMaterialID(material);
         u32 depth = ComputeDepthForSortKey(modelMatrix);
         if (material.GetFlag(MaterialFlag::Blend))
@@ -637,9 +641,9 @@ namespace OloEngine
         // Validate before allocating a packet so an invalid draw doesn't
         // consume packet-arena storage it will never submit (matches
         // DrawMesh's ordering).
-        const u32 vertexArrayID = mesh->GetVertexArray()->GetRendererID();
-        const u32 shaderRendererID = shaderToUse->GetRendererID();
-        if (!ValidateDrawMeshRendererIDs("Renderer3D::DrawMeshInstanced", vertexArrayID, shaderRendererID))
+        const RHI::ResourceHandle vertexArrayID = mesh->GetVertexArray()->GetRHIHandle();
+        const RHI::ResourceHandle shaderRendererID = shaderToUse->GetRHIHandle();
+        if (!ValidateDrawMeshResources("Renderer3D::DrawMeshInstanced", vertexArrayID, shaderRendererID))
             return nullptr;
 
         // Create POD command.
@@ -678,7 +682,7 @@ namespace OloEngine
 
         // Set sort key for instanced mesh commands (use first transform for depth).
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = shaderRendererID & 0xFFFF;
+        u32 shaderID = shaderRendererID.Index & 0xFFFF;
         u32 materialID = ComputeMaterialID(material);
         u32 depth = activeTransforms->empty() ? 0 : ComputeDepthForSortKey((*activeTransforms)[0]);
         if (material.GetFlag(MaterialFlag::Blend))
@@ -864,9 +868,9 @@ namespace OloEngine
             OLO_CORE_ERROR("Renderer3D::SubmitGPUCulledInstanced: No shader available!");
             return nullptr;
         }
-        const u32 vertexArrayID = mesh->GetVertexArray()->GetRendererID();
-        const u32 shaderRendererID = shaderToUse->GetRendererID();
-        if (!ValidateDrawMeshRendererIDs("Renderer3D::SubmitGPUCulledInstanced", vertexArrayID, shaderRendererID))
+        const RHI::ResourceHandle vertexArrayID = mesh->GetVertexArray()->GetRHIHandle();
+        const RHI::ResourceHandle shaderRendererID = shaderToUse->GetRHIHandle();
+        if (!ValidateDrawMeshResources("Renderer3D::SubmitGPUCulledInstanced", vertexArrayID, shaderRendererID))
             return nullptr;
 
         // Material / render state allocated once; both phase-1 and phase-2
@@ -875,7 +879,7 @@ namespace OloEngine
             CreatePODMaterialDataForMaterial(material, shaderRendererID));
         const u32 renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreatePODRenderStateForMaterial(material));
 
-        const u32 shaderID = shaderRendererID & 0xFFFF;
+        const u32 shaderID = shaderRendererID.Index & 0xFFFF;
         const u32 materialID = ComputeMaterialID(material);
         const u32 sortDepth = transforms.empty() ? 0 : ComputeDepthForSortKey(transforms[0]);
 
@@ -1168,9 +1172,9 @@ namespace OloEngine
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
         cmd->header.type = CommandType::DrawMesh;
 
-        const u32 vertexArrayID = vertexArray->GetRendererID();
-        const u32 shaderRendererID = shaderToUse->GetRendererID();
-        if (!ValidateDrawMeshRendererIDs("Renderer3D::DrawAnimatedMesh", vertexArrayID, shaderRendererID))
+        const RHI::ResourceHandle vertexArrayID = vertexArray->GetRHIHandle();
+        const RHI::ResourceHandle shaderRendererID = shaderToUse->GetRHIHandle();
+        if (!ValidateDrawMeshResources("Renderer3D::DrawAnimatedMesh", vertexArrayID, shaderRendererID))
             return nullptr;
 
         // Store asset handles and renderer IDs (POD).
@@ -1214,7 +1218,7 @@ namespace OloEngine
 
         // Set sort key for animated mesh commands.
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = shaderRendererID & 0xFFFF;
+        u32 shaderID = shaderRendererID.Index & 0xFFFF;
         u32 materialID = ComputeMaterialID(material);
         u32 depth = ComputeDepthForSortKey(modelMatrix);
         if (material.GetFlag(MaterialFlag::Blend))
@@ -1599,9 +1603,9 @@ namespace OloEngine
                                     !IsDeferredCapableShader(shaderToUse) &&
                                     s_Data.Pipeline->RenderStreamPasses.ForwardOverlay;
 
-        const u32 vertexArrayID = meshToUse->GetVertexArray()->GetRendererID();
-        const u32 shaderRendererID = shaderToUse->GetRendererID();
-        if (!ValidateDrawMeshRendererIDs("Renderer3D::DrawMeshParallel", vertexArrayID, shaderRendererID))
+        const RHI::ResourceHandle vertexArrayID = meshToUse->GetVertexArray()->GetRHIHandle();
+        const RHI::ResourceHandle shaderRendererID = shaderToUse->GetRHIHandle();
+        if (!ValidateDrawMeshResources("Renderer3D::DrawMeshParallel", vertexArrayID, shaderRendererID))
             return nullptr;
 
         // Create POD command using worker's allocator.
@@ -1650,7 +1654,7 @@ namespace OloEngine
 
         // Set sort key using parallel context view matrix for depth.
         PacketMetadata metadata = packet->GetMetadata();
-        const u32 shaderID = shaderRendererID & 0xFFFF;
+        const u32 shaderID = shaderRendererID.Index & 0xFFFF;
         const u32 materialID = ComputeMaterialID(material);
         const u32 depthKey = ComputeDepthForSortKeyWithView(modelMatrix, ctx.SceneContext->ViewMatrix);
 
@@ -1816,9 +1820,9 @@ namespace OloEngine
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
         cmd->header.type = CommandType::DrawMesh;
 
-        const u32 vertexArrayID = mesh->GetVertexArray()->GetRendererID();
-        const u32 shaderRendererID = shaderToUse->GetRendererID();
-        if (!ValidateDrawMeshRendererIDs("Renderer3D::DrawAnimatedMeshParallel", vertexArrayID, shaderRendererID))
+        const RHI::ResourceHandle vertexArrayID = mesh->GetVertexArray()->GetRHIHandle();
+        const RHI::ResourceHandle shaderRendererID = shaderToUse->GetRHIHandle();
+        if (!ValidateDrawMeshResources("Renderer3D::DrawAnimatedMeshParallel", vertexArrayID, shaderRendererID))
             return nullptr;
 
         cmd->meshHandle = mesh->GetHandle();
@@ -1852,7 +1856,7 @@ namespace OloEngine
 
         // Set sort key.
         PacketMetadata metadata = packet->GetMetadata();
-        const u32 shaderID = shaderRendererID & 0xFFFF;
+        const u32 shaderID = shaderRendererID.Index & 0xFFFF;
         const u32 materialID = ComputeMaterialID(material);
         const u32 depthKey = ComputeDepthForSortKeyWithView(modelMatrix, ctx.SceneContext->ViewMatrix);
 

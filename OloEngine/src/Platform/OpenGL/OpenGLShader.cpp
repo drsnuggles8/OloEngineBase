@@ -1021,6 +1021,7 @@ namespace OloEngine
     {
         OLO_CORE_TRACE("FinalizeProgram: '{}' program={}, spirvMap stages={}", m_Name, program, spirvMap.size());
         m_RendererID = program;
+        m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
 
         // Name the program for GPU debuggers (RenderDoc/NSight) and register it
         // in the CPU-side label registry so the GL debug callback can resolve
@@ -1124,6 +1125,7 @@ namespace OloEngine
         {
             // Store the program handle and keep shader objects alive until finalization
             m_RendererID = program;
+            m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
             m_PendingShaderIDs = std::move(shaderIDs);
             m_CompilationStatus = ShaderCompilationStatus::Compiling;
             return;
@@ -1355,6 +1357,7 @@ namespace OloEngine
 
             glDeleteProgram(m_RendererID);
             m_RendererID = 0;
+            m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
             m_CompilationStatus = ShaderCompilationStatus::Failed;
             OLO_SHADER_COMPILATION_END(0, false, infoLog.data(), m_DeferredCompilationTime);
             m_DeferredCompilationTime = 0.0;
@@ -1727,6 +1730,7 @@ namespace OloEngine
         if (!success && oldProgram != 0 && m_RendererID != oldProgram)
         {
             m_RendererID = oldProgram;
+            m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
             m_CompilationStatus = ShaderCompilationStatus::Ready;
         }
 

@@ -1,7 +1,7 @@
 #include "OloEnginePCH.h"
 #include "FrameResourceManager.h"
 
-#include <glad/gl.h>
+#include "OloEngine/Renderer/RenderCommand.h"
 
 #include <chrono>
 
@@ -268,21 +268,21 @@ namespace OloEngine
     }
 
     // ========================================================================
-    // OpenGL Fence Implementation
+    // Fence implementation (routed through the RHI facade)
     // ========================================================================
 
     u64 FrameResourceManager::CreateFence() const
     {
         OLO_PROFILE_FUNCTION();
 
-        GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-        if (!sync)
+        const u64 fence = RenderCommand::CreateFence();
+        if (fence == 0)
         {
-            OLO_CORE_ERROR("FrameResourceManager::CreateFence: glFenceSync failed!");
+            OLO_CORE_ERROR("FrameResourceManager::CreateFence: fence creation failed!");
             return 0;
         }
 
-        return static_cast<u64>(reinterpret_cast<uptr>(sync));
+        return fence;
     }
 
     bool FrameResourceManager::WaitForFence(u64 fenceId) const
@@ -292,21 +292,28 @@ namespace OloEngine
         if (fenceId == 0)
             return true;
 
-        GLsync sync = reinterpret_cast<GLsync>(static_cast<uptr>(fenceId));
-
-        constexpr GLuint64 TIMEOUT_NS = 1000000000ULL; // 1 second
-        if (GLenum result = glClientWaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, TIMEOUT_NS); result == GL_TIMEOUT_EXPIRED)
+        constexpr u64 TIMEOUT_NS = 1000000000ULL; // 1 second
+        switch (RenderCommand::ClientWaitFence(fenceId, TIMEOUT_NS))
         {
-            OLO_CORE_WARN("FrameResourceManager::WaitForFence: Fence wait timed out!");
-            return false;
-        }
-        else if (result == GL_WAIT_FAILED)
-        {
-            OLO_CORE_ERROR("FrameResourceManager::WaitForFence: Fence wait failed!");
-            return false;
+            case RHI::FenceStatus::AlreadySignaled:
+            case RHI::FenceStatus::ConditionSatisfied:
+                return true;
+            case RHI::FenceStatus::TimeoutExpired:
+                OLO_CORE_WARN("FrameResourceManager::WaitForFence: Fence wait timed out!");
+                return false;
+            case RHI::FenceStatus::Failed:
+                OLO_CORE_ERROR("FrameResourceManager::WaitForFence: Fence wait failed!");
+                return false;
         }
 
-        return true;
+        // Deliberately NO `default:` inside the switch — that would suppress the
+        // compiler's exhaustiveness warning, which is what actually catches a new
+        // RHI::FenceStatus member at build time. This fallthrough is the runtime
+        // backstop, and it FAILS CLOSED: a fence gates reuse of double-buffered
+        // GPU resources, so reporting success for a status we do not understand
+        // is the one answer that could hand a caller memory the GPU still owns.
+        OLO_CORE_ERROR("FrameResourceManager::WaitForFence: unrecognized fence status; treating as failure");
+        return false;
     }
 
     bool FrameResourceManager::IsFenceSignaled(u64 fenceId) const
@@ -314,13 +321,7 @@ namespace OloEngine
         if (fenceId == 0)
             return true;
 
-        GLsync sync = reinterpret_cast<GLsync>(static_cast<uptr>(fenceId));
-
-        GLint signaled = GL_FALSE;
-        GLsizei length = 0;
-        glGetSynciv(sync, GL_SYNC_STATUS, sizeof(signaled), &length, &signaled);
-
-        return signaled == GL_SIGNALED;
+        return RenderCommand::IsFenceSignaled(fenceId);
     }
 
     void FrameResourceManager::DeleteFence(u64 fenceId) const
@@ -328,8 +329,7 @@ namespace OloEngine
         if (fenceId == 0)
             return;
 
-        GLsync sync = reinterpret_cast<GLsync>(static_cast<uptr>(fenceId));
-        glDeleteSync(sync);
+        RenderCommand::DestroyFence(fenceId);
     }
 
 } // namespace OloEngine

@@ -1,7 +1,7 @@
 #include "OloEnginePCH.h"
 #include "ThumbnailCapture.h"
 
-#include <glad/gl.h>
+#include "OloEngine/Renderer/RenderCommand.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image/stb_image_write.h>
@@ -38,21 +38,24 @@ namespace OloEngine
             return {};
         }
 
-        // Read the color attachment (index 0) pixels via GL
-        u32 texID = framebuffer->GetColorAttachmentRendererID(0);
-        if (texID == 0)
+        // Read the colour attachment (index 0) back by IDENTITY, not by driver
+        // name (issue #691 step 3): the attachment is a distinct GPU object
+        // from the framebuffer, and a resize destroys and recreates it.
+        const RHI::ResourceHandle colorAttachment = framebuffer->GetColorAttachmentHandle(0);
+        if (!colorAttachment.IsValid())
         {
             OLO_CORE_ERROR("[ThumbnailCapture] No color attachment");
             return {};
         }
 
         std::vector<u8> pixelData(fbWidth * fbHeight * 4);
-        glGetTextureImage(texID, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                          static_cast<GLsizei>(pixelData.size()), pixelData.data());
-
-        if (GLenum err = glGetError(); err != GL_NO_ERROR)
+        // The readback reports its own success — the backend owns the error
+        // model (a sticky global flag on GL, a per-call result on Vulkan), so
+        // there is deliberately no facade-level GetError() to ask afterwards.
+        if (!RenderCommand::ReadTextureImage(colorAttachment, 0, RHI::Format::RGBA8UNorm,
+                                             pixelData.size(), pixelData.data()))
         {
-            OLO_CORE_ERROR("[ThumbnailCapture] GL error reading framebuffer: {}", err);
+            OLO_CORE_ERROR("[ThumbnailCapture] Failed to read back the framebuffer colour attachment");
             return {};
         }
 

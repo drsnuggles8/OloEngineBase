@@ -6,8 +6,6 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Texture3D.h"
 
-#include <glad/gl.h>
-
 #include <algorithm>
 #include <limits>
 #include <vector>
@@ -95,7 +93,7 @@ namespace OloEngine
             shader.SetFloat("u_InvSize", 1.0f / static_cast<f32>(size));
 
             // Bind the volume for writing (image unit 0, mip 0, layered for 3D)
-            RenderCommand::BindImageTexture(0, textureID, 0, true, 0, GL_WRITE_ONLY, GL_RGBA8);
+            RenderCommand::BindImageTexture(0, textureID, 0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm);
 
             const u32 groups = (size + kLocalSize - 1) / kLocalSize;
             RenderCommand::DispatchCompute(groups, groups, groups);

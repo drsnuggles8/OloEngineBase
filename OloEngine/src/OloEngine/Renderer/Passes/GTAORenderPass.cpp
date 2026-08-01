@@ -5,8 +5,6 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
     // Hilbert curve LUT: maps (x,y) in a 64×64 grid to a 1D index.
@@ -332,10 +330,9 @@ namespace OloEngine
                 MemoryBarrierFlags::TextureFetch |
                 MemoryBarrierFlags::TextureUpdate);
 
-            glCopyImageSubData(
-                finalAOTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                aoOutputTexID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height), 1);
+            RenderCommand::CopyImageSubData(finalAOTextureID, RendererAPI::TextureTargetType::Texture2D,
+                                            aoOutputTexID, RendererAPI::TextureTargetType::Texture2D,
+                                            m_Width, m_Height);
         }
     }
 
@@ -409,8 +406,8 @@ namespace OloEngine
         m_GTAOShader->Bind();
 
         // Bind output images
-        RenderCommand::BindImageTexture(0, aoOutputTextureID, 0, false, 0, GL_WRITE_ONLY, GL_R8);
-        RenderCommand::BindImageTexture(1, edgeTexID, 0, false, 0, GL_WRITE_ONLY, GL_R8);
+        RenderCommand::BindImageTexture(0, aoOutputTextureID, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R8UNorm);
+        RenderCommand::BindImageTexture(1, edgeTexID, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R8UNorm);
 
         // Bind inputs
         u32 hzbID = m_HZBGenerator.GetHZBTextureID();
@@ -441,7 +438,7 @@ namespace OloEngine
         u32 groupsY = (m_Height + 7) / 8;
 
         // Edge texture is always read-only
-        RenderCommand::BindImageTexture(2, edgeTexID, 0, false, 0, GL_READ_ONLY, GL_R8);
+        RenderCommand::BindImageTexture(2, edgeTexID, 0, false, 0, RHI::Access::StorageRead, RHI::Format::R8UNorm);
 
         i32 passes = m_Settings.GTAODenoisePasses;
         bool readFromTex0 = true;
@@ -453,13 +450,13 @@ namespace OloEngine
 
             if (readFromTex0)
             {
-                RenderCommand::BindImageTexture(0, pingTextureID, 0, false, 0, GL_READ_ONLY, GL_R8);
-                RenderCommand::BindImageTexture(1, pongTextureID, 0, false, 0, GL_WRITE_ONLY, GL_R8);
+                RenderCommand::BindImageTexture(0, pingTextureID, 0, false, 0, RHI::Access::StorageRead, RHI::Format::R8UNorm);
+                RenderCommand::BindImageTexture(1, pongTextureID, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R8UNorm);
             }
             else
             {
-                RenderCommand::BindImageTexture(0, pongTextureID, 0, false, 0, GL_READ_ONLY, GL_R8);
-                RenderCommand::BindImageTexture(1, pingTextureID, 0, false, 0, GL_WRITE_ONLY, GL_R8);
+                RenderCommand::BindImageTexture(0, pongTextureID, 0, false, 0, RHI::Access::StorageRead, RHI::Format::R8UNorm);
+                RenderCommand::BindImageTexture(1, pingTextureID, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R8UNorm);
             }
 
             RenderCommand::DispatchCompute(groupsX, groupsY, 1);

@@ -6,9 +6,14 @@
 //
 // Issue #691 Phase 1, ADR 0011 (docs/adr/0011-rhi-neutral-resource-and-binding-model.md).
 //
-// **Declaration-only. Nothing consumes this yet.** Same two rules as RHITypes.h:
-// no backend headers, no backend types, and these are engine enums that a
-// backend converts explicitly.
+// **Partly live.** GetNativeHandleForDebug at the bottom is in use — by
+// RHIResourceRegistry.cpp, which defines it, and by
+// Renderer/Debug/RenderGraphResourceIdentity.cpp, which is the sanctioned
+// caller for the introspection tools. The resource *descriptions* below are
+// still forward-looking (Phase 2 step 3 minted RHI::ResourceHandle, but that
+// lives in RHITypes.h). Same two
+// rules as RHITypes.h: no backend headers, no backend types, and these are engine
+// enums that a backend converts explicitly.
 //
 // The descriptions below are heap+offset shaped from day one because the
 // binding model is heap-bindless-only (ADR 0010) — there is no classic
@@ -109,17 +114,9 @@ namespace OloEngine::RHI
         return (static_cast<u32>(value) & static_cast<u32>(flag)) != 0u;
     }
 
-    // Where the memory lives, expressed as intent rather than as a heap index.
-    // The GL backend maps these onto buffer-storage flags; a Vulkan backend maps
-    // them onto VMA usage hints. Naming them by intent is what keeps the choice
-    // reviewable — "this buffer is written once per frame by the CPU" is a fact
-    // about the engine, "VK_MEMORY_PROPERTY_HOST_COHERENT_BIT" is not.
-    enum class MemoryResidency : u8
-    {
-        DeviceLocal = 0, ///< GPU-only; upload via a transfer
-        HostToDevice,    ///< CPU writes each frame, GPU reads (per-frame UBOs)
-        DeviceToHost,    ///< GPU writes, CPU reads back (readback, queries)
-    };
+    // MemoryResidency MOVED to RHITypes.h in Phase 2 step 2. It turned out to be
+    // vocabulary rather than resource description: RendererAPI::AllocateBufferStorage
+    // needs it, and RendererAPI.h includes only RHITypes.h. See the note there.
 
     struct BufferDesc
     {
@@ -272,15 +269,24 @@ namespace OloEngine::RHI
     // not use them, and adding them speculatively would buy nothing — but any
     // middleware that wants them becomes a sampler-heap management problem, so
     // this is a Phase 4 device-bring-up checklist item, not a silent omission.
+    // Phase 2 widened the filter/wrap members from bools to RHI::Filter /
+    // RHI::AddressMode. The bools could not express the combinations the sweep
+    // actually had to replace — SSAORenderPass's noise texture is Nearest+Repeat,
+    // and CreateDepthArrayCompareOffView is Nearest+ClampToBorder — so a
+    // two-bool sampler would have forced those call sites to keep a GL escape
+    // hatch. See RHITypes.h's Filter/AddressMode note.
     struct SamplerDesc
     {
         // `Compare`, not `CompareOp` — a member sharing the enum's name hides it
         // and breaks the default member initializer (same trap as
         // TextureDesc::PixelFormat above).
         CompareOp Compare = CompareOp::Never; ///< Never = comparison disabled
-        bool LinearFilter = true;
+        Filter MinFilter = Filter::Linear;
+        Filter MagFilter = Filter::Linear;
         bool LinearMipFilter = true;
-        bool ClampToEdge = true;
+        AddressMode AddressU = AddressMode::ClampToEdge;
+        AddressMode AddressV = AddressMode::ClampToEdge;
+        AddressMode AddressW = AddressMode::ClampToEdge;
         f32 MaxAnisotropy = 1.0f;
 
         [[nodiscard]] auto operator==(const SamplerDesc& other) const -> bool = default;

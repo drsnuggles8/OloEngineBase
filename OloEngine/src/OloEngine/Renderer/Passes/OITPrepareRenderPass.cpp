@@ -4,8 +4,8 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 
-#include <glad/gl.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
@@ -15,8 +15,8 @@ namespace OloEngine
 {
     namespace
     {
-        constexpr GLint kOITAccumAttachmentIndex = 0;
-        constexpr GLint kOITRevealageAttachmentIndex = 1;
+        constexpr u32 kOITAccumAttachmentIndex = 0;
+        constexpr u32 kOITRevealageAttachmentIndex = 1;
 
         [[nodiscard]] bool HasBlitCompatibleDepth(const Ref<Framebuffer>& framebuffer)
         {
@@ -126,10 +126,10 @@ namespace OloEngine
 
         const auto oitFramebufferID = oitFramebuffer->GetRendererID();
         const glm::vec4 accumClear(0.0f, 0.0f, 0.0f, 0.0f);
-        glClearNamedFramebufferfv(oitFramebufferID, GL_COLOR, kOITAccumAttachmentIndex, glm::value_ptr(accumClear));
+        RenderCommand::ClearFramebufferColorAttachment(oitFramebufferID, kOITAccumAttachmentIndex, accumClear);
 
         const glm::vec4 revealageClear(1.0f, 0.0f, 0.0f, 0.0f);
-        glClearNamedFramebufferfv(oitFramebufferID, GL_COLOR, kOITRevealageAttachmentIndex, glm::value_ptr(revealageClear));
+        RenderCommand::ClearFramebufferColorAttachment(oitFramebufferID, kOITRevealageAttachmentIndex, revealageClear);
 
         bool seededFromSceneDepth = false;
         if (sceneFramebuffer && sceneFramebuffer->GetRendererID() != 0 &&
@@ -138,18 +138,18 @@ namespace OloEngine
             const auto& sceneSpec = sceneFramebuffer->GetSpecification();
             if (sceneSpec.Width == oitSpec.Width && sceneSpec.Height == oitSpec.Height)
             {
-                glBlitNamedFramebuffer(sceneFramebuffer->GetRendererID(), oitFramebufferID,
-                                       0, 0, static_cast<GLint>(oitSpec.Width), static_cast<GLint>(oitSpec.Height),
-                                       0, 0, static_cast<GLint>(oitSpec.Width), static_cast<GLint>(oitSpec.Height),
-                                       GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+                RenderCommand::BlitFramebuffer(sceneFramebuffer->GetRendererID(), oitFramebufferID,
+                                               0, 0, static_cast<i32>(oitSpec.Width), static_cast<i32>(oitSpec.Height),
+                                               0, 0, static_cast<i32>(oitSpec.Width), static_cast<i32>(oitSpec.Height),
+                                               RHI::BlitAspect::Depth, RHI::Filter::Nearest);
                 seededFromSceneDepth = true;
             }
         }
 
         if (!seededFromSceneDepth)
         {
-            const GLfloat depthClear = 1.0f;
-            glClearNamedFramebufferfv(oitFramebufferID, GL_DEPTH, 0, &depthClear);
+            constexpr f32 depthClear = 1.0f;
+            RenderCommand::ClearFramebufferDepth(oitFramebufferID, depthClear);
         }
     }
 } // namespace OloEngine

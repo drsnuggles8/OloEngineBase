@@ -178,12 +178,12 @@ namespace OloEngine
         atlas.NormalDepth = CreateAtlasTexture(atlasSize);
 
         RenderCommand::CopyImageSubDataFull(
-            framebuffer->GetColorAttachmentRendererID(0), RendererAPI::TextureTargetType::Texture2D, 0, 0,
-            atlas.Albedo->GetRendererID(), RendererAPI::TextureTargetType::Texture2D, 0, 0,
+            framebuffer->GetColorAttachmentHandle(0), RendererAPI::TextureTargetType::Texture2D, 0, 0,
+            atlas.Albedo->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2D, 0, 0,
             atlasSize, atlasSize);
         RenderCommand::CopyImageSubDataFull(
-            framebuffer->GetColorAttachmentRendererID(1), RendererAPI::TextureTargetType::Texture2D, 0, 0,
-            atlas.NormalDepth->GetRendererID(), RendererAPI::TextureTargetType::Texture2D, 0, 0,
+            framebuffer->GetColorAttachmentHandle(1), RendererAPI::TextureTargetType::Texture2D, 0, 0,
+            atlas.NormalDepth->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2D, 0, 0,
             atlasSize, atlasSize);
 
         atlas.FramesPerAxis = N;

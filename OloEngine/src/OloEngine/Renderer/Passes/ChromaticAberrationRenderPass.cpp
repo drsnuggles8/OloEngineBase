@@ -8,8 +8,6 @@
 #include "OloEngine/Renderer/RenderPipelineBuilderInternal.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
     ChromaticAberrationRenderPass::ChromaticAberrationRenderPass()
@@ -124,7 +122,7 @@ namespace OloEngine
         context.SetCulling(false);
         RenderCommand::DisableStencilTest();
         RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
         RenderCommand::SetColorMask(true, true, true, true);
 
         constexpr u32 colorAttachment = 0;

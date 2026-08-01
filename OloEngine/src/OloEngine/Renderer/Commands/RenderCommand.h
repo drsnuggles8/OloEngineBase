@@ -3,7 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
-#include <glad/gl.h>
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include <glm/glm.hpp>
 #include <type_traits>
 
@@ -17,7 +17,7 @@
  *
  * Design principles:
  * - Use AssetHandle (u64) instead of Ref<T> for asset references
- * - Use RendererID (u32) for GPU resource identifiers (VAO, textures, etc.)
+ * - Use RHI::ResourceHandle for GPU resource identities (VAO, textures, etc.)
  * - Use offset+count into FrameDataBuffer for variable-length data (bone matrices, transforms)
  * - Inline render state as POD flags instead of Ref<RenderState>
  *
@@ -31,7 +31,13 @@ namespace OloEngine
 
     // Type aliases for POD command fields
     using AssetHandle = UUID; // u64 asset identifier
-    using RendererID = u32;   // OpenGL resource ID
+    // `using RendererID = u32` lived here and is GONE (issue #691 step 3,
+    // slice 6). Every GPU-object field below is an RHI::ResourceHandle now:
+    // the command layer's redundant-bind cache keys on these values, and a
+    // driver name cannot key it safely — GL reissues names, so a deleted
+    // object and a newly created one could compare equal and the cache would
+    // skip a real bind. See CommandDispatch's InvalidateTextureSlot comment
+    // for the visual bug that actually shipped from exactly that.
 
     // Sentinel value for uninitialized render state index
     static constexpr u16 INVALID_RENDER_STATE_INDEX = UINT16_MAX;
@@ -44,32 +50,32 @@ namespace OloEngine
     {
         // Blend state
         bool blendEnabled = false;
-        GLenum blendSrcFactor = GL_SRC_ALPHA;
-        GLenum blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
-        GLenum blendEquation = GL_FUNC_ADD;
+        RHI::BlendFactor blendSrcFactor = RHI::BlendFactor::SrcAlpha;
+        RHI::BlendFactor blendDstFactor = RHI::BlendFactor::OneMinusSrcAlpha;
+        RHI::BlendOp blendEquation = RHI::BlendOp::Add;
 
         // Depth state
         bool depthTestEnabled = true;
         bool depthWriteMask = true;
-        GLenum depthFunction = GL_LESS;
+        RHI::CompareOp depthFunction = RHI::CompareOp::Less;
 
         // Stencil state
         bool stencilEnabled = false;
-        GLenum stencilFunction = GL_ALWAYS;
-        GLint stencilReference = 0;
-        GLuint stencilReadMask = 0xFF;
-        GLuint stencilWriteMask = 0xFF;
-        GLenum stencilFail = GL_KEEP;
-        GLenum stencilDepthFail = GL_KEEP;
-        GLenum stencilDepthPass = GL_KEEP;
+        RHI::CompareOp stencilFunction = RHI::CompareOp::Always;
+        i32 stencilReference = 0;
+        u32 stencilReadMask = 0xFF;
+        u32 stencilWriteMask = 0xFF;
+        RHI::StencilOp stencilFail = RHI::StencilOp::Keep;
+        RHI::StencilOp stencilDepthFail = RHI::StencilOp::Keep;
+        RHI::StencilOp stencilDepthPass = RHI::StencilOp::Keep;
 
         // Culling state
         bool cullingEnabled = false;
-        GLenum cullFace = GL_BACK;
+        RHI::CullMode cullFace = RHI::CullMode::Back;
 
-        // Polygon mode
-        GLenum polygonFace = GL_FRONT_AND_BACK;
-        GLenum polygonMode = GL_FILL;
+        // Polygon mode. No face member: core-profile glPolygonMode accepts only
+        // GL_FRONT_AND_BACK, and Vulkan's polygonMode has no face either.
+        RHI::PolygonMode polygonMode = RHI::PolygonMode::Fill;
 
         // Polygon offset
         bool polygonOffsetEnabled = false;
@@ -78,10 +84,10 @@ namespace OloEngine
 
         // Scissor
         bool scissorEnabled = false;
-        GLint scissorX = 0;
-        GLint scissorY = 0;
-        GLsizei scissorWidth = 0;
-        GLsizei scissorHeight = 0;
+        i32 scissorX = 0;
+        i32 scissorY = 0;
+        u32 scissorWidth = 0;
+        u32 scissorHeight = 0;
 
         // Color mask
         bool colorMaskR = true;
@@ -101,7 +107,7 @@ namespace OloEngine
         // Field-wise equality (safe against struct padding, unlike memcmp)
         bool operator==(const PODRenderState& o) const
         {
-            return blendEnabled == o.blendEnabled && blendSrcFactor == o.blendSrcFactor && blendDstFactor == o.blendDstFactor && blendEquation == o.blendEquation && depthTestEnabled == o.depthTestEnabled && depthWriteMask == o.depthWriteMask && depthFunction == o.depthFunction && stencilEnabled == o.stencilEnabled && stencilFunction == o.stencilFunction && stencilReference == o.stencilReference && stencilReadMask == o.stencilReadMask && stencilWriteMask == o.stencilWriteMask && stencilFail == o.stencilFail && stencilDepthFail == o.stencilDepthFail && stencilDepthPass == o.stencilDepthPass && cullingEnabled == o.cullingEnabled && cullFace == o.cullFace && polygonFace == o.polygonFace && polygonMode == o.polygonMode && polygonOffsetEnabled == o.polygonOffsetEnabled && polygonOffsetFactor == o.polygonOffsetFactor && polygonOffsetUnits == o.polygonOffsetUnits && scissorEnabled == o.scissorEnabled && scissorX == o.scissorX && scissorY == o.scissorY && scissorWidth == o.scissorWidth && scissorHeight == o.scissorHeight && colorMaskR == o.colorMaskR && colorMaskG == o.colorMaskG && colorMaskB == o.colorMaskB && colorMaskA == o.colorMaskA && colorAttachmentWriteMask == o.colorAttachmentWriteMask && multisamplingEnabled == o.multisamplingEnabled && lineWidth == o.lineWidth;
+            return blendEnabled == o.blendEnabled && blendSrcFactor == o.blendSrcFactor && blendDstFactor == o.blendDstFactor && blendEquation == o.blendEquation && depthTestEnabled == o.depthTestEnabled && depthWriteMask == o.depthWriteMask && depthFunction == o.depthFunction && stencilEnabled == o.stencilEnabled && stencilFunction == o.stencilFunction && stencilReference == o.stencilReference && stencilReadMask == o.stencilReadMask && stencilWriteMask == o.stencilWriteMask && stencilFail == o.stencilFail && stencilDepthFail == o.stencilDepthFail && stencilDepthPass == o.stencilDepthPass && cullingEnabled == o.cullingEnabled && cullFace == o.cullFace && polygonMode == o.polygonMode && polygonOffsetEnabled == o.polygonOffsetEnabled && polygonOffsetFactor == o.polygonOffsetFactor && polygonOffsetUnits == o.polygonOffsetUnits && scissorEnabled == o.scissorEnabled && scissorX == o.scissorX && scissorY == o.scissorY && scissorWidth == o.scissorWidth && scissorHeight == o.scissorHeight && colorMaskR == o.colorMaskR && colorMaskG == o.colorMaskG && colorMaskB == o.colorMaskB && colorMaskA == o.colorMaskA && colorAttachmentWriteMask == o.colorAttachmentWriteMask && multisamplingEnabled == o.multisamplingEnabled && lineWidth == o.lineWidth;
         }
     };
 
@@ -113,7 +119,7 @@ namespace OloEngine
     struct PODMaterialData
     {
         // Shader
-        RendererID shaderRendererID = 0;
+        RHI::ResourceHandle shaderRendererID{};
 
         // Legacy material properties
         glm::vec3 ambient = glm::vec3(0.1f);
@@ -121,8 +127,8 @@ namespace OloEngine
         glm::vec3 specular = glm::vec3(1.0f);
         f32 shininess = 32.0f;
         bool useTextureMaps = false;
-        RendererID diffuseMapID = 0;
-        RendererID specularMapID = 0;
+        RHI::ResourceHandle diffuseMapID{};
+        RHI::ResourceHandle specularMapID{};
 
         // PBR material properties
         bool enablePBR = false;
@@ -138,16 +144,17 @@ namespace OloEngine
         i32 alphaMode = 0;
         f32 alphaCutoff = 0.5f;
 
-        // PBR texture IDs (renderer IDs, 0 = none)
-        RendererID albedoMapID = 0;
-        RendererID metallicRoughnessMapID = 0;
-        RendererID normalMapID = 0;
-        RendererID aoMapID = 0;
-        RendererID emissiveMapID = 0;
-        RendererID environmentMapID = 0;
-        RendererID irradianceMapID = 0;
-        RendererID prefilterMapID = 0;
-        RendererID brdfLutMapID = 0;
+        // PBR texture identities (an invalid handle means no map for that slot;
+        // test with .IsValid(), never against a literal 0)
+        RHI::ResourceHandle albedoMapID{};
+        RHI::ResourceHandle metallicRoughnessMapID{};
+        RHI::ResourceHandle normalMapID{};
+        RHI::ResourceHandle aoMapID{};
+        RHI::ResourceHandle emissiveMapID{};
+        RHI::ResourceHandle environmentMapID{};
+        RHI::ResourceHandle irradianceMapID{};
+        RHI::ResourceHandle prefilterMapID{};
+        RHI::ResourceHandle brdfLutMapID{};
 
         // Field-wise equality (safe against struct padding, unlike memcmp)
         bool operator==(const PODMaterialData& o) const
@@ -358,14 +365,14 @@ namespace OloEngine
     struct SetBlendFuncCommand
     {
         CommandHeader header;
-        GLenum sourceFactor;
-        GLenum destFactor;
+        RHI::BlendFactor sourceFactor;
+        RHI::BlendFactor destFactor;
     };
 
     struct SetBlendEquationCommand
     {
         CommandHeader header;
-        GLenum mode;
+        RHI::BlendOp mode;
     };
 
     struct SetDepthTestCommand
@@ -383,7 +390,7 @@ namespace OloEngine
     struct SetDepthFuncCommand
     {
         CommandHeader header;
-        GLenum function;
+        RHI::CompareOp function;
     };
 
     struct SetStencilTestCommand
@@ -395,23 +402,23 @@ namespace OloEngine
     struct SetStencilFuncCommand
     {
         CommandHeader header;
-        GLenum function;
-        GLint reference;
-        GLuint mask;
+        RHI::CompareOp function;
+        i32 reference;
+        u32 mask;
     };
 
     struct SetStencilMaskCommand
     {
         CommandHeader header;
-        GLuint mask;
+        u32 mask;
     };
 
     struct SetStencilOpCommand
     {
         CommandHeader header;
-        GLenum stencilFail;
-        GLenum depthFail;
-        GLenum depthPass;
+        RHI::StencilOp stencilFail;
+        RHI::StencilOp depthFail;
+        RHI::StencilOp depthPass;
     };
 
     struct SetCullingCommand
@@ -423,7 +430,7 @@ namespace OloEngine
     struct SetCullFaceCommand
     {
         CommandHeader header;
-        GLenum face;
+        RHI::CullMode face;
     };
 
     struct SetLineWidthCommand
@@ -435,8 +442,7 @@ namespace OloEngine
     struct SetPolygonModeCommand
     {
         CommandHeader header;
-        GLenum face;
-        GLenum mode;
+        RHI::PolygonMode mode;
     };
 
     struct SetPolygonOffsetCommand
@@ -456,10 +462,10 @@ namespace OloEngine
     struct SetScissorBoxCommand
     {
         CommandHeader header;
-        GLint x;
-        GLint y;
-        GLsizei width;
-        GLsizei height;
+        i32 x;
+        i32 y;
+        u32 width;
+        u32 height;
     };
 
     struct SetColorMaskCommand
@@ -503,32 +509,32 @@ namespace OloEngine
     struct DrawIndexedCommand
     {
         CommandHeader header;
-        RendererID vertexArrayID; // VAO renderer ID
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
-        GLenum indexType;
+        RHI::IndexType indexType;
     };
 
     struct DrawIndexedInstancedCommand
     {
         CommandHeader header;
-        RendererID vertexArrayID; // VAO renderer ID
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         u32 instanceCount;
-        GLenum indexType;
+        RHI::IndexType indexType;
     };
 
     struct DrawArraysCommand
     {
         CommandHeader header;
-        RendererID vertexArrayID; // VAO renderer ID
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 vertexCount;
-        GLenum primitiveType;
+        RHI::PrimitiveTopology primitiveType;
     };
 
     struct DrawLinesCommand
     {
         CommandHeader header;
-        RendererID vertexArrayID; // VAO renderer ID
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 vertexCount;
     };
 
@@ -539,8 +545,8 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data (POD identifiers)
-        AssetHandle meshHandle;   // Mesh asset handle for resolution
-        RendererID vertexArrayID; // VAO renderer ID
+        AssetHandle meshHandle;              // Mesh asset handle for resolution
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         u32 baseIndex = 0; // Starting index offset in shared index buffer (for multi-submesh MeshSources)
         glm::mat4 transform;
@@ -592,8 +598,8 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data (POD identifiers)
-        AssetHandle meshHandle;   // Mesh asset handle
-        RendererID vertexArrayID; // VAO renderer ID
+        AssetHandle meshHandle;              // Mesh asset handle
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         u32 baseIndex = 0; // Starting index offset in shared index buffer (for multi-submesh MeshSources)
         u32 instanceCount;
@@ -649,13 +655,13 @@ namespace OloEngine
     struct DrawSkyboxCommand
     {
         CommandHeader header;
-        AssetHandle meshHandle;   // Skybox mesh handle
-        RendererID vertexArrayID; // VAO renderer ID
+        AssetHandle meshHandle;              // Skybox mesh handle
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         glm::mat4 transform;                               // Usually identity matrix
         AssetHandle shaderHandle;                          // Skybox shader handle (for asset tracking)
-        RendererID shaderRendererID;                       // Shader program ID for glUseProgram
-        RendererID skyboxTextureID;                        // Cubemap texture renderer ID
+        RHI::ResourceHandle shaderRendererID{};            // Shader program identity
+        RHI::ResourceHandle skyboxTextureID{};             // Cubemap texture identity
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX; // Render state index
     };
 
@@ -666,8 +672,8 @@ namespace OloEngine
     {
         CommandHeader header;
         AssetHandle shaderHandle;                          // Grid shader handle (for asset tracking)
-        RendererID shaderRendererID;                       // Shader program ID for glUseProgram
-        RendererID quadVAOID;                              // Fullscreen quad VAO renderer ID
+        RHI::ResourceHandle shaderRendererID{};            // Shader program identity
+        RHI::ResourceHandle quadVAOID{};                   // Fullscreen quad VAO identity
         f32 gridScale;                                     // Grid spacing scale factor
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX; // Render state index
     };
@@ -679,10 +685,10 @@ namespace OloEngine
     {
         CommandHeader header;
         glm::mat4 transform;
-        RendererID textureID;                              // Texture renderer ID
+        RHI::ResourceHandle textureID{};                   // Texture identity
         AssetHandle shaderHandle;                          // Shader asset handle (for asset tracking)
-        RendererID shaderRendererID;                       // Shader program ID for glUseProgram
-        RendererID quadVAID;                               // Quad vertex array renderer ID
+        RHI::ResourceHandle shaderRendererID{};            // Shader program identity
+        RHI::ResourceHandle quadVAID{};                    // Quad vertex array identity
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX; // Render state index
     };
 
@@ -695,20 +701,20 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data
-        RendererID vertexArrayID = 0;
+        RHI::ResourceHandle vertexArrayID{};
         u32 indexCount = 0;
         u32 patchVertexCount = 3; // Tessellation patch vertex count
 
         // Shader
-        RendererID shaderRendererID = 0;
+        RHI::ResourceHandle shaderRendererID{};
 
         // Terrain textures
-        RendererID heightmapTextureID = 0;
-        RendererID splatmapTextureID = 0;
-        RendererID splatmap1TextureID = 0;
-        RendererID albedoArrayTextureID = 0;
-        RendererID normalArrayTextureID = 0;
-        RendererID armArrayTextureID = 0;
+        RHI::ResourceHandle heightmapTextureID{};
+        RHI::ResourceHandle splatmapTextureID{};
+        RHI::ResourceHandle splatmap1TextureID{};
+        RHI::ResourceHandle albedoArrayTextureID{};
+        RHI::ResourceHandle normalArrayTextureID{};
+        RHI::ResourceHandle armArrayTextureID{};
 
         // Transform
         glm::mat4 transform = glm::mat4(1.0f);
@@ -729,16 +735,16 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data
-        RendererID vertexArrayID = 0;
+        RHI::ResourceHandle vertexArrayID{};
         u32 indexCount = 0;
 
         // Shader
-        RendererID shaderRendererID = 0;
+        RHI::ResourceHandle shaderRendererID{};
 
         // Textures for triplanar sampling
-        RendererID albedoArrayTextureID = 0;
-        RendererID normalArrayTextureID = 0;
-        RendererID armArrayTextureID = 0;
+        RHI::ResourceHandle albedoArrayTextureID{};
+        RHI::ResourceHandle normalArrayTextureID{};
+        RHI::ResourceHandle armArrayTextureID{};
 
         // Transform
         glm::mat4 transform = glm::mat4(1.0f);
@@ -756,11 +762,11 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data (decal projection cube)
-        RendererID vertexArrayID = 0;
+        RHI::ResourceHandle vertexArrayID{};
         u32 indexCount = 0;
 
         // Shader
-        RendererID shaderRendererID = 0;
+        RHI::ResourceHandle shaderRendererID{};
 
         // Decal transform
         glm::mat4 decalTransform = glm::mat4(1.0f);        // Scaled transform for geometry
@@ -770,9 +776,9 @@ namespace OloEngine
         // Decal appearance
         glm::vec4 decalColor = glm::vec4(1.0f);
         glm::vec4 decalParams = glm::vec4(0.0f); // x = fadeDistance, y = normalAngleThreshold, z/w = unused
-        RendererID albedoTextureID = 0;
-        RendererID normalTextureID = 0; // Bound at ShaderBindingLayout::TEX_USER_1 for Normal-mode decals (see CommandDispatch::DrawDecal)
-        RendererID rmaTextureID = 0;    // Bound at ShaderBindingLayout::TEX_USER_2 for RMA-mode decals (R=roughness, G=metal, B=AO)
+        RHI::ResourceHandle albedoTextureID{};
+        RHI::ResourceHandle normalTextureID{}; // Bound at ShaderBindingLayout::TEX_USER_1 for Normal-mode decals (see CommandDispatch::DrawDecal)
+        RHI::ResourceHandle rmaTextureID{};    // Bound at ShaderBindingLayout::TEX_USER_2 for RMA-mode decals (R=roughness, G=metal, B=AO)
         // Inserting fields between members above is safe: every Renderer3D::DrawDecal
         // call site assigns members by name (`cmd->normalTextureID = …`) rather than
         // positional brace initialization, and the same convention applies to
@@ -807,7 +813,7 @@ namespace OloEngine
         // commands composite via the WB-OIT layout without resubmission.
         // DecalRenderPass populates this on the command itself (not a
         // global) so the queue stays stateless and replay-safe.
-        u32 oitProgramOverride = 0;
+        RHI::ResourceHandle oitProgramOverride{};
 
         // Render state index (into FrameDataBuffer::RenderStateTable)
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
@@ -822,12 +828,12 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data (instanced quad)
-        RendererID vertexArrayID = 0;
+        RHI::ResourceHandle vertexArrayID{};
         u32 indexCount = 0;
         u32 instanceCount = 0;
 
         // Shader
-        RendererID shaderRendererID = 0;
+        RHI::ResourceHandle shaderRendererID{};
 
         // Model transform (parent terrain entity)
         glm::mat4 modelTransform = glm::mat4(1.0f);
@@ -846,11 +852,11 @@ namespace OloEngine
 
         // Albedo texture (0 = no texture). On the impostor path this is the
         // octahedral albedo atlas (rgb + coverage).
-        RendererID albedoTextureID = 0;
+        RHI::ResourceHandle albedoTextureID{};
 
         // Octahedral impostor atlas (issue #433): normal+depth atlas + params.
         // impostorEnabled == 0 for the flat-billboard path (fields ignored).
-        RendererID impostorNormalDepthTextureID = 0;
+        RHI::ResourceHandle impostorNormalDepthTextureID{};
         f32 impostorEnabled = 0.0f;
         f32 impostorFramesPerAxis = 8.0f;
         f32 impostorHemi = 1.0f;
@@ -874,11 +880,11 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data
-        RendererID vertexArrayID = 0;
+        RHI::ResourceHandle vertexArrayID{};
         u32 indexCount = 0;
 
         // Shader
-        RendererID shaderRendererID = 0;
+        RHI::ResourceHandle shaderRendererID{};
 
         // Transform
         glm::mat4 modelTransform = glm::mat4(1.0f);
@@ -904,13 +910,13 @@ namespace OloEngine
         glm::vec4 fftParams = glm::vec4(0.0f);             // useFFT (0/1), 1/patchSize, heightScale, horizontalScale
 
         // Normal map / noise texture IDs
-        RendererID normalMap0ID = 0;
-        RendererID normalMap1ID = 0;
-        RendererID noiseTextureID = 0;
-        RendererID foamTextureID = 0;
+        RHI::ResourceHandle normalMap0ID{};
+        RHI::ResourceHandle normalMap1ID{};
+        RHI::ResourceHandle noiseTextureID{};
+        RHI::ResourceHandle foamTextureID{};
         // FFT ocean cascade textures (WATER_FUTURE_IMPROVEMENTS.md §1)
-        RendererID fftDisplacementID = 0; // rgb = (dx, height, dz), a = foam
-        RendererID fftDerivativesID = 0;  // rgb = normal, a = jacobian
+        RHI::ResourceHandle fftDisplacementID{}; // rgb = (dx, height, dz), a = foam
+        RHI::ResourceHandle fftDerivativesID{};  // rgb = normal, a = jacobian
 
         // Feature toggles
         bool refractionEnabled = true;

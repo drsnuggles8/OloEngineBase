@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/RenderGraph.h"
 
 #include "OloEngine/Core/PerformanceProfiler.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraphBarrierPlanner.h"
 #include "OloEngine/Renderer/RenderGraphHandleAllocator.h"
 #include "OloEngine/Renderer/RenderGraphHazardValidator.h"
@@ -12,8 +13,6 @@
 #include "OloEngine/Renderer/RenderGraphTransientPlanner.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
-
-#include <glad/gl.h>
 
 #include <algorithm>
 #include <atomic>
@@ -163,19 +162,21 @@ namespace OloEngine
             if (!hasColor)
                 return;
 
-            const u32 textureID = target->GetColorAttachmentRendererID(0);
+            const RHI::ResourceHandle colorAttachment = target->GetColorAttachmentHandle(0);
             const auto& spec = target->GetSpecification();
-            if (textureID == 0 || spec.Width == 0 || spec.Height == 0)
+            if (!colorAttachment.IsValid() || spec.Width == 0 || spec.Height == 0)
                 return;
 
             const sizet texelCount = static_cast<sizet>(spec.Width) * spec.Height;
             static thread_local std::vector<f32> s_Scratch;
             s_Scratch.resize(texelCount * 4u);
-            glGetTextureSubImage(textureID, 0, 0, 0, 0,
-                                 static_cast<GLsizei>(spec.Width), static_cast<GLsizei>(spec.Height), 1,
-                                 GL_RGBA, GL_FLOAT,
-                                 static_cast<GLsizei>(s_Scratch.size() * sizeof(f32)),
-                                 s_Scratch.data());
+            if (!RenderCommand::ReadTextureSubImage(colorAttachment, 0, 0, 0, 0,
+                                                    spec.Width, spec.Height, 1,
+                                                    RHI::Format::RGBA32Float,
+                                                    s_Scratch.size() * sizeof(f32), s_Scratch.data()))
+            {
+                return;
+            }
 
             // NaN census first: a single NaN texel in the scene input snowballs
             // through bloom's 13-tap downsample/upsample chain into a ~300px
@@ -200,7 +201,7 @@ namespace OloEngine
                     OLO_CORE_ERROR("BLACKSQUARE HUNT NAN: after pass '{}' {}FB#{} tex#{} has {} NaN channel value(s), first at texel ({}, {})",
                                    passName,
                                    watchLabel ? watchLabel : "target ",
-                                   target->GetRendererID(), textureID,
+                                   target->GetRendererID(), colorAttachment,
                                    nanCount,
                                    texel % spec.Width, texel / spec.Width);
                 }
@@ -240,7 +241,7 @@ namespace OloEngine
                         OLO_CORE_ERROR("BLACKSQUARE HUNT: after pass '{}' {}FB#{} tex#{} has a >=64px black block at ({}, {}) [{}x{}]",
                                        passName,
                                        watchLabel ? watchLabel : "target ",
-                                       target->GetRendererID(), textureID,
+                                       target->GetRendererID(), colorAttachment,
                                        bx * kBlock, by * kBlock, spec.Width, spec.Height);
                         return; // one report per pass per frame is enough
                     }
@@ -307,7 +308,8 @@ namespace OloEngine
                 return;
             const u32 mipLevels = std::max(spec.MipLevels, 1u);
             for (u32 level = 0; level < mipLevels; ++level)
-                glClearTexImage(texture->GetRendererID(), static_cast<GLint>(level), GL_RGBA, GL_FLOAT, color.RGBA);
+                RenderCommand::ClearTextureFloat(texture->GetRendererID(), level,
+                                                 glm::vec4(color.RGBA[0], color.RGBA[1], color.RGBA[2], color.RGBA[3]));
         }
 
         void PoisonBuffer(const Ref<StorageBuffer>& buffer)
@@ -320,7 +322,7 @@ namespace OloEngine
             // plausibly wrong. NaN would be even louder but risks GPU hangs
             // in indirect-dispatch consumers, so stay finite.
             constexpr f32 kPoisonValue = 1.0e9f;
-            glClearNamedBufferData(buffer->GetRendererID(), GL_R32F, GL_RED, GL_FLOAT, &kPoisonValue);
+            RenderCommand::ClearBufferFloat(buffer->GetRendererID(), kPoisonValue);
         }
 
         void PoisonFramebuffer(const Ref<Framebuffer>& framebuffer, const PoisonColor& color)
@@ -339,7 +341,9 @@ namespace OloEngine
                     case FramebufferTextureFormat::RGB32F:
                     case FramebufferTextureFormat::RG16F:
                     case FramebufferTextureFormat::RG32F:
-                        glClearTexImage(framebuffer->GetColorAttachmentRendererID(colorIndex), 0, GL_RGBA, GL_FLOAT, color.RGBA);
+                        RenderCommand::ClearTextureFloat(
+                            framebuffer->GetColorAttachmentHandle(colorIndex), 0,
+                            glm::vec4(color.RGBA[0], color.RGBA[1], color.RGBA[2], color.RGBA[3]));
                         ++colorIndex;
                         break;
                     case FramebufferTextureFormat::RED_INTEGER:
@@ -642,7 +646,7 @@ namespace OloEngine
     // Typed import / resolve / extract
     // =========================================================================
 
-    RGTextureHandle RenderGraph::AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory, bool isPlaceholder, std::string_view placeholderReason)
+    RGTextureHandle RenderGraph::AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory, bool isPlaceholder, std::string_view placeholderReason, RHI::ResourceHandle identity)
     {
         RGTextureHandle handle;
 
@@ -676,7 +680,8 @@ namespace OloEngine
             // the generation when something the handle actually identifies has
             // changed; otherwise re-importing the same resource keeps prior
             // handle copies valid (avoids invalidating every consumer each frame).
-            const bool resourceChanged = (phys.TextureID != textureID) || (phys.IsHistory != isHistory);
+            const bool resourceChanged = (phys.TextureID != textureID) || !(phys.Handle == identity) ||
+                                         (phys.IsHistory != isHistory);
             const bool placeholderChanged = (slot.IsPlaceholder != isPlaceholder) ||
                                             (slot.PlaceholderReason != placeholderReason);
             const bool needsGenBump = wasOnFreeList || !slot.Alive || resourceChanged || placeholderChanged;
@@ -694,6 +699,7 @@ namespace OloEngine
             handle.Generation = slot.Generation;
 
             phys.TextureID = textureID;
+            phys.Handle = identity;
             phys.IsHistory = isHistory;
 
             m_TextureHandlesByName[std::string(name)] = handle;
@@ -725,6 +731,7 @@ namespace OloEngine
 
             auto& phys = m_PhysicalTextures[handle.Index];
             phys.TextureID = textureID;
+            phys.Handle = identity;
             phys.IsHistory = isHistory;
         }
         else
@@ -743,6 +750,7 @@ namespace OloEngine
 
             PhysicalTexture phys;
             phys.TextureID = textureID;
+            phys.Handle = identity;
             phys.IsHistory = isHistory;
             m_PhysicalTextures.push_back(std::move(phys));
         }
@@ -763,7 +771,7 @@ namespace OloEngine
             return {};
 
         auto desc = BuildVersionedResourceDesc(sourceResource,
-                                               ResourceHandle::Kind::Texture2D,
+                                               RGResourceHandle::Kind::Texture2D,
                                                versionedName);
         auto versionHandle = AllocateTransientTextureHandle(versionedName, desc);
         if (!ownerPassName.empty())
@@ -913,7 +921,7 @@ namespace OloEngine
             return {};
 
         auto desc = BuildVersionedResourceDesc(sourceResource,
-                                               ResourceHandle::Kind::Framebuffer,
+                                               RGResourceHandle::Kind::Framebuffer,
                                                versionedName);
         auto versionHandle = AllocateTransientFramebufferHandle(versionedName, desc);
         if (!ownerPassName.empty())
@@ -1100,7 +1108,7 @@ namespace OloEngine
             return {};
 
         auto desc = BuildVersionedResourceDesc(sourceResource,
-                                               ResourceHandle::Kind::StorageBuffer,
+                                               RGResourceHandle::Kind::StorageBuffer,
                                                versionedName);
         auto versionHandle = AllocateTransientBufferHandle(versionedName, desc);
         if (!ownerPassName.empty())
@@ -1115,20 +1123,44 @@ namespace OloEngine
         return versionHandle;
     }
 
-    RGTextureHandle RenderGraph::ImportTexture(std::string_view name, u32 textureID,
-                                               const RGResourceDesc& desc)
+    // The one place the texture-import rules live. Both importers route through
+    // it so they cannot drift on naming, placeholder handling or registry
+    // invalidation — and, critically, so the identity reaches
+    // AllocateTextureHandle as a PARAMETER. Stamping it onto the record after
+    // the fact (the first shape of ImportTextureHandle) left it invisible to
+    // that function's change detection, which then never bumped the generation
+    // for a handle import.
+    //
+    // `textureID` and `identity` are ALTERNATIVES, never both — see
+    // PhysicalTexture. Each importer supplies one and the null form of the other.
+    RGTextureHandle RenderGraph::ImportTextureCommon(std::string_view name, u32 textureID,
+                                                     RHI::ResourceHandle identity,
+                                                     const RGResourceDesc& desc)
     {
         RGResourceDesc importDesc = desc;
         importDesc.Imported = true;
-        if (importDesc.Kind == ResourceHandle::Kind::Unknown)
-            importDesc.Kind = ResourceHandle::Kind::Texture2D;
+        if (importDesc.Kind == RGResourceHandle::Kind::Unknown)
+            importDesc.Kind = RGResourceHandle::Kind::Texture2D;
         if (importDesc.DebugName.empty())
             importDesc.DebugName = std::string(name);
 
         m_ImportedResources[std::string(name)] = importDesc;
         m_ResourceRegistryDirty = true;
 
-        return AllocateTextureHandle(name, textureID, false, importDesc.IsPlaceholder, importDesc.PlaceholderReason);
+        return AllocateTextureHandle(name, textureID, false, importDesc.IsPlaceholder,
+                                     importDesc.PlaceholderReason, identity);
+    }
+
+    RGTextureHandle RenderGraph::ImportTexture(std::string_view name, u32 textureID,
+                                               const RGResourceDesc& desc)
+    {
+        return ImportTextureCommon(name, textureID, RHI::ResourceHandle{}, desc);
+    }
+
+    RGTextureHandle RenderGraph::ImportTextureHandle(std::string_view name, RHI::ResourceHandle texture,
+                                                     const RGResourceDesc& desc)
+    {
+        return ImportTextureCommon(name, 0u, texture, desc);
     }
 
     RGFramebufferHandle RenderGraph::ImportFramebuffer(std::string_view name,
@@ -1137,8 +1169,8 @@ namespace OloEngine
     {
         RGResourceDesc importDesc = desc;
         importDesc.Imported = true;
-        if (importDesc.Kind == ResourceHandle::Kind::Unknown)
-            importDesc.Kind = ResourceHandle::Kind::Framebuffer;
+        if (importDesc.Kind == RGResourceHandle::Kind::Unknown)
+            importDesc.Kind = RGResourceHandle::Kind::Framebuffer;
         if (importDesc.DebugName.empty())
             importDesc.DebugName = std::string(name);
 
@@ -1153,8 +1185,8 @@ namespace OloEngine
     {
         RGResourceDesc importDesc = desc;
         importDesc.Imported = true;
-        if (importDesc.Kind == ResourceHandle::Kind::Unknown)
-            importDesc.Kind = ResourceHandle::Kind::UniformBuffer;
+        if (importDesc.Kind == RGResourceHandle::Kind::Unknown)
+            importDesc.Kind = RGResourceHandle::Kind::UniformBuffer;
         if (importDesc.DebugName.empty())
             importDesc.DebugName = std::string(name);
 
@@ -1172,8 +1204,8 @@ namespace OloEngine
 
         RGResourceDesc importDesc = desc;
         importDesc.Imported = true;
-        if (importDesc.Kind == ResourceHandle::Kind::Unknown)
-            importDesc.Kind = ResourceHandle::Kind::Texture2D;
+        if (importDesc.Kind == RGResourceHandle::Kind::Unknown)
+            importDesc.Kind = RGResourceHandle::Kind::Texture2D;
         if (importDesc.DebugName.empty())
             importDesc.DebugName = std::string(name);
 
@@ -1195,7 +1227,7 @@ namespace OloEngine
             return {};
 
         const auto* parentInfo = FindRegisteredResource(parentResource);
-        if (!parentInfo || parentInfo->Desc.Kind != ResourceHandle::Kind::Framebuffer)
+        if (!parentInfo || parentInfo->Desc.Kind != RGResourceHandle::Kind::Framebuffer)
         {
             OLO_CORE_ERROR("RenderGraph::CreateFramebufferAttachmentView: parent '{}' is not a registered framebuffer resource",
                            parentResource);
@@ -1210,7 +1242,7 @@ namespace OloEngine
         };
 
         RGResourceDesc viewDesc = parentInfo->Desc;
-        viewDesc.Kind = ResourceHandle::Kind::Texture2D;
+        viewDesc.Kind = RGResourceHandle::Kind::Texture2D;
         viewDesc.DebugName = std::string(name);
         viewDesc.Attachments.clear();
         viewDesc.DepthOrLayers = 1u;
@@ -1275,7 +1307,7 @@ namespace OloEngine
             return {};
 
         const auto* parentInfo = FindRegisteredResource(parentResource);
-        if (!parentInfo || parentInfo->Desc.Kind != ResourceHandle::Kind::Framebuffer)
+        if (!parentInfo || parentInfo->Desc.Kind != RGResourceHandle::Kind::Framebuffer)
         {
             OLO_CORE_ERROR("RenderGraph::CreateFramebufferDepthAttachmentView: parent '{}' is not a registered framebuffer resource",
                            parentResource);
@@ -1289,7 +1321,7 @@ namespace OloEngine
         };
 
         RGResourceDesc viewDesc = parentInfo->Desc;
-        viewDesc.Kind = ResourceHandle::Kind::Texture2D;
+        viewDesc.Kind = RGResourceHandle::Kind::Texture2D;
         viewDesc.DebugName = std::string(name);
         viewDesc.Attachments.clear();
         viewDesc.DepthOrLayers = 1u;
@@ -1362,13 +1394,13 @@ namespace OloEngine
             return {};
         }
 
-        const auto isTextureKind = [](const ResourceHandle::Kind kind)
+        const auto isTextureKind = [](const RGResourceHandle::Kind kind)
         {
-            return kind == ResourceHandle::Kind::Texture2D ||
-                   kind == ResourceHandle::Kind::Texture2DArray ||
-                   kind == ResourceHandle::Kind::Texture3D ||
-                   kind == ResourceHandle::Kind::TextureCube ||
-                   kind == ResourceHandle::Kind::TextureCubeArray;
+            return kind == RGResourceHandle::Kind::Texture2D ||
+                   kind == RGResourceHandle::Kind::Texture2DArray ||
+                   kind == RGResourceHandle::Kind::Texture3D ||
+                   kind == RGResourceHandle::Kind::TextureCube ||
+                   kind == RGResourceHandle::Kind::TextureCubeArray;
         };
 
         if (!isTextureKind(parentInfo->Desc.Kind))
@@ -1437,7 +1469,7 @@ namespace OloEngine
         }
 
         const auto* parentInfo = FindRegisteredResource(parentResource);
-        if (!parentInfo || parentInfo->Desc.Kind != ResourceHandle::Kind::Texture2DArray)
+        if (!parentInfo || parentInfo->Desc.Kind != RGResourceHandle::Kind::Texture2DArray)
         {
             OLO_CORE_ERROR("RenderGraph::CreateTextureArrayLayerView: parent '{}' is not a registered texture-array resource",
                            parentResource);
@@ -1512,7 +1544,7 @@ namespace OloEngine
         }
 
         const auto* parentInfo = FindRegisteredResource(parentResource);
-        if (!parentInfo || parentInfo->Desc.Kind != ResourceHandle::Kind::TextureCube)
+        if (!parentInfo || parentInfo->Desc.Kind != RGResourceHandle::Kind::TextureCube)
         {
             OLO_CORE_ERROR("RenderGraph::CreateTextureCubeFaceView: parent '{}' is not a registered cubemap resource",
                            parentResource);
@@ -1571,13 +1603,13 @@ namespace OloEngine
             return {};
         }
 
-        const auto isTextureKind = [](const ResourceHandle::Kind kind)
+        const auto isTextureKind = [](const RGResourceHandle::Kind kind)
         {
-            return kind == ResourceHandle::Kind::Texture2D ||
-                   kind == ResourceHandle::Kind::Texture2DArray ||
-                   kind == ResourceHandle::Kind::Texture3D ||
-                   kind == ResourceHandle::Kind::TextureCube ||
-                   kind == ResourceHandle::Kind::TextureCubeArray;
+            return kind == RGResourceHandle::Kind::Texture2D ||
+                   kind == RGResourceHandle::Kind::Texture2DArray ||
+                   kind == RGResourceHandle::Kind::Texture3D ||
+                   kind == RGResourceHandle::Kind::TextureCube ||
+                   kind == RGResourceHandle::Kind::TextureCubeArray;
         };
 
         if (!isTextureKind(parentInfo->Desc.Kind) || !isTextureKind(backingInfo->Desc.Kind))
@@ -1633,6 +1665,81 @@ namespace OloEngine
         m_ResourceRegistryDirty = true;
 
         return AllocateTextureHandle(name, 0u, /*isHistory=*/false, viewDesc.IsPlaceholder, viewDesc.PlaceholderReason);
+    }
+
+    RHI::ResourceHandle RenderGraph::ResolveTextureHandle(RGTextureHandle handle) const
+    {
+        EnsureResourceRegistryBuilt();
+
+        if (!handle.IsValid() || handle.Index >= m_PhysicalTextures.size())
+            return {};
+        if (handle.Index >= m_TextureHandleSlots.size())
+            return {};
+        const auto& slot = m_TextureHandleSlots[handle.Index];
+        if (!slot.Alive || slot.Generation != handle.Generation)
+            return {};
+
+        // Attachment views resolve to the framebuffer's own attachment
+        // identities, which migrated in slice 3 — so this path is fully on the
+        // new currency regardless of how the parent was imported.
+        if (const auto viewIt = m_TextureViewDefinitions.find(slot.Name);
+            viewIt != m_TextureViewDefinitions.end())
+        {
+            if (const auto parentIt = m_FramebufferHandlesByName.find(viewIt->second.ParentResource);
+                parentIt != m_FramebufferHandlesByName.end() && IsFramebufferHandleCurrent(parentIt->second))
+            {
+                if (auto framebuffer = ResolveFramebuffer(parentIt->second))
+                {
+                    if (viewIt->second.Kind == TextureViewKind::FramebufferDepthAttachment)
+                        return framebuffer->GetDepthAttachmentHandle();
+                    return framebuffer->GetColorAttachmentHandle(viewIt->second.AttachmentIndex);
+                }
+            }
+            // Subresource / multisample-resolve views defer to their parent
+            // texture, which the native path walks by name. Those chains are
+            // migrated per resource, so leave them to the native resolver until
+            // their own slice.
+            return {};
+        }
+
+        // A WriteNewVersion rename is bookkeeping over the SAME physical
+        // resource: the version's own slot carries no backing, so the identity
+        // lives on the base resource. The native resolver walks this chain and
+        // this one must too — without it a migrated resource in any
+        // read-modify-write chain resolves to the null handle on every
+        // versioned read, which is indistinguishable at the call site from the
+        // documented "imported as a native id" meaning below.
+        //
+        // Mirrors ResolveTexture's walk exactly: by-name (NOT GetTextureHandle,
+        // whose latest-version redirect would loop), ITERATIVE and depth-capped
+        // so a self- or mutually-referencing alias map cannot recurse the stack
+        // to death.
+        if (const auto aliasIt = m_VersionAliasTargets.find(slot.Name);
+            aliasIt != m_VersionAliasTargets.end())
+        {
+            const std::string* current = &aliasIt->second;
+            for (u32 depth = 0; depth < kMaxVersionAliasDepth; ++depth)
+            {
+                const auto sourceIt = m_TextureHandlesByName.find(*current);
+                if (sourceIt == m_TextureHandlesByName.end() || !IsTextureHandleCurrent(sourceIt->second))
+                    return {};
+
+                // Terminal link — resolve it so view/placeholder handling still
+                // runs. It is not itself a rename, so this cannot re-enter here.
+                const auto nextIt = m_VersionAliasTargets.find(*current);
+                if (nextIt == m_VersionAliasTargets.end())
+                    return ResolveTextureHandle(sourceIt->second);
+
+                current = &nextIt->second;
+            }
+
+            return {};
+        }
+
+        // An entry imported as a native id has no identity to give. Callers must
+        // migrate a resource's whole chain together; returning a fabricated
+        // handle here would name nothing while claiming to name something.
+        return m_PhysicalTextures[handle.Index].Handle;
     }
 
     u32 RenderGraph::ResolveTexture(RGTextureHandle handle) const
@@ -1955,7 +2062,7 @@ namespace OloEngine
 
         for (auto& contract : m_ExternalTextureSinkContracts)
         {
-            contract.SourceKind = ResourceHandle::Kind::Unknown;
+            contract.SourceKind = RGResourceHandle::Kind::Unknown;
             contract.SourceReachable = IsResourceReachableForExtraction(contract.SourceResource);
 
             if (const auto resourceIt = m_ResourceRegistry.find(contract.SourceResource);
@@ -2186,11 +2293,9 @@ namespace OloEngine
             if (sourceTextureID == 0)
                 continue;
 
-            glCopyImageSubData(sourceTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                               sink.TextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                               static_cast<GLsizei>(sink.Width),
-                               static_cast<GLsizei>(sink.Height),
-                               1);
+            RenderCommand::CopyImageSubData(sourceTextureID, RendererAPI::TextureTargetType::Texture2D,
+                                            sink.TextureID, RendererAPI::TextureTargetType::Texture2D,
+                                            sink.Width, sink.Height);
             if (sink.ValidFlag)
                 *sink.ValidFlag = true;
         }
@@ -2232,11 +2337,9 @@ namespace OloEngine
             if (sourceTextureID == 0)
                 continue;
 
-            glCopyImageSubData(sourceTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                               sink.TextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                               static_cast<GLsizei>(sink.Width),
-                               static_cast<GLsizei>(sink.Height),
-                               1);
+            RenderCommand::CopyImageSubData(sourceTextureID, RendererAPI::TextureTargetType::Texture2D,
+                                            sink.TextureID, RendererAPI::TextureTargetType::Texture2D,
+                                            sink.Width, sink.Height);
             if (sink.ValidFlag)
                 *sink.ValidFlag = true;
         }
@@ -2352,8 +2455,8 @@ namespace OloEngine
 
         auto transientDesc = desc;
         transientDesc.Imported = false;
-        if (transientDesc.Kind == ResourceHandle::Kind::Unknown)
-            transientDesc.Kind = ResourceHandle::Kind::Texture2D;
+        if (transientDesc.Kind == RGResourceHandle::Kind::Unknown)
+            transientDesc.Kind = RGResourceHandle::Kind::Texture2D;
         if (transientDesc.DebugName.empty())
             transientDesc.DebugName = stableName;
 
@@ -2468,8 +2571,8 @@ namespace OloEngine
 
         auto transientDesc = desc;
         transientDesc.Imported = false;
-        if (transientDesc.Kind == ResourceHandle::Kind::Unknown)
-            transientDesc.Kind = ResourceHandle::Kind::Framebuffer;
+        if (transientDesc.Kind == RGResourceHandle::Kind::Unknown)
+            transientDesc.Kind = RGResourceHandle::Kind::Framebuffer;
         if (transientDesc.DebugName.empty())
             transientDesc.DebugName = stableName;
 
@@ -2582,8 +2685,8 @@ namespace OloEngine
 
         auto transientDesc = desc;
         transientDesc.Imported = false;
-        if (transientDesc.Kind == ResourceHandle::Kind::Unknown)
-            transientDesc.Kind = ResourceHandle::Kind::StorageBuffer;
+        if (transientDesc.Kind == RGResourceHandle::Kind::Unknown)
+            transientDesc.Kind = RGResourceHandle::Kind::StorageBuffer;
         if (transientDesc.DebugName.empty())
             transientDesc.DebugName = stableName;
 
@@ -2658,7 +2761,7 @@ namespace OloEngine
     }
 
     RGResourceDesc RenderGraph::BuildVersionedResourceDesc(std::string_view sourceResource,
-                                                           const ResourceHandle::Kind fallbackKind,
+                                                           const RGResourceHandle::Kind fallbackKind,
                                                            std::string_view versionedName) const
     {
         const auto sourceName = std::string(sourceResource);
@@ -2671,7 +2774,7 @@ namespace OloEngine
             clonedDesc.IsPlaceholder = false;
             clonedDesc.PlaceholderReason.clear();
             clonedDesc.DebugName = debugName;
-            if (clonedDesc.Kind == ResourceHandle::Kind::Unknown)
+            if (clonedDesc.Kind == RGResourceHandle::Kind::Unknown)
                 clonedDesc.Kind = fallbackKind;
             return clonedDesc;
         };
@@ -3323,10 +3426,10 @@ namespace OloEngine
 
             switch (desc.Kind)
             {
-                case ResourceHandle::Kind::Texture2D:
-                case ResourceHandle::Kind::Texture2DArray:
-                case ResourceHandle::Kind::TextureCube:
-                case ResourceHandle::Kind::TextureCubeArray:
+                case RGResourceHandle::Kind::Texture2D:
+                case RGResourceHandle::Kind::Texture2DArray:
+                case RGResourceHandle::Kind::TextureCube:
+                case RGResourceHandle::Kind::TextureCubeArray:
                 {
                     auto textureIt = textureAliasesBySlot.find(aliasKey);
                     if (textureIt == textureAliasesBySlot.end())
@@ -3352,11 +3455,25 @@ namespace OloEngine
                         texHandleIt != m_TextureHandlesByName.end() &&
                         texHandleIt->second.Index < m_PhysicalTextures.size())
                     {
-                        m_PhysicalTextures[texHandleIt->second.Index].TextureID = textureIt->second ? textureIt->second->GetRendererID() : 0;
+                        // BOTH currencies, read off the one pooled Ref in one
+                        // statement (issue #691 step 3, slice 7). See
+                        // PhysicalTexture: the "exactly one is set" rule covers
+                        // IMPORTS, where the importer only ever has one. The
+                        // planner holds the object, so it has both and they
+                        // cannot describe different textures.
+                        //
+                        // Setting Handle is what lets a consumer copy to/from a
+                        // transient in the identity currency — without it,
+                        // ResolveTextureHandle answers null for every transient
+                        // and any pass whose other operand migrated is stuck.
+                        auto& phys = m_PhysicalTextures[texHandleIt->second.Index];
+                        const auto& pooled = textureIt->second;
+                        phys.TextureID = pooled ? pooled->GetRendererID() : 0u;
+                        phys.Handle = pooled ? pooled->GetRHIHandle() : RHI::NullResource;
                     }
                     break;
                 }
-                case ResourceHandle::Kind::Framebuffer:
+                case RGResourceHandle::Kind::Framebuffer:
                 {
                     auto framebufferIt = framebufferAliasesBySlot.find(aliasKey);
                     if (framebufferIt == framebufferAliasesBySlot.end())
@@ -3410,8 +3527,8 @@ namespace OloEngine
                     }
                     break;
                 }
-                case ResourceHandle::Kind::UniformBuffer:
-                case ResourceHandle::Kind::StorageBuffer:
+                case RGResourceHandle::Kind::UniformBuffer:
+                case RGResourceHandle::Kind::StorageBuffer:
                 {
                     auto bufferIt = bufferAliasesBySlot.find(aliasKey);
                     if (bufferIt == bufferAliasesBySlot.end())
@@ -3434,7 +3551,7 @@ namespace OloEngine
                     }
                     break;
                 }
-                case ResourceHandle::Kind::Unknown:
+                case RGResourceHandle::Kind::Unknown:
                 default:
                     break;
             }
@@ -3466,10 +3583,10 @@ namespace OloEngine
 
             switch (desc.Kind)
             {
-                case ResourceHandle::Kind::Texture2D:
-                case ResourceHandle::Kind::Texture2DArray:
-                case ResourceHandle::Kind::TextureCube:
-                case ResourceHandle::Kind::TextureCubeArray:
+                case RGResourceHandle::Kind::Texture2D:
+                case RGResourceHandle::Kind::Texture2DArray:
+                case RGResourceHandle::Kind::TextureCube:
+                case RGResourceHandle::Kind::TextureCubeArray:
                 {
                     Ref<Texture> sibling;
                     if (const auto it = textureAliasesByGroup.find(entry.AliasGroup); it != textureAliasesByGroup.end())
@@ -3483,7 +3600,7 @@ namespace OloEngine
                     }
                     break;
                 }
-                case ResourceHandle::Kind::Framebuffer:
+                case RGResourceHandle::Kind::Framebuffer:
                 {
                     Ref<Framebuffer> sibling;
                     if (const auto it = framebufferAliasesByGroup.find(entry.AliasGroup); it != framebufferAliasesByGroup.end())
@@ -3497,8 +3614,8 @@ namespace OloEngine
                     }
                     break;
                 }
-                case ResourceHandle::Kind::UniformBuffer:
-                case ResourceHandle::Kind::StorageBuffer:
+                case RGResourceHandle::Kind::UniformBuffer:
+                case RGResourceHandle::Kind::StorageBuffer:
                 {
                     Ref<StorageBuffer> sibling;
                     if (const auto it = bufferAliasesByGroup.find(entry.AliasGroup); it != bufferAliasesByGroup.end())
@@ -3512,7 +3629,7 @@ namespace OloEngine
                     }
                     break;
                 }
-                case ResourceHandle::Kind::Unknown:
+                case RGResourceHandle::Kind::Unknown:
                 default:
                     break;
             }
@@ -4600,19 +4717,19 @@ namespace OloEngine
         if (!m_ResourceRegistryDirty)
             return;
 
-        auto isTextureKind = [](const ResourceHandle::Kind kind)
+        auto isTextureKind = [](const RGResourceHandle::Kind kind)
         {
-            return kind == ResourceHandle::Kind::Texture2D ||
-                   kind == ResourceHandle::Kind::Texture2DArray ||
-                   kind == ResourceHandle::Kind::Texture3D ||
-                   kind == ResourceHandle::Kind::TextureCube ||
-                   kind == ResourceHandle::Kind::TextureCubeArray;
+            return kind == RGResourceHandle::Kind::Texture2D ||
+                   kind == RGResourceHandle::Kind::Texture2DArray ||
+                   kind == RGResourceHandle::Kind::Texture3D ||
+                   kind == RGResourceHandle::Kind::TextureCube ||
+                   kind == RGResourceHandle::Kind::TextureCubeArray;
         };
 
-        auto isBufferKind = [](const ResourceHandle::Kind kind)
+        auto isBufferKind = [](const RGResourceHandle::Kind kind)
         {
-            return kind == ResourceHandle::Kind::UniformBuffer ||
-                   kind == ResourceHandle::Kind::StorageBuffer;
+            return kind == RGResourceHandle::Kind::UniformBuffer ||
+                   kind == RGResourceHandle::Kind::StorageBuffer;
         };
 
         // Phase A — pure registry build (descriptor merging + access walking +
@@ -4645,7 +4762,7 @@ namespace OloEngine
                 activeTextureNames.insert(info.Name);
             else if (isBufferKind(info.Desc.Kind))
                 activeBufferNames.insert(info.Name);
-            else if (info.Desc.Kind == ResourceHandle::Kind::Framebuffer)
+            else if (info.Desc.Kind == RGResourceHandle::Kind::Framebuffer)
                 activeFramebufferNames.insert(info.Name);
             else
             {
@@ -4683,7 +4800,7 @@ namespace OloEngine
                                                                              return RGBufferHandle{ index, generation };
                                                                          });
             }
-            else if (info.Desc.Kind == ResourceHandle::Kind::Framebuffer)
+            else if (info.Desc.Kind == RGResourceHandle::Kind::Framebuffer)
             {
                 info.FramebufferHandle = RenderGraphHandleAllocator::Allocate(info.Name,
                                                                               m_FramebufferHandlesByName,

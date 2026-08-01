@@ -130,9 +130,9 @@ TEST(WaterRendering, DrawWaterCommandTrivialCopy)
 
     DrawWaterCommand cmd{};
     cmd.header.type = CommandType::DrawWater;
-    cmd.vertexArrayID = 42;
+    cmd.vertexArrayID = TestHandle(42u);
     cmd.indexCount = 1024;
-    cmd.shaderRendererID = 7;
+    cmd.shaderRendererID = TestHandle(7u);
     cmd.modelTransform = glm::mat4(1.0f);
     cmd.normalMatrix = glm::mat4(1.0f);
     cmd.waveParams = glm::vec4(1.0f, 2.0f, 0.5f, 3.0f);
@@ -143,9 +143,9 @@ TEST(WaterRendering, DrawWaterCommandTrivialCopy)
     std::memcpy(&copy, &cmd, sizeof(DrawWaterCommand));
 
     EXPECT_EQ(copy.header.type, CommandType::DrawWater);
-    EXPECT_EQ(copy.vertexArrayID, 42u);
+    EXPECT_EQ(copy.vertexArrayID, TestHandle(42u));
     EXPECT_EQ(copy.indexCount, 1024u);
-    EXPECT_EQ(copy.shaderRendererID, 7u);
+    EXPECT_EQ(copy.shaderRendererID, TestHandle(7u));
     EXPECT_EQ(copy.entityID, 999);
     EXPECT_FLOAT_EQ(copy.waveParams.x, 1.0f);
     EXPECT_FLOAT_EQ(copy.waterColor.g, 0.4f);
@@ -177,10 +177,19 @@ TEST(WaterRendering, DrawWaterCommandZeroInitNoNaN)
     ValidateVec4(cmd.sssColor, "sssColor");
     ValidateVec4(cmd.ssrParams, "ssrParams");
     ValidateVec4(cmd.tessParams, "tessParams");
-    EXPECT_EQ(cmd.normalMap0ID, 0u);
-    EXPECT_EQ(cmd.normalMap1ID, 0u);
-    EXPECT_EQ(cmd.noiseTextureID, 0u);
-    EXPECT_EQ(cmd.foamTextureID, 0u);
+    // A value-initialised command must leave every texture slot NAMING NOTHING.
+    // The assertion is against RHI::NullResource, not TestHandle(0u): after
+    // issue #691 step 3 slice 6 these are identities, and index 0 is a perfectly
+    // ordinary live slot — asserting equality with it would let a command that
+    // wrongly points at whatever occupies registry slot 0 pass this test.
+    EXPECT_FALSE(cmd.normalMap0ID.IsValid());
+    EXPECT_FALSE(cmd.normalMap1ID.IsValid());
+    EXPECT_FALSE(cmd.noiseTextureID.IsValid());
+    EXPECT_FALSE(cmd.foamTextureID.IsValid());
+    EXPECT_EQ(cmd.normalMap0ID, RHI::NullResource);
+    EXPECT_EQ(cmd.normalMap1ID, RHI::NullResource);
+    EXPECT_EQ(cmd.noiseTextureID, RHI::NullResource);
+    EXPECT_EQ(cmd.foamTextureID, RHI::NullResource);
 }
 
 // =============================================================================

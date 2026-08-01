@@ -1,10 +1,65 @@
 #pragma once
 
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+
 #include <glad/gl.h>
 
 namespace OloEngine::Utils
 {
+    // ---------------------------------------------------------------------
+    // Handle -> GL name. The backend's half of issue #691 Phase 2 step 3.
+    //
+    // One of the two sanctioned ways out of an RHI::ResourceHandle (the other
+    // is GetNativeHandleForDebug, for Renderer/Debug/). It lives HERE, inside
+    // Platform/OpenGL/, because this is the only place a GL name may be named
+    // at all — RHIBoundaryRatchetTest's backend_resolve_hatch counter baselines
+    // uses of the underlying ResolveNativeForBackend outside Platform/ at zero,
+    // and putting a resolving helper in Renderer/ to save typing would breach
+    // exactly the boundary this phase exists to close.
+    //
+    // A stale or null handle yields 0, which is benign in every GL call the
+    // backend makes: binding 0 unbinds, and glDelete*(0) is a defined no-op. So
+    // a use-after-free degrades to "nothing bound" — visibly wrong rather than
+    // silently sampling whatever object inherited the recycled name, which is
+    // the failure the bare u32 could not distinguish.
+    // ---------------------------------------------------------------------
+    [[nodiscard]] inline GLuint ResolveNative(RHI::ResourceHandle handle) noexcept
+    {
+        return static_cast<GLuint>(RHI::ResourceRegistry::Get().ResolveNativeForBackend(handle));
+    }
+
+    // Kind-checked form. GL names are per-object-type, so a buffer and a texture
+    // can both legitimately be name 1 — meaning a handle passed to the wrong
+    // family resolves to a real, valid, completely unrelated GL object rather
+    // than failing. The generation cannot catch that: both handles are live.
+    //
+    // Prefer this wherever the call site knows the family it wants (every
+    // texture bind, every buffer bind). Returns 0 on a mismatch, which lands on
+    // the same benign degradation the unchecked form documents above: binding 0
+    // unbinds, glDelete*(0) is a no-op.
+    // True only for a LIVE handle of the wrong family. A stale or null handle is
+    // deliberately NOT a mismatch: KindOf reports Unknown for it, and a stale
+    // handle is the documented benign path above (resolves to 0, binding 0
+    // unbinds) — treating it as a mismatch would log on every legitimate
+    // use-after-free degradation and bury the real signal.
+    [[nodiscard]] inline bool IsWrongKind(RHI::ResourceHandle handle, RHI::ResourceKind expected) noexcept
+    {
+        const RHI::ResourceKind actual = RHI::ResourceRegistry::Get().KindOf(handle);
+        return actual != RHI::ResourceKind::Unknown && actual != expected;
+    }
+
+    [[nodiscard]] inline GLuint ResolveNativeAs(RHI::ResourceHandle handle, RHI::ResourceKind expected) noexcept
+    {
+        if (IsWrongKind(handle, expected))
+        {
+            OLO_CORE_WARN("ResolveNativeAs: handle {} is a {}, not a {} — refusing to resolve it as one.",
+                          handle, RHI::ToString(RHI::ResourceRegistry::Get().KindOf(handle)),
+                          RHI::ToString(expected));
+            return 0u;
+        }
+        return static_cast<GLuint>(RHI::ResourceRegistry::Get().ResolveNativeForBackend(handle));
+    }
     // Drain any pending GL error(s) so a subsequent glGetError() check reflects
     // only the operation it guards, not an error leaked in by an unrelated earlier
     // GL call in the same context. Without this, a leaked error is misattributed

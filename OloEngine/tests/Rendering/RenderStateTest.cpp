@@ -25,32 +25,31 @@ TEST(RenderState, DefaultsAreCorrect)
 
     // Blend defaults
     EXPECT_FALSE(state.blendEnabled);
-    EXPECT_EQ(state.blendSrcFactor, static_cast<GLenum>(GL_SRC_ALPHA));
-    EXPECT_EQ(state.blendDstFactor, static_cast<GLenum>(GL_ONE_MINUS_SRC_ALPHA));
-    EXPECT_EQ(state.blendEquation, static_cast<GLenum>(GL_FUNC_ADD));
+    EXPECT_EQ(state.blendSrcFactor, RHI::BlendFactor::SrcAlpha);
+    EXPECT_EQ(state.blendDstFactor, RHI::BlendFactor::OneMinusSrcAlpha);
+    EXPECT_EQ(state.blendEquation, RHI::BlendOp::Add);
 
     // Depth defaults
     EXPECT_TRUE(state.depthTestEnabled);
     EXPECT_TRUE(state.depthWriteMask);
-    EXPECT_EQ(state.depthFunction, static_cast<GLenum>(GL_LESS));
+    EXPECT_EQ(state.depthFunction, RHI::CompareOp::Less);
 
     // Stencil defaults
     EXPECT_FALSE(state.stencilEnabled);
-    EXPECT_EQ(state.stencilFunction, static_cast<GLenum>(GL_ALWAYS));
+    EXPECT_EQ(state.stencilFunction, RHI::CompareOp::Always);
     EXPECT_EQ(state.stencilReference, 0);
     EXPECT_EQ(state.stencilReadMask, 0xFFu);
     EXPECT_EQ(state.stencilWriteMask, 0xFFu);
-    EXPECT_EQ(state.stencilFail, static_cast<GLenum>(GL_KEEP));
-    EXPECT_EQ(state.stencilDepthFail, static_cast<GLenum>(GL_KEEP));
-    EXPECT_EQ(state.stencilDepthPass, static_cast<GLenum>(GL_KEEP));
+    EXPECT_EQ(state.stencilFail, RHI::StencilOp::Keep);
+    EXPECT_EQ(state.stencilDepthFail, RHI::StencilOp::Keep);
+    EXPECT_EQ(state.stencilDepthPass, RHI::StencilOp::Keep);
 
     // Culling defaults: disabled by default
     EXPECT_FALSE(state.cullingEnabled);
-    EXPECT_EQ(state.cullFace, static_cast<GLenum>(GL_BACK));
+    EXPECT_EQ(state.cullFace, RHI::CullMode::Back);
 
     // Polygon mode defaults
-    EXPECT_EQ(state.polygonFace, static_cast<GLenum>(GL_FRONT_AND_BACK));
-    EXPECT_EQ(state.polygonMode, static_cast<GLenum>(GL_FILL));
+    EXPECT_EQ(state.polygonMode, RHI::PolygonMode::Fill);
 
     // Polygon offset defaults
     EXPECT_FALSE(state.polygonOffsetEnabled);
@@ -140,17 +139,17 @@ TEST(RenderState, OpaqueObjectHasCorrectState)
     PODRenderState opaque{};
     opaque.depthTestEnabled = true;
     opaque.depthWriteMask = true;
-    opaque.depthFunction = GL_LESS;
+    opaque.depthFunction = RHI::CompareOp::Less;
     opaque.blendEnabled = false;
     opaque.cullingEnabled = true;
-    opaque.cullFace = GL_BACK;
+    opaque.cullFace = RHI::CullMode::Back;
 
     EXPECT_FALSE(opaque.blendEnabled);
     EXPECT_TRUE(opaque.depthTestEnabled);
     EXPECT_TRUE(opaque.depthWriteMask);
-    EXPECT_EQ(opaque.depthFunction, static_cast<GLenum>(GL_LESS));
+    EXPECT_EQ(opaque.depthFunction, RHI::CompareOp::Less);
     EXPECT_TRUE(opaque.cullingEnabled);
-    EXPECT_EQ(opaque.cullFace, static_cast<GLenum>(GL_BACK));
+    EXPECT_EQ(opaque.cullFace, RHI::CullMode::Back);
 }
 
 TEST(RenderState, TransparentObjectHasCorrectState)
@@ -161,16 +160,16 @@ TEST(RenderState, TransparentObjectHasCorrectState)
     // - Keep depth test enabled (test against existing depth buffer)
     PODRenderState transparent{};
     transparent.blendEnabled = true;
-    transparent.blendSrcFactor = GL_SRC_ALPHA;
-    transparent.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
-    transparent.blendEquation = GL_FUNC_ADD;
+    transparent.blendSrcFactor = RHI::BlendFactor::SrcAlpha;
+    transparent.blendDstFactor = RHI::BlendFactor::OneMinusSrcAlpha;
+    transparent.blendEquation = RHI::BlendOp::Add;
     transparent.depthTestEnabled = true;
     transparent.depthWriteMask = false;
 
     EXPECT_TRUE(transparent.blendEnabled);
-    EXPECT_EQ(transparent.blendSrcFactor, static_cast<GLenum>(GL_SRC_ALPHA));
-    EXPECT_EQ(transparent.blendDstFactor, static_cast<GLenum>(GL_ONE_MINUS_SRC_ALPHA));
-    EXPECT_EQ(transparent.blendEquation, static_cast<GLenum>(GL_FUNC_ADD));
+    EXPECT_EQ(transparent.blendSrcFactor, RHI::BlendFactor::SrcAlpha);
+    EXPECT_EQ(transparent.blendDstFactor, RHI::BlendFactor::OneMinusSrcAlpha);
+    EXPECT_EQ(transparent.blendEquation, RHI::BlendOp::Add);
     EXPECT_TRUE(transparent.depthTestEnabled);
     EXPECT_FALSE(transparent.depthWriteMask);
 }
@@ -192,11 +191,9 @@ TEST(RenderState, TwoSidedMaterialDisablesCulling)
 TEST(RenderState, WireframeModeUsesLinePolygonMode)
 {
     PODRenderState wireframe{};
-    wireframe.polygonMode = GL_LINE;
-    wireframe.polygonFace = GL_FRONT_AND_BACK;
+    wireframe.polygonMode = RHI::PolygonMode::Line;
 
-    EXPECT_EQ(wireframe.polygonMode, static_cast<GLenum>(GL_LINE));
-    EXPECT_EQ(wireframe.polygonFace, static_cast<GLenum>(GL_FRONT_AND_BACK));
+    EXPECT_EQ(wireframe.polygonMode, RHI::PolygonMode::Line);
 }
 
 // =============================================================================
@@ -478,13 +475,12 @@ TEST(RenderState, WireframeCubeState)
     // - Depth test enabled
     // - No blending
     PODRenderState wireframe{};
-    wireframe.polygonMode = GL_LINE;
-    wireframe.polygonFace = GL_FRONT_AND_BACK;
+    wireframe.polygonMode = RHI::PolygonMode::Line;
     wireframe.cullingEnabled = false;
     wireframe.depthTestEnabled = true;
     wireframe.blendEnabled = false;
 
-    EXPECT_EQ(wireframe.polygonMode, static_cast<GLenum>(GL_LINE));
+    EXPECT_EQ(wireframe.polygonMode, RHI::PolygonMode::Line);
     EXPECT_FALSE(wireframe.cullingEnabled);
     EXPECT_TRUE(wireframe.depthTestEnabled);
     EXPECT_FALSE(wireframe.blendEnabled);
@@ -498,8 +494,8 @@ TEST(RenderState, TransparentSphereState)
     // - Transparent sort key (renders after opaques)
     PODRenderState sphere{};
     sphere.blendEnabled = true;
-    sphere.blendSrcFactor = GL_SRC_ALPHA;
-    sphere.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+    sphere.blendSrcFactor = RHI::BlendFactor::SrcAlpha;
+    sphere.blendDstFactor = RHI::BlendFactor::OneMinusSrcAlpha;
     sphere.depthTestEnabled = true;
     sphere.depthWriteMask = false;
 
@@ -519,11 +515,11 @@ TEST(RenderState, PolygonOffsetOverlayState)
     overlay.polygonOffsetFactor = -1.0f;
     overlay.polygonOffsetUnits = -1.0f;
     overlay.depthTestEnabled = true;
-    overlay.depthFunction = GL_LEQUAL; // LEQUAL needed for coplanar geometry
+    overlay.depthFunction = RHI::CompareOp::LessOrEqual; // LEQUAL needed for coplanar geometry
 
     EXPECT_TRUE(overlay.polygonOffsetEnabled);
     EXPECT_LT(overlay.polygonOffsetFactor, 0.0f);
-    EXPECT_EQ(overlay.depthFunction, static_cast<GLenum>(GL_LEQUAL));
+    EXPECT_EQ(overlay.depthFunction, RHI::CompareOp::LessOrEqual);
 }
 
 // =============================================================================
@@ -540,8 +536,8 @@ TEST(RenderState, BlendEnabledRequiresTransparentKey)
     // Create what the broken grid had: blend enabled + opaque key
     PODRenderState gridState{};
     gridState.blendEnabled = true;
-    gridState.blendSrcFactor = GL_SRC_ALPHA;
-    gridState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+    gridState.blendSrcFactor = RHI::BlendFactor::SrcAlpha;
+    gridState.blendDstFactor = RHI::BlendFactor::OneMinusSrcAlpha;
     DrawKey brokenKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, 1, 0, 0x800000);
 
     // This is the bug condition: blend enabled but opaque sort key
@@ -596,14 +592,14 @@ TEST(RenderState, StencilOutlinePassWriteState)
     // First pass: render object and write 1 to stencil buffer
     PODRenderState stencilWrite{};
     stencilWrite.stencilEnabled = true;
-    stencilWrite.stencilFunction = GL_ALWAYS;
+    stencilWrite.stencilFunction = RHI::CompareOp::Always;
     stencilWrite.stencilReference = 1;
-    stencilWrite.stencilDepthPass = GL_REPLACE;
+    stencilWrite.stencilDepthPass = RHI::StencilOp::Replace;
 
     EXPECT_TRUE(stencilWrite.stencilEnabled);
-    EXPECT_EQ(stencilWrite.stencilFunction, static_cast<GLenum>(GL_ALWAYS));
+    EXPECT_EQ(stencilWrite.stencilFunction, RHI::CompareOp::Always);
     EXPECT_EQ(stencilWrite.stencilReference, 1);
-    EXPECT_EQ(stencilWrite.stencilDepthPass, static_cast<GLenum>(GL_REPLACE));
+    EXPECT_EQ(stencilWrite.stencilDepthPass, RHI::StencilOp::Replace);
 }
 
 TEST(RenderState, StencilOutlinePassReadState)
@@ -611,12 +607,12 @@ TEST(RenderState, StencilOutlinePassReadState)
     // Second pass: render slightly larger object where stencil != 1
     PODRenderState stencilRead{};
     stencilRead.stencilEnabled = true;
-    stencilRead.stencilFunction = GL_NOTEQUAL;
+    stencilRead.stencilFunction = RHI::CompareOp::NotEqual;
     stencilRead.stencilReference = 1;
     stencilRead.depthTestEnabled = false; // Outline visible through geometry
 
     EXPECT_TRUE(stencilRead.stencilEnabled);
-    EXPECT_EQ(stencilRead.stencilFunction, static_cast<GLenum>(GL_NOTEQUAL));
+    EXPECT_EQ(stencilRead.stencilFunction, RHI::CompareOp::NotEqual);
     EXPECT_EQ(stencilRead.stencilReference, 1);
     EXPECT_FALSE(stencilRead.depthTestEnabled);
 }

@@ -1,8 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OcclusionQueryPool.h"
 #include "OloEngine/Core/Log.h"
-
-#include <glad/gl.h>
+#include "OloEngine/Renderer/RenderCommand.h"
 
 namespace OloEngine
 {
@@ -29,7 +28,7 @@ namespace OloEngine
         for (u32 buf = 0; buf < 2; ++buf)
         {
             m_QueryObjects[buf].resize(maxQueries, 0);
-            glCreateQueries(GL_ANY_SAMPLES_PASSED, static_cast<GLsizei>(maxQueries), m_QueryObjects[buf].data());
+            RenderCommand::CreateQueries(RHI::QueryType::OcclusionAnySamples, m_QueryObjects[buf]);
         }
 
         m_Results.resize(maxQueries, true); // Default visible until proven otherwise
@@ -54,7 +53,7 @@ namespace OloEngine
         {
             if (!m_QueryObjects[buf].empty())
             {
-                glDeleteQueries(static_cast<GLsizei>(m_QueryObjects[buf].size()), m_QueryObjects[buf].data());
+                RenderCommand::DeleteQueries(m_QueryObjects[buf]);
                 m_QueryObjects[buf].clear();
             }
         }
@@ -93,8 +92,7 @@ namespace OloEngine
                     continue;
                 }
 
-                GLint available = GL_FALSE;
-                glGetQueryObjectiv(m_QueryObjects[readBuffer][i], GL_QUERY_RESULT_AVAILABLE, &available);
+                const bool available = RenderCommand::IsQueryResultAvailable(m_QueryObjects[readBuffer][i]);
                 if (!available)
                 {
                     // If result not yet available, assume visible to avoid popping
@@ -102,8 +100,7 @@ namespace OloEngine
                     continue;
                 }
 
-                GLuint result = 0;
-                glGetQueryObjectuiv(m_QueryObjects[readBuffer][i], GL_QUERY_RESULT, &result);
+                const u32 result = RenderCommand::GetQueryResultU32(m_QueryObjects[readBuffer][i]);
                 m_Results[i] = (result != 0);
             }
             hasResults = (m_ReadableQueryCount > 0);
@@ -124,7 +121,8 @@ namespace OloEngine
         if (!m_Active || objectIndex >= m_MaxQueries)
             return;
 
-        glBeginQuery(GL_ANY_SAMPLES_PASSED, m_QueryObjects[m_WriteBuffer][objectIndex]);
+        RenderCommand::BeginQuery(RHI::QueryType::OcclusionAnySamples,
+                                  m_QueryObjects[m_WriteBuffer][objectIndex]);
         m_QueryIssued[m_WriteBuffer][objectIndex] = true;
 
         if (objectIndex >= m_WriteQueryCount)
@@ -137,7 +135,7 @@ namespace OloEngine
         if (!m_Active)
             return;
 
-        glEndQuery(GL_ANY_SAMPLES_PASSED);
+        RenderCommand::EndQuery(RHI::QueryType::OcclusionAnySamples);
     }
 
     void OcclusionQueryPool::EndFrame()

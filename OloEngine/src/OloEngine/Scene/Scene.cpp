@@ -2,6 +2,9 @@
 #include "Scene.h"
 #include "Entity.h"
 
+// Raw GL below is part of the issue #691 Phase 2 step-2 sweep backlog; the
+// include is direct rather than transitive through RendererAPI.h, which is
+// now GL-free.
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -1895,13 +1898,13 @@ namespace OloEngine
         switch (mode)
         {
             case ParticleBlendMode::Alpha:
-                RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
                 break;
             case ParticleBlendMode::Additive:
-                RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE);
+                RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::One);
                 break;
             case ParticleBlendMode::PremultipliedAlpha:
-                RenderCommand::SetBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+                RenderCommand::SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::OneMinusSrcAlpha);
                 break;
         }
     }
@@ -1909,7 +1912,7 @@ namespace OloEngine
     // Helper to restore default blend mode after particle rendering
     static void RestoreDefaultBlendMode()
     {
-        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
     }
 
     // Per-entity CPU morph-target deformation: deform the mesh by the component's
@@ -5724,7 +5727,7 @@ namespace OloEngine
         RenderCommand::SetDepthTest(false);
         RenderCommand::SetDepthMask(false);
         RenderCommand::SetBlendState(true);
-        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
         if (!m_UILayoutResolvedThisFrame)
         {
@@ -6083,10 +6086,13 @@ namespace OloEngine
                 {
                     auto& envMap = sky.m_EnvironmentMap;
                     Renderer3D::SetGlobalIBL(
-                        envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0,
-                        envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0,
-                        envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0,
-                        envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRendererID() : 0,
+                        envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRHIHandle() : RHI::NullResource,
+                        envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRHIHandle() : RHI::NullResource,
+                        envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRHIHandle() : RHI::NullResource,
+                        envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRHIHandle() : RHI::NullResource,
+                        envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0u,
+                        envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0u,
+                        envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0u,
                         sky.m_IBLIntensity);
                 }
                 return; // Only one Star Nest sky drives the scene
@@ -6246,10 +6252,13 @@ namespace OloEngine
                 {
                     auto& envMap = sky.m_EnvironmentMap;
                     Renderer3D::SetGlobalIBL(
-                        envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0,
-                        envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0,
-                        envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0,
-                        envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRendererID() : 0,
+                        envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRHIHandle() : RHI::NullResource,
+                        envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRHIHandle() : RHI::NullResource,
+                        envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRHIHandle() : RHI::NullResource,
+                        envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRHIHandle() : RHI::NullResource,
+                        envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0u,
+                        envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0u,
+                        envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0u,
                         sky.m_IBLIntensity);
                 }
                 return; // Only one procedural sky drives the scene
@@ -6319,10 +6328,13 @@ namespace OloEngine
             {
                 auto& envMap = envMapComp.m_EnvironmentMap;
                 Renderer3D::SetGlobalIBL(
-                    envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0,
-                    envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0,
-                    envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0,
-                    envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRendererID() : 0,
+                    envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRHIHandle() : RHI::NullResource,
+                    envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRHIHandle() : RHI::NullResource,
+                    envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRHIHandle() : RHI::NullResource,
+                    envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRHIHandle() : RHI::NullResource,
+                    envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0u,
+                    envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0u,
+                    envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0u,
                     envMapComp.m_IBLIntensity);
             }
             else
@@ -6368,25 +6380,28 @@ namespace OloEngine
         auto const* bestProbe = probePtrs[static_cast<sizet>(winner)];
         auto const& envMap = bestProbe->m_BakedEnvironment;
         Renderer3D::SetGlobalIBL(
-            envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0,
-            envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0,
-            envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0,
-            envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRendererID() : 0,
+            envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRHIHandle() : RHI::NullResource,
+            envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRHIHandle() : RHI::NullResource,
+            envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRHIHandle() : RHI::NullResource,
+            envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRHIHandle() : RHI::NullResource,
+            envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0u,
+            envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0u,
+            envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0u,
             bestProbe->m_Intensity);
     }
 
-    // Helper: obtain the shadow VAO RendererID from a Mesh (returns 0 if unavailable).
-    [[nodiscard]] static RendererID GetShadowVaoID(const Ref<Mesh>& mesh)
+    // Helper: obtain the shadow VAO RHI::ResourceHandle from a Mesh (returns 0 if unavailable).
+    [[nodiscard]] static RHI::ResourceHandle GetShadowVaoID(const Ref<Mesh>& mesh)
     {
         if (!mesh)
         {
-            return 0;
+            return {};
         }
         if (auto const& ms = mesh->GetMeshSource(); ms && ms->HasShadowVertexArray())
         {
-            return ms->GetShadowVertexArray()->GetRendererID();
+            return ms->GetShadowVertexArray()->GetRHIHandle();
         }
-        return 0;
+        return {};
     }
 
     // Submit every submesh of a MeshSource through the CLASSIC (non-virtualized) mesh path:
@@ -6418,13 +6433,13 @@ namespace OloEngine
         }
 
         DDGIMeshCaster caster;
-        caster.vaoID = va->GetRendererID();
+        caster.vaoID = va->GetRHIHandle();
         caster.indexCount = mesh->GetIndexCount();
         caster.baseIndex = mesh->GetBaseIndex();
         caster.transform = worldTransform;
         caster.worldBounds = mesh->GetTransformedBoundingBox(worldTransform);
         caster.baseColor = material.GetBaseColorFactor();
-        caster.albedoTextureID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRendererID() : 0;
+        caster.albedoTextureID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRHIHandle() : RHI::NullResource;
         caster.twoSided = material.GetFlag(MaterialFlag::TwoSided);
         Renderer3D::AddDDGICaster(caster);
     }
@@ -6462,7 +6477,7 @@ namespace OloEngine
             {
                 if (auto va = submesh->GetVertexArray(); va)
                 {
-                    Renderer3D::AddMeshShadowCaster(va->GetRendererID(), submesh->GetIndexCount(),
+                    Renderer3D::AddMeshShadowCaster(va->GetRHIHandle(), submesh->GetIndexCount(),
                                                     submesh->GetBaseIndex(), worldTransform,
                                                     GetShadowVaoID(submesh),
                                                     submesh->GetTransformedBoundingBox(worldTransform),
@@ -7371,21 +7386,21 @@ namespace OloEngine
                     bool hasMaterial = terrain.m_Material && terrain.m_Material->IsBuilt();
 
                     // Extract texture IDs for command packets
-                    RendererID splatmapID = 0, splatmap1ID = 0;
-                    RendererID albedoArrayID = 0, normalArrayID = 0, armArrayID = 0;
+                    RHI::ResourceHandle splatmapID = {}, splatmap1ID = {};
+                    RHI::ResourceHandle albedoArrayID = {}, normalArrayID = {}, armArrayID = {};
                     if (hasMaterial)
                     {
                         auto& mat = terrain.m_Material;
                         if (auto s0 = mat->GetSplatmap(0))
-                            splatmapID = s0->GetRendererID();
+                            splatmapID = s0->GetRHIHandle();
                         if (auto s1 = mat->GetSplatmap(1))
-                            splatmap1ID = s1->GetRendererID();
+                            splatmap1ID = s1->GetRHIHandle();
                         if (mat->GetAlbedoArray())
-                            albedoArrayID = mat->GetAlbedoArray()->GetRendererID();
+                            albedoArrayID = mat->GetAlbedoArray()->GetRHIHandle();
                         if (mat->GetNormalArray())
-                            normalArrayID = mat->GetNormalArray()->GetRendererID();
+                            normalArrayID = mat->GetNormalArray()->GetRHIHandle();
                         if (mat->GetARMArray())
-                            armArrayID = mat->GetARMArray()->GetRendererID();
+                            armArrayID = mat->GetARMArray()->GetRHIHandle();
                     }
 
                     i32 entityID = static_cast<i32>(std::to_underlying(entity));
@@ -7455,28 +7470,28 @@ namespace OloEngine
                             const TerrainLocalCullInputs tileCull =
                                 MakeTerrainLocalCullInputs(tileModel, cameraPosition, viewProjection);
 
-                            RendererID heightmapID = 0;
+                            RHI::ResourceHandle heightmapID{};
                             if (terrainData && terrainData->GetGPUHeightmap())
                             {
-                                heightmapID = terrainData->GetGPUHeightmap()->GetRendererID();
+                                heightmapID = terrainData->GetGPUHeightmap()->GetRHIHandle();
                             }
 
                             // Per-tile material overrides entity material texture IDs
-                            RendererID tileSplatmapID = splatmapID, tileSplatmap1ID = splatmap1ID;
-                            RendererID tileAlbedoArrayID = albedoArrayID, tileNormalArrayID = normalArrayID, tileArmArrayID = armArrayID;
+                            RHI::ResourceHandle tileSplatmapID = splatmapID, tileSplatmap1ID = splatmap1ID;
+                            RHI::ResourceHandle tileAlbedoArrayID = albedoArrayID, tileNormalArrayID = normalArrayID, tileArmArrayID = armArrayID;
                             bool tileHasMaterial = tileMaterial && tileMaterial->IsBuilt();
                             if (tileHasMaterial && tileMaterial != terrain.m_Material.get())
                             {
                                 if (auto s0 = tileMaterial->GetSplatmap(0))
-                                    tileSplatmapID = s0->GetRendererID();
+                                    tileSplatmapID = s0->GetRHIHandle();
                                 if (auto s1 = tileMaterial->GetSplatmap(1))
-                                    tileSplatmap1ID = s1->GetRendererID();
+                                    tileSplatmap1ID = s1->GetRHIHandle();
                                 if (tileMaterial->GetAlbedoArray())
-                                    tileAlbedoArrayID = tileMaterial->GetAlbedoArray()->GetRendererID();
+                                    tileAlbedoArrayID = tileMaterial->GetAlbedoArray()->GetRHIHandle();
                                 if (tileMaterial->GetNormalArray())
-                                    tileNormalArrayID = tileMaterial->GetNormalArray()->GetRendererID();
+                                    tileNormalArrayID = tileMaterial->GetNormalArray()->GetRHIHandle();
                                 if (tileMaterial->GetARMArray())
-                                    tileArmArrayID = tileMaterial->GetARMArray()->GetRendererID();
+                                    tileArmArrayID = tileMaterial->GetARMArray()->GetRHIHandle();
                             }
 
                             // Build base terrain UBO (tess factors filled per-chunk)
@@ -7526,7 +7541,7 @@ namespace OloEngine
                                     terrainUBOData.TessFactors2.w = 1.0f;
 
                                     auto* packet = Renderer3D::DrawTerrainPatch(
-                                        va->GetRendererID(), rc.Chunk->GetIndexCount(), 3,
+                                        va->GetRHIHandle(), rc.Chunk->GetIndexCount(), 3,
                                         terrainShader,
                                         heightmapID, tileSplatmapID, tileSplatmap1ID,
                                         tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
@@ -7538,7 +7553,7 @@ namespace OloEngine
                                     if (hasActiveShadows)
                                     {
                                         Renderer3D::AddTerrainShadowCaster(
-                                            va->GetRendererID(), rc.Chunk->GetIndexCount(), 3,
+                                            va->GetRHIHandle(), rc.Chunk->GetIndexCount(), 3,
                                             tileModel, heightmapID, terrainUBOData);
                                     }
                                 }
@@ -7558,7 +7573,7 @@ namespace OloEngine
                                     }
 
                                     auto* packet = Renderer3D::DrawTerrainPatch(
-                                        va->GetRendererID(), chunk->GetIndexCount(), 3,
+                                        va->GetRHIHandle(), chunk->GetIndexCount(), 3,
                                         terrainShader,
                                         heightmapID, tileSplatmapID, tileSplatmap1ID,
                                         tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
@@ -7569,7 +7584,7 @@ namespace OloEngine
                                     if (hasActiveShadows)
                                     {
                                         Renderer3D::AddTerrainShadowCaster(
-                                            va->GetRendererID(), chunk->GetIndexCount(), 3,
+                                            va->GetRHIHandle(), chunk->GetIndexCount(), 3,
                                             tileModel, heightmapID, terrainUBOData);
                                     }
                                 }
@@ -7616,7 +7631,7 @@ namespace OloEngine
                             if (mesh.VAO && mesh.IndexCount > 0)
                             {
                                 auto* packet = Renderer3D::DrawVoxelMesh(
-                                    mesh.VAO->GetRendererID(), mesh.IndexCount,
+                                    mesh.VAO->GetRHIHandle(), mesh.IndexCount,
                                     voxelShader,
                                     albedoArrayID, normalArrayID, armArrayID,
                                     transform.GetTransform(), entityID);
@@ -7626,7 +7641,7 @@ namespace OloEngine
                                 if (hasActiveShadows)
                                 {
                                     Renderer3D::AddVoxelShadowCaster(
-                                        mesh.VAO->GetRendererID(), mesh.IndexCount,
+                                        mesh.VAO->GetRHIHandle(), mesh.IndexCount,
                                         transform.GetTransform());
                                 }
                             }
@@ -7957,7 +7972,7 @@ namespace OloEngine
                     {
                         if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_NormalMap0))
                         {
-                            if (auto id = tex->GetRendererID(); id != 0)
+                            if (auto id = tex->GetRHIHandle(); id.IsValid())
                                 waterParams.normalMap0ID = id;
                         }
                     }
@@ -7965,7 +7980,7 @@ namespace OloEngine
                     {
                         if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_NormalMap1))
                         {
-                            if (auto id = tex->GetRendererID(); id != 0)
+                            if (auto id = tex->GetRHIHandle(); id.IsValid())
                                 waterParams.normalMap1ID = id;
                         }
                     }
@@ -7973,7 +7988,7 @@ namespace OloEngine
                     {
                         if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_NoiseTexture))
                         {
-                            if (auto id = tex->GetRendererID(); id != 0)
+                            if (auto id = tex->GetRHIHandle(); id.IsValid())
                                 waterParams.noiseTextureID = id;
                         }
                     }
@@ -7981,7 +7996,7 @@ namespace OloEngine
                     {
                         if (auto tex = AssetManager::GetAsset<Texture2D>(water.m_FoamTexture))
                         {
-                            if (auto id = tex->GetRendererID(); id != 0)
+                            if (auto id = tex->GetRHIHandle(); id.IsValid())
                                 waterParams.foamTextureID = id;
                         }
                     }
@@ -8021,9 +8036,9 @@ namespace OloEngine
                         water.m_OceanField->Update(sp, animationTime, /*uploadToGpu=*/true,
                                                    /*useGpuCompute=*/water.m_FFTUseGpuCompute);
 
-                        const u32 dispID = water.m_OceanField->GetDisplacementTextureID();
-                        const u32 derivID = water.m_OceanField->GetDerivativesTextureID();
-                        if (dispID != 0 && derivID != 0)
+                        const RHI::ResourceHandle dispID = water.m_OceanField->GetDisplacementTextureHandle();
+                        const RHI::ResourceHandle derivID = water.m_OceanField->GetDerivativesTextureHandle();
+                        if (dispID.IsValid() && derivID.IsValid())
                         {
                             waterParams.fftDisplacementID = dispID;
                             waterParams.fftDerivativesID = derivID;
@@ -8074,7 +8089,7 @@ namespace OloEngine
                     bounds.Max = glm::vec3(halfX, waveH, halfZ);
 
                     auto* packet = Renderer3D::DrawWaterSurface(
-                        va->GetRendererID(), submesh.m_IndexCount,
+                        va->GetRHIHandle(), submesh.m_IndexCount,
                         modelMat,
                         animationTime,
                         prevAnimationTime,
@@ -8338,7 +8353,7 @@ namespace OloEngine
                     // Resolve albedo texture ID (fallback to white if none assigned).
                     // Emissive-mode decals reuse the primary slot for the emissive
                     // texture (DecalShader samples the same TEX_USER_0 binding).
-                    RendererID albedoTextureID = 0;
+                    RHI::ResourceHandle albedoTextureID{};
                     if (decal.m_Mode == DecalMode::Emissive)
                     {
                         // Emissive-mode decals reuse the primary slot for the
@@ -8349,29 +8364,29 @@ namespace OloEngine
                         // colour into the emissive G-Buffer channel, painting
                         // unintended self-illumination onto the surface).
                         if (decal.m_EmissiveTexture)
-                            albedoTextureID = decal.m_EmissiveTexture->GetRendererID();
+                            albedoTextureID = decal.m_EmissiveTexture->GetRHIHandle();
                     }
                     else if (decal.m_AlbedoTexture)
                     {
-                        albedoTextureID = decal.m_AlbedoTexture->GetRendererID();
+                        albedoTextureID = decal.m_AlbedoTexture->GetRHIHandle();
                     }
                     else
                     {
                         auto whiteTexture = Renderer3D::GetWhiteTexture();
                         if (whiteTexture)
                         {
-                            albedoTextureID = whiteTexture->GetRendererID();
+                            albedoTextureID = whiteTexture->GetRHIHandle();
                         }
                     }
 
                     // Optional normal / RMA textures. Only meaningful in the matching mode;
                     // otherwise pass 0 and the dispatcher will skip the bind.
-                    RendererID normalTextureID = (decal.m_Mode == DecalMode::Normal && decal.m_NormalTexture)
-                                                     ? decal.m_NormalTexture->GetRendererID()
-                                                     : 0u;
-                    RendererID rmaTextureID = (decal.m_Mode == DecalMode::RMA && decal.m_RMATexture)
-                                                  ? decal.m_RMATexture->GetRendererID()
-                                                  : 0u;
+                    RHI::ResourceHandle normalTextureID = (decal.m_Mode == DecalMode::Normal && decal.m_NormalTexture)
+                                                              ? decal.m_NormalTexture->GetRHIHandle()
+                                                              : RHI::NullResource;
+                    RHI::ResourceHandle rmaTextureID = (decal.m_Mode == DecalMode::RMA && decal.m_RMATexture)
+                                                           ? decal.m_RMATexture->GetRHIHandle()
+                                                           : RHI::NullResource;
 
                     glm::vec4 decalParams = glm::vec4(
                         decal.m_FadeDistance, decal.m_NormalAngleThreshold, 0.0f, 0.0f);
@@ -8762,11 +8777,11 @@ namespace OloEngine
                         {
                             if (auto va = submesh->GetVertexArray())
                             {
-                                const u32 shadowVao = GetShadowVaoID(submesh);
+                                const RHI::ResourceHandle shadowVao = GetShadowVaoID(submesh);
                                 for (sizet k = 0; k < totalCount; ++k)
                                 {
                                     Renderer3D::AddMeshShadowCaster(
-                                        va->GetRendererID(), submesh->GetIndexCount(),
+                                        va->GetRHIHandle(), submesh->GetIndexCount(),
                                         submesh->GetBaseIndex(), instData[k].Transform, shadowVao,
                                         submesh->GetTransformedBoundingBox(instData[k].Transform),
                                         material.GetFlag(MaterialFlag::TwoSided));
@@ -8840,7 +8855,7 @@ namespace OloEngine
                     if (va)
                     {
                         Renderer3D::AddMeshShadowCaster(
-                            va->GetRendererID(), submesh.m_Mesh->GetIndexCount(), submesh.m_Mesh->GetBaseIndex(),
+                            va->GetRHIHandle(), submesh.m_Mesh->GetIndexCount(), submesh.m_Mesh->GetBaseIndex(),
                             worldTransform, GetShadowVaoID(submesh.m_Mesh),
                             submesh.m_Mesh->GetTransformedBoundingBox(worldTransform),
                             material.GetFlag(MaterialFlag::TwoSided));
@@ -8906,7 +8921,7 @@ namespace OloEngine
                             continue;
 
                         Renderer3D::AddMeshShadowCaster(
-                            va->GetRendererID(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
+                            va->GetRHIHandle(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
                             modelTransform, GetShadowVaoID(submesh),
                             submesh->GetTransformedBoundingBox(modelTransform),
                             shadowMaterial.GetFlag(MaterialFlag::TwoSided));
@@ -8970,7 +8985,7 @@ namespace OloEngine
                                     if (cmd)
                                     {
                                         Renderer3D::AddSkinnedShadowCaster(
-                                            va->GetRendererID(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
+                                            va->GetRHIHandle(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
                                             worldTransform,
                                             cmd->boneBufferOffset, cmd->boneCount,
                                             submesh->GetTransformedBoundingBox(worldTransform));
@@ -9043,7 +9058,7 @@ namespace OloEngine
                             if (va)
                             {
                                 Renderer3D::AddMeshShadowCaster(
-                                    va->GetRendererID(), tileComp.TileMesh->GetIndexCount(), tileComp.TileMesh->GetBaseIndex(),
+                                    va->GetRHIHandle(), tileComp.TileMesh->GetIndexCount(), tileComp.TileMesh->GetBaseIndex(),
                                     tileTransform, GetShadowVaoID(tileComp.TileMesh),
                                     tileComp.TileMesh->GetTransformedBoundingBox(tileTransform),
                                     material.GetFlag(MaterialFlag::TwoSided));
@@ -9634,10 +9649,9 @@ namespace OloEngine
                 SoftParticleParams softParams;
                 if (auto sceneDepthTextureID = Renderer3D::ResolveFrameGraphTexture(ResourceNames::SceneDepth); sceneDepthTextureID != 0)
                 {
-                    i32 viewportWidth = 0;
-                    i32 viewportHeight = 0;
-                    glGetTextureLevelParameteriv(sceneDepthTextureID, 0, GL_TEXTURE_WIDTH, &viewportWidth);
-                    glGetTextureLevelParameteriv(sceneDepthTextureID, 0, GL_TEXTURE_HEIGHT, &viewportHeight);
+                    u32 viewportWidth = 0;
+                    u32 viewportHeight = 0;
+                    RenderCommand::GetTextureDimensions(sceneDepthTextureID, 0, viewportWidth, viewportHeight);
 
                     softParams.Enabled = sys.SoftParticlesEnabled;
                     softParams.Distance = sys.SoftParticleDistance;

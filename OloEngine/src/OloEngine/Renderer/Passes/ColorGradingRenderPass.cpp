@@ -9,8 +9,6 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 #include <array>
 #include <vector>
 
@@ -70,7 +68,7 @@ namespace OloEngine
         {
             // 16x16x16 identity LUT laid out as a 256x16 strip (see CreateIdentityLUT).
             RGResourceDesc lutDesc =
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, kIdentityLUTTargetName);
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, kIdentityLUTTargetName);
             lutDesc.Format = RGResourceFormat::RGBA8UNorm;
             lutDesc.Width = 256;
             lutDesc.Height = 16;
@@ -137,14 +135,12 @@ namespace OloEngine
             }
         }
 
-        m_IdentityLUTTexture = RenderCommand::CreateTexture2D(stripWidth, stripHeight, GL_RGBA8);
-        RenderCommand::UploadTextureSubImage2D(m_IdentityLUTTexture, stripWidth, stripHeight, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        m_IdentityLUTTexture = RenderCommand::CreateTexture2D(stripWidth, stripHeight, RHI::Format::RGBA8UNorm);
+        RenderCommand::UploadTextureSubImage2D(m_IdentityLUTTexture, stripWidth, stripHeight, RHI::Format::RGBA8UNorm, pixels.data());
         // Linear filtering + clamp-to-edge so the shader's intra-tile bilinear
         // and inter-tile mix() interpolate cleanly without wrap artifacts.
-        RenderCommand::SetTextureParameter(m_IdentityLUTTexture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        RenderCommand::SetTextureParameter(m_IdentityLUTTexture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        RenderCommand::SetTextureParameter(m_IdentityLUTTexture, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        RenderCommand::SetTextureParameter(m_IdentityLUTTexture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        RenderCommand::SetTextureFilter(m_IdentityLUTTexture, RHI::Filter::Linear, RHI::Filter::Linear);
+        RenderCommand::SetTextureWrap(m_IdentityLUTTexture, RHI::AddressMode::ClampToEdge);
     }
 
     void ColorGradingRenderPass::CreateFramebuffer(u32 width, u32 height)
@@ -203,7 +199,7 @@ namespace OloEngine
         context.SetCulling(false);
         RenderCommand::DisableStencilTest();
         RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
         RenderCommand::SetColorMask(true, true, true, true);
 
         constexpr u32 colorAttachment = 0;

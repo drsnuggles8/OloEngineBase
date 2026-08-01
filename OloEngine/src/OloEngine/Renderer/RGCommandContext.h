@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/FrameBlackboard.h"
@@ -51,6 +52,19 @@ namespace OloEngine
         void SetClearColor(const glm::vec4& color) const;
         void Clear() const;
         void ResetGraphicsStateToDefault() const;
+        // The opaque-forward draw state that forward passes re-establish around a
+        // CommandBucket execution, because skybox / debug / grid commands inside
+        // the bucket flip these and would otherwise leak into the next pass.
+        //
+        // Deliberately narrower than ResetGraphicsStateToDefault(), which also
+        // DISABLES culling and resets stencil / scissor / colour mask / polygon
+        // offset / multisampling — none of which these sites want touched.
+        //
+        // Deliberately does NOT set the depth *test*: callers entering the pass
+        // enable it themselves, while the post-bucket restore sites leave it
+        // alone, and re-enabling one a bucket command legitimately disabled
+        // would change what renders.
+        void ResetOpaqueForwardDrawState() const;
         void BindDefaultFramebuffer() const;
         void SetDepthTest(bool enabled) const;
         void SetDepthMask(bool enabled) const;
@@ -60,6 +74,7 @@ namespace OloEngine
         void SetCulling(bool enabled) const;
         void SetDrawBuffers(std::span<const u32> attachments) const;
         void BindTexture(u32 slot, u32 textureID) const;
+        void BindTexture(u32 slot, RHI::ResourceHandle texture) const;
         void MemoryBarrier(MemoryBarrierFlags flags) const;
         void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount = 0) const;
         // Async-compute batch boundaries.
@@ -69,6 +84,10 @@ namespace OloEngine
         void BeginAsyncBatch(u32 batchIndex) const;
         void EndAsyncBatch(u32 batchIndex) const;
         [[nodiscard]] u32 ResolveTexture(RGTextureHandle handle) const;
+        // Identity form (issue #691 step 3, slice 5). Returns the null handle
+        // for a resource imported as a native id — a resource migrates its
+        // whole creator/import/resolve/bind chain in one slice.
+        [[nodiscard]] RHI::ResourceHandle ResolveTextureHandle(RGTextureHandle handle) const;
         [[nodiscard]] Ref<Framebuffer> ResolveFramebuffer(RGFramebufferHandle handle) const;
         void ExtractHistoryTexture(std::string_view historyResource,
                                    RGTextureHandle sourceHandle,

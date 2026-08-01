@@ -2,10 +2,10 @@
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/LightCulling/ClusteredLighting.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
-#include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
 
 namespace OloEngine
@@ -216,17 +216,17 @@ namespace OloEngine
         debugShader->Bind();
 
         // Enable alpha blending for the overlay
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glDisable(GL_DEPTH_TEST);
+        RenderCommand::SetBlendState(true);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+        RenderCommand::SetDepthTest(false);
 
-        glBindVertexArray(fullscreenQuadVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        glBindVertexArray(0);
+        RenderCommand::BindVertexArrayRaw(fullscreenQuadVAO);
+        RenderCommand::DrawBoundArrays(RHI::PrimitiveTopology::TriangleList, 0, 6);
+        RenderCommand::BindVertexArrayRaw(0);
 
         // Restore state
-        glEnable(GL_DEPTH_TEST);
-        glDisable(GL_BLEND);
+        RenderCommand::SetDepthTest(true);
+        RenderCommand::SetBlendState(false);
 
         debugShader->Unbind();
     }

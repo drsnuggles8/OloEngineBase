@@ -1,4 +1,5 @@
 #pragma once
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/Texture.h"
 
 #include <glad/gl.h>
@@ -32,6 +33,11 @@ namespace OloEngine
         [[nodiscard("Store this!")]] u32 GetRendererID() const override
         {
             return m_RendererID;
+        }
+
+        [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const override
+        {
+            return m_RHIHandle.Get();
         }
         [[nodiscard("Store this!")]] const std::string& GetPath() const override
         {
@@ -87,6 +93,11 @@ namespace OloEngine
         u32 m_Height{};
         u32 m_MipLevels = 1;
         u32 m_RendererID{};
+        // Generation-checked identity for m_RendererID above, kept in
+        // lockstep by m_RHIHandle.Sync() at every site that assigns the
+        // native name. RAII retires the entry, so a handle to a destroyed
+        // object can never resolve to a recycled GL name (issue #691).
+        RHI::ScopedResourceHandle m_RHIHandle;
         GLenum m_InternalFormat{};
         GLenum m_DataFormat{};
         // For block-compressed textures only: whether the source carried a meaningful

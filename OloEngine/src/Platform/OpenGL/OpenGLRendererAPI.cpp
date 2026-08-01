@@ -2,6 +2,7 @@
 #include "Platform/OpenGL/OpenGLRendererAPI.h"
 #include "Platform/OpenGL/OpenGLDebug.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
+#include "Platform/OpenGL/OpenGLRHIConversions.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
@@ -31,7 +32,7 @@ namespace OloEngine
         glDisable(GL_DITHER);
 
         SetDepthTest(true);
-        SetDepthFunc(GL_LESS);
+        SetDepthFunc(RHI::CompareOp::Less);
         glEnable(GL_LINE_SMOOTH);
 
         // Validate that the GPU supports enough combined texture units for our highest binding slot.
@@ -53,12 +54,16 @@ namespace OloEngine
         }
 
         EnableStencilTest();
-        SetStencilFunc(GL_ALWAYS, 1, 0xFF);
-        SetStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+        SetStencilFunc(RHI::CompareOp::Always, 1, 0xFF);
+        SetStencilOp(RHI::StencilOp::Keep, RHI::StencilOp::Keep, RHI::StencilOp::Replace);
 
         // Cache GL_MAX_DRAW_BUFFERS once — SetBlend*ForAttachment are hot paths
         // and glGetIntegerv on every call costs a driver round-trip.
         glGetIntegerv(GL_MAX_DRAW_BUFFERS, &m_MaxDrawBuffers);
+
+        // Same reasoning for the tessellation cap — SetPatchVertexCount runs
+        // once per terrain/water patch draw.
+        glGetIntegerv(GL_MAX_PATCH_VERTICES, &m_MaxPatchVertices);
 
         // Detect 64-bit shader integer + atomic support once (issue #629). The
         // virtualized-geometry software rasterizer uses a single atomicMin on a
@@ -283,12 +288,10 @@ namespace OloEngine
             return;
         }
 
-        GLint maxPatchVerts = 0;
-        glGetIntegerv(GL_MAX_PATCH_VERTICES, &maxPatchVerts);
-        if (patchVertices > static_cast<u32>(maxPatchVerts))
+        if (m_MaxPatchVertices > 0 && patchVertices > static_cast<u32>(m_MaxPatchVertices))
         {
             OLO_CORE_ERROR("OpenGLRendererAPI::DrawIndexedPatches - patchVertices {} exceeds GL_MAX_PATCH_VERTICES {}",
-                           patchVertices, maxPatchVerts);
+                           patchVertices, m_MaxPatchVertices);
             return;
         }
 
@@ -370,12 +373,10 @@ namespace OloEngine
             return;
         }
 
-        GLint maxPatchVerts = 0;
-        glGetIntegerv(GL_MAX_PATCH_VERTICES, &maxPatchVerts);
-        if (patchVertices > static_cast<u32>(maxPatchVerts))
+        if (m_MaxPatchVertices > 0 && patchVertices > static_cast<u32>(m_MaxPatchVertices))
         {
             OLO_CORE_ERROR("OpenGLRendererAPI::DrawIndexedPatchesRaw - patchVertices {} exceeds GL_MAX_PATCH_VERTICES {}",
-                           patchVertices, maxPatchVerts);
+                           patchVertices, m_MaxPatchVertices);
             return;
         }
 
@@ -408,11 +409,11 @@ namespace OloEngine
         glDisable(GL_CULL_FACE);
     }
 
-    void OpenGLRendererAPI::SetCullFace(GLenum face)
+    void OpenGLRendererAPI::SetCullFace(RHI::CullMode face)
     {
         OLO_PROFILE_FUNCTION();
 
-        glCullFace(face);
+        glCullFace(Utils::ToGL(face));
     }
 
     void OpenGLRendererAPI::FrontCull()
@@ -462,19 +463,19 @@ namespace OloEngine
             glDisable(GL_DEPTH_TEST);
         }
     }
-    void OpenGLRendererAPI::SetDepthFunc(GLenum func)
+    void OpenGLRendererAPI::SetDepthFunc(RHI::CompareOp func)
     {
         OLO_PROFILE_FUNCTION();
 
-        glDepthFunc(func);
+        glDepthFunc(Utils::ToGL(func));
         // Don't track this as state change - it's just parameter setting
     }
 
-    void OpenGLRendererAPI::SetStencilMask(GLuint mask)
+    void OpenGLRendererAPI::SetStencilMask(u32 mask)
     {
         OLO_PROFILE_FUNCTION();
 
-        glStencilMask(mask);
+        glStencilMask(static_cast<GLuint>(mask));
     }
 
     void OpenGLRendererAPI::ClearStencil()
@@ -518,17 +519,17 @@ namespace OloEngine
             glDisable(GL_BLEND);
         }
     }
-    void OpenGLRendererAPI::SetBlendFunc(GLenum sfactor, GLenum dfactor)
+    void OpenGLRendererAPI::SetBlendFunc(RHI::BlendFactor sfactor, RHI::BlendFactor dfactor)
     {
         OLO_PROFILE_FUNCTION();
 
-        glBlendFunc(sfactor, dfactor);
+        glBlendFunc(Utils::ToGL(sfactor), Utils::ToGL(dfactor));
         // Don't track this as state change - it's just parameter setting
     }
 
-    void OpenGLRendererAPI::SetBlendEquation(GLenum mode)
+    void OpenGLRendererAPI::SetBlendEquation(RHI::BlendOp mode)
     {
-        glBlendEquation(mode);
+        glBlendEquation(Utils::ToGL(mode));
     }
     void OpenGLRendererAPI::EnableStencilTest()
     {
@@ -561,31 +562,34 @@ namespace OloEngine
     {
         return m_StencilTestEnabled;
     }
-    void OpenGLRendererAPI::SetStencilFunc(GLenum func, GLint ref, GLuint mask)
+    void OpenGLRendererAPI::SetStencilFunc(RHI::CompareOp func, i32 ref, u32 mask)
     {
         OLO_PROFILE_FUNCTION();
 
-        glStencilFunc(func, ref, mask);
+        glStencilFunc(Utils::ToGL(func), static_cast<GLint>(ref), static_cast<GLuint>(mask));
         // Don't track this as state change - it's just parameter setting
     }
-    void OpenGLRendererAPI::SetStencilOp(GLenum sfail, GLenum dpfail, GLenum dppass)
+    void OpenGLRendererAPI::SetStencilOp(RHI::StencilOp sfail, RHI::StencilOp dpfail, RHI::StencilOp dppass)
     {
         OLO_PROFILE_FUNCTION();
 
-        glStencilOp(sfail, dpfail, dppass);
+        glStencilOp(Utils::ToGL(sfail), Utils::ToGL(dpfail), Utils::ToGL(dppass));
         // Don't track this as state change - it's just parameter setting
     }
-    void OpenGLRendererAPI::SetPolygonMode(GLenum face, GLenum mode)
+    void OpenGLRendererAPI::SetPolygonMode(RHI::PolygonMode mode)
     {
         OLO_PROFILE_FUNCTION();
 
-        glPolygonMode(face, mode);
+        // GL_FRONT_AND_BACK is the only face core-profile glPolygonMode accepts,
+        // which is why the neutral signature carries no face parameter at all.
+        const GLenum glMode = Utils::ToGL(mode);
+        glPolygonMode(GL_FRONT_AND_BACK, glMode);
         // Only track as state change if switching to/from wireframe mode
         static GLenum s_LastMode = GL_FILL;
-        if (mode != s_LastMode)
+        if (glMode != s_LastMode)
         {
             RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
-            s_LastMode = mode;
+            s_LastMode = glMode;
         }
     }
     void OpenGLRendererAPI::EnableScissorTest()
@@ -614,11 +618,12 @@ namespace OloEngine
 
         glDisable(GL_SCISSOR_TEST);
     }
-    void OpenGLRendererAPI::SetScissorBox(GLint x, GLint y, GLsizei width, GLsizei height)
+    void OpenGLRendererAPI::SetScissorBox(i32 x, i32 y, u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
 
-        glScissor(x, y, width, height);
+        glScissor(static_cast<GLint>(x), static_cast<GLint>(y),
+                  static_cast<GLsizei>(width), static_cast<GLsizei>(height));
         // Don't track this as state change - it's just parameter setting
     }
 
@@ -648,11 +653,14 @@ namespace OloEngine
         glBindTextureUnit(slot, textureID);
     }
 
-    void OpenGLRendererAPI::BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer, GLenum access, GLenum format)
+    void OpenGLRendererAPI::BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer,
+                                             RHI::Access access, RHI::Format format)
     {
         OLO_PROFILE_FUNCTION();
 
-        glBindImageTexture(unit, textureID, static_cast<GLint>(mipLevel), layered ? GL_TRUE : GL_FALSE, static_cast<GLint>(layer), access, format);
+        glBindImageTexture(unit, textureID, static_cast<GLint>(mipLevel), layered ? GL_TRUE : GL_FALSE,
+                           static_cast<GLint>(layer), Utils::ToGLImageAccess(access),
+                           Utils::ToGLInternalFormat(format));
     }
 
     void OpenGLRendererAPI::DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ)
@@ -674,14 +682,15 @@ namespace OloEngine
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
     }
 
-    void OpenGLRendererAPI::DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID)
+    void OpenGLRendererAPI::DrawBoundElementsIndirect(u32 indirectBufferID)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (vaoID == 0 || indirectBufferID == 0)
+        if (indirectBufferID == 0)
             return;
 
-        glBindVertexArray(vaoID);
+        // No glBindVertexArray: the caller's BindVAOIfNeeded already bound it,
+        // and binding here would defeat that cache (see the DrawBound* family).
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBufferID);
         glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
@@ -886,7 +895,7 @@ namespace OloEngine
         }
     }
 
-    void OpenGLRendererAPI::SetBlendFuncForAttachment(u32 attachment, GLenum src, GLenum dst)
+    void OpenGLRendererAPI::SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -897,7 +906,7 @@ namespace OloEngine
             return;
         }
 
-        glBlendFunci(attachment, src, dst);
+        glBlendFunci(attachment, Utils::ToGL(src), Utils::ToGL(dst));
     }
 
     static GLenum ToGLTextureTarget(RendererAPI::TextureTargetType target)
@@ -908,6 +917,8 @@ namespace OloEngine
                 return GL_TEXTURE_2D;
             case RendererAPI::TextureTargetType::TextureCubeMap:
                 return GL_TEXTURE_CUBE_MAP;
+            case RendererAPI::TextureTargetType::Texture2DMultisample:
+                return GL_TEXTURE_2D_MULTISAMPLE;
             default:
                 OLO_CORE_ERROR("ToGLTextureTarget: Unknown TextureTargetType");
                 return GL_TEXTURE_2D;
@@ -1014,24 +1025,24 @@ namespace OloEngine
         glDrawBuffers(static_cast<GLsizei>(colorAttachmentCount), allBuffers.data());
     }
 
-    u32 OpenGLRendererAPI::CreateTexture2D(u32 width, u32 height, GLenum internalFormat)
+    u32 OpenGLRendererAPI::CreateTexture2D(u32 width, u32 height, RHI::Format internalFormat)
     {
         OLO_PROFILE_FUNCTION();
 
         u32 textureID = 0;
         glCreateTextures(GL_TEXTURE_2D, 1, &textureID);
-        glTextureStorage2D(textureID, 1, internalFormat,
+        glTextureStorage2D(textureID, 1, Utils::ToGLInternalFormat(internalFormat),
                            static_cast<GLsizei>(width), static_cast<GLsizei>(height));
         return textureID;
     }
 
-    u32 OpenGLRendererAPI::CreateTextureCubemap(u32 width, u32 height, GLenum internalFormat)
+    u32 OpenGLRendererAPI::CreateTextureCubemap(u32 width, u32 height, RHI::Format internalFormat)
     {
         OLO_PROFILE_FUNCTION();
 
         u32 textureID = 0;
         glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &textureID);
-        glTextureStorage2D(textureID, 1, internalFormat,
+        glTextureStorage2D(textureID, 1, Utils::ToGLInternalFormat(internalFormat),
                            static_cast<GLsizei>(width), static_cast<GLsizei>(height));
         return textureID;
     }
@@ -1065,21 +1076,52 @@ namespace OloEngine
         return viewID;
     }
 
-    void OpenGLRendererAPI::SetTextureParameter(u32 textureID, GLenum pname, GLint value)
+    void OpenGLRendererAPI::SetTextureFilter(u32 textureID, RHI::Filter minFilter, RHI::Filter magFilter)
     {
         OLO_PROFILE_FUNCTION();
 
-        glTextureParameteri(textureID, pname, value);
+        glTextureParameteri(textureID, GL_TEXTURE_MIN_FILTER, static_cast<GLint>(Utils::ToGL(minFilter)));
+        glTextureParameteri(textureID, GL_TEXTURE_MAG_FILTER, static_cast<GLint>(Utils::ToGL(magFilter)));
+    }
+
+    void OpenGLRendererAPI::SetTextureWrap(u32 textureID, RHI::AddressMode wrap)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // All three axes. WRAP_R is part of every texture object's sampler state
+        // and is simply unused on a 2D target, so setting it there is a no-op
+        // rather than an error — which is why one mode for all axes faithfully
+        // reproduces every call site the sweep replaced.
+        const GLint glWrap = static_cast<GLint>(Utils::ToGL(wrap));
+        glTextureParameteri(textureID, GL_TEXTURE_WRAP_S, glWrap);
+        glTextureParameteri(textureID, GL_TEXTURE_WRAP_T, glWrap);
+        glTextureParameteri(textureID, GL_TEXTURE_WRAP_R, glWrap);
     }
 
     void OpenGLRendererAPI::UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
-                                                    GLenum format, GLenum type, const void* data)
+                                                    RHI::Format sourceFormat, const void* data)
     {
         OLO_PROFILE_FUNCTION();
 
         glTextureSubImage2D(textureID, 0, 0, 0,
                             static_cast<GLsizei>(width), static_cast<GLsizei>(height),
-                            format, type, data);
+                            Utils::ToGLPixelFormat(sourceFormat), Utils::ToGLPixelType(sourceFormat), data);
+    }
+
+    bool OpenGLRendererAPI::IsDeviceAvailable() const
+    {
+        // glad resolves every entry point as a batch inside gladLoadGL, so
+        // probing one DSA function pointer answers for all of them. A null
+        // pointer means no context has ever been made current in this process,
+        // and calling through it segfaults rather than raising a GL error —
+        // which is exactly why the check has to happen before the call, not
+        // after it via glGetError.
+        //
+        // Note this is process-wide, not per-thread: glad (built without MX)
+        // keeps one global pointer table. That matches the semantics the callers
+        // need — "was a device ever brought up" — and is deliberately unchanged
+        // from the probe this replaced.
+        return glad_glCreateTextures != nullptr;
     }
 
     void OpenGLRendererAPI::DeleteTexture(u32 textureID)
@@ -1111,4 +1153,1006 @@ namespace OloEngine
         glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &size);
         return static_cast<u32>(size);
     }
+
+    // =========================================================================
+    // Phase 2 step 2 (issue #691) — the operations the call-site sweep found
+    // the facade had never abstracted. See ADR 0011's "Amendments from Phase 2
+    // step 2" for why each has the shape it does.
+    // =========================================================================
+
+    // --- Buffer binding points -----------------------------------------------
+
+    void OpenGLRendererAPI::BindUniformBuffer(u32 bindingPoint, u32 bufferID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glBindBufferBase(GL_UNIFORM_BUFFER, bindingPoint, bufferID);
+    }
+
+    void OpenGLRendererAPI::BindStorageBuffer(u32 bindingPoint, u32 bufferID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, bindingPoint, bufferID);
+    }
+
+    // --- Program / VAO / framebuffer binding ----------------------------------
+
+    void OpenGLRendererAPI::BindShaderProgram(u32 programID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glUseProgram(programID);
+    }
+
+    void OpenGLRendererAPI::BindVertexArrayRaw(u32 vaoID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glBindVertexArray(vaoID);
+    }
+
+    void OpenGLRendererAPI::BindFramebuffer(u32 framebufferID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glBindFramebuffer(GL_FRAMEBUFFER, framebufferID);
+    }
+
+    // --- Draws from already-bound geometry -------------------------------------
+    //
+    // These deliberately do NOT touch RendererProfiler, unlike the
+    // DrawIndexedRaw family above. The call sites they replace (CommandDispatch's
+    // raw glDrawElements / glDrawArrays, TiledForwardPlus's debug overlay) never
+    // incremented it either, and several of them keep their own counters in
+    // CommandDispatch::Statistics. Adding increments here would silently change
+    // every profiler-derived number the sweep is supposed to leave untouched.
+
+    namespace
+    {
+        // baseIndex is an index COUNT; glDrawElements wants a byte offset into
+        // the bound element buffer, and the stride depends on the index width.
+        [[nodiscard]] const void* IndexByteOffset(RHI::IndexType type, u32 baseIndex)
+        {
+            const uintptr_t stride = (type == RHI::IndexType::UInt16) ? sizeof(u16) : sizeof(u32);
+            return reinterpret_cast<const void*>(static_cast<uintptr_t>(baseIndex) * stride);
+        }
+    } // namespace
+
+    void OpenGLRendererAPI::DrawBoundIndexed(RHI::PrimitiveTopology topology, u32 indexCount,
+                                             RHI::IndexType indexType, u32 baseIndex)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glDrawElements(Utils::ToGL(topology), static_cast<GLsizei>(indexCount), Utils::ToGL(indexType),
+                       IndexByteOffset(indexType, baseIndex));
+    }
+
+    void OpenGLRendererAPI::DrawBoundIndexedInstanced(RHI::PrimitiveTopology topology, u32 indexCount,
+                                                      RHI::IndexType indexType, u32 baseIndex,
+                                                      u32 instanceCount)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glDrawElementsInstanced(Utils::ToGL(topology), static_cast<GLsizei>(indexCount),
+                                Utils::ToGL(indexType), IndexByteOffset(indexType, baseIndex),
+                                static_cast<GLsizei>(instanceCount));
+    }
+
+    void OpenGLRendererAPI::DrawBoundArrays(RHI::PrimitiveTopology topology, u32 firstVertex, u32 vertexCount)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glDrawArrays(Utils::ToGL(topology), static_cast<GLint>(firstVertex), static_cast<GLsizei>(vertexCount));
+    }
+
+    void OpenGLRendererAPI::SetPatchVertexCount(u32 patchVertices)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Validated against the cap cached in Init(). The raw call sites this
+        // replaces had no check at all, so an out-of-range value became a
+        // silent GL_INVALID_VALUE and the tessellation draw simply did nothing.
+        //
+        // The `m_MaxPatchVertices > 0` term is load-bearing: a zero cap means
+        // Init() never ran (or the query failed), and rejecting on that would
+        // turn a missing cache value into "terrain and water silently stop
+        // rendering" — a far worse failure than the one this guard prevents.
+        // Fail OPEN on an unknown cap; GL will still report a real violation.
+        if (patchVertices == 0 || (m_MaxPatchVertices > 0 && patchVertices > static_cast<u32>(m_MaxPatchVertices)))
+        {
+            OLO_CORE_ERROR("OpenGLRendererAPI::SetPatchVertexCount - {} is outside [1, GL_MAX_PATCH_VERTICES={}]",
+                           patchVertices, m_MaxPatchVertices);
+            return;
+        }
+        glPatchParameteri(GL_PATCH_VERTICES, static_cast<GLint>(patchVertices));
+    }
+
+    // --- Pipeline state the facade was missing -----------------------------------
+
+    void OpenGLRendererAPI::SetFrontFace(RHI::FrontFace face)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glFrontFace(Utils::ToGL(face));
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
+    }
+
+    void OpenGLRendererAPI::SetBlendFuncSeparate(RHI::BlendFactor srcRGB, RHI::BlendFactor dstRGB,
+                                                 RHI::BlendFactor srcAlpha, RHI::BlendFactor dstAlpha)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glBlendFuncSeparate(Utils::ToGL(srcRGB), Utils::ToGL(dstRGB),
+                            Utils::ToGL(srcAlpha), Utils::ToGL(dstAlpha));
+        RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
+    }
+
+    void OpenGLRendererAPI::SetClearDepth(f32 depth)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glClearDepth(static_cast<GLdouble>(depth));
+    }
+
+    // --- Named framebuffers --------------------------------------------------------
+
+    u32 OpenGLRendererAPI::CreateFramebuffer()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        GLuint fbo = 0;
+        glCreateFramebuffers(1, &fbo);
+        return fbo;
+    }
+
+    void OpenGLRendererAPI::DeleteFramebuffer(u32 framebufferID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glDeleteFramebuffers(1, &framebufferID);
+    }
+
+    void OpenGLRendererAPI::AttachFramebufferColorTexture(u32 framebufferID, u32 attachmentIndex,
+                                                          u32 textureID, u32 mipLevel)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glNamedFramebufferTexture(framebufferID, GL_COLOR_ATTACHMENT0 + attachmentIndex, textureID,
+                                  static_cast<GLint>(mipLevel));
+    }
+
+    void OpenGLRendererAPI::AttachFramebufferDepthTexture(u32 framebufferID, u32 textureID, u32 mipLevel)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glNamedFramebufferTexture(framebufferID, GL_DEPTH_ATTACHMENT, textureID, static_cast<GLint>(mipLevel));
+    }
+
+    bool OpenGLRendererAPI::IsFramebufferComplete(u32 framebufferID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        return glCheckNamedFramebufferStatus(framebufferID, GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    }
+
+    void OpenGLRendererAPI::SetFramebufferDrawAttachments(u32 framebufferID, std::span<const u32> attachmentIndices)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        u32 count = static_cast<u32>(attachmentIndices.size());
+        const u32 maxBuf = static_cast<u32>(m_MaxDrawBuffers);
+        if (count > maxBuf)
+        {
+            OLO_CORE_WARN("OpenGLRendererAPI::SetFramebufferDrawAttachments - count {} exceeds "
+                          "GL_MAX_DRAW_BUFFERS {}, clamping",
+                          count, maxBuf);
+            count = maxBuf;
+        }
+
+        // 8 covers every framebuffer in the engine (the G-Buffer is the widest
+        // at 5); the heap path exists only so a future wider target degrades in
+        // performance rather than in correctness.
+        if (count <= 8)
+        {
+            std::array<GLenum, 8> drawBuffers{};
+            for (u32 i = 0; i < count; ++i)
+            {
+                drawBuffers[i] = Utils::ToGLColorAttachment(attachmentIndices[i]);
+            }
+            glNamedFramebufferDrawBuffers(framebufferID, static_cast<GLsizei>(count), drawBuffers.data());
+        }
+        else
+        {
+            std::vector<GLenum> drawBuffers(count);
+            for (u32 i = 0; i < count; ++i)
+            {
+                drawBuffers[i] = Utils::ToGLColorAttachment(attachmentIndices[i]);
+            }
+            glNamedFramebufferDrawBuffers(framebufferID, static_cast<GLsizei>(count), drawBuffers.data());
+        }
+    }
+
+    void OpenGLRendererAPI::RestoreAllFramebufferDrawAttachments(u32 framebufferID, u32 colorAttachmentCount)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Build the identity list { 0, 1, ... count-1 } once, here, instead of at
+        // the nine call sites that used to open-code it.
+        u32 count = colorAttachmentCount;
+        const u32 maxBuf = static_cast<u32>(m_MaxDrawBuffers);
+        if (count > maxBuf)
+        {
+            OLO_CORE_WARN("OpenGLRendererAPI::RestoreAllFramebufferDrawAttachments - count {} exceeds "
+                          "GL_MAX_DRAW_BUFFERS {}, clamping",
+                          count, maxBuf);
+            count = maxBuf;
+        }
+
+        // The stack path covers every framebuffer in the engine (the G-Buffer is
+        // the widest at 5) but must NOT be a silent cap: this helper's whole
+        // contract is "restore ALL of them", and quietly truncating is the exact
+        // failure the comment on the declaration warns about — a narrower list
+        // drops later fragment outputs. Above 16, allocate rather than clip.
+        // GL_MAX_DRAW_BUFFERS is the only legitimate ceiling, and it is applied
+        // above with a warning.
+        static constexpr u32 kStackCapacity = 16;
+        if (count <= kStackCapacity)
+        {
+            std::array<u32, kStackCapacity> attachments{};
+            for (u32 i = 0; i < count; ++i)
+            {
+                attachments[i] = i;
+            }
+            SetFramebufferDrawAttachments(framebufferID, std::span<const u32>(attachments.data(), count));
+            return;
+        }
+
+        std::vector<u32> attachments(count);
+        for (u32 i = 0; i < count; ++i)
+        {
+            attachments[i] = i;
+        }
+        SetFramebufferDrawAttachments(framebufferID, attachments);
+    }
+
+    void OpenGLRendererAPI::SetFramebufferReadAttachment(u32 framebufferID, u32 attachmentIndex)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glNamedFramebufferReadBuffer(framebufferID, Utils::ToGLColorAttachment(attachmentIndex));
+    }
+
+    void OpenGLRendererAPI::ClearFramebufferColorAttachment(u32 framebufferID, u32 attachmentIndex,
+                                                            const glm::vec4& color)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // The clear-program guard lives HERE, not at the call site. It is an
+        // NVIDIA-driver hazard mitigation (the bound program's vertex shader is
+        // revalidated against the target at clear time, debug id 131218 — see
+        // docs/agent-rules/gl-clear-program-revalidation.md), so it is backend
+        // knowledge. Three passes used to construct it themselves, which forced
+        // them to include Platform/OpenGL/OpenGLUtilities.h — a backend header in
+        // the sweep bucket, which would have left `sweep_glad_includes` able to
+        // reach zero while every one of those TUs could still see all of GL
+        // transitively. Same placement as ClearDepthOnly()'s existing guard.
+        Utils::GLClearProgramGuard programGuard;
+
+        // The third parameter of glClearNamedFramebufferfv with GL_COLOR is a
+        // DRAW BUFFER INDEX, not an attachment enum — hence no ToGLColorAttachment.
+        glClearNamedFramebufferfv(framebufferID, GL_COLOR, static_cast<GLint>(attachmentIndex), &color.x);
+    }
+
+    void OpenGLRendererAPI::ClearFramebufferDepth(u32 framebufferID, f32 depth)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        Utils::GLClearProgramGuard programGuard;
+        glClearNamedFramebufferfv(framebufferID, GL_DEPTH, 0, &depth);
+    }
+
+    void OpenGLRendererAPI::BlitFramebuffer(u32 srcFramebufferID, u32 dstFramebufferID,
+                                            i32 srcX0, i32 srcY0, i32 srcX1, i32 srcY1,
+                                            i32 dstX0, i32 dstY0, i32 dstX1, i32 dstY1,
+                                            RHI::BlitAspect aspect, RHI::Filter filter)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glBlitNamedFramebuffer(srcFramebufferID, dstFramebufferID,
+                               srcX0, srcY0, srcX1, srcY1,
+                               dstX0, dstY0, dstX1, dstY1,
+                               Utils::ToGLBlitMask(aspect), Utils::ToGL(filter));
+    }
+
+    // --- Raw buffer lifecycle --------------------------------------------------------
+
+    u32 OpenGLRendererAPI::CreateBuffer()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        GLuint buffer = 0;
+        glCreateBuffers(1, &buffer);
+        return buffer;
+    }
+
+    void OpenGLRendererAPI::DeleteBuffer(u32 bufferID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glDeleteBuffers(1, &bufferID);
+    }
+
+    void OpenGLRendererAPI::AllocateBufferStorage(u32 bufferID, u64 sizeBytes, RHI::MemoryResidency residency)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glNamedBufferData(bufferID, static_cast<GLsizeiptr>(sizeBytes), nullptr, Utils::ToGL(residency));
+    }
+
+    void* OpenGLRendererAPI::AllocatePersistentUploadStorage(u32 bufferID, u64 sizeBytes)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Storage flags and map flags must agree or glMapNamedBufferRange fails
+        // at map time rather than at allocation time — which is why these are
+        // one call rather than two.
+        constexpr GLbitfield kFlags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+        glNamedBufferStorage(bufferID, static_cast<GLsizeiptr>(sizeBytes), nullptr, kFlags);
+        return glMapNamedBufferRange(bufferID, 0, static_cast<GLsizeiptr>(sizeBytes), kFlags);
+    }
+
+    void OpenGLRendererAPI::UnmapBuffer(u32 bufferID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glUnmapNamedBuffer(bufferID);
+    }
+
+    void OpenGLRendererAPI::UploadBufferSubData(u32 bufferID, u64 offsetBytes, u64 sizeBytes, const void* data)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glNamedBufferSubData(bufferID, static_cast<GLintptr>(offsetBytes), static_cast<GLsizeiptr>(sizeBytes), data);
+    }
+
+    void OpenGLRendererAPI::ReadBufferSubData(u32 bufferID, u64 offsetBytes, u64 sizeBytes, void* dest)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glGetNamedBufferSubData(bufferID, static_cast<GLintptr>(offsetBytes), static_cast<GLsizeiptr>(sizeBytes), dest);
+    }
+
+    void OpenGLRendererAPI::CopyBufferSubData(u32 srcBufferID, u32 dstBufferID,
+                                              u64 srcOffsetBytes, u64 dstOffsetBytes, u64 sizeBytes)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glCopyNamedBufferSubData(srcBufferID, dstBufferID,
+                                 static_cast<GLintptr>(srcOffsetBytes), static_cast<GLintptr>(dstOffsetBytes),
+                                 static_cast<GLsizeiptr>(sizeBytes));
+    }
+
+    void OpenGLRendererAPI::ClearBufferUInt(u32 bufferID, u32 value)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        Utils::GLClearProgramGuard programGuard;
+        glClearNamedBufferData(bufferID, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, &value);
+    }
+
+    void OpenGLRendererAPI::ClearBufferFloat(u32 bufferID, f32 value)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        Utils::GLClearProgramGuard programGuard;
+        glClearNamedBufferData(bufferID, GL_R32F, GL_RED, GL_FLOAT, &value);
+    }
+
+    // --- Vertex array lifecycle ---------------------------------------------------------
+
+    u32 OpenGLRendererAPI::CreateVertexArray()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        GLuint vao = 0;
+        glCreateVertexArrays(1, &vao);
+        return vao;
+    }
+
+    void OpenGLRendererAPI::SetVertexArrayIndexBuffer(u32 vaoID, u32 bufferID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glVertexArrayElementBuffer(vaoID, bufferID);
+    }
+
+    void OpenGLRendererAPI::DeleteVertexArray(u32 vaoID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glDeleteVertexArrays(1, &vaoID);
+    }
+
+    // --- Texture clear / upload / readback ------------------------------------------------
+
+    void OpenGLRendererAPI::ClearTextureFloat(u32 textureID, u32 mipLevel, const glm::vec4& color)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        Utils::GLClearProgramGuard programGuard;
+        glClearTexImage(textureID, static_cast<GLint>(mipLevel), GL_RGBA, GL_FLOAT, &color.x);
+    }
+
+    void OpenGLRendererAPI::ClearTextureUInt(u32 textureID, u32 mipLevel, u32 value)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        Utils::GLClearProgramGuard programGuard;
+        glClearTexImage(textureID, static_cast<GLint>(mipLevel), GL_RED_INTEGER, GL_UNSIGNED_INT, &value);
+    }
+
+    void OpenGLRendererAPI::UploadTextureSubImage2D(u32 textureID, i32 xOffset, i32 yOffset,
+                                                    u32 width, u32 height,
+                                                    RHI::Format sourceFormat, const void* data)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glTextureSubImage2D(textureID, 0, xOffset, yOffset,
+                            static_cast<GLsizei>(width), static_cast<GLsizei>(height),
+                            Utils::ToGLPixelFormat(sourceFormat), Utils::ToGLPixelType(sourceFormat), data);
+    }
+
+    void OpenGLRendererAPI::UploadTextureSubImage3D(u32 textureID, i32 xOffset, i32 yOffset, i32 zOffset,
+                                                    u32 width, u32 height, u32 depth,
+                                                    RHI::Format sourceFormat, const void* data)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glTextureSubImage3D(textureID, 0, xOffset, yOffset, zOffset,
+                            static_cast<GLsizei>(width), static_cast<GLsizei>(height), static_cast<GLsizei>(depth),
+                            Utils::ToGLPixelFormat(sourceFormat), Utils::ToGLPixelType(sourceFormat), data);
+    }
+
+    namespace
+    {
+        // GL's error flag is a sticky global, so an error raised by some earlier
+        // call would otherwise be attributed to this readback. Drain first, then
+        // the post-call check describes THIS call — which is what the bool
+        // return promises. (ADR 0011 amendment (7): glGetError does not become a
+        // facade entry point, it disappears into these two functions.)
+        void DrainGLErrors()
+        {
+            constexpr u32 kMaxDrain = 32;
+            for (u32 i = 0; i < kMaxDrain && glGetError() != GL_NO_ERROR; ++i)
+            {
+            }
+        }
+    } // namespace
+
+    bool OpenGLRendererAPI::ReadTextureImage(u32 textureID, u32 mipLevel, RHI::Format destFormat,
+                                             sizet destSizeBytes, void* dest)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        DrainGLErrors();
+        glGetTextureImage(textureID, static_cast<GLint>(mipLevel),
+                          Utils::ToGLPixelFormat(destFormat), Utils::ToGLPixelType(destFormat),
+                          static_cast<GLsizei>(destSizeBytes), dest);
+        return glGetError() == GL_NO_ERROR;
+    }
+
+    bool OpenGLRendererAPI::ReadTextureSubImage(u32 textureID, u32 mipLevel, i32 x, i32 y, i32 z,
+                                                u32 width, u32 height, u32 depth,
+                                                RHI::Format destFormat, sizet destSizeBytes, void* dest)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        DrainGLErrors();
+        glGetTextureSubImage(textureID, static_cast<GLint>(mipLevel), x, y, z,
+                             static_cast<GLsizei>(width), static_cast<GLsizei>(height), static_cast<GLsizei>(depth),
+                             Utils::ToGLPixelFormat(destFormat), Utils::ToGLPixelType(destFormat),
+                             static_cast<GLsizei>(destSizeBytes), dest);
+        return glGetError() == GL_NO_ERROR;
+    }
+
+    void OpenGLRendererAPI::GetTextureDimensions(u32 textureID, u32 mipLevel, u32& outWidth, u32& outHeight)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        GLint width = 0;
+        GLint height = 0;
+        glGetTextureLevelParameteriv(textureID, static_cast<GLint>(mipLevel), GL_TEXTURE_WIDTH, &width);
+        glGetTextureLevelParameteriv(textureID, static_cast<GLint>(mipLevel), GL_TEXTURE_HEIGHT, &height);
+        outWidth = static_cast<u32>(std::max(width, 0));
+        outHeight = static_cast<u32>(std::max(height, 0));
+    }
+
+    void OpenGLRendererAPI::TextureBarrier()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glTextureBarrier();
+    }
+
+    // --- Queries ----------------------------------------------------------------------------
+
+    void OpenGLRendererAPI::CreateQueries(RHI::QueryType type, std::span<u32> outQueryIDs)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (outQueryIDs.empty())
+        {
+            return;
+        }
+        // glCreateQueries rather than glGenQueries: the DSA form binds the
+        // object to its target at creation, so a subsequent glBeginQuery with a
+        // mismatched target is an immediate error rather than a latent one.
+        glCreateQueries(Utils::ToGL(type), static_cast<GLsizei>(outQueryIDs.size()), outQueryIDs.data());
+    }
+
+    void OpenGLRendererAPI::DeleteQueries(std::span<const u32> queryIDs)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (queryIDs.empty())
+        {
+            return;
+        }
+        glDeleteQueries(static_cast<GLsizei>(queryIDs.size()), queryIDs.data());
+    }
+
+    void OpenGLRendererAPI::BeginQuery(RHI::QueryType type, u32 queryID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glBeginQuery(Utils::ToGL(type), queryID);
+    }
+
+    void OpenGLRendererAPI::EndQuery(RHI::QueryType type)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glEndQuery(Utils::ToGL(type));
+    }
+
+    bool OpenGLRendererAPI::IsQueryResultAvailable(u32 queryID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        GLint available = 0;
+        glGetQueryObjectiv(queryID, GL_QUERY_RESULT_AVAILABLE, &available);
+        return available != 0;
+    }
+
+    u32 OpenGLRendererAPI::GetQueryResultU32(u32 queryID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        GLuint result = 0;
+        glGetQueryObjectuiv(queryID, GL_QUERY_RESULT, &result);
+        return result;
+    }
+
+    u64 OpenGLRendererAPI::GetQueryResultU64(u32 queryID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        GLuint64 result = 0;
+        glGetQueryObjectui64v(queryID, GL_QUERY_RESULT, &result);
+        return result;
+    }
+
+    // --- Fences -------------------------------------------------------------------------------
+    //
+    // GLsync is an opaque pointer; the facade carries it as a u64 so the same
+    // slot can hold a VkFence (a 64-bit handle) without the callers changing.
+
+    u64 OpenGLRendererAPI::CreateFence()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        return reinterpret_cast<u64>(sync);
+    }
+
+    RHI::FenceStatus OpenGLRendererAPI::ClientWaitFence(u64 fence, u64 timeoutNanoseconds)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (fence == 0)
+        {
+            return RHI::FenceStatus::Failed;
+        }
+        const GLenum result = glClientWaitSync(reinterpret_cast<GLsync>(fence), GL_SYNC_FLUSH_COMMANDS_BIT,
+                                               timeoutNanoseconds);
+        switch (result)
+        {
+            case GL_ALREADY_SIGNALED:
+                return RHI::FenceStatus::AlreadySignaled;
+            case GL_CONDITION_SATISFIED:
+                return RHI::FenceStatus::ConditionSatisfied;
+            case GL_TIMEOUT_EXPIRED:
+                return RHI::FenceStatus::TimeoutExpired;
+            default:
+                return RHI::FenceStatus::Failed;
+        }
+    }
+
+    bool OpenGLRendererAPI::IsFenceSignaled(u64 fence)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (fence == 0)
+        {
+            return false;
+        }
+        GLint signaled = 0;
+        GLsizei length = 0;
+        glGetSynciv(reinterpret_cast<GLsync>(fence), GL_SYNC_STATUS, sizeof(signaled), &length, &signaled);
+        return signaled == GL_SIGNALED;
+    }
+
+    void OpenGLRendererAPI::DestroyFence(u64 fence)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (fence != 0)
+        {
+            glDeleteSync(reinterpret_cast<GLsync>(fence));
+        }
+    }
+
+    // --- Debug markers -------------------------------------------------------------------------
+
+    void OpenGLRendererAPI::PushDebugGroup(u32 id, std::string_view label)
+    {
+        // The capability check belongs here, not at the call site. RGCommandContext
+        // used to guard this with `if (GLAD_GL_KHR_debug)` — a glad LOADER symbol,
+        // which is not a portable way to ask "does this backend support debug
+        // markers" and which kept a backend dependency in a renderer TU. It also
+        // does not match `gl[A-Z]`, so the boundary ratchet could never see it
+        // (issue #691 Phase 2 step 2; same class of problem as SlugFontProcessor's
+        // `glad_glCreateTextures != nullptr` context probe, replaced in step 1).
+        if (GLAD_GL_KHR_debug == 0)
+        {
+            return;
+        }
+        glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, id, static_cast<GLsizei>(label.size()), label.data());
+    }
+
+    void OpenGLRendererAPI::PopDebugGroup()
+    {
+        if (GLAD_GL_KHR_debug == 0)
+        {
+            return;
+        }
+        glPopDebugGroup();
+    }
+
+    // --- Device ----------------------------------------------------------------------------------
+
+    void OpenGLRendererAPI::WaitForDeviceIdle()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        glFinish();
+    }
+
+    u32 OpenGLRendererAPI::GetMaxFramebufferSamples() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        GLint samples = 0;
+        glGetIntegerv(GL_MAX_SAMPLES, &samples);
+        return static_cast<u32>(std::max(samples, 0));
+    }
+
+    u32 OpenGLRendererAPI::GetMaxColorTextureSamples() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        GLint samples = 0;
+        glGetIntegerv(GL_MAX_COLOR_TEXTURE_SAMPLES, &samples);
+        return static_cast<u32>(std::max(samples, 0));
+    }
+
+    u32 OpenGLRendererAPI::GetMaxDepthTextureSamples() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        GLint samples = 0;
+        glGetIntegerv(GL_MAX_DEPTH_TEXTURE_SAMPLES, &samples);
+        return static_cast<u32>(std::max(samples, 0));
+    }
+
+    void OpenGLRendererAPI::SetProgramUniformFloat(u32 programID, std::string_view name, f32 value)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // glGetUniformLocation needs a null-terminated name and string_view does
+        // not promise one. A stack buffer keeps this allocation-free — the one
+        // caller runs per frame.
+        std::array<char, 128> nameBuffer{};
+        if (name.size() >= nameBuffer.size())
+        {
+            OLO_CORE_ERROR("OpenGLRendererAPI::SetProgramUniformFloat - uniform name '{}' exceeds {} chars",
+                           name, nameBuffer.size() - 1);
+            return;
+        }
+        std::memcpy(nameBuffer.data(), name.data(), name.size());
+
+        const GLint location = glGetUniformLocation(programID, nameBuffer.data());
+        if (location == -1)
+        {
+            // Absent uniform is not an error — the caller uses this to set an
+            // optional uniform on shaders that may not declare it.
+            return;
+        }
+        // glProgramUniform1f rather than glUniform1f: it names the program
+        // explicitly instead of acting on whatever happens to be bound.
+        glProgramUniform1f(programID, location, value);
+    }
+
+    // -------------------------------------------------------------------------
+    // Handle-taking siblings of the bind family (issue #691 step 3, slice 2).
+    //
+    // Each resolves the identity to a driver name and delegates to the existing
+    // u32 form, so there is exactly one place per operation that talks to GL and
+    // the two spellings cannot drift. Resolution happens here, inside
+    // Platform/OpenGL/, which is the whole point — see Utils::ResolveNative.
+    //
+    // A stale handle resolves to 0, and every one of these treats 0 as "unbind",
+    // which is the correct degradation: a use-after-free leaves the slot empty
+    // rather than bound to whatever object inherited the recycled name.
+    // -------------------------------------------------------------------------
+    void OpenGLRendererAPI::BindTexture(u32 slot, RHI::ResourceHandle texture)
+    {
+        BindTexture(slot, Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture));
+    }
+
+    void OpenGLRendererAPI::BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
+                                             u32 layer, RHI::Access access, RHI::Format format)
+    {
+        BindImageTexture(unit, Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), mipLevel, layered, layer, access, format);
+    }
+
+    void OpenGLRendererAPI::BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
+    {
+        BindUniformBuffer(bindingPoint, Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer));
+    }
+
+    void OpenGLRendererAPI::BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
+    {
+        BindStorageBuffer(bindingPoint, Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer));
+    }
+
+    void OpenGLRendererAPI::BindShaderProgram(RHI::ResourceHandle program)
+    {
+        BindShaderProgram(Utils::ResolveNativeAs(program, RHI::ResourceKind::ShaderProgram));
+    }
+
+    void OpenGLRendererAPI::BindVertexArrayRaw(RHI::ResourceHandle vertexArray)
+    {
+        BindVertexArrayRaw(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray));
+    }
+
+    void OpenGLRendererAPI::BindFramebuffer(RHI::ResourceHandle framebuffer)
+    {
+        BindFramebuffer(Utils::ResolveNativeAs(framebuffer, RHI::ResourceKind::Framebuffer));
+    }
+
+    // -------------------------------------------------------------------------
+    // Handle-returning raw creators (issue #691 step 3, slice 4).
+    //
+    // Each creates through the existing u32 form and registers the result, so
+    // there is one place per operation that talks to GL. The Delete* siblings
+    // resolve, delegate, and then RETIRE the identity — the second half is the
+    // one that is easy to omit and impossible to notice: without it the slot
+    // keeps its generation and a handle to the destroyed object goes on
+    // resolving to a name the driver is free to reissue.
+    // -------------------------------------------------------------------------
+    RHI::ResourceHandle OpenGLRendererAPI::CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat)
+    {
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture,
+                                                     CreateTexture2D(width, height, internalFormat),
+                                                     RHI::Backend::OpenGL);
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format internalFormat)
+    {
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture,
+                                                     CreateTextureCubemap(width, height, internalFormat),
+                                                     RHI::Backend::OpenGL);
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateFramebufferHandle()
+    {
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Framebuffer, CreateFramebuffer(),
+                                                     RHI::Backend::OpenGL);
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateBufferHandle()
+    {
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Buffer, CreateBuffer(),
+                                                     RHI::Backend::OpenGL);
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateVertexArrayHandle()
+    {
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::VertexArray, CreateVertexArray(),
+                                                     RHI::Backend::OpenGL);
+    }
+
+    void OpenGLRendererAPI::DeleteTexture(RHI::ResourceHandle texture)
+    {
+        // A live handle of the wrong family names SOMEONE ELSE'S resource.
+        // ResolveNativeAs already refuses to hand back their GL name, but the
+        // Unregister below is not kind-aware — without this guard a mis-wired
+        // delete would retire their registry entry while leaving their GL
+        // object alive, which is worse than the unchecked form it replaced.
+        if (Utils::IsWrongKind(texture, RHI::ResourceKind::Texture))
+            return;
+
+        DeleteTexture(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture));
+        RHI::ResourceRegistry::Get().Unregister(texture);
+    }
+
+    void OpenGLRendererAPI::DeleteFramebuffer(RHI::ResourceHandle framebuffer)
+    {
+        // A live handle of the wrong family names SOMEONE ELSE'S resource.
+        // ResolveNativeAs already refuses to hand back their GL name, but the
+        // Unregister below is not kind-aware — without this guard a mis-wired
+        // delete would retire their registry entry while leaving their GL
+        // object alive, which is worse than the unchecked form it replaced.
+        if (Utils::IsWrongKind(framebuffer, RHI::ResourceKind::Framebuffer))
+            return;
+
+        DeleteFramebuffer(Utils::ResolveNativeAs(framebuffer, RHI::ResourceKind::Framebuffer));
+        RHI::ResourceRegistry::Get().Unregister(framebuffer);
+    }
+
+    void OpenGLRendererAPI::DeleteBuffer(RHI::ResourceHandle buffer)
+    {
+        // A live handle of the wrong family names SOMEONE ELSE'S resource.
+        // ResolveNativeAs already refuses to hand back their GL name, but the
+        // Unregister below is not kind-aware — without this guard a mis-wired
+        // delete would retire their registry entry while leaving their GL
+        // object alive, which is worse than the unchecked form it replaced.
+        if (Utils::IsWrongKind(buffer, RHI::ResourceKind::Buffer))
+            return;
+
+        DeleteBuffer(Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer));
+        RHI::ResourceRegistry::Get().Unregister(buffer);
+    }
+
+    void OpenGLRendererAPI::DeleteVertexArray(RHI::ResourceHandle vertexArray)
+    {
+        // A live handle of the wrong family names SOMEONE ELSE'S resource.
+        // ResolveNativeAs already refuses to hand back their GL name, but the
+        // Unregister below is not kind-aware — without this guard a mis-wired
+        // delete would retire their registry entry while leaving their GL
+        // object alive, which is worse than the unchecked form it replaced.
+        if (Utils::IsWrongKind(vertexArray, RHI::ResourceKind::VertexArray))
+            return;
+
+        DeleteVertexArray(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray));
+        RHI::ResourceRegistry::Get().Unregister(vertexArray);
+    }
+
+    void OpenGLRendererAPI::SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter)
+    {
+        SetTextureFilter(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), minFilter, magFilter);
+    }
+
+    void OpenGLRendererAPI::SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap)
+    {
+        SetTextureWrap(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), wrap);
+    }
+
+    void OpenGLRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
+                                                    RHI::Format sourceFormat, const void* data)
+    {
+        UploadTextureSubImage2D(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), width, height, sourceFormat, data);
+    }
+
+    // -------------------------------------------------------------------------
+    // Handle-taking siblings of the texture copy / clear / upload-at-offset /
+    // readback family (issue #691 step 3, slice 5 — attachment consumers).
+    //
+    // Same shape as the block above: resolve here, delegate to the one u32 form
+    // that talks to GL. What made these necessary was migrating the framebuffer
+    // attachment getters' consumers — the bakers copy an attachment into a
+    // persistent Texture2D/Cubemap and the probe bakers read one back, and
+    // neither family appeared in the bind or create/delete survey that produced
+    // the earlier additions.
+    // -------------------------------------------------------------------------
+    void OpenGLRendererAPI::CopyImageSubData(RHI::ResourceHandle src, TextureTargetType srcTarget,
+                                             RHI::ResourceHandle dst, TextureTargetType dstTarget,
+                                             u32 width, u32 height)
+    {
+        CopyImageSubData(Utils::ResolveNativeAs(src, RHI::ResourceKind::Texture), srcTarget,
+                         Utils::ResolveNativeAs(dst, RHI::ResourceKind::Texture), dstTarget,
+                         width, height);
+    }
+
+    void OpenGLRendererAPI::CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget,
+                                                 i32 srcLevel, i32 srcZ,
+                                                 RHI::ResourceHandle dst, TextureTargetType dstTarget,
+                                                 i32 dstLevel, i32 dstZ,
+                                                 u32 width, u32 height)
+    {
+        CopyImageSubDataFull(Utils::ResolveNativeAs(src, RHI::ResourceKind::Texture), srcTarget, srcLevel, srcZ,
+                             Utils::ResolveNativeAs(dst, RHI::ResourceKind::Texture), dstTarget, dstLevel, dstZ,
+                             width, height);
+    }
+
+    void OpenGLRendererAPI::ClearTextureFloat(RHI::ResourceHandle texture, u32 mipLevel, const glm::vec4& color)
+    {
+        ClearTextureFloat(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), mipLevel, color);
+    }
+
+    bool OpenGLRendererAPI::ReadTextureImage(RHI::ResourceHandle texture, u32 mipLevel,
+                                             RHI::Format destFormat, sizet destSizeBytes, void* dest)
+    {
+        // A stale handle resolves to 0 and the u32 form reports failure for
+        // texture 0, so the "unbind" degradation the bind family relies on
+        // becomes an honest `false` here — the caller must not treat `dest` as
+        // populated.
+        return ReadTextureImage(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), mipLevel,
+                                destFormat, destSizeBytes, dest);
+    }
+
+    void OpenGLRendererAPI::DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount,
+                                                  u32 patchVertices)
+    {
+        DrawIndexedPatchesRaw(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray), indexCount,
+                              patchVertices);
+    }
+
+    void OpenGLRendererAPI::DrawIndexedInstancedRaw(RHI::ResourceHandle vertexArray, u32 indexCount,
+                                                    u32 baseIndex, u32 instanceCount)
+    {
+        DrawIndexedInstancedRaw(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray), indexCount,
+                                baseIndex, instanceCount);
+    }
+
+    void OpenGLRendererAPI::DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount)
+    {
+        DrawIndexedRaw(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray), indexCount);
+    }
+
+    void OpenGLRendererAPI::DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex)
+    {
+        DrawIndexedRaw(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray), indexCount, baseIndex);
+    }
+
+    void OpenGLRendererAPI::SetProgramUniformFloat(RHI::ResourceHandle program, std::string_view name, f32 value)
+    {
+        SetProgramUniformFloat(Utils::ResolveNativeAs(program, RHI::ResourceKind::ShaderProgram), name, value);
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture,
+                                                                                u32 numLayers)
+    {
+        const GLuint nativeView = CreateDepthArrayCompareOffView(
+            Utils::ResolveNativeAs(srcTexture, RHI::ResourceKind::Texture), numLayers);
+        if (nativeView == 0u)
+            return RHI::NullResource;
+
+        // The view is registered as a Texture in its own right, NOT as an alias
+        // of the source: it is a separate GL name with its own sampler state and
+        // its own lifetime (ShadowMap deletes it independently of the array).
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture, nativeView, RHI::Backend::OpenGL);
+    }
+
+    bool OpenGLRendererAPI::ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel,
+                                                i32 x, i32 y, i32 z,
+                                                u32 width, u32 height, u32 depth,
+                                                RHI::Format destFormat, sizet destSizeBytes, void* dest)
+    {
+        return ReadTextureSubImage(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), mipLevel,
+                                   x, y, z, width, height, depth, destFormat, destSizeBytes, dest);
+    }
+
 } // namespace OloEngine

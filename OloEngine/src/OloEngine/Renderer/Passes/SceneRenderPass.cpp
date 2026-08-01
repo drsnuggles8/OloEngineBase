@@ -15,10 +15,12 @@
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
+    // Draw slot 0 -> colour attachment 0, nothing else. Hoisted to file
+    // scope so the several blit helpers below share one definition.
+    static constexpr std::array<u32, 1> kAttachment0Only = { 0u };
+
     SceneRenderPass::SceneRenderPass()
     {
         SetName("SceneRenderPass");
@@ -181,11 +183,11 @@ namespace OloEngine
         // Reset to default OpenGL state to ensure consistent rendering
         auto& rendererAPI = RenderCommand::GetRendererAPI();
         rendererAPI.SetDepthTest(true);
-        rendererAPI.SetDepthFunc(GL_LESS);
+        rendererAPI.SetDepthFunc(RHI::CompareOp::Less);
         rendererAPI.SetDepthMask(true);
         rendererAPI.SetBlendState(false);
-        rendererAPI.SetCullFace(GL_BACK);
-        rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        rendererAPI.SetCullFace(RHI::CullMode::Back);
+        rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
 
         // Capture hooks — minimal overhead when not capturing (helped by branch prediction)
         auto& captureManager = FrameCaptureManager::GetInstance();
@@ -285,7 +287,7 @@ namespace OloEngine
         bool const wireframe = Renderer3D::GetRendererSettings().WireframeOverlay;
         if (wireframe)
         {
-            rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            rendererAPI.SetPolygonMode(RHI::PolygonMode::Line);
         }
 
         // "Color" is emitted even without a depth prepass, so a missing
@@ -303,13 +305,13 @@ namespace OloEngine
         {
             CommandDispatch::SetDepthPrepassColorPassActive(false);
             rendererAPI.SetDepthMask(true);
-            rendererAPI.SetDepthFunc(GL_LESS);
+            rendererAPI.SetDepthFunc(RHI::CompareOp::Less);
         }
 
         // Restore polygon mode after color pass
         if (wireframe)
         {
-            rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
         }
 
         // Unbind Forward+ SSBOs after the color pass
@@ -406,40 +408,44 @@ namespace OloEngine
         // scene pass still renders into the legacy scene/G-Buffer
         // attachments, but downstream consumers now sample the exported graph
         // textures instead of importing those attachments directly.
-        const auto copySceneExport = [this, &context](const RGTextureHandle handle, const u32 sourceTextureID)
+        // Identities throughout (issue #691 step 3, slice 7): the export target
+        // is a graph TRANSIENT, which only began answering ResolveTextureHandle
+        // once the planner recorded a handle for pooled textures. The self-copy
+        // guard now compares OBJECTS -- under driver names a recycled name could
+        // make source and export look identical and skip a copy the frame needed.
+        const auto copySceneExport = [this, &context](const RGTextureHandle handle,
+                                                      const RHI::ResourceHandle sourceTexture)
         {
-            if (!handle.IsValid() || sourceTextureID == 0u ||
+            if (!handle.IsValid() || !sourceTexture.IsValid() ||
                 m_FramebufferSpec.Width == 0u || m_FramebufferSpec.Height == 0u)
             {
                 return;
             }
 
-            const u32 exportedTextureID = context.ResolveTexture(handle);
-            if (exportedTextureID == 0u || exportedTextureID == sourceTextureID)
+            const RHI::ResourceHandle exportedTexture = context.ResolveTextureHandle(handle);
+            if (!exportedTexture.IsValid() || exportedTexture == sourceTexture)
                 return;
 
-            glCopyImageSubData(sourceTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                               exportedTextureID, GL_TEXTURE_2D, 0, 0, 0, 0,
-                               static_cast<GLsizei>(m_FramebufferSpec.Width),
-                               static_cast<GLsizei>(m_FramebufferSpec.Height),
-                               1);
+            RenderCommand::CopyImageSubData(sourceTexture, RendererAPI::TextureTargetType::Texture2D,
+                                            exportedTexture, RendererAPI::TextureTargetType::Texture2D,
+                                            m_FramebufferSpec.Width, m_FramebufferSpec.Height);
         };
 
-        const u32 sourceDepthID = deferredActive && m_GBuffer
-                                      ? m_GBuffer->GetDepthAttachmentID()
-                                      : m_Target->GetDepthAttachmentRendererID();
-        copySceneExport(m_SelectedSceneDepthExport, sourceDepthID);
+        const RHI::ResourceHandle sourceDepth = deferredActive && m_GBuffer
+                                                    ? m_GBuffer->GetDepthAttachmentHandle()
+                                                    : m_Target->GetDepthAttachmentHandle();
+        copySceneExport(m_SelectedSceneDepthExport, sourceDepth);
 
         if (!deferredActive)
         {
-            const u32 sourceNormalsID = m_Target->GetColorAttachmentRendererID(2);
-            copySceneExport(m_SelectedSceneNormalsExport, sourceNormalsID);
+            const RHI::ResourceHandle sourceNormals = m_Target->GetColorAttachmentHandle(2);
+            copySceneExport(m_SelectedSceneNormalsExport, sourceNormals);
         }
 
-        const u32 sourceVelocityID = deferredActive && m_GBuffer
-                                         ? m_GBuffer->GetColorAttachmentID(GBuffer::Velocity)
-                                         : m_Target->GetColorAttachmentRendererID(3);
-        copySceneExport(m_SelectedVelocityExport, sourceVelocityID);
+        const RHI::ResourceHandle sourceVelocity = deferredActive && m_GBuffer
+                                                       ? m_GBuffer->GetColorAttachmentHandle(GBuffer::Velocity)
+                                                       : m_Target->GetColorAttachmentHandle(3);
+        copySceneExport(m_SelectedVelocityExport, sourceVelocity);
 
         // Deferred debug visualisation: until DeferredLightingPass lands in
         // Phase 3, copy the selected G-Buffer channel into the forward scene
@@ -586,11 +592,6 @@ namespace OloEngine
             if (!isDepth && att.TextureFormat != FramebufferTextureFormat::None)
                 ++targetColorCount;
         }
-        std::array<GLenum, 16> fullDrawBufs{};
-        const u32 fullN = std::min<u32>(targetColorCount, static_cast<u32>(fullDrawBufs.size()));
-        for (u32 i = 0; i < fullN; ++i)
-            fullDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
-
         // Channel 3 (RMA) needs data from TWO attachments — RT0.a (metallic)
         // and RT1.zw (roughness, AO). glBlitFramebuffer cannot swizzle, so
         // use a dedicated fullscreen shader for this one channel.
@@ -604,8 +605,7 @@ namespace OloEngine
             m_Target->Bind();
 
             const u32 dstFB = m_Target->GetRendererID();
-            const GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0 };
-            glNamedFramebufferDrawBuffers(dstFB, 1, drawBufs);
+            RenderCommand::SetFramebufferDrawAttachments(dstFB, kAttachment0Only);
 
             const u32 w = m_GBuffer->GetWidth();
             const u32 h = m_GBuffer->GetHeight();
@@ -628,24 +628,24 @@ namespace OloEngine
             // downstream passes (post-process, UI) find the expected slots
             // (including RT3 velocity for TAA). Count is computed from the
             // FB spec above rather than hardcoded.
-            glNamedFramebufferDrawBuffers(dstFB, static_cast<GLsizei>(fullN), fullDrawBufs.data());
+            RenderCommand::RestoreAllFramebufferDrawAttachments(dstFB, targetColorCount);
 
             RenderCommand::SetDepthMask(true);
             RenderCommand::SetDepthTest(true);
 
             // Copy depth across so selection-outline / UI still depth-test.
             const u32 srcFB = m_GBuffer->GetSamplingFramebuffer()->GetRendererID();
-            glBlitNamedFramebuffer(
+            RenderCommand::BlitFramebuffer(
                 srcFB, dstFB,
-                0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-                0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-                GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+                0, 0, static_cast<i32>(w), static_cast<i32>(h),
+                0, 0, static_cast<i32>(w), static_cast<i32>(h),
+                RHI::BlitAspect::Depth, RHI::Filter::Nearest);
 
             // Unbind the blit shader + VAO so the RAII guard sees us leave
             // shader/program/VAO state at zero, matching entry expectations
             // for downstream passes that rebind their own.
-            ::glUseProgram(0);
-            ::glBindVertexArray(0);
+            RenderCommand::BindShaderProgram(0);
+            RenderCommand::BindVertexArrayRaw(0);
             return;
         }
 
@@ -675,37 +675,35 @@ namespace OloEngine
         const u32 h = m_GBuffer->GetHeight();
 
         // Select source attachment on the read FB and destination attachment 0
-        // on the draw FB. glBlitNamedFramebuffer requires both FBs to have
-        // the read/draw buffers pre-selected; do so via DSA.
-        const GLenum srcAttach = GL_COLOR_ATTACHMENT0 + attachmentIndex;
-        glNamedFramebufferReadBuffer(srcFB, srcAttach);
-        const GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0 };
-        glNamedFramebufferDrawBuffers(dstFB, 1, drawBufs);
+        // on the draw FB. A framebuffer blit requires both FBs to have their
+        // read / draw attachments pre-selected.
+        RenderCommand::SetFramebufferReadAttachment(srcFB, attachmentIndex);
+        RenderCommand::SetFramebufferDrawAttachments(dstFB, kAttachment0Only);
 
-        glBlitNamedFramebuffer(
+        RenderCommand::BlitFramebuffer(
             srcFB, dstFB,
-            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-            GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            0, 0, static_cast<i32>(w), static_cast<i32>(h),
+            0, 0, static_cast<i32>(w), static_cast<i32>(h),
+            RHI::BlitAspect::Color, RHI::Filter::Nearest);
 
         // Restore the draw FB's draw-buffer list using the count captured
         // from the target FB spec above — narrowing to fewer attachments
         // would drop later-shader outputs (e.g. PBR_MultiLight's motion
         // vector at layout(location=3)), breaking TAA/MotionBlur.
-        glNamedFramebufferDrawBuffers(dstFB, static_cast<GLsizei>(fullN), fullDrawBufs.data());
+        RenderCommand::RestoreAllFramebufferDrawAttachments(dstFB, targetColorCount);
 
         // Also copy depth so downstream passes (post-process, selection
         // outline, UI) have a coherent depth buffer.
-        glBlitNamedFramebuffer(
+        RenderCommand::BlitFramebuffer(
             srcFB, dstFB,
-            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-            GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+            0, 0, static_cast<i32>(w), static_cast<i32>(h),
+            0, 0, static_cast<i32>(w), static_cast<i32>(h),
+            RHI::BlitAspect::Depth, RHI::Filter::Nearest);
 
         // Reset the G-Buffer's read buffer to attachment 0 so any downstream
         // read on that FB picks up a deterministic default instead of the
         // last debug channel we selected.
-        glNamedFramebufferReadBuffer(srcFB, GL_COLOR_ATTACHMENT0);
+        RenderCommand::SetFramebufferReadAttachment(srcFB, 0);
     }
 
     void SceneRenderPass::BlitForwardVelocityDebug()
@@ -743,28 +741,22 @@ namespace OloEngine
             if (!isDepth && att.TextureFormat != FramebufferTextureFormat::None)
                 ++colorCount;
         }
-        std::array<GLenum, 16> prevDrawBufs{};
-        const u32 n = std::min<u32>(colorCount, static_cast<u32>(prevDrawBufs.size()));
-        for (u32 i = 0; i < n; ++i)
-            prevDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
+        RenderCommand::SetFramebufferReadAttachment(fb, 3);
+        RenderCommand::SetFramebufferDrawAttachments(fb, kAttachment0Only);
 
-        glNamedFramebufferReadBuffer(fb, GL_COLOR_ATTACHMENT3);
-        const GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0 };
-        glNamedFramebufferDrawBuffers(fb, 1, drawBufs);
-
-        glBlitNamedFramebuffer(
+        RenderCommand::BlitFramebuffer(
             fb, fb,
-            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-            0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-            GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            0, 0, static_cast<i32>(w), static_cast<i32>(h),
+            0, 0, static_cast<i32>(w), static_cast<i32>(h),
+            RHI::BlitAspect::Color, RHI::Filter::Nearest);
 
         // Restore the scene FB's full multi-attachment draw-buffer list for
         // downstream passes (post-process, UI composite); see comment above.
-        glNamedFramebufferDrawBuffers(fb, static_cast<GLsizei>(n), prevDrawBufs.data());
+        RenderCommand::RestoreAllFramebufferDrawAttachments(fb, colorCount);
 
         // Reset the read buffer selection so subsequent reads on this FB
         // see the default (attachment 0) rather than the velocity slot.
-        glNamedFramebufferReadBuffer(fb, GL_COLOR_ATTACHMENT0);
+        RenderCommand::SetFramebufferReadAttachment(fb, 0);
     }
 
     void SceneRenderPass::OnReset()

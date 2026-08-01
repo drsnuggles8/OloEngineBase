@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/RendererResource.h"
@@ -100,6 +101,13 @@ namespace OloEngine
         [[nodiscard("Store this!")]] virtual u32 GetWidth() const = 0;
         [[nodiscard("Store this!")]] virtual u32 GetHeight() const = 0;
         [[nodiscard("Store this!")]] virtual u32 GetRendererID() const = 0;
+
+        // Generation-checked identity, minted by RHI::ResourceRegistry
+        // (issue #691 Phase 2 step 3). Sibling of GetRendererID() during the
+        // migration: that one hands out the raw backend name and is deleted once
+        // every caller has moved. Turning a handle back into a native object is
+        // Platform/<Backend>/'s business.
+        [[nodiscard]] virtual RHI::ResourceHandle GetRHIHandle() const = 0;
         [[nodiscard("Store this!")]] virtual const std::string& GetPath() const = 0;
 
         virtual void SetData(void* data, u32 size) = 0;
@@ -120,9 +128,14 @@ namespace OloEngine
          */
         virtual bool GetData(std::vector<u8>& outData, u32 mipLevel = 0) const = 0;
 
+        // Compares IDENTITIES, not driver names (issue #691 step 3). GL recycles
+        // object names, so a name comparison could report two genuinely different
+        // textures as equal once one had been destroyed — the defect the
+        // generation exists to make unrepresentable. A handle carries one, so
+        // two distinct objects can never compare equal here.
         bool operator==(const Texture& other) const
         {
-            return GetRendererID() == other.GetRendererID();
+            return GetRHIHandle() == other.GetRHIHandle();
         }
 
         // Asset interface

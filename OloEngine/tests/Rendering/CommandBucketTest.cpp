@@ -374,7 +374,7 @@ TEST_F(CommandBucketBatchTest, BatchConvertsMeshToInstanced)
     {
         auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i) * 0.1f, static_cast<i32>(i));
         // Make meshes identical (same VAO, material, shader)
-        cmd.vertexArrayID = 100;
+        cmd.vertexArrayID = TestHandle(100u);
         cmd.indexCount = 36;
         PacketMetadata meta;
         meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i * 10);
@@ -402,14 +402,14 @@ TEST_F(CommandBucketBatchTest, BatchRejectsDifferentRenderStateIndex)
 
     // Submit two DrawMesh commands with same mesh+material but different render state
     auto cmd1 = MakeSyntheticDrawMeshCommand(1, 1, 0.1f, 1);
-    cmd1.vertexArrayID = 100;
+    cmd1.vertexArrayID = TestHandle(100u);
     cmd1.renderStateIndex = 0;
     PacketMetadata meta1;
     meta1.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, 10);
     bucket.Submit(cmd1, meta1, m_Allocator.get());
 
     auto cmd2 = MakeSyntheticDrawMeshCommand(1, 1, 0.2f, 2);
-    cmd2.vertexArrayID = 100;
+    cmd2.vertexArrayID = TestHandle(100u);
     cmd2.renderStateIndex = 1;
     PacketMetadata meta2;
     meta2.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, 20);
@@ -437,7 +437,7 @@ TEST_F(CommandBucketBatchTest, BatchAcceptsSameRenderStateIndex)
     for (u32 i = 0; i < 3; ++i)
     {
         auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i) * 0.1f, static_cast<i32>(i));
-        cmd.vertexArrayID = 100;
+        cmd.vertexArrayID = TestHandle(100u);
         cmd.renderStateIndex = 5;
         PacketMetadata meta;
         meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i * 10);
@@ -530,7 +530,7 @@ TEST_F(CommandBucketBatchTest, BatchRejectsDifferentMaterialDataIndex)
 
     // Submit two commands with same mesh+renderState but different materialDataIndex
     auto cmd1 = MakeSyntheticDrawMeshCommand(1, 1, 0.1f, 1);
-    cmd1.vertexArrayID = 100;
+    cmd1.vertexArrayID = TestHandle(100u);
     cmd1.renderStateIndex = 0;
     cmd1.materialDataIndex = 0; // material A
     PacketMetadata meta1;
@@ -538,7 +538,7 @@ TEST_F(CommandBucketBatchTest, BatchRejectsDifferentMaterialDataIndex)
     bucket.Submit(cmd1, meta1, m_Allocator.get());
 
     auto cmd2 = MakeSyntheticDrawMeshCommand(1, 1, 0.2f, 2);
-    cmd2.vertexArrayID = 100;
+    cmd2.vertexArrayID = TestHandle(100u);
     cmd2.renderStateIndex = 0;
     cmd2.materialDataIndex = 1; // material B
     PacketMetadata meta2;
@@ -569,7 +569,7 @@ TEST_F(CommandBucketBatchTest, AnimatedMeshesAreNotBatched)
     for (u32 i = 0; i < 2; ++i)
     {
         auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i) * 0.1f, static_cast<i32>(i));
-        cmd.vertexArrayID = 100;
+        cmd.vertexArrayID = TestHandle(100u);
         cmd.renderStateIndex = 0;
         cmd.isAnimatedMesh = true;
         cmd.boneBufferOffset = 42;
@@ -613,7 +613,7 @@ TEST_F(CommandBucketBatchTest, HashTableGroupsNonAdjacentCommands)
         bool isGroupA = (i % 2 == 0);
         auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i) * 0.1f, static_cast<i32>(i));
         cmd.meshHandle = UUID(isGroupA ? 100 : 200);
-        cmd.vertexArrayID = isGroupA ? 10u : 20u;
+        cmd.vertexArrayID = TestHandle(isGroupA ? 10u : 20u);
         cmd.renderStateIndex = 0;
         cmd.materialDataIndex = 0;
         PacketMetadata meta;
@@ -657,7 +657,7 @@ TEST_F(CommandBucketBatchTest, SingleCommandGroupsRemainDrawMesh)
     {
         auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i) * 0.1f, static_cast<i32>(i));
         cmd.meshHandle = UUID(100 + i); // Different mesh each time
-        cmd.vertexArrayID = 10 + i;
+        cmd.vertexArrayID = TestHandle(10u + i);
         cmd.renderStateIndex = 0;
         cmd.materialDataIndex = 0;
         PacketMetadata meta;
@@ -693,7 +693,7 @@ TEST_F(CommandBucketBatchTest, BatchRespectsMaxMeshInstances)
     for (u32 i = 0; i < 5; ++i)
     {
         auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i) * 0.1f, static_cast<i32>(i));
-        cmd.vertexArrayID = 100;
+        cmd.vertexArrayID = TestHandle(100u);
         cmd.renderStateIndex = 0;
         cmd.materialDataIndex = 0;
         PacketMetadata meta;
@@ -737,7 +737,7 @@ TEST_F(CommandBucketBatchTest, BatchedTransformsAreContiguous)
     for (u32 i = 0; i < kCount; ++i)
     {
         auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i) * 0.1f, static_cast<i32>(i));
-        cmd.vertexArrayID = 100;
+        cmd.vertexArrayID = TestHandle(100u);
         cmd.renderStateIndex = 0;
         cmd.materialDataIndex = 0;
         cmd.transform = glm::translate(glm::mat4(1.0f), glm::vec3(static_cast<f32>(i), 0.0f, 0.0f));
@@ -793,7 +793,7 @@ TEST_F(CommandBucketBatchTest, TenThousandInstancesCollapseToSinglePacket)
     for (u32 i = 0; i < kCount; ++i)
     {
         auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
-        cmd.vertexArrayID = 100;
+        cmd.vertexArrayID = TestHandle(100u);
         cmd.renderStateIndex = 0;
         cmd.materialDataIndex = 0;
         cmd.transform = glm::translate(glm::mat4(1.0f), glm::vec3(static_cast<f32>(i) * 0.01f, 0.0f, 0.0f));
@@ -840,7 +840,7 @@ TEST_F(CommandBucketBatchTest, BatchedEntityIDAndPrevTransformSurviveCollapse)
     for (u32 i = 0; i < kCount; ++i)
     {
         auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(100 + i));
-        cmd.vertexArrayID = 100;
+        cmd.vertexArrayID = TestHandle(100u);
         cmd.renderStateIndex = 0;
         cmd.materialDataIndex = 0;
         cmd.transform = glm::translate(glm::mat4(1.0f), glm::vec3(static_cast<f32>(i), 0.0f, 0.0f));
@@ -897,7 +897,7 @@ TEST_F(CommandBucketBatchTest, IdentityColorAndCustomSkipParallelStreamAllocatio
     for (u32 i = 0; i < kCount; ++i)
     {
         auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
-        cmd.vertexArrayID = 100;
+        cmd.vertexArrayID = TestHandle(100u);
         cmd.renderStateIndex = 0;
         cmd.materialDataIndex = 0;
         // Default color (1,1,1,1) and default custom (0.0) on every source.
@@ -941,7 +941,7 @@ TEST_F(CommandBucketBatchTest, SameLODBatchesAndDifferentLODsStaySeparate)
     {
         auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(nextEntity));
         cmd.meshHandle = UUID(kLOD0Handle); // LOD-resolved mesh handle differs by LOD level.
-        cmd.vertexArrayID = kLOD0Handle;
+        cmd.vertexArrayID = TestHandle(kLOD0Handle);
         cmd.renderStateIndex = 0;
         cmd.materialDataIndex = 0;
         PacketMetadata meta;
@@ -953,7 +953,7 @@ TEST_F(CommandBucketBatchTest, SameLODBatchesAndDifferentLODsStaySeparate)
     {
         auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(nextEntity));
         cmd.meshHandle = UUID(kLOD1Handle);
-        cmd.vertexArrayID = kLOD1Handle;
+        cmd.vertexArrayID = TestHandle(kLOD1Handle);
         cmd.renderStateIndex = 0;
         cmd.materialDataIndex = 0;
         PacketMetadata meta;
@@ -1006,7 +1006,7 @@ TEST_F(CommandBucketBatchTest, NonDefaultColorAndCustomSurviveCollapse)
     for (u32 i = 0; i < kCount; ++i)
     {
         auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
-        cmd.vertexArrayID = 100;
+        cmd.vertexArrayID = TestHandle(100u);
         cmd.renderStateIndex = 0;
         cmd.materialDataIndex = 0;
         cmd.color = glm::vec4(0.1f * static_cast<f32>(i), 0.5f, 0.25f, 1.0f);
@@ -1066,8 +1066,8 @@ TEST_F(CommandBucketBatchTest, HandleZeroMeshesWithDifferentGeometryNeverMerge)
 
     // Two "cars" sharing VAO 10 and one "ship" with VAO 20 — all handle 0,
     // all the same material/render state (the shared-palette scenario).
-    constexpr u32 kCarVAO = 10;
-    constexpr u32 kShipVAO = 20;
+    constexpr auto kCarVAO = TestHandle(10u);
+    constexpr auto kShipVAO = TestHandle(20u);
     for (u32 i = 0; i < 3; ++i)
     {
         auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
@@ -1076,7 +1076,7 @@ TEST_F(CommandBucketBatchTest, HandleZeroMeshesWithDifferentGeometryNeverMerge)
         cmd.renderStateIndex = 0;
         cmd.materialDataIndex = 0;
         PacketMetadata meta;
-        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, cmd.vertexArrayID, 1, i);
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, cmd.vertexArrayID.Index, 1, i);
         bucket.Submit(cmd, meta, m_Allocator.get());
     }
 
@@ -1142,7 +1142,7 @@ TEST_F(CommandBucketBatchTest, SubmeshIndexRangesStaySeparateAndSurviveMerging)
     config.EnableBatching = true;
     CommandBucket bucket(config);
 
-    constexpr u32 kSharedVAO = 30;
+    constexpr auto kSharedVAO = TestHandle(30u);
     constexpr u32 kBaseA = 0;
     constexpr u32 kBaseB = 72;
     // Two instances of submesh B (merge candidates) + one of submesh A.
@@ -1156,7 +1156,7 @@ TEST_F(CommandBucketBatchTest, SubmeshIndexRangesStaySeparateAndSurviveMerging)
         cmd.renderStateIndex = 0;
         cmd.materialDataIndex = 0;
         PacketMetadata meta;
-        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, kSharedVAO, 1, i);
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, kSharedVAO.Index, 1, i);
         bucket.Submit(cmd, meta, m_Allocator.get());
     }
 

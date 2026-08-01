@@ -4,8 +4,6 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
     void RGCommandContext::SetViewport(const u32 x, const u32 y, const u32 width, const u32 height) const
@@ -29,16 +27,27 @@ namespace OloEngine
         RenderCommand::SetBlendState(false);
         RenderCommand::SetDepthTest(true);
         RenderCommand::SetDepthMask(true);
-        RenderCommand::SetDepthFunc(GL_LESS);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         RenderCommand::DisableStencilTest();
         RenderCommand::DisableCulling();
-        RenderCommand::SetCullFace(GL_BACK);
+        RenderCommand::SetCullFace(RHI::CullMode::Back);
         RenderCommand::SetLineWidth(1.0f);
-        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
         RenderCommand::DisableScissorTest();
         RenderCommand::SetColorMask(true, true, true, true);
         RenderCommand::SetPolygonOffset(0.0f, 0.0f);
         RenderCommand::EnableMultisampling();
+    }
+
+    void RGCommandContext::ResetOpaqueForwardDrawState() const
+    {
+        // Order matches the four call sites this replaced, so the emitted GL
+        // sequence is unchanged. See the header for why depth test is excluded.
+        RenderCommand::SetDepthMask(true);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+        RenderCommand::SetBlendState(false);
+        RenderCommand::SetCullFace(RHI::CullMode::Back);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
     }
 
     void RGCommandContext::BindDefaultFramebuffer() const
@@ -63,12 +72,12 @@ namespace OloEngine
 
     void RGCommandContext::SetAlphaBlendStandard() const
     {
-        RenderCommand::SetBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
     }
 
     void RGCommandContext::SetOpaqueReplaceBlend() const
     {
-        RenderCommand::SetBlendFunc(GL_ONE, GL_ZERO);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::Zero);
     }
 
     void RGCommandContext::SetCulling(const bool enabled) const
@@ -89,6 +98,11 @@ namespace OloEngine
         RenderCommand::BindTexture(slot, textureID);
     }
 
+    void RGCommandContext::BindTexture(const u32 slot, const RHI::ResourceHandle texture) const
+    {
+        RenderCommand::BindTexture(slot, texture);
+    }
+
     void RGCommandContext::MemoryBarrier(const MemoryBarrierFlags flags) const
     {
         if (flags == MemoryBarrierFlags::None)
@@ -104,21 +118,18 @@ namespace OloEngine
     void RGCommandContext::BeginAsyncBatch(const u32 batchIndex) const
     {
         // GL 4.6 runs a single command stream — no true async queue overlap.
-        // Insert a KHR_debug group label so the batch region is visible in
-        // RenderDoc / Nsight.  The guard prevents crashes in headless / test
-        // contexts where glad has not been initialised.
-        if (GLAD_GL_KHR_debug)
-        {
-            const std::string label = "AsyncBatch[" + std::to_string(batchIndex) + "]";
-            glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, batchIndex,
-                             static_cast<GLsizei>(label.size()), label.c_str());
-        }
+        // Insert a debug group label so the batch region is visible in
+        // RenderDoc / Nsight. The backend no-ops when the capability is absent
+        // (or when no device is up), which is why the GLAD_GL_KHR_debug probe
+        // that used to guard this is gone — a loader-symbol test is not a
+        // portable way to ask "does this backend support debug markers".
+        const std::string label = "AsyncBatch[" + std::to_string(batchIndex) + "]";
+        RenderCommand::PushDebugGroup(batchIndex, label);
     }
 
     void RGCommandContext::EndAsyncBatch([[maybe_unused]] const u32 batchIndex) const
     {
-        if (GLAD_GL_KHR_debug)
-            glPopDebugGroup();
+        RenderCommand::PopDebugGroup();
     }
 
     u32 RGCommandContext::ResolveTexture(const RGTextureHandle handle) const
@@ -143,6 +154,30 @@ namespace OloEngine
             m_RenderGraph->RecordResolveFailure(m_ActivePassName, "texture-resolve-zero");
 
         return resolved;
+    }
+
+    RHI::ResourceHandle RGCommandContext::ResolveTextureHandle(const RGTextureHandle handle) const
+    {
+        if (!m_RenderGraph)
+            return {};
+
+        if (!handle.IsValid())
+        {
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "invalid-texture-handle");
+            return {};
+        }
+
+        if (!m_RenderGraph->IsTextureHandleCurrent(handle))
+        {
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "stale-texture-handle");
+            return {};
+        }
+
+        // NOT recorded as a resolve failure when the result is null: an
+        // unmigrated resource legitimately has no identity yet, and counting
+        // that as a failure would bury the real ones in noise for the whole
+        // duration of the migration.
+        return m_RenderGraph->ResolveTextureHandle(handle);
     }
 
     Ref<Framebuffer> RGCommandContext::ResolveFramebuffer(const RGFramebufferHandle handle) const

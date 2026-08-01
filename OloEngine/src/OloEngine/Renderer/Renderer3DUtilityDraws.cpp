@@ -55,10 +55,10 @@ namespace OloEngine
         auto* cmd = packet->GetCommandData<DrawQuadCommand>();
         cmd->header.type = CommandType::DrawQuad;
         cmd->transform = glm::mat4(modelMatrix);
-        cmd->textureID = texture->GetRendererID();
+        cmd->textureID = texture->GetRHIHandle();
         cmd->shaderHandle = s_Data.QuadShader->GetHandle();
-        cmd->shaderRendererID = s_Data.QuadShader->GetRendererID();
-        cmd->quadVAID = s_Data.QuadMesh->GetVertexArray()->GetRendererID();
+        cmd->shaderRendererID = s_Data.QuadShader->GetRHIHandle();
+        cmd->quadVAID = s_Data.QuadMesh->GetVertexArray()->GetRHIHandle();
         cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(CreateDefaultPODRenderState());
 
         packet->SetCommandType(cmd->header.type);
@@ -104,9 +104,9 @@ namespace OloEngine
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
         cmd->header.type = CommandType::DrawMesh;
 
-        const u32 vertexArrayID = s_Data.CubeMesh->GetVertexArray()->GetRendererID();
-        const u32 shaderRendererID = activeShader ? activeShader->GetRendererID() : 0u;
-        if (!ValidateDrawMeshRendererIDs("Renderer3D::DrawLightCube", vertexArrayID, shaderRendererID))
+        const RHI::ResourceHandle vertexArrayID = s_Data.CubeMesh->GetVertexArray()->GetRHIHandle();
+        const RHI::ResourceHandle shaderRendererID = activeShader ? activeShader->GetRHIHandle() : RHI::NullResource;
+        if (!ValidateDrawMeshResources("Renderer3D::DrawLightCube", vertexArrayID, shaderRendererID))
             return nullptr;
 
         // Store asset handles and renderer IDs (POD)
@@ -140,7 +140,7 @@ namespace OloEngine
 
         // Set sort key for light cube
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = shaderRendererID & 0xFFFF;
+        u32 shaderID = shaderRendererID.Index & 0xFFFF;
         u32 depth = ComputeDepthForSortKey(modelMatrix);
         metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
         packet->SetMetadata(metadata);
@@ -201,18 +201,18 @@ namespace OloEngine
 
         // Store asset handles and renderer IDs (POD)
         cmd->meshHandle = s_Data.SkyboxMesh->GetHandle();
-        cmd->vertexArrayID = s_Data.SkyboxMesh->GetVertexArray()->GetRendererID();
+        cmd->vertexArrayID = s_Data.SkyboxMesh->GetVertexArray()->GetRHIHandle();
         cmd->indexCount = s_Data.SkyboxMesh->GetIndexCount();
         cmd->transform = glm::mat4(1.0f); // Identity matrix for skybox
         cmd->shaderHandle = activeShader->GetHandle();
-        cmd->shaderRendererID = activeShader->GetRendererID();
-        cmd->skyboxTextureID = skyboxTexture->GetRendererID();
+        cmd->shaderRendererID = activeShader->GetRHIHandle();
+        cmd->skyboxTextureID = skyboxTexture->GetRHIHandle();
 
         // Skybox-specific POD render state
         {
             PODRenderState skyboxState = CreateDefaultPODRenderState();
             skyboxState.depthTestEnabled = true;
-            skyboxState.depthFunction = GL_LEQUAL;
+            skyboxState.depthFunction = RHI::CompareOp::LessOrEqual;
             skyboxState.depthWriteMask = false;
             skyboxState.cullingEnabled = false;
             cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(skyboxState);
@@ -570,8 +570,8 @@ namespace OloEngine
 
         // Store renderer IDs (POD)
         cmd->shaderHandle = activeShader->GetHandle();
-        cmd->shaderRendererID = activeShader->GetRendererID();
-        cmd->quadVAOID = s_Data.FullscreenQuadVAO->GetRendererID();
+        cmd->shaderRendererID = activeShader->GetRHIHandle();
+        cmd->quadVAOID = s_Data.FullscreenQuadVAO->GetRHIHandle();
         cmd->gridScale = gridScale;
 
         // Grid-specific render state. The G-Buffer variant writes gl_FragDepth
@@ -588,8 +588,8 @@ namespace OloEngine
             else
             {
                 gridState.blendEnabled = true;
-                gridState.blendSrcFactor = GL_SRC_ALPHA;
-                gridState.blendDstFactor = GL_ONE_MINUS_SRC_ALPHA;
+                gridState.blendSrcFactor = RHI::BlendFactor::SrcAlpha;
+                gridState.blendDstFactor = RHI::BlendFactor::OneMinusSrcAlpha;
                 gridState.depthTestEnabled = true;
                 gridState.depthWriteMask = false;
                 // Keep the grid out of the view-normals attachment (RT2), which
@@ -638,10 +638,10 @@ namespace OloEngine
     }
 
     CommandPacket* Renderer3D::DrawTerrainPatch(
-        RendererID vaoID, u32 indexCount, u32 patchVertexCount,
+        RHI::ResourceHandle vaoID, u32 indexCount, u32 patchVertexCount,
         const Ref<Shader>& shader,
-        RendererID heightmapID, RendererID splatmapID, RendererID splatmap1ID,
-        RendererID albedoArrayID, RendererID normalArrayID, RendererID armArrayID,
+        RHI::ResourceHandle heightmapID, RHI::ResourceHandle splatmapID, RHI::ResourceHandle splatmap1ID,
+        RHI::ResourceHandle albedoArrayID, RHI::ResourceHandle normalArrayID, RHI::ResourceHandle armArrayID,
         const glm::mat4& transform,
         const ShaderBindingLayout::TerrainUBO& terrainUBO,
         i32 entityID)
@@ -654,7 +654,7 @@ namespace OloEngine
             return nullptr;
         }
 
-        if (vaoID == 0 || !shader)
+        if (!vaoID.IsValid() || !shader)
         {
             return nullptr;
         }
@@ -689,7 +689,7 @@ namespace OloEngine
         cmd->vertexArrayID = vaoID;
         cmd->indexCount = indexCount;
         cmd->patchVertexCount = patchVertexCount;
-        cmd->shaderRendererID = activeShader->GetRendererID();
+        cmd->shaderRendererID = activeShader->GetRHIHandle();
         cmd->heightmapTextureID = heightmapID;
         cmd->splatmapTextureID = splatmapID;
         cmd->splatmap1TextureID = splatmap1ID;
@@ -728,9 +728,9 @@ namespace OloEngine
     }
 
     CommandPacket* Renderer3D::DrawVoxelMesh(
-        RendererID vaoID, u32 indexCount,
+        RHI::ResourceHandle vaoID, u32 indexCount,
         const Ref<Shader>& shader,
-        RendererID albedoArrayID, RendererID normalArrayID, RendererID armArrayID,
+        RHI::ResourceHandle albedoArrayID, RHI::ResourceHandle normalArrayID, RHI::ResourceHandle armArrayID,
         const glm::mat4& transform,
         i32 entityID)
     {
@@ -742,7 +742,7 @@ namespace OloEngine
             return nullptr;
         }
 
-        if (vaoID == 0 || !shader)
+        if (!vaoID.IsValid() || !shader)
         {
             return nullptr;
         }
@@ -765,7 +765,7 @@ namespace OloEngine
 
         cmd->vertexArrayID = vaoID;
         cmd->indexCount = indexCount;
-        cmd->shaderRendererID = activeShader->GetRendererID();
+        cmd->shaderRendererID = activeShader->GetRHIHandle();
         cmd->albedoArrayTextureID = albedoArrayID;
         cmd->normalArrayTextureID = normalArrayID;
         cmd->armArrayTextureID = armArrayID;

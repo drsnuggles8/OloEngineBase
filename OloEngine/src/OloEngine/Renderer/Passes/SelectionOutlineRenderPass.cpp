@@ -10,8 +10,6 @@
 #include <algorithm>
 #include <span>
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
     SelectionOutlineRenderPass::SelectionOutlineRenderPass()
@@ -216,7 +214,7 @@ namespace OloEngine
         context.SetCulling(false);
         RenderCommand::DisableStencilTest();
         RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
         RenderCommand::SetColorMask(true, true, true, true);
         context.Clear();
 
@@ -253,12 +251,12 @@ namespace OloEngine
             context.SetCulling(false);
             RenderCommand::DisableStencilTest();
             RenderCommand::DisableScissorTest();
-            RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
             RenderCommand::SetColorMask(true, true, true, true);
             context.Clear();
 
             // Bind previous JFA result
-            context.BindTexture(0, jfaFBs[readIndex]->GetColorAttachmentRendererID(0));
+            context.BindTexture(0, jfaFBs[readIndex]->GetColorAttachmentHandle(0));
 
             m_JFAPassShader->Bind();
             m_JFAPassShader->SetInt("u_Texture", 0);
@@ -286,13 +284,13 @@ namespace OloEngine
         context.SetCulling(false);
         RenderCommand::DisableStencilTest();
         RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
         RenderCommand::SetColorMask(true, true, true, true);
 
         // Slot 0: scene color from the selected dynamic post-chain texture view.
         context.BindTexture(0, inputColorTextureID);
         // Slot 1: final JFA distance field from the graph-owned ping-pong scratch
-        context.BindTexture(1, jfaFBs[readIndex]->GetColorAttachmentRendererID(0));
+        context.BindTexture(1, jfaFBs[readIndex]->GetColorAttachmentHandle(0));
 
         m_JFACompositeShader->Bind();
         m_JFACompositeShader->SetInt("u_SceneColor", 0);

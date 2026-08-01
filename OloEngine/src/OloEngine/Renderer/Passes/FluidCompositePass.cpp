@@ -11,8 +11,6 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 #include <algorithm>
 
 namespace OloEngine
@@ -137,14 +135,13 @@ namespace OloEngine
         GLStateGuard guard("FluidCompositePass", GLStateGuard::Policy::Ignore);
 
         // Snapshot the pre-fluid scene colour for refraction sampling.
-        glCopyImageSubData(
-            sceneColorID, GL_TEXTURE_2D, 0, 0, 0, 0,
-            refractionTexID, GL_TEXTURE_2D, 0, 0, 0, 0,
-            static_cast<GLsizei>(fbWidth), static_cast<GLsizei>(fbHeight), 1);
+        RenderCommand::CopyImageSubData(sceneColorID, RendererAPI::TextureTargetType::Texture2D,
+                                        refractionTexID, RendererAPI::TextureTargetType::Texture2D,
+                                        fbWidth, fbHeight);
 
         // Upload the appearance parameters of this frame's fluid. Counts.z
         // carries the environment-map-present flag for the reflection branch.
-        const u32 environmentMapID = Renderer3D::GetGlobalEnvironmentMapID();
+        const RHI::ResourceHandle environmentMap = Renderer3D::GetGlobalEnvironmentMapHandle();
         {
             const FluidRenderData& appearance = m_IntermediatesPass->GetLastAppearance();
 
@@ -162,7 +159,7 @@ namespace OloEngine
                                          1.0f / static_cast<f32>(fbWidth), 1.0f / static_cast<f32>(fbHeight));
             ubo.Counts = glm::uvec4(appearance.ParticleUpperBound,
                                     static_cast<u32>(appearance.EntityID),
-                                    environmentMapID != 0 ? 1u : 0u, 0u);
+                                    environmentMap.IsValid() ? 1u : 0u, 0u);
             m_FluidRenderUBO->SetData(&ubo, sizeof(ubo));
             m_FluidRenderUBO->Bind();
         }
@@ -173,8 +170,8 @@ namespace OloEngine
         context.BindTexture(ShaderBindingLayout::TEX_FLUID_THICKNESS, fluidThicknessID);
         context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, refractionTexID);
         context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, sceneDepthID);
-        if (environmentMapID != 0)
-            context.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, environmentMapID);
+        if (environmentMap.IsValid())
+            context.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, environmentMap);
 
         // The shader discards non-fluid pixels — no depth test, no blending,
         // no depth writes.
@@ -190,7 +187,7 @@ namespace OloEngine
         // Restore scene-pass defaults.
         RenderCommand::SetDepthTest(true);
         RenderCommand::SetDepthMask(true);
-        RenderCommand::SetDepthFunc(GL_LESS);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         CommandDispatch::InvalidateRenderStateCache();
 
         // Unbind every sampler slot we touched — stale bindings leak into any
@@ -199,7 +196,7 @@ namespace OloEngine
         context.BindTexture(ShaderBindingLayout::TEX_FLUID_THICKNESS, 0);
         context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, 0);
         context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
-        if (environmentMapID != 0)
+        if (environmentMap.IsValid())
             context.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, 0);
 
         m_SceneFramebuffer->Unbind();

@@ -154,6 +154,7 @@ namespace OloEngine
         const bool multisampled = sampleCount > 1u;
 
         glCreateTextures(multisampled ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D, 1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
 
         if (multisampled)
         {
@@ -187,6 +188,7 @@ namespace OloEngine
             OLO_CORE_ERROR("OpenGLTexture2D: block-compressed format {} cannot be created from a TextureSpecification — use the CompressedTextureImage overload",
                            static_cast<u32>(m_Specification.Format));
             m_RendererID = 0;
+            m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
             m_IsLoaded = false;
             return;
         }
@@ -435,6 +437,7 @@ namespace OloEngine
         m_DataFormat = 0; // compressed: no client pixel format
 
         glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
         glTextureStorage2D(m_RendererID, static_cast<GLsizei>(m_MipLevels), m_InternalFormat,
                            static_cast<GLsizei>(m_Width), static_cast<GLsizei>(m_Height));
 
@@ -503,6 +506,7 @@ namespace OloEngine
             m_DataFormat = GL_RGBA;
 
             glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
+            m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
             glTextureStorage2D(m_RendererID, static_cast<GLsizei>(m_MipLevels), m_InternalFormat,
                                static_cast<GLsizei>(fw), static_cast<GLsizei>(fh));
             glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<GLsizei>(fw), static_cast<GLsizei>(fh),
@@ -545,6 +549,7 @@ namespace OloEngine
         m_DataFormat = GL_RGBA;
 
         glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
         glTextureStorage2D(m_RendererID, static_cast<GLsizei>(m_MipLevels), m_InternalFormat,
                            static_cast<GLsizei>(w), static_cast<GLsizei>(h));
         glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h),
@@ -574,7 +579,7 @@ namespace OloEngine
 
         // Drop any cached "this slot already has this texture bound" entries so a
         // future bind with a recycled GL ID isn't skipped against stale tracking.
-        CommandDispatch::InvalidateTextureBinding(m_RendererID);
+        CommandDispatch::InvalidateTextureBinding(m_RHIHandle.Get());
 
         u32 id = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([id]()
@@ -610,7 +615,7 @@ namespace OloEngine
         // Dealloc old
         OLO_TRACK_DEALLOC(this);
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
-        CommandDispatch::InvalidateTextureBinding(m_RendererID);
+        CommandDispatch::InvalidateTextureBinding(m_RHIHandle.Get());
 
         u32 oldId = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([oldId]()
@@ -972,14 +977,16 @@ namespace OloEngine
         {
             OLO_TRACK_DEALLOC(this);
             GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
-            CommandDispatch::InvalidateTextureBinding(m_RendererID);
+            CommandDispatch::InvalidateTextureBinding(m_RHIHandle.Get());
             u32 oldId = m_RendererID;
             FrameResourceManager::Get().SubmitForDeletion([oldId]()
                                                           { glDeleteTextures(1, &oldId); });
             m_RendererID = 0;
+            m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
         }
 
         glCreateTextures(GL_TEXTURE_2D, 1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
         glTextureStorage2D(m_RendererID, 1, internalFormat, static_cast<int>(m_Width), static_cast<int>(m_Height));
 
         // Calculate memory usage based on channels and dimensions

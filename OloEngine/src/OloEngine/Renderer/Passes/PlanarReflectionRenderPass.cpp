@@ -11,8 +11,6 @@
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
-#include <glad/gl.h>
-
 namespace OloEngine
 {
     PlanarReflectionRenderPass::PlanarReflectionRenderPass()
@@ -109,7 +107,7 @@ namespace OloEngine
 
         const auto publishDisabled = [&]()
         {
-            Renderer3D::SetPlanarReflectionTextureID(0);
+            Renderer3D::SetPlanarReflectionTextureID(RHI::NullResource);
             if (m_ReflectionUBO)
             {
                 m_ReflectionUBO->SetData(&ubo, UBOData::GetSize());
@@ -177,17 +175,17 @@ namespace OloEngine
         m_ReflectionFB->Bind();
         RenderCommand::SetViewport(0, 0, m_Width, m_Height);
         rendererAPI.SetDepthTest(true);
-        rendererAPI.SetDepthFunc(GL_LESS);
+        rendererAPI.SetDepthFunc(RHI::CompareOp::Less);
         rendererAPI.SetDepthMask(true);
         rendererAPI.SetBlendState(false);
-        rendererAPI.SetCullFace(GL_BACK);
-        rendererAPI.SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        rendererAPI.SetCullFace(RHI::CullMode::Back);
+        rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
         m_ReflectionFB->ClearAllAttachments({ 0.0f, 0.0f, 0.0f, 1.0f }, -1);
 
         // A reflection reverses handedness, so the geometry's front faces now wind
         // clockwise — declare CW the front winding for the replay so back-face
         // culling still removes the correct triangles.
-        ::glFrontFace(GL_CW);
+        RenderCommand::SetFrontFace(RHI::FrontFace::Clockwise);
 
         // Re-establish shared scene resources the scene pass left bound (camera
         // UBO binding, shadow maps, IBL) and replay the already-batched opaque
@@ -195,7 +193,7 @@ namespace OloEngine
         CommandDispatch::BindSceneResources();
         m_ScenePass->GetCommandBucket().Execute(rendererAPI);
 
-        ::glFrontFace(GL_CCW);
+        RenderCommand::SetFrontFace(RHI::FrontFace::CounterClockwise);
         m_ReflectionFB->Unbind();
 
         // Put back everything the mirror replay reconfigured (depth test/func/mask,
@@ -212,7 +210,7 @@ namespace OloEngine
         CommandDispatch::UploadCameraUBO();
         CommandDispatch::InvalidateRenderStateCache();
 
-        Renderer3D::SetPlanarReflectionTextureID(m_ReflectionFB->GetColorAttachmentRendererID(0));
+        Renderer3D::SetPlanarReflectionTextureID(m_ReflectionFB->GetColorAttachmentHandle(0));
         if (m_ReflectionUBO)
         {
             m_ReflectionUBO->SetData(&ubo, UBOData::GetSize());
@@ -241,6 +239,6 @@ namespace OloEngine
     {
         // Drop the texture publish so a stale reflection can't be sampled after a
         // graph reset / asset reload.
-        Renderer3D::SetPlanarReflectionTextureID(0);
+        Renderer3D::SetPlanarReflectionTextureID(RHI::NullResource);
     }
 } // namespace OloEngine

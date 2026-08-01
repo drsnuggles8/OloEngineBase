@@ -591,12 +591,18 @@
 		"OloEngine/Renderer/PlanarReflection.cpp"
 		"OloEngine/Renderer/RendererAPI.cpp"
 		"OloEngine/Renderer/RendererAPI.h"
-		# Declaration-only RHI vocabulary (issue #691 Phase 1, ADR 0011). No .cpp
-		# and no consumers yet — these exist so the Phase 2 sweep has a fixed
-		# target to convert toward. Listed here only so they show up in the IDE
-		# project tree; RHIBoundaryRatchetTest is what actually compiles them.
+		# RHI vocabulary (issue #691 Phases 1-2, ADR 0011). No longer
+		# declaration-only: RHIResourceRegistry.{h,cpp} mints the generation-checked
+		# RHI::ResourceHandle (defined in RHITypes.h) that the Platform/OpenGL
+		# resource classes, RenderCommand and the render graph now carry.
+		# RHIResources.h is mostly still forward-looking vocabulary; its live part
+		# is GetNativeHandleForDebug, included by RHIResourceRegistry.cpp and by
+		# Renderer/Debug/RenderGraphResourceIdentity.cpp.
+		# RHIBoundaryRatchetTest guards the no-backend-types boundary.
 		"OloEngine/Renderer/RHI/RHITypes.h"
 		"OloEngine/Renderer/RHI/RHIResources.h"
+		"OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+		"OloEngine/Renderer/RHI/RHIResourceRegistry.cpp"
 		"OloEngine/Renderer/RGCommandContext.cpp"
 		"OloEngine/Renderer/RGCommandContext.h"
 		"OloEngine/Renderer/RGBuilder.cpp"
@@ -722,6 +728,8 @@
 		"OloEngine/Renderer/Debug/RenderGraphFrameCapture.cpp"
 		"OloEngine/Renderer/Debug/RenderGraphPassSnapshot.h"
 		"OloEngine/Renderer/Debug/RenderGraphPassSnapshot.cpp"
+		"OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
+		"OloEngine/Renderer/Debug/RenderGraphResourceIdentity.cpp"
 		"OloEngine/Renderer/Debug/CapturedFrameData.h"
 		"OloEngine/Renderer/Debug/CapturedFrameData.cpp"
 		"OloEngine/Renderer/Debug/CommandPacketDebugger.h"

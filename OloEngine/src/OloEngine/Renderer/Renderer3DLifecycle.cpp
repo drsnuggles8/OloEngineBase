@@ -1,6 +1,10 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
+
+// Raw GL below is part of the issue #691 Phase 2 step-2 sweep backlog; the
+// include is direct rather than transitive through RendererAPI.h, which is
+// now GL-free.
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -112,14 +116,10 @@ namespace OloEngine
         // supports. We take the min of colour-attachment and depth-texture
         // caps because the G-Buffer needs matching sample counts on both.
         {
-            GLint colorSamples = 0;
-            GLint depthSamples = 0;
-            glGetIntegerv(GL_MAX_COLOR_TEXTURE_SAMPLES, &colorSamples);
-            glGetIntegerv(GL_MAX_DEPTH_TEXTURE_SAMPLES, &depthSamples);
-            s_Data.MaxMSAASamplesColor = static_cast<u32>(std::max(colorSamples, 1));
-            s_Data.MaxMSAASamplesDepth = static_cast<u32>(std::max(depthSamples, 1));
-            OLO_CORE_INFO("Renderer3D: Driver MSAA caps — GL_MAX_COLOR_TEXTURE_SAMPLES={}, "
-                          "GL_MAX_DEPTH_TEXTURE_SAMPLES={} (usable max = {})",
+            s_Data.MaxMSAASamplesColor = std::max(RenderCommand::GetMaxColorTextureSamples(), 1u);
+            s_Data.MaxMSAASamplesDepth = std::max(RenderCommand::GetMaxDepthTextureSamples(), 1u);
+            OLO_CORE_INFO("Renderer3D: Driver MSAA caps — max colour-texture samples={}, "
+                          "max depth-texture samples={} (usable max = {})",
                           s_Data.MaxMSAASamplesColor,
                           s_Data.MaxMSAASamplesDepth,
                           std::min(s_Data.MaxMSAASamplesColor, s_Data.MaxMSAASamplesDepth));

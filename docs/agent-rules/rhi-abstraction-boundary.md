@@ -78,6 +78,212 @@ prove has not changed. Strip the `GLenum`/`GLuint` parameters out of
 guarantee, and at that point most of the 40 zero-call includers fall out
 mechanically because they only ever wanted `GL_SRC_ALPHA` and friends.
 
+### There was a SECOND transitive source, and it was wider — check the PCH
+
+Phase 2 found this the hard way, and it is the more important half of the trap.
+`RendererAPI.h` is the *renderer's* transitive glad source. There was another one
+that bypassed the renderer entirely:
+
+> `OloEngine/Debug/Instrumentor.h` included `<tracy/TracyOpenGL.hpp>`, which
+> needs the GL loader's symbols and therefore pulls in `<glad/gl.h>`. And
+> `Instrumentor.h` is included by **`OloEnginePCH.h`** — so *every translation
+> unit in the engine* could see the entire OpenGL API, whether or not it went
+> anywhere near the renderer.
+
+With that in place, `sweep_glad_includes` could have been driven to zero while
+the property it claims to prove — "this TU cannot name a GL symbol" — stayed
+false everywhere. The counter would have looked like a completed phase.
+
+It surfaced only because removing the per-file includes made Tracy's header the
+*first* thing to need GL in those TUs, and it failed to compile. That is luck,
+not method: had `Instrumentor.h` been listed after the renderer includes in more
+files, it would have kept silently supplying the symbols.
+
+**Method, generalisable to any "this module cannot see X" boundary:**
+
+1. Enumerate every *transitive* path to the forbidden header, not just the
+   direct includes. Start from the PCH — a precompiled header is an include that
+   does not appear in any file, so grep will never show it to you.
+2. Third-party headers are a live source of these. `TracyOpenGL.hpp`,
+   `imgui_impl_opengl3.h`, and anything else named after a backend will drag it
+   in. Their include sites need the same audit as your own.
+3. Prefer deleting the dependency to relocating it. Here the three
+   `OLO_PROFILE_GPU*` macros the include existed to serve were **used nowhere in
+   the repo** — engine, editor, runtime and server — so the whole thing was dead
+   weight buying an engine-wide leak. GPU zones now belong in a
+   `Platform/OpenGL/` TU, which may legitimately see GL.
+
+The ratchet cannot catch this class of problem on its own, because a transitive
+include is invisible to a per-file `#include` scan. Only a compile failure or a
+deliberate include-graph walk finds it.
+
+### "Makes no `glXxx()` calls" is NOT sufficient reason to delete its glad include
+
+Two ways a file needs `<glad/gl.h>` while the call-count pattern reports zero,
+both hit during Phase 2's de-glad pass:
+
+- **`GLenum`/`GLint`/`GLsizei`-typed locals and `GL_*` constants** with no call of
+  their own. Obvious in hindsight; check for the *types* as well as the calls.
+- **glad's own loader symbols.** `SlugFontProcessor.cpp` contains
+  `if (glad_glCreateTextures != nullptr)` — using the loader's function-pointer
+  table as a *"do we have a GL context yet?"* probe. `glad_glCreateTextures` does
+  not match `gl[A-Z]`, because the character after `gl` is `a`. The ratchet is
+  right to not count it (it is a null test, not a call), but the file genuinely
+  cannot compile without the header.
+
+  Note this pattern also needs a neutral replacement before Step 2 can finish —
+  a context-presence probe is a legitimate need, but reaching into the GL
+  loader's symbol table is not a portable way to express it.
+
+The safe predicate for removing an include is "zero GL calls **and** zero
+`GL*`-prefixed identifiers of any kind", verified by a compile — not by the
+ratchet's call pattern, which is deliberately narrower because it is measuring
+something else.
+
+Step 2 finished with exactly four files still including `<glad/gl.h>`, and they
+split along this line. Three — `BloomRenderPass.cpp`, `OITResolveRenderPass.cpp`
+and `ShaderPack.cpp` — named no `GL*` identifier at all, so the include just fell
+out. The fourth hit the second case: `UIRenderer.cpp` made **zero** GL calls but
+typed its clip-rect stack in `GLint`/`GLsizei`. Those values are scissor-rect
+*coordinates* — `i32`/`u32` — and `RenderCommand::SetScissorBox` already took
+engine types, so the GL spelling was pure inertia. It was nonetheless
+load-bearing: delete the include without retyping the struct and the file does
+not compile.
+
+### A `Platform/<Backend>/` include leaks just as much, and this scan cannot see it either
+
+The PCH is the transitive path everyone warns about. There is a second one that
+is much easier to walk into, because it looks like ordinary engine code:
+
+> Three passes — `FluidIntermediatesPass`, `WaterRenderPass`,
+> `VirtualMeshRegistry` — included `Platform/OpenGL/OpenGLUtilities.h` to
+> construct `Utils::GLClearProgramGuard` around their clears. That header
+> includes `<glad/gl.h>`. Deleting each file's *direct* glad include would have
+> driven `sweep_glad_includes` to zero while all three TUs could still name
+> every symbol in OpenGL.
+
+That is the counter-gaming the baseline's own `_comment` warns about, arrived at
+honestly rather than deliberately — which is what makes it worth recording.
+
+**The fix is a layering question, not an include question.** `GLClearProgramGuard`
+exists because an NVIDIA driver revalidates the bound program at clear time
+(`gl-clear-program-revalidation.md`). That is *backend knowledge*. It belongs
+inside `OpenGLRendererAPI::Clear{Texture,Buffer,FramebufferColorAttachment,
+FramebufferDepth}` — where `ClearDepthOnly()` had been carrying it correctly all
+along. Once the guard moved down, the passes needed no backend header at all.
+
+Generalisable: when a module outside a boundary constructs a helper from inside
+it, the helper is usually on the wrong side. Ask what knowledge the helper
+encodes; if the answer names a vendor, a driver or an API, it belongs to the
+backend, and the call site should be getting the behaviour for free rather than
+opting into it.
+
+Audit `Platform/<Backend>/` includes from the sweep bucket **by hand**, on the
+same schedule as the PCH. Note the *factory* files (`Texture.cpp`, `Shader.cpp`,
+`VertexBuffer.cpp`, …) legitimately include their backend counterparts to
+construct one in `Create()` — those are the pattern working as intended, not
+leaks, and Phase 4 adds a Vulkan branch beside them.
+
+### Expect to ADD a few includes, and do not read that as a regression
+
+ADR 0011 §0 measured that 3 of the 42 GL-calling files had no direct
+`#include <glad/gl.h>` and were relying on `RendererAPI.h`'s transitive one.
+Closing that transitive path makes exactly those files fail to compile, and the
+correct fix is to give them a direct include — they really do call GL, and they
+stay on the step-2 sweep backlog. `sweep_glad_includes` therefore does not fall
+monotonically during Phase 2: it drops by the number of zero-call includers
+removed and rises by ~3. That is the counter becoming *honest*, not a
+regression, and it is worth predicting so nobody "fixes" it by re-hiding those
+files behind a transitive include.
+
+---
+
+## 2b. The facade was not just GL-typed, it was **incomplete** — and that is the bigger number
+
+Step 1 rewrote the vocabulary of `RendererAPI`'s 74 existing virtuals. Step 2
+then discovered that stripping `GLenum` was the smaller half of the job:
+
+> **84 distinct GL entry points** appear across the 313 swept call sites, and
+> **54 of them had no `RendererAPI` equivalent at all.** Closing that gap took
+> **60 new virtuals** — nearly doubling a 74-virtual facade.
+
+Keep those two numbers distinct rather than folding them into one percentage: an
+entry point can expand into more than one virtual (`glClearTexImage` becomes a
+float clear and a uint clear; the readbacks each gained a `bool` return). 54 is
+the size of the gap, 60 is the size of the fix.
+
+Whole categories had simply never been abstracted, so every pass reached past the
+facade to perform them: buffer binding points (`glBindBufferBase`, 26 sites),
+raw buffer lifecycle (the virtual-geometry arena + persistent-mapped upload
+ring), named-framebuffer state (draw/read attachment selection, clears, blits,
+attachment, completeness), occlusion and timer queries, fences, VAO lifecycle,
+texture clear/readback, debug markers.
+
+**The lesson, and it generalises past this phase:** an abstraction's
+completeness is not measured by how many call sites it already serves, but by
+how many distinct *operations* the layer above performs. 74 virtuals looked like
+a thorough facade while 60 operations went around it — because each of those was
+rare enough (1–3 sites) to read as a special case. Frequency was not the signal
+either: `glBindBufferBase` had 26 sites and was still missing.
+
+Practical consequence for a future phase: before starting a sweep, histogram the
+**distinct entry points**, not the call count. The call count tells you how much
+typing you face; the entry-point histogram tells you how much *designing* you
+face, and that is the part that cannot be delegated or hurried.
+
+### Read the previous phase's declaration-only header for VOCABULARY, not just for types
+
+The sweep needed to tell `AllocateBufferStorage` how a buffer's memory is used,
+and began inventing `RHI::BufferUsage { DynamicDraw, DynamicCopy, DynamicRead }`
+— a straight transcription of GL's `glNamedBufferData` hints, which is exactly
+the mistake this whole phase exists to stop.
+
+Phase 1 had **already designed that concept**, and better: `RHI::MemoryResidency
+{ DeviceLocal, HostToDevice, DeviceToHost }`, named by intent rather than by GL's
+spelling, three members mapping one-to-one onto the need. It was invisible
+because it sat beside `BufferDesc` in `RHIResources.h` — a header nothing
+consumed yet — while `RendererAPI.h` includes only `RHITypes.h`.
+
+**What caught it was a name collision, not review.** `RHIResources.h` also had a
+`BufferUsage` (the *bind-flags* enum: `Vertex`/`Index`/`Storage`/…), so the two
+could not coexist. And the collision only fired in the **test** build: the engine
+library compiles without ever including `RHIResources.h`; only
+`RHIBoundaryRatchetTest` includes it, precisely so the declaration-only
+vocabulary keeps compiling. Rename either enum and the duplicate concept ships
+silently.
+
+Method, for any phase that inherits a declaration-only header:
+
+1. Before adding a type to the shared vocabulary header, grep the whole
+   `Renderer/RHI/` directory for the **concept**, not the name you picked.
+2. Treat "this header is declaration-only, nothing consumes it" as a reason to
+   read it *more* carefully, not less — unconsumed means uncorrected, so it holds
+   the design intent at its cleanest and its most easily missed.
+3. If the concept exists but lives in the wrong header for your consumer, **move
+   it** rather than duplicating it. `MemoryResidency` moved to `RHITypes.h`; it
+   was vocabulary all along, filed under resource description.
+
+### Behaviour deltas a sweep introduces even when it changes no logic
+
+Three showed up here. None is a bug, all three are visible, and a reviewer
+should know to expect them:
+
+- **The backend's own state cache becomes truthful.** `VirtualGeometryPass` set
+  depth state with raw `glEnable(GL_DEPTH_TEST)`, which left
+  `OpenGLRendererAPI::m_DepthTestEnabled` stale; `Clear()` derives its
+  `GLbitfield` from that member. Routing the pass through `SetDepthTest(true)`
+  fixes the divergence — which means a later `Clear()` can now clear depth where
+  it previously did not. Verify visually rather than reasoning about it.
+- **Profiler counters move.** The facade's state setters bump
+  `RendererProfiler::StateChanges`; the raw calls they replaced did not. Draw
+  counters deliberately did *not* move: the new `DrawBound*` family does not
+  touch `RendererProfiler`, because the call sites it replaced never did and
+  several keep their own `CommandDispatch::Statistics`.
+- **The mock gets safer, and records more.** Call sites that used to issue raw
+  `glXxx()` under a `MockRendererAPI` were calling a null glad function pointer
+  in a headless test. They now land on the mock. Tests asserting *exact* recorded
+  call counts will need updating; ones using `HasCall` / `GE` will not.
+
 ---
 
 ## 3. `Renderer/Debug/` is 43% of the problem and is *not* exempt
@@ -134,14 +340,519 @@ backend-private native handle reachable only through a deliberately conspicuous
 
 Two details worth keeping:
 
-- **The generation is load-bearing.** GL recycles object names, so today two
-  genuinely different objects can compare equal through `Texture::operator==`
-  (which compares `GetRendererID()`) when one was deleted and another created.
-  `TransientPool`'s alias reporting — the tooling built in #607 specifically to
-  answer "did these two plan entries get the same object?" — depends on telling
-  those apart.
+- **The generation is load-bearing.** GL recycles object names, so two genuinely
+  different objects *could* compare equal through `Texture::operator==` when one
+  was deleted and another created. `TransientPool`'s alias reporting — the
+  tooling built in #607 specifically to answer "did these two plan entries get
+  the same object?" — depends on telling those apart. Step 3 closed this: the
+  operator compares `GetRHIHandle()`, so the generation now makes the collision
+  unrepresentable rather than merely unlikely. Note the fix had to be made in
+  the *operator*; minting handles everywhere did not fix it on its own, because
+  a comparison keeps reading whatever currency it names.
 - **`HeapOffset` must stay layout-compatible with `u32`.** It gets written into
   a UBO and read by GLSL as an array index; it cannot be opaque.
+
+### Step 3 part 1 built the mint; the sweep onto it is part 2 — read this before starting it
+
+`RHI::ResourceRegistry` mints `RHI::ResourceHandle` and is proven by
+`RHIResourceRegistryTest`. `ViewHandle` and `HeapOffset` are deliberately
+deferred to Phase 3 as a matched pair (ADR 0011 amendment (11) — a `ViewHandle`
+with no heap behind it has one view per resource and therefore detects nothing,
+and deferring adds *two* call sites to Phase 3, not a second sweep, because the
+~230 bind sites are already Phase 3's to delete).
+
+**A full-sweep attempt was abandoned rather than finished; conversion is now
+proceeding slice by slice instead.** The counters say how far there is to go —
+read the live values from `rhi_boundary_baseline.json`, not from this paragraph
+(at the time of writing `sweep_renderer_id` is 699, `facade_native_id_params`
+68). Everything below is what that attempt learned — treat it as a checklist,
+not history.
+
+**Do not use `sweep_renderer_id` as a progress meter.** It matches the accessor
+*name* `RendererID`, not the currency. The first fully-migrated resource (SSAO's
+noise texture) was five native-id call sites and zero `RendererID` spellings, so
+migrating it end-to-end moved the counter by 0. It is a regression ratchet;
+`facade_native_id_params` reaching 0 is the completion criterion.
+
+**Do `facade_native_id_params` first.** Same ordering logic §1.7 gives for
+stripping the `GLenum`s before counting includes: while `RendererAPI` still
+accepts a `u32 textureID`, every caller can keep producing one and nothing is
+enforced. Once the facade takes handles, a TU holding a native name *cannot*
+call it, and the rest of the sweep becomes compiler-driven instead of
+grep-driven.
+
+- **The three-way split does not mean three independently-schedulable sweeps.**
+  §1.3 assigns the bind sites to Phase 3, which reads like they can be left
+  alone. They cannot be left on `u32`: `ResolveTexture` (Phase 2's, by name) is
+  the *producer* and `BindTexture` the *consumer* of one dataflow, so the
+  facade's parameter has to move with it or every pass resolves a handle back to
+  a native name. The ~230 call sites stay textually identical — only the type
+  flowing through them changes, and Phase 3 still deletes the call from the same
+  sites with the same operand. **Scope a currency change by dataflow, not by the
+  phase table.**
+
+- **A `.data()` boundary is where the type system stops checking.** Everywhere
+  else, re-typing a facade virtual breaks every caller at once — the compiler is
+  an exhaustive checker, the same "provable rather than measured" property that
+  makes `sweep_glad_includes` worth more than a call count. But
+  `CreateQueries(std::span<u32>)` passed `.data()` to `glCreateQueries`;
+  re-typing the span to `std::span<RHI::ResourceHandle>` **still compiles**, and
+  GL would write 4-byte names over an array of 8-byte handles. Silent, no test
+  failure. Grep for `.data()` on any container whose element type you change.
+
+- **`Delete*` needs two changes, and only one is obvious.** Resolving the handle
+  to call `glDelete*` is the visible half. Unregistering it is the half that
+  matters: skip it and the slot keeps its generation, so a handle to a destroyed
+  object goes on resolving to a name the driver may reissue — the recycled-name
+  bug reintroduced at the one place most likely to be treated as mechanical. A
+  scripted conversion will do the first and not the second.
+
+- **A bulk identifier rename needs a collision check against the *target* name
+  before it runs.** `shaderRendererID -> shaderHandle` collided with a
+  pre-existing `AssetHandle shaderHandle` in three POD command structs. That was
+  loud (`C2371`) because they shared a struct — but in the ~120 files where the
+  two names did *not* co-occur, the merge would have been silent and two
+  genuinely different concepts (GPU program vs asset id) would have become one.
+  Recovering the split needed a difflib alignment against `HEAD` plus a per-file
+  count check; five files failed that check and needed a content-based rule.
+
+### The compiler tells you two types disagree; it never tells you which side is wrong
+
+This is the single most useful thing to know before automating a currency sweep.
+`cannot convert argument 2 from 'RHI::ResourceHandle' to 'u32'` has **two** valid
+repairs — re-type the callee, or convert at the caller — and tooling that always
+picks one is wrong a predictable fraction of the time. Automating "re-type the
+callee" was right for roughly 90% of sites and wrong for these, each of which
+genuinely wants a small native integer:
+
+- **`DrawKey::SetShaderID`** packs an identity into a 64-bit sort-key *bit
+  field*. A handle cannot be shifted, so the caller passes `handle.Index`. This
+  one failed loudly (`SHADER_MASK << SHADER_SHIFT` on a struct) — but only
+  because the callee *computes* with the value. A callee that merely stored it
+  would have accepted the change and looked fine.
+- **`GPUResourceInspector`** makes raw GL calls on the id it stores
+  (`glBindBuffer`, `glGetTextureSubImage`). It is the tools bucket (§1.6), all
+  its callers are `Platform/OpenGL/` passing their own native names, and it
+  legitimately holds one until Phase 8 relocates it.
+
+**Rule of thumb:** before re-typing a callee, check what it *does* with the
+value. Arithmetic, bit-packing, or a backend call means the callee is right and
+the caller must convert (`handle.Index` for a bucketing key,
+`Debug::NativeOf(handle)` inside `Renderer/Debug/`). Only a callee that purely
+*carries* the value should be re-typed.
+
+Two of those decisions turned out to be improvements rather than neutral:
+`InstanceGroupKey` now keys on the handle (two live handles cannot collide,
+where a delete/create pair can hand two objects the same GL name), and the
+radix-sort sites use `handle.Index`, which is dense from zero where a
+driver-assigned name is arbitrary.
+
+### Three scripted-edit defects, and what caught each
+
+Recorded because the pattern is consistent and it decides where review effort
+should go. **Type errors were caught by the compiler; semantic choices were not
+— every one of these was found by reading output.**
+
+| Defect | Blast radius | Caught by |
+| --- | --- | --- |
+| Unanchored filename regex: `Sort.h` matched `IntroSort.h` | 15 legitimate includes deleted across 9 files with nothing to do with the task, including `Scene/Components.h` | reading the diff |
+| `X.field == 0` → `X.!field.IsValid()` — negation inside the member access | 6 sites | syntax error, but the same rewrite on a form that *parses* would have inverted a render-pass guard silently |
+| Always re-typing the callee (above) | 2 confirmed | one loud, one by reading the code |
+
+The middle row is the one to take seriously: an inverted boolean guard in a
+render pass is exactly the "tests green, screen wrong" class `CLAUDE.md`'s
+rendering rule exists for. **When reviewing a scripted currency sweep, read the
+conditionals first** — the type changes are compiler-checked, the guards are not.
+
+### A GLOBAL rename is always wrong here, and slice 6 proved it five times
+
+The defining property of a dual-currency migration is that **some call sites must
+not move**. A regex cannot see which, so every broad tool overreaches. Slice 6
+hit this five separate times; recording the shapes because four of the five were
+caught only by luck of the destination type differing:
+
+| The tool | What it did | How it surfaced |
+| --- | --- | --- |
+| `grep … \| head -30` to survey `RendererID` uses | Read a TRUNCATED list as complete, missed `Renderer3D.h`'s 38 | 4551-error parse cascade |
+| `s/(=\s*)0(\s*[;,])/\1{}\2/` | Matched the `=` of `!=`, making `x != 0;` into `x != {};` | Failed to parse — but the same rewrite on `x != 0 &&` would have parsed |
+| `s/->GetRendererID()/->GetRHIHandle()/` over `Scene.cpp` | Swept up the IBL trio that must stay native for the graph import | Error count went UP, 67 → 75 |
+| the same, second pass | Swept up the cloudscape weather map and three fluid SSBO ids (later slices) | Compiler, because the destinations were still `u32` |
+| `s/field = <literal>/field = TestHandle(<literal>)/` in tests | Wrapped a literal `0` that meant "absent", producing a VALID handle naming slot 0 | **The test suite** — `DrawWaterCommandZeroInitNoNaN`. Nothing else would have. |
+
+The last row is the dangerous one and the reason to write this down: it is the
+only one the compiler could not see, and had the default handle happened to be
+`{0,1}` instead of `{0xFFFFFFFF,0}` it would have passed while silently
+weakening a zero-init assertion. **In a test, a literal `0` on a migrated field
+is the ABSENT sentinel (`RHI::NullResource` / `!IsValid()`), never a synthetic
+id** — `TestHandle(0)` is a live handle naming registry slot 0.
+
+The tool that *did* work: drive edits from the compiler's own `(file, line)`
+output and only rewrite lines it rejected. That cannot touch a site the compiler
+accepted, which is exactly the set that must not move.
+
+### Identity is the C++ object, not the native name — and that fixes something
+
+Anchoring the registry entry to the resource *object* (with `UpdateNative` for
+recreated storage) means an in-place hot-reload keeps the handle valid.
+`TextureInPlaceReloadTest`'s header used to warn that consumers "must read the
+RendererID off the object each frame rather than caching it", because GL may
+hand recreated storage a different name. Caching a handle is now safe. Two
+*different* objects still never compare equal, which is the `Texture::operator==`
+defect the generation exists for.
+
+Also: a framebuffer's colour/depth **attachments** are separate GL objects that
+the engine samples through `ResolveTexture`, so they need handles of their own.
+"The framebuffer's handle" is the wrong answer to "which texture is this".
+
+### The migration grain is a RESOURCE, not a layer — and migrating one is the only way to find the missing facade surface
+
+The first real call-site migration (SSAO's 4×4 noise texture) had to move its
+whole chain in one commit — create, configure, import, bind, delete — because
+`native -> handle` is unrecoverable, so a half-migrated chain has a step that
+cannot get back to the currency the next step wants.
+
+Doing it that way immediately turned up **three facade entry points that a
+breadth-first read of `RendererAPI` had missed**: `SetTextureFilter`,
+`SetTextureWrap`, `UploadTextureSubImage2D`. They were missed because the survey
+was organised around the *bind* family and the *create/delete* family, and
+texture configuration is neither. There is no reading of the facade that
+reliably enumerates what a migration needs; **migrate one real resource and let
+the compiler enumerate it for you.** Budget for it: the first pass cost 4 files
+per missing entry point (`RendererAPI`, the backend, `RenderCommand`, the mock).
+
+Related: **a sibling added at the wrong layer is invisible until a caller needs
+it.** `ImportTextureHandle` was added to `RenderGraph`, but passes reach the
+graph through `RGBuilder`, which had no forwarder — the pass could not call the
+function written for it. Same for `RGCommandContext::BindTexture`. Add a sibling
+at every layer the intended caller actually traverses, and confirm by naming the
+call site before writing it.
+
+### Picking up step 3: the measured worklist, in dependency order
+
+Do not re-derive this. It cost three wrong scoping guesses to produce, and the
+distribution is the part that matters — the unit of work must intersect what you
+are counting, which twice it did not.
+
+Reproduce with `python OloEngine/tests/scripts/measure_rendererid.py`
+(`\w*RendererID\w*` over `OloEngine/src`; the ratchet's `sweep_renderer_id` is
+the same thing after stripping comments, strings and the exempt backend). The
+script derives the repo root from its own location — the first version pinned an
+absolute worktree path and reported a confident `TOTAL 0 across 0 files`
+everywhere else, so **if it prints 0, check that before believing it.**
+
+Counts are *after slice 6*. The raw total went 1196 across 118 files → 1150
+(slice 5) → **848 across 104** (slice 6):
+
+| Where | Then | Now | Note |
+| --- | ---: | ---: | --- |
+| `Platform/OpenGL/` | 412 | ~410 | **Exempt.** The backend may name GL ids. |
+| `Renderer/Commands/` | 141 | **53** | Slice 6. What survives is `CommandDispatch.cpp`'s remaining native spellings. |
+| `Renderer3DMeshSubmission.cpp` | 71 | **~0** | Slice 6, via the POD structs. |
+| `Scene/Scene.cpp` | 66 | **~0** | Pulled in by slice 6 (it fills the PODs). |
+| `Renderer3D.h` | 62 | **~0** | Pulled in by the alias deletion — item 3's header, landed early. |
+| `Get{Color,Depth}AttachmentRendererID` call sites | 72 | **29** | Slice 5 + the two Renderer3D setters slice 6 unblocked. |
+
+By spelling: `m_RendererID` 435 (backend-internal, exempt), `GetRendererID`
+325 → **212** (**the real target**), `shaderRendererID` 110 → **111** (unchanged
+— it is a FIELD NAME on the migrated structs, and renaming the field is
+cosmetic churn better done with item 4's deletion pass), attachment getters
+71 → **29**.
+
+Suggested order, each a buildable commit:
+
+1. ~~**Attachment consumers**~~ — **DONE (slice 5)** for every site whose sink
+   was reachable; see "What slice 5 actually moved" below for the eight that
+   were not, and why leaving them is the correct call rather than a shortfall.
+   One prediction in this list was wrong and is worth keeping: *"no new facade
+   surface needed"*. Six new virtuals were needed
+   (`CopyImageSubData` / `CopyImageSubDataFull` / `ClearTextureFloat` /
+   `ReadTextureImage` / `ReadTextureSubImage` / offset-`UploadTextureSubImage2D`),
+   because the survey behind this table counted only *bind* sinks. The
+   attachment getters also feed a **copy** family (the bakers stage an
+   attachment into a persistent `Texture2D`/cubemap) and a **readback** family
+   (thumbnail / light-probe / reflection-probe capture). Same lesson as §4's
+   `SetTextureFilter`/`SetTextureWrap`/`UploadTextureSubImage2D` discovery, one
+   slice later: **you cannot enumerate a migration's facade needs by reading;
+   migrate one real consumer per SINK FAMILY and let the compiler tell you.**
+2. ~~**The command-layer bind cache**~~ — **DONE (slice 6)**, and it was
+   materially bigger than this line implies. Three corrections for whoever
+   scopes a comparable unit:
+
+   * **The blast radius was 253 errors across 16 files, not "~180 concentrated
+     in `CommandDispatch.cpp`"** — that file was ~40% of it. The rest came from
+     deleting `using RendererID = u32`, which is a TYPE in headers included
+     everywhere: `Renderer3D.h` alone used it in 38 declarations and produced a
+     **4551-error parse cascade** on the first build. Item 3's `Renderer3D.h`
+     therefore lands with item 2 whether you planned it or not.
+   * **Seven resource chains not named in this worklist came with it**, because
+     each feeds the cache and `native -> handle` is unrecoverable:
+     `CloudShadowMap`, `SnowAccumulationSystem`, `OceanFFTField`,
+     `FoliageRenderer`, `DepthPrepassShaderIDs`, the global IBL maps, and
+     `ShadowMap`'s compare-off views.
+   * **Nine new facade virtuals were needed**, against a prediction of zero:
+     `CreateDepthArrayCompareOffViewHandle`, `SetProgramUniformFloat`, handle
+     forms of `DrawIndexedRaw` (×2), `DrawIndexedInstancedRaw`,
+     `DrawIndexedPatchesRaw`, and `DrawBoundElementsIndirect`.
+3. `Scene.cpp` / `Renderer3D.h`, then the remaining passes (`ColorGrading` is a
+   near-clone of the migrated SSAO; `Cloudscape` needs `CloudNoise` migrated
+   first; `FluidIntermediates` recreates on resize and so is the first to need
+   framebuffer-attach handle forms).
+4. **Last:** delete `GetRendererID()` and the u32 facade forms. Each u32 form can
+   go as soon as its last caller does — `facade_native_id_params` falls per
+   entry point, not all at once at the end.
+
+Two producer gaps to close before their consumers can move: `VertexBuffer` /
+`IndexBuffer` expose no `GetRHIHandle()` (blocks the SSBO/indirect ids in
+`Renderer3DMeshSubmission`), and `ShadowMap`'s `GetCSMRendererID` /
+`GetAtlasRendererID` + raw/placeholder variants need handle siblings (blocks
+item 2).
+
+### `ImportTextureHandle` BLINDS `ResolveTexture`, and `ResolveTexture` is what the MCP capture endpoints read
+
+**Read this before migrating any `builder.ImportTexture` call.** It is the one
+finding from slice 5 that changes how later slices must be scoped, and it is
+already live in `master`.
+
+`ImportTextureCommon` treats the native id and the identity as **alternatives,
+never both** — `ImportTexture(name, id, desc)` passes `identity = {}` and
+`ImportTextureHandle(name, handle, desc)` passes `textureID = 0u`. That
+invariant is deliberate and correct (it is what makes `AllocateTextureHandle`'s
+change detection honest — see the section below on stamping identity on
+afterwards). The consequence is not:
+
+- `RenderGraph::ResolveTexture` ends at `m_PhysicalTextures[i].TextureID`, so it
+  returns **0** for a handle-imported resource;
+- `Renderer3D::ResolveFrameGraphTexture` forwards to it, and
+- `McpToolsRender.cpp` resolves *every* reported id through those two
+  (`olo_render_list_targets`' `GLTextureId`, `olo_render_validate`'s identity
+  table, and `ResolveTargetTexture`, which backs `olo_render_capture_target`).
+
+So **migrating a resource's import silently removes it from the diagnostics**.
+It does not fail, warn, or look different from a resource that genuinely has no
+backing — the capture just reports id 0. #732 already did this to SSAO's noise
+texture, which is why `olo_render_capture_target SSAONoise` cannot work today.
+That matters more than one broken probe: CLAUDE.md's rendering-verification rule
+is *enforced through these endpoints*, so a slice that quietly blinds them
+removes the check on itself.
+
+The fix is a fallback, not a new resolver: try the native id, and when it is 0
+ask the identity and go through `RHI::GetNativeHandleForDebug` — the hatch
+documented in `RHIResources.h` for exactly "the introspection tools in
+`Renderer/Debug/` and the MCP capture endpoints they back". It lives in
+`Renderer/Debug/RenderGraphResourceIdentity.{h,cpp}` as
+`Debug::NativeTextureIdForDiagnostics`.
+
+**Where it lives is the load-bearing part, and it was wrong first.** The
+obvious home is the caller — `OloEditor/src/MCP/`, which `RHIBoundaryRatchetTest`
+does not scan, so `debug_escape_hatch` stays 0 for free. That is what this fix
+did initially and it is a trap: `OloEngine-Tests` does not link `OloEditor`, so
+the *composition* had no test — only its individual legs did. That is precisely
+the configuration that let the original defect through, so "fixing" it there
+re-arms the same trap one layer out. `Renderer/Debug/` satisfies both
+constraints at once: it is a sanctioned home for the hatch **and** it is inside
+the engine library, so `RenderGraph.Diagnostics*` can pin it.
+
+Do **not** make it a `RenderGraph` member. That puts the hatch inside
+`Renderer/`, where `backend_resolve_hatch` bans it at 0 — moving that boundary
+is a decision on its own merits, not a side effect of a bug fix.
+
+**Sequencing rule this gives you:** a resource's import may only move to
+`ImportTextureHandle` *after* the diagnostics can read a handle-imported
+resource. Slice 5 therefore migrated DDGI's atlas *consumers* while leaving
+`importAtlas` on the native id, and left `m_ProbeDataTexture` native entirely —
+two complete chains on two currencies, which is fine, rather than one chain that
+compiles and blinds a tool.
+
+### What slice 5 actually moved, and the eight sites it deliberately did not
+
+Migrated: all seven bakers (`ThumbnailCapture`, `LightProbeBaker`,
+`ReflectionProbeBaker`, `IBLPrecompute`, `ImpostorBaker`, `SkyCubemapBake`,
+`AssetPreviewRenderer`), the straightforward bind passes (`Fog`, `Overdraw`,
+`SelectionOutline`, `Cloudscape`'s composite, `Decal`, `Bloom`), all of
+`DDGIProbeUpdatePass`'s attachment reads including the `SetAtlasTextureParams`
+signature, and `RenderGraph`'s attachment clear + NaN-census readback.
+
+Deferred at the time, each for a stated reason rather than for size — **and
+five of the six were cleared by slices 6 and 7**, which is itself the lesson:
+
+| Site | Why it was deferred | Outcome |
+| --- | --- | --- |
+| `SSAO` blur→AO copy, `SceneRenderPass`'s three exports, `GPUDrivenOcclusion`'s two | "the other operand is a **transient**, and a transient has only a native id" | **WRONG — cleared in slice 7.** See below. |
+| `Cloudscape`'s raymarch source + history | native history id + a transient resolve | **Cleared in slice 7** |
+| `Renderer3DFrameExecution`'s HZB depth, `PlanarReflection`, `Water` | feed `Renderer3D::` setters | **Water + PlanarReflection cleared in slice 6** when those setters migrated; the HZB one remains |
+| `RenderGraph`'s three external-sink copies | the sink's `TextureID` is registered from outside the graph as a raw `u32` | still open |
+| `RenderGraph`'s JSON topology dump | reports native ids on purpose, for external tooling | stays native |
+| `Renderer/Debug/`'s two | Phase 8 relocation | stays |
+
+### The "blocked on the transient pool" claim was wrong, and the shape of the error is worth keeping
+
+It was recorded as fact in the worklist AND posted to #691 before anyone
+measured it. `TransientPool::AcquireTexture` returns a **`Ref<Texture2D>`, which
+has minted handles since slice 2**; `AcquiredInfo::RendererID` is a
+diagnostics-report field with no role in resolution. The real constraint was one
+line in the planner that simply never set `.Handle`, and behind it a **design
+invariant, not a missing producer**: `PhysicalTexture` documented `TextureID`
+and `Handle` as "ALTERNATIVES… exactly one is set per entry".
+
+That rule is right for an **import** — an importer only ever *has* one currency,
+and neither is derivable from the other. It was never true of a **transient**:
+the planner holds the pooled `Ref` itself, so it has both in hand and reads them
+off one pointer in one statement. Nothing is derived, so nothing can drift.
+Setting both is what unblocked all eight sites.
+
+**Generalisable:** when a migration says "blocked on X", check whether X is a
+missing *capability* or an *invariant someone wrote down*. A missing capability
+is work. An invariant is a decision, and decisions can be revisited once you
+know which case they were written for. Recording the blocker without checking
+which kind it was cost this issue a whole slice of imagined work — and put a
+false statement on the tracker.
+
+Bonus from doing it: every one of those sites guards its copy with
+`if (src != dst)`. Those now compare OBJECTS, so a recycled driver name can no
+longer make a source and its export look identical and skip a copy the frame
+needed — the `InstanceGroupKey` defect class, in four more places.
+
+**Counters after slice 5:** `sweep_renderer_id` 699 → **653**;
+`facade_native_id_params` unchanged at 68, because that slice *adds* handle
+overloads and deletes no `u32` form — item 4's job, and the documented order.
+The 46 flatters it: the accessor name survives wherever a native sibling is kept
+on purpose (DDGI's `GetIrradianceAtlasID` is still there so `importAtlas` can
+call it), and 40 of the 46 are the attachment getters themselves.
+
+**Counters after slice 6 (the bind cache):** `sweep_renderer_id` 653 → **355**,
+`facade_native_id_params` 68 → **67**. The 298 is the honest measure of what
+converting the CURRENCY (rather than one producer family) is worth — six times
+slice 5's move.
+
+The `facade_native_id_params` fall is small but worth reading, because the naïve
+version of this slice *raised* it. `DrawElementsIndirectRaw(vaoID, bufferID)`
+needed a handle form, and the obvious answer was a mixed
+`(RHI::ResourceHandle, u32 indirectBufferID)` overload — which adds a
+`u32 <name>ID` parameter and pushes a ratchet that may only fall to 69. The real
+answer was that its single caller had *already* run `BindVAOIfNeeded`, so the
+draw was re-binding the VAO behind the redundant-bind cache's back; replacing
+both `u32` forms with `DrawBoundElementsIndirect(u32)` (matching the existing
+`DrawBound*` family) removed a redundant bind AND netted −1. **When a migration
+looks like it must raise a ratchet, that is usually the signal that the call
+site's shape is wrong, not that the ratchet is.**
+
+Read §4's "do not use it as a progress meter" note before reading either number
+as a completion fraction.
+
+### Hashing a driver name into a cache fingerprint cannot see a destroy-then-recreate
+
+Found while migrating DDGI, and general: `RenderPipeline::ComputeBlackboardFingerprint`
+hashed `GetIrradianceAtlasID(ping)` so that recreating the atlases would rebuild
+the frame graph and re-import them. But `DDGIProbeUpdatePass::EnsureResources`
+calls `DestroyResources()` **before** creating the replacements, so every atlas
+texture is freed first and GL is then free to reissue the same names — under
+which the fingerprint does not change at all. The rebuild never happens and the
+graph keeps an import whose `Width`/`Height` still describe the *old* resolution,
+which is exactly what `olo_render_list_targets` then reports.
+
+Hashing `RHI::HashKey(handle)` fixes it, because a generation cannot be
+reissued. **Any cache keyed on "did this GPU object change" has this bug if it
+keys on the driver name and the owner frees before it allocates** — and note the
+opposite ordering (allocate-then-release, as `m_IrradianceFB[i] = makeAtlasFB(…)`
+would be on its own) hides it completely, so whether the bug is live depends on
+a line of teardown code nowhere near the hash.
+
+### The command layer's bind cache is ONE unit, and its GL-name keying has already shipped a bug
+
+Scoping note for whoever migrates `Renderer/Commands/`. It looks like several
+independent migrations (material textures, shadow maps, UBOs, VAO/shader
+binding) and it is exactly one, because they share
+`CommandDispatchData::BoundTextureIDs` — the redundant-bind cache. Migrating
+`PODMaterialData`'s texture ids alone does not compile past its own file: those
+textures bind through `BindTrackedTexture`, which keys the same array that
+`BindTrackedTextureUnit` uses for CSM / shadow atlas / their raw-depth views /
+snow depth / cloud shadow. So the unit is: that array, `BoundUBOIDs`,
+`CurrentBoundShaderID`, `CurrentBoundVAO`, `DepthPrepassShaderIDs`, the six
+per-frame shadow id fields, **and** handle-returning siblings on `ShadowMap`
+(`GetCSMRendererID` / `GetAtlasRendererID` and the raw + placeholder variants).
+Every producer involved can already mint (`Texture2DArray`, `UniformBuffer`,
+`Shader`, `VertexArray` all expose `GetRHIHandle()`), so it is unblocked — it is
+just indivisible. Expect ~180 compile errors from the field-type change alone,
+concentrated in `CommandDispatch.cpp`, with `Renderer3DUtilityDraws.cpp`,
+`Renderer3DSpecializedDraws.cpp`, `CommandPacketDebugger.cpp` and
+`CommandBucket.cpp` following.
+
+Do NOT start it as "migrate PODMaterialData" and discover the rest downstream;
+that is the same mistake as picking a slice by what looks self-contained in one
+file.
+
+The reason it is worth doing rather than deferring: **this cache has already
+caused a real, debugged visual bug of exactly the kind the identity currency
+prevents.** The comments on `InvalidateTextureSlot` / `InvalidateTextureBinding`
+record it — `VirtualGeometryPass` binds the Hi-Z pyramid to unit 0 for its cull
+compute, unit 0 is also `u_AlbedoMap`, and "any material whose albedo ID matched
+the stale cache entry silently sampled the HZB depth texture as its albedo."
+Keyed on identities that particular collision becomes unrepresentable: a deleted
+texture's handle is retired, so it can never compare equal to a live one.
+
+### …but invalidation gets MORE load-bearing, not less — the one place handles are WEAKER
+
+**An earlier version of this section said the invalidation calls "stop being
+load-bearing correctness and become a pure optimisation". That was wrong, and
+wrong in the direction that ships bugs.** Recorded here because the reasoning is
+seductive and the failure is silent.
+
+The recycled-name hazard does die. But there is a second hazard the identity
+currency *creates*, because identity is deliberately stable where the driver
+name is not: an **in-place reload** (`OpenGLTexture::InvalidateImpl`) deletes the
+GL texture, creates new storage, and calls `ScopedResourceHandle::Sync`, which
+**preserves** the handle — that is the whole point of §4's "identity is the C++
+object", and it is what makes caching a handle safe. So:
+
+- the cache holds handle `H` for slot N, GL name `old` is bound to unit N;
+- reload: `old` is deleted, `new` created, `H` still names the object;
+- `BindTrackedTexture(H, N)` sees `BoundTextures[N] == H`, concludes "already
+  bound", and **skips a bind that must happen** — leaving the unit pointing at a
+  deleted name.
+
+Under the old native-id keying this self-corrected, because the name changed and
+the cache missed. Under handle keying it does not. So the rule inverts:
+**every site that recreates a texture's storage MUST call
+`InvalidateTextureBinding`** (it takes a handle now). Deleting those calls as
+"no longer needed" — which the old paragraph invited — would produce a
+tests-green / screen-wrong bug visible only after a hot reload.
+
+`InvalidateTextureSlot` is also still required, for an unrelated reason: a raw
+binder bypasses the cache entirely, so the cache's claim about the slot is simply
+untrue and no keying scheme can detect that from the inside.
+
+### Delegating to the native path and stamping the identity on afterwards silently disables generation bumping
+
+`RenderGraph::ImportTextureHandle` was first written to reuse the native
+importer — `ImportTexture(name, 0u, desc)` — and then assign `phys.Handle`
+afterwards, with a comment explaining that forking the import logic would be a
+second place to fix. The reasoning was right and the implementation still broke
+the core invariant, because `AllocateTextureHandle` decides whether to retire
+prior handles with
+
+```cpp
+const bool resourceChanged = (phys.TextureID != textureID) || (phys.IsHistory != isHistory);
+```
+
+which for a handle import compares `0 != 0` on every call. Re-importing a name
+with a *different* texture kept the slot generation, so every cached
+`RGTextureHandle` stayed valid and resolved to the slot's **new** occupant —
+the recycled-name hazard the phase exists to eliminate, recreated inside the fix
+for it.
+
+The rule: **when a resource's identity is passed to a routine as an
+afterthought, it is not available to that routine's invalidation logic.** Thread
+it in as a parameter (defaulted, so the native path still compiles) and let one
+change test cover both currencies; the native path then also *clears* a stale
+identity for free, keeping "alternatives, never both" true without a second
+assignment site.
+
+Why no test caught it: the first migrated pass creates its texture once at init
+and never recreates it, so the bug is inert exactly where it was introduced. A
+pass that recreates on resize would be the first to hit it, and it would look
+like a stale frame rather than a crash. **A migration's first subject is
+usually its least demanding one** — do not treat "the migrated pass works" as
+evidence that the shared machinery it exercises is correct.
 
 ---
 

@@ -383,10 +383,10 @@ namespace OloEngine
         Ref<Texture2D> target = CreateTargetTexture();
         if (target)
         {
-            const u32 fbColor = s_Framebuffer->GetColorAttachmentRendererID(0);
+            const RHI::ResourceHandle fbColor = s_Framebuffer->GetColorAttachmentHandle(0);
             RenderCommand::CopyImageSubDataFull(
                 fbColor, RendererAPI::TextureTargetType::Texture2D, 0, 0,
-                target->GetRendererID(), RendererAPI::TextureTargetType::Texture2D, 0, 0,
+                target->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2D, 0, 0,
                 kThumbnailSize, kThumbnailSize);
         }
         else

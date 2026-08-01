@@ -12,8 +12,6 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
-#include <glad/gl.h>
-
 #include <span>
 #include <string>
 
@@ -170,7 +168,7 @@ namespace OloEngine
         RenderCommand::SetBlendState(false);
         RenderCommand::DisableCulling();
         RenderCommand::DisableScissorTest();
-        RenderCommand::SetPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
         RenderCommand::SetColorMask(true, true, true, true);
         RenderCommand::SetDrawBuffers(std::span<const u32>(&colorAttachment, 1));
 
@@ -178,7 +176,7 @@ namespace OloEngine
         context.Clear();
 
         m_HeatmapShader->Bind();
-        context.BindTexture(0, m_AccumFramebuffer->GetColorAttachmentRendererID(0));
+        context.BindTexture(0, m_AccumFramebuffer->GetColorAttachmentHandle(0));
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

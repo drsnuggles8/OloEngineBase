@@ -14,12 +14,14 @@
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 
-#include <glad/gl.h>
-
 #include <array>
 
 namespace OloEngine
 {
+    // Draw slot 0 -> colour attachment 0, nothing else. Hoisted to file
+    // scope so the several blit helpers below share one definition.
+    static constexpr std::array<u32, 1> kAttachment0Only = { 0u };
+
     namespace
     {
         // Must match the `DeferredLightingControls` block layout in
@@ -194,13 +196,12 @@ namespace OloEngine
                 ++sceneColorAttachmentCount;
         }
 
-        const GLenum drawBuf = GL_COLOR_ATTACHMENT0;
-        glNamedFramebufferDrawBuffers(sceneFBID, 1, &drawBuf);
+        RenderCommand::SetFramebufferDrawAttachments(sceneFBID, kAttachment0Only);
 
         context.SetDepthTest(false);
         context.SetDepthMask(false);
         context.SetBlendState(false);
-        RenderCommand::SetCullFace(GL_BACK);
+        RenderCommand::SetCullFace(RHI::CullMode::Back);
 
         const u32 sampleCount = m_GBuffer->GetSampleCount();
         const bool useMSAAShading = m_UseMSAAShading;
@@ -229,7 +230,9 @@ namespace OloEngine
         // sample whenever this flag is on. When off, the shader falls back
         // to the global IBL cubemap.
         DeferredControlsData controls{};
-        const bool iblAvailable = Renderer3D::GetGlobalIrradianceMapID() != 0 && Renderer3D::GetGlobalPrefilterMapID() != 0 && Renderer3D::GetGlobalBRDFLutMapID() != 0;
+        const bool iblAvailable = Renderer3D::GetGlobalIrradianceMapHandle().IsValid() &&
+                                  Renderer3D::GetGlobalPrefilterMapHandle().IsValid() &&
+                                  Renderer3D::GetGlobalBRDFLutMapHandle().IsValid();
         controls.Controls.x = iblAvailable ? 1.0f : 0.0f;
         controls.Controls.y = Renderer3D::GetRendererSettings().Deferred.EnableLightProbes ? 1.0f : 0.0f;
         // Runtime IBL strength multiplier: plumb the global scalar set via
@@ -361,11 +364,7 @@ namespace OloEngine
         // GL_COLOR_ATTACHMENT3 entries.
         if (sceneColorAttachmentCount > 0)
         {
-            std::array<GLenum, 16> fullDrawBufs{};
-            const u32 n = std::min<u32>(sceneColorAttachmentCount, static_cast<u32>(fullDrawBufs.size()));
-            for (u32 i = 0; i < n; ++i)
-                fullDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
-            glNamedFramebufferDrawBuffers(sceneFBID, static_cast<GLsizei>(n), fullDrawBufs.data());
+            RenderCommand::RestoreAllFramebufferDrawAttachments(sceneFBID, sceneColorAttachmentCount);
         }
 
         context.SetDepthTest(true);
@@ -380,11 +379,11 @@ namespace OloEngine
         if (auto const& samplingFB = m_GBuffer->GetSamplingFramebuffer())
         {
             const u32 samplingFBID = samplingFB->GetRendererID();
-            glBlitNamedFramebuffer(
+            RenderCommand::BlitFramebuffer(
                 samplingFBID, sceneFBID,
-                0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-                0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-                GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+                0, 0, static_cast<i32>(w), static_cast<i32>(h),
+                0, 0, static_cast<i32>(w), static_cast<i32>(h),
+                RHI::BlitAspect::Depth, RHI::Filter::Nearest);
 
             // Copy the G-Buffer's per-pixel entity-ID attachment (RT4) into
             // the scene FB's entity-ID attachment (RT1). The forward path
@@ -400,13 +399,13 @@ namespace OloEngine
             // require GL_NEAREST (per the GL 4.6 spec); MSAA → single-
             // sample resolution takes sample 0, which is correct for
             // discrete entity IDs.
-            glNamedFramebufferReadBuffer(samplingFBID, GL_COLOR_ATTACHMENT0 + static_cast<GLenum>(std::to_underlying(GBuffer::EntityID)));
-            glNamedFramebufferDrawBuffer(sceneFBID, GL_COLOR_ATTACHMENT1);
-            glBlitNamedFramebuffer(
+            RenderCommand::SetFramebufferReadAttachment(samplingFBID, static_cast<u32>(std::to_underlying(GBuffer::EntityID)));
+            RenderCommand::SetFramebufferDrawAttachments(sceneFBID, std::array<u32, 1>{ 1u });
+            RenderCommand::BlitFramebuffer(
                 samplingFBID, sceneFBID,
-                0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-                0, 0, static_cast<GLint>(w), static_cast<GLint>(h),
-                GL_COLOR_BUFFER_BIT, GL_NEAREST);
+                0, 0, static_cast<i32>(w), static_cast<i32>(h),
+                0, 0, static_cast<i32>(w), static_cast<i32>(h),
+                RHI::BlitAspect::Color, RHI::Filter::Nearest);
 
             // Restore the scene FB's draw-buffer set so the following
             // ForwardOverlayPass write-RT0-RT2 path still sees its intended
@@ -414,11 +413,7 @@ namespace OloEngine
             // attachments to be available on bind).
             if (sceneColorAttachmentCount > 0)
             {
-                std::array<GLenum, 16> fullDrawBufs{};
-                const u32 n = std::min<u32>(sceneColorAttachmentCount, static_cast<u32>(fullDrawBufs.size()));
-                for (u32 i = 0; i < n; ++i)
-                    fullDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
-                glNamedFramebufferDrawBuffers(sceneFBID, static_cast<GLsizei>(n), fullDrawBufs.data());
+                RenderCommand::RestoreAllFramebufferDrawAttachments(sceneFBID, sceneColorAttachmentCount);
             }
         }
 
@@ -432,8 +427,8 @@ namespace OloEngine
         // so downstream passes see a clean slate. The GLStateGuard would
         // otherwise restore both via ApplyCore() — explicit clears here keep
         // the safety net pristine so it surfaces only genuine regressions.
-        ::glBindVertexArray(0);
-        ::glUseProgram(0);
+        RenderCommand::BindVertexArrayRaw(0);
+        RenderCommand::BindShaderProgram(0);
     }
 
     void DeferredLightingPass::BlitVirtualGeometryDebugOverlay()
@@ -483,8 +478,7 @@ namespace OloEngine
         // Scene colour only (RT0). The scene FB also carries entity-id / normals attachments;
         // writing the overlay into those would corrupt mouse picking with cluster-hash colours.
         const u32 sceneFBID = m_SceneFramebuffer->GetRendererID();
-        const GLenum drawBufs[] = { GL_COLOR_ATTACHMENT0 };
-        glNamedFramebufferDrawBuffers(sceneFBID, 1, drawBufs);
+        RenderCommand::SetFramebufferDrawAttachments(sceneFBID, kAttachment0Only);
 
         RenderCommand::SetViewport(0, 0, m_SceneFramebuffer->GetSpecification().Width,
                                    m_SceneFramebuffer->GetSpecification().Height);
@@ -515,15 +509,11 @@ namespace OloEngine
         }
         if (colorCount > 0)
         {
-            std::array<GLenum, 16> fullDrawBufs{};
-            const u32 n = std::min<u32>(colorCount, static_cast<u32>(fullDrawBufs.size()));
-            for (u32 i = 0; i < n; ++i)
-                fullDrawBufs[i] = GL_COLOR_ATTACHMENT0 + i;
-            glNamedFramebufferDrawBuffers(sceneFBID, static_cast<GLsizei>(n), fullDrawBufs.data());
+            RenderCommand::RestoreAllFramebufferDrawAttachments(sceneFBID, colorCount);
         }
 
-        ::glBindVertexArray(0);
-        ::glUseProgram(0);
+        RenderCommand::BindVertexArrayRaw(0);
+        RenderCommand::BindShaderProgram(0);
     }
 
     Ref<Framebuffer> DeferredLightingPass::GetTarget() const

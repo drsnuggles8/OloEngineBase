@@ -14,8 +14,6 @@
 #include <stb_image/stb_image.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <glad/gl.h>
-
 #include <chrono>
 #include <cstring>
 
@@ -282,12 +280,12 @@ namespace OloEngine
             vertexArray->Bind();
             RenderCommand::DrawIndexed(vertexArray);
 
-            // Now copy from framebuffer to cubemap face
-            u32 framebufferColorTexture = framebuffer->GetColorAttachmentRendererID(0);
-
+            // Now copy from framebuffer to cubemap face. Both operands are
+            // identities (issue #691 step 3): the source is the framebuffer's
+            // colour attachment, the destination the cubemap's own object.
             RenderCommand::CopyImageSubDataFull(
-                framebufferColorTexture, RendererAPI::TextureTargetType::Texture2D, 0, 0,
-                cubemap->GetRendererID(), RendererAPI::TextureTargetType::TextureCubeMap, static_cast<i32>(mipLevel), static_cast<i32>(i),
+                framebuffer->GetColorAttachmentHandle(0), RendererAPI::TextureTargetType::Texture2D, 0, 0,
+                cubemap->GetRHIHandle(), RendererAPI::TextureTargetType::TextureCubeMap, static_cast<i32>(mipLevel), static_cast<i32>(i),
                 mipWidth, mipHeight);
         }
 
@@ -335,8 +333,8 @@ namespace OloEngine
 
         // Copy from framebuffer color attachment to the output texture
         RenderCommand::CopyImageSubDataFull(
-            framebuffer->GetColorAttachmentRendererID(0), RendererAPI::TextureTargetType::Texture2D, 0, 0,
-            texture->GetRendererID(), RendererAPI::TextureTargetType::Texture2D, 0, 0,
+            framebuffer->GetColorAttachmentHandle(0), RendererAPI::TextureTargetType::Texture2D, 0, 0,
+            texture->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2D, 0, 0,
             texture->GetWidth(), texture->GetHeight());
 
         // Restore previous stencil state
@@ -364,7 +362,7 @@ namespace OloEngine
             std::forward<decltype(work)>(work)();
             // Sync — flushes the GL command queue so the elapsed time covers
             // the actual rasterisation work, not just submission.
-            ::glFinish();
+            RenderCommand::WaitForDeviceIdle();
             const auto end = std::chrono::steady_clock::now();
             return std::chrono::duration<f64, std::milli>(end - start).count();
         }
@@ -829,7 +827,7 @@ namespace OloEngine
 
         // Sync so the elapsed-time measurement covers GPU work, not just
         // command submission — matches MeasureMillisecondsWithGPUSync above.
-        ::glFinish();
+        RenderCommand::WaitForDeviceIdle();
         const auto pathEnd = std::chrono::steady_clock::now();
         const f64 elapsedMs = std::chrono::duration<f64, std::milli>(pathEnd - pathStart).count();
         OLO_CORE_INFO("SH-based irradiance map generation complete ({:.2f} ms, L2 SH, 9 coefficients)", elapsedMs);

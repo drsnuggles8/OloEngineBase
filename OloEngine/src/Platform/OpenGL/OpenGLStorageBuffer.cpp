@@ -13,6 +13,7 @@ namespace OloEngine
         : m_Size(size), m_Binding(binding), m_Usage(usage)
     {
         glCreateBuffers(1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Buffer, m_RendererID, RHI::Backend::OpenGL);
         glNamedBufferData(m_RendererID, size, nullptr, ToGLUsage());
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding, m_RendererID);
 
@@ -73,6 +74,7 @@ namespace OloEngine
         m_Size = newSize;
 
         glCreateBuffers(1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Buffer, m_RendererID, RHI::Backend::OpenGL);
         glNamedBufferData(m_RendererID, newSize, nullptr, ToGLUsage());
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, m_Binding, m_RendererID);
 

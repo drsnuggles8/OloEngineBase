@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
@@ -43,7 +44,7 @@ namespace OloEngine
         {
             return m_SSAOShader && m_SSAOShader->IsReady() &&
                    m_SSAOBlurShader && m_SSAOBlurShader->IsReady() &&
-                   m_NoiseTexture != 0;
+                   m_NoiseTexture.IsValid();
         }
 
         // SSAO runs at half-resolution. The scratch framebuffers (SSAORaw,
@@ -76,7 +77,12 @@ namespace OloEngine
         RGTextureHandle m_SelectedAOOutputTexture{};
         RGFramebufferHandle m_SelectedBlurFramebuffer{};
 
-        u32 m_NoiseTexture = 0;
+        // Migrated to the identity currency (issue #691 step 3). Its whole
+        // chain moves together — created via CreateTexture2DHandle, configured,
+        // imported via ImportTextureHandle, bound through the handle overload,
+        // deleted through the handle Delete*. That is the migration grain: a
+        // resource, not a layer.
+        RHI::ResourceHandle m_NoiseTexture;
         u32 m_HalfWidth = 0;
         u32 m_HalfHeight = 0;
     };

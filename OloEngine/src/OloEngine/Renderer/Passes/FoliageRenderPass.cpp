@@ -86,7 +86,7 @@ namespace OloEngine
         m_CommandBucket.Execute(rendererAPI);
 
         // Restore defaults for subsequent passes
-        RenderCommand::SetDepthFunc(GL_LESS);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         CommandDispatch::InvalidateRenderStateCache();
 
         m_SceneFramebuffer->Unbind();

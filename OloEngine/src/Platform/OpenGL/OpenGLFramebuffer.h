@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 
 #include <mutex>
@@ -46,6 +47,16 @@ namespace OloEngine
         {
             return m_DepthAttachment;
         }
+
+        [[nodiscard("Store this!")]] RHI::ResourceHandle GetColorAttachmentHandle(const u32 index) const override
+        {
+            OLO_CORE_ASSERT(index < m_ColorAttachmentHandles.size());
+            return m_ColorAttachmentHandles[index].Get();
+        }
+        [[nodiscard("Store this!")]] RHI::ResourceHandle GetDepthAttachmentHandle() const override
+        {
+            return m_DepthAttachmentHandle.Get();
+        }
         [[nodiscard("Store this!")]] const FramebufferSpecification& GetSpecification() const override
         {
             return m_Specification;
@@ -53,6 +64,11 @@ namespace OloEngine
         [[nodiscard("Store this!")]] u32 GetRendererID() const override
         {
             return m_RendererID;
+        }
+
+        [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const override
+        {
+            return m_RHIHandle.Get();
         }
 
         void AttachDepthTextureArrayLayer(u32 textureArrayRendererID, u32 layer) override;
@@ -63,6 +79,11 @@ namespace OloEngine
 
       private:
         u32 m_RendererID = 0;
+        // Generation-checked identity for m_RendererID above, kept in
+        // lockstep by m_RHIHandle.Sync() at every site that assigns the
+        // native name. RAII retires the entry, so a handle to a destroyed
+        // object can never resolve to a recycled GL name (issue #691).
+        RHI::ScopedResourceHandle m_RHIHandle;
         FramebufferSpecification m_Specification;
 
         // DRS render viewport override. When non-zero, Bind() uses these
@@ -76,6 +97,12 @@ namespace OloEngine
 
         std::vector<u32> m_ColorAttachments;
         u32 m_DepthAttachment = 0;
+        // Identities parallel to the native names above. A resize genuinely
+        // destroys and recreates the attachment textures, so unlike a texture
+        // hot-reload these become NEW objects and must get new handles —
+        // anything still holding the old ones has to see them go stale.
+        std::vector<RHI::ScopedResourceHandle> m_ColorAttachmentHandles;
+        RHI::ScopedResourceHandle m_DepthAttachmentHandle;
 
         // Shared post-processing shader (static to avoid recompilation for each framebuffer)
         static Ref<class Shader> s_PostProcessShader;
