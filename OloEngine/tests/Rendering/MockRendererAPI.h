@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 
@@ -364,6 +365,129 @@ namespace OloEngine::Testing
             ++m_BindCount;
         }
 
+        // ----------------------------------------------------------------
+        // Handle-taking siblings (issue #691 step 3, slice 2).
+        //
+        // The mock plays the part of a backend, so it resolves exactly as a
+        // backend does and delegates to the u32 form. That keeps every existing
+        // assertion on recorded call names and parameters working unchanged,
+        // and means a test driving the handle API observes the same native
+        // values a real backend would have used — including 0 for a stale
+        // handle, which is the behaviour worth being able to assert on.
+        // ----------------------------------------------------------------
+        void BindTexture(u32 slot, RHI::ResourceHandle texture) override
+        {
+            BindTexture(slot, Native(texture));
+        }
+        void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
+                              u32 layer, RHI::Access access, RHI::Format format) override
+        {
+            BindImageTexture(unit, Native(texture), mipLevel, layered, layer, access, format);
+        }
+        void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override
+        {
+            BindUniformBuffer(bindingPoint, Native(buffer));
+        }
+        void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override
+        {
+            BindStorageBuffer(bindingPoint, Native(buffer));
+        }
+        void BindShaderProgram(RHI::ResourceHandle program) override
+        {
+            BindShaderProgram(Native(program));
+        }
+        void BindVertexArrayRaw(RHI::ResourceHandle vertexArray) override
+        {
+            BindVertexArrayRaw(Native(vertexArray));
+        }
+        void BindFramebuffer(RHI::ResourceHandle framebuffer) override
+        {
+            BindFramebuffer(Native(framebuffer));
+        }
+
+        // Raw-creator siblings (slice 4). The mock plays a backend: it creates
+        // through its own u32 form and registers, so a test driving the handle
+        // API sees the same identities a real backend would mint — and the
+        // Delete* pair genuinely retires them, which is what makes
+        // "handle goes stale after delete" assertable without a GL context.
+        [[nodiscard]] RHI::ResourceHandle CreateTexture2DHandle(u32 width, u32 height, RHI::Format fmt) override
+        {
+            return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture,
+                                                         CreateTexture2D(width, height, fmt),
+                                                         RHI::Backend::OpenGL);
+        }
+        [[nodiscard]] RHI::ResourceHandle CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format fmt) override
+        {
+            return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture,
+                                                         CreateTextureCubemap(width, height, fmt),
+                                                         RHI::Backend::OpenGL);
+        }
+        [[nodiscard]] RHI::ResourceHandle CreateFramebufferHandle() override
+        {
+            return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Framebuffer, CreateFramebuffer(),
+                                                         RHI::Backend::OpenGL);
+        }
+        [[nodiscard]] RHI::ResourceHandle CreateBufferHandle() override
+        {
+            return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Buffer, CreateBuffer(),
+                                                         RHI::Backend::OpenGL);
+        }
+        [[nodiscard]] RHI::ResourceHandle CreateVertexArrayHandle() override
+        {
+            return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::VertexArray, CreateVertexArray(),
+                                                         RHI::Backend::OpenGL);
+        }
+        void DeleteTexture(RHI::ResourceHandle texture) override
+        {
+            DeleteTexture(Native(texture));
+            RHI::ResourceRegistry::Get().Unregister(texture);
+        }
+        void DeleteFramebuffer(RHI::ResourceHandle framebuffer) override
+        {
+            DeleteFramebuffer(Native(framebuffer));
+            RHI::ResourceRegistry::Get().Unregister(framebuffer);
+        }
+        void DeleteBuffer(RHI::ResourceHandle buffer) override
+        {
+            DeleteBuffer(Native(buffer));
+            RHI::ResourceRegistry::Get().Unregister(buffer);
+        }
+        void DeleteVertexArray(RHI::ResourceHandle vertexArray) override
+        {
+            DeleteVertexArray(Native(vertexArray));
+            RHI::ResourceRegistry::Get().Unregister(vertexArray);
+        }
+
+        // Texture-configuration handle forms. Added because migrating a real
+        // pass (SSAO's noise texture) needed them — the earlier breadth-first
+        // survey of the facade had missed all three, since none of them appear
+        // in the bind or create/delete families it was organised around.
+        //
+        // These deliberately record under the SAME name as their u32 siblings:
+        // a test asserting "the pass configured its texture" should keep
+        // passing across the migration, and one that wants to distinguish the
+        // currencies has the registry to check instead.
+        void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter) override
+        {
+            SetTextureFilter(Native(texture), minFilter, magFilter);
+        }
+        void SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap) override
+        {
+            SetTextureWrap(Native(texture), wrap);
+        }
+        void UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
+                                     RHI::Format sourceFormat, const void* data) override
+        {
+            UploadTextureSubImage2D(Native(texture), width, height, sourceFormat, data);
+        }
+
+      private:
+        [[nodiscard]] static u32 Native(RHI::ResourceHandle handle) noexcept
+        {
+            return static_cast<u32>(RHI::ResourceRegistry::Get().ResolveNativeForBackend(handle));
+        }
+
+      public:
         void SetPolygonOffset(f32 /*factor*/, f32 /*units*/) override
         {
             Record("SetPolygonOffset");

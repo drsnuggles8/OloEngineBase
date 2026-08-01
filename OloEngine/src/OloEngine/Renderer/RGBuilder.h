@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 
 #include <functional>
 #include <string>
@@ -249,6 +250,14 @@ namespace OloEngine
         [[nodiscard]] RGTextureHandle ImportTexture(
             std::string_view name,
             u32 textureID,
+            const RGResourceDesc& desc = {});
+
+        // Handle-taking sibling. This is the form a migrated pass reaches for:
+        // a resource created through a ...Handle creator is imported here, so
+        // the graph carries its identity rather than a recyclable GL name.
+        [[nodiscard]] RGTextureHandle ImportTextureHandle(
+            std::string_view name,
+            RHI::ResourceHandle texture,
             const RGResourceDesc& desc = {});
 
         [[nodiscard]] RGFramebufferHandle ImportFramebuffer(

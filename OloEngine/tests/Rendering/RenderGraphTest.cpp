@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include <gtest/gtest.h>
 
 #include "RenderingTestUtils.h"
@@ -173,7 +175,7 @@ class ImmediateStubPass : public TestDeclarativeNode
 
     void TestDeclareRead(std::string_view resource)
     {
-        DeclareTestRead(resource, ResourceHandle::Kind::Texture2D);
+        DeclareTestRead(resource, RGResourceHandle::Kind::Texture2D);
     }
 };
 
@@ -288,6 +290,20 @@ class StubFramebuffer : public Framebuffer
     {
         return 0;
     }
+
+    // These stubs model the graph's bookkeeping with synthetic ids and own no
+    // GPU objects, so they have no attachment identities to hand out. Declared
+    // here on the base only; the subclasses that override the native accessors
+    // inherit these unchanged, which is correct — a fabricated handle would
+    // claim to name something.
+    [[nodiscard]] RHI::ResourceHandle GetColorAttachmentHandle(u32 /*index*/) const override
+    {
+        return {};
+    }
+    [[nodiscard]] RHI::ResourceHandle GetDepthAttachmentHandle() const override
+    {
+        return {};
+    }
     [[nodiscard]] const FramebufferSpecification& GetSpecification() const override
     {
         return m_Specification;
@@ -295,6 +311,14 @@ class StubFramebuffer : public Framebuffer
     [[nodiscard]] u32 GetRendererID() const override
     {
         return m_RendererID;
+    }
+
+    // No GPU object behind this stub, so it has no identity to hand out.
+    // Spelled out rather than inherited: GetRHIHandle() is pure virtual
+    // precisely so a null return is a decision, not an accident.
+    [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const override
+    {
+        return {};
     }
     void AttachDepthTextureArrayLayer(u32 /*textureArrayRendererID*/, u32 /*layer*/) override {}
 
@@ -483,12 +507,12 @@ class DeclarationTrackingStubPass : public TestDeclarativeNode
 
     void TestDeclareRead(std::string_view resource)
     {
-        DeclareTestRead(resource, ResourceHandle::Kind::Framebuffer);
+        DeclareTestRead(resource, RGResourceHandle::Kind::Framebuffer);
     }
 
     void TestDeclareWrite(std::string_view resource)
     {
-        DeclareTestWrite(resource, ResourceHandle::Kind::Framebuffer);
+        DeclareTestWrite(resource, RGResourceHandle::Kind::Framebuffer);
     }
 
     [[nodiscard]] u32 GetExecuteCount() const
@@ -570,10 +594,10 @@ class TestGraphNode : public RenderGraphNode
         m_Flags = flags;
     }
 
-    void DeclareRead(std::string_view name, ResourceHandle::Kind kind = ResourceHandle::Kind::Unknown)
+    void DeclareRead(std::string_view name, RGResourceHandle::Kind kind = RGResourceHandle::Kind::Unknown)
     {
         if (const auto it = std::ranges::find_if(m_Reads,
-                                                 [name](const ResourceHandle& handle)
+                                                 [name](const RGResourceHandle& handle)
                                                  {
                                                      return handle.Name == name;
                                                  });
@@ -585,10 +609,10 @@ class TestGraphNode : public RenderGraphNode
         m_Reads.emplace_back(name, kind);
     }
 
-    void DeclareWrite(std::string_view name, ResourceHandle::Kind kind = ResourceHandle::Kind::Unknown)
+    void DeclareWrite(std::string_view name, RGResourceHandle::Kind kind = RGResourceHandle::Kind::Unknown)
     {
         if (const auto it = std::ranges::find_if(m_Writes,
-                                                 [name](const ResourceHandle& handle)
+                                                 [name](const RGResourceHandle& handle)
                                                  {
                                                      return handle.Name == name;
                                                  });
@@ -670,8 +694,8 @@ class TestGraphNode : public RenderGraphNode
     SetupFn m_Setup;
     ExecuteFn m_Execute;
     RenderGraphNodeFlags m_Flags = RenderGraphNodeFlags::Graphics;
-    std::vector<ResourceHandle> m_Reads;
-    std::vector<ResourceHandle> m_Writes;
+    std::vector<RGResourceHandle> m_Reads;
+    std::vector<RGResourceHandle> m_Writes;
     u32 m_SetupCount = 0;
     u32 m_ExecuteCount = 0;
     u32 m_SetupFramebufferCount = 0;
@@ -686,32 +710,32 @@ class TestGraphNode : public RenderGraphNode
     bool m_ContextWasActive = false;
     std::string m_ContextPassName;
 
-    static ResourceHandle::Kind NormalizeKind(ResourceHandle::Kind kind)
+    static RGResourceHandle::Kind NormalizeKind(RGResourceHandle::Kind kind)
     {
-        return kind == ResourceHandle::Kind::Unknown ? ResourceHandle::Kind::Texture2D : kind;
+        return kind == RGResourceHandle::Kind::Unknown ? RGResourceHandle::Kind::Texture2D : kind;
     }
 
-    static RGResourceDesc MakeMirrorDesc(ResourceHandle::Kind kind, std::string_view name)
+    static RGResourceDesc MakeMirrorDesc(RGResourceHandle::Kind kind, std::string_view name)
     {
         auto desc = RGResourceDesc::FromHandleKind(kind, name);
         desc.Imported = false;
         return desc;
     }
 
-    static void MirrorRead(RGBuilder& builder, const ResourceHandle& resource)
+    static void MirrorRead(RGBuilder& builder, const RGResourceHandle& resource)
     {
         const auto kind = NormalizeKind(resource.Type);
         const auto desc = MakeMirrorDesc(kind, resource.Name);
         switch (kind)
         {
-            case ResourceHandle::Kind::Framebuffer:
+            case RGResourceHandle::Kind::Framebuffer:
             {
                 auto handle = builder.CreateFramebuffer(resource.Name, desc);
                 [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::RenderTargetRead);
                 break;
             }
-            case ResourceHandle::Kind::UniformBuffer:
-            case ResourceHandle::Kind::StorageBuffer:
+            case RGResourceHandle::Kind::UniformBuffer:
+            case RGResourceHandle::Kind::StorageBuffer:
             {
                 auto handle = builder.CreateBuffer(resource.Name, desc);
                 [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderStorage);
@@ -726,20 +750,20 @@ class TestGraphNode : public RenderGraphNode
         }
     }
 
-    static void MirrorWrite(RGBuilder& builder, const ResourceHandle& resource)
+    static void MirrorWrite(RGBuilder& builder, const RGResourceHandle& resource)
     {
         const auto kind = NormalizeKind(resource.Type);
         const auto desc = MakeMirrorDesc(kind, resource.Name);
         switch (kind)
         {
-            case ResourceHandle::Kind::Framebuffer:
+            case RGResourceHandle::Kind::Framebuffer:
             {
                 auto handle = builder.CreateFramebuffer(resource.Name, desc);
                 builder.Write(handle, RGWriteUsage::RenderTarget);
                 break;
             }
-            case ResourceHandle::Kind::UniformBuffer:
-            case ResourceHandle::Kind::StorageBuffer:
+            case RGResourceHandle::Kind::UniformBuffer:
+            case RGResourceHandle::Kind::StorageBuffer:
             {
                 auto handle = builder.CreateBuffer(resource.Name, desc);
                 builder.Write(handle, RGWriteUsage::ShaderStorage);
@@ -804,6 +828,119 @@ static Ref<TestGraphNode> AddSetupNode(RenderGraph& graph,
 // =============================================================================
 // Basic Graph Construction
 // =============================================================================
+
+// =============================================================================
+// Issue #691 step 3, slice 5 — the graph carries BOTH currencies during the
+// migration, as alternatives rather than duplicates. Exactly one is set per
+// entry, and neither is derivable from the other: `native -> handle` is
+// unrecoverable, and `handle -> native` may only happen inside
+// Platform/<Backend>/, which RenderGraph is not. These pin that contract so a
+// later "unify them" tidy-up fails loudly instead of silently returning zero.
+// =============================================================================
+TEST(RenderGraph, NativeImportResolvesNativelyAndHasNoIdentity)
+{
+    RenderGraph graph;
+    const auto imported = graph.ImportTexture(
+        ResourceNames::AOBuffer, 42u,
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer));
+    ASSERT_TRUE(imported.IsValid());
+
+    EXPECT_EQ(graph.ResolveTexture(imported), 42u);
+    EXPECT_FALSE(graph.ResolveTextureHandle(imported).IsValid())
+        << "A natively-imported resource has no identity to give. Fabricating one here would name "
+           "nothing while claiming to name something — which is why a resource migrates its whole "
+           "creator/import/resolve/bind chain in a single slice.";
+}
+
+TEST(RenderGraph, HandleImportResolvesAsAnIdentityAndNotNatively)
+{
+    auto& registry = RHI::ResourceRegistry::Get();
+    const auto identity = registry.Register(RHI::ResourceKind::Texture, 4242u, RHI::Backend::OpenGL);
+
+    RenderGraph graph;
+    const auto imported = graph.ImportTextureHandle(
+        ResourceNames::AOBuffer, identity,
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer));
+    ASSERT_TRUE(imported.IsValid());
+
+    EXPECT_EQ(graph.ResolveTextureHandle(imported), identity);
+    EXPECT_EQ(graph.ResolveTexture(imported), 0u)
+        << "The native form must NOT resolve a handle-imported resource. RenderGraph lives in "
+           "Renderer/ and may not perform handle->native resolution; returning the underlying GL "
+           "name here would breach the boundary the whole phase exists to close.";
+
+    registry.Unregister(identity);
+}
+
+// Re-importing the SAME name with a DIFFERENT identity must retire the old
+// RGTextureHandle, exactly as re-importing with a different native id does.
+//
+// The first implementation of ImportTextureHandle could not do this: it called
+// ImportTexture(name, 0u, ...) and stamped the identity on afterwards, so the
+// allocator's change test compared 0 against 0 and never bumped the
+// generation. Every cached handle from before the swap kept resolving — to the
+// NEW texture, since the slot is reused by name.
+//
+// Nothing in the engine catches this today: SSAO, the first migrated pass,
+// creates its noise texture once in Init and never recreates it. A pass that
+// recreates on resize (FluidIntermediatesPass' shape) would have been the
+// first to hit it, in the form of a stale-looking frame rather than a crash.
+TEST(RenderGraph, ReimportingANameWithADifferentIdentityRetiresTheOldHandle)
+{
+    auto& registry = RHI::ResourceRegistry::Get();
+    const auto first = registry.Register(RHI::ResourceKind::Texture, 7001u, RHI::Backend::OpenGL);
+    const auto second = registry.Register(RHI::ResourceKind::Texture, 7002u, RHI::Backend::OpenGL);
+    ASSERT_FALSE(first == second);
+
+    const auto desc =
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer);
+
+    RenderGraph graph;
+    const auto before = graph.ImportTextureHandle(ResourceNames::AOBuffer, first, desc);
+    ASSERT_TRUE(before.IsValid());
+    ASSERT_EQ(graph.ResolveTextureHandle(before), first);
+
+    const auto after = graph.ImportTextureHandle(ResourceNames::AOBuffer, second, desc);
+    ASSERT_TRUE(after.IsValid());
+
+    EXPECT_EQ(after.Index, before.Index) << "Import reuses the slot by name; that part is intended.";
+    EXPECT_NE(after.Generation, before.Generation)
+        << "The identity changed, so the old handle must stop being valid. Sharing a slot without "
+           "bumping the generation is precisely the recycled-name hazard this phase exists to close.";
+    EXPECT_EQ(graph.ResolveTextureHandle(after), second);
+    EXPECT_FALSE(graph.ResolveTextureHandle(before).IsValid())
+        << "A stale handle resolving to the slot's new occupant is worse than resolving to nothing: "
+           "the caller gets a real texture and no indication it is the wrong one.";
+
+    registry.Unregister(first);
+    registry.Unregister(second);
+}
+
+// The inverse direction of the same invariant. A slot that held an identity and
+// is re-imported natively must forget the identity, or PhysicalTexture would
+// carry both currencies at once and the two resolvers would disagree about what
+// the resource is.
+TEST(RenderGraph, ReimportingAHandleResourceNativelyClearsTheStaleIdentity)
+{
+    auto& registry = RHI::ResourceRegistry::Get();
+    const auto identity = registry.Register(RHI::ResourceKind::Texture, 7003u, RHI::Backend::OpenGL);
+
+    const auto desc =
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer);
+
+    RenderGraph graph;
+    const auto handleImport = graph.ImportTextureHandle(ResourceNames::AOBuffer, identity, desc);
+    ASSERT_TRUE(handleImport.IsValid());
+
+    const auto nativeImport = graph.ImportTexture(ResourceNames::AOBuffer, 55u, desc);
+    ASSERT_TRUE(nativeImport.IsValid());
+
+    EXPECT_EQ(graph.ResolveTexture(nativeImport), 55u);
+    EXPECT_FALSE(graph.ResolveTextureHandle(nativeImport).IsValid())
+        << "The identity belonged to the previous occupant of this slot.";
+
+    registry.Unregister(identity);
+}
 
 TEST(RenderGraph, PassNodesAreRetrievableAsRenderPasses)
 {
@@ -873,8 +1010,8 @@ TEST(RenderGraph, GraphNodeStaticDeclarationsPopulateRegistryAndSubmissionInfo)
     auto producer = AddTestNode(graph, "GraphProducer");
     auto final = AddTestNode(graph, "GraphFinal");
 
-    producer->DeclareWrite("GraphNodeColor", ResourceHandle::Kind::Texture2D);
-    final->DeclareRead("GraphNodeColor", ResourceHandle::Kind::Texture2D);
+    producer->DeclareWrite("GraphNodeColor", RGResourceHandle::Kind::Texture2D);
+    final->DeclareRead("GraphNodeColor", RGResourceHandle::Kind::Texture2D);
 
     graph.SetFinalPass("GraphFinal");
     graph.BuildFrameGraph();
@@ -901,7 +1038,7 @@ TEST(RenderGraph, GraphNodeStaticDeclarationsPopulateRegistryAndSubmissionInfo)
 
     const auto* resource = graph.FindRegisteredResource("GraphNodeColor");
     ASSERT_NE(resource, nullptr);
-    EXPECT_EQ(resource->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(resource->Desc.Kind, RGResourceHandle::Kind::Texture2D);
     ASSERT_EQ(resource->Producers.size(), 1u);
     EXPECT_EQ(resource->Producers[0], "GraphProducer");
     ASSERT_EQ(resource->Consumers.size(), 1u);
@@ -936,7 +1073,7 @@ TEST(RenderGraph, CompiledHazardValidationReportsDynamicFeedbackHazards)
             auto feedbackTexture = builder.ImportTexture(
                 "FeedbackTex",
                 5,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FeedbackTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "FeedbackTex"));
             [[maybe_unused]] const auto readFeedback = builder.Read(feedbackTexture, RGReadUsage::ShaderSample);
             builder.Write(feedbackTexture, RGWriteUsage::RenderTarget);
         });
@@ -1027,7 +1164,7 @@ TEST(RenderGraph, SetupSelectedPrimaryInputFramebufferTextureTracksCurrentFirstV
 
     auto makeInputDesc = [](std::string_view name)
     {
-        auto desc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, name);
+        auto desc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, name);
         desc.Format = RGResourceFormat::RGBA16Float;
         desc.Width = 1u;
         desc.Height = 1u;
@@ -1132,7 +1269,7 @@ TEST(RenderGraph, UICompositePublishesVersionedOutputAndFinalPrefersProducerOwne
     auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = 640u;
         desc.Height = 360u;
         desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
@@ -1163,7 +1300,7 @@ TEST(RenderGraph, UICompositePublishesVersionedOutputAndFinalPrefersProducerOwne
     blackboard.Post.Backbuffer = graph.ImportFramebuffer(
         ResourceNames::Backbuffer,
         nullptr,
-        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, ResourceNames::Backbuffer));
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, ResourceNames::Backbuffer));
 
     auto uiComposite = Ref<UICompositeRenderPass>::Create();
     uiComposite->SetName("UICompositePass");
@@ -1197,7 +1334,7 @@ TEST(RenderGraph, FXAAPublishesVersionedOutputAndDownstreamPassesPreferProducerO
     auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = 640u;
         desc.Height = 360u;
         desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
@@ -1272,7 +1409,7 @@ TEST(RenderGraph, VignettePublishesVersionedOutputAndDownstreamPassesPreferProdu
     auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = 640u;
         desc.Height = 360u;
         desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
@@ -1347,7 +1484,7 @@ TEST(RenderGraph, ToneMapPublishesVersionedOutputAndDownstreamPassesPreferProduc
     auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = 640u;
         desc.Height = 360u;
         desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
@@ -1422,7 +1559,7 @@ TEST(RenderGraph, ColorGradingPublishesVersionedOutputAndDownstreamPassesPreferP
     auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = 640u;
         desc.Height = 360u;
         desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
@@ -1505,7 +1642,7 @@ TEST(RenderGraph, ChromaticAberrationPublishesVersionedOutputAndDownstreamPasses
     auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = 640u;
         desc.Height = 360u;
         desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
@@ -1595,7 +1732,7 @@ TEST(RenderGraph, FogPublishesVersionedOutputAndDownstreamPassesPreferProducerOw
     auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = 640u;
         desc.Height = 360u;
         desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
@@ -1692,7 +1829,7 @@ TEST(RenderGraph, PrecipitationPublishesVersionedOutputAndDownstreamPassesPrefer
     auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = 640u;
         desc.Height = 360u;
         desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
@@ -1796,7 +1933,7 @@ TEST(RenderGraph, TAAPublishesVersionedOutputAndDownstreamPassesPreferProducerOw
     auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = 640u;
         desc.Height = 360u;
         desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
@@ -1907,7 +2044,7 @@ TEST(RenderGraph, SSSPublishesVersionedOutputAndAOApplyAndBloomPreferProducerOwn
     auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = 640u;
         desc.Height = 360u;
         desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
@@ -1988,7 +2125,7 @@ TEST(RenderGraph, AOApplyPublishesVersionedOutputAndBloomPrefersProducerOwnedVer
     auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = 640u;
         desc.Height = 360u;
         desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
@@ -2018,11 +2155,11 @@ TEST(RenderGraph, AOApplyPublishesVersionedOutputAndBloomPrefersProducerOwnedVer
     const auto aoBufferHandle = graph.ImportTexture(
         ResourceNames::AOBuffer,
         42u,
-        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer));
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::AOBuffer));
     const auto sceneDepthHandle = graph.ImportTexture(
         ResourceNames::SceneDepth,
         17u,
-        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::SceneDepth));
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::SceneDepth));
 
     auto& blackboard = graph.GetBlackboard();
     blackboard.Scene.SceneColor = sceneHandle;
@@ -2069,7 +2206,7 @@ TEST(RenderGraph, BloomPublishesVersionedOutputAndDownstreamPassesPreferProducer
     auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = 640u;
         desc.Height = 360u;
         desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
@@ -2201,7 +2338,7 @@ TEST(RenderGraph, DOFPublishesVersionedOutputAndDownstreamPassesPreferProducerOw
     auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = 640u;
         desc.Height = 360u;
         desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
@@ -2326,7 +2463,7 @@ TEST(RenderGraph, MotionBlurPublishesVersionedOutputAndDownstreamPassesPreferPro
     auto makeFramebufferDesc = [](std::string_view debugName, const RGResourceFormat colorFormat)
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = 640u;
         desc.Height = 360u;
         desc.Attachments = { colorFormat, RGResourceFormat::R32Int, RGResourceFormat::RG16Float };
@@ -2494,7 +2631,7 @@ TEST(RenderGraph, GraphNodeSetupAndExecuteUseCanonicalSubmissionPath)
             auto output = builder.ImportTexture(
                 "GraphNodeOutput",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "GraphNodeOutput"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "GraphNodeOutput"));
             builder.Write(output, RGWriteUsage::RenderTarget);
         });
 
@@ -2529,7 +2666,7 @@ TEST(RenderGraph, GraphNodesDeriveProducerConsumerDependencyFromDeclarations)
             auto shared = builder.ImportTexture(
                 "GraphNodeSharedColor",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "GraphNodeSharedColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "GraphNodeSharedColor"));
             builder.Write(shared, RGWriteUsage::RenderTarget);
         });
 
@@ -2540,7 +2677,7 @@ TEST(RenderGraph, GraphNodesDeriveProducerConsumerDependencyFromDeclarations)
             auto shared = builder.ImportTexture(
                 "GraphNodeSharedColor",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "GraphNodeSharedColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "GraphNodeSharedColor"));
             [[maybe_unused]] const auto readShared = builder.Read(shared, RGReadUsage::ShaderSample);
         });
 
@@ -2583,7 +2720,7 @@ TEST(RenderGraph, GraphNodeReachabilityCullsUnusedNode)
             auto shared = builder.ImportTexture(
                 "ReachableNodeColor",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ReachableNodeColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ReachableNodeColor"));
             builder.Write(shared, RGWriteUsage::RenderTarget);
         });
 
@@ -2594,7 +2731,7 @@ TEST(RenderGraph, GraphNodeReachabilityCullsUnusedNode)
             auto shared = builder.ImportTexture(
                 "ReachableNodeColor",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ReachableNodeColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ReachableNodeColor"));
             [[maybe_unused]] const auto readShared = builder.Read(shared, RGReadUsage::ShaderSample);
         });
 
@@ -2605,7 +2742,7 @@ TEST(RenderGraph, GraphNodeReachabilityCullsUnusedNode)
             auto unusedColor = builder.ImportTexture(
                 "UnusedNodeColor",
                 2,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "UnusedNodeColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "UnusedNodeColor"));
             builder.Write(unusedColor, RGWriteUsage::RenderTarget);
         });
 
@@ -2636,7 +2773,7 @@ TEST(RenderGraph, GraphNodeFlagsDriveSubmissionMetadata)
             auto output = builder.ImportBuffer(
                 "ComputeGraphNodeOutput",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::StorageBuffer, "ComputeGraphNodeOutput"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::StorageBuffer, "ComputeGraphNodeOutput"));
             builder.Write(output, RGWriteUsage::ShaderStorage);
         });
     node->SetFlags(RenderGraphNodeFlags::Compute |
@@ -2749,7 +2886,7 @@ TEST(RenderGraph, PlansBarrierFromWriterToReaderTransition)
             auto sharedBuffer = builder.ImportBuffer(
                 "SharedBuffer",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
             builder.Write(sharedBuffer, RGWriteUsage::ShaderStorage);
         },
         [](RGCommandContext& /*context*/) {});
@@ -2762,7 +2899,7 @@ TEST(RenderGraph, PlansBarrierFromWriterToReaderTransition)
             auto sharedBuffer = builder.ImportBuffer(
                 "SharedBuffer",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
             [[maybe_unused]] const auto readHandle = builder.Read(sharedBuffer, RGReadUsage::ShaderStorage);
         },
         [](RGCommandContext& /*context*/) {});
@@ -2799,7 +2936,7 @@ TEST(RenderGraph, PlansFramebufferAndTextureFetchBarrierForRenderTargetToSample)
             auto sceneColor = builder.ImportTexture(
                 "SceneColorTex",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneColorTex"));
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -2812,7 +2949,7 @@ TEST(RenderGraph, PlansFramebufferAndTextureFetchBarrierForRenderTargetToSample)
             auto sceneColor = builder.ImportTexture(
                 "SceneColorTex",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneColorTex"));
             [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::ShaderSample);
         },
         [](RGCommandContext& /*context*/) {});
@@ -2849,7 +2986,7 @@ TEST(RenderGraph, ReportsMissingProducerDiagnosticForReadOnlyResource)
             auto orphanResource = builder.ImportTexture(
                 "OrphanResource",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "OrphanResource"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "OrphanResource"));
             [[maybe_unused]] const auto readHandle = builder.Read(orphanResource, RGReadUsage::ShaderSample);
         },
         [](RGCommandContext& /*context*/) {});
@@ -2884,7 +3021,7 @@ TEST(RenderGraph, DerivedDependenciesAreRebuiltFromCurrentFrameDeclarations)
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneColor"));
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -2900,13 +3037,13 @@ TEST(RenderGraph, DerivedDependenciesAreRebuiltFromCurrentFrameDeclarations)
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneColor"));
             [[maybe_unused]] const auto readScene = builder.Read(sceneColor, RGReadUsage::ShaderSample);
 
             auto optionalColor = builder.ImportTexture(
                 "OptionalColor",
                 2,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "OptionalColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "OptionalColor"));
             builder.Write(optionalColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -2919,7 +3056,7 @@ TEST(RenderGraph, DerivedDependenciesAreRebuiltFromCurrentFrameDeclarations)
             auto input = builder.ImportTexture(
                 optionalEnabled ? "OptionalColor" : "SceneColor",
                 optionalEnabled ? 2u : 1u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D,
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D,
                                                optionalEnabled ? "OptionalColor" : "SceneColor"));
             [[maybe_unused]] const auto readInput = builder.Read(input, RGReadUsage::ShaderSample);
         },
@@ -2962,7 +3099,7 @@ TEST(RenderGraph, ReportsStaleExtractionHandleDiagnostic)
     const auto stale = graph.ImportTexture(
         "TemporalColor",
         7,
-        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "TemporalColor"));
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "TemporalColor"));
 
     graph.ClearImportedResources();
 
@@ -2999,7 +3136,7 @@ TEST(RenderGraph, ReportsExtractionOfCulledResourceDiagnostic)
             auto transientColor = builder.ImportTexture(
                 "CulledColor",
                 11,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CulledColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "CulledColor"));
             builder.Write(transientColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -3012,7 +3149,7 @@ TEST(RenderGraph, ReportsExtractionOfCulledResourceDiagnostic)
             auto finalColor = builder.ImportTexture(
                 "FinalColorTex",
                 12,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "FinalColorTex"));
             builder.Write(finalColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -3052,7 +3189,7 @@ TEST(RenderGraph, ExtractTextureBeforeBuildRootsProducerAndInvokesCallback)
     const auto extractedColor = graph.ImportTexture(
         "ExtractedColor",
         11u,
-        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ExtractedColor"));
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ExtractedColor"));
 
     AddTestNode(
         graph,
@@ -3071,7 +3208,7 @@ TEST(RenderGraph, ExtractTextureBeforeBuildRootsProducerAndInvokesCallback)
             const auto finalColor = builder.ImportTexture(
                 "FinalColorTex",
                 12u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "FinalColorTex"));
             builder.Write(finalColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -3112,7 +3249,7 @@ TEST(RenderGraph, ExtractFramebufferBeforeBuildRootsProducerAndInvokesCallback)
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     RGResourceDesc scratchDesc;
-    scratchDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    scratchDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     scratchDesc.Format = RGResourceFormat::RGBA16Float;
     scratchDesc.Width = 640u;
     scratchDesc.Height = 360u;
@@ -3136,7 +3273,7 @@ TEST(RenderGraph, ExtractFramebufferBeforeBuildRootsProducerAndInvokesCallback)
             const auto finalColor = builder.ImportTexture(
                 "FinalColorTex",
                 12u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "FinalColorTex"));
             builder.Write(finalColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -3181,7 +3318,7 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
             auto shared = builder.ImportBuffer(
                 "SharedBuffer",
                 41,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
             builder.Write(shared, RGWriteUsage::ShaderStorage);
         },
         [](RGCommandContext& /*context*/) {});
@@ -3194,7 +3331,7 @@ TEST(RenderGraph, DumpToJsonWritesCompiledGraphDetails)
             auto shared = builder.ImportBuffer(
                 "SharedBuffer",
                 41,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::StorageBuffer, "SharedBuffer"));
             [[maybe_unused]] const auto readHandle = builder.Read(shared, RGReadUsage::ShaderStorage);
         },
         [](RGCommandContext& /*context*/) {});
@@ -3319,7 +3456,7 @@ TEST(RenderGraph, BuilderExtractTextureRootsProducerAndInvokesCallback)
             const auto extractedColor = builder.ImportTexture(
                 "BuilderExtractColor",
                 21u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "BuilderExtractColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "BuilderExtractColor"));
             builder.Write(extractedColor, RGWriteUsage::RenderTarget);
             builder.ExtractTexture(
                 extractedColor,
@@ -3339,7 +3476,7 @@ TEST(RenderGraph, BuilderExtractTextureRootsProducerAndInvokesCallback)
             const auto finalColor = builder.ImportTexture(
                 "FinalColorTex",
                 22u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "FinalColorTex"));
             builder.Write(finalColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -3369,7 +3506,7 @@ TEST(RenderGraph, BuilderExtractFramebufferRootsProducerAndInvokesCallback)
         [&extractionCalled](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Kind = RGResourceHandle::Kind::Framebuffer;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 320u;
             desc.Height = 180u;
@@ -3393,7 +3530,7 @@ TEST(RenderGraph, BuilderExtractFramebufferRootsProducerAndInvokesCallback)
             const auto finalColor = builder.ImportTexture(
                 "FinalColorTex",
                 22u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "FinalColorTex"));
             builder.Write(finalColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -3424,7 +3561,7 @@ TEST(RenderGraphExternalTextureSinks, BuilderRegisteredTextureSinkRootsProducerA
             const auto source = builder.ImportTexture(
                 "ExternalSinkColor",
                 31u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ExternalSinkColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ExternalSinkColor"));
             builder.Write(source, RGWriteUsage::RenderTarget);
             builder.RegisterExternalTextureSink(source, 0u, 0u, 0u, &sinkValid);
         },
@@ -3438,7 +3575,7 @@ TEST(RenderGraphExternalTextureSinks, BuilderRegisteredTextureSinkRootsProducerA
             const auto finalColor = builder.ImportTexture(
                 "FinalColorTex",
                 32u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "FinalColorTex"));
             builder.Write(finalColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -3452,7 +3589,7 @@ TEST(RenderGraphExternalTextureSinks, BuilderRegisteredTextureSinkRootsProducerA
     const auto& contracts = graph.GetExternalTextureSinkContracts();
     ASSERT_EQ(contracts.size(), 1u);
     EXPECT_EQ(contracts[0].SourceResource, "ExternalSinkColor");
-    EXPECT_EQ(contracts[0].SourceKind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(contracts[0].SourceKind, RGResourceHandle::Kind::Texture2D);
     EXPECT_EQ(contracts[0].ColorAttachmentIndex, 0u);
     EXPECT_TRUE(contracts[0].SourceReachable);
 
@@ -3474,7 +3611,7 @@ TEST(RenderGraphExternalTextureSinks, BuilderRegisteredFramebufferSinkRootsProdu
         [&sinkValid](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Kind = RGResourceHandle::Kind::Framebuffer;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 320u;
             desc.Height = 180u;
@@ -3493,7 +3630,7 @@ TEST(RenderGraphExternalTextureSinks, BuilderRegisteredFramebufferSinkRootsProdu
             const auto finalColor = builder.ImportTexture(
                 "FinalColorTex",
                 32u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "FinalColorTex"));
             builder.Write(finalColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -3507,7 +3644,7 @@ TEST(RenderGraphExternalTextureSinks, BuilderRegisteredFramebufferSinkRootsProdu
     const auto& contracts = graph.GetExternalTextureSinkContracts();
     ASSERT_EQ(contracts.size(), 1u);
     EXPECT_EQ(contracts[0].SourceResource, "ExternalSinkFramebuffer");
-    EXPECT_EQ(contracts[0].SourceKind, ResourceHandle::Kind::Framebuffer);
+    EXPECT_EQ(contracts[0].SourceKind, RGResourceHandle::Kind::Framebuffer);
     EXPECT_EQ(contracts[0].ColorAttachmentIndex, 0u);
     EXPECT_TRUE(contracts[0].SourceReachable);
 
@@ -3531,7 +3668,7 @@ TEST(RenderGraphExternalTextureSinks, DumpToJsonIncludesExternalTextureSinkContr
             const auto source = builder.ImportTexture(
                 "ExternalSinkColor",
                 41u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ExternalSinkColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ExternalSinkColor"));
             builder.Write(source, RGWriteUsage::RenderTarget);
             builder.RegisterExternalTextureSink(source, 0u, 0u, 0u, &sinkValid);
         },
@@ -3545,7 +3682,7 @@ TEST(RenderGraphExternalTextureSinks, DumpToJsonIncludesExternalTextureSinkContr
             const auto finalColor = builder.ImportTexture(
                 "FinalColorTex",
                 42u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "FinalColorTex"));
             builder.Write(finalColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -3938,7 +4075,7 @@ TEST(RenderGraphStructural, DerivedEdgeDoesNotIntroduceReverseCycle)
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneColor"));
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -3951,7 +4088,7 @@ TEST(RenderGraphStructural, DerivedEdgeDoesNotIntroduceReverseCycle)
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneColor"));
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         },
         [](RGCommandContext& /*context*/) {});
@@ -3990,7 +4127,7 @@ TEST(RenderGraphStructural, BuilderPassDependenciesOverrideReverseRegistrationOr
                 auto sceneColor = builder.ImportTexture(
                     "SceneColor",
                     1u,
-                    RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
+                    RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneColor"));
                 builder.Write(sceneColor, RGWriteUsage::RenderTarget);
             });
     };
@@ -4013,7 +4150,7 @@ TEST(RenderGraphStructural, BuilderPassDependenciesOverrideReverseRegistrationOr
             auto shadowMap = builder.ImportTexture(
                 "ShadowMapCSM",
                 2u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ShadowMapCSM"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ShadowMapCSM"));
             builder.Write(shadowMap, RGWriteUsage::DepthStencil);
         });
 
@@ -4056,15 +4193,15 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
             auto sceneDepth = builder.ImportTexture(
                 std::string(ResourceNames::SceneDepth),
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
             auto sceneNormals = builder.ImportTexture(
                 std::string(ResourceNames::SceneNormals),
                 2,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
             auto sceneColor = builder.ImportTexture(
                 std::string(ResourceNames::SceneColor),
                 3,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
 
             builder.Write(sceneDepth, RGWriteUsage::DepthStencil);
             builder.Write(sceneNormals, RGWriteUsage::RenderTarget);
@@ -4080,11 +4217,11 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
             auto sceneDepth = builder.ImportTexture(
                 std::string(ResourceNames::SceneDepth),
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
             auto sceneColor = builder.ImportTexture(
                 std::string(ResourceNames::SceneColor),
                 3,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
 
             [[maybe_unused]] const auto depthRead = builder.Read(sceneDepth, RGReadUsage::ShaderSample);
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
@@ -4099,15 +4236,15 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
             auto sceneDepth = builder.ImportTexture(
                 std::string(ResourceNames::SceneDepth),
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
             auto sceneNormals = builder.ImportTexture(
                 std::string(ResourceNames::SceneNormals),
                 2,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
             auto sceneColor = builder.ImportTexture(
                 std::string(ResourceNames::SceneColor),
                 3,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
 
             [[maybe_unused]] const auto depthRead = builder.Read(sceneDepth, RGReadUsage::ShaderSample);
             [[maybe_unused]] const auto normalsRead = builder.Read(sceneNormals, RGReadUsage::ShaderSample);
@@ -4123,7 +4260,7 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfyDeferredCoreWithoutManualEdges)
             auto sceneColor = builder.ImportTexture(
                 std::string(ResourceNames::SceneColor),
                 3,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneColor)));
             [[maybe_unused]] const auto sceneColorRead = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
         },
         [](RGCommandContext& /*context*/) {});
@@ -4157,11 +4294,11 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToSSAOWithoutManualEdge)
             auto sceneDepth = builder.ImportTexture(
                 std::string(ResourceNames::SceneDepth),
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
             auto sceneNormals = builder.ImportTexture(
                 std::string(ResourceNames::SceneNormals),
                 2,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
             builder.Write(sceneDepth, RGWriteUsage::DepthStencil);
             builder.Write(sceneNormals, RGWriteUsage::RenderTarget);
         },
@@ -4175,15 +4312,15 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToSSAOWithoutManualEdge)
             auto sceneDepth = builder.ImportTexture(
                 std::string(ResourceNames::SceneDepth),
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
             auto sceneNormals = builder.ImportTexture(
                 std::string(ResourceNames::SceneNormals),
                 2,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
             auto ao = builder.ImportTexture(
                 std::string(ResourceNames::AOBuffer),
                 3,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
 
             [[maybe_unused]] const auto depthRead = builder.Read(sceneDepth, RGReadUsage::ShaderSample);
             [[maybe_unused]] const auto normalsRead = builder.Read(sceneNormals, RGReadUsage::ShaderSample);
@@ -4199,7 +4336,7 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToSSAOWithoutManualEdge)
             auto ao = builder.ImportTexture(
                 std::string(ResourceNames::AOBuffer),
                 3,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
             [[maybe_unused]] const auto aoRead = builder.Read(ao, RGReadUsage::ShaderSample);
         },
         [](RGCommandContext& /*context*/) {});
@@ -4224,11 +4361,11 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToGTAOWithoutManualEdge)
             auto sceneDepth = builder.ImportTexture(
                 std::string(ResourceNames::SceneDepth),
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
             auto sceneNormals = builder.ImportTexture(
                 std::string(ResourceNames::SceneNormals),
                 2,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
             builder.Write(sceneDepth, RGWriteUsage::DepthStencil);
             builder.Write(sceneNormals, RGWriteUsage::RenderTarget);
         },
@@ -4242,15 +4379,15 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToGTAOWithoutManualEdge)
             auto sceneDepth = builder.ImportTexture(
                 std::string(ResourceNames::SceneDepth),
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneDepth)));
             auto sceneNormals = builder.ImportTexture(
                 std::string(ResourceNames::SceneNormals),
                 2,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::SceneNormals)));
             auto ao = builder.ImportTexture(
                 std::string(ResourceNames::AOBuffer),
                 3,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
 
             [[maybe_unused]] const auto depthRead = builder.Read(sceneDepth, RGReadUsage::ShaderSample);
             [[maybe_unused]] const auto normalsRead = builder.Read(sceneNormals, RGReadUsage::ShaderSample);
@@ -4266,7 +4403,7 @@ TEST(RenderGraphStructural, DerivedEdgesSatisfySceneToGTAOWithoutManualEdge)
             auto ao = builder.ImportTexture(
                 std::string(ResourceNames::AOBuffer),
                 3,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::AOBuffer)));
             [[maybe_unused]] const auto aoRead = builder.Read(ao, RGReadUsage::ShaderSample);
         },
         [](RGCommandContext& /*context*/) {});
@@ -4439,15 +4576,15 @@ TEST(RenderGraphResetTopology, ImportedHandleSlotsAreRebackedAfterReset)
 {
     RenderGraph graph;
 
-    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ImportedTexture");
+    auto textureDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ImportedTexture");
     const auto oldTexture = graph.ImportTexture("ImportedTexture", 42u, textureDesc);
     EXPECT_EQ(graph.ResolveTexture(oldTexture), 42u);
 
-    auto bufferDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::UniformBuffer, "ImportedBuffer");
+    auto bufferDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::UniformBuffer, "ImportedBuffer");
     const auto oldBuffer = graph.ImportBuffer("ImportedBuffer", 77u, bufferDesc);
     EXPECT_EQ(graph.ResolveBuffer(oldBuffer), 77u);
 
-    auto framebufferDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "ImportedFramebuffer");
+    auto framebufferDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "ImportedFramebuffer");
     auto oldFramebufferRef = Ref<StubFramebuffer>::Create(10u);
     const auto oldFramebuffer = graph.ImportFramebuffer("ImportedFramebuffer", oldFramebufferRef, framebufferDesc);
     EXPECT_EQ(graph.ResolveFramebuffer(oldFramebuffer).Raw(), oldFramebufferRef.Raw());
@@ -4484,7 +4621,7 @@ TEST(RenderGraphResetTopology, ClearsGraphNodeBuildDeclarations)
             auto nodeResource = builder.ImportTexture(
                 "NodeResetSentinel",
                 17u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "NodeResetSentinel"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "NodeResetSentinel"));
             builder.Write(nodeResource, RGWriteUsage::RenderTarget);
         });
 
@@ -4747,7 +4884,7 @@ TEST(RenderGraphTransientPool, UnreachableTransientResourceIsNotPlannedForAlloca
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 1280;
             desc.Height = 720;
@@ -4765,7 +4902,7 @@ TEST(RenderGraphTransientPool, UnreachableTransientResourceIsNotPlannedForAlloca
             auto sceneColor = builder.ImportTexture(
                 "FinalColorTex",
                 9,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "FinalColorTex"));
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
 
@@ -4797,7 +4934,7 @@ TEST(RenderGraphTransientPool, NonOverlappingTransientResourcesReuseAliasSlot)
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 960;
             desc.Height = 540;
@@ -4812,7 +4949,7 @@ TEST(RenderGraphTransientPool, NonOverlappingTransientResourcesReuseAliasSlot)
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 960;
             desc.Height = 540;
@@ -4823,7 +4960,7 @@ TEST(RenderGraphTransientPool, NonOverlappingTransientResourcesReuseAliasSlot)
             auto sceneColor = builder.ImportTexture(
                 "SceneColorTex",
                 15,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneColorTex"));
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
 
@@ -4833,7 +4970,7 @@ TEST(RenderGraphTransientPool, NonOverlappingTransientResourcesReuseAliasSlot)
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 960;
             desc.Height = 540;
@@ -4848,7 +4985,7 @@ TEST(RenderGraphTransientPool, NonOverlappingTransientResourcesReuseAliasSlot)
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 960;
             desc.Height = 540;
@@ -4903,7 +5040,7 @@ TEST(RenderGraphTransientPool, UnsupportedFramebufferFormatIsNotPlannedForAlloca
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Kind = RGResourceHandle::Kind::Framebuffer;
             desc.Format = RGResourceFormat::R8UNorm; // No single-channel non-integer FB format
             desc.Width = 640;
             desc.Height = 360;
@@ -4918,7 +5055,7 @@ TEST(RenderGraphTransientPool, UnsupportedFramebufferFormatIsNotPlannedForAlloca
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Kind = RGResourceHandle::Kind::Framebuffer;
             desc.Format = RGResourceFormat::R8UNorm;
             desc.Width = 640;
             desc.Height = 360;
@@ -4956,7 +5093,7 @@ TEST(RenderGraphTransientPool, PhaseD_RG16FFramebufferFormatIsNowAllocatable)
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Kind = RGResourceHandle::Kind::Framebuffer;
             desc.Format = RGResourceFormat::RG16Float;
             desc.Width = 640;
             desc.Height = 360;
@@ -4993,7 +5130,7 @@ TEST(RenderGraphTransientPool, PhaseD_SSAOPassDeclaresTransientRawFramebuffer)
         {
             // Declare SSAORaw — mirrors the production setup callback in Renderer3D::ConfigureRenderGraph
             RGResourceDesc rawDesc;
-            rawDesc.Kind = ResourceHandle::Kind::Framebuffer;
+            rawDesc.Kind = RGResourceHandle::Kind::Framebuffer;
             rawDesc.Format = RGResourceFormat::RG16Float;
             rawDesc.Width = 698; // typical half-res of 1396-wide viewport
             rawDesc.Height = 418;
@@ -5034,7 +5171,7 @@ TEST(RenderGraphTransientPool, PhaseD_SSAOAOBufferDeclaredAsTransientTexture)
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     RGResourceDesc aoDesc;
-    aoDesc.Kind = ResourceHandle::Kind::Texture2D;
+    aoDesc.Kind = RGResourceHandle::Kind::Texture2D;
     aoDesc.Format = RGResourceFormat::RG16Float;
     aoDesc.Width = 698;
     aoDesc.Height = 418;
@@ -5082,7 +5219,7 @@ TEST(RenderGraphTransientPool, PhaseD_SSAOBlurFramebufferDeclaredAsTransientFram
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     RGResourceDesc blurDesc;
-    blurDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    blurDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     blurDesc.Format = RGResourceFormat::RG16Float;
     blurDesc.Width = 698;
     blurDesc.Height = 418;
@@ -5131,7 +5268,7 @@ TEST(RenderGraphTransientPool, PhaseD_RGBA32FFramebufferFormatIsAllocatable)
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Kind = RGResourceHandle::Kind::Framebuffer;
             desc.Format = RGResourceFormat::RGBA32Float;
             desc.Width = 1280;
             desc.Height = 720;
@@ -5168,7 +5305,7 @@ TEST(RenderGraphTransientPool, PhaseD_SelectionOutlinePassDeclaresPingPongJFAFra
         {
             // Mirror the production setup callback in Renderer3D::ConfigureRenderGraph
             RGResourceDesc jfaDesc;
-            jfaDesc.Kind = ResourceHandle::Kind::Framebuffer;
+            jfaDesc.Kind = RGResourceHandle::Kind::Framebuffer;
             jfaDesc.Format = RGResourceFormat::RGBA32Float;
             jfaDesc.Width = 1280;
             jfaDesc.Height = 720;
@@ -5244,7 +5381,7 @@ TEST(RenderGraphTransientPool, PhaseD_BloomMipChainDeclaredAsTransientFramebuffe
                 if (mipW < 2 || mipH < 2)
                     break;
                 RGResourceDesc mipDesc;
-                mipDesc.Kind = ResourceHandle::Kind::Framebuffer;
+                mipDesc.Kind = RGResourceHandle::Kind::Framebuffer;
                 mipDesc.Format = RGResourceFormat::RGBA16Float;
                 mipDesc.Width = mipW;
                 mipDesc.Height = mipH;
@@ -5312,7 +5449,7 @@ TEST(RenderGraphTransientPool, PhaseD_GTAOEdgeTextureDeclaredAsTransientTexture)
         {
             // Mirror the production setup callback in Renderer3D::ConfigureRenderGraph.
             RGResourceDesc edgeDesc;
-            edgeDesc.Kind = ResourceHandle::Kind::Texture2D;
+            edgeDesc.Kind = RGResourceHandle::Kind::Texture2D;
             edgeDesc.Format = RGResourceFormat::R8UNorm;
             edgeDesc.Width = 1280;
             edgeDesc.Height = 720;
@@ -5354,7 +5491,7 @@ TEST(RenderGraphTransientPool, PhaseD_GTAOAOBufferDeclaredAsTransientTexture)
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     RGResourceDesc aoDesc;
-    aoDesc.Kind = ResourceHandle::Kind::Texture2D;
+    aoDesc.Kind = RGResourceHandle::Kind::Texture2D;
     aoDesc.Format = RGResourceFormat::R8UNorm;
     aoDesc.Width = 1280;
     aoDesc.Height = 720;
@@ -5402,7 +5539,7 @@ TEST(RenderGraphTransientPool, PhaseD_GTAODenoisePingPongDeclaredAsTransientText
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     RGResourceDesc denoiseDesc;
-    denoiseDesc.Kind = ResourceHandle::Kind::Texture2D;
+    denoiseDesc.Kind = RGResourceHandle::Kind::Texture2D;
     denoiseDesc.Format = RGResourceFormat::R8UNorm;
     denoiseDesc.Width = 1280;
     denoiseDesc.Height = 720;
@@ -5467,7 +5604,7 @@ TEST(RenderGraphTransientPool, PhaseD_HZBDepthDeclaredAsTransientMipChainTexture
             // Mirror the production setup callback in Renderer3D::ConfigureRenderGraph.
             // Viewport 1396x835 -> HZB 2048x1024 with 12 mips.
             RGResourceDesc hzbDesc;
-            hzbDesc.Kind = ResourceHandle::Kind::Texture2D;
+            hzbDesc.Kind = RGResourceHandle::Kind::Texture2D;
             hzbDesc.Format = RGResourceFormat::R32Float;
             hzbDesc.Width = 2048;
             hzbDesc.Height = 1024;
@@ -5518,7 +5655,7 @@ TEST(RenderGraphTransientPool, PhaseD_WaterRefractionDeclaredAsTransientTexture)
         {
             // Mirror the production setup callback in Renderer3D::ConfigureRenderGraph.
             RGResourceDesc refrDesc;
-            refrDesc.Kind = ResourceHandle::Kind::Texture2D;
+            refrDesc.Kind = RGResourceHandle::Kind::Texture2D;
             refrDesc.Format = RGResourceFormat::RGBA16Float;
             refrDesc.Width = 1280;
             refrDesc.Height = 720;
@@ -5565,7 +5702,7 @@ TEST(RenderGraphTransientPool, RG16FloatTextureIsPlannedForAllocation)
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::RG16Float;
             desc.Width = 320;
             desc.Height = 180;
@@ -5580,7 +5717,7 @@ TEST(RenderGraphTransientPool, RG16FloatTextureIsPlannedForAllocation)
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::RG16Float;
             desc.Width = 320;
             desc.Height = 180;
@@ -5618,7 +5755,7 @@ TEST(RenderGraphTransientPool, UnsupportedImageFormatIsNotPlannedForAllocation)
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::Unknown;
             desc.Width = 320;
             desc.Height = 180;
@@ -5633,7 +5770,7 @@ TEST(RenderGraphTransientPool, UnsupportedImageFormatIsNotPlannedForAllocation)
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::Unknown;
             desc.Width = 320;
             desc.Height = 180;
@@ -5670,7 +5807,7 @@ TEST(RenderGraphTransientPool, MissingDimensionsTextureIsNotPlannedForAllocation
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 0;
             desc.Height = 180;
@@ -5685,7 +5822,7 @@ TEST(RenderGraphTransientPool, MissingDimensionsTextureIsNotPlannedForAllocation
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 0;
             desc.Height = 180;
@@ -5722,7 +5859,7 @@ TEST(RenderGraphTransientPool, MissingDimensionsFramebufferIsNotPlannedForAlloca
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Kind = RGResourceHandle::Kind::Framebuffer;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 640;
             desc.Height = 0;
@@ -5737,7 +5874,7 @@ TEST(RenderGraphTransientPool, MissingDimensionsFramebufferIsNotPlannedForAlloca
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Framebuffer;
+            desc.Kind = RGResourceHandle::Kind::Framebuffer;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 640;
             desc.Height = 0;
@@ -5774,7 +5911,7 @@ TEST(RenderGraphTransientPool, ZeroSizeTransientBufferIsNotPlannedForAllocation)
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::StorageBuffer;
+            desc.Kind = RGResourceHandle::Kind::StorageBuffer;
             desc.Width = 0;
 
             const auto unsupported = builder.CreateBuffer("ZeroByteTransientBuffer", desc);
@@ -5787,7 +5924,7 @@ TEST(RenderGraphTransientPool, ZeroSizeTransientBufferIsNotPlannedForAllocation)
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::StorageBuffer;
+            desc.Kind = RGResourceHandle::Kind::StorageBuffer;
             desc.Width = 0;
 
             const auto unsupported = builder.CreateBuffer("ZeroByteTransientBuffer", desc);
@@ -5822,7 +5959,7 @@ TEST(RenderGraphTransientPool, DumpToJsonIncludesTransientAliasDiagnostics)
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 256;
             desc.Height = 256;
@@ -5831,7 +5968,7 @@ TEST(RenderGraphTransientPool, DumpToJsonIncludesTransientAliasDiagnostics)
             builder.Write(tempA, RGWriteUsage::RenderTarget);
 
             RGResourceDesc invalidDesc;
-            invalidDesc.Kind = ResourceHandle::Kind::Framebuffer;
+            invalidDesc.Kind = RGResourceHandle::Kind::Framebuffer;
             // Phase D: RG16Float is now supported. Use R8UNorm — it has no FB equivalent
             // and remains the canonical "unsupported-framebuffer-format" case.
             invalidDesc.Format = RGResourceFormat::R8UNorm;
@@ -5851,7 +5988,7 @@ TEST(RenderGraphTransientPool, DumpToJsonIncludesTransientAliasDiagnostics)
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 256;
             desc.Height = 256;
@@ -5869,7 +6006,7 @@ TEST(RenderGraphTransientPool, DumpToJsonIncludesTransientAliasDiagnostics)
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 256;
             desc.Height = 256;
@@ -5919,7 +6056,7 @@ TEST(RenderGraphTransientPool, MaterializationEnabledIsSafeForNonAllocatableTran
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::Unknown;
             desc.Width = 320;
             desc.Height = 180;
@@ -5934,7 +6071,7 @@ TEST(RenderGraphTransientPool, MaterializationEnabledIsSafeForNonAllocatableTran
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::Unknown;
             desc.Width = 320;
             desc.Height = 180;
@@ -5983,7 +6120,7 @@ TEST(RenderGraphTransientPool, TransientTextureIsAllocatedFromPoolWhenMaterializ
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 256;
             desc.Height = 256;
@@ -5999,7 +6136,7 @@ TEST(RenderGraphTransientPool, TransientTextureIsAllocatedFromPoolWhenMaterializ
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 256;
             desc.Height = 256;
@@ -6041,7 +6178,7 @@ TEST(RenderGraphTransientPool, MaterializedTransientExtractionReturnsValidTextur
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = 128;
             desc.Height = 128;
@@ -6093,7 +6230,7 @@ TEST(RenderGraphTransientPool, NonAllocatableTransientExtractionInvokesCallbackW
         [](RGBuilder& builder)
         {
             RGResourceDesc desc;
-            desc.Kind = ResourceHandle::Kind::Texture2D;
+            desc.Kind = RGResourceHandle::Kind::Texture2D;
             desc.Format = RGResourceFormat::Unknown;
             desc.Width = 128;
             desc.Height = 128;
@@ -6146,7 +6283,7 @@ TEST(RenderGraphTransientPool, PhaseD_DeclareTransientFramebufferReturnsValidHan
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     RGResourceDesc oitDesc;
-    oitDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    oitDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     oitDesc.Width = 1280;
     oitDesc.Height = 720;
     oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float, RGResourceFormat::Depth24Stencil8 };
@@ -6172,7 +6309,7 @@ TEST(RenderGraphTransientPool, PhaseD_OITBufferDeclaredAsSharedTransientMRTFrame
     // Register the OIT descriptor before BuildFrameGraph to mirror the
     // production SetupFrameBlackboard path.
     RGResourceDesc oitDesc;
-    oitDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    oitDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     oitDesc.Width = 1280;
     oitDesc.Height = 720;
     oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float, RGResourceFormat::Depth24Stencil8 };
@@ -6235,11 +6372,11 @@ TEST(RenderGraphTransientPool, SameFrameImportsAndBuilderTransientsKeepStableHan
     const auto importedSceneColor = graph.ImportFramebuffer(
         ResourceNames::SceneColor,
         nullptr,
-        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, ResourceNames::SceneColor));
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, ResourceNames::SceneColor));
     const auto importedSceneDepth = graph.ImportTexture(
         ResourceNames::SceneDepth,
         17u,
-        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, ResourceNames::SceneDepth));
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::SceneDepth));
 
     RGFramebufferHandle writerFramebufferHandle{};
     RGFramebufferHandle readerFramebufferHandle{};
@@ -6252,7 +6389,7 @@ TEST(RenderGraphTransientPool, SameFrameImportsAndBuilderTransientsKeepStableHan
         [&writerFramebufferHandle, &writerTextureHandle](RGBuilder& builder)
         {
             RGResourceDesc framebufferDesc;
-            framebufferDesc.Kind = ResourceHandle::Kind::Framebuffer;
+            framebufferDesc.Kind = RGResourceHandle::Kind::Framebuffer;
             framebufferDesc.Format = RGResourceFormat::RGBA16Float;
             framebufferDesc.Width = 640u;
             framebufferDesc.Height = 360u;
@@ -6261,7 +6398,7 @@ TEST(RenderGraphTransientPool, SameFrameImportsAndBuilderTransientsKeepStableHan
             builder.Write(writerFramebufferHandle, RGWriteUsage::RenderTarget);
 
             RGResourceDesc textureDesc;
-            textureDesc.Kind = ResourceHandle::Kind::Texture2D;
+            textureDesc.Kind = RGResourceHandle::Kind::Texture2D;
             textureDesc.Format = RGResourceFormat::R8UNorm;
             textureDesc.Width = 640u;
             textureDesc.Height = 360u;
@@ -6276,7 +6413,7 @@ TEST(RenderGraphTransientPool, SameFrameImportsAndBuilderTransientsKeepStableHan
         [&readerFramebufferHandle, &readerTextureHandle](RGBuilder& builder)
         {
             RGResourceDesc framebufferDesc;
-            framebufferDesc.Kind = ResourceHandle::Kind::Framebuffer;
+            framebufferDesc.Kind = RGResourceHandle::Kind::Framebuffer;
             framebufferDesc.Format = RGResourceFormat::RGBA16Float;
             framebufferDesc.Width = 640u;
             framebufferDesc.Height = 360u;
@@ -6286,7 +6423,7 @@ TEST(RenderGraphTransientPool, SameFrameImportsAndBuilderTransientsKeepStableHan
                 builder.Read(readerFramebufferHandle, RGReadUsage::RenderTargetRead);
 
             RGResourceDesc textureDesc;
-            textureDesc.Kind = ResourceHandle::Kind::Texture2D;
+            textureDesc.Kind = RGResourceHandle::Kind::Texture2D;
             textureDesc.Format = RGResourceFormat::R8UNorm;
             textureDesc.Width = 640u;
             textureDesc.Height = 360u;
@@ -6350,7 +6487,7 @@ TEST(RenderGraphTypedHandles, FramebufferAttachmentViewResolvesImportedFramebuff
     framebuffer->Resize(spec.Width, spec.Height);
 
     RGResourceDesc oitDesc;
-    oitDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    oitDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     oitDesc.Width = spec.Width;
     oitDesc.Height = spec.Height;
     oitDesc.Attachments = {
@@ -6371,12 +6508,12 @@ TEST(RenderGraphTypedHandles, FramebufferAttachmentViewResolvesImportedFramebuff
 
     const auto* accumInfo = graph.FindRegisteredResource(ResourceNames::OITAccum);
     ASSERT_NE(accumInfo, nullptr);
-    EXPECT_EQ(accumInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(accumInfo->Desc.Kind, RGResourceHandle::Kind::Texture2D);
     EXPECT_EQ(accumInfo->Desc.Format, RGResourceFormat::RGBA16Float);
 
     const auto* revealageInfo = graph.FindRegisteredResource(ResourceNames::OITRevealage);
     ASSERT_NE(revealageInfo, nullptr);
-    EXPECT_EQ(revealageInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(revealageInfo->Desc.Kind, RGResourceHandle::Kind::Texture2D);
     EXPECT_EQ(revealageInfo->Desc.Format, RGResourceFormat::RG16Float);
 }
 
@@ -6387,7 +6524,7 @@ TEST(RenderGraphTypedHandles, FramebufferDepthAttachmentViewResolvesImportedFram
     auto framebuffer = Ref<MultiAttachmentStubFramebuffer>::Create(91u, std::initializer_list<u32>{ 111u }, 303u);
 
     RGResourceDesc depthDesc;
-    depthDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    depthDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     depthDesc.Width = 800u;
     depthDesc.Height = 600u;
     depthDesc.Samples = 4u;
@@ -6405,7 +6542,7 @@ TEST(RenderGraphTypedHandles, FramebufferDepthAttachmentViewResolvesImportedFram
 
     const auto* depthInfo = graph.FindRegisteredResource("DepthView");
     ASSERT_NE(depthInfo, nullptr);
-    EXPECT_EQ(depthInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(depthInfo->Desc.Kind, RGResourceHandle::Kind::Texture2D);
     EXPECT_EQ(depthInfo->Desc.Format, RGResourceFormat::Depth24Stencil8);
     EXPECT_EQ(depthInfo->Desc.Samples, 4u);
 }
@@ -6419,7 +6556,7 @@ TEST(RenderGraphTypedHandles, ExternallyBackedTransientFramebufferViewsResolveBa
     framebuffer->Resize(640u, 360u);
 
     RGResourceDesc gbufferDesc;
-    gbufferDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    gbufferDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     gbufferDesc.Width = 640u;
     gbufferDesc.Height = 360u;
     gbufferDesc.Attachments = {
@@ -6453,7 +6590,7 @@ TEST(RenderGraphTypedHandles, ExternallyBackedTransientFramebufferViewsResolveBa
 
     const auto* gbufferInfo = graph.FindRegisteredResource("ExternallyBackedGBuffer");
     ASSERT_NE(gbufferInfo, nullptr);
-    EXPECT_EQ(gbufferInfo->Desc.Kind, ResourceHandle::Kind::Framebuffer);
+    EXPECT_EQ(gbufferInfo->Desc.Kind, RGResourceHandle::Kind::Framebuffer);
     EXPECT_FALSE(gbufferInfo->Desc.Imported);
     EXPECT_TRUE(gbufferInfo->HasExternalBacking);
 
@@ -6532,13 +6669,13 @@ TEST(RenderGraphTypedHandles, ExternallyBackedTransientTextureViewsResolveBackin
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto csmDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, "ExternallyBackedShadowCSM");
+    auto csmDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2DArray, "ExternallyBackedShadowCSM");
     csmDesc.Format = RGResourceFormat::Depth32Float;
     csmDesc.Width = 2048u;
     csmDesc.Height = 2048u;
     csmDesc.DepthOrLayers = 4u;
 
-    auto pointDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, "ExternallyBackedShadowPoint");
+    auto pointDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::TextureCube, "ExternallyBackedShadowPoint");
     pointDesc.Format = RGResourceFormat::Depth32Float;
     pointDesc.Width = 1024u;
     pointDesc.Height = 1024u;
@@ -6657,7 +6794,7 @@ TEST(RenderGraphTypedHandles, FramebufferAttachmentViewsCanBeCreatedFromTransien
     RenderGraph graph;
 
     RGResourceDesc sceneDesc;
-    sceneDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     sceneDesc.Width = 1280u;
     sceneDesc.Height = 720u;
     sceneDesc.Attachments = {
@@ -6682,22 +6819,22 @@ TEST(RenderGraphTypedHandles, FramebufferAttachmentViewsCanBeCreatedFromTransien
 
     const auto* sceneColorInfo = graph.FindRegisteredResource(ResourceNames::SceneColorTexture);
     ASSERT_NE(sceneColorInfo, nullptr);
-    EXPECT_EQ(sceneColorInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(sceneColorInfo->Desc.Kind, RGResourceHandle::Kind::Texture2D);
     EXPECT_EQ(sceneColorInfo->Desc.Format, RGResourceFormat::RGBA16Float);
 
     const auto* entityInfo = graph.FindRegisteredResource(ResourceNames::SceneEntityID);
     ASSERT_NE(entityInfo, nullptr);
-    EXPECT_EQ(entityInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(entityInfo->Desc.Kind, RGResourceHandle::Kind::Texture2D);
     EXPECT_EQ(entityInfo->Desc.Format, RGResourceFormat::R32Int);
 
     const auto* normalsInfo = graph.FindRegisteredResource(ResourceNames::SceneViewNormals);
     ASSERT_NE(normalsInfo, nullptr);
-    EXPECT_EQ(normalsInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(normalsInfo->Desc.Kind, RGResourceHandle::Kind::Texture2D);
     EXPECT_EQ(normalsInfo->Desc.Format, RGResourceFormat::RG16Float);
 
     const auto* depthInfo = graph.FindRegisteredResource(ResourceNames::SceneDepthAttachment);
     ASSERT_NE(depthInfo, nullptr);
-    EXPECT_EQ(depthInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(depthInfo->Desc.Kind, RGResourceHandle::Kind::Texture2D);
     EXPECT_EQ(depthInfo->Desc.Format, RGResourceFormat::Depth24Stencil8);
 }
 
@@ -6705,7 +6842,7 @@ TEST(RenderGraphTypedHandles, TextureMipViewResolvesImportedTextureAndTracksMipD
 {
     RenderGraph graph;
 
-    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "HZBDepthParent");
+    auto textureDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "HZBDepthParent");
     textureDesc.Format = RGResourceFormat::R32Float;
     textureDesc.Width = 512u;
     textureDesc.Height = 256u;
@@ -6720,7 +6857,7 @@ TEST(RenderGraphTypedHandles, TextureMipViewResolvesImportedTextureAndTracksMipD
 
     const auto* mipInfo = graph.FindRegisteredResource("HZBDepthParentMip3");
     ASSERT_NE(mipInfo, nullptr);
-    EXPECT_EQ(mipInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(mipInfo->Desc.Kind, RGResourceHandle::Kind::Texture2D);
     EXPECT_EQ(mipInfo->Desc.Format, RGResourceFormat::R32Float);
     EXPECT_EQ(mipInfo->Desc.Width, 64u);
     EXPECT_EQ(mipInfo->Desc.Height, 32u);
@@ -6731,7 +6868,7 @@ TEST(RenderGraphTypedHandles, TextureMipViewsCanBeCreatedFromTransientTextureDes
 {
     RenderGraph graph;
 
-    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, std::string(ResourceNames::HZBDepth));
+    auto textureDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, std::string(ResourceNames::HZBDepth));
     textureDesc.Format = RGResourceFormat::R32Float;
     textureDesc.Width = 1024u;
     textureDesc.Height = 512u;
@@ -6745,7 +6882,7 @@ TEST(RenderGraphTypedHandles, TextureMipViewsCanBeCreatedFromTransientTextureDes
 
     const auto* mipInfo = graph.FindRegisteredResource("HZBDepthMip5");
     ASSERT_NE(mipInfo, nullptr);
-    EXPECT_EQ(mipInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(mipInfo->Desc.Kind, RGResourceHandle::Kind::Texture2D);
     EXPECT_EQ(mipInfo->Desc.Format, RGResourceFormat::R32Float);
     EXPECT_EQ(mipInfo->Desc.Width, 32u);
     EXPECT_EQ(mipInfo->Desc.Height, 16u);
@@ -6756,7 +6893,7 @@ TEST(RenderGraphTypedHandles, TextureArrayLayerViewResolvesImportedTextureArrayA
 {
     RenderGraph graph;
 
-    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, "ShadowCSMParent");
+    auto textureDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2DArray, "ShadowCSMParent");
     textureDesc.Format = RGResourceFormat::Depth32Float;
     textureDesc.Width = 2048u;
     textureDesc.Height = 2048u;
@@ -6771,7 +6908,7 @@ TEST(RenderGraphTypedHandles, TextureArrayLayerViewResolvesImportedTextureArrayA
 
     const auto* layerInfo = graph.FindRegisteredResource("ShadowCSMParentCascade2");
     ASSERT_NE(layerInfo, nullptr);
-    EXPECT_EQ(layerInfo->Desc.Kind, ResourceHandle::Kind::Texture2DArray);
+    EXPECT_EQ(layerInfo->Desc.Kind, RGResourceHandle::Kind::Texture2DArray);
     EXPECT_EQ(layerInfo->Desc.Format, RGResourceFormat::Depth32Float);
     EXPECT_EQ(layerInfo->Desc.Width, 2048u);
     EXPECT_EQ(layerInfo->Desc.Height, 2048u);
@@ -6782,7 +6919,7 @@ TEST(RenderGraphTypedHandles, TextureArrayLayerViewsCanBeCreatedFromTransientTex
 {
     RenderGraph graph;
 
-    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, std::string(ResourceNames::ShadowMapCSM));
+    auto textureDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2DArray, std::string(ResourceNames::ShadowMapCSM));
     textureDesc.Format = RGResourceFormat::Depth32Float;
     textureDesc.Width = 1024u;
     textureDesc.Height = 1024u;
@@ -6796,7 +6933,7 @@ TEST(RenderGraphTypedHandles, TextureArrayLayerViewsCanBeCreatedFromTransientTex
 
     const auto* layerInfo = graph.FindRegisteredResource(ResourceNames::ShadowMapCSMCascade2);
     ASSERT_NE(layerInfo, nullptr);
-    EXPECT_EQ(layerInfo->Desc.Kind, ResourceHandle::Kind::Texture2DArray);
+    EXPECT_EQ(layerInfo->Desc.Kind, RGResourceHandle::Kind::Texture2DArray);
     EXPECT_EQ(layerInfo->Desc.Format, RGResourceFormat::Depth32Float);
     EXPECT_EQ(layerInfo->Desc.Width, 1024u);
     EXPECT_EQ(layerInfo->Desc.Height, 1024u);
@@ -6807,7 +6944,7 @@ TEST(RenderGraphTypedHandles, TextureCubeFaceViewResolvesImportedCubeTextureAndT
 {
     RenderGraph graph;
 
-    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, "ShadowPointParent");
+    auto textureDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::TextureCube, "ShadowPointParent");
     textureDesc.Format = RGResourceFormat::Depth32Float;
     textureDesc.Width = 1024u;
     textureDesc.Height = 1024u;
@@ -6822,7 +6959,7 @@ TEST(RenderGraphTypedHandles, TextureCubeFaceViewResolvesImportedCubeTextureAndT
 
     const auto* faceInfo = graph.FindRegisteredResource("ShadowPointParentFace4");
     ASSERT_NE(faceInfo, nullptr);
-    EXPECT_EQ(faceInfo->Desc.Kind, ResourceHandle::Kind::TextureCube);
+    EXPECT_EQ(faceInfo->Desc.Kind, RGResourceHandle::Kind::TextureCube);
     EXPECT_EQ(faceInfo->Desc.Format, RGResourceFormat::Depth32Float);
     EXPECT_EQ(faceInfo->Desc.Width, 1024u);
     EXPECT_EQ(faceInfo->Desc.Height, 1024u);
@@ -6833,7 +6970,7 @@ TEST(RenderGraphTypedHandles, TextureMultisampleResolveViewResolvesSingleSampleB
 {
     RenderGraph graph;
 
-    auto multisampleDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "GBufferAlbedoMSParent");
+    auto multisampleDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "GBufferAlbedoMSParent");
     multisampleDesc.Format = RGResourceFormat::RGBA8UNorm;
     multisampleDesc.Width = 1280u;
     multisampleDesc.Height = 720u;
@@ -6855,7 +6992,7 @@ TEST(RenderGraphTypedHandles, TextureMultisampleResolveViewResolvesSingleSampleB
 
     const auto* resolveInfo = graph.FindRegisteredResource("GBufferAlbedoResolved");
     ASSERT_NE(resolveInfo, nullptr);
-    EXPECT_EQ(resolveInfo->Desc.Kind, ResourceHandle::Kind::Texture2D);
+    EXPECT_EQ(resolveInfo->Desc.Kind, RGResourceHandle::Kind::Texture2D);
     EXPECT_EQ(resolveInfo->Desc.Format, RGResourceFormat::RGBA8UNorm);
     EXPECT_EQ(resolveInfo->Desc.Width, 1280u);
     EXPECT_EQ(resolveInfo->Desc.Height, 720u);
@@ -6867,7 +7004,7 @@ TEST(RenderGraphTypedHandles, MultisampleParentWriterFeedsResolveViewReaderAcros
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto multisampleDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "AliasedResolveTextureMS");
+    auto multisampleDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "AliasedResolveTextureMS");
     multisampleDesc.Format = RGResourceFormat::RGBA16Float;
     multisampleDesc.Width = 1280u;
     multisampleDesc.Height = 720u;
@@ -6929,7 +7066,7 @@ TEST(RenderGraphTypedHandles, ParentFramebufferWriterFeedsAttachmentViewReaderAc
 
     auto framebuffer = Ref<AttachmentStubFramebuffer>::Create(501u, 701u);
 
-    auto framebufferDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "AliasedFramebuffer");
+    auto framebufferDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "AliasedFramebuffer");
     framebufferDesc.Format = RGResourceFormat::RGBA16Float;
     framebufferDesc.Width = 1u;
     framebufferDesc.Height = 1u;
@@ -6985,7 +7122,7 @@ TEST(RenderGraphTypedHandles, ParentTextureWriterFeedsMipViewReaderAcrossCompile
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "AliasedMipTexture");
+    auto textureDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "AliasedMipTexture");
     textureDesc.Format = RGResourceFormat::R32Float;
     textureDesc.Width = 512u;
     textureDesc.Height = 256u;
@@ -7029,7 +7166,7 @@ TEST(RenderGraphTypedHandles, MipViewWriterFeedsParentTextureReaderAcrossCompile
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "AliasedMipTexture");
+    auto textureDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "AliasedMipTexture");
     textureDesc.Format = RGResourceFormat::R32Float;
     textureDesc.Width = 512u;
     textureDesc.Height = 256u;
@@ -7073,7 +7210,7 @@ TEST(RenderGraphTypedHandles, ParentTextureWriterFeedsArrayLayerViewReaderAcross
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, "AliasedLayerTexture");
+    auto textureDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2DArray, "AliasedLayerTexture");
     textureDesc.Format = RGResourceFormat::Depth32Float;
     textureDesc.Width = 1024u;
     textureDesc.Height = 1024u;
@@ -7117,7 +7254,7 @@ TEST(RenderGraphTypedHandles, ArrayLayerViewWriterFeedsParentTextureReaderAcross
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, "AliasedLayerTexture");
+    auto textureDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2DArray, "AliasedLayerTexture");
     textureDesc.Format = RGResourceFormat::Depth32Float;
     textureDesc.Width = 1024u;
     textureDesc.Height = 1024u;
@@ -7162,7 +7299,7 @@ TEST(RenderGraphTypedHandles, ParentTextureWriterFeedsCubeFaceViewReaderAcrossCo
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, "AliasedCubeTexture");
+    auto textureDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::TextureCube, "AliasedCubeTexture");
     textureDesc.Format = RGResourceFormat::Depth32Float;
     textureDesc.Width = 1024u;
     textureDesc.Height = 1024u;
@@ -7209,7 +7346,7 @@ TEST(RenderGraphTypedHandles, CubeFaceViewWriterFeedsParentTextureReaderAcrossCo
     RenderGraph graph;
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
-    auto textureDesc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, "AliasedCubeTexture");
+    auto textureDesc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::TextureCube, "AliasedCubeTexture");
     textureDesc.Format = RGResourceFormat::Depth32Float;
     textureDesc.Width = 1024u;
     textureDesc.Height = 1024u;
@@ -7257,13 +7394,13 @@ TEST(RenderGraphTypedHandles, CubeFaceViewWriterFeedsParentTextureReaderAcrossCo
 TEST(RenderGraphTransientPool, PhaseD_OITBufferDepthAttachmentParticipatesInCompatibility)
 {
     RGResourceDesc colorOnly;
-    colorOnly.Kind = ResourceHandle::Kind::Framebuffer;
+    colorOnly.Kind = RGResourceHandle::Kind::Framebuffer;
     colorOnly.Width = 1280;
     colorOnly.Height = 720;
     colorOnly.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
 
     RGResourceDesc withDepth;
-    withDepth.Kind = ResourceHandle::Kind::Framebuffer;
+    withDepth.Kind = RGResourceHandle::Kind::Framebuffer;
     withDepth.Width = 1280;
     withDepth.Height = 720;
     withDepth.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float, RGResourceFormat::Depth24Stencil8 };
@@ -7277,13 +7414,13 @@ TEST(RenderGraphTransientPool, PhaseD_OITBufferDepthAttachmentParticipatesInComp
 TEST(RenderGraphTransientPool, PhaseD_MRTAliasGroupDiffersFromSingleAttachmentKey)
 {
     RGResourceDesc single;
-    single.Kind = ResourceHandle::Kind::Framebuffer;
+    single.Kind = RGResourceHandle::Kind::Framebuffer;
     single.Format = RGResourceFormat::RGBA16Float;
     single.Width = 1280;
     single.Height = 720;
 
     RGResourceDesc mrt;
-    mrt.Kind = ResourceHandle::Kind::Framebuffer;
+    mrt.Kind = RGResourceHandle::Kind::Framebuffer;
     mrt.Width = 1280;
     mrt.Height = 720;
     mrt.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float, RGResourceFormat::Depth24Stencil8 };
@@ -7296,7 +7433,7 @@ TEST(RenderGraphTransientPool, PhaseD_MRTAliasGroupDiffersFromSingleAttachmentKe
 
     // MRT descriptor with different attachment order must also differ.
     RGResourceDesc mrt2;
-    mrt2.Kind = ResourceHandle::Kind::Framebuffer;
+    mrt2.Kind = RGResourceHandle::Kind::Framebuffer;
     mrt2.Width = 1280;
     mrt2.Height = 720;
     mrt2.Attachments = { RGResourceFormat::RG16Float, RGResourceFormat::RGBA16Float, RGResourceFormat::Depth24Stencil8 };
@@ -7309,7 +7446,7 @@ TEST(RenderGraphTransientPool, PhaseD_MRTAliasGroupDiffersFromSingleAttachmentKe
 TEST(RenderGraphTransientPool, PhaseD_MRTEstimatedBytesAreCorrect)
 {
     RGResourceDesc oitDesc;
-    oitDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    oitDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     oitDesc.Width = 1280;
     oitDesc.Height = 720;
     oitDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float, RGResourceFormat::Depth24Stencil8 };
@@ -7353,7 +7490,7 @@ TEST(RenderGraphTransientPool, AttachmentViewOnlyWriteExtendsParentFramebufferLi
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     RGResourceDesc mrtDesc;
-    mrtDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    mrtDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     mrtDesc.Width = 640;
     mrtDesc.Height = 360;
     mrtDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::RG16Float };
@@ -7414,7 +7551,7 @@ TEST(RenderGraphTransientPool, PhaseD_VelocityDeclaredAsTransientTexture)
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     RGResourceDesc velocityDesc;
-    velocityDesc.Kind = ResourceHandle::Kind::Texture2D;
+    velocityDesc.Kind = RGResourceHandle::Kind::Texture2D;
     velocityDesc.Format = RGResourceFormat::RG16Float;
     velocityDesc.Width = 1280u;
     velocityDesc.Height = 720u;
@@ -7462,7 +7599,7 @@ TEST(RenderGraphTransientPool, PhaseD_SceneDepthDeclaredAsTransientTexture)
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     RGResourceDesc depthDesc;
-    depthDesc.Kind = ResourceHandle::Kind::Texture2D;
+    depthDesc.Kind = RGResourceHandle::Kind::Texture2D;
     depthDesc.Format = RGResourceFormat::Depth24Stencil8;
     depthDesc.Width = 1280u;
     depthDesc.Height = 720u;
@@ -7510,7 +7647,7 @@ TEST(RenderGraphTransientPool, PhaseD_SceneNormalsDeclaredAsTransientTexture)
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     RGResourceDesc normalsDesc;
-    normalsDesc.Kind = ResourceHandle::Kind::Texture2D;
+    normalsDesc.Kind = RGResourceHandle::Kind::Texture2D;
     normalsDesc.Format = RGResourceFormat::RGBA16Float;
     normalsDesc.Width = 1280u;
     normalsDesc.Height = 720u;
@@ -7558,14 +7695,14 @@ TEST(RenderGraphTransientPool, PhaseD_DeferredGBufferRootsDeclaredAsTransientTex
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     RGResourceDesc albedoDesc;
-    albedoDesc.Kind = ResourceHandle::Kind::Texture2D;
+    albedoDesc.Kind = RGResourceHandle::Kind::Texture2D;
     albedoDesc.Format = RGResourceFormat::RGBA8UNorm;
     albedoDesc.Width = 1280u;
     albedoDesc.Height = 720u;
     const auto albedoHandle = graph.AllocateTransientTextureHandle(std::string(ResourceNames::GBufferAlbedo), albedoDesc);
 
     RGResourceDesc normalDesc;
-    normalDesc.Kind = ResourceHandle::Kind::Texture2D;
+    normalDesc.Kind = RGResourceHandle::Kind::Texture2D;
     normalDesc.Format = RGResourceFormat::RGBA16Float;
     normalDesc.Width = 1280u;
     normalDesc.Height = 720u;
@@ -7637,7 +7774,7 @@ TEST(RenderGraphTransientPool, PhaseD_DeferredMSCompanionsDeclaredAsTransientTex
     auto declareMS = [&graph](std::string_view name, const RGResourceFormat format) -> RGTextureHandle
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Texture2D;
+        desc.Kind = RGResourceHandle::Kind::Texture2D;
         desc.Format = format;
         desc.Width = 1280u;
         desc.Height = 720u;
@@ -7718,7 +7855,7 @@ TEST(RenderGraphTransientPool, PhaseD_SceneColorDeclaredAsTransientMRTFramebuffe
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     RGResourceDesc sceneDesc;
-    sceneDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     sceneDesc.Width = 1280u;
     sceneDesc.Height = 720u;
     sceneDesc.Attachments = {
@@ -7789,7 +7926,7 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessChainRGBA16FOutputsDeclaredAsTr
         graph.SetRuntimeBarrierExecutionEnabled(false);
 
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = vw;
         desc.Height = vh;
         desc.Format = RGResourceFormat::RGBA16Float;
@@ -7834,7 +7971,7 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessChainRGBA8OutputsDeclaredAsTran
         graph.SetRuntimeBarrierExecutionEnabled(false);
 
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = vw;
         desc.Height = vh;
         desc.Format = RGResourceFormat::RGBA8UNorm;
@@ -7897,7 +8034,7 @@ TEST(RenderGraphTransientPool, PhaseD_PostProcessTransientNotInImportedResources
     for (const auto& s : specs)
     {
         RGResourceDesc desc;
-        desc.Kind = ResourceHandle::Kind::Framebuffer;
+        desc.Kind = RGResourceHandle::Kind::Framebuffer;
         desc.Width = vw;
         desc.Height = vh;
         desc.Format = s.Format;
@@ -7954,24 +8091,24 @@ TEST(RenderGraphTransientPool, PhaseH_ScratchTransientsRemainGraphOwned)
     struct ScratchSpec
     {
         std::string Name;
-        ResourceHandle::Kind Kind;
+        RGResourceHandle::Kind Kind;
         RGResourceFormat Format;
         u32 Width;
         u32 Height;
     };
 
     const std::vector<ScratchSpec> specs = {
-        { "SSAORaw", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RG16Float, vw / 2, vh / 2 },
-        { std::string(ResourceNames::SSAOBlur), ResourceHandle::Kind::Framebuffer, RGResourceFormat::RG16Float, vw / 2, vh / 2 },
-        { "JFAPing", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA32Float, vw, vh },
-        { "JFAPong", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA32Float, vw, vh },
-        { "BloomMip0", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA16Float, vw / 2, vh / 2 },
-        { "FogHalfRes", ResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA16Float, vw / 2, vh / 2 },
-        { "GTAOEdge", ResourceHandle::Kind::Texture2D, RGResourceFormat::R8UNorm, vw, vh },
-        { std::string(ResourceNames::GTAODenoisePing), ResourceHandle::Kind::Texture2D, RGResourceFormat::R8UNorm, vw, vh },
-        { std::string(ResourceNames::GTAODenoisePong), ResourceHandle::Kind::Texture2D, RGResourceFormat::R8UNorm, vw, vh },
-        { "HZBDepth", ResourceHandle::Kind::Texture2D, RGResourceFormat::R32Float, 2048, 1024 },
-        { "WaterRefraction", ResourceHandle::Kind::Texture2D, RGResourceFormat::RGBA16Float, vw, vh },
+        { "SSAORaw", RGResourceHandle::Kind::Framebuffer, RGResourceFormat::RG16Float, vw / 2, vh / 2 },
+        { std::string(ResourceNames::SSAOBlur), RGResourceHandle::Kind::Framebuffer, RGResourceFormat::RG16Float, vw / 2, vh / 2 },
+        { "JFAPing", RGResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA32Float, vw, vh },
+        { "JFAPong", RGResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA32Float, vw, vh },
+        { "BloomMip0", RGResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA16Float, vw / 2, vh / 2 },
+        { "FogHalfRes", RGResourceHandle::Kind::Framebuffer, RGResourceFormat::RGBA16Float, vw / 2, vh / 2 },
+        { "GTAOEdge", RGResourceHandle::Kind::Texture2D, RGResourceFormat::R8UNorm, vw, vh },
+        { std::string(ResourceNames::GTAODenoisePing), RGResourceHandle::Kind::Texture2D, RGResourceFormat::R8UNorm, vw, vh },
+        { std::string(ResourceNames::GTAODenoisePong), RGResourceHandle::Kind::Texture2D, RGResourceFormat::R8UNorm, vw, vh },
+        { "HZBDepth", RGResourceHandle::Kind::Texture2D, RGResourceFormat::R32Float, 2048, 1024 },
+        { "WaterRefraction", RGResourceHandle::Kind::Texture2D, RGResourceFormat::RGBA16Float, vw, vh },
     };
 
     for (const auto& spec : specs)
@@ -7983,7 +8120,7 @@ TEST(RenderGraphTransientPool, PhaseH_ScratchTransientsRemainGraphOwned)
         desc.Format = spec.Format;
         desc.DebugName = spec.Name;
 
-        if (spec.Kind == ResourceHandle::Kind::Framebuffer)
+        if (spec.Kind == RGResourceHandle::Kind::Framebuffer)
         {
             const auto handle = graph.DeclareTransientFramebuffer(spec.Name, desc);
             ASSERT_TRUE(handle.IsValid()) << spec.Name << " handle must be valid after declaration";
@@ -8004,7 +8141,7 @@ TEST(RenderGraphTransientPool, PhaseH_ScratchTransientsRemainGraphOwned)
     AddSetupNode(graph, "FBWriter0", [](RGBuilder& builder)
                  {
                      RGResourceDesc desc;
-                     desc.Kind = ResourceHandle::Kind::Framebuffer;
+                     desc.Kind = RGResourceHandle::Kind::Framebuffer;
                      desc.Width = vw / 2;
                      desc.Height = vh / 2;
                      desc.Format = RGResourceFormat::RG16Float;
@@ -8016,7 +8153,7 @@ TEST(RenderGraphTransientPool, PhaseH_ScratchTransientsRemainGraphOwned)
     AddSetupNode(graph, "FBWriter1", [](RGBuilder& builder)
                  {
                      RGResourceDesc desc;
-                     desc.Kind = ResourceHandle::Kind::Framebuffer;
+                     desc.Kind = RGResourceHandle::Kind::Framebuffer;
                      desc.Width = vw;
                      desc.Height = vh;
                      desc.Format = RGResourceFormat::RGBA32Float;
@@ -8025,7 +8162,7 @@ TEST(RenderGraphTransientPool, PhaseH_ScratchTransientsRemainGraphOwned)
     AddSetupNode(graph, "FBWriter2", [](RGBuilder& builder)
                  {
                      RGResourceDesc desc;
-                     desc.Kind = ResourceHandle::Kind::Framebuffer;
+                     desc.Kind = RGResourceHandle::Kind::Framebuffer;
                      desc.Width = vw;
                      desc.Height = vh;
                      desc.Format = RGResourceFormat::RGBA32Float;
@@ -8040,7 +8177,7 @@ TEST(RenderGraphTransientPool, PhaseH_ScratchTransientsRemainGraphOwned)
     AddSetupNode(graph, "FBWriterFogHalfRes", [](RGBuilder& builder)
                  {
                      RGResourceDesc desc;
-                     desc.Kind = ResourceHandle::Kind::Framebuffer;
+                     desc.Kind = RGResourceHandle::Kind::Framebuffer;
                      desc.Width = vw / 2;
                      desc.Height = vh / 2;
                      desc.Format = RGResourceFormat::RGBA16Float;
@@ -8747,7 +8884,7 @@ TEST(RenderGraphSubmissionPlan, BatchBeginCarriesWaitAndInputResources)
             auto tex = builder.ImportTexture(
                 "SharedTex",
                 401,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SharedTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SharedTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -8760,7 +8897,7 @@ TEST(RenderGraphSubmissionPlan, BatchBeginCarriesWaitAndInputResources)
             auto tex = builder.ImportTexture(
                 "SharedTex",
                 401,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SharedTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SharedTex"));
             [[maybe_unused]] const auto readTex = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -8804,7 +8941,7 @@ TEST(RenderGraphSubmissionPlan, BatchEndCarriesSignalAndOutputResources)
             auto tex = builder.ImportTexture(
                 "ResultTex",
                 402,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ResultTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ResultTex"));
             builder.Write(tex, RGWriteUsage::ShaderImage);
         });
 
@@ -8816,7 +8953,7 @@ TEST(RenderGraphSubmissionPlan, BatchEndCarriesSignalAndOutputResources)
             auto tex = builder.ImportTexture(
                 "ResultTex",
                 402,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ResultTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ResultTex"));
             [[maybe_unused]] const auto readTex = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -9081,7 +9218,7 @@ TEST(RenderGraphTemporalHistoryContracts, ExtractHistoryTextureRecordsContractAn
     const auto history = graph.ImportHistory(
         "TAAHistory",
         77,
-        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "TAAHistory"));
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "TAAHistory"));
     ASSERT_TRUE(history.IsValid());
 
     AddSetupNode(
@@ -9092,7 +9229,7 @@ TEST(RenderGraphTemporalHistoryContracts, ExtractHistoryTextureRecordsContractAn
             auto color = builder.ImportTexture(
                 "CurrentFrameColor",
                 41,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
             builder.Write(color, RGWriteUsage::RenderTarget);
         });
 
@@ -9134,7 +9271,7 @@ TEST(RenderGraphTemporalHistoryContracts, BuilderDeclaredHistoryExtractionRootsP
     const auto history = graph.ImportHistory(
         "TemporalHistory",
         77,
-        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "TemporalHistory"));
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "TemporalHistory"));
     ASSERT_TRUE(history.IsValid());
 
     AddSetupNode(
@@ -9145,7 +9282,7 @@ TEST(RenderGraphTemporalHistoryContracts, BuilderDeclaredHistoryExtractionRootsP
             auto color = builder.ImportTexture(
                 "CurrentFrameColor",
                 41,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
             builder.Write(color, RGWriteUsage::RenderTarget);
             builder.ExtractHistoryTexture("TemporalHistory", color);
         });
@@ -9158,7 +9295,7 @@ TEST(RenderGraphTemporalHistoryContracts, BuilderDeclaredHistoryExtractionRootsP
             auto finalColor = builder.ImportTexture(
                 "FinalColorTex",
                 12,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FinalColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "FinalColorTex"));
             builder.Write(finalColor, RGWriteUsage::RenderTarget);
         });
 
@@ -9219,7 +9356,7 @@ TEST(RenderGraphTemporalHistoryContracts, RegisteredHistorySinkCountsAsImportedA
             auto color = builder.ImportTexture(
                 "CurrentFrameColor",
                 41,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
             builder.Write(color, RGWriteUsage::RenderTarget);
             builder.ExtractHistoryTexture("TemporalHistory", color);
         });
@@ -9252,7 +9389,7 @@ TEST(RenderGraphTemporalHistoryContracts, InvalidHistoryContractReportsDiagnosti
             auto color = builder.ImportTexture(
                 "CurrentFrameColor",
                 51,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
             builder.Write(color, RGWriteUsage::RenderTarget);
         });
 
@@ -9293,7 +9430,7 @@ TEST(RenderGraphTemporalHistoryContracts, DumpToJsonIncludesHistoryResourcesAndC
     const auto history = graph.ImportHistory(
         "TAAHistory",
         88,
-        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "TAAHistory"));
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "TAAHistory"));
     ASSERT_TRUE(history.IsValid());
 
     AddSetupNode(
@@ -9304,7 +9441,7 @@ TEST(RenderGraphTemporalHistoryContracts, DumpToJsonIncludesHistoryResourcesAndC
             auto color = builder.ImportTexture(
                 "CurrentFrameColor",
                 61,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "CurrentFrameColor"));
             builder.Write(color, RGWriteUsage::RenderTarget);
         });
 
@@ -9351,7 +9488,7 @@ TEST(RenderGraphTemporalHistoryContracts, ExtractHistoryTextureFromFramebufferAt
     const auto history = graph.ImportHistory(
         "FogHistory",
         91,
-        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "FogHistory"));
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "FogHistory"));
     ASSERT_TRUE(history.IsValid());
 
     auto currentFrameFramebuffer = Ref<AttachmentStubFramebuffer>(new AttachmentStubFramebuffer(17, 123));
@@ -9363,7 +9500,7 @@ TEST(RenderGraphTemporalHistoryContracts, ExtractHistoryTextureFromFramebufferAt
             auto color = builder.ImportFramebuffer(
                 "CurrentFrameFogHalfRes",
                 currentFrameFramebuffer,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "CurrentFrameFogHalfRes"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "CurrentFrameFogHalfRes"));
             builder.Write(color, RGWriteUsage::RenderTarget);
         });
 
@@ -9444,7 +9581,7 @@ TEST(RenderGraphAsyncBatchResources, SingleResourceFlowsIntoBatch)
             auto tex = builder.ImportTexture(
                 "SharedTex",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SharedTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SharedTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -9457,7 +9594,7 @@ TEST(RenderGraphAsyncBatchResources, SingleResourceFlowsIntoBatch)
             auto tex = builder.ImportTexture(
                 "SharedTex",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SharedTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SharedTex"));
             [[maybe_unused]] const auto readTex = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -9498,7 +9635,7 @@ TEST(RenderGraphAsyncBatchResources, BatchOutputFlowsToGraphicsPass)
             auto tex = builder.ImportTexture(
                 "ResultTex",
                 2,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ResultTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ResultTex"));
             builder.Write(tex, RGWriteUsage::ShaderImage);
         });
 
@@ -9510,7 +9647,7 @@ TEST(RenderGraphAsyncBatchResources, BatchOutputFlowsToGraphicsPass)
             auto tex = builder.ImportTexture(
                 "ResultTex",
                 2,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ResultTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ResultTex"));
             [[maybe_unused]] const auto readTex = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -9549,7 +9686,7 @@ TEST(RenderGraphAsyncBatchResources, IndependentBatchHasNoCrossBoundaryResources
             auto tex = builder.ImportTexture(
                 "PrivateTex",
                 3,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "PrivateTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "PrivateTex"));
             builder.Write(tex, RGWriteUsage::ShaderImage);
         });
 
@@ -9581,7 +9718,7 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
             auto tex = builder.ImportTexture(
                 "InTex",
                 10,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "InTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "InTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -9594,13 +9731,13 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
             auto inTex = builder.ImportTexture(
                 "InTex",
                 10,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "InTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "InTex"));
             [[maybe_unused]] const auto readInTex = builder.Read(inTex, RGReadUsage::ShaderSample);
 
             auto outTex = builder.ImportTexture(
                 "OutTex",
                 11,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "OutTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "OutTex"));
             builder.Write(outTex, RGWriteUsage::ShaderImage);
         });
 
@@ -9612,7 +9749,7 @@ TEST(RenderGraphAsyncBatchResources, DumpToJsonIncludesBatchResourceDeps)
             auto outTex = builder.ImportTexture(
                 "OutTex",
                 11,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "OutTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "OutTex"));
             [[maybe_unused]] const auto readOutTex = builder.Read(outTex, RGReadUsage::ShaderSample);
         });
 
@@ -9685,7 +9822,7 @@ TEST(RenderGraphResourceTransitions, SingleTransitionCapturesProducerAndConsumer
             auto tex = builder.ImportTexture(
                 "ColorTex",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "ColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "ColorTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -9697,7 +9834,7 @@ TEST(RenderGraphResourceTransitions, SingleTransitionCapturesProducerAndConsumer
             auto tex = builder.ImportTexture(
                 "ColorTex",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "ColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "ColorTex"));
             [[maybe_unused]] const auto sampledTex = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -9734,7 +9871,7 @@ TEST(RenderGraphResourceTransitions, ProducerIsLastWriterBeforeConsumer)
             auto tex = builder.ImportTexture(
                 "Tex",
                 5,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "Tex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "Tex"));
             builder.Write(tex, RGWriteUsage::ShaderImage);
         });
 
@@ -9746,7 +9883,7 @@ TEST(RenderGraphResourceTransitions, ProducerIsLastWriterBeforeConsumer)
             auto tex = builder.ImportTexture(
                 "Tex",
                 5,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "Tex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "Tex"));
             builder.Write(tex, RGWriteUsage::ShaderStorage);
         });
 
@@ -9758,7 +9895,7 @@ TEST(RenderGraphResourceTransitions, ProducerIsLastWriterBeforeConsumer)
             auto tex = builder.ImportTexture(
                 "Tex",
                 5,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "Tex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "Tex"));
             [[maybe_unused]] const auto sampledTex = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -9787,7 +9924,7 @@ TEST(RenderGraphResourceTransitions, ExternalImportHasNoProducerPass)
     [[maybe_unused]] const auto shadowHandle = graph.ImportTexture(
         "ShadowMap",
         42,
-        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ShadowMap"));
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ShadowMap"));
 
     AddSetupNode(
         graph,
@@ -9797,7 +9934,7 @@ TEST(RenderGraphResourceTransitions, ExternalImportHasNoProducerPass)
             auto tex = builder.ImportTexture(
                 "ShadowMap",
                 42,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ShadowMap"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ShadowMap"));
             [[maybe_unused]] const auto sampledShadow = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -9831,7 +9968,7 @@ TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
             auto tex = builder.ImportTexture(
                 "SceneColor",
                 10,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -9843,7 +9980,7 @@ TEST(RenderGraphResourceTransitions, DumpToJsonIncludesResourceTransitions)
             auto tex = builder.ImportTexture(
                 "SceneColor",
                 10,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto sampledScene = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -9909,7 +10046,7 @@ TEST(RenderGraphResourceLifetimes, TransientResourceHasCorrectFirstAndLastPass)
             auto tex = builder.ImportTexture(
                 "Color",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "Color"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "Color"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -9921,7 +10058,7 @@ TEST(RenderGraphResourceLifetimes, TransientResourceHasCorrectFirstAndLastPass)
             auto tex = builder.ImportTexture(
                 "Color",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "Color"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "Color"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -9963,7 +10100,7 @@ TEST(RenderGraphResourceLifetimes, ImportedResourceHasExternalFirstWrite)
             auto tex = builder.ImportTexture(
                 "ExtTex",
                 99,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ExtTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ExtTex"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -9999,7 +10136,7 @@ TEST(RenderGraphResourceLifetimes, WriteOnlyResourceHasEmptyLastRead)
             auto tex = builder.ImportTexture(
                 "SinkTex",
                 7,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SinkTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SinkTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -10036,7 +10173,7 @@ TEST(RenderGraphResourceLifetimes, DumpToJsonIncludesResourceLifetimes)
             auto tex = builder.ImportTexture(
                 "SceneColor",
                 10,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -10048,7 +10185,7 @@ TEST(RenderGraphResourceLifetimes, DumpToJsonIncludesResourceLifetimes)
             auto tex = builder.ImportTexture(
                 "SceneColor",
                 10,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -10108,7 +10245,7 @@ TEST(RenderGraphSubresourceRange, FullRangeByDefaultWhenNoRangeSpecified)
             auto tex = builder.ImportTexture(
                 "ColorTex",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ColorTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -10120,7 +10257,7 @@ TEST(RenderGraphSubresourceRange, FullRangeByDefaultWhenNoRangeSpecified)
             auto tex = builder.ImportTexture(
                 "ColorTex",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ColorTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ColorTex"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -10157,7 +10294,7 @@ TEST(RenderGraphSubresourceRange, MipRangePreservedInTransition)
             auto tex = builder.ImportTexture(
                 "MipTex",
                 2,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "MipTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "MipTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -10169,7 +10306,7 @@ TEST(RenderGraphSubresourceRange, MipRangePreservedInTransition)
             auto tex = builder.ImportTexture(
                 "MipTex",
                 2,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "MipTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "MipTex"));
             [[maybe_unused]] const auto r =
                 builder.Read(tex, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(2));
         });
@@ -10205,7 +10342,7 @@ TEST(RenderGraphSubresourceRange, LayerRangePreservedInTransition)
             auto tex = builder.ImportTexture(
                 "LayerTex",
                 3,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "LayerTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "LayerTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -10217,7 +10354,7 @@ TEST(RenderGraphSubresourceRange, LayerRangePreservedInTransition)
             auto tex = builder.ImportTexture(
                 "LayerTex",
                 3,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "LayerTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "LayerTex"));
             [[maybe_unused]] const auto r =
                 builder.Read(tex, RGReadUsage::ShaderSample, RGSubresourceRange::Layer(3));
         });
@@ -10251,7 +10388,7 @@ TEST(RenderGraphSubresourceRange, MultiLayerDeclarationsProducePerLayerTransitio
             auto csm = builder.ImportTexture(
                 "ShadowCSM",
                 13,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, "ShadowCSM"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2DArray, "ShadowCSM"));
             for (u32 cascade = 0; cascade < 4u; ++cascade)
             {
                 builder.Write(csm, RGWriteUsage::DepthStencil, RGSubresourceRange::Layer(cascade));
@@ -10266,7 +10403,7 @@ TEST(RenderGraphSubresourceRange, MultiLayerDeclarationsProducePerLayerTransitio
             auto csm = builder.ImportTexture(
                 "ShadowCSM",
                 13,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2DArray, "ShadowCSM"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2DArray, "ShadowCSM"));
             for (u32 cascade = 0; cascade < 4u; ++cascade)
             {
                 [[maybe_unused]] const auto r =
@@ -10308,7 +10445,7 @@ TEST(RenderGraphSubresourceRange, SliceRangePreservedInTransition)
             auto cubemap = builder.ImportTexture(
                 "ShadowPoint0",
                 21,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, "ShadowPoint0"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::TextureCube, "ShadowPoint0"));
             RGSubresourceRange faceRange{};
             faceRange.BaseSlice = 4u;
             faceRange.SliceCount = 1u;
@@ -10323,7 +10460,7 @@ TEST(RenderGraphSubresourceRange, SliceRangePreservedInTransition)
             auto cubemap = builder.ImportTexture(
                 "ShadowPoint0",
                 21,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::TextureCube, "ShadowPoint0"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::TextureCube, "ShadowPoint0"));
             RGSubresourceRange faceRange{};
             faceRange.BaseSlice = 4u;
             faceRange.SliceCount = 1u;
@@ -10362,7 +10499,7 @@ TEST(RenderGraphSubresourceRange, PlannedBarrierCarriesRange)
             auto tex = builder.ImportTexture(
                 "BaTex",
                 4,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "BaTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "BaTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -10374,7 +10511,7 @@ TEST(RenderGraphSubresourceRange, PlannedBarrierCarriesRange)
             auto tex = builder.ImportTexture(
                 "BaTex",
                 4,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "BaTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "BaTex"));
             [[maybe_unused]] const auto r =
                 builder.Read(tex, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(1));
         });
@@ -10409,7 +10546,7 @@ TEST(RenderGraphSubresourceRange, DumpToJsonIncludesRange)
             auto tex = builder.ImportTexture(
                 "JsonTex",
                 5,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "JsonTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "JsonTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -10421,7 +10558,7 @@ TEST(RenderGraphSubresourceRange, DumpToJsonIncludesRange)
             auto tex = builder.ImportTexture(
                 "JsonTex",
                 5,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "JsonTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "JsonTex"));
             [[maybe_unused]] const auto r =
                 builder.Read(tex, RGReadUsage::ShaderSample, RGSubresourceRange::Mip(0));
         });
@@ -10477,7 +10614,7 @@ TEST(RenderGraphCrossLaneSync, PureGraphicsGraphHasNoCrossLaneTransitions)
             auto tex = builder.ImportTexture(
                 "GfxTex",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "GfxTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "GfxTex"));
             builder.Write(tex, RGWriteUsage::RenderTarget);
         });
 
@@ -10489,7 +10626,7 @@ TEST(RenderGraphCrossLaneSync, PureGraphicsGraphHasNoCrossLaneTransitions)
             auto tex = builder.ImportTexture(
                 "GfxTex",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "GfxTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "GfxTex"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -10526,7 +10663,7 @@ TEST(RenderGraphCrossLaneSync, ComputeToGraphicsTransitionIsCrossLane)
             auto tex = builder.ImportTexture(
                 "ComputeResult",
                 7,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ComputeResult"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ComputeResult"));
             builder.Write(tex, RGWriteUsage::ShaderStorage);
         });
 
@@ -10538,7 +10675,7 @@ TEST(RenderGraphCrossLaneSync, ComputeToGraphicsTransitionIsCrossLane)
             auto tex = builder.ImportTexture(
                 "ComputeResult",
                 7,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "ComputeResult"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ComputeResult"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -10583,7 +10720,7 @@ TEST(RenderGraphCrossLaneSync, DumpToJsonIncludesCrossLaneSyncFields)
             auto tex = builder.ImportTexture(
                 "CsTex",
                 9,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CsTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "CsTex"));
             builder.Write(tex, RGWriteUsage::ShaderStorage);
         });
 
@@ -10595,7 +10732,7 @@ TEST(RenderGraphCrossLaneSync, DumpToJsonIncludesCrossLaneSyncFields)
             auto tex = builder.ImportTexture(
                 "CsTex",
                 9,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "CsTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "CsTex"));
             [[maybe_unused]] const auto r = builder.Read(tex, RGReadUsage::ShaderSample);
         });
 
@@ -10652,7 +10789,7 @@ TEST(RenderGraphQueueAwareScheduler, LegalOverlapDisjointResourcesNoHazard)
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneColor"));
             builder.Write(sc, RGWriteUsage::RenderTarget);
         });
 
@@ -10665,7 +10802,7 @@ TEST(RenderGraphQueueAwareScheduler, LegalOverlapDisjointResourcesNoHazard)
             auto ao = builder.ImportTexture(
                 "AO",
                 2,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "AO"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "AO"));
             builder.Write(ao, RGWriteUsage::ShaderStorage);
         });
 
@@ -10677,13 +10814,13 @@ TEST(RenderGraphQueueAwareScheduler, LegalOverlapDisjointResourcesNoHazard)
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 1,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneColor"));
             [[maybe_unused]] const auto r1 = builder.Read(sc, RGReadUsage::ShaderSample);
 
             auto ao = builder.ImportTexture(
                 "AO",
                 2,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "AO"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "AO"));
             [[maybe_unused]] const auto r2 = builder.Read(ao, RGReadUsage::ShaderSample);
         });
 
@@ -10715,7 +10852,7 @@ TEST(RenderGraphQueueAwareScheduler, ForbiddenOverlapComputeWritesAfterGraphicsR
             auto depth = builder.ImportTexture(
                 "SceneDepth",
                 3,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneDepth"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneDepth"));
             [[maybe_unused]] const auto r = builder.Read(depth, RGReadUsage::ShaderSample);
         });
 
@@ -10728,7 +10865,7 @@ TEST(RenderGraphQueueAwareScheduler, ForbiddenOverlapComputeWritesAfterGraphicsR
             auto depth = builder.ImportTexture(
                 "SceneDepth",
                 3,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneDepth"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneDepth"));
             builder.Write(depth, RGWriteUsage::ShaderStorage);
         });
 
@@ -10808,7 +10945,7 @@ TEST(RenderGraphQueueAwareScheduler, GTAOStyleComputeToGraphicsCrossLaneTransiti
             auto ao = builder.ImportTexture(
                 "AOTexture",
                 10,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "AOTexture"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "AOTexture"));
             builder.Write(ao, RGWriteUsage::ShaderStorage);
         });
 
@@ -10820,7 +10957,7 @@ TEST(RenderGraphQueueAwareScheduler, GTAOStyleComputeToGraphicsCrossLaneTransiti
             auto ao = builder.ImportTexture(
                 "AOTexture",
                 10,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "AOTexture"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "AOTexture"));
             [[maybe_unused]] const auto r = builder.Read(ao, RGReadUsage::ShaderSample);
         });
 
@@ -10867,7 +11004,7 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
             auto ao = builder.ImportTexture(
                 "GTAOResult",
                 20,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "GTAOResult"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "GTAOResult"));
             builder.Write(ao, RGWriteUsage::ShaderStorage);
         });
 
@@ -10880,7 +11017,7 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
             auto gi = builder.ImportTexture(
                 "SSGIResult",
                 21,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SSGIResult"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SSGIResult"));
             builder.Write(gi, RGWriteUsage::ShaderStorage);
         });
 
@@ -10892,13 +11029,13 @@ TEST(RenderGraphQueueAwareScheduler, HazardValidatorRemainsGreenAfterComputeHois
             auto ao = builder.ImportTexture(
                 "GTAOResult",
                 20,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "GTAOResult"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "GTAOResult"));
             [[maybe_unused]] const auto r1 = builder.Read(ao, RGReadUsage::ShaderSample);
 
             auto gi = builder.ImportTexture(
                 "SSGIResult",
                 21,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SSGIResult"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SSGIResult"));
             [[maybe_unused]] const auto r2 = builder.Read(gi, RGReadUsage::ShaderSample);
         });
 
@@ -10971,7 +11108,7 @@ TEST(RenderGraphResolveFailureTelemetry, ValidTextureResolveDoesNotEmitTextureFa
     const auto textureHandle = graph.ImportTexture(
         "TelemetryTex",
         123,
-        RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "TelemetryTex"));
+        RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "TelemetryTex"));
     ASSERT_TRUE(textureHandle.IsValid());
 
     auto probe = Ref<ResolveFailureProbePass>::Create("ProbePass");
@@ -11049,7 +11186,7 @@ TEST(RenderGraphSceneColorChain, RMWChainDrivesRAWEdgesViaBuilderCallbacks)
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 1u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             builder.Write(sc, RGWriteUsage::RenderTarget);
         });
 
@@ -11061,7 +11198,7 @@ TEST(RenderGraphSceneColorChain, RMWChainDrivesRAWEdgesViaBuilderCallbacks)
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 1u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
             builder.Write(sc, RGWriteUsage::RenderTarget);
         });
@@ -11074,7 +11211,7 @@ TEST(RenderGraphSceneColorChain, RMWChainDrivesRAWEdgesViaBuilderCallbacks)
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 1u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
             builder.Write(sc, RGWriteUsage::RenderTarget);
         });
@@ -11120,7 +11257,7 @@ TEST(RenderGraphSceneColorChain, DeferredSceneColorRMWChainViaBuilderCallbacksIs
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 2u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             builder.Write(sc, RGWriteUsage::RenderTarget);
         });
 
@@ -11132,7 +11269,7 @@ TEST(RenderGraphSceneColorChain, DeferredSceneColorRMWChainViaBuilderCallbacksIs
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 2u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
             builder.Write(sc, RGWriteUsage::RenderTarget);
         });
@@ -11145,7 +11282,7 @@ TEST(RenderGraphSceneColorChain, DeferredSceneColorRMWChainViaBuilderCallbacksIs
             auto sc = builder.ImportTexture(
                 "SceneColor",
                 2u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto r = builder.Read(sc, RGReadUsage::RenderTargetRead);
             builder.Write(sc, RGWriteUsage::RenderTarget);
         });
@@ -11199,7 +11336,7 @@ TEST(RenderGraphSceneColorChain, RmwPassRemainsReachableWhenAllOptionalRmwChainS
     // Mirror what `RenderPipeline::PopulateBlackboard` does at frame start:
     // register the base SceneColor framebuffer and its canonical RT0 view.
     RGResourceDesc fbDesc;
-    fbDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    fbDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     fbDesc.Width = 1u;
     fbDesc.Height = 1u;
     fbDesc.Attachments = { RGResourceFormat::RGBA8UNorm };
@@ -11296,7 +11433,7 @@ TEST(RenderGraphSceneColorChain, EarlierRmwPassRemainsReachableWhenLaterRmwPassO
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     RGResourceDesc fbDesc;
-    fbDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    fbDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     fbDesc.Width = 1u;
     fbDesc.Height = 1u;
     fbDesc.Attachments = { RGResourceFormat::RGBA8UNorm };
@@ -11394,7 +11531,7 @@ TEST(RenderGraphSceneColorChain, RmwContributorsRemainReachableWhenConsumerReads
     // Single-attachment FB stands in for the OIT MRT — same shape, fewer
     // dependencies in the test.
     RGResourceDesc fbDesc;
-    fbDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    fbDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     fbDesc.Width = 1u;
     fbDesc.Height = 1u;
     fbDesc.Attachments = { RGResourceFormat::RGBA8UNorm };
@@ -11500,7 +11637,7 @@ TEST(RenderGraphVersionAlias, VersionHandleResolvesToSourcePhysical)
             auto source = builder.ImportTexture(
                 "VersionAliasSrcTex",
                 kImportedTextureID,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "VersionAliasSrcTex"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "VersionAliasSrcTex"));
             [[maybe_unused]] const auto r = builder.Read(source, RGReadUsage::ShaderSample);
             versionHandle = builder.WriteNewVersion(source, RGWriteUsage::ShaderImage, "RmwPass");
         });
@@ -11538,7 +11675,7 @@ TEST(RenderGraphVersionAlias, VersionPlanEntryNeverAllocates)
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     RGResourceDesc fbDesc;
-    fbDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    fbDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     fbDesc.Width = 64u;
     fbDesc.Height = 64u;
     fbDesc.Attachments = { RGResourceFormat::RGBA8UNorm };
@@ -11610,7 +11747,7 @@ TEST(RenderGraphVersionAlias, VersionReadersExtendBaseLifetime)
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     RGResourceDesc fbDesc;
-    fbDesc.Kind = ResourceHandle::Kind::Framebuffer;
+    fbDesc.Kind = RGResourceHandle::Kind::Framebuffer;
     fbDesc.Width = 64u;
     fbDesc.Height = 64u;
     fbDesc.Attachments = { RGResourceFormat::RGBA8UNorm };
@@ -11673,7 +11810,7 @@ TEST(RenderGraphBuildDiagnostics, RegistrationOrderSensitivityIsReportedForRever
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 7u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
@@ -11686,7 +11823,7 @@ TEST(RenderGraphBuildDiagnostics, RegistrationOrderSensitivityIsReportedForRever
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 7u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
@@ -11724,7 +11861,7 @@ TEST(RenderGraphBuildDiagnostics, ExplicitDependencyRemovesRegistrationOrderSens
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 8u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
@@ -11737,7 +11874,7 @@ TEST(RenderGraphBuildDiagnostics, ExplicitDependencyRemovesRegistrationOrderSens
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 8u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
@@ -11772,7 +11909,7 @@ TEST(RenderGraphBuildDiagnostics, SetupDeclaredPassDependencyRemovesRegistration
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 9u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
@@ -11785,7 +11922,7 @@ TEST(RenderGraphBuildDiagnostics, SetupDeclaredPassDependencyRemovesRegistration
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 9u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
@@ -11819,7 +11956,7 @@ TEST(RenderGraphBuildDiagnostics, TransitiveSetupDependenciesSuppressRedundantRe
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 10u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
@@ -11834,7 +11971,7 @@ TEST(RenderGraphBuildDiagnostics, TransitiveSetupDependenciesSuppressRedundantRe
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 10u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
@@ -11847,7 +11984,7 @@ TEST(RenderGraphBuildDiagnostics, TransitiveSetupDependenciesSuppressRedundantRe
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 10u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
@@ -11900,7 +12037,7 @@ TEST(RenderGraphBuildDiagnostics, SceneColorRMWChainIsRegistrationOrderIndepende
                 auto sceneColor = builder.ImportTexture(
                     "SceneColor",
                     11u,
-                    RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                    RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
                 builder.AllowSamePassReadWrite(sceneColor);
                 [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
                 builder.Write(sceneColor, RGWriteUsage::RenderTarget);
@@ -11964,11 +12101,11 @@ TEST(RenderGraphBuildDiagnostics, OITAccumContributorChainIsRegistrationOrderInd
             auto oitAccum = builder.ImportTexture(
                 "OITAccum",
                 12u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "OITAccum"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "OITAccum"));
             auto oitRevealage = builder.ImportTexture(
                 "OITRevealage",
                 13u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "OITRevealage"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "OITRevealage"));
             builder.AllowSamePassReadWrite(oitAccum);
             builder.AllowSamePassReadWrite(oitRevealage);
             [[maybe_unused]] const auto accumRead = builder.Read(oitAccum, RGReadUsage::RenderTargetRead);
@@ -11987,11 +12124,11 @@ TEST(RenderGraphBuildDiagnostics, OITAccumContributorChainIsRegistrationOrderInd
             auto oitAccum = builder.ImportTexture(
                 "OITAccum",
                 12u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "OITAccum"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "OITAccum"));
             auto oitRevealage = builder.ImportTexture(
                 "OITRevealage",
                 13u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "OITRevealage"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "OITRevealage"));
             builder.AllowSamePassReadWrite(oitAccum);
             builder.AllowSamePassReadWrite(oitRevealage);
             [[maybe_unused]] const auto accumRead = builder.Read(oitAccum, RGReadUsage::RenderTargetRead);
@@ -12009,11 +12146,11 @@ TEST(RenderGraphBuildDiagnostics, OITAccumContributorChainIsRegistrationOrderInd
             auto oitAccum = builder.ImportTexture(
                 "OITAccum",
                 12u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "OITAccum"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "OITAccum"));
             auto oitRevealage = builder.ImportTexture(
                 "OITRevealage",
                 13u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "OITRevealage"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "OITRevealage"));
             builder.Write(oitAccum, RGWriteUsage::Clear);
             builder.Write(oitRevealage, RGWriteUsage::Clear);
         });
@@ -12049,7 +12186,7 @@ TEST(RenderGraphBuildDiagnostics, DumpToJsonIncludesRegistrationOrderSensitivity
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 9u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
@@ -12062,7 +12199,7 @@ TEST(RenderGraphBuildDiagnostics, DumpToJsonIncludesRegistrationOrderSensitivity
             auto sceneColor = builder.ImportTexture(
                 "SceneColor",
                 9u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Framebuffer, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "SceneColor"));
             [[maybe_unused]] const auto readHandle = builder.Read(sceneColor, RGReadUsage::RenderTargetRead);
             builder.Write(sceneColor, RGWriteUsage::RenderTarget);
         });
@@ -12194,7 +12331,7 @@ TEST(RenderGraphTransientDebugFlags, VersionAliasTargetsAreExposedForDiagnostics
         {
             auto sceneColor = builder.ImportTexture(
                 "SceneColor", 7u,
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "SceneColor"));
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "SceneColor"));
             [[maybe_unused]] const auto versioned =
                 builder.WriteNewVersion(sceneColor, RGWriteUsage::RenderTarget, "WriterPass");
         });

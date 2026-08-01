@@ -1829,4 +1829,167 @@ namespace OloEngine
         // explicitly instead of acting on whatever happens to be bound.
         glProgramUniform1f(programID, location, value);
     }
+
+    // -------------------------------------------------------------------------
+    // Handle-taking siblings of the bind family (issue #691 step 3, slice 2).
+    //
+    // Each resolves the identity to a driver name and delegates to the existing
+    // u32 form, so there is exactly one place per operation that talks to GL and
+    // the two spellings cannot drift. Resolution happens here, inside
+    // Platform/OpenGL/, which is the whole point — see Utils::ResolveNative.
+    //
+    // A stale handle resolves to 0, and every one of these treats 0 as "unbind",
+    // which is the correct degradation: a use-after-free leaves the slot empty
+    // rather than bound to whatever object inherited the recycled name.
+    // -------------------------------------------------------------------------
+    void OpenGLRendererAPI::BindTexture(u32 slot, RHI::ResourceHandle texture)
+    {
+        BindTexture(slot, Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture));
+    }
+
+    void OpenGLRendererAPI::BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
+                                             u32 layer, RHI::Access access, RHI::Format format)
+    {
+        BindImageTexture(unit, Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), mipLevel, layered, layer, access, format);
+    }
+
+    void OpenGLRendererAPI::BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
+    {
+        BindUniformBuffer(bindingPoint, Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer));
+    }
+
+    void OpenGLRendererAPI::BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
+    {
+        BindStorageBuffer(bindingPoint, Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer));
+    }
+
+    void OpenGLRendererAPI::BindShaderProgram(RHI::ResourceHandle program)
+    {
+        BindShaderProgram(Utils::ResolveNativeAs(program, RHI::ResourceKind::ShaderProgram));
+    }
+
+    void OpenGLRendererAPI::BindVertexArrayRaw(RHI::ResourceHandle vertexArray)
+    {
+        BindVertexArrayRaw(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray));
+    }
+
+    void OpenGLRendererAPI::BindFramebuffer(RHI::ResourceHandle framebuffer)
+    {
+        BindFramebuffer(Utils::ResolveNativeAs(framebuffer, RHI::ResourceKind::Framebuffer));
+    }
+
+    // -------------------------------------------------------------------------
+    // Handle-returning raw creators (issue #691 step 3, slice 4).
+    //
+    // Each creates through the existing u32 form and registers the result, so
+    // there is one place per operation that talks to GL. The Delete* siblings
+    // resolve, delegate, and then RETIRE the identity — the second half is the
+    // one that is easy to omit and impossible to notice: without it the slot
+    // keeps its generation and a handle to the destroyed object goes on
+    // resolving to a name the driver is free to reissue.
+    // -------------------------------------------------------------------------
+    RHI::ResourceHandle OpenGLRendererAPI::CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat)
+    {
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture,
+                                                     CreateTexture2D(width, height, internalFormat),
+                                                     RHI::Backend::OpenGL);
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format internalFormat)
+    {
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture,
+                                                     CreateTextureCubemap(width, height, internalFormat),
+                                                     RHI::Backend::OpenGL);
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateFramebufferHandle()
+    {
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Framebuffer, CreateFramebuffer(),
+                                                     RHI::Backend::OpenGL);
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateBufferHandle()
+    {
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Buffer, CreateBuffer(),
+                                                     RHI::Backend::OpenGL);
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateVertexArrayHandle()
+    {
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::VertexArray, CreateVertexArray(),
+                                                     RHI::Backend::OpenGL);
+    }
+
+    void OpenGLRendererAPI::DeleteTexture(RHI::ResourceHandle texture)
+    {
+        // A live handle of the wrong family names SOMEONE ELSE'S resource.
+        // ResolveNativeAs already refuses to hand back their GL name, but the
+        // Unregister below is not kind-aware — without this guard a mis-wired
+        // delete would retire their registry entry while leaving their GL
+        // object alive, which is worse than the unchecked form it replaced.
+        if (Utils::IsWrongKind(texture, RHI::ResourceKind::Texture))
+            return;
+
+        DeleteTexture(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture));
+        RHI::ResourceRegistry::Get().Unregister(texture);
+    }
+
+    void OpenGLRendererAPI::DeleteFramebuffer(RHI::ResourceHandle framebuffer)
+    {
+        // A live handle of the wrong family names SOMEONE ELSE'S resource.
+        // ResolveNativeAs already refuses to hand back their GL name, but the
+        // Unregister below is not kind-aware — without this guard a mis-wired
+        // delete would retire their registry entry while leaving their GL
+        // object alive, which is worse than the unchecked form it replaced.
+        if (Utils::IsWrongKind(framebuffer, RHI::ResourceKind::Framebuffer))
+            return;
+
+        DeleteFramebuffer(Utils::ResolveNativeAs(framebuffer, RHI::ResourceKind::Framebuffer));
+        RHI::ResourceRegistry::Get().Unregister(framebuffer);
+    }
+
+    void OpenGLRendererAPI::DeleteBuffer(RHI::ResourceHandle buffer)
+    {
+        // A live handle of the wrong family names SOMEONE ELSE'S resource.
+        // ResolveNativeAs already refuses to hand back their GL name, but the
+        // Unregister below is not kind-aware — without this guard a mis-wired
+        // delete would retire their registry entry while leaving their GL
+        // object alive, which is worse than the unchecked form it replaced.
+        if (Utils::IsWrongKind(buffer, RHI::ResourceKind::Buffer))
+            return;
+
+        DeleteBuffer(Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer));
+        RHI::ResourceRegistry::Get().Unregister(buffer);
+    }
+
+    void OpenGLRendererAPI::DeleteVertexArray(RHI::ResourceHandle vertexArray)
+    {
+        // A live handle of the wrong family names SOMEONE ELSE'S resource.
+        // ResolveNativeAs already refuses to hand back their GL name, but the
+        // Unregister below is not kind-aware — without this guard a mis-wired
+        // delete would retire their registry entry while leaving their GL
+        // object alive, which is worse than the unchecked form it replaced.
+        if (Utils::IsWrongKind(vertexArray, RHI::ResourceKind::VertexArray))
+            return;
+
+        DeleteVertexArray(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray));
+        RHI::ResourceRegistry::Get().Unregister(vertexArray);
+    }
+
+    void OpenGLRendererAPI::SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter)
+    {
+        SetTextureFilter(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), minFilter, magFilter);
+    }
+
+    void OpenGLRendererAPI::SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap)
+    {
+        SetTextureWrap(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), wrap);
+    }
+
+    void OpenGLRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
+                                                    RHI::Format sourceFormat, const void* data)
+    {
+        UploadTextureSubImage2D(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), width, height, sourceFormat, data);
+    }
+
 } // namespace OloEngine

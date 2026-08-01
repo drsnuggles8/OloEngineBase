@@ -74,7 +74,7 @@ namespace OloEngine::RenderGraphResourceRegistry
         //    producer/consumer pass list. Emit a kind-mismatch diagnostic if
         //    two passes declare the same resource as incompatible kinds.
         const auto registerDeclaration = [&result](const std::string& passName,
-                                                   const ResourceHandle& handle,
+                                                   const RGResourceHandle& handle,
                                                    const bool isWrite)
         {
             auto [it, inserted] = result.Registry.try_emplace(handle.Name);
@@ -94,12 +94,12 @@ namespace OloEngine::RenderGraphResourceRegistry
             }
 
             const auto declaredKind = handle.Type;
-            if (const auto existingKind = info.Desc.Kind; existingKind == ResourceHandle::Kind::Unknown && declaredKind != ResourceHandle::Kind::Unknown)
+            if (const auto existingKind = info.Desc.Kind; existingKind == RGResourceHandle::Kind::Unknown && declaredKind != RGResourceHandle::Kind::Unknown)
             {
                 info.Desc.Kind = declaredKind;
             }
-            else if (existingKind != ResourceHandle::Kind::Unknown &&
-                     declaredKind != ResourceHandle::Kind::Unknown &&
+            else if (existingKind != RGResourceHandle::Kind::Unknown &&
+                     declaredKind != RGResourceHandle::Kind::Unknown &&
                      existingKind != declaredKind)
             {
                 const auto priorPass = !info.Producers.empty()
@@ -137,7 +137,7 @@ namespace OloEngine::RenderGraphResourceRegistry
 
             for (const auto& access : accessIt->second)
             {
-                ResourceHandle syntheticHandle(access.ResourceName, ResourceHandle::Kind::Unknown);
+                RGResourceHandle syntheticHandle(access.ResourceName, RGResourceHandle::Kind::Unknown);
                 registerDeclaration(passName, syntheticHandle, access.IsWrite);
             }
         }

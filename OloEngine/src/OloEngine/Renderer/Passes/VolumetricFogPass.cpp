@@ -99,7 +99,7 @@ namespace OloEngine
         {
             if (!volume)
                 return;
-            RGResourceDesc desc = RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture3D, name);
+            RGResourceDesc desc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture3D, name);
             desc.Format = RGResourceFormat::RGBA16Float;
             desc.Width = kVolumeWidth;
             desc.Height = kVolumeHeight;

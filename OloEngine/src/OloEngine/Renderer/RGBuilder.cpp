@@ -515,6 +515,14 @@ namespace OloEngine
         return m_Graph.ImportTexture(name, textureID, desc);
     }
 
+    RGTextureHandle RGBuilder::ImportTextureHandle(
+        std::string_view name,
+        RHI::ResourceHandle texture,
+        const RGResourceDesc& desc)
+    {
+        return m_Graph.ImportTextureHandle(name, texture, desc);
+    }
+
     RGFramebufferHandle RGBuilder::ImportFramebuffer(
         std::string_view name,
         const Ref<Framebuffer>& fb,

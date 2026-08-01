@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/FrameBlackboard.h"
@@ -73,6 +74,7 @@ namespace OloEngine
         void SetCulling(bool enabled) const;
         void SetDrawBuffers(std::span<const u32> attachments) const;
         void BindTexture(u32 slot, u32 textureID) const;
+        void BindTexture(u32 slot, RHI::ResourceHandle texture) const;
         void MemoryBarrier(MemoryBarrierFlags flags) const;
         void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount = 0) const;
         // Async-compute batch boundaries.
@@ -82,6 +84,10 @@ namespace OloEngine
         void BeginAsyncBatch(u32 batchIndex) const;
         void EndAsyncBatch(u32 batchIndex) const;
         [[nodiscard]] u32 ResolveTexture(RGTextureHandle handle) const;
+        // Identity form (issue #691 step 3, slice 5). Returns the null handle
+        // for a resource imported as a native id — a resource migrates its
+        // whole creator/import/resolve/bind chain in one slice.
+        [[nodiscard]] RHI::ResourceHandle ResolveTextureHandle(RGTextureHandle handle) const;
         [[nodiscard]] Ref<Framebuffer> ResolveFramebuffer(RGFramebufferHandle handle) const;
         void ExtractHistoryTexture(std::string_view historyResource,
                                    RGTextureHandle sourceHandle,

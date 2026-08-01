@@ -1,4 +1,5 @@
 #pragma once
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include <glm/glm.hpp>
@@ -37,6 +38,19 @@ namespace OloEngine
                 const_cast<OpenGLShader*>(this)->EnsureLinked();
             }
             return m_RendererID;
+        }
+
+        [[nodiscard]] RHI::ResourceHandle GetRHIHandle() const override
+        {
+            // Same block-finalize as GetRendererID above: the handle is only
+            // minted once EnsureLinked has produced a program to mint it for, so
+            // an async-compiling shader must be forced to completion first or
+            // this hands back the null handle.
+            if (m_CompilationStatus == ShaderCompilationStatus::Compiling)
+            {
+                const_cast<OpenGLShader*>(this)->EnsureLinked();
+            }
+            return m_RHIHandle.Get();
         }
         [[nodiscard("Store this!")]] const std::string& GetName() const override
         {
@@ -184,6 +198,11 @@ namespace OloEngine
 
       private:
         u32 m_RendererID{};
+        // Generation-checked identity for m_RendererID above, kept in
+        // lockstep by m_RHIHandle.Sync() at every site that assigns the
+        // native name. RAII retires the entry, so a handle to a destroyed
+        // object can never resolve to a recycled GL name (issue #691).
+        RHI::ScopedResourceHandle m_RHIHandle;
         std::string m_Name;
         std::string m_FilePath;
         std::unordered_map<GLenum, std::vector<u32>> m_VulkanSPIRV;

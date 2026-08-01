@@ -26,7 +26,7 @@ namespace OloEngine
             for (const auto& write : m_TestWrites)
             {
                 const bool sameResourceRead = std::ranges::any_of(m_TestReads,
-                                                                  [&write](const ResourceHandle& read)
+                                                                  [&write](const RGResourceHandle& read)
                                                                   {
                                                                       return read.Name == write.Name;
                                                                   });
@@ -34,34 +34,34 @@ namespace OloEngine
             }
         }
 
-        [[nodiscard]] const std::vector<ResourceHandle>& GetReads() const
+        [[nodiscard]] const std::vector<RGResourceHandle>& GetReads() const
         {
             return m_TestReads;
         }
 
-        [[nodiscard]] const std::vector<ResourceHandle>& GetWrites() const
+        [[nodiscard]] const std::vector<RGResourceHandle>& GetWrites() const
         {
             return m_TestWrites;
         }
 
       protected:
-        void DeclareTestRead(std::string_view name, ResourceHandle::Kind kind = ResourceHandle::Kind::Unknown)
+        void DeclareTestRead(std::string_view name, RGResourceHandle::Kind kind = RGResourceHandle::Kind::Unknown)
         {
             AddUniqueHandle(m_TestReads, name, kind);
         }
 
-        void DeclareTestWrite(std::string_view name, ResourceHandle::Kind kind = ResourceHandle::Kind::Unknown)
+        void DeclareTestWrite(std::string_view name, RGResourceHandle::Kind kind = RGResourceHandle::Kind::Unknown)
         {
             AddUniqueHandle(m_TestWrites, name, kind);
         }
 
       private:
-        static void AddUniqueHandle(std::vector<ResourceHandle>& resources,
+        static void AddUniqueHandle(std::vector<RGResourceHandle>& resources,
                                     std::string_view name,
-                                    ResourceHandle::Kind kind)
+                                    RGResourceHandle::Kind kind)
         {
             if (const auto it = std::ranges::find_if(resources,
-                                                     [name](const ResourceHandle& resource)
+                                                     [name](const RGResourceHandle& resource)
                                                      {
                                                          return resource.Name == name;
                                                      });
@@ -73,12 +73,12 @@ namespace OloEngine
             resources.emplace_back(name, kind);
         }
 
-        static ResourceHandle::Kind NormalizeKind(ResourceHandle::Kind kind)
+        static RGResourceHandle::Kind NormalizeKind(RGResourceHandle::Kind kind)
         {
-            return kind == ResourceHandle::Kind::Unknown ? ResourceHandle::Kind::Texture2D : kind;
+            return kind == RGResourceHandle::Kind::Unknown ? RGResourceHandle::Kind::Texture2D : kind;
         }
 
-        static RGResourceDesc MakeMirrorDesc(ResourceHandle::Kind kind, std::string_view name)
+        static RGResourceDesc MakeMirrorDesc(RGResourceHandle::Kind kind, std::string_view name)
         {
             // Mark mirror-imported resources as transient (Imported=false) so the
             // imported-resource lifetime validator (which expects a valid backing
@@ -89,20 +89,20 @@ namespace OloEngine
             return desc;
         }
 
-        static void MirrorRead(RGBuilder& builder, const ResourceHandle& resource)
+        static void MirrorRead(RGBuilder& builder, const RGResourceHandle& resource)
         {
             const auto kind = NormalizeKind(resource.Type);
             const auto desc = MakeMirrorDesc(kind, resource.Name);
             switch (kind)
             {
-                case ResourceHandle::Kind::Framebuffer:
+                case RGResourceHandle::Kind::Framebuffer:
                 {
                     auto handle = builder.CreateFramebuffer(resource.Name, desc);
                     [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::RenderTargetRead);
                     break;
                 }
-                case ResourceHandle::Kind::UniformBuffer:
-                case ResourceHandle::Kind::StorageBuffer:
+                case RGResourceHandle::Kind::UniformBuffer:
+                case RGResourceHandle::Kind::StorageBuffer:
                 {
                     auto handle = builder.CreateBuffer(resource.Name, desc);
                     [[maybe_unused]] const auto readHandle = builder.Read(handle, RGReadUsage::ShaderStorage);
@@ -117,13 +117,13 @@ namespace OloEngine
             }
         }
 
-        static void MirrorWrite(RGBuilder& builder, const ResourceHandle& resource, bool allowFeedback = false)
+        static void MirrorWrite(RGBuilder& builder, const RGResourceHandle& resource, bool allowFeedback = false)
         {
             const auto kind = NormalizeKind(resource.Type);
             const auto desc = MakeMirrorDesc(kind, resource.Name);
             switch (kind)
             {
-                case ResourceHandle::Kind::Framebuffer:
+                case RGResourceHandle::Kind::Framebuffer:
                 {
                     auto handle = builder.CreateFramebuffer(resource.Name, desc);
                     if (allowFeedback)
@@ -131,8 +131,8 @@ namespace OloEngine
                     builder.Write(handle, RGWriteUsage::RenderTarget);
                     break;
                 }
-                case ResourceHandle::Kind::UniformBuffer:
-                case ResourceHandle::Kind::StorageBuffer:
+                case RGResourceHandle::Kind::UniformBuffer:
+                case RGResourceHandle::Kind::StorageBuffer:
                 {
                     auto handle = builder.CreateBuffer(resource.Name, desc);
                     if (allowFeedback)
@@ -152,7 +152,7 @@ namespace OloEngine
         }
 
       private:
-        std::vector<ResourceHandle> m_TestReads;
-        std::vector<ResourceHandle> m_TestWrites;
+        std::vector<RGResourceHandle> m_TestReads;
+        std::vector<RGResourceHandle> m_TestWrites;
     };
 } // namespace OloEngine

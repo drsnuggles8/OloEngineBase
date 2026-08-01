@@ -230,9 +230,20 @@ namespace OloEngine
             s_RendererAPI->BlitFramebufferToDefault(srcFboID, width, height);
         }
 
+        static void BindTexture(u32 slot, RHI::ResourceHandle texture)
+        {
+            s_RendererAPI->BindTexture(slot, texture);
+        }
+
         static void BindTexture(u32 slot, u32 textureID)
         {
             s_RendererAPI->BindTexture(slot, textureID);
+        }
+
+        static void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
+                                     u32 layer, RHI::Access access, RHI::Format format)
+        {
+            s_RendererAPI->BindImageTexture(unit, texture, mipLevel, layered, layer, access, format);
         }
 
         static void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer,
@@ -366,6 +377,19 @@ namespace OloEngine
             return s_RendererAPI->CreateDepthArrayCompareOffView(srcTextureID, numLayers);
         }
 
+        static void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter)
+        {
+            s_RendererAPI->SetTextureFilter(texture, minFilter, magFilter);
+        }
+        static void SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap)
+        {
+            s_RendererAPI->SetTextureWrap(texture, wrap);
+        }
+        static void UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
+                                            RHI::Format sourceFormat, const void* data)
+        {
+            s_RendererAPI->UploadTextureSubImage2D(texture, width, height, sourceFormat, data);
+        }
         static void SetTextureFilter(u32 textureID, RHI::Filter minFilter, RHI::Filter magFilter)
         {
             s_RendererAPI->SetTextureFilter(textureID, minFilter, magFilter);
@@ -423,9 +447,19 @@ namespace OloEngine
         // ADR 0011's "Amendments from Phase 2 step 2" for the design.
         // =====================================================================
 
+        static void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
+        {
+            s_RendererAPI->BindUniformBuffer(bindingPoint, buffer);
+        }
+
         static void BindUniformBuffer(u32 bindingPoint, u32 bufferID)
         {
             s_RendererAPI->BindUniformBuffer(bindingPoint, bufferID);
+        }
+
+        static void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
+        {
+            s_RendererAPI->BindStorageBuffer(bindingPoint, buffer);
         }
 
         static void BindStorageBuffer(u32 bindingPoint, u32 bufferID)
@@ -433,14 +467,29 @@ namespace OloEngine
             s_RendererAPI->BindStorageBuffer(bindingPoint, bufferID);
         }
 
+        static void BindShaderProgram(RHI::ResourceHandle program)
+        {
+            s_RendererAPI->BindShaderProgram(program);
+        }
+
         static void BindShaderProgram(u32 programID)
         {
             s_RendererAPI->BindShaderProgram(programID);
         }
 
+        static void BindVertexArrayRaw(RHI::ResourceHandle vertexArray)
+        {
+            s_RendererAPI->BindVertexArrayRaw(vertexArray);
+        }
+
         static void BindVertexArrayRaw(u32 vaoID)
         {
             s_RendererAPI->BindVertexArrayRaw(vaoID);
+        }
+
+        static void BindFramebuffer(RHI::ResourceHandle framebuffer)
+        {
+            s_RendererAPI->BindFramebuffer(framebuffer);
         }
 
         static void BindFramebuffer(u32 framebufferID)
@@ -601,6 +650,45 @@ namespace OloEngine
         }
 
         // Vertex arrays
+        // Handle-returning raw creators (issue #691 step 3, slice 4). Siblings of
+        // the u32 forms above; the final slice deletes those and takes the names
+        // back. Delete* are overloads because their parameter differs.
+        [[nodiscard]] static RHI::ResourceHandle CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat)
+        {
+            return s_RendererAPI->CreateTexture2DHandle(width, height, internalFormat);
+        }
+        [[nodiscard]] static RHI::ResourceHandle CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format internalFormat)
+        {
+            return s_RendererAPI->CreateTextureCubemapHandle(width, height, internalFormat);
+        }
+        [[nodiscard]] static RHI::ResourceHandle CreateFramebufferHandle()
+        {
+            return s_RendererAPI->CreateFramebufferHandle();
+        }
+        [[nodiscard]] static RHI::ResourceHandle CreateBufferHandle()
+        {
+            return s_RendererAPI->CreateBufferHandle();
+        }
+        [[nodiscard]] static RHI::ResourceHandle CreateVertexArrayHandle()
+        {
+            return s_RendererAPI->CreateVertexArrayHandle();
+        }
+        static void DeleteTexture(RHI::ResourceHandle texture)
+        {
+            s_RendererAPI->DeleteTexture(texture);
+        }
+        static void DeleteFramebuffer(RHI::ResourceHandle framebuffer)
+        {
+            s_RendererAPI->DeleteFramebuffer(framebuffer);
+        }
+        static void DeleteBuffer(RHI::ResourceHandle buffer)
+        {
+            s_RendererAPI->DeleteBuffer(buffer);
+        }
+        static void DeleteVertexArray(RHI::ResourceHandle vertexArray)
+        {
+            s_RendererAPI->DeleteVertexArray(vertexArray);
+        }
         static u32 CreateVertexArray()
         {
             return s_RendererAPI->CreateVertexArray();

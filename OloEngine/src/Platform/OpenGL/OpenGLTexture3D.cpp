@@ -57,6 +57,7 @@ namespace OloEngine
         GLenum internalFormat = Texture3DFormatToGL(spec.Format);
 
         glCreateTextures(GL_TEXTURE_3D, 1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Texture, m_RendererID, RHI::Backend::OpenGL);
         glTextureStorage3D(m_RendererID, 1, internalFormat,
                            static_cast<GLsizei>(m_Width),
                            static_cast<GLsizei>(m_Height),

@@ -68,7 +68,7 @@ namespace OloEngine
         {
             // 16x16x16 identity LUT laid out as a 256x16 strip (see CreateIdentityLUT).
             RGResourceDesc lutDesc =
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, kIdentityLUTTargetName);
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, kIdentityLUTTargetName);
             lutDesc.Format = RGResourceFormat::RGBA8UNorm;
             lutDesc.Width = 256;
             lutDesc.Height = 16;

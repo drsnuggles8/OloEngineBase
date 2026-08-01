@@ -74,8 +74,11 @@ namespace OloEngine
         void BindDefaultFramebuffer() override;
         void BlitFramebufferToDefault(u32 srcFboID, u32 width, u32 height) override;
         void BindTexture(u32 slot, u32 textureID) override;
+        void BindTexture(u32 slot, RHI::ResourceHandle texture) override;
         void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer,
                               RHI::Access access, RHI::Format format) override;
+        void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
+                              u32 layer, RHI::Access access, RHI::Format format) override;
 
         void SetBlendStateForAttachment(u32 attachment, bool enabled) override;
         void SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst) override;
@@ -91,8 +94,12 @@ namespace OloEngine
         u32 CreateTextureCubemap(u32 width, u32 height, RHI::Format internalFormat) override;
         u32 CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers) override;
         void SetTextureFilter(u32 textureID, RHI::Filter minFilter, RHI::Filter magFilter) override;
+        void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter) override;
         void SetTextureWrap(u32 textureID, RHI::AddressMode wrap) override;
+        void SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap) override;
         void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
+                                     RHI::Format sourceFormat, const void* data) override;
+        void UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
                                      RHI::Format sourceFormat, const void* data) override;
         void DeleteTexture(u32 textureID) override;
 
@@ -101,10 +108,15 @@ namespace OloEngine
 
         // --- Phase 2 step 2 additions (issue #691) ---------------------------
         void BindUniformBuffer(u32 bindingPoint, u32 bufferID) override;
+        void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override;
         void BindStorageBuffer(u32 bindingPoint, u32 bufferID) override;
+        void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override;
         void BindShaderProgram(u32 programID) override;
+        void BindShaderProgram(RHI::ResourceHandle program) override;
         void BindVertexArrayRaw(u32 vaoID) override;
+        void BindVertexArrayRaw(RHI::ResourceHandle vertexArray) override;
         void BindFramebuffer(u32 framebufferID) override;
+        void BindFramebuffer(RHI::ResourceHandle framebuffer) override;
 
         void DrawBoundIndexed(RHI::PrimitiveTopology topology, u32 indexCount,
                               RHI::IndexType indexType, u32 baseIndex) override;
@@ -148,6 +160,15 @@ namespace OloEngine
         void ClearBufferFloat(u32 bufferID, f32 value) override;
 
         u32 CreateVertexArray() override;
+        [[nodiscard]] RHI::ResourceHandle CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat) override;
+        [[nodiscard]] RHI::ResourceHandle CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format internalFormat) override;
+        [[nodiscard]] RHI::ResourceHandle CreateFramebufferHandle() override;
+        [[nodiscard]] RHI::ResourceHandle CreateBufferHandle() override;
+        [[nodiscard]] RHI::ResourceHandle CreateVertexArrayHandle() override;
+        void DeleteTexture(RHI::ResourceHandle texture) override;
+        void DeleteFramebuffer(RHI::ResourceHandle framebuffer) override;
+        void DeleteBuffer(RHI::ResourceHandle buffer) override;
+        void DeleteVertexArray(RHI::ResourceHandle vertexArray) override;
         void SetVertexArrayIndexBuffer(u32 vaoID, u32 bufferID) override;
         void DeleteVertexArray(u32 vaoID) override;
 

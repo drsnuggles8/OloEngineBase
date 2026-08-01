@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 
@@ -89,8 +90,28 @@ namespace OloEngine
 
         [[nodiscard("Store this!")]] virtual u32 GetColorAttachmentRendererID(u32 index) const = 0;
         [[nodiscard("Store this!")]] virtual u32 GetDepthAttachmentRendererID() const = 0;
+
+        // Attachment IDENTITIES (issue #691 step 3). Separate from the
+        // framebuffer's own GetRHIHandle(): the attachments are distinct GPU
+        // objects that the engine samples through ResolveTexture, so "the
+        // framebuffer's handle" is the wrong answer to "which texture is this?".
+        //
+        // These are a migration ROOT. RenderGraph::ResolveTexture returns
+        // attachment ids for its framebuffer-view resources, so it cannot hand
+        // out handles until these do — and almost every pass reads through
+        // ResolveTexture. Ordering is forced: `native -> handle` is not
+        // recoverable, so producers migrate before consumers.
+        [[nodiscard("Store this!")]] virtual RHI::ResourceHandle GetColorAttachmentHandle(u32 index) const = 0;
+        [[nodiscard("Store this!")]] virtual RHI::ResourceHandle GetDepthAttachmentHandle() const = 0;
         [[nodiscard("Store this!")]] virtual const FramebufferSpecification& GetSpecification() const = 0;
         [[nodiscard("Store this!")]] virtual u32 GetRendererID() const = 0;
+
+        // Generation-checked identity, minted by RHI::ResourceRegistry
+        // (issue #691 Phase 2 step 3). Sibling of GetRendererID() during the
+        // migration: that one hands out the raw backend name and is deleted once
+        // every caller has moved. Turning a handle back into a native object is
+        // Platform/<Backend>/'s business.
+        [[nodiscard]] virtual RHI::ResourceHandle GetRHIHandle() const = 0;
 
         // Attach a specific layer of a texture array as the depth attachment.
         // Used by shadow mapping to render into individual cascade layers.

@@ -287,7 +287,7 @@ namespace OloEngine::MCP
             if (const auto* resource = graph.FindRegisteredResource(name))
             {
                 layers.LayerCount = std::max(resource->Desc.DepthOrLayers, 1u);
-                if (resource->Desc.Kind == ResourceHandle::Kind::TextureCube)
+                if (resource->Desc.Kind == RGResourceHandle::Kind::TextureCube)
                     layers.LayerCount = std::max(layers.LayerCount, 6u);
             }
             // A layer/face VIEW resolves to its PARENT texture object, so a
@@ -2121,27 +2121,27 @@ namespace OloEngine::MCP
         // Stable JSON token for a resource kind. Written out rather than derived
         // from the enum so a reordered/renamed enumerator is a compile error here
         // instead of a silently changed wire value.
-        const char* ResourceKindName(ResourceHandle::Kind kind)
+        const char* ResourceKindName(RGResourceHandle::Kind kind)
         {
             switch (kind)
             {
-                case ResourceHandle::Kind::Texture2D:
+                case RGResourceHandle::Kind::Texture2D:
                     return "texture2d";
-                case ResourceHandle::Kind::Texture2DArray:
+                case RGResourceHandle::Kind::Texture2DArray:
                     return "texture2darray";
-                case ResourceHandle::Kind::Texture3D:
+                case RGResourceHandle::Kind::Texture3D:
                     return "texture3d";
-                case ResourceHandle::Kind::TextureCube:
+                case RGResourceHandle::Kind::TextureCube:
                     return "texturecube";
-                case ResourceHandle::Kind::TextureCubeArray:
+                case RGResourceHandle::Kind::TextureCubeArray:
                     return "texturecubearray";
-                case ResourceHandle::Kind::Framebuffer:
+                case RGResourceHandle::Kind::Framebuffer:
                     return "framebuffer";
-                case ResourceHandle::Kind::UniformBuffer:
+                case RGResourceHandle::Kind::UniformBuffer:
                     return "uniformbuffer";
-                case ResourceHandle::Kind::StorageBuffer:
+                case RGResourceHandle::Kind::StorageBuffer:
                     return "storagebuffer";
-                case ResourceHandle::Kind::Unknown:
+                case RGResourceHandle::Kind::Unknown:
                     break;
             }
             return "unknown";

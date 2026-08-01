@@ -127,8 +127,27 @@ namespace OloEngine
         virtual void BindDefaultFramebuffer() = 0;
         virtual void BlitFramebufferToDefault(u32 srcFboID, u32 width, u32 height) = 0;
         virtual void BindTexture(u32 slot, u32 textureID) = 0;
+
+        // ---------------------------------------------------------------------
+        // Handle-taking siblings of the bind family (issue #691 step 3, slice 2).
+        //
+        // These are ADDED beside the u32 forms rather than replacing them,
+        // because the conversion is asymmetric: `handle -> native` is a registry
+        // lookup, but `native -> handle` is not recoverable. A facade taking only
+        // handles could not serve a caller still holding a u32, so both must
+        // coexist until the last caller migrates — then the u32 forms are deleted
+        // and `facade_native_id_params` reaches zero (ADR 0011 step-3 amendments).
+        //
+        // Every implementation resolves through Utils::ResolveNative INSIDE
+        // Platform/<Backend>/. A resolving helper in Renderer/ would be simpler
+        // and would breach the boundary this phase exists to close —
+        // RHIBoundaryRatchetTest's backend_resolve_hatch is what keeps it honest.
+        // ---------------------------------------------------------------------
+        virtual void BindTexture(u32 slot, RHI::ResourceHandle texture) = 0;
         virtual void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer,
                                       RHI::Access access, RHI::Format format) = 0;
+        virtual void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
+                                      u32 layer, RHI::Access access, RHI::Format format) = 0;
 
         virtual void SetPolygonOffset(f32 factor, f32 units) = 0;
         virtual void EnableMultisampling() = 0;
@@ -174,12 +193,16 @@ namespace OloEngine
         // applies one mode to all three axes because no call site ever used
         // different modes per axis (WRAP_R is inert on a 2D target).
         virtual void SetTextureFilter(u32 textureID, RHI::Filter minFilter, RHI::Filter magFilter) = 0;
+        virtual void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter) = 0;
         virtual void SetTextureWrap(u32 textureID, RHI::AddressMode wrap) = 0;
+        virtual void SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap) = 0;
         // `sourceFormat` describes the layout of `data` — the CPU-side buffer —
         // NOT the texture's storage format. GL converts on upload, and the
         // engine relies on that: SSAO's noise texture is RG16Float storage fed
         // from RG32Float host data.
         virtual void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
+                                             RHI::Format sourceFormat, const void* data) = 0;
+        virtual void UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
                                              RHI::Format sourceFormat, const void* data) = 0;
         virtual void DeleteTexture(u32 textureID) = 0;
 
@@ -202,16 +225,21 @@ namespace OloEngine
         // --- Buffer binding points -------------------------------------------
         // The single biggest gap (26 call sites). A 0 id unbinds the point.
         virtual void BindUniformBuffer(u32 bindingPoint, u32 bufferID) = 0;
+        virtual void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) = 0;
         virtual void BindStorageBuffer(u32 bindingPoint, u32 bufferID) = 0;
+        virtual void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) = 0;
 
         // --- Program / VAO / framebuffer binding ------------------------------
         // The POD command dispatcher holds a raw program id by design (it
         // resolves materials to renderer IDs at build time and has no
         // Ref<Shader> on hand), so Shader::Bind() cannot serve it. 0 unbinds.
         virtual void BindShaderProgram(u32 programID) = 0;
+        virtual void BindShaderProgram(RHI::ResourceHandle program) = 0;
         virtual void BindVertexArrayRaw(u32 vaoID) = 0;
+        virtual void BindVertexArrayRaw(RHI::ResourceHandle vertexArray) = 0;
         // 0 selects the default framebuffer — same as BindDefaultFramebuffer().
         virtual void BindFramebuffer(u32 framebufferID) = 0;
+        virtual void BindFramebuffer(RHI::ResourceHandle framebuffer) = 0;
 
         // --- Draws from already-bound geometry --------------------------------
         // Distinct from the DrawIndexedRaw(vaoID, ...) family above, which binds
@@ -293,6 +321,28 @@ namespace OloEngine
 
         // --- Vertex array lifecycle ---------------------------------------------
         virtual u32 CreateVertexArray() = 0;
+
+        // ---------------------------------------------------------------------
+        // Handle-returning siblings of the raw creators (issue #691 step 3,
+        // slice 4). These are the last migration ROOT: the u32 members that
+        // passes hold come from here, and ImportTexture -> ResolveTexture -> every
+        // pass sits downstream. See HANDOVER's dependency chart.
+        //
+        // Spelled `...Handle` rather than overloaded because a creator's
+        // signature is identical apart from the return type. The spelling is
+        // temporary — the final slice deletes the u32 forms and takes the name
+        // back. The Delete* siblings below ARE overloads, and each must both
+        // destroy the object and retire its identity.
+        // ---------------------------------------------------------------------
+        [[nodiscard]] virtual RHI::ResourceHandle CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat) = 0;
+        [[nodiscard]] virtual RHI::ResourceHandle CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format internalFormat) = 0;
+        [[nodiscard]] virtual RHI::ResourceHandle CreateFramebufferHandle() = 0;
+        [[nodiscard]] virtual RHI::ResourceHandle CreateBufferHandle() = 0;
+        [[nodiscard]] virtual RHI::ResourceHandle CreateVertexArrayHandle() = 0;
+        virtual void DeleteTexture(RHI::ResourceHandle texture) = 0;
+        virtual void DeleteFramebuffer(RHI::ResourceHandle framebuffer) = 0;
+        virtual void DeleteBuffer(RHI::ResourceHandle buffer) = 0;
+        virtual void DeleteVertexArray(RHI::ResourceHandle vertexArray) = 0;
         virtual void SetVertexArrayIndexBuffer(u32 vaoID, u32 bufferID) = 0;
         virtual void DeleteVertexArray(u32 vaoID) = 0;
 

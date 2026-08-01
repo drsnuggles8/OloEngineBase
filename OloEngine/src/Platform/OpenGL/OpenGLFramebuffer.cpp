@@ -88,9 +88,17 @@ namespace OloEngine
 
             m_ColorAttachments.clear();
             m_DepthAttachment = 0;
+            // Retire the attachment identities with their GL names. A resize
+            // destroys the attachment textures outright (the FBO is recreated
+            // too), so these are new objects — unlike a texture hot-reload,
+            // where identity is deliberately preserved. Anything holding the
+            // old handles must see them go stale rather than silently follow.
+            m_ColorAttachmentHandles.clear();
+            m_DepthAttachmentHandle.Reset();
         }
 
         glCreateFramebuffers(1, &m_RendererID);
+        m_RHIHandle.Sync(RHI::ResourceKind::Framebuffer, m_RendererID, RHI::Backend::OpenGL);
         glBindFramebuffer(GL_FRAMEBUFFER, m_RendererID);
 
         const bool multisample = m_Specification.Samples > 1;
@@ -102,8 +110,11 @@ namespace OloEngine
             auto colorAttachmentSize = m_ColorAttachments.size();
             Utils::CreateTextures(multisample, static_cast<int>(colorAttachmentSize), m_ColorAttachments.data());
 
+            m_ColorAttachmentHandles.resize(colorAttachmentSize);
             for (sizet i = 0; i < colorAttachmentSize; ++i)
             {
+                m_ColorAttachmentHandles[i].Sync(RHI::ResourceKind::Texture, m_ColorAttachments[i],
+                                                 RHI::Backend::OpenGL);
                 Utils::BindTexture(m_ColorAttachments[i]);
                 // TODO(olbu): Add more FramebufferTextureFormats in Framebuffer.h and here
                 GLenum internalFormat = Utils::OloFBColorTextureFormatToGL(m_ColorAttachmentSpecifications[i].TextureFormat);
@@ -114,6 +125,7 @@ namespace OloEngine
         if (m_DepthAttachmentSpecification.TextureFormat != FramebufferTextureFormat::None)
         {
             Utils::CreateTextures(multisample, 1, &m_DepthAttachment);
+            m_DepthAttachmentHandle.Sync(RHI::ResourceKind::Texture, m_DepthAttachment, RHI::Backend::OpenGL);
             Utils::BindTexture(m_DepthAttachment);
 
             GLenum format = Utils::OloFBDepthTextureFormatToGL(m_DepthAttachmentSpecification.TextureFormat);

@@ -170,6 +170,27 @@ ExternalProject_Add(olo_openusd
     PATCH_COMMAND   ${CMAKE_COMMAND} -DUSD_SRC=<SOURCE_DIR> -P ${CMAKE_CURRENT_LIST_DIR}/patch-usd-pdb.cmake
     # Point USD at oneTBB via CMAKE_PREFIX_PATH covering both per-config installs.
     CMAKE_ARGS
+        # MUST be set at CONFIGURE time even though INSTALL_COMMAND passes --prefix.
+        # `cmake --install --prefix` only redirects RELATIVE install destinations. USD's
+        # top-level pxr/CMakeLists installs pxrConfig.cmake to an ABSOLUTE destination baked
+        # from the configure-time CMAKE_INSTALL_PREFIX, so without this the generated
+        # pxr/cmake_install.cmake ends with
+        #     file(INSTALL DESTINATION "C:/Program Files (x86)/usd" ... pxrConfig.cmake)
+        # and the install dies with "file cannot create directory ... Maybe need
+        # administrative privileges" on any non-elevated shell.
+        #
+        # That failure is nastier than it looks: INSTALL_COMMAND runs Release THEN Debug, and
+        # the Release failure aborts the whole step — so Debug never installs at all and the
+        # engine link fails on a missing install/Debug/lib/usd_m.lib, pointing at a file
+        # whose absence has nothing to do with the real error hundreds of log lines earlier.
+        # It also only ever bites on a cache MISS, and USD is built once per machine, so it
+        # can lie dormant indefinitely and then surface as "the build randomly broke".
+        #
+        # Release is an arbitrary but harmless choice of prefix for the stray absolute rule:
+        # pxrConfig.cmake is a find_package() shim we never consume (the engine links
+        # usd_m.lib by path), and every destination we DO consume is relative and therefore
+        # correctly per-config via --prefix.
+        -DCMAKE_INSTALL_PREFIX=${_olo_usd_install}/Release
         -DCMAKE_PREFIX_PATH=${_olo_usd_install}/Release$<SEMICOLON>${_olo_usd_install}/Debug
         -DTBB_DIR=${_olo_usd_install}/Release/lib/cmake/TBB
         -DBUILD_SHARED_LIBS=OFF

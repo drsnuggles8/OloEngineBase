@@ -75,21 +75,21 @@ namespace OloEngine
         // HashBool(SSAOEnabled) / HashU32(ActiveAOTechnique)), so the
         // topology-keyed caches invalidate correctly when it flips
         // (docs/agent-rules/render-pipeline-caches.md).
-        if (m_NoiseTexture != 0)
+        if (m_NoiseTexture.IsValid())
         {
             RGResourceDesc noiseDesc =
-                RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, kNoiseTargetName);
+                RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, kNoiseTargetName);
             noiseDesc.Format = RGResourceFormat::RG16Float;
             noiseDesc.Width = 4;
             noiseDesc.Height = 4;
             [[maybe_unused]] const RGTextureHandle noiseHandle =
-                builder.ImportTexture(kNoiseTargetName, m_NoiseTexture, noiseDesc);
+                builder.ImportTextureHandle(kNoiseTargetName, m_NoiseTexture, noiseDesc);
         }
     }
 
     SSAORenderPass::~SSAORenderPass()
     {
-        if (m_NoiseTexture != 0)
+        if (m_NoiseTexture.IsValid())
         {
             RenderCommand::DeleteTexture(m_NoiseTexture);
         }
@@ -130,7 +130,7 @@ namespace OloEngine
             n = (len > 1e-6f) ? v / len : glm::vec2(1.0f, 0.0f);
         }
 
-        m_NoiseTexture = RenderCommand::CreateTexture2D(4, 4, RHI::Format::RG16Float);
+        m_NoiseTexture = RenderCommand::CreateTexture2DHandle(4, 4, RHI::Format::RG16Float);
         RenderCommand::UploadTextureSubImage2D(m_NoiseTexture, 4, 4, RHI::Format::RG32Float, noise.data());
         RenderCommand::SetTextureFilter(m_NoiseTexture, RHI::Filter::Nearest, RHI::Filter::Nearest);
         RenderCommand::SetTextureWrap(m_NoiseTexture, RHI::AddressMode::Repeat);
@@ -229,9 +229,10 @@ namespace OloEngine
 
         m_SSAOBlurShader->Bind();
 
-        // Bind raw SSAO result at slot 0 (texture from the transient or fallback FB)
-        u32 rawSSAOID = rawFB->GetColorAttachmentRendererID(0);
-        context.BindTexture(0, rawSSAOID);
+        // Bind raw SSAO result at slot 0 (texture from the transient or fallback FB).
+        // The attachment's identity, not its GL name — attachments started
+        // minting handles in slice 3, so this consumer can take one.
+        context.BindTexture(0, rawFB->GetColorAttachmentHandle(0));
 
         // Bind scene depth at TEX_POSTPROCESS_DEPTH (slot 19) for bilateral edge detection
         context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);

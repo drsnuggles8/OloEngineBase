@@ -170,7 +170,7 @@ namespace OloEngine
             {
                 [[maybe_unused]] const RGTextureHandle debugTarget = builder.ImportTexture(
                     "VirtualGeometryDebug", registry.GetDebugColorTextureID(),
-                    RGResourceDesc::FromHandleKind(ResourceHandle::Kind::Texture2D, "VirtualGeometryDebug"));
+                    RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "VirtualGeometryDebug"));
             }
         }
     }

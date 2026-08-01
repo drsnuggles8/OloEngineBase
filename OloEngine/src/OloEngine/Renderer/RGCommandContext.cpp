@@ -98,6 +98,11 @@ namespace OloEngine
         RenderCommand::BindTexture(slot, textureID);
     }
 
+    void RGCommandContext::BindTexture(const u32 slot, const RHI::ResourceHandle texture) const
+    {
+        RenderCommand::BindTexture(slot, texture);
+    }
+
     void RGCommandContext::MemoryBarrier(const MemoryBarrierFlags flags) const
     {
         if (flags == MemoryBarrierFlags::None)
@@ -149,6 +154,30 @@ namespace OloEngine
             m_RenderGraph->RecordResolveFailure(m_ActivePassName, "texture-resolve-zero");
 
         return resolved;
+    }
+
+    RHI::ResourceHandle RGCommandContext::ResolveTextureHandle(const RGTextureHandle handle) const
+    {
+        if (!m_RenderGraph)
+            return {};
+
+        if (!handle.IsValid())
+        {
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "invalid-texture-handle");
+            return {};
+        }
+
+        if (!m_RenderGraph->IsTextureHandleCurrent(handle))
+        {
+            m_RenderGraph->RecordResolveFailure(m_ActivePassName, "stale-texture-handle");
+            return {};
+        }
+
+        // NOT recorded as a resolve failure when the result is null: an
+        // unmigrated resource legitimately has no identity yet, and counting
+        // that as a failure would bury the real ones in noise for the whole
+        // duration of the migration.
+        return m_RenderGraph->ResolveTextureHandle(handle);
     }
 
     Ref<Framebuffer> RGCommandContext::ResolveFramebuffer(const RGFramebufferHandle handle) const

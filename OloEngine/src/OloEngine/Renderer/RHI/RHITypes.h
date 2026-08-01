@@ -28,7 +28,10 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <spdlog/fmt/fmt.h>
+
 #include <limits>
+#include <string>
 
 namespace OloEngine::RHI
 {
@@ -69,7 +72,11 @@ namespace OloEngine::RHI
         u32 Index = InvalidIndex;
         u32 Generation = 0;
 
-        [[nodiscard]] auto IsValid() const -> bool
+        // constexpr so the invariant can be asserted at compile time — see
+        // RHIBoundaryRatchetTest's ResourceHandleCannotBeSpelledAsANativeId,
+        // which needs it to pin that a parenthesized-aggregate-initialised
+        // handle (C++20 P0960) carries Generation == 0 and is therefore inert.
+        [[nodiscard]] constexpr auto IsValid() const -> bool
         {
             return Index != InvalidIndex && Generation > 0;
         }
@@ -81,6 +88,27 @@ namespace OloEngine::RHI
     struct ViewTag;
 
     using ResourceHandle = Handle<ResourceTag>;
+
+    // Sentinel spelling for "no resource". Reads better than a bare `{}` at a
+    // call site that used to pass a literal 0, and is the value every
+    // `handle.IsValid()` guard is testing against.
+    inline constexpr ResourceHandle NullResource{};
+
+    // A 64-bit key identifying a handle uniquely, for hashing and for the sort
+    // keys that used to pack a raw renderer ID. The (Generation << 32) | Index
+    // packing deliberately matches what std::hash<RGTextureHandle> and friends
+    // already do in Renderer/ResourceHandle.h — §1.1 says this type mirrors
+    // those, and that has to include how it is keyed or the graph acquires a
+    // second, subtly different scheme after all.
+    //
+    // For a *bucketing* key (a radix-sort field, a material hash) `Index` alone
+    // is usually the better choice: it is dense from zero where a driver-assigned
+    // name is arbitrary, and two live handles can never share one.
+    template<typename Tag>
+    [[nodiscard]] constexpr u64 HashKey(Handle<Tag> handle) noexcept
+    {
+        return (static_cast<u64>(handle.Generation) << 32u) | static_cast<u64>(handle.Index);
+    }
 
     // -------------------------------------------------------------------------
     // View identity — "which *view* of which resource?"
@@ -123,7 +151,7 @@ namespace OloEngine::RHI
 
         u32 Value = Invalid;
 
-        [[nodiscard]] auto IsValid() const -> bool
+        [[nodiscard]] constexpr auto IsValid() const -> bool
         {
             return Value != Invalid;
         }
@@ -526,3 +554,40 @@ namespace OloEngine::RHI
     // G-Buffer attachment while leaving the others untouched.
     inline constexpr u32 NoAttachment = std::numeric_limits<u32>::max();
 } // namespace OloEngine::RHI
+
+// -----------------------------------------------------------------------------
+// Logging support, added in Phase 2 step 3.
+//
+// The ~100 diagnostic sites that used to print a bare renderer ID
+// ("aoTex={}, depthTex={}") keep working, and say more than they did: a handle
+// prints as `#<index>:<generation>`, so a log line now distinguishes "the same
+// object" from "the same recycled slot" — the exact distinction the bare u32
+// could not express and TransientPool's alias reporting needs.
+//
+// No new dependency: RHITypes.h already includes Core/Base.h, which includes
+// Core/Log.h, which includes fmt. Nothing backend-specific enters this header.
+// -----------------------------------------------------------------------------
+// Hashing, so a handle can key a map exactly where a renderer ID used to.
+// Mirrors std::hash<RGTextureHandle> and friends (Renderer/ResourceHandle.h),
+// which pack the same way — see RHI::HashKey above for why that matters.
+template<typename Tag>
+struct std::hash<OloEngine::RHI::Handle<Tag>>
+{
+    [[nodiscard]] std::size_t operator()(const OloEngine::RHI::Handle<Tag>& handle) const noexcept
+    {
+        return std::hash<u64>{}(OloEngine::RHI::HashKey(handle));
+    }
+};
+
+template<typename Tag>
+struct fmt::formatter<OloEngine::RHI::Handle<Tag>> : formatter<std::string>
+{
+    template<typename FormatContext>
+    auto format(const OloEngine::RHI::Handle<Tag>& handle, FormatContext& ctx) const
+    {
+        if (!handle.IsValid())
+            return formatter<std::string>::format("<null>", ctx);
+
+        return formatter<std::string>::format(fmt::format("#{}:{}", handle.Index, handle.Generation), ctx);
+    }
+};

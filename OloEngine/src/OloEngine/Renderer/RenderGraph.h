@@ -432,6 +432,12 @@ namespace OloEngine
         [[nodiscard]] RGTextureHandle ImportTexture(std::string_view name, u32 textureID,
                                                     const RGResourceDesc& desc = {});
 
+        // Handle-taking sibling. A resource migrates its whole chain at once —
+        // created through a ...Handle creator, imported here, read back through
+        // ResolveTextureHandle, bound through the handle overload.
+        [[nodiscard]] RGTextureHandle ImportTextureHandle(std::string_view name, RHI::ResourceHandle texture,
+                                                          const RGResourceDesc& desc);
+
         // Import a physical Framebuffer. `fb` may be null for optional targets.
         [[nodiscard]] RGFramebufferHandle ImportFramebuffer(std::string_view name,
                                                             const Ref<Framebuffer>& fb,
@@ -513,6 +519,10 @@ namespace OloEngine
         // Returns 0 for an invalid handle or a handle whose backing resource
         // was imported with textureID == 0.
         [[nodiscard]] u32 ResolveTexture(RGTextureHandle handle) const;
+        // Identity form. Returns the null handle for an entry imported as a
+        // native id — those have no handle to give, which is why a resource's
+        // consumers migrate together with its importer.
+        [[nodiscard]] RHI::ResourceHandle ResolveTextureHandle(RGTextureHandle handle) const;
 
         // Resolve a handle back to its physical Framebuffer.
         // Returns nullptr for an invalid handle or a null-imported framebuffer.
@@ -546,7 +556,7 @@ namespace OloEngine
         struct ExternalTextureSinkContract
         {
             std::string SourceResource;
-            ResourceHandle::Kind SourceKind = ResourceHandle::Kind::Unknown;
+            RGResourceHandle::Kind SourceKind = RGResourceHandle::Kind::Unknown;
             u32 ColorAttachmentIndex = 0;
             bool SourceReachable = false;
         };
@@ -737,7 +747,7 @@ namespace OloEngine
         struct TransientPlanEntry
         {
             std::string Resource;
-            ResourceHandle::Kind Kind = ResourceHandle::Kind::Unknown;
+            RGResourceHandle::Kind Kind = RGResourceHandle::Kind::Unknown;
             u32 FirstPassIndex = std::numeric_limits<u32>::max();
             u32 LastPassIndex = 0;
             std::string FirstPass;
@@ -1432,8 +1442,30 @@ namespace OloEngine
         // -------------------------------------------------------------------
         struct PhysicalTexture
         {
+            // TextureID and Handle are ALTERNATIVES, not two views of one value,
+            // and exactly one is set per entry (issue #691 step 3, slice 5).
+            //
+            // They cannot drift, because neither can be derived from the other:
+            // `native -> handle` is unrecoverable (a driver name does not
+            // identify a registry slot), and `handle -> native` is a resolution
+            // that may only happen inside Platform/<Backend>/ — RenderGraph
+            // lives in Renderer/, so it cannot perform it. An entry therefore
+            // carries whichever currency its importer had, and callers read
+            // through the matching accessor: ResolveTexture for the native form,
+            // ResolveTextureHandle for the identity form.
+            //
+            // That is also why migration proceeds PER RESOURCE rather than per
+            // layer: a resource's creator -> import -> resolve -> bind chain
+            // moves together, inside one pass. The final slice deletes the
+            // native field once every chain has moved.
             u32 TextureID = 0;
+            RHI::ResourceHandle Handle;
             bool IsHistory = false;
+
+            [[nodiscard]] bool IsMigrated() const
+            {
+                return Handle.IsValid();
+            }
         };
         struct PhysicalFramebuffer
         {
@@ -1547,7 +1579,10 @@ namespace OloEngine
 
         // Allocate or recycle a texture handle slot and record the physical
         // resource. Called by ImportTexture / ImportHistory.
-        RGTextureHandle AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory, bool isPlaceholder = false, std::string_view placeholderReason = "");
+        // Shared implementation behind ImportTexture / ImportTextureHandle.
+        RGTextureHandle ImportTextureCommon(std::string_view name, u32 textureID,
+                                            RHI::ResourceHandle identity, const RGResourceDesc& desc);
+        RGTextureHandle AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory, bool isPlaceholder = false, std::string_view placeholderReason = "", RHI::ResourceHandle identity = {});
         RGFramebufferHandle AllocateFramebufferHandle(std::string_view name, const Ref<Framebuffer>& fb, bool isPlaceholder = false, std::string_view placeholderReason = "");
         RGBufferHandle AllocateBufferHandle(std::string_view name, u32 bufferID, bool isPlaceholder = false, std::string_view placeholderReason = "");
         [[nodiscard]] RGTextureHandle CreateVersionedTextureHandle(RGTextureHandle sourceHandle,
@@ -1560,7 +1595,7 @@ namespace OloEngine
                                                                  std::string_view versionedName,
                                                                  std::string_view ownerPassName);
         [[nodiscard]] RGResourceDesc BuildVersionedResourceDesc(std::string_view sourceResource,
-                                                                ResourceHandle::Kind fallbackKind,
+                                                                RGResourceHandle::Kind fallbackKind,
                                                                 std::string_view versionedName) const;
 
         void EnsureResourceRegistryBuilt() const;
