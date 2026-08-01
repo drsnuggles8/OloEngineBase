@@ -3455,7 +3455,21 @@ namespace OloEngine
                         texHandleIt != m_TextureHandlesByName.end() &&
                         texHandleIt->second.Index < m_PhysicalTextures.size())
                     {
-                        m_PhysicalTextures[texHandleIt->second.Index].TextureID = textureIt->second ? textureIt->second->GetRendererID() : 0;
+                        // BOTH currencies, read off the one pooled Ref in one
+                        // statement (issue #691 step 3, slice 7). See
+                        // PhysicalTexture: the "exactly one is set" rule covers
+                        // IMPORTS, where the importer only ever has one. The
+                        // planner holds the object, so it has both and they
+                        // cannot describe different textures.
+                        //
+                        // Setting Handle is what lets a consumer copy to/from a
+                        // transient in the identity currency — without it,
+                        // ResolveTextureHandle answers null for every transient
+                        // and any pass whose other operand migrated is stuck.
+                        auto& phys = m_PhysicalTextures[texHandleIt->second.Index];
+                        const auto& pooled = textureIt->second;
+                        phys.TextureID = pooled ? pooled->GetRendererID() : 0u;
+                        phys.Handle = pooled ? pooled->GetRHIHandle() : RHI::NullResource;
                     }
                     break;
                 }

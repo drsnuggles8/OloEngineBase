@@ -1266,7 +1266,7 @@ namespace OloEngine
                 // have (re)created the texture this frame, so the id handed
                 // to the pass must be read post-populate.
                 PostProcessPasses.Cloudscape->SetHistory(
-                    CloudsHistoryTexture ? CloudsHistoryTexture->GetRendererID() : 0u,
+                    CloudsHistoryTexture ? CloudsHistoryTexture->GetRHIHandle() : RHI::NullResource,
                     CloudsHistoryValid);
 
                 PostProcessPasses.Cloudscape->UploadAndBindUBO();

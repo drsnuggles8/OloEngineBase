@@ -194,6 +194,22 @@ namespace OloEngine
         return fb->GetDepthAttachmentRendererID();
     }
 
+    RHI::ResourceHandle GBuffer::GetColorAttachmentHandle(AttachmentIndex index) const
+    {
+        const auto& fb = m_ResolvedFramebuffer ? m_ResolvedFramebuffer : m_Framebuffer;
+        if (!fb)
+            return RHI::NullResource;
+        return fb->GetColorAttachmentHandle(std::to_underlying(index));
+    }
+
+    RHI::ResourceHandle GBuffer::GetDepthAttachmentHandle() const
+    {
+        const auto& fb = m_ResolvedFramebuffer ? m_ResolvedFramebuffer : m_Framebuffer;
+        if (!fb)
+            return RHI::NullResource;
+        return fb->GetDepthAttachmentHandle();
+    }
+
     u32 GBuffer::GetMSColorAttachmentID(AttachmentIndex index) const
     {
         if (!m_Framebuffer)

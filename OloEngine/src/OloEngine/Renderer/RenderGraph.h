@@ -1442,26 +1442,42 @@ namespace OloEngine
         // -------------------------------------------------------------------
         struct PhysicalTexture
         {
-            // TextureID and Handle are ALTERNATIVES, not two views of one value,
-            // and exactly one is set per entry (issue #691 step 3, slice 5).
+            // For an IMPORTED entry, TextureID and Handle are ALTERNATIVES and
+            // exactly one is set (issue #691 step 3, slice 5).
             //
             // They cannot drift, because neither can be derived from the other:
             // `native -> handle` is unrecoverable (a driver name does not
             // identify a registry slot), and `handle -> native` is a resolution
             // that may only happen inside Platform/<Backend>/ — RenderGraph
-            // lives in Renderer/, so it cannot perform it. An entry therefore
-            // carries whichever currency its importer had, and callers read
-            // through the matching accessor: ResolveTexture for the native form,
-            // ResolveTextureHandle for the identity form.
+            // lives in Renderer/, so it cannot perform it. An imported entry
+            // therefore carries whichever currency its importer had, and callers
+            // read through the matching accessor: ResolveTexture for the native
+            // form, ResolveTextureHandle for the identity form.
             //
-            // That is also why migration proceeds PER RESOURCE rather than per
-            // layer: a resource's creator -> import -> resolve -> bind chain
-            // moves together, inside one pass. The final slice deletes the
-            // native field once every chain has moved.
+            // A TRANSIENT entry sets BOTH, and that is not a loosening of the
+            // rule above but a case the rule never covered (slice 7). The
+            // exclusivity exists because an importer only ever HAS one currency.
+            // The transient planner is not an importer: it holds the pool's
+            // Ref<Texture2D> itself, so it has both in hand and they provably
+            // name the same object — it reads them off one pointer, in one
+            // statement. Nothing is derived, so nothing can drift.
+            //
+            // This is what unblocks the copy sites whose OTHER operand is a
+            // transient (SSAO's blur output, SceneRenderPass's depth/normal/
+            // velocity exports, GPUDrivenOcclusion's re-exports). Those were
+            // recorded as "blocked on the transient pool"; the pool was never
+            // the problem — this struct's contract was.
+            //
+            // Migration still proceeds PER RESOURCE for imports: a resource's
+            // creator -> import -> resolve -> bind chain moves together. The
+            // final slice deletes the native field once every chain has moved.
             u32 TextureID = 0;
             RHI::ResourceHandle Handle;
             bool IsHistory = false;
 
+            // "This entry can answer in the identity currency." True for a
+            // handle-import AND for a transient; false only for a native import
+            // whose chain has not migrated yet.
             [[nodiscard]] bool IsMigrated() const
             {
                 return Handle.IsValid();

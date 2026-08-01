@@ -669,16 +669,45 @@ Migrated: all seven bakers (`ThumbnailCapture`, `LightProbeBaker`,
 `DDGIProbeUpdatePass`'s attachment reads including the `SetAtlasTextureParams`
 signature, and `RenderGraph`'s attachment clear + NaN-census readback.
 
-Deliberately **not** migrated, each for a stated reason rather than for size:
+Deferred at the time, each for a stated reason rather than for size — **and
+five of the six were cleared by slices 6 and 7**, which is itself the lesson:
 
-| Site | Why it cannot move yet |
-| --- | --- |
-| `SSAO` blur→AO copy, `SceneRenderPass`'s three exports, `GPUDrivenOcclusion`'s two | The *other* copy operand comes from `context.ResolveTexture` on a **transient**, and a graph transient has only a native id (the pool hands out `AcquiredInfo::RendererID`). Blocked on the transient-pool slice, not on facade surface. |
-| `Cloudscape`'s raymarch source | Compared against a history id that is native (`m_HistoryTextureID` plus a `ResolveTexture`). The doc's own note — "`Cloudscape` needs `CloudNoise` migrated first" — is the same dependency. |
-| `Renderer3DFrameExecution`'s HZB depth, `PlanarReflection`, `Water` | Feed `Renderer3D::` setters/`BuildCurrentOcclusionHZB`, i.e. worklist item 3. |
-| `RenderGraph`'s three external-sink copies | The sink's `TextureID` is registered from outside the graph as a raw `u32`. |
-| `RenderGraph`'s JSON topology dump | Reports native ids on purpose, for external tooling. |
-| `Renderer/Debug/`'s two | Phase 8 relocation. |
+| Site | Why it was deferred | Outcome |
+| --- | --- | --- |
+| `SSAO` blur→AO copy, `SceneRenderPass`'s three exports, `GPUDrivenOcclusion`'s two | "the other operand is a **transient**, and a transient has only a native id" | **WRONG — cleared in slice 7.** See below. |
+| `Cloudscape`'s raymarch source + history | native history id + a transient resolve | **Cleared in slice 7** |
+| `Renderer3DFrameExecution`'s HZB depth, `PlanarReflection`, `Water` | feed `Renderer3D::` setters | **Water + PlanarReflection cleared in slice 6** when those setters migrated; the HZB one remains |
+| `RenderGraph`'s three external-sink copies | the sink's `TextureID` is registered from outside the graph as a raw `u32` | still open |
+| `RenderGraph`'s JSON topology dump | reports native ids on purpose, for external tooling | stays native |
+| `Renderer/Debug/`'s two | Phase 8 relocation | stays |
+
+### The "blocked on the transient pool" claim was wrong, and the shape of the error is worth keeping
+
+It was recorded as fact in the worklist AND posted to #691 before anyone
+measured it. `TransientPool::AcquireTexture` returns a **`Ref<Texture2D>`, which
+has minted handles since slice 2**; `AcquiredInfo::RendererID` is a
+diagnostics-report field with no role in resolution. The real constraint was one
+line in the planner that simply never set `.Handle`, and behind it a **design
+invariant, not a missing producer**: `PhysicalTexture` documented `TextureID`
+and `Handle` as "ALTERNATIVES… exactly one is set per entry".
+
+That rule is right for an **import** — an importer only ever *has* one currency,
+and neither is derivable from the other. It was never true of a **transient**:
+the planner holds the pooled `Ref` itself, so it has both in hand and reads them
+off one pointer in one statement. Nothing is derived, so nothing can drift.
+Setting both is what unblocked all eight sites.
+
+**Generalisable:** when a migration says "blocked on X", check whether X is a
+missing *capability* or an *invariant someone wrote down*. A missing capability
+is work. An invariant is a decision, and decisions can be revisited once you
+know which case they were written for. Recording the blocker without checking
+which kind it was cost this issue a whole slice of imagined work — and put a
+false statement on the tracker.
+
+Bonus from doing it: every one of those sites guards its copy with
+`if (src != dst)`. Those now compare OBJECTS, so a recycled driver name can no
+longer make a source and its export look identical and skip a copy the frame
+needed — the `InstanceGroupKey` defect class, in four more places.
 
 **Counters after slice 5:** `sweep_renderer_id` 699 → **653**;
 `facade_native_id_params` unchanged at 68, because that slice *adds* handle
