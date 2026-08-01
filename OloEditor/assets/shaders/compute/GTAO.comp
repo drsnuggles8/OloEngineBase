@@ -185,6 +185,21 @@ void main()
         return;
     }
 
+    // Match SSAO: no normal means no occlusion, so store full visibility.
+    //
+    // Tested next to the depth early-out rather than at the decode below: a
+    // sentinel pixel produces exactly this result regardless of depth,
+    // neighbour depths, edges or reconstructed position, so computing those
+    // first is pure waste. On a forward-path frame the overlay shaders cover
+    // a large share of the screen.
+    vec2 encodedNormal = texelFetch(u_ViewNormals, pixCoord, 0).rg;
+    if (encodedNormal.x < -1.5)
+    {
+        imageStore(o_AOTerm, pixCoord, vec4(1.0));
+        imageStore(o_Edges, pixCoord, vec4(0.0));
+        return;
+    }
+
     float viewspaceZ = LinearizeDepth(deviceZ);
 
     // Neighbour depths for edge detection
@@ -223,14 +238,6 @@ void main()
     // draws, so only forward sees the sentinel. It cost ~4/255 mean absolute
     // difference between the two paths at an off-axis pose.
     //
-    // Match SSAO: no normal means no occlusion, so store full visibility.
-    vec2 encodedNormal = texelFetch(u_ViewNormals, pixCoord, 0).rg;
-    if (encodedNormal.x < -1.5)
-    {
-        imageStore(o_AOTerm, pixCoord, vec4(1.0));
-        imageStore(o_Edges, pixCoord, vec4(0.0));
-        return;
-    }
     vec3 viewNormal = normalize(mat3(u_ViewMatrix) * OctDecode(encodedNormal));
 
     // Noise for slice rotation (.x) and sample distance along the slice (.y).

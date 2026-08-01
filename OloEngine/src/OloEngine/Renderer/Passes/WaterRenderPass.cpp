@@ -71,12 +71,20 @@ namespace OloEngine
         //
         // Scene.SceneDepth is the semantic snapshot for exactly this purpose,
         // and is what ContactShadowRenderPass and FogRenderPass already read.
-        const RGTextureHandle waterSceneDepth =
-            board.Scene.SceneDepth.IsValid() ? board.Scene.SceneDepth : board.Scene.SceneDepthAttachment;
-        if (waterSceneDepth.IsValid())
+        // No fallback to SceneDepthAttachment. An earlier version fell back to
+        // it when the snapshot was missing, which contradicts the paragraph
+        // above: the fallback IS the live attachment, so the "never sample the
+        // live attachment" rule held only while the snapshot happened to be
+        // published. Absent the snapshot, Execute's `depthTextureID == 0u`
+        // guard drops the draw for this frame — losing the water is a visible,
+        // debuggable outcome, whereas a feedback loop is undefined behaviour
+        // that reads correctly on one vendor and shows the seafloor through
+        // the surface on another.
+        if (board.Scene.SceneDepth.IsValid())
         {
-            m_SelectedSceneDepthTexture = waterSceneDepth;
-            [[maybe_unused]] const auto sceneDepthRead = builder.Read(waterSceneDepth, RGReadUsage::ShaderSample);
+            m_SelectedSceneDepthTexture = board.Scene.SceneDepth;
+            [[maybe_unused]] const auto sceneDepthRead =
+                builder.Read(board.Scene.SceneDepth, RGReadUsage::ShaderSample);
         }
 
         if (board.Scene.SceneViewNormals.IsValid())

@@ -8212,8 +8212,14 @@ namespace OloEngine
                     f32 waveReach = kMinWaveReach;
                     if (water.m_UseFFT)
                     {
-                        const f32 fftAmplitude =
-                            std::isfinite(water.m_FFTAmplitude) ? std::abs(water.m_FFTAmplitude) : 0.0f;
+                        // Sanitize exactly as the render path does (clampF with
+                        // the same bounds at the m_Amplitude / fftAmp sites
+                        // above). std::abs would disagree with it on a negative
+                        // amplitude, and skipping the upper bound would disagree
+                        // on an out-of-range one — the fog reach must be derived
+                        // from the wave height actually rendered, not a
+                        // differently-sanitized copy of the same field.
+                        const f32 fftAmplitude = sanitizeParam(water.m_FFTAmplitude, 0.0f, 100.0f, 2.0f);
                         const f32 heightScale = WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale);
                         waveReach = std::max(waveReach, fftAmplitude * heightScale);
                     }

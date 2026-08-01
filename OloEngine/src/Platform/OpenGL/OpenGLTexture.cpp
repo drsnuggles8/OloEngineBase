@@ -291,7 +291,7 @@ namespace OloEngine
             // NOTE: Texture Wrapping
             glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER,
                                 integerFormat ? (m_MipLevels > 1u ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST)
-                                              : GL_LINEAR_MIPMAP_LINEAR);
+                                              : (m_MipLevels > 1u ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR));
             glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, integerFormat ? GL_NEAREST : GL_LINEAR);
 
             // NOTE: Texture Filtering
@@ -774,6 +774,13 @@ namespace OloEngine
                 bpp = 4;
                 dataType = GL_FLOAT;
                 break;
+            case ImageFormat::R32I:
+                // Without this the default arm leaves GL_UNSIGNED_BYTE. bpp is
+                // 4 either way, so the size assert below still passes and the
+                // upload silently reinterprets the data.
+                bpp = 4;
+                dataType = GL_INT;
+                break;
             case ImageFormat::RG32F:
                 bpp = 8;
                 dataType = GL_FLOAT;
@@ -876,6 +883,11 @@ namespace OloEngine
                 break;
             case ImageFormat::RGBA16F:
                 dataType = GL_FLOAT;
+                break;
+            case ImageFormat::R32I:
+                // Integer format: the default arm would leave GL_UNSIGNED_BYTE
+                // and silently reinterpret the upload.
+                dataType = GL_INT;
                 break;
             default:
                 break;
@@ -1061,6 +1073,12 @@ namespace OloEngine
             case ImageFormat::R32F:
                 bytesPerPixel = 4;
                 dataType = GL_FLOAT;
+                break;
+            case ImageFormat::R32I:
+                // Integer format — readback must use GL_INT, not the default
+                // GL_UNSIGNED_BYTE, or the entity-ID values come back mangled.
+                bytesPerPixel = 4;
+                dataType = GL_INT;
                 break;
             case ImageFormat::RG32F:
                 bytesPerPixel = 8;
