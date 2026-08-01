@@ -265,8 +265,8 @@ namespace OloEngine
             context.Clear();
 
             m_BloomDownsampleShader->Bind();
-            const u32 srcID = srcMip->GetColorAttachmentRendererID(0);
-            context.BindTexture(0, srcID);
+            const RHI::ResourceHandle srcTexture = srcMip->GetColorAttachmentHandle(0);
+            context.BindTexture(0, srcTexture);
 
             if (m_GPUData && m_PostProcessUBO)
             {
@@ -309,8 +309,8 @@ namespace OloEngine
             // No clear — we're additively accumulating into existing content.
 
             m_BloomUpsampleShader->Bind();
-            const u32 srcID = srcMip->GetColorAttachmentRendererID(0);
-            context.BindTexture(0, srcID);
+            const RHI::ResourceHandle srcTexture = srcMip->GetColorAttachmentHandle(0);
+            context.BindTexture(0, srcTexture);
 
             if (m_GPUData && m_PostProcessUBO)
             {
@@ -364,8 +364,8 @@ namespace OloEngine
             context.BindTexture(0, inputColorTextureID);
             m_BloomCompositeShader->SetInt("u_SceneColor", 0);
 
-            const u32 bloomColorID = bloomMips[0]->GetColorAttachmentRendererID(0);
-            context.BindTexture(1, bloomColorID);
+            const RHI::ResourceHandle bloomColor = bloomMips[0]->GetColorAttachmentHandle(0);
+            context.BindTexture(1, bloomColor);
             m_BloomCompositeShader->SetInt("u_BloomColor", 1);
 
             const auto va = MeshPrimitives::GetFullscreenTriangle();

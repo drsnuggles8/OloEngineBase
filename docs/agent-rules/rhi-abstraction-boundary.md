@@ -505,29 +505,43 @@ distribution is the part that matters — the unit of work must intersect what y
 are counting, which twice it did not.
 
 Reproduce with `python OloEngine/tests/scripts/measure_rendererid.py`
-(`\w*RendererID\w*` over `OloEngine/src` — 1196 raw across 118 files at the
-time of writing; the ratchet's 699 is the same thing after stripping comments,
-strings and the exempt backend):
+(`\w*RendererID\w*` over `OloEngine/src`; the ratchet's `sweep_renderer_id` is
+the same thing after stripping comments, strings and the exempt backend). The
+script derives the repo root from its own location — the first version pinned an
+absolute worktree path and reported a confident `TOTAL 0 across 0 files`
+everywhere else, so **if it prints 0, check that before believing it.**
+
+Counts are *after* slice 5 (was 1196 across 118 files; now **1150 across 110**):
 
 | Where | Count | Note |
 | --- | ---: | --- |
 | `Platform/OpenGL/` | 412 | **Exempt.** The backend may name GL ids. |
-| `Renderer/Commands/` (`RenderCommand.h` 72, `CommandDispatch.cpp` 67) | 141 | The bind-cache unit below. |
-| `Renderer3DMeshSubmission.cpp` | 71 | Same dataflow as above. |
-| `Scene/Scene.cpp` | 66 | |
-| `Renderer3D.h` | 62 | |
-| `Get{Color,Depth}AttachmentRendererID` call sites | 72 | Producer already ships (slice 3). |
+| `Renderer/Commands/` (`RenderCommand.h` 72, `CommandDispatch.cpp` 67) | 141 | The bind-cache unit below. Untouched. |
+| `Renderer3DMeshSubmission.cpp` | 71 | Same dataflow as above. Untouched. |
+| `Scene/Scene.cpp` | 66 | Untouched (item 3). |
+| `Renderer3D.h` | 62 | Untouched (item 3). |
+| `Get{Color,Depth}AttachmentRendererID` call sites | 72 → **31** | Slice 5. The remainder is the deferred table below plus the native accessors kept on purpose. |
 
 By spelling: `m_RendererID` 439 (mostly backend-internal, exempt),
-`GetRendererID` 325 (**the real target** — consumers), `shaderRendererID` 110,
-attachment getters 72.
+`GetRendererID` 325 → **319** (**the real target** — consumers),
+`shaderRendererID` 110, attachment getters 71 → **31**.
 
 Suggested order, each a buildable commit:
 
-1. **Attachment consumers** — 72 sites, producer (`GetColorAttachmentHandle`)
-   already exists, no new facade surface needed. Highest yield per unit of risk;
-   `DDGIProbeUpdatePass`'s `SetAtlasTextureParams` alone is 8 behind one
-   signature.
+1. ~~**Attachment consumers**~~ — **DONE (slice 5)** for every site whose sink
+   was reachable; see "What slice 5 actually moved" below for the eight that
+   were not, and why leaving them is the correct call rather than a shortfall.
+   One prediction in this list was wrong and is worth keeping: *"no new facade
+   surface needed"*. Six new virtuals were needed
+   (`CopyImageSubData` / `CopyImageSubDataFull` / `ClearTextureFloat` /
+   `ReadTextureImage` / `ReadTextureSubImage` / offset-`UploadTextureSubImage2D`),
+   because the survey behind this table counted only *bind* sinks. The
+   attachment getters also feed a **copy** family (the bakers stage an
+   attachment into a persistent `Texture2D`/cubemap) and a **readback** family
+   (thumbnail / light-probe / reflection-probe capture). Same lesson as §4's
+   `SetTextureFilter`/`SetTextureWrap`/`UploadTextureSubImage2D` discovery, one
+   slice later: **you cannot enumerate a migration's facade needs by reading;
+   migrate one real consumer per SINK FAMILY and let the compiler tell you.**
 2. **The command-layer bind cache** — one indivisible unit, see below.
 3. `Scene.cpp` / `Renderer3D.h`, then the remaining passes (`ColorGrading` is a
    near-clone of the migrated SSAO; `Cloudscape` needs `CloudNoise` migrated
@@ -542,6 +556,95 @@ Two producer gaps to close before their consumers can move: `VertexBuffer` /
 `Renderer3DMeshSubmission`), and `ShadowMap`'s `GetCSMRendererID` /
 `GetAtlasRendererID` + raw/placeholder variants need handle siblings (blocks
 item 2).
+
+### `ImportTextureHandle` BLINDS `ResolveTexture`, and `ResolveTexture` is what the MCP capture endpoints read
+
+**Read this before migrating any `builder.ImportTexture` call.** It is the one
+finding from slice 5 that changes how later slices must be scoped, and it is
+already live in `master`.
+
+`ImportTextureCommon` treats the native id and the identity as **alternatives,
+never both** — `ImportTexture(name, id, desc)` passes `identity = {}` and
+`ImportTextureHandle(name, handle, desc)` passes `textureID = 0u`. That
+invariant is deliberate and correct (it is what makes `AllocateTextureHandle`'s
+change detection honest — see the section below on stamping identity on
+afterwards). The consequence is not:
+
+- `RenderGraph::ResolveTexture` ends at `m_PhysicalTextures[i].TextureID`, so it
+  returns **0** for a handle-imported resource;
+- `Renderer3D::ResolveFrameGraphTexture` forwards to it, and
+- `McpToolsRender.cpp` resolves *every* reported id through those two
+  (`olo_render_list_targets`' `GLTextureId`, `olo_render_validate`'s identity
+  table, and `ResolveTargetTexture`, which backs `olo_render_capture_target`).
+
+So **migrating a resource's import silently removes it from the diagnostics**.
+It does not fail, warn, or look different from a resource that genuinely has no
+backing — the capture just reports id 0. #732 already did this to SSAO's noise
+texture, which is why `olo_render_capture_target SSAONoise` cannot work today.
+That matters more than one broken probe: CLAUDE.md's rendering-verification rule
+is *enforced through these endpoints*, so a slice that quietly blinds them
+removes the check on itself.
+
+The fix is a fallback, not a new resolver: try the native id, and when it is 0
+ask the identity and go through `RHI::GetNativeHandleForDebug` — the hatch
+documented in `RHIResources.h` for exactly "the introspection tools in
+`Renderer/Debug/` and the MCP capture endpoints they back". It belongs in the
+editor, which `RHIBoundaryRatchetTest` does not scan (it walks `OloEngine/src`
+only), so `debug_escape_hatch` legitimately stays 0.
+
+**Sequencing rule this gives you:** a resource's import may only move to
+`ImportTextureHandle` *after* the diagnostics can read a handle-imported
+resource. Slice 5 therefore migrated DDGI's atlas *consumers* while leaving
+`importAtlas` on the native id, and left `m_ProbeDataTexture` native entirely —
+two complete chains on two currencies, which is fine, rather than one chain that
+compiles and blinds a tool.
+
+### What slice 5 actually moved, and the eight sites it deliberately did not
+
+Migrated: all seven bakers (`ThumbnailCapture`, `LightProbeBaker`,
+`ReflectionProbeBaker`, `IBLPrecompute`, `ImpostorBaker`, `SkyCubemapBake`,
+`AssetPreviewRenderer`), the straightforward bind passes (`Fog`, `Overdraw`,
+`SelectionOutline`, `Cloudscape`'s composite, `Decal`, `Bloom`), all of
+`DDGIProbeUpdatePass`'s attachment reads including the `SetAtlasTextureParams`
+signature, and `RenderGraph`'s attachment clear + NaN-census readback.
+
+Deliberately **not** migrated, each for a stated reason rather than for size:
+
+| Site | Why it cannot move yet |
+| --- | --- |
+| `SSAO` blur→AO copy, `SceneRenderPass`'s three exports, `GPUDrivenOcclusion`'s two | The *other* copy operand comes from `context.ResolveTexture` on a **transient**, and a graph transient has only a native id (the pool hands out `AcquiredInfo::RendererID`). Blocked on the transient-pool slice, not on facade surface. |
+| `Cloudscape`'s raymarch source | Compared against a history id that is native (`m_HistoryTextureID` plus a `ResolveTexture`). The doc's own note — "`Cloudscape` needs `CloudNoise` migrated first" — is the same dependency. |
+| `Renderer3DFrameExecution`'s HZB depth, `PlanarReflection`, `Water` | Feed `Renderer3D::` setters/`BuildCurrentOcclusionHZB`, i.e. worklist item 3. |
+| `RenderGraph`'s three external-sink copies | The sink's `TextureID` is registered from outside the graph as a raw `u32`. |
+| `RenderGraph`'s JSON topology dump | Reports native ids on purpose, for external tooling. |
+| `Renderer/Debug/`'s two | Phase 8 relocation. |
+
+**Counters:** `sweep_renderer_id` 699 → **653**; `facade_native_id_params`
+deliberately unchanged at 68, because this slice *adds* handle overloads and
+deletes no `u32` form — that is worklist item 4's job, and the documented order.
+The 46 is real but flatters the slice: the accessor name survives wherever a
+native sibling is kept on purpose (DDGI's `GetIrradianceAtlasID` is still there
+so `importAtlas` can call it), and 40 of the 46 are the attachment getters
+themselves. Read §4's "do not use it as a progress meter" note before reading
+either number as a completion fraction.
+
+### Hashing a driver name into a cache fingerprint cannot see a destroy-then-recreate
+
+Found while migrating DDGI, and general: `RenderPipeline::ComputeBlackboardFingerprint`
+hashed `GetIrradianceAtlasID(ping)` so that recreating the atlases would rebuild
+the frame graph and re-import them. But `DDGIProbeUpdatePass::EnsureResources`
+calls `DestroyResources()` **before** creating the replacements, so every atlas
+texture is freed first and GL is then free to reissue the same names — under
+which the fingerprint does not change at all. The rebuild never happens and the
+graph keeps an import whose `Width`/`Height` still describe the *old* resolution,
+which is exactly what `olo_render_list_targets` then reports.
+
+Hashing `RHI::HashKey(handle)` fixes it, because a generation cannot be
+reissued. **Any cache keyed on "did this GPU object change" has this bug if it
+keys on the driver name and the owner frees before it allocates** — and note the
+opposite ordering (allocate-then-release, as `m_IrradianceFB[i] = makeAtlasFB(…)`
+would be on its own) hides it completely, so whether the bug is live depends on
+a line of teardown code nowhere near the hash.
 
 ### The command layer's bind cache is ONE unit, and its GL-name keying has already shipped a bug
 

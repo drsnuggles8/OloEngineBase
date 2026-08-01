@@ -5,10 +5,15 @@
 //
 // Issue #691 Phase 1, ADR 0011 (docs/adr/0011-rhi-neutral-resource-and-binding-model.md).
 //
-// **This header is declaration-only and nothing consumes it yet.** It exists so
-// that the Phase 2 sweep of ~313 raw `glXxx()` call sites has a fixed target to
-// convert *toward*, instead of inventing a vocabulary one file at a time and
-// discovering the disagreements at merge time.
+// Written declaration-only in Phase 1, so that the Phase 2 sweep of ~313 raw
+// `glXxx()` call sites had a fixed target to convert *toward* instead of
+// inventing a vocabulary one file at a time and discovering the disagreements at
+// merge time. **That is history now** — `ResourceHandle` below is the live
+// identity currency: minted by RHI::ResourceRegistry, carried by the
+// Platform/OpenGL resource classes, RenderCommand's handle-taking siblings, the
+// render graph, and the framebuffer attachment getters. `ViewHandle` /
+// `HeapOffset` are still forward-looking and land in Phase 3 as a matched pair
+// (ADR 0011 amendment (11)).
 //
 // Two hard rules, both enforced by RHIBoundaryRatchetTest:
 //

@@ -112,10 +112,10 @@ namespace OloEngine::SkyBake
             vao->Bind();
             RenderCommand::DrawIndexed(vao);
 
-            const u32 fbColor = framebuffer->GetColorAttachmentRendererID(0);
+            const RHI::ResourceHandle fbColor = framebuffer->GetColorAttachmentHandle(0);
             RenderCommand::CopyImageSubDataFull(
                 fbColor, RendererAPI::TextureTargetType::Texture2D, 0, 0,
-                cubemap->GetRendererID(), RendererAPI::TextureTargetType::TextureCubeMap, 0, static_cast<i32>(i),
+                cubemap->GetRHIHandle(), RendererAPI::TextureTargetType::TextureCubeMap, 0, static_cast<i32>(i),
                 face, face);
         }
 

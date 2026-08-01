@@ -1565,16 +1565,25 @@ namespace OloEngine
         // DDGI atlas imports (issue #607): DDGIProbeUpdatePass::Setup imports
         // the ping-pong atlases + probe-data texture, which are created lazily
         // (first submitted volume) and recreated on a Resolution /
-        // HitCacheTexels edit — the ids change with NO pass-enable change.
-        // Hash the raw ids so the rebuild that (re)imports them actually
+        // HitCacheTexels edit — the resources change with NO pass-enable
+        // change. Hash them so the rebuild that (re)imports them actually
         // happens — the exact VirtualGeometryDebug rule below.
+        //
+        // The four atlases hash by IDENTITY, not by driver name (issue #691
+        // step 3). EnsureResources calls DestroyResources BEFORE recreating, so
+        // the old attachment textures are gone by the time the new ones are
+        // made and GL may reissue the same names — under which a raw-id hash
+        // sees no change at all and the graph keeps an import still describing
+        // the OLD resolution. A generation cannot be reissued. m_ProbeDataTexture
+        // has no identity yet (it is a pass-owned native texture, deferred to a
+        // later slice) and keeps its raw id.
         if (FrameCorePasses.DDGIProbeUpdate)
         {
             const auto& ddgiPass = *FrameCorePasses.DDGIProbeUpdate;
-            HashU32(h, ddgiPass.GetIrradianceAtlasID(0u));
-            HashU32(h, ddgiPass.GetIrradianceAtlasID(1u));
-            HashU32(h, ddgiPass.GetVisibilityAtlasID(0u));
-            HashU32(h, ddgiPass.GetVisibilityAtlasID(1u));
+            HashU64(h, RHI::HashKey(ddgiPass.GetIrradianceAtlasHandle(0u)));
+            HashU64(h, RHI::HashKey(ddgiPass.GetIrradianceAtlasHandle(1u)));
+            HashU64(h, RHI::HashKey(ddgiPass.GetVisibilityAtlasHandle(0u)));
+            HashU64(h, RHI::HashKey(ddgiPass.GetVisibilityAtlasHandle(1u)));
             HashU32(h, ddgiPass.GetProbeDataTextureID());
         }
         HashPassState(h, SceneCompositePasses.DeferredLighting);

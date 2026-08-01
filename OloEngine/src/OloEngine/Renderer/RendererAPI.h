@@ -163,9 +163,23 @@ namespace OloEngine
         // GPU-side image copy (used for staging textures to avoid read-write hazards)
         virtual void CopyImageSubData(u32 srcID, TextureTargetType srcTarget, u32 dstID, TextureTargetType dstTarget,
                                       u32 width, u32 height) = 0;
+        // Handle form — both operands together, same reasoning as
+        // CopyImageSubDataFull below.
+        virtual void CopyImageSubData(RHI::ResourceHandle src, TextureTargetType srcTarget,
+                                      RHI::ResourceHandle dst, TextureTargetType dstTarget,
+                                      u32 width, u32 height) = 0;
         // Full image copy with source/dest offsets (needed for cubemap face copies)
         virtual void CopyImageSubDataFull(u32 srcID, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
                                           u32 dstID, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
+                                          u32 width, u32 height) = 0;
+        // Handle form (issue #691 step 3, slice 5 — attachment consumers). BOTH
+        // operands take handles together, deliberately: every caller is
+        // "framebuffer attachment -> persistent texture", so a mixed
+        // handle/native overload pair would only exist to serve a half-migrated
+        // chain, which is the state this migration is meant to make
+        // unrepresentable.
+        virtual void CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
+                                          RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
                                           u32 width, u32 height) = 0;
         // Copy from currently-bound READ framebuffer to a named texture
         virtual void CopyFramebufferToTexture(u32 textureID, u32 width, u32 height) = 0;
@@ -351,6 +365,7 @@ namespace OloEngine
         // VkClearColorValue's float/uint union members. `mipLevel` clears one
         // level of every layer/face, matching glClearTexImage.
         virtual void ClearTextureFloat(u32 textureID, u32 mipLevel, const glm::vec4& color) = 0;
+        virtual void ClearTextureFloat(RHI::ResourceHandle texture, u32 mipLevel, const glm::vec4& color) = 0;
         virtual void ClearTextureUInt(u32 textureID, u32 mipLevel, u32 value) = 0;
         // Offset overloads of the whole-image UploadTextureSubImage2D above.
         // `sourceFormat` is the HOST buffer's layout, not the texture's storage
@@ -369,7 +384,20 @@ namespace OloEngine
         [[nodiscard("Store this!")]] virtual bool ReadTextureImage(u32 textureID, u32 mipLevel,
                                                                    RHI::Format destFormat,
                                                                    sizet destSizeBytes, void* dest) = 0;
+        // A stale handle resolves to 0, and a readback of texture 0 fails —
+        // so this reports false rather than silently handing back an
+        // uninitialised buffer. LightProbeBaker depends on that: its
+        // coefficients are PERSISTED, so a bad read must abandon the bake, not
+        // write wrong lighting to disk.
+        [[nodiscard("Store this!")]] virtual bool ReadTextureImage(RHI::ResourceHandle texture, u32 mipLevel,
+                                                                   RHI::Format destFormat,
+                                                                   sizet destSizeBytes, void* dest) = 0;
         [[nodiscard("Store this!")]] virtual bool ReadTextureSubImage(u32 textureID, u32 mipLevel,
+                                                                      i32 x, i32 y, i32 z,
+                                                                      u32 width, u32 height, u32 depth,
+                                                                      RHI::Format destFormat,
+                                                                      sizet destSizeBytes, void* dest) = 0;
+        [[nodiscard("Store this!")]] virtual bool ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel,
                                                                       i32 x, i32 y, i32 z,
                                                                       u32 width, u32 height, u32 depth,
                                                                       RHI::Format destFormat,

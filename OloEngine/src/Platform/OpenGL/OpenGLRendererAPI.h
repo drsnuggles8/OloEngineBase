@@ -84,8 +84,14 @@ namespace OloEngine
         void SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst) override;
         void CopyImageSubData(u32 srcID, TextureTargetType srcTarget, u32 dstID, TextureTargetType dstTarget,
                               u32 width, u32 height) override;
+        void CopyImageSubData(RHI::ResourceHandle src, TextureTargetType srcTarget,
+                              RHI::ResourceHandle dst, TextureTargetType dstTarget,
+                              u32 width, u32 height) override;
         void CopyImageSubDataFull(u32 srcID, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
                                   u32 dstID, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
+                                  u32 width, u32 height) override;
+        void CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
+                                  RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
                                   u32 width, u32 height) override;
         void CopyFramebufferToTexture(u32 textureID, u32 width, u32 height) override;
         void SetDrawBuffers(std::span<const u32> attachments) override;
@@ -173,6 +179,7 @@ namespace OloEngine
         void DeleteVertexArray(u32 vaoID) override;
 
         void ClearTextureFloat(u32 textureID, u32 mipLevel, const glm::vec4& color) override;
+        void ClearTextureFloat(RHI::ResourceHandle texture, u32 mipLevel, const glm::vec4& color) override;
         void ClearTextureUInt(u32 textureID, u32 mipLevel, u32 value) override;
         // Offset overload; the whole-image one is declared above.
         void UploadTextureSubImage2D(u32 textureID, i32 xOffset, i32 yOffset,
@@ -184,7 +191,15 @@ namespace OloEngine
         [[nodiscard("Store this!")]] bool ReadTextureImage(u32 textureID, u32 mipLevel,
                                                            RHI::Format destFormat,
                                                            sizet destSizeBytes, void* dest) override;
+        [[nodiscard("Store this!")]] bool ReadTextureImage(RHI::ResourceHandle texture, u32 mipLevel,
+                                                           RHI::Format destFormat,
+                                                           sizet destSizeBytes, void* dest) override;
         [[nodiscard("Store this!")]] bool ReadTextureSubImage(u32 textureID, u32 mipLevel,
+                                                              i32 x, i32 y, i32 z,
+                                                              u32 width, u32 height, u32 depth,
+                                                              RHI::Format destFormat,
+                                                              sizet destSizeBytes, void* dest) override;
+        [[nodiscard("Store this!")]] bool ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel,
                                                               i32 x, i32 y, i32 z,
                                                               u32 width, u32 height, u32 depth,
                                                               RHI::Format destFormat,

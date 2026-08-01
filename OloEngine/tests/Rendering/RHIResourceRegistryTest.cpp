@@ -123,6 +123,45 @@ namespace OloEngine::Tests
         registry.Unregister(second);
     }
 
+    // The cache-fingerprint corollary of the test above, and the reason
+    // RenderPipeline::ComputeBlackboardFingerprint hashes RHI::HashKey(handle)
+    // rather than the raw id (issue #691 step 3, slice 5).
+    //
+    // The concrete bug: DDGIProbeUpdatePass::EnsureResources calls
+    // DestroyResources() BEFORE creating the replacement atlases, so every
+    // attachment texture is freed first and GL is free to reissue the same
+    // names. Hashing those names therefore could not observe a
+    // Resolution/HitCacheTexels edit at all — the fingerprint never changed,
+    // BuildFrameGraph was never rebuilt, and the render graph kept an import
+    // whose Width/Height still described the old resolution (which is what
+    // olo_render_list_targets then reported).
+    //
+    // Note this is a STRICTLY stronger claim than `first != second` above: a
+    // fingerprint mixes a single integer, so it needs the *keyed* form to
+    // differ, not merely the handles.
+    TEST(RHIResourceRegistry, HashKeyDiffersAcrossADestroyRecreateThatReusesTheNativeName)
+    {
+        auto& registry = Registry();
+
+        constexpr u64 kRecycledNativeName = 909090u;
+
+        const auto before = registry.Register(RHI::ResourceKind::Texture, kRecycledNativeName, RHI::Backend::OpenGL);
+        registry.Unregister(before);
+        const auto after = registry.Register(RHI::ResourceKind::Texture, kRecycledNativeName, RHI::Backend::OpenGL);
+
+        ASSERT_EQ(before.Index, after.Index) << "Test precondition: the slot must actually be recycled";
+        ASSERT_EQ(registry.ResolveNativeForBackend(after), kRecycledNativeName)
+            << "Test precondition: the recreate must genuinely reuse the freed native name — "
+               "that is the case a raw-id hash cannot see";
+
+        EXPECT_NE(RHI::HashKey(before), RHI::HashKey(after))
+            << "A cache keyed on 'did this GPU object change' must observe a destroy/recreate even "
+               "when the driver reissues the name. If this ever compares equal, every fingerprint "
+               "built from HashKey silently stops invalidating.";
+
+        registry.Unregister(after);
+    }
+
     TEST(RHIResourceRegistry, UpdateNativeKeepsIdentityAcrossAnInPlaceReload)
     {
         // Models texture hot-reload (issue #544 Part B): the C++ object survives,

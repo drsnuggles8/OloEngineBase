@@ -68,6 +68,19 @@ namespace OloEngine
         static_assert(sizeof(DDGIPassDataUBO) == 160, "DDGIPassDataUBO std140 size drifted from GLSL expectation (160 B)");
         static_assert(sizeof(DDGIPassDataUBO) % 16 == 0, "DDGIPassDataUBO must be 16-byte aligned for std140");
 
+        // Overloaded rather than converted (issue #691 step 3, slice 5). The
+        // atlases are framebuffer ATTACHMENTS and migrated to identities; the
+        // 1x1 placeholder/white/probe-data textures this pass creates itself are
+        // still native and belong to a later resource-grain slice (they are also
+        // graph-imported, and ImportTextureHandle is the blocker — see the
+        // comment on importAtlas in Setup). Two complete chains on two
+        // currencies, not one half-migrated chain.
+        void SetAtlasTextureParams(RHI::ResourceHandle texture, RHI::Filter filter)
+        {
+            RenderCommand::SetTextureFilter(texture, filter, filter);
+            RenderCommand::SetTextureWrap(texture, RHI::AddressMode::ClampToEdge);
+        }
+
         void SetAtlasTextureParams(u32 texID, RHI::Filter filter)
         {
             RenderCommand::SetTextureFilter(texID, filter, filter);
@@ -318,6 +331,20 @@ namespace OloEngine
                    : 0;
     }
 
+    RHI::ResourceHandle DDGIProbeUpdatePass::GetIrradianceAtlasHandle(const u32 pingIndex) const
+    {
+        if (pingIndex >= 2u || !m_IrradianceFB[pingIndex])
+            return RHI::NullResource;
+        return m_IrradianceFB[pingIndex]->GetColorAttachmentHandle(0);
+    }
+
+    RHI::ResourceHandle DDGIProbeUpdatePass::GetVisibilityAtlasHandle(const u32 pingIndex) const
+    {
+        if (pingIndex >= 2u || !m_VisibilityFB[pingIndex])
+            return RHI::NullResource;
+        return m_VisibilityFB[pingIndex]->GetColorAttachmentHandle(0);
+    }
+
     u32 DDGIProbeUpdatePass::GetProbeDataTextureID() const
     {
         return m_ProbeDataTexture;
@@ -413,7 +440,7 @@ namespace OloEngine
         for (u32 i = 0; i < 2; ++i)
         {
             m_IrradianceFB[i] = makeAtlasFB(FramebufferTextureFormat::RGBA16F, DDGI::kIrradianceTileTexels);
-            SetAtlasTextureParams(m_IrradianceFB[i]->GetColorAttachmentRendererID(0), RHI::Filter::Linear);
+            SetAtlasTextureParams(m_IrradianceFB[i]->GetColorAttachmentHandle(0), RHI::Filter::Linear);
             m_IrradianceFB[i]->Bind();
             m_IrradianceFB[i]->ClearAllAttachments(glm::vec4(0.0f), -1);
         }
@@ -422,7 +449,7 @@ namespace OloEngine
         for (u32 i = 0; i < 2; ++i)
         {
             m_VisibilityFB[i] = makeAtlasFB(FramebufferTextureFormat::RG16F, DDGI::kVisibilityTileTexels);
-            SetAtlasTextureParams(m_VisibilityFB[i]->GetColorAttachmentRendererID(0), RHI::Filter::Linear);
+            SetAtlasTextureParams(m_VisibilityFB[i]->GetColorAttachmentHandle(0), RHI::Filter::Linear);
             m_VisibilityFB[i]->Bind();
             m_VisibilityFB[i]->ClearAllAttachments(glm::vec4(0.0f), -1);
         }
@@ -430,7 +457,7 @@ namespace OloEngine
         // Radiance cache (RGBA16F, HitCacheTexels tiles, no border) — NEAREST
         // (texelFetch-only consumer).
         m_RadianceFB = makeAtlasFB(FramebufferTextureFormat::RGBA16F, t);
-        SetAtlasTextureParams(m_RadianceFB->GetColorAttachmentRendererID(0), RHI::Filter::Nearest);
+        SetAtlasTextureParams(m_RadianceFB->GetColorAttachmentHandle(0), RHI::Filter::Nearest);
         m_RadianceFB->Bind();
         m_RadianceFB->ClearAllAttachments(glm::vec4(0.0f), -1);
 
@@ -443,8 +470,8 @@ namespace OloEngine
             spec.Height = static_cast<u32>(tileDims.y * t);
             spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RGBA16F };
             m_HitFB = Framebuffer::Create(spec);
-            SetAtlasTextureParams(m_HitFB->GetColorAttachmentRendererID(0), RHI::Filter::Nearest);
-            SetAtlasTextureParams(m_HitFB->GetColorAttachmentRendererID(1), RHI::Filter::Nearest);
+            SetAtlasTextureParams(m_HitFB->GetColorAttachmentHandle(0), RHI::Filter::Nearest);
+            SetAtlasTextureParams(m_HitFB->GetColorAttachmentHandle(1), RHI::Filter::Nearest);
             m_HitFB->Bind();
             m_HitFB->ClearAttachment(0, glm::vec4(0.0f));
             // Geo cleared to "sky" so never-resampled tiles read as misses.
@@ -462,8 +489,8 @@ namespace OloEngine
             spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RGBA16F,
                                  FramebufferTextureFormat::ShadowDepth };
             m_CaptureFB = Framebuffer::Create(spec);
-            SetAtlasTextureParams(m_CaptureFB->GetColorAttachmentRendererID(0), RHI::Filter::Nearest);
-            SetAtlasTextureParams(m_CaptureFB->GetColorAttachmentRendererID(1), RHI::Filter::Nearest);
+            SetAtlasTextureParams(m_CaptureFB->GetColorAttachmentHandle(0), RHI::Filter::Nearest);
+            SetAtlasTextureParams(m_CaptureFB->GetColorAttachmentHandle(1), RHI::Filter::Nearest);
         }
 
         // Probe data: one texel per probe (xyz = relocation offset normalized
@@ -697,8 +724,8 @@ namespace OloEngine
                                    static_cast<u32>(t), static_cast<u32>(t));
 
         m_ResampleShader->Bind();
-        RenderCommand::BindTexture(0, m_CaptureFB->GetColorAttachmentRendererID(0));
-        RenderCommand::BindTexture(1, m_CaptureFB->GetColorAttachmentRendererID(1));
+        RenderCommand::BindTexture(0, m_CaptureFB->GetColorAttachmentHandle(0));
+        RenderCommand::BindTexture(1, m_CaptureFB->GetColorAttachmentHandle(1));
         SetPassDataProbe(probeIdx, glm::vec3(0.0f));
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
@@ -712,7 +739,7 @@ namespace OloEngine
 
         const i32 t = m_Desc.HitCacheTexels;
         const glm::ivec2 tile = DDGI::ProbeTileCoord(probeIdx, m_Desc.Resolution);
-        const u32 geoTex = m_HitFB->GetColorAttachmentRendererID(1);
+        const RHI::ResourceHandle geoTex = m_HitFB->GetColorAttachmentHandle(1);
 
         // Read the probe's hit-geo tile back (rg = octNormal, b = distance
         // [< 0 = sky], a = DDGI_HIT_* flag). RGBA16F -> GL converts to float.
@@ -812,8 +839,8 @@ namespace OloEngine
 
         const u32 prevIdx = m_VisibilityCurrent;
         const u32 currIdx = 1u - m_VisibilityCurrent;
-        const u32 prevTex = m_VisibilityFB[prevIdx]->GetColorAttachmentRendererID(0);
-        const u32 currTex = m_VisibilityFB[currIdx]->GetColorAttachmentRendererID(0);
+        const RHI::ResourceHandle prevTex = m_VisibilityFB[prevIdx]->GetColorAttachmentHandle(0);
+        const RHI::ResourceHandle currTex = m_VisibilityFB[currIdx]->GetColorAttachmentHandle(0);
         const glm::ivec2 visSize = m_TileDims * DDGI::kVisibilityTileTexels;
 
         // Carry every un-recaptured tile forward, then overwrite only the
@@ -826,8 +853,8 @@ namespace OloEngine
         SetFullscreenPassState();
 
         m_BlendVisibilityShader->Bind();
-        RenderCommand::BindTexture(0, m_HitFB->GetColorAttachmentRendererID(1)); // hit geo (dist + flag)
-        RenderCommand::BindTexture(1, prevTex);                                  // EMA history
+        RenderCommand::BindTexture(0, m_HitFB->GetColorAttachmentHandle(1)); // hit geo (dist + flag)
+        RenderCommand::BindTexture(1, prevTex);                              // EMA history
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
@@ -859,10 +886,10 @@ namespace OloEngine
         RenderCommand::SetViewport(0, 0, static_cast<u32>(radianceSize.x), static_cast<u32>(radianceSize.y));
 
         m_RelightShader->Bind();
-        RenderCommand::BindTexture(0, m_HitFB->GetColorAttachmentRendererID(0));                             // hit albedo
-        RenderCommand::BindTexture(1, m_HitFB->GetColorAttachmentRendererID(1));                             // hit geo
-        RenderCommand::BindTexture(2, m_IrradianceFB[m_IrradianceCurrent]->GetColorAttachmentRendererID(0)); // prev irradiance (bounce)
-        RenderCommand::BindTexture(3, m_VisibilityFB[m_VisibilityCurrent]->GetColorAttachmentRendererID(0)); // current visibility
+        RenderCommand::BindTexture(0, m_HitFB->GetColorAttachmentHandle(0));                             // hit albedo
+        RenderCommand::BindTexture(1, m_HitFB->GetColorAttachmentHandle(1));                             // hit geo
+        RenderCommand::BindTexture(2, m_IrradianceFB[m_IrradianceCurrent]->GetColorAttachmentHandle(0)); // prev irradiance (bounce)
+        RenderCommand::BindTexture(3, m_VisibilityFB[m_VisibilityCurrent]->GetColorAttachmentHandle(0)); // current visibility
         RenderCommand::BindTexture(4, m_ProbeDataTexture);
 
         // Global environment cubemap for sky texels, at the engine's canonical
@@ -939,9 +966,9 @@ namespace OloEngine
         RenderCommand::SetViewport(0, 0, static_cast<u32>(irrSize.x), static_cast<u32>(irrSize.y));
 
         m_BlendIrradianceShader->Bind();
-        RenderCommand::BindTexture(0, m_RadianceFB->GetColorAttachmentRendererID(0));
-        RenderCommand::BindTexture(1, m_HitFB->GetColorAttachmentRendererID(1)); // hit geo (backface flags)
-        RenderCommand::BindTexture(2, m_IrradianceFB[prevIdx]->GetColorAttachmentRendererID(0));
+        RenderCommand::BindTexture(0, m_RadianceFB->GetColorAttachmentHandle(0));
+        RenderCommand::BindTexture(1, m_HitFB->GetColorAttachmentHandle(1)); // hit geo (backface flags)
+        RenderCommand::BindTexture(2, m_IrradianceFB[prevIdx]->GetColorAttachmentHandle(0));
         RenderCommand::BindTexture(3, m_ProbeDataTexture);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();

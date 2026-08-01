@@ -343,8 +343,8 @@ namespace OloEngine
         // plain sampler2D regardless of the write target's sample count.
         // Safe to sample the currently-bound depth since decal render state
         // disables depth writes.
-        const u32 depthTextureID = depthSamplingFB->GetDepthAttachmentRendererID();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
+        const RHI::ResourceHandle depthTexture = depthSamplingFB->GetDepthAttachmentHandle();
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture);
 
         m_CommandBucket.SortCommands();
 

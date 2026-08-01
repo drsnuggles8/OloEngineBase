@@ -344,7 +344,7 @@ namespace OloEngine
         // Upstream scene colour at unit 0, resolved clouds at unit 1,
         // full-res depth at TEX_POSTPROCESS_DEPTH (all layout-qualified).
         context.BindTexture(0, inputColorTextureID);
-        context.BindTexture(1, cloudsResolvedFramebuffer->GetColorAttachmentRendererID(0));
+        context.BindTexture(1, cloudsResolvedFramebuffer->GetColorAttachmentHandle(0));
         context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
 
         {

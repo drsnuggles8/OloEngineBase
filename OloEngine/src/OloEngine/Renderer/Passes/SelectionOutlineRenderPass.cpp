@@ -256,7 +256,7 @@ namespace OloEngine
             context.Clear();
 
             // Bind previous JFA result
-            context.BindTexture(0, jfaFBs[readIndex]->GetColorAttachmentRendererID(0));
+            context.BindTexture(0, jfaFBs[readIndex]->GetColorAttachmentHandle(0));
 
             m_JFAPassShader->Bind();
             m_JFAPassShader->SetInt("u_Texture", 0);
@@ -290,7 +290,7 @@ namespace OloEngine
         // Slot 0: scene color from the selected dynamic post-chain texture view.
         context.BindTexture(0, inputColorTextureID);
         // Slot 1: final JFA distance field from the graph-owned ping-pong scratch
-        context.BindTexture(1, jfaFBs[readIndex]->GetColorAttachmentRendererID(0));
+        context.BindTexture(1, jfaFBs[readIndex]->GetColorAttachmentHandle(0));
 
         m_JFACompositeShader->Bind();
         m_JFACompositeShader->SetInt("u_SceneColor", 0);

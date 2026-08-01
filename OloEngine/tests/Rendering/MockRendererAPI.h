@@ -481,6 +481,41 @@ namespace OloEngine::Testing
             UploadTextureSubImage2D(Native(texture), width, height, sourceFormat, data);
         }
 
+        // Copy / clear / upload-at-offset / readback handle forms (slice 5).
+        // Same "record under the u32 sibling's name" rule as the block above.
+        void CopyImageSubData(RHI::ResourceHandle src, TextureTargetType srcTarget,
+                              RHI::ResourceHandle dst, TextureTargetType dstTarget,
+                              u32 width, u32 height) override
+        {
+            CopyImageSubData(Native(src), srcTarget, Native(dst), dstTarget, width, height);
+        }
+        [[nodiscard("Store this!")]] bool ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel,
+                                                              i32 x, i32 y, i32 z,
+                                                              u32 width, u32 height, u32 depth,
+                                                              RHI::Format destFormat,
+                                                              sizet destSizeBytes, void* dest) override
+        {
+            return ReadTextureSubImage(Native(texture), mipLevel, x, y, z, width, height, depth,
+                                       destFormat, destSizeBytes, dest);
+        }
+        void CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
+                                  RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
+                                  u32 width, u32 height) override
+        {
+            CopyImageSubDataFull(Native(src), srcTarget, srcLevel, srcZ,
+                                 Native(dst), dstTarget, dstLevel, dstZ, width, height);
+        }
+        void ClearTextureFloat(RHI::ResourceHandle texture, u32 mipLevel, const glm::vec4& color) override
+        {
+            ClearTextureFloat(Native(texture), mipLevel, color);
+        }
+        [[nodiscard("Store this!")]] bool ReadTextureImage(RHI::ResourceHandle texture, u32 mipLevel,
+                                                           RHI::Format destFormat,
+                                                           sizet destSizeBytes, void* dest) override
+        {
+            return ReadTextureImage(Native(texture), mipLevel, destFormat, destSizeBytes, dest);
+        }
+
       private:
         [[nodiscard]] static u32 Native(RHI::ResourceHandle handle) noexcept
         {

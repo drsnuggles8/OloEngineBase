@@ -20,7 +20,10 @@ import os
 import re
 import collections
 
-ROOT = r"e:\repos\OloEngine-vulkan-rhi-phase2-resource-handles-691"
+# Derived from this file's location (OloEngine/tests/scripts/), never hard-coded:
+# the first version pinned the worktree it was written in, and reported a
+# confident "TOTAL 0 across 0 files" from every other checkout.
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 PAT = re.compile(r'\w*RendererID\w*')
 
 by_spelling = collections.Counter()

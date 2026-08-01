@@ -1992,4 +1992,60 @@ namespace OloEngine
         UploadTextureSubImage2D(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), width, height, sourceFormat, data);
     }
 
+    // -------------------------------------------------------------------------
+    // Handle-taking siblings of the texture copy / clear / upload-at-offset /
+    // readback family (issue #691 step 3, slice 5 — attachment consumers).
+    //
+    // Same shape as the block above: resolve here, delegate to the one u32 form
+    // that talks to GL. What made these necessary was migrating the framebuffer
+    // attachment getters' consumers — the bakers copy an attachment into a
+    // persistent Texture2D/Cubemap and the probe bakers read one back, and
+    // neither family appeared in the bind or create/delete survey that produced
+    // the earlier additions.
+    // -------------------------------------------------------------------------
+    void OpenGLRendererAPI::CopyImageSubData(RHI::ResourceHandle src, TextureTargetType srcTarget,
+                                             RHI::ResourceHandle dst, TextureTargetType dstTarget,
+                                             u32 width, u32 height)
+    {
+        CopyImageSubData(Utils::ResolveNativeAs(src, RHI::ResourceKind::Texture), srcTarget,
+                         Utils::ResolveNativeAs(dst, RHI::ResourceKind::Texture), dstTarget,
+                         width, height);
+    }
+
+    void OpenGLRendererAPI::CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget,
+                                                 i32 srcLevel, i32 srcZ,
+                                                 RHI::ResourceHandle dst, TextureTargetType dstTarget,
+                                                 i32 dstLevel, i32 dstZ,
+                                                 u32 width, u32 height)
+    {
+        CopyImageSubDataFull(Utils::ResolveNativeAs(src, RHI::ResourceKind::Texture), srcTarget, srcLevel, srcZ,
+                             Utils::ResolveNativeAs(dst, RHI::ResourceKind::Texture), dstTarget, dstLevel, dstZ,
+                             width, height);
+    }
+
+    void OpenGLRendererAPI::ClearTextureFloat(RHI::ResourceHandle texture, u32 mipLevel, const glm::vec4& color)
+    {
+        ClearTextureFloat(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), mipLevel, color);
+    }
+
+    bool OpenGLRendererAPI::ReadTextureImage(RHI::ResourceHandle texture, u32 mipLevel,
+                                             RHI::Format destFormat, sizet destSizeBytes, void* dest)
+    {
+        // A stale handle resolves to 0 and the u32 form reports failure for
+        // texture 0, so the "unbind" degradation the bind family relies on
+        // becomes an honest `false` here — the caller must not treat `dest` as
+        // populated.
+        return ReadTextureImage(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), mipLevel,
+                                destFormat, destSizeBytes, dest);
+    }
+
+    bool OpenGLRendererAPI::ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel,
+                                                i32 x, i32 y, i32 z,
+                                                u32 width, u32 height, u32 depth,
+                                                RHI::Format destFormat, sizet destSizeBytes, void* dest)
+    {
+        return ReadTextureSubImage(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), mipLevel,
+                                   x, y, z, width, height, depth, destFormat, destSizeBytes, dest);
+    }
+
 } // namespace OloEngine

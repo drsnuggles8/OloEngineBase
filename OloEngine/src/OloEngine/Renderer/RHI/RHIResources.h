@@ -6,9 +6,11 @@
 //
 // Issue #691 Phase 1, ADR 0011 (docs/adr/0011-rhi-neutral-resource-and-binding-model.md).
 //
-// **Declaration-only. Nothing consumes this yet.** Same two rules as RHITypes.h:
-// no backend headers, no backend types, and these are engine enums that a
-// backend converts explicitly.
+// **Not yet load-bearing: only RHIResourceRegistry.cpp includes these so far.**
+// (Phase 2 step 3 minted RHI::ResourceHandle, but that lives in RHITypes.h — the
+// resource *descriptions* below are still waiting on their consumers.) Same two
+// rules as RHITypes.h: no backend headers, no backend types, and these are engine
+// enums that a backend converts explicitly.
 //
 // The descriptions below are heap+offset shaped from day one because the
 // binding model is heap-bindless-only (ADR 0010) — there is no classic

@@ -66,10 +66,11 @@ namespace OloEngine
             // Render the full scene from this cubemap face's perspective
             scene->RenderScene3D(captureCamera, transform);
 
-            // Read back RGBA16F pixel data from the color attachment
-            u32 const colorAttachmentID = fbo->GetColorAttachmentRendererID(0);
+            // Read back RGBA16F pixel data from the color attachment, by
+            // identity rather than driver name (issue #691 step 3).
+            RHI::ResourceHandle const colorAttachment = fbo->GetColorAttachmentHandle(0);
             const bool readOk = RenderCommand::ReadTextureImage(
-                colorAttachmentID, 0, RHI::Format::RGBA32Float,
+                colorAttachment, 0, RHI::Format::RGBA32Float,
                 rgbaBuffer.size() * sizeof(f32), rgbaBuffer.data());
 
             fbo->Unbind();

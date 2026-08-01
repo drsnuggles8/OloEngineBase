@@ -176,7 +176,7 @@ namespace OloEngine
         context.Clear();
 
         m_HeatmapShader->Bind();
-        context.BindTexture(0, m_AccumFramebuffer->GetColorAttachmentRendererID(0));
+        context.BindTexture(0, m_AccumFramebuffer->GetColorAttachmentHandle(0));
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
