@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Ocean/OceanFFTGpu.h"
@@ -65,6 +66,10 @@ namespace OloEngine::Ocean
 
         [[nodiscard]] u32 GetDisplacementTextureID() const;
         [[nodiscard]] u32 GetDerivativesTextureID() const;
+        // Identity forms — the water draw command's fields migrated in
+        // issue #691 step 3 slice 6. The raw ids stay for the debug/tools paths.
+        [[nodiscard]] RHI::ResourceHandle GetDisplacementTextureHandle() const;
+        [[nodiscard]] RHI::ResourceHandle GetDerivativesTextureHandle() const;
         [[nodiscard]] f32 GetPatchSize() const noexcept
         {
             return m_Params.m_PatchSize;

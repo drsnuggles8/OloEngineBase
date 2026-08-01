@@ -179,6 +179,16 @@ namespace OloEngine::Ocean
         return m_DerivativesTex ? m_DerivativesTex->GetRendererID() : 0u;
     }
 
+    RHI::ResourceHandle OceanFFTField::GetDisplacementTextureHandle() const
+    {
+        return m_DisplacementTex ? m_DisplacementTex->GetRHIHandle() : RHI::NullResource;
+    }
+
+    RHI::ResourceHandle OceanFFTField::GetDerivativesTextureHandle() const
+    {
+        return m_DerivativesTex ? m_DerivativesTex->GetRHIHandle() : RHI::NullResource;
+    }
+
     glm::vec2 OceanFFTField::SampleHorizontalBilinear(glm::vec2 worldXZ) const
     {
         if (!m_Field.IsValid() || m_Params.m_PatchSize <= 0.0f)

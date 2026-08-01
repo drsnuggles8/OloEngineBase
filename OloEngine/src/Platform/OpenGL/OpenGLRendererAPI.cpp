@@ -668,14 +668,15 @@ namespace OloEngine
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
     }
 
-    void OpenGLRendererAPI::DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID)
+    void OpenGLRendererAPI::DrawBoundElementsIndirect(u32 indirectBufferID)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (vaoID == 0 || indirectBufferID == 0)
+        if (indirectBufferID == 0)
             return;
 
-        glBindVertexArray(vaoID);
+        // No glBindVertexArray: the caller's BindVAOIfNeeded already bound it,
+        // and binding here would defeat that cache (see the DrawBound* family).
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBufferID);
         glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
@@ -2037,6 +2038,49 @@ namespace OloEngine
         // populated.
         return ReadTextureImage(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), mipLevel,
                                 destFormat, destSizeBytes, dest);
+    }
+
+    void OpenGLRendererAPI::DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount,
+                                                  u32 patchVertices)
+    {
+        DrawIndexedPatchesRaw(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray), indexCount,
+                              patchVertices);
+    }
+
+    void OpenGLRendererAPI::DrawIndexedInstancedRaw(RHI::ResourceHandle vertexArray, u32 indexCount,
+                                                    u32 baseIndex, u32 instanceCount)
+    {
+        DrawIndexedInstancedRaw(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray), indexCount,
+                                baseIndex, instanceCount);
+    }
+
+    void OpenGLRendererAPI::DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount)
+    {
+        DrawIndexedRaw(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray), indexCount);
+    }
+
+    void OpenGLRendererAPI::DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex)
+    {
+        DrawIndexedRaw(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray), indexCount, baseIndex);
+    }
+
+    void OpenGLRendererAPI::SetProgramUniformFloat(RHI::ResourceHandle program, std::string_view name, f32 value)
+    {
+        SetProgramUniformFloat(Utils::ResolveNativeAs(program, RHI::ResourceKind::ShaderProgram), name, value);
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture,
+                                                                                u32 numLayers)
+    {
+        const GLuint nativeView = CreateDepthArrayCompareOffView(
+            Utils::ResolveNativeAs(srcTexture, RHI::ResourceKind::Texture), numLayers);
+        if (nativeView == 0u)
+            return RHI::NullResource;
+
+        // The view is registered as a Texture in its own right, NOT as an alias
+        // of the source: it is a separate GL name with its own sampler state and
+        // its own lifetime (ShadowMap deletes it independently of the array).
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture, nativeView, RHI::Backend::OpenGL);
     }
 
     bool OpenGLRendererAPI::ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel,

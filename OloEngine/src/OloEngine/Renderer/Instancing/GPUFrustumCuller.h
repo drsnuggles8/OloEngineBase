@@ -30,7 +30,7 @@ namespace OloEngine
     //   3. The same atomic increment populates `instanceCount` in a 5-uint
     //      `DrawElementsIndirectCommand` SSBO bound at
     //      SSBO_INSTANCE_DRAW_INDIRECT = 17.
-    //   4. `RendererAPI::DrawElementsIndirectRaw` reads the indirect command
+    //   4. `RendererAPI::DrawBoundElementsIndirect` reads the indirect command
     //      (no CPU round trip) and draws exactly the surviving instances.
     //
     // **Multiple GPU-cull submissions per frame**: each call returns a fresh
@@ -47,7 +47,7 @@ namespace OloEngine
     {
       public:
         // Result returned by `Cull()` — the dispatcher binds these and calls
-        // `DrawElementsIndirectRaw(vaoID, IndirectBufferID)`.
+        // `DrawBoundElementsIndirect(IndirectBufferID)`.
         struct CullResult
         {
             Ref<InstanceBuffer> OutputBuffer;  // bind at SSBO_INSTANCE_DATA = 15 before the draw

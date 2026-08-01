@@ -4133,18 +4133,18 @@ namespace OloEngine::MCP
                                   u32 submeshIndex, std::string_view source)
         {
             Json textures;
-            textures["albedo"] = data.albedoMapID;
-            textures["metallicRoughness"] = data.metallicRoughnessMapID;
-            textures["normal"] = data.normalMapID;
-            textures["ao"] = data.aoMapID;
-            textures["emissive"] = data.emissiveMapID;
+            textures["albedo"] = fmt::format("{}", data.albedoMapID);
+            textures["metallicRoughness"] = fmt::format("{}", data.metallicRoughnessMapID);
+            textures["normal"] = fmt::format("{}", data.normalMapID);
+            textures["ao"] = fmt::format("{}", data.aoMapID);
+            textures["emissive"] = fmt::format("{}", data.emissiveMapID);
 
             Json useMaps;
-            useMaps["useAlbedoMap"] = data.albedoMapID != 0;
-            useMaps["useMetallicRoughnessMap"] = data.metallicRoughnessMapID != 0;
-            useMaps["useNormalMap"] = data.normalMapID != 0;
-            useMaps["useAOMap"] = data.aoMapID != 0;
-            useMaps["useEmissiveMap"] = data.emissiveMapID != 0;
+            useMaps["useAlbedoMap"] = data.albedoMapID.IsValid();
+            useMaps["useMetallicRoughnessMap"] = data.metallicRoughnessMapID.IsValid();
+            useMaps["useNormalMap"] = data.normalMapID.IsValid();
+            useMaps["useAOMap"] = data.aoMapID.IsValid();
+            useMaps["useEmissiveMap"] = data.emissiveMapID.IsValid();
 
             Json j;
             j["submesh"] = submeshIndex;
@@ -4265,7 +4265,7 @@ namespace OloEngine::MCP
                         source = "MeshSource imported material (per-submesh)";
                     }
 
-                    const PODMaterialData data = Renderer3D::CreatePODMaterialDataForMaterial(*material, 0);
+                    const PODMaterialData data = Renderer3D::CreatePODMaterialDataForMaterial(*material, RHI::NullResource);
                     submeshes.push_back(ResolvedMaterialJson(*material, data, index, source));
                 }
 

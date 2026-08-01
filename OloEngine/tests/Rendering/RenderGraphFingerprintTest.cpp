@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
+#include "RenderingTestUtils.h"
+
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RenderingPath.h"
@@ -52,14 +54,19 @@ namespace OloEngine::Tests
             return data.Pipeline->ComputeBlackboardFingerprint(data);
         }
 
-        // The raw GL texture IDs the blackboard IMPORTS (as opposed to declares). They are
+        // The IDENTITIES the blackboard imports (as opposed to declares). They are
         // not settings, so they need their own hook.
+        //
+        // Handles, not raw GL ids, since issue #691 step 3 slice 6 — and the
+        // fingerprint hashes them for a reason this test now covers by
+        // construction: ShadowMap/DDGI free their textures BEFORE recreating, so
+        // GL may reissue the same name and a raw-id hash would see no change.
         struct ImportedIBL
         {
-            u32 Irradiance = 0;
-            u32 Prefilter = 0;
-            u32 BRDFLut = 0;
-            u32 Environment = 0;
+            RHI::ResourceHandle Irradiance{};
+            RHI::ResourceHandle Prefilter{};
+            RHI::ResourceHandle BRDFLut{};
+            RHI::ResourceHandle Environment{};
         };
 
         [[nodiscard]] static u64 FingerprintWithIBL(const ImportedIBL& ibl)
@@ -220,31 +227,31 @@ namespace OloEngine::Tests
     TEST(RenderGraphFingerprint, ChangingAnImportedIBLTextureIdChangesFingerprint)
     {
         using Access = RenderPipelineFingerprintAccess;
-        const Access::ImportedIBL base{ .Irradiance = 26, .Prefilter = 45, .BRDFLut = 46, .Environment = 12 };
+        const Access::ImportedIBL base{ .Irradiance = TestHandle(26u), .Prefilter = TestHandle(45u), .BRDFLut = TestHandle(46u), .Environment = TestHandle(12u) };
         const u64 baseFp = Access::FingerprintWithIBL(base);
 
         // Each ID must independently invalidate: a scene switch can change any subset.
         {
             Access::ImportedIBL changed = base;
-            changed.Irradiance = 99;
+            changed.Irradiance = TestHandle(99u);
             EXPECT_NE(Access::FingerprintWithIBL(changed), baseFp)
                 << "GlobalIrradianceMapID is imported by raw GL ID — a change must repopulate the blackboard.";
         }
         {
             Access::ImportedIBL changed = base;
-            changed.Prefilter = 99;
+            changed.Prefilter = TestHandle(99u);
             EXPECT_NE(Access::FingerprintWithIBL(changed), baseFp)
                 << "GlobalPrefilterMapID is imported by raw GL ID — a change must repopulate the blackboard.";
         }
         {
             Access::ImportedIBL changed = base;
-            changed.BRDFLut = 99;
+            changed.BRDFLut = TestHandle(99u);
             EXPECT_NE(Access::FingerprintWithIBL(changed), baseFp)
                 << "GlobalBRDFLutMapID is imported by raw GL ID — a change must repopulate the blackboard.";
         }
         {
             Access::ImportedIBL changed = base;
-            changed.Environment = 99;
+            changed.Environment = TestHandle(99u);
             EXPECT_NE(Access::FingerprintWithIBL(changed), baseFp)
                 << "GlobalEnvironmentMapID is imported by raw GL ID — a change must repopulate the blackboard.";
         }

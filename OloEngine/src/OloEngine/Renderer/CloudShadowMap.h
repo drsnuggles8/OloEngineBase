@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Ref.h"
 
 #include <glm/glm.hpp>
@@ -59,7 +60,7 @@ namespace OloEngine
         [[nodiscard]] static bool IsReady();
 
         /// @return GL renderer id of the R8 512² shadow map (0 when not ready).
-        [[nodiscard]] static u32 GetTextureID();
+        [[nodiscard]] static RHI::ResourceHandle GetTextureHandle();
 
         /// @return world-XZ center of the current map (texel-snapped).
         [[nodiscard]] static glm::vec2 GetCenter();
@@ -71,7 +72,12 @@ namespace OloEngine
         struct CloudShadowMapData
         {
             Ref<ComputeShader> m_GenerateShader;
-            u32 m_TextureID = 0; // raw GL R8 512², owned (RenderCommand::CreateTexture2D / DeleteTexture)
+            // Owned R8 512² identity (issue #691 step 3, slice 6). Migrated off the
+            // raw GL name because it is bound through CommandDispatch's redundant-bind
+            // cache, which now keys on identities — feeding it a native id would not
+            // compile, and half-migrating the chain would leave a step that cannot
+            // reach the currency the next one wants.
+            RHI::ResourceHandle m_Texture{};
             glm::vec2 m_Center{ 0.0f, 0.0f };
             f32 m_WorldSize = 0.0f;
             bool m_Ready = false;

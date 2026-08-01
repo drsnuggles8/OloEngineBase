@@ -103,24 +103,26 @@ namespace OloEngine::Tests
         //    Both must be observed non-zero or the reset assertions below would
         //    be vacuous.
         RunEditorFrames(camera, 2);
-        EXPECT_NE(Renderer3D::GetWaterSurfaceDepthTextureID(), 0u)
+        EXPECT_TRUE(Renderer3D::GetWaterSurfaceDepthTextureID().IsValid())
             << "A frame that renders water must publish the water-surface depth "
                "texture (otherwise this test exercises nothing).";
-        EXPECT_NE(Renderer3D::GetPlanarReflectionTextureID(), 0u)
+        EXPECT_TRUE(Renderer3D::GetPlanarReflectionTextureID().IsValid())
             << "A frame that renders reflective water must publish the planar-"
                "reflection texture (otherwise this test exercises nothing).";
 
         // 2. No-water frame: the graph culls the water pass, so nothing
         //    re-publishes. The per-frame reset in PrepareFrame must have cleared
-        //    the previous frame's id — a stale non-zero value here is exactly
-        //    the #505 lifetime bug.
+        //    the previous frame's publication — a stale VALID handle here is
+        //    exactly the #505 lifetime bug. Post-#691 the handle also cannot
+        //    silently name a DIFFERENT texture that inherited the GL name,
+        //    which is the failure the raw-id version could not distinguish.
         GetScene().DestroyEntity(m_Water);
         RunEditorFrames(camera, 1);
-        EXPECT_EQ(Renderer3D::GetWaterSurfaceDepthTextureID(), 0u)
+        EXPECT_FALSE(Renderer3D::GetWaterSurfaceDepthTextureID().IsValid())
             << "The water-surface depth publication survived a frame whose graph "
                "culled the water pass — a later consumer would bind a texture "
                "name it no longer owns (issue #505).";
-        EXPECT_EQ(Renderer3D::GetPlanarReflectionTextureID(), 0u)
+        EXPECT_FALSE(Renderer3D::GetPlanarReflectionTextureID().IsValid())
             << "The planar-reflection publication has the same per-frame "
                "contract as the water-surface depth (issue #505).";
 

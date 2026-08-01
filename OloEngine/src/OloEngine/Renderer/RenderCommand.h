@@ -290,9 +290,30 @@ namespace OloEngine
 
         // Raw-VAO variant used by the GPU frustum-cull path that only has a
         // RendererID (no Ref<VertexArray> on hand inside the dispatcher).
-        static void DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID)
+        static void DrawBoundElementsIndirect(u32 indirectBufferID)
         {
-            s_RendererAPI->DrawElementsIndirectRaw(vaoID, indirectBufferID);
+            s_RendererAPI->DrawBoundElementsIndirect(indirectBufferID);
+        }
+
+        static void DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 patchVertices)
+        {
+            s_RendererAPI->DrawIndexedPatchesRaw(vertexArray, indexCount, patchVertices);
+        }
+
+        static void DrawIndexedInstancedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex,
+                                            u32 instanceCount)
+        {
+            s_RendererAPI->DrawIndexedInstancedRaw(vertexArray, indexCount, baseIndex, instanceCount);
+        }
+
+        static void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount)
+        {
+            s_RendererAPI->DrawIndexedRaw(vertexArray, indexCount);
+        }
+
+        static void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex)
+        {
+            s_RendererAPI->DrawIndexedRaw(vertexArray, indexCount, baseIndex);
         }
 
         // Multi-draw indirect with a GPU-sourced draw count (core GL 4.6, issue #629).
@@ -395,6 +416,12 @@ namespace OloEngine
         static u32 CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers)
         {
             return s_RendererAPI->CreateDepthArrayCompareOffView(srcTextureID, numLayers);
+        }
+
+        [[nodiscard]] static RHI::ResourceHandle CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture,
+                                                                                      u32 numLayers)
+        {
+            return s_RendererAPI->CreateDepthArrayCompareOffViewHandle(srcTexture, numLayers);
         }
 
         static void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter)

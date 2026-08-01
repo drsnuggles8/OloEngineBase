@@ -141,7 +141,7 @@ namespace OloEngine
 
         // Upload the appearance parameters of this frame's fluid. Counts.z
         // carries the environment-map-present flag for the reflection branch.
-        const u32 environmentMapID = Renderer3D::GetGlobalEnvironmentMapID();
+        const RHI::ResourceHandle environmentMap = Renderer3D::GetGlobalEnvironmentMapHandle();
         {
             const FluidRenderData& appearance = m_IntermediatesPass->GetLastAppearance();
 
@@ -159,7 +159,7 @@ namespace OloEngine
                                          1.0f / static_cast<f32>(fbWidth), 1.0f / static_cast<f32>(fbHeight));
             ubo.Counts = glm::uvec4(appearance.ParticleUpperBound,
                                     static_cast<u32>(appearance.EntityID),
-                                    environmentMapID != 0 ? 1u : 0u, 0u);
+                                    environmentMap.IsValid() ? 1u : 0u, 0u);
             m_FluidRenderUBO->SetData(&ubo, sizeof(ubo));
             m_FluidRenderUBO->Bind();
         }
@@ -170,8 +170,8 @@ namespace OloEngine
         context.BindTexture(ShaderBindingLayout::TEX_FLUID_THICKNESS, fluidThicknessID);
         context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, refractionTexID);
         context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, sceneDepthID);
-        if (environmentMapID != 0)
-            context.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, environmentMapID);
+        if (environmentMap.IsValid())
+            context.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, environmentMap);
 
         // The shader discards non-fluid pixels — no depth test, no blending,
         // no depth writes.
@@ -196,7 +196,7 @@ namespace OloEngine
         context.BindTexture(ShaderBindingLayout::TEX_FLUID_THICKNESS, 0);
         context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, 0);
         context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
-        if (environmentMapID != 0)
+        if (environmentMap.IsValid())
             context.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, 0);
 
         m_SceneFramebuffer->Unbind();

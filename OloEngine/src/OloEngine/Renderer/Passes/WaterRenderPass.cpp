@@ -99,7 +99,7 @@ namespace OloEngine
         // underwater fog never samples a stale texture if this pass early-exits
         // (no scene FB, no water commands, zero-size, failed texture resolve)
         // before the capture runs. The successful capture path re-publishes it.
-        Renderer3D::SetWaterSurfaceDepthTextureID(0);
+        Renderer3D::SetWaterSurfaceDepthTextureID(RHI::NullResource);
 
         // Resolve the setup-selected scene framebuffer instead of replaying
         // a blackboard lookup ladder at execute time.
@@ -215,13 +215,13 @@ namespace OloEngine
             CommandDispatch::SetWaterDepthCaptureActive(false);
             CommandDispatch::InvalidateRenderStateCache();
             m_WaterDepthFB->Unbind();
-            Renderer3D::SetWaterSurfaceDepthTextureID(m_WaterDepthFB->GetDepthAttachmentRendererID());
+            Renderer3D::SetWaterSurfaceDepthTextureID(m_WaterDepthFB->GetDepthAttachmentHandle());
             // Rebind the scene target for the colour pass below.
             m_SceneFramebuffer->Bind();
         }
         else
         {
-            Renderer3D::SetWaterSurfaceDepthTextureID(0);
+            Renderer3D::SetWaterSurfaceDepthTextureID(RHI::NullResource);
         }
 
         m_CommandBucket.Execute(rendererAPI);

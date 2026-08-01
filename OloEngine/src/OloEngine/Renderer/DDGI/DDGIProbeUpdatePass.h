@@ -38,13 +38,13 @@ namespace OloEngine
     // plus the minimal material data the capture mini-G-buffer needs.
     struct DDGIMeshCaster
     {
-        RendererID vaoID = 0;
+        RHI::ResourceHandle vaoID{};
         u32 indexCount = 0;
         u32 baseIndex = 0;
         glm::mat4 transform{ 1.0f }; // ABSOLUTE world
         BoundingBox worldBounds = NoBounds;
-        glm::vec4 baseColor{ 1.0f };    // material base color factor
-        RendererID albedoTextureID = 0; // 0 = white
+        glm::vec4 baseColor{ 1.0f };           // material base color factor
+        RHI::ResourceHandle albedoTextureID{}; // 0 = white
         bool twoSided = false;
     };
 

@@ -490,10 +490,10 @@ namespace OloEngine
             }
 
             FoliageLayerDrawInfo info;
-            info.VertexArrayID = layer.VAO->GetRendererID();
+            info.VertexArrayID = layer.VAO->GetRHIHandle();
             info.IndexCount = layer.IndexCount;
             info.InstanceCount = layer.InstanceCount;
-            info.AlbedoTextureID = layer.AlbedoTexture ? layer.AlbedoTexture->GetRendererID() : 0;
+            info.AlbedoTextureID = layer.AlbedoTexture ? layer.AlbedoTexture->GetRHIHandle() : RHI::NullResource;
             info.ViewDistance = layer.ViewDistance;
             info.FadeStartDistance = layer.FadeStartDistance;
             info.WindStrength = layer.WindStrength;
@@ -506,8 +506,8 @@ namespace OloEngine
             if (layer.UseImpostor && layer.Impostor.IsValid())
             {
                 info.UseImpostor = true;
-                info.ImpostorAlbedoAtlasID = layer.Impostor.Albedo->GetRendererID();
-                info.ImpostorNormalDepthAtlasID = layer.Impostor.NormalDepth->GetRendererID();
+                info.ImpostorAlbedoAtlasID = layer.Impostor.Albedo->GetRHIHandle();
+                info.ImpostorNormalDepthAtlasID = layer.Impostor.NormalDepth->GetRHIHandle();
                 info.ImpostorFramesPerAxis = layer.Impostor.FramesPerAxis;
                 info.ImpostorHemi = layer.Impostor.Hemi;
                 info.ImpostorStartDistance = layer.ImpostorStartDistance;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
@@ -87,6 +88,9 @@ namespace OloEngine
 
         /// @return OpenGL texture ID of the snow depth map (for debug overlay).
         [[nodiscard]] static u32 GetSnowDepthTextureID();
+        // Identity form, for the command layer's redundant-bind cache
+        // (issue #691 step 3). The raw id stays for the graph/debug paths.
+        [[nodiscard]] static RHI::ResourceHandle GetSnowDepthTextureHandle();
 
         /// Mark the snow depth buffer for clearing; the actual zeroing
         /// occurs during the next Update() pass (via Snow_Clear dispatch).

@@ -240,7 +240,7 @@ namespace OloEngine
         // is the single source of truth for "what the GPU was actually given" —
         // olo_material_get (MCP, issue #607) reports it verbatim rather than
         // re-deriving the resolution and risking a confidently wrong answer.
-        static auto CreatePODMaterialDataForMaterial(const Material& material, RendererID shaderRendererID) -> PODMaterialData;
+        static auto CreatePODMaterialDataForMaterial(const Material& material, RHI::ResourceHandle shaderRendererID) -> PODMaterialData;
         // Animated drawing commands
         static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = false, i32 entityID = -1);
         // Same as DrawAnimatedMesh but also carries the previous-frame bone matrices used by the
@@ -274,18 +274,18 @@ namespace OloEngine
 
         // Terrain/Voxel rendering (returns command packets for sorted execution)
         static CommandPacket* DrawTerrainPatch(
-            RendererID vaoID, u32 indexCount, u32 patchVertexCount,
+            RHI::ResourceHandle vaoID, u32 indexCount, u32 patchVertexCount,
             const Ref<Shader>& shader,
-            RendererID heightmapID, RendererID splatmapID, RendererID splatmap1ID,
-            RendererID albedoArrayID, RendererID normalArrayID, RendererID armArrayID,
+            RHI::ResourceHandle heightmapID, RHI::ResourceHandle splatmapID, RHI::ResourceHandle splatmap1ID,
+            RHI::ResourceHandle albedoArrayID, RHI::ResourceHandle normalArrayID, RHI::ResourceHandle armArrayID,
             const glm::mat4& transform,
             const ShaderBindingLayout::TerrainUBO& terrainUBO,
             i32 entityID = -1);
 
         static CommandPacket* DrawVoxelMesh(
-            RendererID vaoID, u32 indexCount,
+            RHI::ResourceHandle vaoID, u32 indexCount,
             const Ref<Shader>& shader,
-            RendererID albedoArrayID, RendererID normalArrayID, RendererID armArrayID,
+            RHI::ResourceHandle albedoArrayID, RHI::ResourceHandle normalArrayID, RHI::ResourceHandle armArrayID,
             const glm::mat4& transform,
             i32 entityID = -1);
 
@@ -610,45 +610,71 @@ namespace OloEngine
 
         // Set global IBL textures from the scene's EnvironmentMap.
         // These are used as fallbacks when individual materials don't have IBL configured.
-        static void SetGlobalIBL(RendererID irradianceMapID, RendererID prefilterMapID,
-                                 RendererID brdfLutMapID, RendererID environmentMapID,
+        // Takes BOTH currencies for the three graph-imported maps, from the one
+        // call site that has the Ref<Texture> in hand — deriving one from the
+        // other later is impossible in Renderer/ (native -> handle is not
+        // recoverable, and handle -> native may only happen in Platform/).
+        static void SetGlobalIBL(RHI::ResourceHandle irradianceMap, RHI::ResourceHandle prefilterMap,
+                                 RHI::ResourceHandle brdfLutMap, RHI::ResourceHandle environmentMap,
+                                 u32 irradianceNativeID, u32 prefilterNativeID, u32 brdfLutNativeID,
                                  f32 iblIntensity = 1.0f);
         static void ClearGlobalIBL();
-        [[nodiscard]] static RendererID GetGlobalIrradianceMapID()
+        // Identity forms — what the command layer's bind cache consumes.
+        [[nodiscard]] static RHI::ResourceHandle GetGlobalIrradianceMapHandle()
         {
             return s_Data.GlobalIrradianceMapID;
         }
-        [[nodiscard]] static RendererID GetGlobalPrefilterMapID()
+        [[nodiscard]] static RHI::ResourceHandle GetGlobalPrefilterMapHandle()
         {
             return s_Data.GlobalPrefilterMapID;
         }
-        [[nodiscard]] static RendererID GetGlobalBRDFLutMapID()
+        [[nodiscard]] static RHI::ResourceHandle GetGlobalBRDFLutMapHandle()
         {
             return s_Data.GlobalBRDFLutMapID;
         }
-        [[nodiscard]] static RendererID GetGlobalEnvironmentMapID()
+        [[nodiscard]] static RHI::ResourceHandle GetGlobalEnvironmentMapHandle()
         {
             return s_Data.GlobalEnvironmentMapID;
+        }
+
+        // Native forms — what RenderPipeline's graph IMPORT consumes, and only
+        // that. These cannot migrate with the rest: DeferredLightingPass reads
+        // the imported IBL resources back through context.ResolveTexture, which
+        // answers 0 for anything imported by handle (see
+        // docs/agent-rules/rhi-abstraction-boundary.md). Moving the import
+        // without moving that reader would silently drop IBL from the deferred
+        // path — lit scene, no ambient, no error.
+        [[nodiscard]] static u32 GetGlobalIrradianceMapNativeID()
+        {
+            return s_Data.GlobalIrradianceMapNativeID;
+        }
+        [[nodiscard]] static u32 GetGlobalPrefilterMapNativeID()
+        {
+            return s_Data.GlobalPrefilterMapNativeID;
+        }
+        [[nodiscard]] static u32 GetGlobalBRDFLutMapNativeID()
+        {
+            return s_Data.GlobalBRDFLutMapNativeID;
         }
         // Nearest wavy water-surface depth captured by WaterRenderPass this frame
         // (0 when no water rendered). Consumed by the underwater-fog stage in the
         // ToneMap pass to find the per-pixel water boundary. See §7.2.
-        static void SetWaterSurfaceDepthTextureID(RendererID id)
+        static void SetWaterSurfaceDepthTextureID(RHI::ResourceHandle id)
         {
             s_Data.WaterSurfaceDepthTextureID = id;
         }
-        [[nodiscard]] static RendererID GetWaterSurfaceDepthTextureID()
+        [[nodiscard]] static RHI::ResourceHandle GetWaterSurfaceDepthTextureID()
         {
             return s_Data.WaterSurfaceDepthTextureID;
         }
         // Planar-reflection colour texture published by PlanarReflectionRenderPass
         // each frame (0 when reflection is disabled / unavailable). Sampled by
         // WaterRenderPass at TEX_WATER_PLANAR_REFLECTION.
-        static void SetPlanarReflectionTextureID(RendererID id)
+        static void SetPlanarReflectionTextureID(RHI::ResourceHandle id)
         {
             s_Data.PlanarReflectionTextureID = id;
         }
-        [[nodiscard]] static RendererID GetPlanarReflectionTextureID()
+        [[nodiscard]] static RHI::ResourceHandle GetPlanarReflectionTextureID()
         {
             return s_Data.PlanarReflectionTextureID;
         }
@@ -881,18 +907,18 @@ namespace OloEngine
             return s_Data.Shadow;
         }
 
-        static void AddMeshShadowCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
-                                        RendererID shadowVaoID = 0, const BoundingBox& worldBounds = NoBounds,
+        static void AddMeshShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
+                                        RHI::ResourceHandle shadowVaoID = {}, const BoundingBox& worldBounds = NoBounds,
                                         bool twoSided = false);
 
-        static void AddSkinnedShadowCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
+        static void AddSkinnedShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                                            u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds = NoBounds);
 
-        static void AddTerrainShadowCaster(RendererID vaoID, u32 indexCount, u32 patchVertexCount,
-                                           const glm::mat4& transform, RendererID heightmapTextureID,
+        static void AddTerrainShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 patchVertexCount,
+                                           const glm::mat4& transform, RHI::ResourceHandle heightmapTextureID,
                                            const ShaderBindingLayout::TerrainUBO& terrainUBO);
 
-        static void AddVoxelShadowCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform);
+        static void AddVoxelShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform);
 
         static void AddFoliageShadowCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time);
 
@@ -1010,38 +1036,44 @@ namespace OloEngine
         // ID snapshot (taken per prepass activation) so the per-draw resolve is
         // a handful of integer compares. IDs are 0 while shaders are unloaded,
         // which disables the swap safely.
+        // Identities, not driver names (issue #691 step 3, slice 6): these are
+        // compared against PODMaterialData::shaderRendererID to decide whether a
+        // material's program may be swapped for the depth-only one, and that
+        // field is an identity now. Comparing programs by GL name across a
+        // shader HOT-RELOAD is also unsound — a relinked program can be handed
+        // the name a different program just freed.
         struct DepthPrepassShaderIDs
         {
             // Standard mesh programs eligible for the swap
-            u32 PBRStatic = 0;
-            u32 PBRSkinned = 0;
-            u32 GBufferStatic = 0;
-            u32 GBufferSkinned = 0;
+            RHI::ResourceHandle PBRStatic{};
+            RHI::ResourceHandle PBRSkinned{};
+            RHI::ResourceHandle GBufferStatic{};
+            RHI::ResourceHandle GBufferSkinned{};
             // Replacement depth-only programs (DepthPrepass*.glsl)
-            u32 DepthStatic = 0;
-            u32 DepthSkinned = 0;
-            u32 DepthMaskStatic = 0;
-            u32 DepthMaskSkinned = 0;
+            RHI::ResourceHandle DepthStatic{};
+            RHI::ResourceHandle DepthSkinned{};
+            RHI::ResourceHandle DepthMaskStatic{};
+            RHI::ResourceHandle DepthMaskSkinned{};
         };
         static DepthPrepassShaderIDs GetDepthPrepassShaderIDs()
         {
             DepthPrepassShaderIDs ids;
             if (s_Data.PBRMultiLightShader)
-                ids.PBRStatic = s_Data.PBRMultiLightShader->GetRendererID();
+                ids.PBRStatic = s_Data.PBRMultiLightShader->GetRHIHandle();
             if (s_Data.PBRMultiLightSkinnedShader)
-                ids.PBRSkinned = s_Data.PBRMultiLightSkinnedShader->GetRendererID();
+                ids.PBRSkinned = s_Data.PBRMultiLightSkinnedShader->GetRHIHandle();
             if (s_Data.PBRGBufferShader)
-                ids.GBufferStatic = s_Data.PBRGBufferShader->GetRendererID();
+                ids.GBufferStatic = s_Data.PBRGBufferShader->GetRHIHandle();
             if (s_Data.PBRGBufferSkinnedShader)
-                ids.GBufferSkinned = s_Data.PBRGBufferSkinnedShader->GetRendererID();
+                ids.GBufferSkinned = s_Data.PBRGBufferSkinnedShader->GetRHIHandle();
             if (s_Data.DepthPrepassShader)
-                ids.DepthStatic = s_Data.DepthPrepassShader->GetRendererID();
+                ids.DepthStatic = s_Data.DepthPrepassShader->GetRHIHandle();
             if (s_Data.DepthPrepassSkinnedShader)
-                ids.DepthSkinned = s_Data.DepthPrepassSkinnedShader->GetRendererID();
+                ids.DepthSkinned = s_Data.DepthPrepassSkinnedShader->GetRHIHandle();
             if (s_Data.DepthPrepassMaskShader)
-                ids.DepthMaskStatic = s_Data.DepthPrepassMaskShader->GetRendererID();
+                ids.DepthMaskStatic = s_Data.DepthPrepassMaskShader->GetRHIHandle();
             if (s_Data.DepthPrepassMaskSkinnedShader)
-                ids.DepthMaskSkinned = s_Data.DepthPrepassMaskSkinnedShader->GetRendererID();
+                ids.DepthMaskSkinned = s_Data.DepthPrepassMaskSkinnedShader->GetRHIHandle();
             return ids;
         }
 
@@ -1146,7 +1178,7 @@ namespace OloEngine
             const glm::mat4& inverseDecalTransform,
             const glm::vec4& decalColor,
             const glm::vec4& decalParams,
-            RendererID albedoTextureID,
+            RHI::ResourceHandle albedoTextureID,
             i32 entityID = -1);
 
         // Extended decal rendering — mode picks the G-Buffer channel (0=Albedo,
@@ -1161,9 +1193,9 @@ namespace OloEngine
             const glm::mat4& inverseDecalTransform,
             const glm::vec4& decalColor,
             const glm::vec4& decalParams,
-            RendererID albedoTextureID,
-            RendererID normalTextureID,
-            RendererID rmaTextureID,
+            RHI::ResourceHandle albedoTextureID,
+            RHI::ResourceHandle normalTextureID,
+            RHI::ResourceHandle rmaTextureID,
             DrawDecalCommand::DecalMode mode,
             bool transparent,
             i32 entityID = -1);
@@ -1174,8 +1206,8 @@ namespace OloEngine
         struct FoliageImpostorParams
         {
             bool Enabled = false;
-            RendererID AlbedoAtlasID = 0;      // rgb + coverage
-            RendererID NormalDepthAtlasID = 0; // obj normal + card depth
+            RHI::ResourceHandle AlbedoAtlasID{};      // rgb + coverage
+            RHI::ResourceHandle NormalDepthAtlasID{}; // obj normal + card depth
             u32 FramesPerAxis = 8;
             bool Hemi = true;
             f32 StartDistance = 40.0f;
@@ -1186,8 +1218,8 @@ namespace OloEngine
 
         // Foliage rendering (submits DrawFoliageLayerCommand to FoliageRenderPass bucket)
         static CommandPacket* DrawFoliageLayer(
-            RendererID vertexArrayID, u32 indexCount, u32 instanceCount,
-            RendererID albedoTextureID,
+            RHI::ResourceHandle vertexArrayID, u32 indexCount, u32 instanceCount,
+            RHI::ResourceHandle albedoTextureID,
             const glm::mat4& modelTransform,
             f32 time,
             f32 prevTime,
@@ -1224,12 +1256,12 @@ namespace OloEngine
             // FFT ocean (WATER_FUTURE_IMPROVEMENTS.md §1): x = useFFT (0/1),
             // y = 1/patchSize, z = heightScale, w = horizontalScale.
             glm::vec4 fftParams = glm::vec4(0.0f);
-            RendererID normalMap0ID = 0;
-            RendererID normalMap1ID = 0;
-            RendererID noiseTextureID = 0;
-            RendererID foamTextureID = 0;
-            RendererID fftDisplacementID = 0; // rgb = (dx,h,dz), a = foam
-            RendererID fftDerivativesID = 0;  // rgb = normal, a = jacobian
+            RHI::ResourceHandle normalMap0ID{};
+            RHI::ResourceHandle normalMap1ID{};
+            RHI::ResourceHandle noiseTextureID{};
+            RHI::ResourceHandle foamTextureID{};
+            RHI::ResourceHandle fftDisplacementID{}; // rgb = (dx,h,dz), a = foam
+            RHI::ResourceHandle fftDerivativesID{};  // rgb = normal, a = jacobian
             bool refractionEnabled = true;
             bool ssrEnabled = true;
             // When true the water plane draws double-sided so it stays visible
@@ -1241,7 +1273,7 @@ namespace OloEngine
 
         // Water rendering (submits DrawWaterCommand to WaterRenderPass bucket)
         static CommandPacket* DrawWaterSurface(
-            RendererID vertexArrayID, u32 indexCount,
+            RHI::ResourceHandle vertexArrayID, u32 indexCount,
             const glm::mat4& modelTransform,
             f32 time,
             f32 prevTime,
@@ -1449,7 +1481,8 @@ namespace OloEngine
         // G-Buffer slots.
         static bool IsDeferredCapableShader(const Ref<Shader>& shader);
         static auto GetRenderStreamNode(RenderStreamType stream) -> CommandBufferRenderPass*;
-        static auto ValidateDrawMeshRendererIDs(const char* context, u32 vaoID, u32 shaderID) -> bool;
+        static auto ValidateDrawMeshResources(const char* context, RHI::ResourceHandle vertexArray,
+                                              RHI::ResourceHandle shader) -> bool;
 
         // Shared Deferred-vs-forward-overlay shader routing decision for the
         // instanced submission paths (DrawMeshInstanced's CPU-cull path and
@@ -1775,19 +1808,25 @@ namespace OloEngine
             glm::vec2 PrevJitterUV = glm::vec2(0.0f);
 
             // Global IBL fallback (from scene's EnvironmentMap)
-            RendererID GlobalIrradianceMapID = 0;
-            RendererID GlobalPrefilterMapID = 0;
-            RendererID GlobalBRDFLutMapID = 0;
-            RendererID GlobalEnvironmentMapID = 0;
+            RHI::ResourceHandle GlobalIrradianceMapID{};
+            RHI::ResourceHandle GlobalPrefilterMapID{};
+            RHI::ResourceHandle GlobalBRDFLutMapID{};
+            RHI::ResourceHandle GlobalEnvironmentMapID{};
+            // Native siblings of the three above that RenderPipeline imports
+            // into the render graph. Set from the same SetGlobalIBL call so the
+            // two spellings cannot describe different textures.
+            u32 GlobalIrradianceMapNativeID = 0;
+            u32 GlobalPrefilterMapNativeID = 0;
+            u32 GlobalBRDFLutMapNativeID = 0;
             f32 GlobalIBLIntensity = 1.0f;
 
             // Nearest water-surface depth texture for underwater fog (§7.2);
             // published by WaterRenderPass, consumed by ToneMap. 0 = no water.
-            RendererID WaterSurfaceDepthTextureID = 0;
+            RHI::ResourceHandle WaterSurfaceDepthTextureID{};
 
             // Planar-reflection colour texture published by
             // PlanarReflectionRenderPass, sampled by WaterRenderPass. 0 = none.
-            RendererID PlanarReflectionTextureID = 0;
+            RHI::ResourceHandle PlanarReflectionTextureID{};
 
             // Per-frame planar-reflection request from Scene.cpp (dominant water
             // surface), forwarded to PlanarReflectionRenderPass at EndScene.

@@ -22,8 +22,8 @@ namespace OloEngine
         return s_Data.Pipeline->FrameCorePasses.Shadow != nullptr;
     }
 
-    void Renderer3D::AddMeshShadowCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
-                                         RendererID shadowVaoID, const BoundingBox& worldBounds, bool twoSided)
+    void Renderer3D::AddMeshShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
+                                         RHI::ResourceHandle shadowVaoID, const BoundingBox& worldBounds, bool twoSided)
     {
         if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
         {
@@ -31,7 +31,7 @@ namespace OloEngine
         }
     }
 
-    void Renderer3D::AddSkinnedShadowCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
+    void Renderer3D::AddSkinnedShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                                             u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds)
     {
         if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
@@ -40,8 +40,8 @@ namespace OloEngine
         }
     }
 
-    void Renderer3D::AddTerrainShadowCaster(RendererID vaoID, u32 indexCount, u32 patchVertexCount,
-                                            const glm::mat4& transform, RendererID heightmapTextureID,
+    void Renderer3D::AddTerrainShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 patchVertexCount,
+                                            const glm::mat4& transform, RHI::ResourceHandle heightmapTextureID,
                                             const ShaderBindingLayout::TerrainUBO& terrainUBO)
     {
         if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
@@ -50,7 +50,7 @@ namespace OloEngine
         }
     }
 
-    void Renderer3D::AddVoxelShadowCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform)
+    void Renderer3D::AddVoxelShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform)
     {
         if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
         {
@@ -174,23 +174,32 @@ namespace OloEngine
         // causing the shader to early-out. The SSBO remains bound from init (zeroed).
     }
 
-    void Renderer3D::SetGlobalIBL(RendererID irradianceMapID, RendererID prefilterMapID,
-                                  RendererID brdfLutMapID, RendererID environmentMapID,
+    void Renderer3D::SetGlobalIBL(RHI::ResourceHandle irradianceMap, RHI::ResourceHandle prefilterMap,
+                                  RHI::ResourceHandle brdfLutMap, RHI::ResourceHandle environmentMap,
+                                  u32 irradianceNativeID, u32 prefilterNativeID, u32 brdfLutNativeID,
                                   f32 iblIntensity)
     {
-        s_Data.GlobalIrradianceMapID = irradianceMapID;
-        s_Data.GlobalPrefilterMapID = prefilterMapID;
-        s_Data.GlobalBRDFLutMapID = brdfLutMapID;
-        s_Data.GlobalEnvironmentMapID = environmentMapID;
+        s_Data.GlobalIrradianceMapID = irradianceMap;
+        s_Data.GlobalPrefilterMapID = prefilterMap;
+        s_Data.GlobalBRDFLutMapID = brdfLutMap;
+        s_Data.GlobalEnvironmentMapID = environmentMap;
+        s_Data.GlobalIrradianceMapNativeID = irradianceNativeID;
+        s_Data.GlobalPrefilterMapNativeID = prefilterNativeID;
+        s_Data.GlobalBRDFLutMapNativeID = brdfLutNativeID;
         s_Data.GlobalIBLIntensity = iblIntensity;
     }
 
     void Renderer3D::ClearGlobalIBL()
     {
-        s_Data.GlobalIrradianceMapID = 0;
-        s_Data.GlobalPrefilterMapID = 0;
-        s_Data.GlobalBRDFLutMapID = 0;
-        s_Data.GlobalEnvironmentMapID = 0;
+        s_Data.GlobalIrradianceMapID = {};
+        s_Data.GlobalPrefilterMapID = {};
+        s_Data.GlobalBRDFLutMapID = {};
+        s_Data.GlobalEnvironmentMapID = {};
+        // Both currencies clear together — leaving the native trio set would let
+        // the graph import a texture the bind path considers gone.
+        s_Data.GlobalIrradianceMapNativeID = 0;
+        s_Data.GlobalPrefilterMapNativeID = 0;
+        s_Data.GlobalBRDFLutMapNativeID = 0;
         s_Data.GlobalIBLIntensity = 1.0f;
     }
 

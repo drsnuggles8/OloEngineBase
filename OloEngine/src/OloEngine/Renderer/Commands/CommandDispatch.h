@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RenderCommand.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include <array>
@@ -44,7 +45,7 @@ namespace OloEngine
         // Clear any cached texture-slot binding that points at this OpenGL texture ID.
         // Must be called when a Texture2D is destroyed so that a future call to
         // BindTrackedTexture with a recycled GL ID is not incorrectly skipped.
-        static void InvalidateTextureBinding(u32 textureID);
+        static void InvalidateTextureBinding(RHI::ResourceHandle texture);
 
         // Tell the redundant-bind cache that `slot` was clobbered by a raw glBindTextureUnit
         // outside this dispatcher, so the next tracked bind for that slot actually happens.
@@ -94,18 +95,19 @@ namespace OloEngine
         // atlas used by the PCSS blocker search (0 = none; bound only when
         // non-zero). The atlas replaced the old spot array + point cubemaps
         // (issue #435).
-        static void SetShadowTextureIDs(u32 csmTextureID, u32 atlasTextureID,
-                                        u32 csmRawTextureID = 0, u32 atlasRawTextureID = 0);
+        static void SetShadowTextures(RHI::ResourceHandle csmTexture, RHI::ResourceHandle atlasTexture,
+                                      RHI::ResourceHandle csmRawTexture = {},
+                                      RHI::ResourceHandle atlasRawTexture = {});
 
         // Snow accumulation depth texture — set per-frame
-        static void SetSnowDepthTextureID(u32 textureID);
+        static void SetSnowDepthTexture(RHI::ResourceHandle texture);
 
         // Cloud shadow transmittance map (R8, issue #633) — set per-frame
         // from CloudShadowMap by RenderPipeline::UploadExecutionState; bound
         // at TEX_CLOUD_SHADOW (62) during PBR mesh dispatch (0 = none; bound
         // only when non-zero, gated shader-side by the AtmosphereShadingUBO
         // enabled flag).
-        static void SetCloudShadowTextureID(u32 textureID);
+        static void SetCloudShadowTexture(RHI::ResourceHandle texture);
 
         // Getters for current frame state (used for sort key generation and per-bucket view state)
         static const glm::mat4& GetViewMatrix();

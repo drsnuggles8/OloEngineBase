@@ -688,7 +688,7 @@ namespace OloEngine
 
             for (const auto& caster : m_Casters)
             {
-                if (caster.vaoID == 0 || caster.indexCount == 0)
+                if (!caster.vaoID.IsValid() || caster.indexCount == 0)
                 {
                     continue;
                 }
@@ -697,7 +697,10 @@ namespace OloEngine
                     continue;
                 }
 
-                RenderCommand::BindTexture(0, caster.albedoTextureID != 0 ? caster.albedoTextureID : m_WhiteTexture);
+                if (caster.albedoTextureID.IsValid())
+                    RenderCommand::BindTexture(0, caster.albedoTextureID);
+                else
+                    RenderCommand::BindTexture(0, m_WhiteTexture);
 
                 DDGIPassDataUBO data{};
                 data.Model = MakeModelRelative(caster.transform, m_RenderOrigin);
@@ -896,10 +899,12 @@ namespace OloEngine
         // samplerCube slot (TEX_ENVIRONMENT) — the black fallback keeps the
         // declared samplerCube valid when no scene environment exists, and the
         // slot normally carries this exact texture for the lit passes anyway.
-        const u32 envID = Renderer3D::GetGlobalEnvironmentMapID() != 0
-                              ? Renderer3D::GetGlobalEnvironmentMapID()
-                              : m_BlackCubemap;
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, envID);
+        // Same split as the caster albedo above: the black fallback cubemap is
+        // still a pass-owned native texture.
+        if (const RHI::ResourceHandle envMap = Renderer3D::GetGlobalEnvironmentMapHandle(); envMap.IsValid())
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, envMap);
+        else
+            RenderCommand::BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, m_BlackCubemap);
 
         // CSM + shadow atlas at the binding units include/PBRCommon.glsl's
         // evaluators expect (8 / 13 comparison, 33 / 34 raw for PCSS) — same

@@ -461,6 +461,32 @@ render pass is exactly the "tests green, screen wrong" class `CLAUDE.md`'s
 rendering rule exists for. **When reviewing a scripted currency sweep, read the
 conditionals first** — the type changes are compiler-checked, the guards are not.
 
+### A GLOBAL rename is always wrong here, and slice 6 proved it five times
+
+The defining property of a dual-currency migration is that **some call sites must
+not move**. A regex cannot see which, so every broad tool overreaches. Slice 6
+hit this five separate times; recording the shapes because four of the five were
+caught only by luck of the destination type differing:
+
+| The tool | What it did | How it surfaced |
+| --- | --- | --- |
+| `grep … \| head -30` to survey `RendererID` uses | Read a TRUNCATED list as complete, missed `Renderer3D.h`'s 38 | 4551-error parse cascade |
+| `s/(=\s*)0(\s*[;,])/\1{}\2/` | Matched the `=` of `!=`, making `x != 0;` into `x != {};` | Failed to parse — but the same rewrite on `x != 0 &&` would have parsed |
+| `s/->GetRendererID()/->GetRHIHandle()/` over `Scene.cpp` | Swept up the IBL trio that must stay native for the graph import | Error count went UP, 67 → 75 |
+| the same, second pass | Swept up the cloudscape weather map and three fluid SSBO ids (later slices) | Compiler, because the destinations were still `u32` |
+| `s/field = <literal>/field = TestHandle(<literal>)/` in tests | Wrapped a literal `0` that meant "absent", producing a VALID handle naming slot 0 | **The test suite** — `DrawWaterCommandZeroInitNoNaN`. Nothing else would have. |
+
+The last row is the dangerous one and the reason to write this down: it is the
+only one the compiler could not see, and had the default handle happened to be
+`{0,1}` instead of `{0xFFFFFFFF,0}` it would have passed while silently
+weakening a zero-init assertion. **In a test, a literal `0` on a migrated field
+is the ABSENT sentinel (`RHI::NullResource` / `!IsValid()`), never a synthetic
+id** — `TestHandle(0)` is a live handle naming registry slot 0.
+
+The tool that *did* work: drive edits from the compiler's own `(file, line)`
+output and only rewrite lines it rejected. That cannot touch a site the compiler
+accepted, which is exactly the set that must not move.
+
 ### Identity is the C++ object, not the native name — and that fixes something
 
 Anchoring the registry entry to the resource *object* (with `UpdateNative` for
@@ -511,20 +537,23 @@ script derives the repo root from its own location — the first version pinned 
 absolute worktree path and reported a confident `TOTAL 0 across 0 files`
 everywhere else, so **if it prints 0, check that before believing it.**
 
-Counts are *after* slice 5 (was 1196 across 118 files; now **1150 across 110**):
+Counts are *after slice 6*. The raw total went 1196 across 118 files → 1150
+(slice 5) → **848 across 104** (slice 6):
 
-| Where | Count | Note |
-| --- | ---: | --- |
-| `Platform/OpenGL/` | 412 | **Exempt.** The backend may name GL ids. |
-| `Renderer/Commands/` (`RenderCommand.h` 72, `CommandDispatch.cpp` 67) | 141 | The bind-cache unit below. Untouched. |
-| `Renderer3DMeshSubmission.cpp` | 71 | Same dataflow as above. Untouched. |
-| `Scene/Scene.cpp` | 66 | Untouched (item 3). |
-| `Renderer3D.h` | 62 | Untouched (item 3). |
-| `Get{Color,Depth}AttachmentRendererID` call sites | 72 → **31** | Slice 5. The remainder is the deferred table below plus the native accessors kept on purpose. |
+| Where | Then | Now | Note |
+| --- | ---: | ---: | --- |
+| `Platform/OpenGL/` | 412 | ~410 | **Exempt.** The backend may name GL ids. |
+| `Renderer/Commands/` | 141 | **53** | Slice 6. What survives is `CommandDispatch.cpp`'s remaining native spellings. |
+| `Renderer3DMeshSubmission.cpp` | 71 | **~0** | Slice 6, via the POD structs. |
+| `Scene/Scene.cpp` | 66 | **~0** | Pulled in by slice 6 (it fills the PODs). |
+| `Renderer3D.h` | 62 | **~0** | Pulled in by the alias deletion — item 3's header, landed early. |
+| `Get{Color,Depth}AttachmentRendererID` call sites | 72 | **29** | Slice 5 + the two Renderer3D setters slice 6 unblocked. |
 
-By spelling: `m_RendererID` 439 (mostly backend-internal, exempt),
-`GetRendererID` 325 → **319** (**the real target** — consumers),
-`shaderRendererID` 110, attachment getters 71 → **31**.
+By spelling: `m_RendererID` 435 (backend-internal, exempt), `GetRendererID`
+325 → **212** (**the real target**), `shaderRendererID` 110 → **111** (unchanged
+— it is a FIELD NAME on the migrated structs, and renaming the field is
+cosmetic churn better done with item 4's deletion pass), attachment getters
+71 → **29**.
 
 Suggested order, each a buildable commit:
 
@@ -542,7 +571,25 @@ Suggested order, each a buildable commit:
    `SetTextureFilter`/`SetTextureWrap`/`UploadTextureSubImage2D` discovery, one
    slice later: **you cannot enumerate a migration's facade needs by reading;
    migrate one real consumer per SINK FAMILY and let the compiler tell you.**
-2. **The command-layer bind cache** — one indivisible unit, see below.
+2. ~~**The command-layer bind cache**~~ — **DONE (slice 6)**, and it was
+   materially bigger than this line implies. Three corrections for whoever
+   scopes a comparable unit:
+
+   * **The blast radius was 253 errors across 16 files, not "~180 concentrated
+     in `CommandDispatch.cpp`"** — that file was ~40% of it. The rest came from
+     deleting `using RendererID = u32`, which is a TYPE in headers included
+     everywhere: `Renderer3D.h` alone used it in 38 declarations and produced a
+     **4551-error parse cascade** on the first build. Item 3's `Renderer3D.h`
+     therefore lands with item 2 whether you planned it or not.
+   * **Seven resource chains not named in this worklist came with it**, because
+     each feeds the cache and `native -> handle` is unrecoverable:
+     `CloudShadowMap`, `SnowAccumulationSystem`, `OceanFFTField`,
+     `FoliageRenderer`, `DepthPrepassShaderIDs`, the global IBL maps, and
+     `ShadowMap`'s compare-off views.
+   * **Nine new facade virtuals were needed**, against a prediction of zero:
+     `CreateDepthArrayCompareOffViewHandle`, `SetProgramUniformFloat`, handle
+     forms of `DrawIndexedRaw` (×2), `DrawIndexedInstancedRaw`,
+     `DrawIndexedPatchesRaw`, and `DrawBoundElementsIndirect`.
 3. `Scene.cpp` / `Renderer3D.h`, then the remaining passes (`ColorGrading` is a
    near-clone of the migrated SSAO; `Cloudscape` needs `CloudNoise` migrated
    first; `FluidIntermediates` recreates on resize and so is the first to need
@@ -633,14 +680,32 @@ Deliberately **not** migrated, each for a stated reason rather than for size:
 | `RenderGraph`'s JSON topology dump | Reports native ids on purpose, for external tooling. |
 | `Renderer/Debug/`'s two | Phase 8 relocation. |
 
-**Counters:** `sweep_renderer_id` 699 → **653**; `facade_native_id_params`
-deliberately unchanged at 68, because this slice *adds* handle overloads and
-deletes no `u32` form — that is worklist item 4's job, and the documented order.
-The 46 is real but flatters the slice: the accessor name survives wherever a
-native sibling is kept on purpose (DDGI's `GetIrradianceAtlasID` is still there
-so `importAtlas` can call it), and 40 of the 46 are the attachment getters
-themselves. Read §4's "do not use it as a progress meter" note before reading
-either number as a completion fraction.
+**Counters after slice 5:** `sweep_renderer_id` 699 → **653**;
+`facade_native_id_params` unchanged at 68, because that slice *adds* handle
+overloads and deletes no `u32` form — item 4's job, and the documented order.
+The 46 flatters it: the accessor name survives wherever a native sibling is kept
+on purpose (DDGI's `GetIrradianceAtlasID` is still there so `importAtlas` can
+call it), and 40 of the 46 are the attachment getters themselves.
+
+**Counters after slice 6 (the bind cache):** `sweep_renderer_id` 653 → **355**,
+`facade_native_id_params` 68 → **67**. The 298 is the honest measure of what
+converting the CURRENCY (rather than one producer family) is worth — six times
+slice 5's move.
+
+The `facade_native_id_params` fall is small but worth reading, because the naïve
+version of this slice *raised* it. `DrawElementsIndirectRaw(vaoID, bufferID)`
+needed a handle form, and the obvious answer was a mixed
+`(RHI::ResourceHandle, u32 indirectBufferID)` overload — which adds a
+`u32 <name>ID` parameter and pushes a ratchet that may only fall to 69. The real
+answer was that its single caller had *already* run `BindVAOIfNeeded`, so the
+draw was re-binding the VAO behind the redundant-bind cache's back; replacing
+both `u32` forms with `DrawBoundElementsIndirect(u32)` (matching the existing
+`DrawBound*` family) removed a redundant bind AND netted −1. **When a migration
+looks like it must raise a ratchet, that is usually the signal that the call
+site's shape is wrong, not that the ratchet is.**
+
+Read §4's "do not use it as a progress meter" note before reading either number
+as a completion fraction.
 
 ### Hashing a driver name into a cache fingerprint cannot see a destroy-then-recreate
 
@@ -690,12 +755,39 @@ prevents.** The comments on `InvalidateTextureSlot` / `InvalidateTextureBinding`
 record it — `VirtualGeometryPass` binds the Hi-Z pyramid to unit 0 for its cull
 compute, unit 0 is also `u_AlbedoMap`, and "any material whose albedo ID matched
 the stale cache entry silently sampled the HZB depth texture as its albedo."
-The current fix is manual invalidation that every future raw-GL binder must
-remember to call. Keyed on identities the stale entry cannot collide, so the
-invalidation calls stop being load-bearing correctness and become a pure
-optimisation. That is a genuine behavioural win, not just a type change — say so
-in the commit, and keep the invalidation calls (they still avoid redundant
-binds) rather than deleting them as "no longer needed".
+Keyed on identities that particular collision becomes unrepresentable: a deleted
+texture's handle is retired, so it can never compare equal to a live one.
+
+### …but invalidation gets MORE load-bearing, not less — the one place handles are WEAKER
+
+**An earlier version of this section said the invalidation calls "stop being
+load-bearing correctness and become a pure optimisation". That was wrong, and
+wrong in the direction that ships bugs.** Recorded here because the reasoning is
+seductive and the failure is silent.
+
+The recycled-name hazard does die. But there is a second hazard the identity
+currency *creates*, because identity is deliberately stable where the driver
+name is not: an **in-place reload** (`OpenGLTexture::InvalidateImpl`) deletes the
+GL texture, creates new storage, and calls `ScopedResourceHandle::Sync`, which
+**preserves** the handle — that is the whole point of §4's "identity is the C++
+object", and it is what makes caching a handle safe. So:
+
+- the cache holds handle `H` for slot N, GL name `old` is bound to unit N;
+- reload: `old` is deleted, `new` created, `H` still names the object;
+- `BindTrackedTexture(H, N)` sees `BoundTextures[N] == H`, concludes "already
+  bound", and **skips a bind that must happen** — leaving the unit pointing at a
+  deleted name.
+
+Under the old native-id keying this self-corrected, because the name changed and
+the cache missed. Under handle keying it does not. So the rule inverts:
+**every site that recreates a texture's storage MUST call
+`InvalidateTextureBinding`** (it takes a handle now). Deleting those calls as
+"no longer needed" — which the old paragraph invited — would produce a
+tests-green / screen-wrong bug visible only after a hot reload.
+
+`InvalidateTextureSlot` is also still required, for an unrelated reason: a raw
+binder bypasses the cache entirely, so the cache's claim about the slot is simply
+untrue and no keying scheme can detect that from the inside.
 
 ### Delegating to the native path and stamping the identity on afterwards silently disables generation bumping
 

@@ -321,6 +321,17 @@ namespace OloEngine
         return 0;
     }
 
+    RHI::ResourceHandle SnowAccumulationSystem::GetSnowDepthTextureHandle()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (s_Data.m_Initialized && s_Data.m_SnowDepthTexture)
+        {
+            return s_Data.m_SnowDepthTexture->GetRHIHandle();
+        }
+        return RHI::NullResource;
+    }
+
     void SnowAccumulationSystem::Reset()
     {
         OLO_PROFILE_FUNCTION();

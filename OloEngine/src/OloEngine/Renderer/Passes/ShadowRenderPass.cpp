@@ -322,7 +322,7 @@ namespace OloEngine
                 // instances[gl_InstanceIndex].Transform from the SSBO.
                 struct ShadowMeshBatch
                 {
-                    RendererID drawVao;
+                    RHI::ResourceHandle drawVao;
                     u32 indexCount;
                     u32 baseIndex;
                     bool twoSided; // rendered with culling disabled instead of front-cull (issue #650)
@@ -336,7 +336,7 @@ namespace OloEngine
                     if (cullFrustum && ShouldCull(caster.WorldBounds, *cullFrustum))
                         continue;
 
-                    RendererID const drawVao = (caster.shadowVaoID != 0) ? caster.shadowVaoID : caster.vaoID;
+                    RHI::ResourceHandle const drawVao = caster.shadowVaoID.IsValid() ? caster.shadowVaoID : caster.vaoID;
                     const glm::mat4 relTransform = MakeModelRelative(caster.transform, renderOrigin);
                     InstanceData inst;
                     inst.Transform = relTransform;
@@ -413,7 +413,7 @@ namespace OloEngine
                             // so per-instance picking isn't meaningful here.
                             profiler.RecordInstancedDraw(
                                 /*meshHandle=*/0,
-                                batch.drawVao,
+                                batch.drawVao.Index,
                                 batch.indexCount,
                                 static_cast<u32>(batch.instances.size()),
                                 /*entityIDs=*/nullptr,
@@ -482,7 +482,7 @@ namespace OloEngine
                 {
                     uploadShadowModelUBO(caster.transform);
 
-                    if (caster.heightmapTextureID != 0)
+                    if (caster.heightmapTextureID.IsValid())
                     {
                         RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP, caster.heightmapTextureID);
                     }
@@ -575,26 +575,26 @@ namespace OloEngine
     }
 
     // Shadow caster submission methods
-    void ShadowRenderPass::AddMeshCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
-                                         RendererID shadowVaoID, const BoundingBox& worldBounds, bool twoSided)
+    void ShadowRenderPass::AddMeshCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
+                                         RHI::ResourceHandle shadowVaoID, const BoundingBox& worldBounds, bool twoSided)
     {
         m_MeshCasters.push_back({ vaoID, indexCount, baseIndex, transform, shadowVaoID, worldBounds, twoSided });
     }
 
-    void ShadowRenderPass::AddSkinnedCaster(RendererID vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
+    void ShadowRenderPass::AddSkinnedCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
                                             u32 boneBufferOffset, u32 boneCount, const BoundingBox& worldBounds)
     {
         m_SkinnedCasters.push_back({ vaoID, indexCount, baseIndex, transform, boneBufferOffset, boneCount, worldBounds });
     }
 
-    void ShadowRenderPass::AddTerrainCaster(RendererID vaoID, u32 indexCount, u32 patchVertexCount,
-                                            const glm::mat4& transform, RendererID heightmapTextureID,
+    void ShadowRenderPass::AddTerrainCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 patchVertexCount,
+                                            const glm::mat4& transform, RHI::ResourceHandle heightmapTextureID,
                                             const ShaderBindingLayout::TerrainUBO& terrainUBO)
     {
         m_TerrainCasters.push_back({ vaoID, indexCount, patchVertexCount, transform, heightmapTextureID, terrainUBO });
     }
 
-    void ShadowRenderPass::AddVoxelCaster(RendererID vaoID, u32 indexCount, const glm::mat4& transform)
+    void ShadowRenderPass::AddVoxelCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform)
     {
         m_VoxelCasters.push_back({ vaoID, indexCount, transform });
     }

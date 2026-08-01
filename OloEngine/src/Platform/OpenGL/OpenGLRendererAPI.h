@@ -26,8 +26,13 @@ namespace OloEngine
 
         void DrawIndexedRaw(u32 vaoID, u32 indexCount) override;
         void DrawIndexedRaw(u32 vaoID, u32 indexCount, u32 baseIndex) override;
+        void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount) override;
+        void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex) override;
         void DrawIndexedInstancedRaw(u32 vaoID, u32 indexCount, u32 baseIndex, u32 instanceCount) override;
+        void DrawIndexedInstancedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex,
+                                     u32 instanceCount) override;
         void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices) override;
+        void DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 patchVertices) override;
 
         void SetLineWidth(f32 width) override;
 
@@ -63,7 +68,7 @@ namespace OloEngine
 
         void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) override;
         void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) override;
-        void DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID) override;
+        void DrawBoundElementsIndirect(u32 indirectBufferID) override;
         void MultiDrawElementsIndirectCountRaw(u32 vaoID, u32 indirectBufferID, u32 indirectOffsetBytes,
                                                u32 parameterBufferID, u32 parameterOffsetBytes,
                                                u32 maxDrawCount, u32 strideBytes) override;
@@ -99,6 +104,8 @@ namespace OloEngine
         u32 CreateTexture2D(u32 width, u32 height, RHI::Format internalFormat) override;
         u32 CreateTextureCubemap(u32 width, u32 height, RHI::Format internalFormat) override;
         u32 CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers) override;
+        [[nodiscard]] RHI::ResourceHandle CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture,
+                                                                               u32 numLayers) override;
         void SetTextureFilter(u32 textureID, RHI::Filter minFilter, RHI::Filter magFilter) override;
         void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter) override;
         void SetTextureWrap(u32 textureID, RHI::AddressMode wrap) override;
@@ -228,6 +235,7 @@ namespace OloEngine
         [[nodiscard("Store this!")]] u32 GetMaxColorTextureSamples() const override;
         [[nodiscard("Store this!")]] u32 GetMaxDepthTextureSamples() const override;
         void SetProgramUniformFloat(u32 programID, std::string_view name, f32 value) override;
+        void SetProgramUniformFloat(RHI::ResourceHandle program, std::string_view name, f32 value) override;
 
         [[nodiscard("Store this!")]] bool IsDeviceAvailable() const override;
         [[nodiscard("Store this!")]] u32 GetMaxUniformBlockSize() const override;

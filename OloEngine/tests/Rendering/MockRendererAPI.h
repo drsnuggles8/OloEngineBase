@@ -317,9 +317,9 @@ namespace OloEngine::Testing
             Record("DrawArraysIndirect");
             ++m_DrawCallCount;
         }
-        void DrawElementsIndirectRaw(u32 /*vaoID*/, u32 /*bufID*/) override
+        void DrawBoundElementsIndirect(u32 /*bufID*/) override
         {
-            Record("DrawElementsIndirectRaw");
+            Record("DrawBoundElementsIndirect");
             ++m_DrawCallCount;
         }
         void MultiDrawElementsIndirectCountRaw(u32 /*vaoID*/, u32 /*bufID*/, u32 /*indirectOffset*/, u32 /*paramBufID*/,
@@ -514,6 +514,36 @@ namespace OloEngine::Testing
                                                            sizet destSizeBytes, void* dest) override
         {
             return ReadTextureImage(Native(texture), mipLevel, destFormat, destSizeBytes, dest);
+        }
+        void DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 patchVertices) override
+        {
+            DrawIndexedPatchesRaw(Native(vertexArray), indexCount, patchVertices);
+        }
+        void DrawIndexedInstancedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex,
+                                     u32 instanceCount) override
+        {
+            DrawIndexedInstancedRaw(Native(vertexArray), indexCount, baseIndex, instanceCount);
+        }
+        void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount) override
+        {
+            DrawIndexedRaw(Native(vertexArray), indexCount);
+        }
+        void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex) override
+        {
+            DrawIndexedRaw(Native(vertexArray), indexCount, baseIndex);
+        }
+        void SetProgramUniformFloat(RHI::ResourceHandle program, std::string_view name, f32 value) override
+        {
+            SetProgramUniformFloat(Native(program), name, value);
+        }
+        [[nodiscard]] RHI::ResourceHandle CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture,
+                                                                               u32 numLayers) override
+        {
+            const u32 nativeView = CreateDepthArrayCompareOffView(Native(srcTexture), numLayers);
+            if (nativeView == 0u)
+                return RHI::NullResource;
+            return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture, nativeView,
+                                                         RHI::Backend::OpenGL);
         }
 
       private:

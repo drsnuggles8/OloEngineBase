@@ -399,7 +399,7 @@ TEST(FrameDataBuffer, MaterialDataTableAllocateReturnsValidIndex)
     buffer.Reset();
 
     PODMaterialData mat{};
-    mat.shaderRendererID = 1;
+    mat.shaderRendererID = TestHandle(1u);
     u16 index = buffer.AllocateMaterialData(mat);
     EXPECT_NE(index, INVALID_MATERIAL_DATA_INDEX);
     EXPECT_EQ(index, 0u);
@@ -412,7 +412,7 @@ TEST(FrameDataBuffer, MaterialDataTableDeduplicatesIdenticalData)
     buffer.Reset();
 
     PODMaterialData mat{};
-    mat.shaderRendererID = 42;
+    mat.shaderRendererID = TestHandle(42u);
     mat.ambient = glm::vec3(0.1f);
     u16 first = buffer.AllocateMaterialData(mat);
     u16 second = buffer.AllocateMaterialData(mat);
@@ -427,12 +427,12 @@ TEST(FrameDataBuffer, MaterialDataTableDifferentDataGetDifferentIndices)
     buffer.Reset();
 
     PODMaterialData matA{};
-    matA.shaderRendererID = 1;
+    matA.shaderRendererID = TestHandle(1u);
     matA.enablePBR = false;
     matA.ambient = glm::vec3(0.1f);
 
     PODMaterialData matB{};
-    matB.shaderRendererID = 2;
+    matB.shaderRendererID = TestHandle(2u);
     matB.enablePBR = true;
     matB.baseColorFactor = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
 
@@ -449,13 +449,13 @@ TEST(FrameDataBuffer, MaterialDataTableRoundTrip)
     buffer.Reset();
 
     PODMaterialData mat{};
-    mat.shaderRendererID = 99;
+    mat.shaderRendererID = TestHandle(99u);
     mat.enablePBR = true;
     mat.baseColorFactor = glm::vec4(0.5f, 0.6f, 0.7f, 1.0f);
     mat.metallicFactor = 0.3f;
     mat.roughnessFactor = 0.8f;
-    mat.albedoMapID = 100;
-    mat.normalMapID = 200;
+    mat.albedoMapID = TestHandle(100u);
+    mat.normalMapID = TestHandle(200u);
 
     u16 index = buffer.AllocateMaterialData(mat);
     const PODMaterialData& retrieved = buffer.GetMaterialData(index);
@@ -470,7 +470,7 @@ TEST(FrameDataBuffer, MaterialDataTableResetsEachFrame)
     buffer.Reset();
 
     PODMaterialData mat{};
-    mat.shaderRendererID = 1;
+    mat.shaderRendererID = TestHandle(1u);
     buffer.AllocateMaterialData(mat);
     EXPECT_EQ(buffer.GetMaterialDataCount(), 1u);
 
@@ -493,7 +493,7 @@ TEST(FrameDataBuffer, MaterialDataTableMultipleUniqueEntries)
     for (u16 i = 0; i < 10; ++i)
     {
         PODMaterialData mat{};
-        mat.shaderRendererID = i + 1;
+        mat.shaderRendererID = TestHandle(static_cast<u32>(i) + 1u);
         mat.metallicFactor = static_cast<f32>(i) * 0.1f;
         u16 index = buffer.AllocateMaterialData(mat);
         EXPECT_EQ(index, i) << "Material " << i << " should get sequential index";
@@ -504,7 +504,7 @@ TEST(FrameDataBuffer, MaterialDataTableMultipleUniqueEntries)
     for (u16 i = 0; i < 10; ++i)
     {
         PODMaterialData mat{};
-        mat.shaderRendererID = i + 1;
+        mat.shaderRendererID = TestHandle(static_cast<u32>(i) + 1u);
         mat.metallicFactor = static_cast<f32>(i) * 0.1f;
         u16 index = buffer.AllocateMaterialData(mat);
         EXPECT_EQ(index, i) << "Re-allocated material " << i << " should match original index";
@@ -522,7 +522,7 @@ TEST(FrameDataBuffer, PBRMaterialAllTextureFieldsRoundTrip)
     buffer.Reset();
 
     PODMaterialData mat{};
-    mat.shaderRendererID = 50;
+    mat.shaderRendererID = TestHandle(50u);
     mat.enablePBR = true;
     mat.baseColorFactor = glm::vec4(0.8f, 0.2f, 0.3f, 1.0f);
     mat.emissiveFactor = glm::vec4(0.1f, 0.2f, 0.3f, 0.0f);
@@ -532,35 +532,35 @@ TEST(FrameDataBuffer, PBRMaterialAllTextureFieldsRoundTrip)
     mat.occlusionStrength = 0.8f;
     mat.enableIBL = true;
     // All 9 PBR texture IDs
-    mat.albedoMapID = 101;
-    mat.metallicRoughnessMapID = 102;
-    mat.normalMapID = 103;
-    mat.aoMapID = 104;
-    mat.emissiveMapID = 105;
-    mat.environmentMapID = 106;
-    mat.irradianceMapID = 107;
-    mat.prefilterMapID = 108;
-    mat.brdfLutMapID = 109;
+    mat.albedoMapID = TestHandle(101u);
+    mat.metallicRoughnessMapID = TestHandle(102u);
+    mat.normalMapID = TestHandle(103u);
+    mat.aoMapID = TestHandle(104u);
+    mat.emissiveMapID = TestHandle(105u);
+    mat.environmentMapID = TestHandle(106u);
+    mat.irradianceMapID = TestHandle(107u);
+    mat.prefilterMapID = TestHandle(108u);
+    mat.brdfLutMapID = TestHandle(109u);
 
     u16 index = buffer.AllocateMaterialData(mat);
     const PODMaterialData& ret = buffer.GetMaterialData(index);
 
-    EXPECT_EQ(ret.shaderRendererID, 50u);
+    EXPECT_EQ(ret.shaderRendererID, TestHandle(50u));
     EXPECT_TRUE(ret.enablePBR);
     EXPECT_FLOAT_EQ(ret.metallicFactor, 0.9f);
     EXPECT_FLOAT_EQ(ret.roughnessFactor, 0.4f);
     EXPECT_FLOAT_EQ(ret.normalScale, 1.5f);
     EXPECT_FLOAT_EQ(ret.occlusionStrength, 0.8f);
     EXPECT_TRUE(ret.enableIBL);
-    EXPECT_EQ(ret.albedoMapID, 101u);
-    EXPECT_EQ(ret.metallicRoughnessMapID, 102u);
-    EXPECT_EQ(ret.normalMapID, 103u);
-    EXPECT_EQ(ret.aoMapID, 104u);
-    EXPECT_EQ(ret.emissiveMapID, 105u);
-    EXPECT_EQ(ret.environmentMapID, 106u);
-    EXPECT_EQ(ret.irradianceMapID, 107u);
-    EXPECT_EQ(ret.prefilterMapID, 108u);
-    EXPECT_EQ(ret.brdfLutMapID, 109u);
+    EXPECT_EQ(ret.albedoMapID, TestHandle(101u));
+    EXPECT_EQ(ret.metallicRoughnessMapID, TestHandle(102u));
+    EXPECT_EQ(ret.normalMapID, TestHandle(103u));
+    EXPECT_EQ(ret.aoMapID, TestHandle(104u));
+    EXPECT_EQ(ret.emissiveMapID, TestHandle(105u));
+    EXPECT_EQ(ret.environmentMapID, TestHandle(106u));
+    EXPECT_EQ(ret.irradianceMapID, TestHandle(107u));
+    EXPECT_EQ(ret.prefilterMapID, TestHandle(108u));
+    EXPECT_EQ(ret.brdfLutMapID, TestHandle(109u));
 
     // Byte-for-byte identity
     EXPECT_EQ(std::memcmp(&mat, &ret, sizeof(PODMaterialData)), 0)
@@ -573,16 +573,16 @@ TEST(FrameDataBuffer, PBRAndLegacyMaterialsDedupIndependently)
     buffer.Reset();
 
     PODMaterialData pbrMat{};
-    pbrMat.shaderRendererID = 1;
+    pbrMat.shaderRendererID = TestHandle(1u);
     pbrMat.enablePBR = true;
     pbrMat.baseColorFactor = glm::vec4(1.0f);
-    pbrMat.albedoMapID = 10;
+    pbrMat.albedoMapID = TestHandle(10u);
 
     PODMaterialData legacyMat{};
-    legacyMat.shaderRendererID = 2;
+    legacyMat.shaderRendererID = TestHandle(2u);
     legacyMat.enablePBR = false;
     legacyMat.ambient = glm::vec3(0.5f);
-    legacyMat.diffuseMapID = 20;
+    legacyMat.diffuseMapID = TestHandle(20u);
 
     u16 pbrIdx = buffer.AllocateMaterialData(pbrMat);
     u16 legacyIdx = buffer.AllocateMaterialData(legacyMat);

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/CameraRelative.h"
+#include "OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -43,10 +44,18 @@ namespace OloEngine
         // used by the PCSS blocker search (the hardware comparison sampler
         // can't read raw occluder depth). These alias the same immutable
         // storage, so the sampler2DArrayShadow bindings are unaffected.
-        m_CSMRawViewID = RenderCommand::CreateDepthArrayCompareOffView(
-            m_CSMTextureArray->GetRendererID(), MAX_CSM_CASCADES);
-        m_AtlasRawViewID = RenderCommand::CreateDepthArrayCompareOffView(
-            m_AtlasTexture->GetRendererID(), 1);
+        //
+        // Created through the HANDLE form so each view carries an identity of
+        // its own (issue #691 step 3): the bind cache keys on it, while
+        // RenderPipeline still declares the graph resource by raw id. The two
+        // spellings name the same object — the native id is read back out of
+        // the registry rather than minted separately, so they cannot drift.
+        m_CSMRawViewHandle = RenderCommand::CreateDepthArrayCompareOffViewHandle(
+            m_CSMTextureArray->GetRHIHandle(), MAX_CSM_CASCADES);
+        m_AtlasRawViewHandle = RenderCommand::CreateDepthArrayCompareOffViewHandle(
+            m_AtlasTexture->GetRHIHandle(), 1);
+        m_CSMRawViewID = Debug::NativeTextureIdForDiagnostics(m_CSMRawViewHandle);
+        m_AtlasRawViewID = Debug::NativeTextureIdForDiagnostics(m_AtlasRawViewHandle);
 
         // Create shadow UBO at binding 6
         m_ShadowUBO = UniformBuffer::Create(
@@ -85,16 +94,22 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (m_CSMRawViewID != 0)
+        // Delete through the HANDLE form: it destroys the GL object AND
+        // retires the registry entry. Deleting by raw id would leave the slot
+        // live, so a stale handle would go on resolving to a name the driver
+        // may reissue to the view Init() creates moments later.
+        if (m_CSMRawViewHandle.IsValid())
         {
-            RenderCommand::DeleteTexture(m_CSMRawViewID);
-            m_CSMRawViewID = 0;
+            RenderCommand::DeleteTexture(m_CSMRawViewHandle);
+            m_CSMRawViewHandle = {};
         }
-        if (m_AtlasRawViewID != 0)
+        m_CSMRawViewID = 0;
+        if (m_AtlasRawViewHandle.IsValid())
         {
-            RenderCommand::DeleteTexture(m_AtlasRawViewID);
-            m_AtlasRawViewID = 0;
+            RenderCommand::DeleteTexture(m_AtlasRawViewHandle);
+            m_AtlasRawViewHandle = {};
         }
+        m_AtlasRawViewID = 0;
 
         m_CSMTextureArray.Reset();
         m_AtlasTexture.Reset();
@@ -383,6 +398,16 @@ namespace OloEngine
         return m_AtlasTexture ? m_AtlasTexture->GetRendererID() : 0;
     }
 
+    RHI::ResourceHandle ShadowMap::GetCSMHandle() const
+    {
+        return m_CSMTextureArray ? m_CSMTextureArray->GetRHIHandle() : RHI::NullResource;
+    }
+
+    RHI::ResourceHandle ShadowMap::GetAtlasHandle() const
+    {
+        return m_AtlasTexture ? m_AtlasTexture->GetRHIHandle() : RHI::NullResource;
+    }
+
     // ------------------------------------------------------------------
     // Placeholder shadow textures
     // ------------------------------------------------------------------
@@ -393,6 +418,7 @@ namespace OloEngine
     {
         Ref<Texture2DArray> g_PlaceholderShadowArray;
         u32 g_PlaceholderShadowArrayRaw = 0u; // compare-OFF view of the array above
+        RHI::ResourceHandle g_PlaceholderShadowArrayRawHandle{};
 
         Ref<Texture2DArray> CreatePlaceholderShadowArray()
         {
@@ -413,20 +439,46 @@ namespace OloEngine
         return g_PlaceholderShadowArray ? g_PlaceholderShadowArray->GetRendererID() : 0u;
     }
 
+    RHI::ResourceHandle ShadowMap::GetCSMPlaceholderHandle()
+    {
+        if (!g_PlaceholderShadowArray)
+            g_PlaceholderShadowArray = CreatePlaceholderShadowArray();
+        return g_PlaceholderShadowArray ? g_PlaceholderShadowArray->GetRHIHandle() : RHI::NullResource;
+    }
+
+    RHI::ResourceHandle ShadowMap::GetAtlasPlaceholderHandle()
+    {
+        // The atlas uses the same sampler2DArrayShadow type as CSM — share.
+        return GetCSMPlaceholderHandle();
+    }
+
     u32 ShadowMap::GetAtlasPlaceholderRendererID()
     {
         // The atlas uses the same sampler2DArrayShadow type as CSM — share.
         return GetCSMPlaceholderRendererID();
     }
 
+    RHI::ResourceHandle ShadowMap::GetCSMRawPlaceholderHandle()
+    {
+        if (!g_PlaceholderShadowArrayRawHandle.IsValid())
+        {
+            // GetCSMPlaceholderHandle() ensures the source array exists.
+            if (const RHI::ResourceHandle src = GetCSMPlaceholderHandle(); src.IsValid())
+            {
+                g_PlaceholderShadowArrayRawHandle =
+                    RenderCommand::CreateDepthArrayCompareOffViewHandle(src, 1u);
+                g_PlaceholderShadowArrayRaw =
+                    Debug::NativeTextureIdForDiagnostics(g_PlaceholderShadowArrayRawHandle);
+            }
+        }
+        return g_PlaceholderShadowArrayRawHandle;
+    }
+
     u32 ShadowMap::GetCSMRawPlaceholderRendererID()
     {
-        if (g_PlaceholderShadowArrayRaw == 0u)
-        {
-            const u32 src = GetCSMPlaceholderRendererID(); // ensures the array exists
-            if (src != 0u)
-                g_PlaceholderShadowArrayRaw = RenderCommand::CreateDepthArrayCompareOffView(src, 1u);
-        }
+        // Kept as the native spelling for the graph-declaration path; the view
+        // itself is created once, by the handle form above.
+        [[maybe_unused]] const RHI::ResourceHandle handle = GetCSMRawPlaceholderHandle();
         return g_PlaceholderShadowArrayRaw;
     }
 
@@ -436,13 +488,23 @@ namespace OloEngine
         return GetCSMRawPlaceholderRendererID();
     }
 
+    RHI::ResourceHandle ShadowMap::GetAtlasRawPlaceholderHandle()
+    {
+        // Same plain sampler2DArray placeholder as CSM raw — share.
+        return GetCSMRawPlaceholderHandle();
+    }
+
     void ShadowMap::ShutdownPlaceholders()
     {
-        if (g_PlaceholderShadowArrayRaw != 0u)
+        // By handle, so the registry entry is retired with the GL object —
+        // deleting by raw id would leave a live slot pointing at a name the
+        // driver is free to reissue.
+        if (g_PlaceholderShadowArrayRawHandle.IsValid())
         {
-            RenderCommand::DeleteTexture(g_PlaceholderShadowArrayRaw);
-            g_PlaceholderShadowArrayRaw = 0u;
+            RenderCommand::DeleteTexture(g_PlaceholderShadowArrayRawHandle);
+            g_PlaceholderShadowArrayRawHandle = {};
         }
+        g_PlaceholderShadowArrayRaw = 0u;
         g_PlaceholderShadowArray.Reset();
     }
 

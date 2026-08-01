@@ -204,8 +204,8 @@ namespace OloEngine
         // unconditionally (ToneMap's underwater-fog water-depth slot) would
         // bind a texture name whose owning framebuffer died in an earlier graph
         // resize/rebuild — the #505 stale-texture GL_INVALID_OPERATION.
-        data.WaterSurfaceDepthTextureID = 0;
-        data.PlanarReflectionTextureID = 0;
+        data.WaterSurfaceDepthTextureID = {};
+        data.PlanarReflectionTextureID = {};
 
         // GPU frustum-cull pool reset — slot cursor recycles from 0 each
         // frame. Buffers stay allocated (lifetime = engine, not frame) so
@@ -424,11 +424,11 @@ namespace OloEngine
         CommandDispatch::ResetState();
 
         // Set shadow texture IDs AFTER ResetState() so they aren't zeroed out.
-        CommandDispatch::SetShadowTextureIDs(
-            data.Shadow.GetCSMRendererID(),
-            data.Shadow.GetAtlasRendererID(),
-            data.Shadow.GetCSMRawRendererID(),
-            data.Shadow.GetAtlasRawRendererID());
+        CommandDispatch::SetShadowTextures(
+            data.Shadow.GetCSMHandle(),
+            data.Shadow.GetAtlasHandle(),
+            data.Shadow.GetCSMRawHandle(),
+            data.Shadow.GetAtlasRawHandle());
 
         // Initialize parallel scene context with immutable frame data.
         data.ParallelContext.ViewMatrix = data.ViewMatrix;
@@ -1191,7 +1191,7 @@ namespace OloEngine
             {
                 SnowAccumulationSystem::Update(data.SnowAccumulation, data.ViewPos, Timestep(dt));
                 SnowAccumulationSystem::BindSnowDepthTexture();
-                CommandDispatch::SetSnowDepthTextureID(SnowAccumulationSystem::GetSnowDepthTextureID());
+                CommandDispatch::SetSnowDepthTexture(SnowAccumulationSystem::GetSnowDepthTextureHandle());
             }
 
             // Update snow ejecta particle simulation
@@ -1287,7 +1287,7 @@ namespace OloEngine
                     // TEX_CLOUD_SHADOW (62); CommandDispatch::ResetState()
                     // zeroed it in PrepareFrame (same lifecycle as the snow
                     // depth id above).
-                    CommandDispatch::SetCloudShadowTextureID(CloudShadowMap::GetTextureID());
+                    CommandDispatch::SetCloudShadowTexture(CloudShadowMap::GetTextureHandle());
                 }
             }
             else
@@ -1442,14 +1442,20 @@ namespace OloEngine
         // blackboard imports them by raw GL ID so a change must invalidate.
         HashU32(h, data.Shadow.GetResolution());
         HashU32(h, data.Shadow.GetAtlasResolution());
-        HashU32(h, data.Shadow.GetCSMRendererID());
-        HashU32(h, data.Shadow.GetAtlasRendererID());
+        // By IDENTITY, not driver name — the same defect the DDGI atlases had
+        // (issue #691 step 3). ShadowMap::SetSettings calls Shutdown() BEFORE
+        // Init() on a resolution change, so the old textures are freed first
+        // and GL may reissue their names to the replacements; a raw-id hash
+        // then sees no change and the graph keeps an import describing the OLD
+        // resolution. A generation cannot be reissued.
+        HashU64(h, RHI::HashKey(data.Shadow.GetCSMHandle()));
+        HashU64(h, RHI::HashKey(data.Shadow.GetAtlasHandle()));
         // The comparison-OFF raw-depth views (issue #607) are declared as graph
         // resources only when their ids are non-zero — a declaration-PRESENCE
         // gate, which by the #530 rule must be hashed or PopulateBlackboard
         // never re-runs and the resource never appears.
-        HashU32(h, data.Shadow.GetCSMRawRendererID());
-        HashU32(h, data.Shadow.GetAtlasRawRendererID());
+        HashU64(h, RHI::HashKey(data.Shadow.GetCSMRawHandle()));
+        HashU64(h, RHI::HashKey(data.Shadow.GetAtlasRawHandle()));
 
         // IBL renderer IDs — same rule as the shadow IDs above, and for the same
         // reason: PopulateBlackboard imports them by raw GL ID.
@@ -1462,10 +1468,10 @@ namespace OloEngine
         // name", thousands of times. It masqueraded as intermittent because GL often
         // recycles the freed texture names, in which case the stale ID happens to be
         // valid again and nothing looks wrong.
-        HashU32(h, data.GlobalIrradianceMapID);
-        HashU32(h, data.GlobalPrefilterMapID);
-        HashU32(h, data.GlobalBRDFLutMapID);
-        HashU32(h, data.GlobalEnvironmentMapID);
+        HashU64(h, RHI::HashKey(data.GlobalIrradianceMapID));
+        HashU64(h, RHI::HashKey(data.GlobalPrefilterMapID));
+        HashU64(h, RHI::HashKey(data.GlobalBRDFLutMapID));
+        HashU64(h, RHI::HashKey(data.GlobalEnvironmentMapID));
 
         // Post-process technique selection + per-effect toggles
         HashU32(h, static_cast<u32>(std::to_underlying(data.PostProcess.ActiveAOTechnique)));
@@ -2968,22 +2974,22 @@ namespace OloEngine
         // ------------------------------------------------------------------
         // IBL resources
         // ------------------------------------------------------------------
-        if (data.GlobalIrradianceMapID != 0)
+        if (data.GlobalIrradianceMapNativeID != 0)
         {
             board.IBL.IrradianceMap = graph.ImportTexture(
-                ResourceNames::IrradianceMap, data.GlobalIrradianceMapID,
+                ResourceNames::IrradianceMap, data.GlobalIrradianceMapNativeID,
                 RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::TextureCube, ResourceNames::IrradianceMap));
         }
-        if (data.GlobalPrefilterMapID != 0)
+        if (data.GlobalPrefilterMapNativeID != 0)
         {
             board.IBL.PrefilterMap = graph.ImportTexture(
-                ResourceNames::PrefilterMap, data.GlobalPrefilterMapID,
+                ResourceNames::PrefilterMap, data.GlobalPrefilterMapNativeID,
                 RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::TextureCube, ResourceNames::PrefilterMap));
         }
-        if (data.GlobalBRDFLutMapID != 0)
+        if (data.GlobalBRDFLutMapNativeID != 0)
         {
             board.IBL.BrdfLut = graph.ImportTexture(
-                ResourceNames::BrdfLut, data.GlobalBRDFLutMapID,
+                ResourceNames::BrdfLut, data.GlobalBRDFLutMapNativeID,
                 RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::BrdfLut));
         }
     }

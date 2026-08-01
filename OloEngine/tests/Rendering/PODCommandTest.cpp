@@ -74,38 +74,38 @@ TEST(PODCommand, AllCommandsTrivialCopy)
     {
         DrawSkyboxCommand cmd{};
         cmd.header.type = CommandType::DrawSkybox;
-        cmd.vertexArrayID = 1;
+        cmd.vertexArrayID = TestHandle(1u);
         cmd.indexCount = 36;
         cmd.transform = glm::mat4(1.0f);
-        cmd.shaderRendererID = 5;
-        cmd.skyboxTextureID = 10;
+        cmd.shaderRendererID = TestHandle(5u);
+        cmd.skyboxTextureID = TestHandle(10u);
         AssertTriviallyCopyableByMemcpy(cmd, "DrawSkyboxCommand");
     }
     {
         DrawTerrainPatchCommand cmd{};
         cmd.header.type = CommandType::DrawTerrainPatch;
-        cmd.vertexArrayID = 1;
+        cmd.vertexArrayID = TestHandle(1u);
         cmd.indexCount = 1024;
         AssertTriviallyCopyableByMemcpy(cmd, "DrawTerrainPatchCommand");
     }
     {
         DrawVoxelMeshCommand cmd{};
         cmd.header.type = CommandType::DrawVoxelMesh;
-        cmd.vertexArrayID = 1;
+        cmd.vertexArrayID = TestHandle(1u);
         cmd.indexCount = 500;
         AssertTriviallyCopyableByMemcpy(cmd, "DrawVoxelMeshCommand");
     }
     {
         DrawDecalCommand cmd{};
         cmd.header.type = CommandType::DrawDecal;
-        cmd.vertexArrayID = 1;
+        cmd.vertexArrayID = TestHandle(1u);
         cmd.indexCount = 36;
         AssertTriviallyCopyableByMemcpy(cmd, "DrawDecalCommand");
     }
     {
         DrawFoliageLayerCommand cmd{};
         cmd.header.type = CommandType::DrawFoliageLayer;
-        cmd.vertexArrayID = 1;
+        cmd.vertexArrayID = TestHandle(1u);
         cmd.instanceCount = 1000;
         AssertTriviallyCopyableByMemcpy(cmd, "DrawFoliageLayerCommand");
     }
@@ -169,7 +169,7 @@ TEST(PODCommand, DrawMeshFieldRoundTrip)
     std::memcpy(&copy, &original, sizeof(DrawMeshCommand));
 
     EXPECT_EQ(copy.header.type, CommandType::DrawMesh);
-    EXPECT_EQ(copy.vertexArrayID, 1u);
+    EXPECT_EQ(copy.vertexArrayID, TestHandle(1u));
     EXPECT_EQ(copy.indexCount, 36u);
     EXPECT_EQ(copy.entityID, 777);
     EXPECT_EQ(copy.materialDataIndex, static_cast<u16>(99));

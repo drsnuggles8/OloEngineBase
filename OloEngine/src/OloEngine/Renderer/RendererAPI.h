@@ -67,9 +67,16 @@ namespace OloEngine
         // Raw VAO ID overloads for POD shadow casters (no Ref<VertexArray> available)
         virtual void DrawIndexedRaw(u32 vaoID, u32 indexCount) = 0;
         virtual void DrawIndexedRaw(u32 vaoID, u32 indexCount, u32 baseIndex) = 0;
+        // Identity forms — vertex arrays migrated in issue #691 step 3 slice 6.
+        virtual void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount) = 0;
+        virtual void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex) = 0;
         // Instanced raw variant for batched shadow casters that share VAO + submesh range.
         virtual void DrawIndexedInstancedRaw(u32 vaoID, u32 indexCount, u32 baseIndex, u32 instanceCount) = 0;
+        virtual void DrawIndexedInstancedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex,
+                                             u32 instanceCount) = 0;
         virtual void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices) = 0;
+        virtual void DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount,
+                                           u32 patchVertices) = 0;
 
         virtual void SetLineWidth(f32 width) = 0;
 
@@ -109,7 +116,12 @@ namespace OloEngine
         virtual void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) = 0;
         // Raw-VAO variant used by the GPU-frustum-cull path which only has a
         // RendererID (the dispatcher's BindVAOIfNeeded() cache populates it).
-        virtual void DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID) = 0;
+        // Draws from the ALREADY-BOUND vertex array (issue #691 step 3, slice 6).
+        // Replaces the DrawElementsIndirectRaw(vaoID, ...) pair: its only caller
+        // had just run BindVAOIfNeeded, so re-binding inside the draw was both
+        // redundant and a bind behind the redundant-bind cache's back. Mirrors
+        // the existing DrawBound* family, whose comment gives the same reason.
+        virtual void DrawBoundElementsIndirect(u32 indirectBufferID) = 0;
         // Multi-draw indirect with a GPU-sourced draw count (core GL 4.6, issue #629):
         // reads DrawElementsIndirectCommand records from indirectBufferID starting at
         // indirectOffsetBytes and the u32 draw count from parameterBufferID at
@@ -199,6 +211,12 @@ namespace OloEngine
         // provide). Source must be DEPTH_COMPONENT32F immutable storage. Returns 0
         // if the platform lacks texture-view support.
         virtual u32 CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers) = 0;
+        // Handle form (issue #691 step 3, slice 6 — the command-layer bind
+        // cache). The view is a DISTINCT GPU object from the array it aliases,
+        // so it gets its own identity: ShadowMap holds both, and binding the
+        // wrong one is a silent PCSS bug rather than a loud one.
+        [[nodiscard]] virtual RHI::ResourceHandle CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture,
+                                                                                       u32 numLayers) = 0;
         // Replaces SetTextureParameter(id, GLenum pname, GLint value). `pname`
         // was an open-ended GL enum space, and mirroring it with an
         // RHI::TextureParameterName would have re-exported GL under a new name.
@@ -449,6 +467,7 @@ namespace OloEngine
         // must fold that into a UBO and delete this. Recorded deliberately in
         // ADR 0011 amendment (9) rather than left to surprise Phase 7 bring-up.
         virtual void SetProgramUniformFloat(u32 programID, std::string_view name, f32 value) = 0;
+        virtual void SetProgramUniformFloat(RHI::ResourceHandle program, std::string_view name, f32 value) = 0;
 
         // GPU capability queries
 

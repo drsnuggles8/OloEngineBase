@@ -31,15 +31,15 @@ namespace OloEngine
         // Lazy-create GPU resources on the first call (raw-id handling
         // mirrors SSAORenderPass::CreateNoiseTexture; the render pipeline
         // owns the call site so a live GL context is guaranteed).
-        if (s_Data.m_TextureID == 0 || !s_Data.m_GenerateShader)
+        if (!s_Data.m_Texture.IsValid() || !s_Data.m_GenerateShader)
         {
-            if (s_Data.m_TextureID == 0)
+            if (!s_Data.m_Texture.IsValid())
             {
-                s_Data.m_TextureID = RenderCommand::CreateTexture2D(kShadowResolution, kShadowResolution, RHI::Format::R8UNorm);
-                if (s_Data.m_TextureID != 0)
+                s_Data.m_Texture = RenderCommand::CreateTexture2DHandle(kShadowResolution, kShadowResolution, RHI::Format::R8UNorm);
+                if (s_Data.m_Texture.IsValid())
                 {
-                    RenderCommand::SetTextureFilter(s_Data.m_TextureID, RHI::Filter::Linear, RHI::Filter::Linear);
-                    RenderCommand::SetTextureWrap(s_Data.m_TextureID, RHI::AddressMode::ClampToEdge);
+                    RenderCommand::SetTextureFilter(s_Data.m_Texture, RHI::Filter::Linear, RHI::Filter::Linear);
+                    RenderCommand::SetTextureWrap(s_Data.m_Texture, RHI::AddressMode::ClampToEdge);
                 }
             }
             if (!s_Data.m_GenerateShader)
@@ -47,17 +47,17 @@ namespace OloEngine
                 s_Data.m_GenerateShader = ComputeShader::Create("assets/shaders/compute/CloudShadow_Generate.comp");
             }
 
-            const bool textureValid = s_Data.m_TextureID != 0;
+            const bool textureValid = s_Data.m_Texture.IsValid();
             const bool shaderValid = s_Data.m_GenerateShader && s_Data.m_GenerateShader->IsValid();
             if (!textureValid || !shaderValid)
             {
                 OLO_CORE_ERROR("CloudShadowMap::Update failed — {}",
                                !shaderValid ? "CloudShadow_Generate.comp could not be loaded/compiled"
                                             : "R8 shadow texture could not be created");
-                if (s_Data.m_TextureID != 0)
+                if (s_Data.m_Texture.IsValid())
                 {
-                    RenderCommand::DeleteTexture(s_Data.m_TextureID);
-                    s_Data.m_TextureID = 0;
+                    RenderCommand::DeleteTexture(s_Data.m_Texture);
+                    s_Data.m_Texture = {};
                 }
                 s_Data.m_GenerateShader = nullptr;
                 s_Data.m_CreationFailed = true;
@@ -80,7 +80,7 @@ namespace OloEngine
         s_Data.m_GenerateShader->SetFloat("u_ShadowWorldSize", worldSize);
         s_Data.m_GenerateShader->SetInt("u_ShadowResolution", static_cast<int>(kShadowResolution));
 
-        RenderCommand::BindImageTexture(0, s_Data.m_TextureID, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R8UNorm);
+        RenderCommand::BindImageTexture(0, s_Data.m_Texture, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R8UNorm);
         constexpr u32 kGroups = (kShadowResolution + kLocalSize - 1) / kLocalSize;
         RenderCommand::DispatchCompute(kGroups, kGroups, 1);
 
@@ -98,9 +98,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        const bool hadState = s_Data.m_TextureID != 0 || s_Data.m_GenerateShader || s_Data.m_CreationFailed;
+        const bool hadState = s_Data.m_Texture.IsValid() || s_Data.m_GenerateShader || s_Data.m_CreationFailed;
 
-        if (s_Data.m_TextureID != 0)
+        if (s_Data.m_Texture.IsValid())
         {
             // The shadow map is bound through the PBR mesh dispatch's TRACKED
             // path (CommandDispatch::SetCloudShadowTextureID), so drop any
@@ -108,11 +108,11 @@ namespace OloEngine
             // deleted — a future bind with a recycled GL ID must not be
             // skipped against stale tracking (the same contract the
             // OpenGLTexture2D destructor honors).
-            CommandDispatch::InvalidateTextureBinding(s_Data.m_TextureID);
-            RenderCommand::DeleteTexture(s_Data.m_TextureID);
+            CommandDispatch::InvalidateTextureBinding(s_Data.m_Texture);
+            RenderCommand::DeleteTexture(s_Data.m_Texture);
         }
         s_Data.m_GenerateShader = nullptr;
-        s_Data.m_TextureID = 0;
+        s_Data.m_Texture = {};
         s_Data.m_Center = glm::vec2(0.0f, 0.0f);
         s_Data.m_WorldSize = 0.0f;
         s_Data.m_Ready = false;
@@ -129,9 +129,9 @@ namespace OloEngine
         return s_Data.m_Ready;
     }
 
-    u32 CloudShadowMap::GetTextureID()
+    RHI::ResourceHandle CloudShadowMap::GetTextureHandle()
     {
-        return s_Data.m_Ready ? s_Data.m_TextureID : 0;
+        return s_Data.m_Ready ? s_Data.m_Texture : RHI::NullResource;
     }
 
     glm::vec2 CloudShadowMap::GetCenter()
