@@ -86,15 +86,28 @@ CMake presets ([CMakePresets.json](CMakePresets.json)) — note all three requir
 scripts\Win-GenerateProjectVS2022.bat   # or VS2026
 
 # Build a target
-cmake --build build --target OloEditor       --config Debug --parallel
-cmake --build build --target OloEngine-Tests --config Debug --parallel
-cmake --build build --target OloRuntime      --config Debug --parallel
-cmake --build build --target OloServer       --config Debug --parallel
+cmake --build build --target OloEditor       --config Debug --parallel 6
+cmake --build build --target OloEngine-Tests --config Debug --parallel 6
+cmake --build build --target OloRuntime      --config Debug --parallel 6
+cmake --build build --target OloServer       --config Debug --parallel 6
 
 # ClangCL (configure once, then build)
 cmake --preset clangcl
-cmake --build build-clang --target OloEngine-Tests --config Debug --parallel
+cmake --build build-clang --target OloEngine-Tests --config Debug --parallel 6
 ```
+
+### Cap build parallelism — a full-width build can OOM this machine
+
+**Always pass an explicit job count: `--parallel 6`, or `ninja -j6`.** Never a bare `--parallel`, and never `ninja` with no `-j`.
+
+This is not a style preference. The dev box is 16 cores / 31 GB and *also* hosts the `gh-runner-1/2/3` runners for another repository, so a build never has the machine to itself. Both defaults are effectively "use everything":
+
+- `cmake --build … --parallel` with **no number** means one job per core (16 here).
+- `ninja` with **no `-j`** means `cores + 2` — 18 here. Dropping a `--parallel N` flag therefore *raises* the width rather than lowering it.
+
+An agent session running repeated uncapped builds — especially with a test suite running alongside — has already OOM-killed this host once. If you need it faster, use ccache (already wired in), not more jobs.
+
+Link steps are capped separately and automatically: the root `CMakeLists.txt` puts them in a Ninja job pool (`OLO_LINK_JOBS`, default 2) because linking the full static engine is the memory spike. That pool lives in the generated `build.ninja`, so it protects a bare `ninja` too — but it does **not** cap compilation, which is what the job count above is for.
 
 VS Code tasks ([.vscode/tasks.json](.vscode/tasks.json)) wrap the above: `build-oloeditor-debug`, `run-oloeditor-debug`, `build-tests-debug`, `run-tests-debug`, `build-clangcl-tests-debug`, `configure-clangcl`, etc.
 

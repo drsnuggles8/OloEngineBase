@@ -77,6 +77,28 @@ list(APPEND CMAKE_MODULE_PATH
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 
+# --------------------------------------------------------------------------
+# Link concurrency (Ninja only).
+#
+# Linking is this project's memory spike, not compiling: OloEngine-Tests and
+# OloEditor pull in the whole static engine plus its vendored dependencies, and
+# each concurrent link holds that peak at once. Ninja's default width is
+# `cores + 2` (18 on a 16-core host), so an unqualified `ninja` will happily
+# start several of those together and take the machine out — which is exactly
+# how this host was OOM-killed while three other CI runners shared it.
+#
+# A pool is the right tool rather than a smaller `-j`: it throttles ONLY the
+# link step, leaving compilation at full width. It also lives in the generated
+# build.ninja, so it protects a bare `ninja` invocation too — not just
+# `cmake --build`, which is the only thing CMAKE_BUILD_PARALLEL_LEVEL reaches.
+#
+# Raise it on a machine with memory to spare: -DOLO_LINK_JOBS=4.
+if(CMAKE_GENERATOR MATCHES "Ninja")
+    set(OLO_LINK_JOBS "2" CACHE STRING "Maximum concurrent link steps (Ninja generators)")
+    set_property(GLOBAL PROPERTY JOB_POOLS olo_link=${OLO_LINK_JOBS})
+    set(CMAKE_JOB_POOL_LINK olo_link)
+endif()
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
