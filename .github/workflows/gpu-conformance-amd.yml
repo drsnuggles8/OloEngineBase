@@ -319,7 +319,7 @@ jobs:
         # normally find them idle, but "normally" is not "always" — leave
         # headroom so a concurrent build on the other runners doesn't turn into
         # swap thrash or an OOM during the OloEngine-Tests link.
-        run: cmake --build build --target OloEngine-Tests --parallel 12
+        run: cmake --build build --target OloEngine-Tests
 
       # ---------------------------------------------------------------------
       # The suite runs from OloEditor/ — OloEditor, OloRuntime and the test
