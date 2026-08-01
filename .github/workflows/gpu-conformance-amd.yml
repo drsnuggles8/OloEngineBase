@@ -90,6 +90,21 @@ jobs:
 
     env:
       BUILD_TYPE: Release
+      # Build width, set here rather than as a `--parallel` flag so it applies
+      # to EVERY `cmake --build` in the job, including any added later that
+      # forget the flag. `cmake --build` reads this whenever `--parallel` is
+      # absent; an explicit `--parallel` on a step would override it.
+      #
+      # This must be set explicitly. Dropping the flag does NOT fall back to
+      # something conservative — with the Ninja generator the default is
+      # cores + 2, which is 18 on this 16-core host, i.e. MORE than the
+      # `--parallel 12` that already ran it out of memory.
+      #
+      # 6, not 16: this host also runs the gh-runner-1/2/3 runners for another
+      # repository. A nightly at ~02:47 local should normally find them idle,
+      # but "normally" is not "always" — leave headroom so a concurrent build
+      # elsewhere on the box doesn't turn into swap thrash or an OOM.
+      CMAKE_BUILD_PARALLEL_LEVEL: 6
       # Goldens are baselined on NVIDIA hardware; GoldenImageTests.cpp reads this
       # to select a per-vendor golden directory (assets/tests/golden/amd/) so an
       # AMD run can never clobber the NVIDIA baseline set.
@@ -312,13 +327,21 @@ jobs:
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           -DOLO_VIDEO_FFMPEG=OFF
           -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
+          -DCMAKE_JOB_POOLS="compile=6;link=1"
+          -DCMAKE_JOB_POOL_COMPILE=compile
+          -DCMAKE_JOB_POOL_LINK=link
 
       - name: Build tests
-        # --parallel 12, not nproc (16): this host also runs the gh-runner-1/2/3
-        # runners for another repository. A nightly at ~02:47 local should
-        # normally find them idle, but "normally" is not "always" — leave
-        # headroom so a concurrent build on the other runners doesn't turn into
-        # swap thrash or an OOM during the OloEngine-Tests link.
+        # Width comes from CMAKE_BUILD_PARALLEL_LEVEL in the job env — see the
+        # note there for why it must be set explicitly rather than left to the
+        # generator default.
+        #
+        # The job pools on the configure step above are the second half of it,
+        # and the more important half for this failure: linking OloEngine-Tests
+        # is the memory spike, and a link peaks far higher than a compile. A
+        # plain -j cap still permits several concurrent links, so link=1
+        # serialises exactly the step that ran the host out of memory while
+        # leaving compiles free to use the full width.
         run: cmake --build build --target OloEngine-Tests
 
       # ---------------------------------------------------------------------
