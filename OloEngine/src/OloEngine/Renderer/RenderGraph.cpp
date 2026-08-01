@@ -162,15 +162,15 @@ namespace OloEngine
             if (!hasColor)
                 return;
 
-            const u32 textureID = target->GetColorAttachmentRendererID(0);
+            const RHI::ResourceHandle colorAttachment = target->GetColorAttachmentHandle(0);
             const auto& spec = target->GetSpecification();
-            if (textureID == 0 || spec.Width == 0 || spec.Height == 0)
+            if (!colorAttachment.IsValid() || spec.Width == 0 || spec.Height == 0)
                 return;
 
             const sizet texelCount = static_cast<sizet>(spec.Width) * spec.Height;
             static thread_local std::vector<f32> s_Scratch;
             s_Scratch.resize(texelCount * 4u);
-            if (!RenderCommand::ReadTextureSubImage(textureID, 0, 0, 0, 0,
+            if (!RenderCommand::ReadTextureSubImage(colorAttachment, 0, 0, 0, 0,
                                                     spec.Width, spec.Height, 1,
                                                     RHI::Format::RGBA32Float,
                                                     s_Scratch.size() * sizeof(f32), s_Scratch.data()))
@@ -201,7 +201,7 @@ namespace OloEngine
                     OLO_CORE_ERROR("BLACKSQUARE HUNT NAN: after pass '{}' {}FB#{} tex#{} has {} NaN channel value(s), first at texel ({}, {})",
                                    passName,
                                    watchLabel ? watchLabel : "target ",
-                                   target->GetRendererID(), textureID,
+                                   target->GetRendererID(), colorAttachment,
                                    nanCount,
                                    texel % spec.Width, texel / spec.Width);
                 }
@@ -241,7 +241,7 @@ namespace OloEngine
                         OLO_CORE_ERROR("BLACKSQUARE HUNT: after pass '{}' {}FB#{} tex#{} has a >=64px black block at ({}, {}) [{}x{}]",
                                        passName,
                                        watchLabel ? watchLabel : "target ",
-                                       target->GetRendererID(), textureID,
+                                       target->GetRendererID(), colorAttachment,
                                        bx * kBlock, by * kBlock, spec.Width, spec.Height);
                         return; // one report per pass per frame is enough
                     }
@@ -342,7 +342,7 @@ namespace OloEngine
                     case FramebufferTextureFormat::RG16F:
                     case FramebufferTextureFormat::RG32F:
                         RenderCommand::ClearTextureFloat(
-                            framebuffer->GetColorAttachmentRendererID(colorIndex), 0,
+                            framebuffer->GetColorAttachmentHandle(colorIndex), 0,
                             glm::vec4(color.RGBA[0], color.RGBA[1], color.RGBA[2], color.RGBA[3]));
                         ++colorIndex;
                         break;
@@ -3455,7 +3455,21 @@ namespace OloEngine
                         texHandleIt != m_TextureHandlesByName.end() &&
                         texHandleIt->second.Index < m_PhysicalTextures.size())
                     {
-                        m_PhysicalTextures[texHandleIt->second.Index].TextureID = textureIt->second ? textureIt->second->GetRendererID() : 0;
+                        // BOTH currencies, read off the one pooled Ref in one
+                        // statement (issue #691 step 3, slice 7). See
+                        // PhysicalTexture: the "exactly one is set" rule covers
+                        // IMPORTS, where the importer only ever has one. The
+                        // planner holds the object, so it has both and they
+                        // cannot describe different textures.
+                        //
+                        // Setting Handle is what lets a consumer copy to/from a
+                        // transient in the identity currency — without it,
+                        // ResolveTextureHandle answers null for every transient
+                        // and any pass whose other operand migrated is stuck.
+                        auto& phys = m_PhysicalTextures[texHandleIt->second.Index];
+                        const auto& pooled = textureIt->second;
+                        phys.TextureID = pooled ? pooled->GetRendererID() : 0u;
+                        phys.Handle = pooled ? pooled->GetRHIHandle() : RHI::NullResource;
                     }
                     break;
                 }

@@ -408,38 +408,44 @@ namespace OloEngine
         // scene pass still renders into the legacy scene/G-Buffer
         // attachments, but downstream consumers now sample the exported graph
         // textures instead of importing those attachments directly.
-        const auto copySceneExport = [this, &context](const RGTextureHandle handle, const u32 sourceTextureID)
+        // Identities throughout (issue #691 step 3, slice 7): the export target
+        // is a graph TRANSIENT, which only began answering ResolveTextureHandle
+        // once the planner recorded a handle for pooled textures. The self-copy
+        // guard now compares OBJECTS -- under driver names a recycled name could
+        // make source and export look identical and skip a copy the frame needed.
+        const auto copySceneExport = [this, &context](const RGTextureHandle handle,
+                                                      const RHI::ResourceHandle sourceTexture)
         {
-            if (!handle.IsValid() || sourceTextureID == 0u ||
+            if (!handle.IsValid() || !sourceTexture.IsValid() ||
                 m_FramebufferSpec.Width == 0u || m_FramebufferSpec.Height == 0u)
             {
                 return;
             }
 
-            const u32 exportedTextureID = context.ResolveTexture(handle);
-            if (exportedTextureID == 0u || exportedTextureID == sourceTextureID)
+            const RHI::ResourceHandle exportedTexture = context.ResolveTextureHandle(handle);
+            if (!exportedTexture.IsValid() || exportedTexture == sourceTexture)
                 return;
 
-            RenderCommand::CopyImageSubData(sourceTextureID, RendererAPI::TextureTargetType::Texture2D,
-                                            exportedTextureID, RendererAPI::TextureTargetType::Texture2D,
+            RenderCommand::CopyImageSubData(sourceTexture, RendererAPI::TextureTargetType::Texture2D,
+                                            exportedTexture, RendererAPI::TextureTargetType::Texture2D,
                                             m_FramebufferSpec.Width, m_FramebufferSpec.Height);
         };
 
-        const u32 sourceDepthID = deferredActive && m_GBuffer
-                                      ? m_GBuffer->GetDepthAttachmentID()
-                                      : m_Target->GetDepthAttachmentRendererID();
-        copySceneExport(m_SelectedSceneDepthExport, sourceDepthID);
+        const RHI::ResourceHandle sourceDepth = deferredActive && m_GBuffer
+                                                    ? m_GBuffer->GetDepthAttachmentHandle()
+                                                    : m_Target->GetDepthAttachmentHandle();
+        copySceneExport(m_SelectedSceneDepthExport, sourceDepth);
 
         if (!deferredActive)
         {
-            const u32 sourceNormalsID = m_Target->GetColorAttachmentRendererID(2);
-            copySceneExport(m_SelectedSceneNormalsExport, sourceNormalsID);
+            const RHI::ResourceHandle sourceNormals = m_Target->GetColorAttachmentHandle(2);
+            copySceneExport(m_SelectedSceneNormalsExport, sourceNormals);
         }
 
-        const u32 sourceVelocityID = deferredActive && m_GBuffer
-                                         ? m_GBuffer->GetColorAttachmentID(GBuffer::Velocity)
-                                         : m_Target->GetColorAttachmentRendererID(3);
-        copySceneExport(m_SelectedVelocityExport, sourceVelocityID);
+        const RHI::ResourceHandle sourceVelocity = deferredActive && m_GBuffer
+                                                       ? m_GBuffer->GetColorAttachmentHandle(GBuffer::Velocity)
+                                                       : m_Target->GetColorAttachmentHandle(3);
+        copySceneExport(m_SelectedVelocityExport, sourceVelocity);
 
         // Deferred debug visualisation: until DeferredLightingPass lands in
         // Phase 3, copy the selected G-Buffer channel into the forward scene

@@ -220,13 +220,13 @@ namespace OloEngine
             // DrawDecalCommand packet. Keeping the override on the command
             // (instead of a global on CommandDispatch) preserves the
             // stateless, replay-safe contract of the bucket.
-            const u32 decalOITProgramID = m_OITShader->GetRendererID();
+            const RHI::ResourceHandle decalOITProgram = m_OITShader->GetRHIHandle();
             for (CommandPacket* packet : m_CommandBucket.GetPackets())
             {
                 if (!packet || packet->GetCommandType() != CommandType::DrawDecal)
                     continue;
                 if (auto* cmd = packet->GetCommandData<DrawDecalCommand>())
-                    cmd->oitProgramOverride = decalOITProgramID;
+                    cmd->oitProgramOverride = decalOITProgram;
             }
 
             // Bind scene depth (for decal projection) — the OIT variant needs
@@ -343,8 +343,8 @@ namespace OloEngine
         // plain sampler2D regardless of the write target's sample count.
         // Safe to sample the currently-bound depth since decal render state
         // disables depth writes.
-        const u32 depthTextureID = depthSamplingFB->GetDepthAttachmentRendererID();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
+        const RHI::ResourceHandle depthTexture = depthSamplingFB->GetDepthAttachmentHandle();
+        RenderCommand::BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture);
 
         m_CommandBucket.SortCommands();
 

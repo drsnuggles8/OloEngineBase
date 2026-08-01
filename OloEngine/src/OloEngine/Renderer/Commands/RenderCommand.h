@@ -17,7 +17,7 @@
  *
  * Design principles:
  * - Use AssetHandle (u64) instead of Ref<T> for asset references
- * - Use RendererID (u32) for GPU resource identifiers (VAO, textures, etc.)
+ * - Use RHI::ResourceHandle for GPU resource identities (VAO, textures, etc.)
  * - Use offset+count into FrameDataBuffer for variable-length data (bone matrices, transforms)
  * - Inline render state as POD flags instead of Ref<RenderState>
  *
@@ -31,7 +31,13 @@ namespace OloEngine
 
     // Type aliases for POD command fields
     using AssetHandle = UUID; // u64 asset identifier
-    using RendererID = u32;   // OpenGL resource ID
+    // `using RendererID = u32` lived here and is GONE (issue #691 step 3,
+    // slice 6). Every GPU-object field below is an RHI::ResourceHandle now:
+    // the command layer's redundant-bind cache keys on these values, and a
+    // driver name cannot key it safely — GL reissues names, so a deleted
+    // object and a newly created one could compare equal and the cache would
+    // skip a real bind. See CommandDispatch's InvalidateTextureSlot comment
+    // for the visual bug that actually shipped from exactly that.
 
     // Sentinel value for uninitialized render state index
     static constexpr u16 INVALID_RENDER_STATE_INDEX = UINT16_MAX;
@@ -113,7 +119,7 @@ namespace OloEngine
     struct PODMaterialData
     {
         // Shader
-        RendererID shaderRendererID = 0;
+        RHI::ResourceHandle shaderRendererID{};
 
         // Legacy material properties
         glm::vec3 ambient = glm::vec3(0.1f);
@@ -121,8 +127,8 @@ namespace OloEngine
         glm::vec3 specular = glm::vec3(1.0f);
         f32 shininess = 32.0f;
         bool useTextureMaps = false;
-        RendererID diffuseMapID = 0;
-        RendererID specularMapID = 0;
+        RHI::ResourceHandle diffuseMapID{};
+        RHI::ResourceHandle specularMapID{};
 
         // PBR material properties
         bool enablePBR = false;
@@ -138,16 +144,17 @@ namespace OloEngine
         i32 alphaMode = 0;
         f32 alphaCutoff = 0.5f;
 
-        // PBR texture IDs (renderer IDs, 0 = none)
-        RendererID albedoMapID = 0;
-        RendererID metallicRoughnessMapID = 0;
-        RendererID normalMapID = 0;
-        RendererID aoMapID = 0;
-        RendererID emissiveMapID = 0;
-        RendererID environmentMapID = 0;
-        RendererID irradianceMapID = 0;
-        RendererID prefilterMapID = 0;
-        RendererID brdfLutMapID = 0;
+        // PBR texture identities (an invalid handle means no map for that slot;
+        // test with .IsValid(), never against a literal 0)
+        RHI::ResourceHandle albedoMapID{};
+        RHI::ResourceHandle metallicRoughnessMapID{};
+        RHI::ResourceHandle normalMapID{};
+        RHI::ResourceHandle aoMapID{};
+        RHI::ResourceHandle emissiveMapID{};
+        RHI::ResourceHandle environmentMapID{};
+        RHI::ResourceHandle irradianceMapID{};
+        RHI::ResourceHandle prefilterMapID{};
+        RHI::ResourceHandle brdfLutMapID{};
 
         // Field-wise equality (safe against struct padding, unlike memcmp)
         bool operator==(const PODMaterialData& o) const
@@ -502,7 +509,7 @@ namespace OloEngine
     struct DrawIndexedCommand
     {
         CommandHeader header;
-        RendererID vertexArrayID; // VAO renderer ID
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         RHI::IndexType indexType;
     };
@@ -510,7 +517,7 @@ namespace OloEngine
     struct DrawIndexedInstancedCommand
     {
         CommandHeader header;
-        RendererID vertexArrayID; // VAO renderer ID
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         u32 instanceCount;
         RHI::IndexType indexType;
@@ -519,7 +526,7 @@ namespace OloEngine
     struct DrawArraysCommand
     {
         CommandHeader header;
-        RendererID vertexArrayID; // VAO renderer ID
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 vertexCount;
         RHI::PrimitiveTopology primitiveType;
     };
@@ -527,7 +534,7 @@ namespace OloEngine
     struct DrawLinesCommand
     {
         CommandHeader header;
-        RendererID vertexArrayID; // VAO renderer ID
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 vertexCount;
     };
 
@@ -538,8 +545,8 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data (POD identifiers)
-        AssetHandle meshHandle;   // Mesh asset handle for resolution
-        RendererID vertexArrayID; // VAO renderer ID
+        AssetHandle meshHandle;              // Mesh asset handle for resolution
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         u32 baseIndex = 0; // Starting index offset in shared index buffer (for multi-submesh MeshSources)
         glm::mat4 transform;
@@ -591,8 +598,8 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data (POD identifiers)
-        AssetHandle meshHandle;   // Mesh asset handle
-        RendererID vertexArrayID; // VAO renderer ID
+        AssetHandle meshHandle;              // Mesh asset handle
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         u32 baseIndex = 0; // Starting index offset in shared index buffer (for multi-submesh MeshSources)
         u32 instanceCount;
@@ -648,13 +655,13 @@ namespace OloEngine
     struct DrawSkyboxCommand
     {
         CommandHeader header;
-        AssetHandle meshHandle;   // Skybox mesh handle
-        RendererID vertexArrayID; // VAO renderer ID
+        AssetHandle meshHandle;              // Skybox mesh handle
+        RHI::ResourceHandle vertexArrayID{}; // VAO identity (invalid = no VAO)
         u32 indexCount;
         glm::mat4 transform;                               // Usually identity matrix
         AssetHandle shaderHandle;                          // Skybox shader handle (for asset tracking)
-        RendererID shaderRendererID;                       // Shader program ID for glUseProgram
-        RendererID skyboxTextureID;                        // Cubemap texture renderer ID
+        RHI::ResourceHandle shaderRendererID{};            // Shader program identity
+        RHI::ResourceHandle skyboxTextureID{};             // Cubemap texture identity
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX; // Render state index
     };
 
@@ -665,8 +672,8 @@ namespace OloEngine
     {
         CommandHeader header;
         AssetHandle shaderHandle;                          // Grid shader handle (for asset tracking)
-        RendererID shaderRendererID;                       // Shader program ID for glUseProgram
-        RendererID quadVAOID;                              // Fullscreen quad VAO renderer ID
+        RHI::ResourceHandle shaderRendererID{};            // Shader program identity
+        RHI::ResourceHandle quadVAOID{};                   // Fullscreen quad VAO identity
         f32 gridScale;                                     // Grid spacing scale factor
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX; // Render state index
     };
@@ -678,10 +685,10 @@ namespace OloEngine
     {
         CommandHeader header;
         glm::mat4 transform;
-        RendererID textureID;                              // Texture renderer ID
+        RHI::ResourceHandle textureID{};                   // Texture identity
         AssetHandle shaderHandle;                          // Shader asset handle (for asset tracking)
-        RendererID shaderRendererID;                       // Shader program ID for glUseProgram
-        RendererID quadVAID;                               // Quad vertex array renderer ID
+        RHI::ResourceHandle shaderRendererID{};            // Shader program identity
+        RHI::ResourceHandle quadVAID{};                    // Quad vertex array identity
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX; // Render state index
     };
 
@@ -694,20 +701,20 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data
-        RendererID vertexArrayID = 0;
+        RHI::ResourceHandle vertexArrayID{};
         u32 indexCount = 0;
         u32 patchVertexCount = 3; // Tessellation patch vertex count
 
         // Shader
-        RendererID shaderRendererID = 0;
+        RHI::ResourceHandle shaderRendererID{};
 
         // Terrain textures
-        RendererID heightmapTextureID = 0;
-        RendererID splatmapTextureID = 0;
-        RendererID splatmap1TextureID = 0;
-        RendererID albedoArrayTextureID = 0;
-        RendererID normalArrayTextureID = 0;
-        RendererID armArrayTextureID = 0;
+        RHI::ResourceHandle heightmapTextureID{};
+        RHI::ResourceHandle splatmapTextureID{};
+        RHI::ResourceHandle splatmap1TextureID{};
+        RHI::ResourceHandle albedoArrayTextureID{};
+        RHI::ResourceHandle normalArrayTextureID{};
+        RHI::ResourceHandle armArrayTextureID{};
 
         // Transform
         glm::mat4 transform = glm::mat4(1.0f);
@@ -728,16 +735,16 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data
-        RendererID vertexArrayID = 0;
+        RHI::ResourceHandle vertexArrayID{};
         u32 indexCount = 0;
 
         // Shader
-        RendererID shaderRendererID = 0;
+        RHI::ResourceHandle shaderRendererID{};
 
         // Textures for triplanar sampling
-        RendererID albedoArrayTextureID = 0;
-        RendererID normalArrayTextureID = 0;
-        RendererID armArrayTextureID = 0;
+        RHI::ResourceHandle albedoArrayTextureID{};
+        RHI::ResourceHandle normalArrayTextureID{};
+        RHI::ResourceHandle armArrayTextureID{};
 
         // Transform
         glm::mat4 transform = glm::mat4(1.0f);
@@ -755,11 +762,11 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data (decal projection cube)
-        RendererID vertexArrayID = 0;
+        RHI::ResourceHandle vertexArrayID{};
         u32 indexCount = 0;
 
         // Shader
-        RendererID shaderRendererID = 0;
+        RHI::ResourceHandle shaderRendererID{};
 
         // Decal transform
         glm::mat4 decalTransform = glm::mat4(1.0f);        // Scaled transform for geometry
@@ -769,9 +776,9 @@ namespace OloEngine
         // Decal appearance
         glm::vec4 decalColor = glm::vec4(1.0f);
         glm::vec4 decalParams = glm::vec4(0.0f); // x = fadeDistance, y = normalAngleThreshold, z/w = unused
-        RendererID albedoTextureID = 0;
-        RendererID normalTextureID = 0; // Bound at ShaderBindingLayout::TEX_USER_1 for Normal-mode decals (see CommandDispatch::DrawDecal)
-        RendererID rmaTextureID = 0;    // Bound at ShaderBindingLayout::TEX_USER_2 for RMA-mode decals (R=roughness, G=metal, B=AO)
+        RHI::ResourceHandle albedoTextureID{};
+        RHI::ResourceHandle normalTextureID{}; // Bound at ShaderBindingLayout::TEX_USER_1 for Normal-mode decals (see CommandDispatch::DrawDecal)
+        RHI::ResourceHandle rmaTextureID{};    // Bound at ShaderBindingLayout::TEX_USER_2 for RMA-mode decals (R=roughness, G=metal, B=AO)
         // Inserting fields between members above is safe: every Renderer3D::DrawDecal
         // call site assigns members by name (`cmd->normalTextureID = …`) rather than
         // positional brace initialization, and the same convention applies to
@@ -806,7 +813,7 @@ namespace OloEngine
         // commands composite via the WB-OIT layout without resubmission.
         // DecalRenderPass populates this on the command itself (not a
         // global) so the queue stays stateless and replay-safe.
-        u32 oitProgramOverride = 0;
+        RHI::ResourceHandle oitProgramOverride{};
 
         // Render state index (into FrameDataBuffer::RenderStateTable)
         u16 renderStateIndex = INVALID_RENDER_STATE_INDEX;
@@ -821,12 +828,12 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data (instanced quad)
-        RendererID vertexArrayID = 0;
+        RHI::ResourceHandle vertexArrayID{};
         u32 indexCount = 0;
         u32 instanceCount = 0;
 
         // Shader
-        RendererID shaderRendererID = 0;
+        RHI::ResourceHandle shaderRendererID{};
 
         // Model transform (parent terrain entity)
         glm::mat4 modelTransform = glm::mat4(1.0f);
@@ -845,11 +852,11 @@ namespace OloEngine
 
         // Albedo texture (0 = no texture). On the impostor path this is the
         // octahedral albedo atlas (rgb + coverage).
-        RendererID albedoTextureID = 0;
+        RHI::ResourceHandle albedoTextureID{};
 
         // Octahedral impostor atlas (issue #433): normal+depth atlas + params.
         // impostorEnabled == 0 for the flat-billboard path (fields ignored).
-        RendererID impostorNormalDepthTextureID = 0;
+        RHI::ResourceHandle impostorNormalDepthTextureID{};
         f32 impostorEnabled = 0.0f;
         f32 impostorFramesPerAxis = 8.0f;
         f32 impostorHemi = 1.0f;
@@ -873,11 +880,11 @@ namespace OloEngine
         CommandHeader header;
 
         // Mesh data
-        RendererID vertexArrayID = 0;
+        RHI::ResourceHandle vertexArrayID{};
         u32 indexCount = 0;
 
         // Shader
-        RendererID shaderRendererID = 0;
+        RHI::ResourceHandle shaderRendererID{};
 
         // Transform
         glm::mat4 modelTransform = glm::mat4(1.0f);
@@ -903,13 +910,13 @@ namespace OloEngine
         glm::vec4 fftParams = glm::vec4(0.0f);             // useFFT (0/1), 1/patchSize, heightScale, horizontalScale
 
         // Normal map / noise texture IDs
-        RendererID normalMap0ID = 0;
-        RendererID normalMap1ID = 0;
-        RendererID noiseTextureID = 0;
-        RendererID foamTextureID = 0;
+        RHI::ResourceHandle normalMap0ID{};
+        RHI::ResourceHandle normalMap1ID{};
+        RHI::ResourceHandle noiseTextureID{};
+        RHI::ResourceHandle foamTextureID{};
         // FFT ocean cascade textures (WATER_FUTURE_IMPROVEMENTS.md §1)
-        RendererID fftDisplacementID = 0; // rgb = (dx, height, dz), a = foam
-        RendererID fftDerivativesID = 0;  // rgb = normal, a = jacobian
+        RHI::ResourceHandle fftDisplacementID{}; // rgb = (dx, height, dz), a = foam
+        RHI::ResourceHandle fftDerivativesID{};  // rgb = normal, a = jacobian
 
         // Feature toggles
         bool refractionEnabled = true;

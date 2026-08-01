@@ -230,7 +230,9 @@ namespace OloEngine
         // sample whenever this flag is on. When off, the shader falls back
         // to the global IBL cubemap.
         DeferredControlsData controls{};
-        const bool iblAvailable = Renderer3D::GetGlobalIrradianceMapID() != 0 && Renderer3D::GetGlobalPrefilterMapID() != 0 && Renderer3D::GetGlobalBRDFLutMapID() != 0;
+        const bool iblAvailable = Renderer3D::GetGlobalIrradianceMapHandle().IsValid() &&
+                                  Renderer3D::GetGlobalPrefilterMapHandle().IsValid() &&
+                                  Renderer3D::GetGlobalBRDFLutMapHandle().IsValid();
         controls.Controls.x = iblAvailable ? 1.0f : 0.0f;
         controls.Controls.y = Renderer3D::GetRendererSettings().Deferred.EnableLightProbes ? 1.0f : 0.0f;
         // Runtime IBL strength multiplier: plumb the global scalar set via

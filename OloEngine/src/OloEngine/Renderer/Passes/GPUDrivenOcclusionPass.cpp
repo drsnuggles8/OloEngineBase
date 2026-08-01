@@ -192,21 +192,26 @@ namespace OloEngine
         // occluders + phase-1 + phase-2 survivors; copy them over ScenePass's
         // earlier export. Texture-to-texture copies — no framebuffer needed.
         {
-            const u32 fbDepthID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
-            const u32 sceneDepthExportID = m_SelectedSceneDepth.IsValid() ? context.ResolveTexture(m_SelectedSceneDepth) : 0u;
-            if (sceneDepthExportID != 0u && fbDepthID != 0u && sceneDepthExportID != fbDepthID)
+            // Identities (issue #691 step 3, slice 7) -- same unblock as
+            // SceneRenderPass's exports: the destinations are graph transients.
+            const RHI::ResourceHandle fbDepth = m_SceneFramebuffer->GetDepthAttachmentHandle();
+            const RHI::ResourceHandle sceneDepthExport =
+                m_SelectedSceneDepth.IsValid() ? context.ResolveTextureHandle(m_SelectedSceneDepth) : RHI::NullResource;
+            if (sceneDepthExport.IsValid() && fbDepth.IsValid() && sceneDepthExport != fbDepth)
             {
-                RenderCommand::CopyImageSubData(fbDepthID, RendererAPI::TextureTargetType::Texture2D,
-                                                sceneDepthExportID, RendererAPI::TextureTargetType::Texture2D,
+                RenderCommand::CopyImageSubData(fbDepth, RendererAPI::TextureTargetType::Texture2D,
+                                                sceneDepthExport, RendererAPI::TextureTargetType::Texture2D,
                                                 sceneSpec.Width, sceneSpec.Height);
             }
             // RT2 is the octahedral view-normal attachment in the forward layout.
-            const u32 fbNormalsID = sceneColorAttachmentCount > 2 ? m_SceneFramebuffer->GetColorAttachmentRendererID(2) : 0u;
-            const u32 sceneNormalsExportID = m_SelectedSceneNormals.IsValid() ? context.ResolveTexture(m_SelectedSceneNormals) : 0u;
-            if (sceneNormalsExportID != 0u && fbNormalsID != 0u && sceneNormalsExportID != fbNormalsID)
+            const RHI::ResourceHandle fbNormals =
+                sceneColorAttachmentCount > 2 ? m_SceneFramebuffer->GetColorAttachmentHandle(2) : RHI::NullResource;
+            const RHI::ResourceHandle sceneNormalsExport =
+                m_SelectedSceneNormals.IsValid() ? context.ResolveTextureHandle(m_SelectedSceneNormals) : RHI::NullResource;
+            if (sceneNormalsExport.IsValid() && fbNormals.IsValid() && sceneNormalsExport != fbNormals)
             {
-                RenderCommand::CopyImageSubData(fbNormalsID, RendererAPI::TextureTargetType::Texture2D,
-                                                sceneNormalsExportID, RendererAPI::TextureTargetType::Texture2D,
+                RenderCommand::CopyImageSubData(fbNormals, RendererAPI::TextureTargetType::Texture2D,
+                                                sceneNormalsExport, RendererAPI::TextureTargetType::Texture2D,
                                                 sceneSpec.Width, sceneSpec.Height);
             }
         }

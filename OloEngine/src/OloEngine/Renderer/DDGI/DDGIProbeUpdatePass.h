@@ -38,13 +38,13 @@ namespace OloEngine
     // plus the minimal material data the capture mini-G-buffer needs.
     struct DDGIMeshCaster
     {
-        RendererID vaoID = 0;
+        RHI::ResourceHandle vaoID{};
         u32 indexCount = 0;
         u32 baseIndex = 0;
         glm::mat4 transform{ 1.0f }; // ABSOLUTE world
         BoundingBox worldBounds = NoBounds;
-        glm::vec4 baseColor{ 1.0f };    // material base color factor
-        RendererID albedoTextureID = 0; // 0 = white
+        glm::vec4 baseColor{ 1.0f };           // material base color factor
+        RHI::ResourceHandle albedoTextureID{}; // invalid = fall back to the white texture
         bool twoSided = false;
     };
 
@@ -117,6 +117,24 @@ namespace OloEngine
         // ids so atlas (re)creation triggers the rebuild that re-imports them.
         [[nodiscard]] u32 GetIrradianceAtlasID(u32 pingIndex) const;
         [[nodiscard]] u32 GetVisibilityAtlasID(u32 pingIndex) const;
+
+        // Identity siblings of the two accessors above (issue #691 step 3).
+        // The FINGERPRINT reads these, not the raw ids, and that is a
+        // correctness fix rather than a type change: EnsureResources calls
+        // DestroyResources BEFORE recreating, so a Resolution / HitCacheTexels
+        // edit frees every atlas texture and GL is then free to hand the new
+        // ones the same names. Hashing the driver name therefore could not see
+        // the recreate — the fingerprint stayed put, BuildFrameGraph was not
+        // rebuilt, and the graph kept an import whose Width/Height still
+        // described the OLD resolution (what olo_render_list_targets and
+        // olo_render_capture_target then reported). A handle's generation
+        // cannot be recycled, so the rebuild now always happens.
+        //
+        // The raw-id accessors stay: Setup still imports natively, because
+        // ImportTextureHandle leaves RenderGraph::ResolveTexture answering 0
+        // and that is what the MCP capture endpoints read.
+        [[nodiscard]] RHI::ResourceHandle GetIrradianceAtlasHandle(u32 pingIndex) const;
+        [[nodiscard]] RHI::ResourceHandle GetVisibilityAtlasHandle(u32 pingIndex) const;
         [[nodiscard]] u32 GetIrradianceCurrentIndex() const
         {
             return m_IrradianceCurrent;

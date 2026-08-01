@@ -19,12 +19,12 @@ namespace OloEngine
         const glm::mat4& inverseDecalTransform,
         const glm::vec4& decalColor,
         const glm::vec4& decalParams,
-        RendererID albedoTextureID,
+        RHI::ResourceHandle albedoTextureID,
         i32 entityID)
     {
         // Delegate to the extended variant with Albedo mode + zero extra textures.
         return DrawDecal(decalTransform, inverseDecalTransform, decalColor, decalParams,
-                         albedoTextureID, /*normal*/ 0u, /*rma*/ 0u,
+                         albedoTextureID, /*normal*/ RHI::NullResource, /*rma*/ RHI::NullResource,
                          DrawDecalCommand::DecalMode::Albedo,
                          /*transparent*/ false, entityID);
     }
@@ -34,9 +34,9 @@ namespace OloEngine
         const glm::mat4& inverseDecalTransform,
         const glm::vec4& decalColor,
         const glm::vec4& decalParams,
-        RendererID albedoTextureID,
-        RendererID normalTextureID,
-        RendererID rmaTextureID,
+        RHI::ResourceHandle albedoTextureID,
+        RHI::ResourceHandle normalTextureID,
+        RHI::ResourceHandle rmaTextureID,
         DrawDecalCommand::DecalMode mode,
         bool transparent,
         i32 entityID)
@@ -109,9 +109,9 @@ namespace OloEngine
             }
         }
 
-        cmd->vertexArrayID = va->GetRendererID();
+        cmd->vertexArrayID = va->GetRHIHandle();
         cmd->indexCount = s_Data.DecalCubeMesh->GetIndexCount();
-        cmd->shaderRendererID = decalShader->GetRendererID();
+        cmd->shaderRendererID = decalShader->GetRHIHandle();
         // Camera-relative (issue #429): the decal cube's model matrix goes up
         // through UploadModelInstance, which shifts it by the render origin, so
         // the rendered box is in render-relative space (correct screen position
@@ -157,7 +157,7 @@ namespace OloEngine
         // rendered after opaque geometry; in Deferred they write into the
         // G-Buffer pre-lighting so they are opaque from the sorter's POV.
         PacketMetadata metadata = packet->GetMetadata();
-        const u32 shaderID = decalShader->GetRendererID() & 0xFFFF;
+        const u32 shaderID = cmd->shaderRendererID.Index & 0xFFFF;
         const u32 depth = ComputeDepthForSortKey(decalTransform);
         metadata.m_SortKey = deferredPath
                                  ? DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth)
@@ -169,8 +169,8 @@ namespace OloEngine
     }
 
     CommandPacket* Renderer3D::DrawFoliageLayer(
-        RendererID vertexArrayID, u32 indexCount, u32 instanceCount,
-        RendererID albedoTextureID,
+        RHI::ResourceHandle vertexArrayID, u32 indexCount, u32 instanceCount,
+        RHI::ResourceHandle albedoTextureID,
         const glm::mat4& modelTransform,
         f32 time,
         f32 prevTime,
@@ -197,7 +197,7 @@ namespace OloEngine
         // Octahedral impostor path (issue #433): always routes through the
         // forward FoliagePass with the impostor shader — the card does its own
         // relighting, so it composites into SceneColor after (deferred) lighting.
-        const bool useImpostor = impostor.Enabled && impostor.AlbedoAtlasID != 0 && s_Data.FoliageImpostorShader;
+        const bool useImpostor = impostor.Enabled && impostor.AlbedoAtlasID.IsValid() && s_Data.FoliageImpostorShader;
 
         // Deferred: route through ScenePass (the G-Buffer FB) with the
         // G-Buffer variant shader so foliage participates in the deferred
@@ -233,7 +233,7 @@ namespace OloEngine
         cmd->vertexArrayID = vertexArrayID;
         cmd->indexCount = indexCount;
         cmd->instanceCount = instanceCount;
-        cmd->shaderRendererID = activeShader->GetRendererID();
+        cmd->shaderRendererID = activeShader->GetRHIHandle();
         cmd->modelTransform = modelTransform;
         cmd->normalMatrix = glm::transpose(glm::inverse(modelTransform));
         cmd->time = time;
@@ -280,7 +280,7 @@ namespace OloEngine
 
         // Sort key: opaque, sorted by shader then depth (front-to-back).
         PacketMetadata metadata = packet->GetMetadata();
-        const u32 shaderID = activeShader->GetRendererID() & 0xFFFF;
+        const u32 shaderID = cmd->shaderRendererID.Index & 0xFFFF;
         const u32 depth = ComputeDepthForSortKey(modelTransform);
         metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
         metadata.m_IsStatic = false;
@@ -290,7 +290,7 @@ namespace OloEngine
     }
 
     CommandPacket* Renderer3D::DrawWaterSurface(
-        RendererID vertexArrayID, u32 indexCount,
+        RHI::ResourceHandle vertexArrayID, u32 indexCount,
         const glm::mat4& modelTransform,
         f32 time,
         f32 prevTime,
@@ -332,7 +332,7 @@ namespace OloEngine
 
         cmd->vertexArrayID = vertexArrayID;
         cmd->indexCount = indexCount;
-        cmd->shaderRendererID = s_Data.WaterShader->GetRendererID();
+        cmd->shaderRendererID = s_Data.WaterShader->GetRHIHandle();
         cmd->modelTransform = modelTransform;
         cmd->normalMatrix = glm::transpose(glm::inverse(modelTransform));
 
@@ -400,7 +400,7 @@ namespace OloEngine
 
         // Sort key: translucent, sorted back-to-front for correct blending.
         PacketMetadata metadata = packet->GetMetadata();
-        const u32 shaderID = s_Data.WaterShader->GetRendererID() & 0xFFFF;
+        const u32 shaderID = cmd->shaderRendererID.Index & 0xFFFF;
         const u32 depth = ComputeDepthForSortKey(modelTransform);
         metadata.m_SortKey = DrawKey::CreateTransparent(0, ViewLayerType::ThreeD, shaderID, 0, depth);
         metadata.m_IsStatic = false;

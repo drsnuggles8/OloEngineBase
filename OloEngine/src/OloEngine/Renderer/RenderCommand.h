@@ -290,9 +290,30 @@ namespace OloEngine
 
         // Raw-VAO variant used by the GPU frustum-cull path that only has a
         // RendererID (no Ref<VertexArray> on hand inside the dispatcher).
-        static void DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID)
+        static void DrawBoundElementsIndirect(u32 indirectBufferID)
         {
-            s_RendererAPI->DrawElementsIndirectRaw(vaoID, indirectBufferID);
+            s_RendererAPI->DrawBoundElementsIndirect(indirectBufferID);
+        }
+
+        static void DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 patchVertices)
+        {
+            s_RendererAPI->DrawIndexedPatchesRaw(vertexArray, indexCount, patchVertices);
+        }
+
+        static void DrawIndexedInstancedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex,
+                                            u32 instanceCount)
+        {
+            s_RendererAPI->DrawIndexedInstancedRaw(vertexArray, indexCount, baseIndex, instanceCount);
+        }
+
+        static void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount)
+        {
+            s_RendererAPI->DrawIndexedRaw(vertexArray, indexCount);
+        }
+
+        static void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex)
+        {
+            s_RendererAPI->DrawIndexedRaw(vertexArray, indexCount, baseIndex);
         }
 
         // Multi-draw indirect with a GPU-sourced draw count (core GL 4.6, issue #629).
@@ -334,6 +355,14 @@ namespace OloEngine
             s_RendererAPI->CopyImageSubData(srcID, srcTarget, dstID, dstTarget, width, height);
         }
 
+        // Handle form — both operands together (issue #691 step 3, slice 5).
+        static void CopyImageSubData(RHI::ResourceHandle src, RendererAPI::TextureTargetType srcTarget,
+                                     RHI::ResourceHandle dst, RendererAPI::TextureTargetType dstTarget,
+                                     u32 width, u32 height)
+        {
+            s_RendererAPI->CopyImageSubData(src, srcTarget, dst, dstTarget, width, height);
+        }
+
         // Full image copy with source/dest z offsets (cubemap face copies)
         static void CopyImageSubDataFull(u32 srcID, RendererAPI::TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
                                          u32 dstID, RendererAPI::TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
@@ -341,6 +370,18 @@ namespace OloEngine
         {
             s_RendererAPI->CopyImageSubDataFull(srcID, srcTarget, srcLevel, srcZ,
                                                 dstID, dstTarget, dstLevel, dstZ,
+                                                width, height);
+        }
+
+        // Handle form — both operands together (issue #691 step 3, slice 5).
+        static void CopyImageSubDataFull(RHI::ResourceHandle src, RendererAPI::TextureTargetType srcTarget,
+                                         i32 srcLevel, i32 srcZ,
+                                         RHI::ResourceHandle dst, RendererAPI::TextureTargetType dstTarget,
+                                         i32 dstLevel, i32 dstZ,
+                                         u32 width, u32 height)
+        {
+            s_RendererAPI->CopyImageSubDataFull(src, srcTarget, srcLevel, srcZ,
+                                                dst, dstTarget, dstLevel, dstZ,
                                                 width, height);
         }
 
@@ -375,6 +416,12 @@ namespace OloEngine
         static u32 CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers)
         {
             return s_RendererAPI->CreateDepthArrayCompareOffView(srcTextureID, numLayers);
+        }
+
+        [[nodiscard]] static RHI::ResourceHandle CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture,
+                                                                                      u32 numLayers)
+        {
+            return s_RendererAPI->CreateDepthArrayCompareOffViewHandle(srcTexture, numLayers);
         }
 
         static void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter)
@@ -710,6 +757,11 @@ namespace OloEngine
             s_RendererAPI->ClearTextureFloat(textureID, mipLevel, color);
         }
 
+        static void ClearTextureFloat(RHI::ResourceHandle texture, u32 mipLevel, const glm::vec4& color)
+        {
+            s_RendererAPI->ClearTextureFloat(texture, mipLevel, color);
+        }
+
         static void ClearTextureUInt(u32 textureID, u32 mipLevel, u32 value)
         {
             s_RendererAPI->ClearTextureUInt(textureID, mipLevel, value);
@@ -737,6 +789,13 @@ namespace OloEngine
             return s_RendererAPI->ReadTextureImage(textureID, mipLevel, destFormat, destSizeBytes, dest);
         }
 
+        [[nodiscard("Store this!")]] static bool ReadTextureImage(RHI::ResourceHandle texture, u32 mipLevel,
+                                                                  RHI::Format destFormat,
+                                                                  sizet destSizeBytes, void* dest)
+        {
+            return s_RendererAPI->ReadTextureImage(texture, mipLevel, destFormat, destSizeBytes, dest);
+        }
+
         [[nodiscard("Store this!")]] static bool ReadTextureSubImage(u32 textureID, u32 mipLevel,
                                                                      i32 x, i32 y, i32 z,
                                                                      u32 width, u32 height, u32 depth,
@@ -744,6 +803,16 @@ namespace OloEngine
                                                                      sizet destSizeBytes, void* dest)
         {
             return s_RendererAPI->ReadTextureSubImage(textureID, mipLevel, x, y, z, width, height, depth,
+                                                      destFormat, destSizeBytes, dest);
+        }
+
+        [[nodiscard("Store this!")]] static bool ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel,
+                                                                     i32 x, i32 y, i32 z,
+                                                                     u32 width, u32 height, u32 depth,
+                                                                     RHI::Format destFormat,
+                                                                     sizet destSizeBytes, void* dest)
+        {
+            return s_RendererAPI->ReadTextureSubImage(texture, mipLevel, x, y, z, width, height, depth,
                                                       destFormat, destSizeBytes, dest);
         }
 

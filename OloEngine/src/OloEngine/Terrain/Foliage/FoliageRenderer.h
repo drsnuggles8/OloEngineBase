@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Impostor/ImpostorBaker.h"
@@ -25,10 +26,10 @@ namespace OloEngine
     // Uses u32 for GL resource IDs to avoid pulling in RenderCommand.h.
     struct FoliageLayerDrawInfo
     {
-        u32 VertexArrayID = 0;
+        RHI::ResourceHandle VertexArrayID{};
         u32 IndexCount = 0;
         u32 InstanceCount = 0;
-        u32 AlbedoTextureID = 0;
+        RHI::ResourceHandle AlbedoTextureID{};
         f32 ViewDistance = 100.0f;
         f32 FadeStartDistance = 80.0f;
         f32 WindStrength = 0.3f;
@@ -41,8 +42,8 @@ namespace OloEngine
         // route this layer through the impostor card shader instead of the flat
         // billboard; zero/false leaves the existing billboard path untouched.
         bool UseImpostor = false;
-        u32 ImpostorAlbedoAtlasID = 0;
-        u32 ImpostorNormalDepthAtlasID = 0;
+        RHI::ResourceHandle ImpostorAlbedoAtlasID{};
+        RHI::ResourceHandle ImpostorNormalDepthAtlasID{};
         u32 ImpostorFramesPerAxis = 8;
         bool ImpostorHemi = true;
         f32 ImpostorStartDistance = 40.0f;

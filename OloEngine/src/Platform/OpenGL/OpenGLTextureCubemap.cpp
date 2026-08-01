@@ -223,7 +223,7 @@ namespace OloEngine
 
         // See OpenGLTexture2D::~OpenGLTexture2D — same skip-bind hazard applies
         // when the recycled ID is later supplied for a cubemap slot.
-        CommandDispatch::InvalidateTextureBinding(m_RendererID);
+        CommandDispatch::InvalidateTextureBinding(m_RHIHandle.Get());
 
         u32 id = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([id]()

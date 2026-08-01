@@ -170,7 +170,10 @@ namespace OloEngine
         }
         else
         {
-            u32 const colorAttachmentID = sceneFb->GetColorAttachmentRendererID(0);
+            // Hoisted outside the face loop, as the native id was: SceneColor's
+            // attachment is not recreated between faces, and the handle stays
+            // valid across an in-place recreate (issue #691 step 3).
+            RHI::ResourceHandle const colorAttachment = sceneFb->GetColorAttachmentHandle(0);
             for (u32 face = 0; face < 6; ++face)
             {
                 glm::mat4 const view = glm::lookAt(position, position + s_FaceTargets[face], s_FaceUps[face]);
@@ -181,7 +184,7 @@ namespace OloEngine
                 // Read back this face's lit HDR radiance from the graph's
                 // SceneColor RT0. The readback reads the texture directly
                 // (no FBO-bound restriction) and lets the driver pick its path.
-                if (!RenderCommand::ReadTextureImage(colorAttachmentID, 0, RHI::Format::RGBA32Float,
+                if (!RenderCommand::ReadTextureImage(colorAttachment, 0, RHI::Format::RGBA32Float,
                                                      faceBytes, pixelBuffer.data()))
                 {
                     OLO_CORE_WARN("ReflectionProbeBaker: cubemap face readback failed");

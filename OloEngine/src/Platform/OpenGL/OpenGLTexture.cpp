@@ -574,7 +574,7 @@ namespace OloEngine
 
         // Drop any cached "this slot already has this texture bound" entries so a
         // future bind with a recycled GL ID isn't skipped against stale tracking.
-        CommandDispatch::InvalidateTextureBinding(m_RendererID);
+        CommandDispatch::InvalidateTextureBinding(m_RHIHandle.Get());
 
         u32 id = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([id]()
@@ -610,7 +610,7 @@ namespace OloEngine
         // Dealloc old
         OLO_TRACK_DEALLOC(this);
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
-        CommandDispatch::InvalidateTextureBinding(m_RendererID);
+        CommandDispatch::InvalidateTextureBinding(m_RHIHandle.Get());
 
         u32 oldId = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([oldId]()
@@ -955,7 +955,7 @@ namespace OloEngine
         {
             OLO_TRACK_DEALLOC(this);
             GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
-            CommandDispatch::InvalidateTextureBinding(m_RendererID);
+            CommandDispatch::InvalidateTextureBinding(m_RHIHandle.Get());
             u32 oldId = m_RendererID;
             FrameResourceManager::Get().SubmitForDeletion([oldId]()
                                                           { glDeleteTextures(1, &oldId); });

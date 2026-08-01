@@ -18,6 +18,15 @@ namespace OloEngine
 {
     namespace
     {
+        // Identities print as #Index:Generation via RHITypes' fmt formatter.
+        [[nodiscard]] std::string FormatHandle(const RHI::ResourceHandle handle)
+        {
+            return fmt::format("{}", handle);
+        }
+    } // namespace
+
+    namespace
+    {
         constexpr std::string_view LiveGeometryNodeName = "ScenePass";
 
         std::string EscapeCsvField(const std::string& field)
@@ -560,12 +569,14 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         ImGui::Text("Mesh Handle: %llu", static_cast<u64>(cmd.meshHandle));
-        ImGui::Text("VAO: %u", cmd.vertexArrayID);
+        ImGui::Text("VAO: %s", FormatHandle(cmd.vertexArrayID).c_str());
         ImGui::Text("Index Count: %u", cmd.indexCount);
         ImGui::Text("Entity ID: %d", cmd.entityID);
 
         const PODMaterialData* matPtr = frame ? frame->GetSnapshotMaterialData(cmd.materialDataIndex) : nullptr;
-        ImGui::Text("Shader: %u (handle: %llu)", matPtr ? matPtr->shaderRendererID : 0u, static_cast<u64>(cmd.shaderHandle));
+        ImGui::Text("Shader: %s (handle: %llu)",
+                    FormatHandle(matPtr ? matPtr->shaderRendererID : RHI::NullResource).c_str(),
+                    static_cast<u64>(cmd.shaderHandle));
         ImGui::Text("Material Data Index: %u", cmd.materialDataIndex);
 
         ImGui::Separator();
@@ -584,8 +595,12 @@ namespace OloEngine
             ImGui::Text("  Normal Scale: %.2f", matPtr->normalScale);
             ImGui::Text("  Occlusion: %.2f", matPtr->occlusionStrength);
             ImGui::Text("  IBL: %s (intensity=%.2f)", matPtr->enableIBL ? "Yes" : "No", matPtr->iblIntensity);
-            ImGui::Text("  Textures: albedo=%u, metallicRough=%u, normal=%u, ao=%u, emissive=%u",
-                        matPtr->albedoMapID, matPtr->metallicRoughnessMapID, matPtr->normalMapID, matPtr->aoMapID, matPtr->emissiveMapID);
+            ImGui::Text("  Textures: albedo=%s, metallicRough=%s, normal=%s, ao=%s, emissive=%s",
+                        FormatHandle(matPtr->albedoMapID).c_str(),
+                        FormatHandle(matPtr->metallicRoughnessMapID).c_str(),
+                        FormatHandle(matPtr->normalMapID).c_str(),
+                        FormatHandle(matPtr->aoMapID).c_str(),
+                        FormatHandle(matPtr->emissiveMapID).c_str());
         }
         else if (matPtr)
         {
@@ -611,13 +626,15 @@ namespace OloEngine
     void CommandPacketDebugger::RenderDrawMeshInstancedDetail(const DrawMeshInstancedCommand& cmd, const CapturedFrameData* frame) const
     {
         ImGui::Text("Mesh Handle: %llu", static_cast<u64>(cmd.meshHandle));
-        ImGui::Text("VAO: %u", cmd.vertexArrayID);
+        ImGui::Text("VAO: %s", FormatHandle(cmd.vertexArrayID).c_str());
         ImGui::Text("Index Count: %u", cmd.indexCount);
         ImGui::Text("Instance Count: %u", cmd.instanceCount);
         ImGui::Text("Transform Buffer: offset=%u, count=%u", cmd.transformBufferOffset, cmd.transformCount);
 
         const PODMaterialData* matPtr = frame ? frame->GetSnapshotMaterialData(cmd.materialDataIndex) : nullptr;
-        ImGui::Text("Shader: %u (handle: %llu)", matPtr ? matPtr->shaderRendererID : 0u, static_cast<u64>(cmd.shaderHandle));
+        ImGui::Text("Shader: %s (handle: %llu)",
+                    FormatHandle(matPtr ? matPtr->shaderRendererID : RHI::NullResource).c_str(),
+                    static_cast<u64>(cmd.shaderHandle));
         ImGui::Text("Material Data Index: %u", cmd.materialDataIndex);
     }
 
@@ -1458,16 +1475,16 @@ namespace OloEngine
                         const PODRenderState* state = frame->GetSnapshotRenderState(meshCmd->renderStateIndex);
                         const PODMaterialData* mat = frame->GetSnapshotMaterialData(meshCmd->materialDataIndex);
                         file << "### Draw #" << drawIdx++ << ": " << cmd.GetCommandTypeString() << "\n\n";
-                        file << "- Shader: " << (mat ? mat->shaderRendererID : 0u) << " (handle: " << static_cast<u64>(meshCmd->shaderHandle) << ")\n";
-                        file << "- VAO: " << meshCmd->vertexArrayID << ", Index Count: " << meshCmd->indexCount << "\n";
+                        file << "- Shader: " << FormatHandle(mat ? mat->shaderRendererID : RHI::NullResource) << " (handle: " << static_cast<u64>(meshCmd->shaderHandle) << ")\n";
+                        file << "- VAO: " << FormatHandle(meshCmd->vertexArrayID) << ", Index Count: " << meshCmd->indexCount << "\n";
                         file << "- Entity ID: " << meshCmd->entityID << "\n";
                         file << "- Material Data Index: " << meshCmd->materialDataIndex << "\n";
                         if (mat && mat->enablePBR)
                         {
                             file << "- PBR Material: baseColor=(" << mat->baseColorFactor.r << "," << mat->baseColorFactor.g << "," << mat->baseColorFactor.b << ")"
                                  << " metallic=" << mat->metallicFactor << " roughness=" << mat->roughnessFactor << "\n";
-                            file << "- Textures: albedo=" << mat->albedoMapID << " metallicRough=" << mat->metallicRoughnessMapID
-                                 << " normal=" << mat->normalMapID << " ao=" << mat->aoMapID << " emissive=" << mat->emissiveMapID << "\n";
+                            file << "- Textures: albedo=" << FormatHandle(mat->albedoMapID) << " metallicRough=" << FormatHandle(mat->metallicRoughnessMapID)
+                                 << " normal=" << FormatHandle(mat->normalMapID) << " ao=" << FormatHandle(mat->aoMapID) << " emissive=" << FormatHandle(mat->emissiveMapID) << "\n";
                         }
                         file << "- Depth: write=" << (state ? (state->depthWriteMask ? "yes" : "no") : "N/A")
                              << " test=" << (state ? (state->depthTestEnabled ? "yes" : "no") : "N/A") << "\n";
@@ -1484,9 +1501,9 @@ namespace OloEngine
                         const PODMaterialData* instMat = frame->GetSnapshotMaterialData(instCmd->materialDataIndex);
                         file << "### Draw #" << drawIdx++ << ": " << cmd.GetCommandTypeString() << "\n\n";
                         file << "- Instances: " << instCmd->instanceCount << "\n";
-                        file << "- Shader: " << (instMat ? instMat->shaderRendererID : 0u) << "\n";
+                        file << "- Shader: " << FormatHandle(instMat ? instMat->shaderRendererID : RHI::NullResource) << "\n";
                         file << "- Material Data Index: " << instCmd->materialDataIndex << "\n";
-                        file << "- VAO: " << instCmd->vertexArrayID << ", Index Count: " << instCmd->indexCount << "\n\n";
+                        file << "- VAO: " << FormatHandle(instCmd->vertexArrayID) << ", Index Count: " << instCmd->indexCount << "\n\n";
                     }
                 }
                 else

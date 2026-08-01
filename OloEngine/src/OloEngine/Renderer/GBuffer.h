@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 
@@ -100,6 +101,11 @@ namespace OloEngine
         // return resolved (single-sample) IDs when MSAA is active.
         [[nodiscard]] u32 GetColorAttachmentID(AttachmentIndex index) const;
         [[nodiscard]] u32 GetDepthAttachmentID() const;
+        // Identity forms (issue #691 step 3). The G-Buffer attachments are
+        // ordinary framebuffer attachments, so these just forward to the
+        // framebuffer's own handle accessors.
+        [[nodiscard]] RHI::ResourceHandle GetColorAttachmentHandle(AttachmentIndex index) const;
+        [[nodiscard]] RHI::ResourceHandle GetDepthAttachmentHandle() const;
 
         // Raw multisample attachment IDs. For sampleCount == 1 these are
         // identical to GetColorAttachmentID / GetDepthAttachmentID. For

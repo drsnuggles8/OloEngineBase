@@ -668,14 +668,15 @@ namespace OloEngine
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
     }
 
-    void OpenGLRendererAPI::DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID)
+    void OpenGLRendererAPI::DrawBoundElementsIndirect(u32 indirectBufferID)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (vaoID == 0 || indirectBufferID == 0)
+        if (indirectBufferID == 0)
             return;
 
-        glBindVertexArray(vaoID);
+        // No glBindVertexArray: the caller's BindVAOIfNeeded already bound it,
+        // and binding here would defeat that cache (see the DrawBound* family).
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBufferID);
         glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
@@ -1990,6 +1991,105 @@ namespace OloEngine
                                                     RHI::Format sourceFormat, const void* data)
     {
         UploadTextureSubImage2D(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), width, height, sourceFormat, data);
+    }
+
+    // -------------------------------------------------------------------------
+    // Handle-taking siblings of the texture copy / clear / upload-at-offset /
+    // readback family (issue #691 step 3, slice 5 — attachment consumers).
+    //
+    // Same shape as the block above: resolve here, delegate to the one u32 form
+    // that talks to GL. What made these necessary was migrating the framebuffer
+    // attachment getters' consumers — the bakers copy an attachment into a
+    // persistent Texture2D/Cubemap and the probe bakers read one back, and
+    // neither family appeared in the bind or create/delete survey that produced
+    // the earlier additions.
+    // -------------------------------------------------------------------------
+    void OpenGLRendererAPI::CopyImageSubData(RHI::ResourceHandle src, TextureTargetType srcTarget,
+                                             RHI::ResourceHandle dst, TextureTargetType dstTarget,
+                                             u32 width, u32 height)
+    {
+        CopyImageSubData(Utils::ResolveNativeAs(src, RHI::ResourceKind::Texture), srcTarget,
+                         Utils::ResolveNativeAs(dst, RHI::ResourceKind::Texture), dstTarget,
+                         width, height);
+    }
+
+    void OpenGLRendererAPI::CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget,
+                                                 i32 srcLevel, i32 srcZ,
+                                                 RHI::ResourceHandle dst, TextureTargetType dstTarget,
+                                                 i32 dstLevel, i32 dstZ,
+                                                 u32 width, u32 height)
+    {
+        CopyImageSubDataFull(Utils::ResolveNativeAs(src, RHI::ResourceKind::Texture), srcTarget, srcLevel, srcZ,
+                             Utils::ResolveNativeAs(dst, RHI::ResourceKind::Texture), dstTarget, dstLevel, dstZ,
+                             width, height);
+    }
+
+    void OpenGLRendererAPI::ClearTextureFloat(RHI::ResourceHandle texture, u32 mipLevel, const glm::vec4& color)
+    {
+        ClearTextureFloat(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), mipLevel, color);
+    }
+
+    bool OpenGLRendererAPI::ReadTextureImage(RHI::ResourceHandle texture, u32 mipLevel,
+                                             RHI::Format destFormat, sizet destSizeBytes, void* dest)
+    {
+        // A stale handle resolves to 0 and the u32 form reports failure for
+        // texture 0, so the "unbind" degradation the bind family relies on
+        // becomes an honest `false` here — the caller must not treat `dest` as
+        // populated.
+        return ReadTextureImage(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), mipLevel,
+                                destFormat, destSizeBytes, dest);
+    }
+
+    void OpenGLRendererAPI::DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount,
+                                                  u32 patchVertices)
+    {
+        DrawIndexedPatchesRaw(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray), indexCount,
+                              patchVertices);
+    }
+
+    void OpenGLRendererAPI::DrawIndexedInstancedRaw(RHI::ResourceHandle vertexArray, u32 indexCount,
+                                                    u32 baseIndex, u32 instanceCount)
+    {
+        DrawIndexedInstancedRaw(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray), indexCount,
+                                baseIndex, instanceCount);
+    }
+
+    void OpenGLRendererAPI::DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount)
+    {
+        DrawIndexedRaw(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray), indexCount);
+    }
+
+    void OpenGLRendererAPI::DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex)
+    {
+        DrawIndexedRaw(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray), indexCount, baseIndex);
+    }
+
+    void OpenGLRendererAPI::SetProgramUniformFloat(RHI::ResourceHandle program, std::string_view name, f32 value)
+    {
+        SetProgramUniformFloat(Utils::ResolveNativeAs(program, RHI::ResourceKind::ShaderProgram), name, value);
+    }
+
+    RHI::ResourceHandle OpenGLRendererAPI::CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture,
+                                                                                u32 numLayers)
+    {
+        const GLuint nativeView = CreateDepthArrayCompareOffView(
+            Utils::ResolveNativeAs(srcTexture, RHI::ResourceKind::Texture), numLayers);
+        if (nativeView == 0u)
+            return RHI::NullResource;
+
+        // The view is registered as a Texture in its own right, NOT as an alias
+        // of the source: it is a separate GL name with its own sampler state and
+        // its own lifetime (ShadowMap deletes it independently of the array).
+        return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture, nativeView, RHI::Backend::OpenGL);
+    }
+
+    bool OpenGLRendererAPI::ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel,
+                                                i32 x, i32 y, i32 z,
+                                                u32 width, u32 height, u32 depth,
+                                                RHI::Format destFormat, sizet destSizeBytes, void* dest)
+    {
+        return ReadTextureSubImage(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture), mipLevel,
+                                   x, y, z, width, height, depth, destFormat, destSizeBytes, dest);
     }
 
 } // namespace OloEngine

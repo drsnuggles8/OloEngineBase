@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderConstants.h"
@@ -183,6 +184,25 @@ namespace OloEngine
         [[nodiscard]] u32 GetCSMRendererID() const;
         [[nodiscard]] u32 GetAtlasRendererID() const;
 
+        // Identity siblings (issue #691 step 3, slice 6). BOTH currencies are
+        // kept on purpose and the split is by CONSUMER, not by preference:
+        //
+        //   * the bind path (CommandDispatch's redundant-bind cache) takes
+        //     handles — that cache is keyed on them now, which is what makes a
+        //     stale entry unable to collide with a recycled GL name;
+        //   * the graph path (RenderPipeline's DeclareTransientTexture /
+        //     blackboard import) still takes raw ids, because importing by
+        //     handle leaves RenderGraph::ResolveTexture answering 0 and that is
+        //     what the MCP capture endpoints read. See
+        //     docs/agent-rules/rhi-abstraction-boundary.md.
+        //
+        // The pipeline FINGERPRINT reads the handles, not the ids: Shutdown()
+        // deletes these textures before Init() recreates them on a resolution
+        // change, so GL may reissue the same names and a raw-id hash would not
+        // see the recreate at all — the same defect the DDGI atlases had.
+        [[nodiscard]] RHI::ResourceHandle GetCSMHandle() const;
+        [[nodiscard]] RHI::ResourceHandle GetAtlasHandle() const;
+
         // Render-graph resource names of the two raw-depth views below (issue
         // #607). They are pass-owned raw GL texture views, so until they are
         // declared under a stable name both olo_render_list_targets and
@@ -206,6 +226,17 @@ namespace OloEngine
         {
             return m_AtlasRawViewID;
         }
+        // A texture VIEW is a distinct GPU object from the array it aliases, so
+        // it carries its own identity rather than borrowing the array's — see
+        // CreateDepthArrayCompareOffViewHandle.
+        [[nodiscard]] RHI::ResourceHandle GetCSMRawHandle() const
+        {
+            return m_CSMRawViewHandle;
+        }
+        [[nodiscard]] RHI::ResourceHandle GetAtlasRawHandle() const
+        {
+            return m_AtlasRawViewHandle;
+        }
 
         // Placeholder shadow textures for when no real shadow map is available
         // this frame. Some drivers validate the bound texture target at draw
@@ -217,10 +248,14 @@ namespace OloEngine
         // sampler2DArrayShadow target).
         [[nodiscard]] static u32 GetCSMPlaceholderRendererID();
         [[nodiscard]] static u32 GetAtlasPlaceholderRendererID();
+        [[nodiscard]] static RHI::ResourceHandle GetCSMPlaceholderHandle();
+        [[nodiscard]] static RHI::ResourceHandle GetAtlasPlaceholderHandle();
         // Comparison-OFF raw-depth placeholders (plain sampler2DArray) for the
         // PCSS raw-view slots when no real shadow map is bound this frame.
         [[nodiscard]] static u32 GetCSMRawPlaceholderRendererID();
         [[nodiscard]] static u32 GetAtlasRawPlaceholderRendererID();
+        [[nodiscard]] static RHI::ResourceHandle GetCSMRawPlaceholderHandle();
+        [[nodiscard]] static RHI::ResourceHandle GetAtlasRawPlaceholderHandle();
         // Release placeholder textures. Called at renderer shutdown.
         static void ShutdownPlaceholders();
 
@@ -319,6 +354,10 @@ namespace OloEngine
         // PCSS blocker search). Owned GL texture-view objects; deleted in Shutdown().
         u32 m_CSMRawViewID = 0;
         u32 m_AtlasRawViewID = 0;
+        // Identities for the two views above, minted by the facade's handle
+        // form and retired by DeleteTexture(handle) (which unregisters too).
+        RHI::ResourceHandle m_CSMRawViewHandle{};
+        RHI::ResourceHandle m_AtlasRawViewHandle{};
 
         // World-space atlas entry state (UBO carries the camera-relative copies)
         std::array<glm::mat4, MAX_SHADOW_ATLAS_ENTRIES> m_AtlasEntryWorldMatrices{};

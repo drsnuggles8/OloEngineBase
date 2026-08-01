@@ -107,7 +107,7 @@ namespace OloEngine
 
         const auto publishDisabled = [&]()
         {
-            Renderer3D::SetPlanarReflectionTextureID(0);
+            Renderer3D::SetPlanarReflectionTextureID(RHI::NullResource);
             if (m_ReflectionUBO)
             {
                 m_ReflectionUBO->SetData(&ubo, UBOData::GetSize());
@@ -210,7 +210,7 @@ namespace OloEngine
         CommandDispatch::UploadCameraUBO();
         CommandDispatch::InvalidateRenderStateCache();
 
-        Renderer3D::SetPlanarReflectionTextureID(m_ReflectionFB->GetColorAttachmentRendererID(0));
+        Renderer3D::SetPlanarReflectionTextureID(m_ReflectionFB->GetColorAttachmentHandle(0));
         if (m_ReflectionUBO)
         {
             m_ReflectionUBO->SetData(&ubo, UBOData::GetSize());
@@ -239,6 +239,6 @@ namespace OloEngine
     {
         // Drop the texture publish so a stale reflection can't be sampled after a
         // graph reset / asset reload.
-        Renderer3D::SetPlanarReflectionTextureID(0);
+        Renderer3D::SetPlanarReflectionTextureID(RHI::NullResource);
     }
 } // namespace OloEngine

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Memory/Platform.h"
 #include "CommandPacket.h"
 #include "CommandAllocator.h"
@@ -35,7 +36,11 @@ namespace OloEngine
     // right — which is what made this look like a distance-dependent LOD bug).
     struct InstanceGroupKey
     {
-        u32 vertexArrayID = 0;
+        // Identity, not driver name (issue #691 step 3, slice 6): batching two
+        // draws together because their VAOs share a recycled GL name would
+        // render one mesh with the other's geometry. Two LIVE handles cannot
+        // collide, so this is a correctness improvement, not a retype.
+        RHI::ResourceHandle vertexArrayID{};
         u32 indexCount = 0;
         u32 baseIndex = 0;
         u16 materialDataIndex = 0;
@@ -48,7 +53,7 @@ namespace OloEngine
     {
         sizet operator()(const InstanceGroupKey& key) const
         {
-            sizet h = std::hash<u32>{}(key.vertexArrayID);
+            sizet h = std::hash<u64>{}(RHI::HashKey(key.vertexArrayID));
             h ^= std::hash<u32>{}(key.indexCount) + 0x9e3779b9 + (h << 6) + (h >> 2);
             h ^= std::hash<u32>{}(key.baseIndex) + 0x9e3779b9 + (h << 6) + (h >> 2);
             h ^= std::hash<u16>{}(key.materialDataIndex) + 0x9e3779b9 + (h << 6) + (h >> 2);

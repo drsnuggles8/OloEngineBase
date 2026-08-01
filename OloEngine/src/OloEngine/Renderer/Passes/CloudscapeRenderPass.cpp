@@ -295,20 +295,25 @@ namespace OloEngine
         m_ResolveShader->Bind();
 
         // This frame's raymarch at unit 0 (layout(binding = 0) in the shader).
-        const u32 cloudsRawColorID = cloudsRawFramebuffer->GetColorAttachmentRendererID(0);
-        context.BindTexture(0, cloudsRawColorID);
+        const RHI::ResourceHandle cloudsRawColor = cloudsRawFramebuffer->GetColorAttachmentHandle(0);
+        context.BindTexture(0, cloudsRawColor);
 
         // History at unit 1. Prefer the graph-imported handle (always the
         // live texture); fall back to the pipeline-supplied raw id, then to
         // the current frame when no valid history exists — with Misc.x
         // forced to 0 in that case (UploadAndBindUBO) the shader ignores it.
-        u32 historyTextureID = 0u;
+        // All three candidates are identities now (issue #691 step 3, slice 7):
+        // the graph import, the pipeline-owned history texture, and this
+        // frame's raymarch. The last native operand here was the transient
+        // resolve, which the planner now answers in both currencies.
+        RHI::ResourceHandle historyTexture{};
         if (m_SelectedHistoryTexture.IsValid())
-            historyTextureID = context.ResolveTexture(m_SelectedHistoryTexture);
-        if (historyTextureID == 0u)
-            historyTextureID = m_HistoryTextureID;
-        const u32 historyBindID = (m_HistoryValid && historyTextureID != 0u) ? historyTextureID : cloudsRawColorID;
-        context.BindTexture(1, historyBindID);
+            historyTexture = context.ResolveTextureHandle(m_SelectedHistoryTexture);
+        if (!historyTexture.IsValid())
+            historyTexture = m_HistoryTexture;
+        const RHI::ResourceHandle historyBind =
+            (m_HistoryValid && historyTexture.IsValid()) ? historyTexture : cloudsRawColor;
+        context.BindTexture(1, historyBind);
 
         {
             const auto va = MeshPrimitives::GetFullscreenTriangle();
@@ -344,7 +349,7 @@ namespace OloEngine
         // Upstream scene colour at unit 0, resolved clouds at unit 1,
         // full-res depth at TEX_POSTPROCESS_DEPTH (all layout-qualified).
         context.BindTexture(0, inputColorTextureID);
-        context.BindTexture(1, cloudsResolvedFramebuffer->GetColorAttachmentRendererID(0));
+        context.BindTexture(1, cloudsResolvedFramebuffer->GetColorAttachmentHandle(0));
         context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
 
         {

@@ -280,12 +280,12 @@ namespace OloEngine
             vertexArray->Bind();
             RenderCommand::DrawIndexed(vertexArray);
 
-            // Now copy from framebuffer to cubemap face
-            u32 framebufferColorTexture = framebuffer->GetColorAttachmentRendererID(0);
-
+            // Now copy from framebuffer to cubemap face. Both operands are
+            // identities (issue #691 step 3): the source is the framebuffer's
+            // colour attachment, the destination the cubemap's own object.
             RenderCommand::CopyImageSubDataFull(
-                framebufferColorTexture, RendererAPI::TextureTargetType::Texture2D, 0, 0,
-                cubemap->GetRendererID(), RendererAPI::TextureTargetType::TextureCubeMap, static_cast<i32>(mipLevel), static_cast<i32>(i),
+                framebuffer->GetColorAttachmentHandle(0), RendererAPI::TextureTargetType::Texture2D, 0, 0,
+                cubemap->GetRHIHandle(), RendererAPI::TextureTargetType::TextureCubeMap, static_cast<i32>(mipLevel), static_cast<i32>(i),
                 mipWidth, mipHeight);
         }
 
@@ -333,8 +333,8 @@ namespace OloEngine
 
         // Copy from framebuffer color attachment to the output texture
         RenderCommand::CopyImageSubDataFull(
-            framebuffer->GetColorAttachmentRendererID(0), RendererAPI::TextureTargetType::Texture2D, 0, 0,
-            texture->GetRendererID(), RendererAPI::TextureTargetType::Texture2D, 0, 0,
+            framebuffer->GetColorAttachmentHandle(0), RendererAPI::TextureTargetType::Texture2D, 0, 0,
+            texture->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2D, 0, 0,
             texture->GetWidth(), texture->GetHeight());
 
         // Restore previous stencil state

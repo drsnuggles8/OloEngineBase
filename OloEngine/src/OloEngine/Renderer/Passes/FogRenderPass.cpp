@@ -264,8 +264,8 @@ namespace OloEngine
         context.BindTexture(0, inputColorTextureID);
         m_FogUpsampleShader->SetInt("u_SceneColor", 0);
 
-        const u32 fogID = fogHalfResFramebuffer->GetColorAttachmentRendererID(0);
-        context.BindTexture(1, fogID);
+        const RHI::ResourceHandle fogTexture = fogHalfResFramebuffer->GetColorAttachmentHandle(0);
+        context.BindTexture(1, fogTexture);
         m_FogUpsampleShader->SetInt("u_FogTexture", 1);
 
         // Full-res depth for bilateral edge detection.

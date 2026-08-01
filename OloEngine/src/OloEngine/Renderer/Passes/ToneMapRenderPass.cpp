@@ -300,8 +300,8 @@ namespace OloEngine
         // Per-pixel water-surface depth (nearest wavy surface) captured by the
         // water pass — lets the underwater fog find the real water boundary per
         // pixel instead of assuming a flat plane. 0 when no water rendered.
-        const u32 waterDepthTextureID = Renderer3D::GetWaterSurfaceDepthTextureID();
-        context.BindTexture(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH, waterDepthTextureID);
+        const RHI::ResourceHandle waterDepthTexture = Renderer3D::GetWaterSurfaceDepthTextureID();
+        context.BindTexture(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH, waterDepthTexture);
         m_Shader->SetInt("u_WaterSurfaceDepth", ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();

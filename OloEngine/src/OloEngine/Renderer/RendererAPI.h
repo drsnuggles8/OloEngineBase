@@ -67,9 +67,16 @@ namespace OloEngine
         // Raw VAO ID overloads for POD shadow casters (no Ref<VertexArray> available)
         virtual void DrawIndexedRaw(u32 vaoID, u32 indexCount) = 0;
         virtual void DrawIndexedRaw(u32 vaoID, u32 indexCount, u32 baseIndex) = 0;
+        // Identity forms — vertex arrays migrated in issue #691 step 3 slice 6.
+        virtual void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount) = 0;
+        virtual void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex) = 0;
         // Instanced raw variant for batched shadow casters that share VAO + submesh range.
         virtual void DrawIndexedInstancedRaw(u32 vaoID, u32 indexCount, u32 baseIndex, u32 instanceCount) = 0;
+        virtual void DrawIndexedInstancedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex,
+                                             u32 instanceCount) = 0;
         virtual void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices) = 0;
+        virtual void DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount,
+                                           u32 patchVertices) = 0;
 
         virtual void SetLineWidth(f32 width) = 0;
 
@@ -109,7 +116,12 @@ namespace OloEngine
         virtual void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) = 0;
         // Raw-VAO variant used by the GPU-frustum-cull path which only has a
         // RendererID (the dispatcher's BindVAOIfNeeded() cache populates it).
-        virtual void DrawElementsIndirectRaw(u32 vaoID, u32 indirectBufferID) = 0;
+        // Draws from the ALREADY-BOUND vertex array (issue #691 step 3, slice 6).
+        // Replaces the DrawElementsIndirectRaw(vaoID, ...) pair: its only caller
+        // had just run BindVAOIfNeeded, so re-binding inside the draw was both
+        // redundant and a bind behind the redundant-bind cache's back. Mirrors
+        // the existing DrawBound* family, whose comment gives the same reason.
+        virtual void DrawBoundElementsIndirect(u32 indirectBufferID) = 0;
         // Multi-draw indirect with a GPU-sourced draw count (core GL 4.6, issue #629):
         // reads DrawElementsIndirectCommand records from indirectBufferID starting at
         // indirectOffsetBytes and the u32 draw count from parameterBufferID at
@@ -163,9 +175,23 @@ namespace OloEngine
         // GPU-side image copy (used for staging textures to avoid read-write hazards)
         virtual void CopyImageSubData(u32 srcID, TextureTargetType srcTarget, u32 dstID, TextureTargetType dstTarget,
                                       u32 width, u32 height) = 0;
+        // Handle form — both operands together, same reasoning as
+        // CopyImageSubDataFull below.
+        virtual void CopyImageSubData(RHI::ResourceHandle src, TextureTargetType srcTarget,
+                                      RHI::ResourceHandle dst, TextureTargetType dstTarget,
+                                      u32 width, u32 height) = 0;
         // Full image copy with source/dest offsets (needed for cubemap face copies)
         virtual void CopyImageSubDataFull(u32 srcID, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
                                           u32 dstID, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
+                                          u32 width, u32 height) = 0;
+        // Handle form (issue #691 step 3, slice 5 — attachment consumers). BOTH
+        // operands take handles together, deliberately: every caller is
+        // "framebuffer attachment -> persistent texture", so a mixed
+        // handle/native overload pair would only exist to serve a half-migrated
+        // chain, which is the state this migration is meant to make
+        // unrepresentable.
+        virtual void CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
+                                          RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
                                           u32 width, u32 height) = 0;
         // Copy from currently-bound READ framebuffer to a named texture
         virtual void CopyFramebufferToTexture(u32 textureID, u32 width, u32 height) = 0;
@@ -185,6 +211,12 @@ namespace OloEngine
         // provide). Source must be DEPTH_COMPONENT32F immutable storage. Returns 0
         // if the platform lacks texture-view support.
         virtual u32 CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers) = 0;
+        // Handle form (issue #691 step 3, slice 6 — the command-layer bind
+        // cache). The view is a DISTINCT GPU object from the array it aliases,
+        // so it gets its own identity: ShadowMap holds both, and binding the
+        // wrong one is a silent PCSS bug rather than a loud one.
+        [[nodiscard]] virtual RHI::ResourceHandle CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture,
+                                                                                       u32 numLayers) = 0;
         // Replaces SetTextureParameter(id, GLenum pname, GLint value). `pname`
         // was an open-ended GL enum space, and mirroring it with an
         // RHI::TextureParameterName would have re-exported GL under a new name.
@@ -351,6 +383,7 @@ namespace OloEngine
         // VkClearColorValue's float/uint union members. `mipLevel` clears one
         // level of every layer/face, matching glClearTexImage.
         virtual void ClearTextureFloat(u32 textureID, u32 mipLevel, const glm::vec4& color) = 0;
+        virtual void ClearTextureFloat(RHI::ResourceHandle texture, u32 mipLevel, const glm::vec4& color) = 0;
         virtual void ClearTextureUInt(u32 textureID, u32 mipLevel, u32 value) = 0;
         // Offset overloads of the whole-image UploadTextureSubImage2D above.
         // `sourceFormat` is the HOST buffer's layout, not the texture's storage
@@ -369,7 +402,20 @@ namespace OloEngine
         [[nodiscard("Store this!")]] virtual bool ReadTextureImage(u32 textureID, u32 mipLevel,
                                                                    RHI::Format destFormat,
                                                                    sizet destSizeBytes, void* dest) = 0;
+        // A stale handle resolves to 0, and a readback of texture 0 fails —
+        // so this reports false rather than silently handing back an
+        // uninitialised buffer. LightProbeBaker depends on that: its
+        // coefficients are PERSISTED, so a bad read must abandon the bake, not
+        // write wrong lighting to disk.
+        [[nodiscard("Store this!")]] virtual bool ReadTextureImage(RHI::ResourceHandle texture, u32 mipLevel,
+                                                                   RHI::Format destFormat,
+                                                                   sizet destSizeBytes, void* dest) = 0;
         [[nodiscard("Store this!")]] virtual bool ReadTextureSubImage(u32 textureID, u32 mipLevel,
+                                                                      i32 x, i32 y, i32 z,
+                                                                      u32 width, u32 height, u32 depth,
+                                                                      RHI::Format destFormat,
+                                                                      sizet destSizeBytes, void* dest) = 0;
+        [[nodiscard("Store this!")]] virtual bool ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel,
                                                                       i32 x, i32 y, i32 z,
                                                                       u32 width, u32 height, u32 depth,
                                                                       RHI::Format destFormat,
@@ -421,6 +467,7 @@ namespace OloEngine
         // must fold that into a UBO and delete this. Recorded deliberately in
         // ADR 0011 amendment (9) rather than left to surprise Phase 7 bring-up.
         virtual void SetProgramUniformFloat(u32 programID, std::string_view name, f32 value) = 0;
+        virtual void SetProgramUniformFloat(RHI::ResourceHandle program, std::string_view name, f32 value) = 0;
 
         // GPU capability queries
 

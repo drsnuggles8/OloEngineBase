@@ -21,6 +21,24 @@
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test utility header
 
 // =============================================================================
+// Synthetic identities for POD-command tests (issue #691 step 3, slice 6)
+// =============================================================================
+//
+// These tests exercise SORTING, BATCHING and packet layout — they never resolve
+// a handle to a device object, so a registry-backed handle would add teardown
+// for no benefit.
+//
+// Generation is 1, never 0, and that matters: a Generation-0 handle is inert by
+// design (IsValid() is false and it resolves to nothing), so a test built on one
+// would silently exercise the "no resource" path instead of the path it means to
+// — the draw would be dropped by the validity guard and the assertion would pass
+// for the wrong reason.
+[[nodiscard]] constexpr RHI::ResourceHandle TestHandle(u32 index, u32 generation = 1u) noexcept
+{
+    return RHI::ResourceHandle{ index, generation };
+}
+
+// =============================================================================
 // Validation Helpers
 // =============================================================================
 
@@ -112,7 +130,7 @@ inline DrawMeshCommand MakeSyntheticDrawMeshCommand(u32 shaderID = 1,
     cmd.header.type = CommandType::DrawMesh;
     cmd.header.dispatchFn = nullptr; // Tests don't dispatch
     cmd.meshHandle = UUID(0);        // Deterministic handle for batching tests
-    cmd.vertexArrayID = 1;
+    cmd.vertexArrayID = TestHandle(1u);
     cmd.indexCount = 36;
     cmd.transform = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -depth));
     cmd.entityID = entityID;

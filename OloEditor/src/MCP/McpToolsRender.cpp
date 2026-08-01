@@ -38,6 +38,7 @@
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 #include "OloEngine/Renderer/Passes/VolumetricFogPass.h"
 #include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 #include "OloEngine/Renderer/TransientPool.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -414,7 +415,7 @@ namespace OloEngine::MCP
                     // frame's (transients can re-alias next frame).
                     if (resource.TextureHandle.IsValid())
                     {
-                        info.GLTextureId = graph->ResolveTexture(resource.TextureHandle);
+                        info.GLTextureId = Debug::NativeTextureIdForDiagnostics(*graph, resource.TextureHandle);
                         info.ViewOfParentLayer = graph->GetTextureViewLayerIndex(resource.Name);
                     }
                     if (resource.FramebufferHandle.IsValid())
@@ -473,6 +474,16 @@ namespace OloEngine::MCP
         {
             if (const u32 textureId = Renderer3D::ResolveFrameGraphTexture(name); textureId != 0)
                 return textureId;
+
+            // Same fallback, by name rather than by handle — this path is what
+            // olo_render_capture_target uses, and the by-name lookups live on
+            // Renderer3D rather than on RenderGraph.
+            if (const u32 nativeId =
+                    Debug::NativeTextureIdForDiagnostics(Renderer3D::ResolveFrameGraphTextureHandle(name));
+                nativeId != 0)
+            {
+                return nativeId;
+            }
 
             const Ref<Framebuffer> framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(name);
             if (!framebuffer)
@@ -3696,7 +3707,7 @@ namespace OloEngine::MCP
                     RenderValidate::ResourceIdentity identity;
                     identity.Name = resource.Name;
                     if (resource.TextureHandle.IsValid())
-                        identity.GLTextureId = graph->ResolveTexture(resource.TextureHandle);
+                        identity.GLTextureId = Debug::NativeTextureIdForDiagnostics(*graph, resource.TextureHandle);
                     else if (resource.FramebufferHandle.IsValid())
                         identity.GLTextureId = ResolveTargetTexture(resource.Name);
                     if (resource.BufferHandle.IsValid())
@@ -4121,19 +4132,24 @@ namespace OloEngine::MCP
         Json ResolvedMaterialJson(const Material& material, const PODMaterialData& data,
                                   u32 submeshIndex, std::string_view source)
         {
+            // NATIVE ids, matching this tool's published schema ("Bound GL
+            // texture id per slot ... 0 = none") and comparable with the ids
+            // olo_render_list_targets reports. The fields are identities since
+            // issue #691 step 3, so resolve rather than reformat — printing
+            // "#3:1" here would silently break every existing consumer.
             Json textures;
-            textures["albedo"] = data.albedoMapID;
-            textures["metallicRoughness"] = data.metallicRoughnessMapID;
-            textures["normal"] = data.normalMapID;
-            textures["ao"] = data.aoMapID;
-            textures["emissive"] = data.emissiveMapID;
+            textures["albedo"] = Debug::NativeTextureIdForDiagnostics(data.albedoMapID);
+            textures["metallicRoughness"] = Debug::NativeTextureIdForDiagnostics(data.metallicRoughnessMapID);
+            textures["normal"] = Debug::NativeTextureIdForDiagnostics(data.normalMapID);
+            textures["ao"] = Debug::NativeTextureIdForDiagnostics(data.aoMapID);
+            textures["emissive"] = Debug::NativeTextureIdForDiagnostics(data.emissiveMapID);
 
             Json useMaps;
-            useMaps["useAlbedoMap"] = data.albedoMapID != 0;
-            useMaps["useMetallicRoughnessMap"] = data.metallicRoughnessMapID != 0;
-            useMaps["useNormalMap"] = data.normalMapID != 0;
-            useMaps["useAOMap"] = data.aoMapID != 0;
-            useMaps["useEmissiveMap"] = data.emissiveMapID != 0;
+            useMaps["useAlbedoMap"] = data.albedoMapID.IsValid();
+            useMaps["useMetallicRoughnessMap"] = data.metallicRoughnessMapID.IsValid();
+            useMaps["useNormalMap"] = data.normalMapID.IsValid();
+            useMaps["useAOMap"] = data.aoMapID.IsValid();
+            useMaps["useEmissiveMap"] = data.emissiveMapID.IsValid();
 
             Json j;
             j["submesh"] = submeshIndex;
@@ -4254,7 +4270,7 @@ namespace OloEngine::MCP
                         source = "MeshSource imported material (per-submesh)";
                     }
 
-                    const PODMaterialData data = Renderer3D::CreatePODMaterialDataForMaterial(*material, 0);
+                    const PODMaterialData data = Renderer3D::CreatePODMaterialDataForMaterial(*material, RHI::NullResource);
                     submeshes.push_back(ResolvedMaterialJson(*material, data, index, source));
                 }
 

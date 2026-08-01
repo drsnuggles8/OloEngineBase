@@ -150,16 +150,20 @@ namespace OloEngine
         // Phase F slice 37 — self-resolving SceneDepth and SceneNormals: look
         // up directly from the render graph blackboard so no per-frame
         // side-channel setter calls are needed from EndScene().
-        u32 depthID = 0;
-        u32 normalsID = 0;
-        u32 aoOutputTexID = 0;
+        // Identities (issue #691 step 3, slice 7). These resolve now that the
+        // transient planner records a handle alongside the native id — before
+        // that, ResolveTextureHandle answered null for every pooled texture and
+        // this pass had to stay on driver names.
+        RHI::ResourceHandle depthTexture{};
+        RHI::ResourceHandle normalsTexture{};
+        RHI::ResourceHandle aoOutputTexture{};
         if (m_SelectedSceneDepthTexture.IsValid())
-            depthID = context.ResolveTexture(m_SelectedSceneDepthTexture);
+            depthTexture = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
         if (m_SelectedSceneNormalsTexture.IsValid())
-            normalsID = context.ResolveTexture(m_SelectedSceneNormalsTexture);
+            normalsTexture = context.ResolveTextureHandle(m_SelectedSceneNormalsTexture);
         if (m_SelectedAOOutputTexture.IsValid())
-            aoOutputTexID = context.ResolveTexture(m_SelectedAOOutputTexture);
-        if (depthID == 0 || normalsID == 0 || aoOutputTexID == 0)
+            aoOutputTexture = context.ResolveTextureHandle(m_SelectedAOOutputTexture);
+        if (!depthTexture.IsValid() || !normalsTexture.IsValid() || !aoOutputTexture.IsValid())
         {
             return;
         }
@@ -208,10 +212,10 @@ namespace OloEngine
         m_SSAOShader->Bind();
 
         // Bind scene depth at TEX_POSTPROCESS_DEPTH (slot 19)
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture);
 
         // Bind scene view-space normals at TEX_SCENE_NORMALS (slot 22)
-        context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsID);
+        context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsTexture);
 
         // Bind noise texture at TEX_SSAO_NOISE (slot 21)
         context.BindTexture(ShaderBindingLayout::TEX_SSAO_NOISE, m_NoiseTexture);
@@ -235,15 +239,19 @@ namespace OloEngine
         context.BindTexture(0, rawFB->GetColorAttachmentHandle(0));
 
         // Bind scene depth at TEX_POSTPROCESS_DEPTH (slot 19) for bilateral edge detection
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture);
 
         DrawFullscreenTriangle();
         blurFB->Unbind();
 
-        if (const u32 blurredAOTextureID = blurFB->GetColorAttachmentRendererID(0); blurredAOTextureID != 0 && blurredAOTextureID != aoOutputTexID)
+        // Both operands are identities now, so the self-copy guard compares
+        // OBJECTS rather than driver names — a recycled name can no longer make
+        // two distinct textures look like the same one and skip a real copy.
+        if (const RHI::ResourceHandle blurredAO = blurFB->GetColorAttachmentHandle(0);
+            blurredAO.IsValid() && blurredAO != aoOutputTexture)
         {
-            RenderCommand::CopyImageSubData(blurredAOTextureID, RendererAPI::TextureTargetType::Texture2D,
-                                            aoOutputTexID, RendererAPI::TextureTargetType::Texture2D,
+            RenderCommand::CopyImageSubData(blurredAO, RendererAPI::TextureTargetType::Texture2D,
+                                            aoOutputTexture, RendererAPI::TextureTargetType::Texture2D,
                                             m_HalfWidth, m_HalfHeight);
         }
 
