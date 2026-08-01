@@ -498,6 +498,51 @@ function written for it. Same for `RGCommandContext::BindTexture`. Add a sibling
 at every layer the intended caller actually traverses, and confirm by naming the
 call site before writing it.
 
+### Picking up step 3: the measured worklist, in dependency order
+
+Do not re-derive this. It cost three wrong scoping guesses to produce, and the
+distribution is the part that matters — the unit of work must intersect what you
+are counting, which twice it did not.
+
+Reproduce with `python OloEngine/tests/scripts/measure_rendererid.py`
+(`\w*RendererID\w*` over `OloEngine/src` — 1196 raw across 118 files at the
+time of writing; the ratchet's 699 is the same thing after stripping comments,
+strings and the exempt backend):
+
+| Where | Count | Note |
+| --- | ---: | --- |
+| `Platform/OpenGL/` | 412 | **Exempt.** The backend may name GL ids. |
+| `Renderer/Commands/` (`RenderCommand.h` 72, `CommandDispatch.cpp` 67) | 141 | The bind-cache unit below. |
+| `Renderer3DMeshSubmission.cpp` | 71 | Same dataflow as above. |
+| `Scene/Scene.cpp` | 66 | |
+| `Renderer3D.h` | 62 | |
+| `Get{Color,Depth}AttachmentRendererID` call sites | 72 | Producer already ships (slice 3). |
+
+By spelling: `m_RendererID` 439 (mostly backend-internal, exempt),
+`GetRendererID` 325 (**the real target** — consumers), `shaderRendererID` 110,
+attachment getters 72.
+
+Suggested order, each a buildable commit:
+
+1. **Attachment consumers** — 72 sites, producer (`GetColorAttachmentHandle`)
+   already exists, no new facade surface needed. Highest yield per unit of risk;
+   `DDGIProbeUpdatePass`'s `SetAtlasTextureParams` alone is 8 behind one
+   signature.
+2. **The command-layer bind cache** — one indivisible unit, see below.
+3. `Scene.cpp` / `Renderer3D.h`, then the remaining passes (`ColorGrading` is a
+   near-clone of the migrated SSAO; `Cloudscape` needs `CloudNoise` migrated
+   first; `FluidIntermediates` recreates on resize and so is the first to need
+   framebuffer-attach handle forms).
+4. **Last:** delete `GetRendererID()` and the u32 facade forms. Each u32 form can
+   go as soon as its last caller does — `facade_native_id_params` falls per
+   entry point, not all at once at the end.
+
+Two producer gaps to close before their consumers can move: `VertexBuffer` /
+`IndexBuffer` expose no `GetRHIHandle()` (blocks the SSBO/indirect ids in
+`Renderer3DMeshSubmission`), and `ShadowMap`'s `GetCSMRendererID` /
+`GetAtlasRendererID` + raw/placeholder variants need handle siblings (blocks
+item 2).
+
 ### The command layer's bind cache is ONE unit, and its GL-name keying has already shipped a bug
 
 Scoping note for whoever migrates `Renderer/Commands/`. It looks like several
