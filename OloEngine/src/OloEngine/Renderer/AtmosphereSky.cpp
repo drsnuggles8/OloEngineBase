@@ -25,20 +25,55 @@ namespace OloEngine
         }
 
         // ── CPU mirrors of the AtmosphereSky.glsl night-layer helpers ──
-        // Structurally identical, not bit-exact (same contract as StarNestSky's
-        // CPU evaluator). Keep BOTH sides in sync — the shader names each
-        // mirrored function.
+        // Keep BOTH sides in sync — the shader names each mirrored function.
+        //
+        // The hash chain below IS bit-exact against the shader (integer ops
+        // only), so which lattice cell holds a star, and where in that cell it
+        // sits, agree between the CPU and every GPU vendor. The surrounding
+        // float math (cos/sin/pow/smoothstep/length) is still only
+        // structurally identical, so brightness may differ in the last ULP —
+        // that is a smooth, sub-quantisation difference, not a star moving.
 
-        [[nodiscard]] f32 Hash13(const glm::vec3& p)
+        // Integer bit-mixer (PCG output permutation). Mirrors pcgHash
+        // (AtmosphereSky.glsl) EXACTLY — unsigned wraparound, shift and xor are
+        // bit-defined in both languages, so the CPU and every GPU vendor agree.
+        //
+        // The previous `fract(sin(dot(p, k)) * 43758.5453)` hash could not
+        // deliver that. It evaluates sin() at arguments in the tens of
+        // thousands, where a 1-ULP input difference shifts the result by a
+        // large fraction of a period, and the *= 43758 + fract() then amplified
+        // that into an unrelated value. NVIDIA and Mesa disagreed on star
+        // positions outright, and std::sin here matched neither — so this
+        // "mirror" was unverifiable in principle, not merely in practice.
+        [[nodiscard]] u32 PcgHash(u32 v)
         {
-            const f32 h = std::sin(glm::dot(p, glm::vec3(127.1f, 311.7f, 74.7f))) * 43758.5453f;
-            return h - std::floor(h);
+            const u32 state = v * 747796405u + 2891336453u;
+            const u32 word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+            return (word >> 22u) ^ word;
         }
 
-        [[nodiscard]] glm::vec3 Hash33(const glm::vec3& p)
+        // Mirrors hashCell (AtmosphereSky.glsl). Integer lattice cell -> u32.
+        [[nodiscard]] u32 HashCell(const glm::ivec3& c, u32 seed)
         {
-            return { Hash13(p), Hash13(p + glm::vec3(19.19f, 0.0f, 0.0f)),
-                     Hash13(p + glm::vec3(0.0f, 47.31f, 0.0f)) };
+            u32 h = PcgHash(static_cast<u32>(c.x) ^ 0x9E3779B9u);
+            h = PcgHash(h ^ static_cast<u32>(c.y) ^ 0x85EBCA6Bu);
+            h = PcgHash(h ^ static_cast<u32>(c.z) ^ 0xC2B2AE35u);
+            return PcgHash(h ^ seed);
+        }
+
+        // Mirrors hash1 (AtmosphereSky.glsl). Result in [0,1).
+        // Masked to 24 bits so the u32 -> f32 conversion is exact (an f32
+        // mantissa holds 24 bits) and scaled by a power of two so the divide
+        // rounds nothing.
+        [[nodiscard]] f32 Hash1(const glm::ivec3& c, u32 seed)
+        {
+            return static_cast<f32>(HashCell(c, seed) & 0xFFFFFFu) * (1.0f / 16777216.0f);
+        }
+
+        // Mirrors hash3 (AtmosphereSky.glsl).
+        [[nodiscard]] glm::vec3 Hash3(const glm::ivec3& c)
+        {
+            return { Hash1(c, 0u), Hash1(c, 1u), Hash1(c, 2u) };
         }
 
         [[nodiscard]] f32 SmoothStepF(f32 edge0, f32 edge1, f32 x)
@@ -54,13 +89,16 @@ namespace OloEngine
             const f32 s = std::sin(rotation);
             const glm::vec3 d(c * dir.x + s * dir.z, dir.y, -s * dir.x + c * dir.z);
 
+            // `dir` is unit, so p stays within +/-60 and the cell index
+            // converts to int exactly.
             const glm::vec3 p = d * 60.0f;
-            const glm::vec3 cell = glm::floor(p);
-            const glm::vec3 f = p - cell;
-            const glm::vec3 starPos = Hash33(cell);
+            const glm::vec3 cellF = glm::floor(p);
+            const glm::ivec3 cell(cellF);
+            const glm::vec3 f = p - cellF;
+            const glm::vec3 starPos = Hash3(cell);
             const f32 dist = glm::length(f - starPos);
             // Sparse bright stars: gate most cells off, sharpen the rest.
-            const f32 lum = std::pow(Hash13(cell + glm::vec3(17.0f)), 14.0f);
+            const f32 lum = std::pow(Hash1(cell, 3u), 14.0f);
             const f32 star = SmoothStepF(0.18f, 0.0f, dist) * lum;
             return star * intensity * 60.0f;
         }

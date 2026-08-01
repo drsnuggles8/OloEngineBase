@@ -117,16 +117,46 @@ vec3 dayLayer(vec3 viewDir)
 
 // ── Night half — mirrored CPU-side in AtmosphereSky.cpp ──
 
-// Mirrors Hash13 (AtmosphereSky.cpp).
-float hash13(vec3 p)
+// Integer bit-mixer (PCG output permutation). Mirrors PcgHash
+// (AtmosphereSky.cpp) EXACTLY: unsigned wrap, shift and xor are bit-defined
+// operations, so every vendor and the CPU produce identical results.
+//
+// This replaces the classic `fract(sin(dot(p, k)) * 43758.5453)` hash, which
+// is NOT portable. That hash feeds sin() an argument in the tens of thousands,
+// where a 1-ULP difference in the argument moves the result by a large
+// fraction of a period; NVIDIA and Mesa do not implement sin() to identical
+// precision there, so the *= 43758 and fract() amplified the disagreement into
+// completely different values. The stars therefore landed in different places
+// on different GPUs, and the C++ mirror (std::sin) could match neither.
+uint pcgHash(uint v)
 {
-    return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+    uint state = v * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
 }
 
-// Mirrors Hash33 (AtmosphereSky.cpp).
-vec3 hash33(vec3 p)
+// Mirrors HashCell (AtmosphereSky.cpp). Integer lattice cell -> uint.
+uint hashCell(ivec3 c, uint seed)
 {
-    return vec3(hash13(p), hash13(p + vec3(19.19, 0.0, 0.0)), hash13(p + vec3(0.0, 47.31, 0.0)));
+    uint h = pcgHash(uint(c.x) ^ 0x9E3779B9u);
+    h = pcgHash(h ^ uint(c.y) ^ 0x85EBCA6Bu);
+    h = pcgHash(h ^ uint(c.z) ^ 0xC2B2AE35u);
+    return pcgHash(h ^ seed);
+}
+
+// Mirrors Hash1 (AtmosphereSky.cpp). Result in [0,1).
+// Masked to 24 bits so the uint->float conversion is EXACT on every
+// implementation (a float mantissa holds 24 bits), and scaled by a power of
+// two so the divide introduces no rounding of its own.
+float hash1(ivec3 c, uint seed)
+{
+    return float(hashCell(c, seed) & 0xFFFFFFu) * (1.0 / 16777216.0);
+}
+
+// Mirrors Hash3 (AtmosphereSky.cpp).
+vec3 hash3(ivec3 c)
+{
+    return vec3(hash1(c, 0u), hash1(c, 1u), hash1(c, 2u));
 }
 
 // Mirrors StarField (AtmosphereSky.cpp).
@@ -136,12 +166,16 @@ float starField(vec3 dir, float rotation, float intensity)
     float s = sin(rotation);
     vec3 d = vec3(c * dir.x + s * dir.z, dir.y, -s * dir.x + c * dir.z);
 
+    // `dir` is unit, so p stays within +/-60 and the cell index converts to
+    // int exactly. A 1-ULP disagreement in cos/sin between vendors now only
+    // matters exactly on a cell boundary, instead of re-rolling every star.
     vec3 p = d * 60.0;
-    vec3 cell = floor(p);
-    vec3 f = p - cell;
-    vec3 starPos = hash33(cell);
+    vec3 cellF = floor(p);
+    ivec3 cell = ivec3(cellF);
+    vec3 f = p - cellF;
+    vec3 starPos = hash3(cell);
     float dist = length(f - starPos);
-    float lum = pow(hash13(cell + vec3(17.0)), 14.0);
+    float lum = pow(hash1(cell, 3u), 14.0);
     float star = smoothstep(0.18, 0.0, dist) * lum;
     return star * intensity * 60.0;
 }
