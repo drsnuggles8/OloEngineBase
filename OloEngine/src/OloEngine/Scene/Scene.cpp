@@ -8194,8 +8194,31 @@ namespace OloEngine
                     // we can safely activate near/above the waterline. Well above
                     // the water (gap < -kWaveReach) stays the water shader's own
                     // refraction/depth tint. Nearest surface (smallest |gap|) wins.
-                    constexpr f32 kWaveReach = 2.0f; // generous max crest height above the flat plane
-                    if (const f32 absGap = std::abs(gap); gap > -kWaveReach && absGap < bestSurfaceDist)
+                    // How far above the FLAT plane a crest can actually reach.
+                    //
+                    // This was a hard-coded 2 m, which is not "generous" for an
+                    // FFT sea: the field's height is scaled by m_FFTAmplitude,
+                    // so a 4 m-amplitude ocean produces crests measured at
+                    // +3.5 m. An eye between 2 m and the real crest height then
+                    // fell into a dead band — waves wash over it, but the fog
+                    // stayed off, so a view angled down through the surface hit
+                    // the seafloor with NO underwater tint at all (issue: the
+                    // FFT ocean's foreground read as the raw magenta seafloor
+                    // while the water above the horizon rendered correctly).
+                    // Derive the reach from the wave configuration instead, and
+                    // keep the old constant as a floor for the Gerstner path,
+                    // whose amplitudes are far smaller.
+                    constexpr f32 kMinWaveReach = 2.0f;
+                    f32 waveReach = kMinWaveReach;
+                    if (water.m_UseFFT)
+                    {
+                        const f32 fftAmplitude =
+                            std::isfinite(water.m_FFTAmplitude) ? std::abs(water.m_FFTAmplitude) : 0.0f;
+                        const f32 heightScale = WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale);
+                        waveReach = std::max(waveReach, fftAmplitude * heightScale);
+                    }
+
+                    if (const f32 absGap = std::abs(gap); gap > -waveReach && absGap < bestSurfaceDist)
                     {
                         bestSurfaceDist = absGap;
                         underwater.Active = true;
