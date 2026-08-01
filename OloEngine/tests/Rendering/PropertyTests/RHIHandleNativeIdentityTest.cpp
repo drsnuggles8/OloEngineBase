@@ -407,6 +407,42 @@ namespace OloEngine::Tests
         EXPECT_EQ(NativeOf(texture), 0u);
     }
 
+    // A delete handed a handle of the WRONG family must be a complete no-op.
+    //
+    // Regression test for a defect introduced by the kind-checking change
+    // itself: ResolveNativeAs correctly refused to hand back the wrong family's
+    // GL name, but the Unregister that follows is not kind-aware, so the delete
+    // retired the other resource's registry entry while leaving its GL object
+    // alive. That is worse than the unchecked form it replaced — the two halves
+    // disagreed. Both halves must skip together.
+    TEST(RHIHandleNativeIdentity, DeletingWithAWrongKindHandleTouchesNeitherTheObjectNorTheRegistry)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const auto buffer = RenderCommand::CreateBufferHandle();
+        ASSERT_TRUE(buffer.IsValid());
+
+        auto& registry = RHI::ResourceRegistry::Get();
+        ASSERT_EQ(registry.KindOf(buffer), RHI::ResourceKind::Buffer);
+        const u32 nativeBefore = NativeOf(buffer);
+        ASSERT_NE(nativeBefore, 0u);
+
+        // Hand a buffer to the TEXTURE delete. GL names are per-type, so this
+        // buffer's name is very likely also a live texture's name — the exact
+        // confusion the kind check exists to stop.
+        RenderCommand::DeleteTexture(buffer);
+
+        EXPECT_TRUE(registry.IsLive(buffer))
+            << "The buffer's registry entry was retired by a texture delete. A wrong-kind handle "
+               "names someone else's resource; refusing to resolve it is only half the job.";
+        EXPECT_EQ(registry.KindOf(buffer), RHI::ResourceKind::Buffer);
+        EXPECT_EQ(NativeOf(buffer), nativeBefore)
+            << "The buffer's native name changed, so the delete did not leave it alone.";
+
+        RenderCommand::DeleteBuffer(buffer);
+        EXPECT_FALSE(registry.IsLive(buffer)) << "The correctly-typed delete must still work.";
+    }
+
     TEST(RHIHandleNativeIdentity, RawBufferAndVertexArrayCreatorsMintDistinctKinds)
     {
         OLO_ENSURE_GPU_OR_SKIP();

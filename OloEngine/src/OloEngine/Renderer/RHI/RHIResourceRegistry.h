@@ -106,13 +106,6 @@ namespace OloEngine::RHI
         // null handle. This says the object it names is still alive.
         [[nodiscard]] auto IsLive(ResourceHandle handle) const -> bool;
 
-        // The kind this handle was registered as, or ResourceKind::Unknown when
-        // the handle is stale. GL names are per-object-type, so a texture and a
-        // buffer can both be name 1 — the generation cannot tell those apart
-        // because both handles are live. Backends use this to refuse a handle
-        // handed to the wrong family.
-        [[nodiscard]] auto GetKind(ResourceHandle handle) const -> ResourceKind;
-
         [[nodiscard]] auto KindOf(ResourceHandle handle) const -> ResourceKind;
 
         // ---------------------------------------------------------------------

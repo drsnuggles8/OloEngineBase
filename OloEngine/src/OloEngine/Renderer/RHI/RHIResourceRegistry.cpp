@@ -233,7 +233,7 @@ namespace OloEngine::RHI
         return (slot != nullptr) && slot->Generation.load(std::memory_order_acquire) == handle.Generation;
     }
 
-    auto ResourceRegistry::GetKind(ResourceHandle handle) const -> ResourceKind
+    auto ResourceRegistry::KindOf(ResourceHandle handle) const -> ResourceKind
     {
         if (!handle.IsValid() || handle.Index >= m_SlotCount.load(std::memory_order_acquire))
             return ResourceKind::Unknown;
@@ -242,9 +242,12 @@ namespace OloEngine::RHI
         if (slot == nullptr)
             return ResourceKind::Unknown;
 
-        // Same seqlock discipline as ResolveTaggedForBackend: read the
-        // generation on both sides so a slot changing hands mid-read reports
-        // Unknown rather than the new tenant's kind.
+        // Same seqlock discipline as ResolveTaggedForBackend. The previous form
+        // was IsLive() followed by a relaxed read, which is a TOCTOU: the slot
+        // can be Unregistered and Registered to a new tenant between the
+        // liveness check and the load, and the caller would then be told the
+        // NEW occupant's kind for their own stale handle. Reading the
+        // generation on both sides makes that report Unknown instead.
         const u32 before = slot->Generation.load(std::memory_order_acquire);
         const auto kind = static_cast<ResourceKind>(slot->Kind.load(std::memory_order_relaxed));
         std::atomic_thread_fence(std::memory_order_acquire);
@@ -254,18 +257,6 @@ namespace OloEngine::RHI
             return ResourceKind::Unknown;
 
         return kind;
-    }
-
-    auto ResourceRegistry::KindOf(ResourceHandle handle) const -> ResourceKind
-    {
-        if (!IsLive(handle))
-            return ResourceKind::Unknown;
-
-        const Slot* slot = SlotAt(handle.Index);
-        if (slot == nullptr)
-            return ResourceKind::Unknown;
-
-        return static_cast<ResourceKind>(slot->Kind.load(std::memory_order_relaxed));
     }
 
     auto ResourceRegistry::GetStats() const -> Stats

@@ -38,16 +38,27 @@ namespace OloEngine::Utils
     // texture bind, every buffer bind). Returns 0 on a mismatch, which lands on
     // the same benign degradation the unchecked form documents above: binding 0
     // unbinds, glDelete*(0) is a no-op.
+    // True only for a LIVE handle of the wrong family. A stale or null handle is
+    // deliberately NOT a mismatch: KindOf reports Unknown for it, and a stale
+    // handle is the documented benign path above (resolves to 0, binding 0
+    // unbinds) — treating it as a mismatch would log on every legitimate
+    // use-after-free degradation and bury the real signal.
+    [[nodiscard]] inline bool IsWrongKind(RHI::ResourceHandle handle, RHI::ResourceKind expected) noexcept
+    {
+        const RHI::ResourceKind actual = RHI::ResourceRegistry::Get().KindOf(handle);
+        return actual != RHI::ResourceKind::Unknown && actual != expected;
+    }
+
     [[nodiscard]] inline GLuint ResolveNativeAs(RHI::ResourceHandle handle, RHI::ResourceKind expected) noexcept
     {
-        auto& registry = RHI::ResourceRegistry::Get();
-        if (handle.IsValid() && registry.GetKind(handle) != expected)
+        if (IsWrongKind(handle, expected))
         {
-            OLO_CORE_WARN("ResolveNativeAs: handle {} is not a {} — refusing to resolve it as one.",
-                          handle, RHI::ToString(expected));
+            OLO_CORE_WARN("ResolveNativeAs: handle {} is a {}, not a {} — refusing to resolve it as one.",
+                          handle, RHI::ToString(RHI::ResourceRegistry::Get().KindOf(handle)),
+                          RHI::ToString(expected));
             return 0u;
         }
-        return static_cast<GLuint>(registry.ResolveNativeForBackend(handle));
+        return static_cast<GLuint>(RHI::ResourceRegistry::Get().ResolveNativeForBackend(handle));
     }
     // Drain any pending GL error(s) so a subsequent glGetError() check reflects
     // only the operation it guards, not an error leaked in by an unrelated earlier

@@ -1922,24 +1922,56 @@ namespace OloEngine
 
     void OpenGLRendererAPI::DeleteTexture(RHI::ResourceHandle texture)
     {
+        // A live handle of the wrong family names SOMEONE ELSE'S resource.
+        // ResolveNativeAs already refuses to hand back their GL name, but the
+        // Unregister below is not kind-aware — without this guard a mis-wired
+        // delete would retire their registry entry while leaving their GL
+        // object alive, which is worse than the unchecked form it replaced.
+        if (Utils::IsWrongKind(texture, RHI::ResourceKind::Texture))
+            return;
+
         DeleteTexture(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture));
         RHI::ResourceRegistry::Get().Unregister(texture);
     }
 
     void OpenGLRendererAPI::DeleteFramebuffer(RHI::ResourceHandle framebuffer)
     {
+        // A live handle of the wrong family names SOMEONE ELSE'S resource.
+        // ResolveNativeAs already refuses to hand back their GL name, but the
+        // Unregister below is not kind-aware — without this guard a mis-wired
+        // delete would retire their registry entry while leaving their GL
+        // object alive, which is worse than the unchecked form it replaced.
+        if (Utils::IsWrongKind(framebuffer, RHI::ResourceKind::Framebuffer))
+            return;
+
         DeleteFramebuffer(Utils::ResolveNativeAs(framebuffer, RHI::ResourceKind::Framebuffer));
         RHI::ResourceRegistry::Get().Unregister(framebuffer);
     }
 
     void OpenGLRendererAPI::DeleteBuffer(RHI::ResourceHandle buffer)
     {
+        // A live handle of the wrong family names SOMEONE ELSE'S resource.
+        // ResolveNativeAs already refuses to hand back their GL name, but the
+        // Unregister below is not kind-aware — without this guard a mis-wired
+        // delete would retire their registry entry while leaving their GL
+        // object alive, which is worse than the unchecked form it replaced.
+        if (Utils::IsWrongKind(buffer, RHI::ResourceKind::Buffer))
+            return;
+
         DeleteBuffer(Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer));
         RHI::ResourceRegistry::Get().Unregister(buffer);
     }
 
     void OpenGLRendererAPI::DeleteVertexArray(RHI::ResourceHandle vertexArray)
     {
+        // A live handle of the wrong family names SOMEONE ELSE'S resource.
+        // ResolveNativeAs already refuses to hand back their GL name, but the
+        // Unregister below is not kind-aware — without this guard a mis-wired
+        // delete would retire their registry entry while leaving their GL
+        // object alive, which is worse than the unchecked form it replaced.
+        if (Utils::IsWrongKind(vertexArray, RHI::ResourceKind::VertexArray))
+            return;
+
         DeleteVertexArray(Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray));
         RHI::ResourceRegistry::Get().Unregister(vertexArray);
     }
