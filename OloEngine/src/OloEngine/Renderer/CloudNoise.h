@@ -2,6 +2,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 
 namespace OloEngine
 {
@@ -30,8 +31,8 @@ namespace OloEngine
      * Usage:
      *   if (CloudNoise::EnsureGenerated())
      *   {
-     *       // bind GetBaseNoiseTextureID() / GetDetailNoiseTextureID() /
-     *       // GetDefaultWeatherMapTextureID() for the cloud raymarch
+     *       // bind GetBaseNoiseTexture() / GetDetailNoiseTexture() /
+     *       // GetDefaultWeatherMapTexture() for the cloud raymarch
      *   }
      *   ...
      *   CloudNoise::Shutdown();   // safe to call twice
@@ -51,14 +52,14 @@ namespace OloEngine
         /// @return true after EnsureGenerated() succeeded.
         [[nodiscard]] static bool IsReady();
 
-        /// @return GL renderer id of the 128³ RGBA8 repeat base-noise volume (0 when not ready).
-        [[nodiscard]] static u32 GetBaseNoiseTextureID();
+        /// @return identity of the 128³ RGBA8 repeat base-noise volume (null when not ready).
+        [[nodiscard]] static RHI::ResourceHandle GetBaseNoiseTexture();
 
-        /// @return GL renderer id of the 32³ RGBA8 repeat detail-noise volume (0 when not ready).
-        [[nodiscard]] static u32 GetDetailNoiseTextureID();
+        /// @return identity of the 32³ RGBA8 repeat detail-noise volume (null when not ready).
+        [[nodiscard]] static RHI::ResourceHandle GetDetailNoiseTexture();
 
-        /// @return GL renderer id of the 512² RGBA8 procedural default weather map (0 when not ready).
-        [[nodiscard]] static u32 GetDefaultWeatherMapTextureID();
+        /// @return identity of the 512² RGBA8 procedural default weather map (null when not ready).
+        [[nodiscard]] static RHI::ResourceHandle GetDefaultWeatherMapTexture();
 
       private:
         struct CloudNoiseData

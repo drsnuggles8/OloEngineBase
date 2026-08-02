@@ -127,21 +127,21 @@ namespace OloEngine
 
         // Sample-only consumer: input framebuffer is intentionally not
         // resolved here — see ReadFirstValidVersionedInputForPass docs.
-        u32 inputColorTextureID = 0u;
+        RHI::ResourceHandle inputColorTextureID{};
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
-            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+            inputColorTextureID = context.ResolveTextureHandle(inputTextureHandle);
 
         Ref<Framebuffer> outputFramebuffer;
-        u32 sceneEntityTextureID = 0u;
+        RHI::ResourceHandle sceneEntityTextureID{};
         if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
             if (auto fb = context.ResolveFramebuffer(outputHandle))
                 outputFramebuffer = fb;
         }
         if (m_SelectedSceneEntityTexture.IsValid())
-            sceneEntityTextureID = context.ResolveTexture(m_SelectedSceneEntityTexture);
+            sceneEntityTextureID = context.ResolveTextureHandle(m_SelectedSceneEntityTexture);
 
-        if (!outputFramebuffer || inputColorTextureID == 0u || sceneEntityTextureID == 0u)
+        if (!outputFramebuffer || !inputColorTextureID.IsValid() || !sceneEntityTextureID.IsValid())
         {
             m_Target = nullptr;
             return;
@@ -189,8 +189,8 @@ namespace OloEngine
             if (static u32 s_MissingScratchWarnings = 0; s_MissingScratchWarnings++ < 10)
             {
                 OLO_CORE_WARN("SelectionOutlineRenderPass: enabled without resolved JFA scratch (pingFB={}, pongFB={})",
-                              jfaFBs[0] ? jfaFBs[0]->GetRendererID() : 0u,
-                              jfaFBs[1] ? jfaFBs[1]->GetRendererID() : 0u);
+                              jfaFBs[0] ? jfaFBs[0]->GetRHIHandle() : RHI::NullResource,
+                              jfaFBs[1] ? jfaFBs[1]->GetRHIHandle() : RHI::NullResource);
             }
             OLO_CORE_ASSERT(false, "SelectionOutlineRenderPass enabled without resolved JFA scratch framebuffers");
             return;

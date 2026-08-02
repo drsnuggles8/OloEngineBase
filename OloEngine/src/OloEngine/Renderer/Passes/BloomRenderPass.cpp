@@ -114,9 +114,9 @@ namespace OloEngine
 
         // Sample-only consumer: input framebuffer is intentionally not
         // resolved here — see ReadFirstValidVersionedInputForPass docs.
-        u32 inputColorTextureID = 0u;
+        RHI::ResourceHandle inputColorTextureID{};
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
-            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+            inputColorTextureID = context.ResolveTextureHandle(inputTextureHandle);
 
         Ref<Framebuffer> outputFramebuffer;
         if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
@@ -166,7 +166,7 @@ namespace OloEngine
         constexpr u32 FAIL_NO_SHADERS = 1u << 3u;
 
         u32 failureMask = 0;
-        if (inputColorTextureID == 0u)
+        if (!inputColorTextureID.IsValid())
             failureMask |= FAIL_NO_INPUT;
         if (!outputFramebuffer)
             failureMask |= FAIL_NO_OUTPUT;
@@ -182,7 +182,7 @@ namespace OloEngine
                 OLO_CORE_ERROR("BloomRenderPass: prerequisites missing (mask=0x{:x}, inputTex={}, outputFB={}, mipCount={}, mipHandlesValid={}, mipResolved={}, shadersReady={})",
                                failureMask,
                                inputColorTextureID,
-                               outputFramebuffer ? outputFramebuffer->GetRendererID() : 0u,
+                               outputFramebuffer ? outputFramebuffer->GetRHIHandle() : RHI::NullResource,
                                bloomMipCount,
                                bloomMipHandleCount,
                                bloomMipResolvedCount,
@@ -198,7 +198,7 @@ namespace OloEngine
         if (m_LastFailureMask != 0)
         {
             OLO_CORE_INFO("BloomRenderPass: recovered (outputFB={}, mipCount={})",
-                          outputFramebuffer->GetRendererID(), bloomMipCount);
+                          outputFramebuffer->GetRHIHandle(), bloomMipCount);
             m_LastFailureMask = 0;
         }
 

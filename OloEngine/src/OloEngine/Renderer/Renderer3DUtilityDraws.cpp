@@ -66,8 +66,8 @@ namespace OloEngine
 
         // Set sort key for quad commands
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = s_Data.QuadShader->GetRendererID() & 0xFFFF;
-        u32 materialID = texture ? (texture->GetRendererID() & 0xFFFF) : 0;
+        u32 shaderID = s_Data.QuadShader->GetRHIHandle().Index & 0xFFFF;
+        u32 materialID = texture ? (texture->GetRHIHandle().Index & 0xFFFF) : 0;
         u32 depth = ComputeDepthForSortKey(modelMatrix);
         metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::TwoD, shaderID, materialID, depth);
         packet->SetMetadata(metadata);
@@ -223,7 +223,7 @@ namespace OloEngine
 
         // Set sort key for skybox (rendered last in skybox layer with max depth)
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = activeShader->GetRendererID() & 0xFFFF;
+        u32 shaderID = activeShader->GetRHIHandle().Index & 0xFFFF;
         // Skybox always renders at maximum depth (far plane)
         metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::Skybox, shaderID, 0, 0xFFFFFF);
         packet->SetMetadata(metadata);
@@ -602,7 +602,7 @@ namespace OloEngine
         // Sort key: G-Buffer variant sits with opaques (depth-write on); forward
         // variant stays in the transparent layer.
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = activeShader->GetRendererID() & 0xFFFF;
+        u32 shaderID = activeShader->GetRHIHandle().Index & 0xFFFF;
         if (useGBufferVariant)
             metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, 0x800000);
         else
@@ -697,7 +697,7 @@ namespace OloEngine
 
         // Sort key: group by shader for state efficiency
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = activeShader->GetRendererID() & 0xFFFF;
+        u32 shaderID = activeShader->GetRHIHandle().Index & 0xFFFF;
         u32 depth = ComputeDepthForSortKey(transform);
         metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
         metadata.m_IsStatic = true;
@@ -767,7 +767,7 @@ namespace OloEngine
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 
         PacketMetadata metadata = packet->GetMetadata();
-        u32 shaderID = activeShader->GetRendererID() & 0xFFFF;
+        u32 shaderID = activeShader->GetRHIHandle().Index & 0xFFFF;
         u32 depth = ComputeDepthForSortKey(transform);
         metadata.m_SortKey = DrawKey::CreateOpaque(0, ViewLayerType::ThreeD, shaderID, 0, depth);
         metadata.m_IsStatic = true;

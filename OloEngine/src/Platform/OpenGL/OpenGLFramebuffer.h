@@ -71,7 +71,7 @@ namespace OloEngine
             return m_RHIHandle.Get();
         }
 
-        void AttachDepthTextureArrayLayer(u32 textureArrayRendererID, u32 layer) override;
+        void AttachDepthTextureArrayLayer(RHI::ResourceHandle textureArray, u32 layer) override;
 
         // Static initialization/shutdown for shared resources
         static void InitSharedResources();

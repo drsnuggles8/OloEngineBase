@@ -131,7 +131,7 @@ namespace OloEngine
             // Issue the query: draw the box between Begin/EndQuery
             queryPool.BeginQuery(pending.QueryIndex);
             RenderCommand::DrawIndexedRaw(
-                m_ProxyCube->GetVertexArray()->GetRendererID(),
+                m_ProxyCube->GetVertexArray()->GetRHIHandle(),
                 m_ProxyCube->GetIndexCount());
             queryPool.EndQuery(pending.QueryIndex);
         }

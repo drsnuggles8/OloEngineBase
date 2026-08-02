@@ -108,7 +108,7 @@ namespace OloEngine
         GLStateGuard guard("GPUDrivenOcclusionPass", GLStateGuard::Policy::Ignore);
 
         auto& rendererAPI = RenderCommand::GetRendererAPI();
-        const u32 sceneFBID = m_SceneFramebuffer->GetRendererID();
+        const RHI::ResourceHandle sceneFBID = m_SceneFramebuffer->GetRHIHandle();
 
         // The instanced batches are forward PBR meshes that write the full MRT
         // set: o_Color (0), o_EntityID (1), o_ViewNormal (2), o_Velocity (3).
@@ -158,7 +158,7 @@ namespace OloEngine
         // the one-frame popping the single-phase scheme would show.
         if (!m_Phase2Packets.empty())
         {
-            const u32 depthTexID = m_SceneFramebuffer->GetDepthAttachmentRendererID();
+            const RHI::ResourceHandle depthTex = m_SceneFramebuffer->GetDepthAttachmentHandle();
             // Unbind so the depth attachment can be sampled by the Hi-Z compute
             // without an attachment/sampler feedback loop.
             m_SceneFramebuffer->Unbind();
@@ -169,7 +169,7 @@ namespace OloEngine
             RenderCommand::TextureBarrier();
 
             const GPUFrustumCuller::HZBOcclusionInputs currentHZB =
-                Renderer3D::BuildCurrentOcclusionHZB(depthTexID, sceneSpec.Width, sceneSpec.Height);
+                Renderer3D::BuildCurrentOcclusionHZB(depthTex, sceneSpec.Width, sceneSpec.Height);
 
             if (currentHZB.IsUsable())
             {
@@ -221,8 +221,8 @@ namespace OloEngine
                                             RHI::BlendFactor::One, RHI::BlendFactor::Zero);
 
         m_SceneFramebuffer->Unbind();
-        RenderCommand::BindVertexArrayRaw(0);
-        RenderCommand::BindShaderProgram(0);
+        RenderCommand::BindVertexArrayRaw(RHI::NullResource);
+        RenderCommand::BindShaderProgram(RHI::NullResource);
 
         m_Phase2Packets.clear();
         m_Phase2Culls.clear();

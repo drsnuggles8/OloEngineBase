@@ -127,9 +127,9 @@ namespace OloEngine
 
         // Sample-only consumer: input framebuffer is intentionally not
         // resolved here — see ReadFirstValidVersionedInputForPass docs.
-        u32 inputColorTextureID = 0u;
+        RHI::ResourceHandle inputColorTextureID{};
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
-            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+            inputColorTextureID = context.ResolveTextureHandle(inputTextureHandle);
 
         Ref<Framebuffer> outputFramebuffer;
         Ref<Framebuffer> fogHalfResFramebuffer;
@@ -147,7 +147,7 @@ namespace OloEngine
             return;
         }
 
-        if (inputColorTextureID == 0u || !outputFramebuffer || !m_FogShader || !m_FogUpsampleShader || !fogHalfResFramebuffer)
+        if (!inputColorTextureID.IsValid() || !outputFramebuffer || !m_FogShader || !m_FogUpsampleShader || !fogHalfResFramebuffer)
         {
             m_Target = nullptr;
             return;
@@ -155,18 +155,18 @@ namespace OloEngine
 
         m_Target = outputFramebuffer;
 
-        const u32 sceneDepthTextureID = m_SelectedSceneDepthTexture.IsValid()
-                                            ? context.ResolveTexture(m_SelectedSceneDepthTexture)
-                                            : 0u;
+        const RHI::ResourceHandle sceneDepthTextureID = m_SelectedSceneDepthTexture.IsValid()
+                                                            ? context.ResolveTextureHandle(m_SelectedSceneDepthTexture)
+                                                            : RHI::NullResource;
 
-        if (sceneDepthTextureID == 0)
+        if (!sceneDepthTextureID.IsValid())
             return; // Fog pass requires depth.
 
         // Placeholder sampler2DArrayShadow when no real CSM bound — shader's
         // u_DirectionalShadowEnabled still gates the actual sample.
-        const u32 shadowCSMTextureID = m_SelectedShadowCSMTexture.IsValid()
-                                           ? context.ResolveTexture(m_SelectedShadowCSMTexture)
-                                           : ShadowMap::GetCSMPlaceholderRendererID();
+        const RHI::ResourceHandle shadowCSMTextureID = m_SelectedShadowCSMTexture.IsValid()
+                                                           ? context.ResolveTextureHandle(m_SelectedShadowCSMTexture)
+                                                           : ShadowMap::GetCSMPlaceholderHandle();
 
         // Re-bind PostProcessUBO at binding 7 — IBL precompute and bloom-mip
         // updates can transiently claim this slot before the post-process chain.

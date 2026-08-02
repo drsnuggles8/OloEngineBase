@@ -326,7 +326,7 @@ namespace OloEngine
                 auto debugShader = Renderer3D::GetForwardPlusDebugShader();
                 if (quadVAO && debugShader)
                 {
-                    forwardPlus.RenderDebugOverlay(quadVAO->GetRendererID(), debugShader);
+                    forwardPlus.RenderDebugOverlay(quadVAO->GetRHIHandle(), debugShader);
                 }
             }
             forwardPlus.UnbindAfterShading();
@@ -604,7 +604,7 @@ namespace OloEngine
 
             m_Target->Bind();
 
-            const u32 dstFB = m_Target->GetRendererID();
+            const RHI::ResourceHandle dstFB = m_Target->GetRHIHandle();
             RenderCommand::SetFramebufferDrawAttachments(dstFB, kAttachment0Only);
 
             const u32 w = m_GBuffer->GetWidth();
@@ -616,9 +616,9 @@ namespace OloEngine
 
             m_DebugRMAShader->Bind();
             RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_ALBEDO,
-                                       m_GBuffer->GetColorAttachmentID(GBuffer::Albedo));
+                                       m_GBuffer->GetColorAttachmentHandle(GBuffer::Albedo));
             RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_NORMAL,
-                                       m_GBuffer->GetColorAttachmentID(GBuffer::Normal));
+                                       m_GBuffer->GetColorAttachmentHandle(GBuffer::Normal));
 
             auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
@@ -634,7 +634,7 @@ namespace OloEngine
             RenderCommand::SetDepthTest(true);
 
             // Copy depth across so selection-outline / UI still depth-test.
-            const u32 srcFB = m_GBuffer->GetSamplingFramebuffer()->GetRendererID();
+            const RHI::ResourceHandle srcFB = m_GBuffer->GetSamplingFramebuffer()->GetRHIHandle();
             RenderCommand::BlitFramebuffer(
                 srcFB, dstFB,
                 0, 0, static_cast<i32>(w), static_cast<i32>(h),
@@ -644,8 +644,8 @@ namespace OloEngine
             // Unbind the blit shader + VAO so the RAII guard sees us leave
             // shader/program/VAO state at zero, matching entry expectations
             // for downstream passes that rebind their own.
-            RenderCommand::BindShaderProgram(0);
-            RenderCommand::BindVertexArrayRaw(0);
+            RenderCommand::BindShaderProgram(RHI::NullResource);
+            RenderCommand::BindVertexArrayRaw(RHI::NullResource);
             return;
         }
 
@@ -669,8 +669,8 @@ namespace OloEngine
                 break;
         }
 
-        const u32 srcFB = m_GBuffer->GetSamplingFramebuffer()->GetRendererID();
-        const u32 dstFB = m_Target->GetRendererID();
+        const RHI::ResourceHandle srcFB = m_GBuffer->GetSamplingFramebuffer()->GetRHIHandle();
+        const RHI::ResourceHandle dstFB = m_Target->GetRHIHandle();
         const u32 w = m_GBuffer->GetWidth();
         const u32 h = m_GBuffer->GetHeight();
 
@@ -726,7 +726,7 @@ namespace OloEngine
         // function so the guard exits clean.
         GLStateGuard guard("SceneRenderPass::BlitForwardVelocityDebug", GLStateGuard::Policy::Restore);
 
-        const u32 fb = m_Target->GetRendererID();
+        const RHI::ResourceHandle fb = m_Target->GetRHIHandle();
         const u32 w = m_Target->GetSpecification().Width;
         const u32 h = m_Target->GetSpecification().Height;
 

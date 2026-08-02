@@ -166,7 +166,7 @@ namespace OloEngine::Testing
             m_Calls.push_back(c);
             ++m_DrawCallCount;
         }
-        void DrawIndexedRaw(u32 vaoID, u32 indexCount) override
+        void DrawIndexedRaw(u32 vaoID, u32 indexCount)
         {
             RecordedCall c{ "DrawIndexedRaw" };
             c.ParamU32_0 = vaoID;
@@ -174,7 +174,7 @@ namespace OloEngine::Testing
             m_Calls.push_back(c);
             ++m_DrawCallCount;
         }
-        void DrawIndexedRaw(u32 vaoID, u32 indexCount, u32 baseIndex) override
+        void DrawIndexedRaw(u32 vaoID, u32 indexCount, u32 baseIndex)
         {
             RecordedCall c{ "DrawIndexedRawBase" };
             c.ParamU32_0 = vaoID;
@@ -183,7 +183,7 @@ namespace OloEngine::Testing
             m_Calls.push_back(c);
             ++m_DrawCallCount;
         }
-        void DrawIndexedInstancedRaw(u32 vaoID, u32 indexCount, u32 baseIndex, u32 instanceCount) override
+        void DrawIndexedInstancedRaw(u32 vaoID, u32 indexCount, u32 baseIndex, u32 instanceCount)
         {
             RecordedCall c{ "DrawIndexedInstancedRaw" };
             c.ParamU32_0 = vaoID;
@@ -193,7 +193,7 @@ namespace OloEngine::Testing
             m_Calls.push_back(c);
             ++m_DrawCallCount;
         }
-        void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVerts) override
+        void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVerts)
         {
             RecordedCall c{ "DrawIndexedPatchesRaw" };
             c.ParamU32_0 = vaoID;
@@ -307,23 +307,23 @@ namespace OloEngine::Testing
             Record("SetScissorBox");
         }
 
-        void DrawElementsIndirect(const Ref<VertexArray>& /*va*/, u32 /*bufID*/) override
+        void DrawElementsIndirect(const Ref<VertexArray>& /*va*/, u32 /*bufID*/)
         {
             Record("DrawElementsIndirect");
             ++m_DrawCallCount;
         }
-        void DrawArraysIndirect(const Ref<VertexArray>& /*va*/, u32 /*bufID*/) override
+        void DrawArraysIndirect(const Ref<VertexArray>& /*va*/, u32 /*bufID*/)
         {
             Record("DrawArraysIndirect");
             ++m_DrawCallCount;
         }
-        void DrawBoundElementsIndirect(u32 /*bufID*/) override
+        void DrawBoundElementsIndirect(u32 /*bufID*/)
         {
             Record("DrawBoundElementsIndirect");
             ++m_DrawCallCount;
         }
         void MultiDrawElementsIndirectCountRaw(u32 /*vaoID*/, u32 /*bufID*/, u32 /*indirectOffset*/, u32 /*paramBufID*/,
-                                               u32 /*paramOffset*/, u32 /*maxDrawCount*/, u32 /*stride*/) override
+                                               u32 /*paramOffset*/, u32 /*maxDrawCount*/, u32 /*stride*/)
         {
             Record("MultiDrawElementsIndirectCountRaw");
             ++m_DrawCallCount;
@@ -342,7 +342,7 @@ namespace OloEngine::Testing
             Record("BindDefaultFramebuffer");
             ++m_BindCount;
         }
-        void BlitFramebufferToDefault(u32 srcFboID, u32 width, u32 height) override
+        void BlitFramebufferToDefault(u32 srcFboID, u32 width, u32 height)
         {
             RecordedCall c{ "BlitFramebufferToDefault" };
             c.ParamU32_0 = srcFboID;
@@ -350,7 +350,7 @@ namespace OloEngine::Testing
             c.ParamU32_2 = height;
             m_Calls.push_back(c);
         }
-        void BindTexture(u32 slot, u32 texID) override
+        void BindTexture(u32 slot, u32 texID)
         {
             RecordedCall c{ "BindTexture" };
             c.ParamU32_0 = slot;
@@ -359,7 +359,7 @@ namespace OloEngine::Testing
             ++m_BindCount;
         }
         void BindImageTexture(u32 /*unit*/, u32 /*texID*/, u32 /*mip*/, bool /*layered*/, u32 /*layer*/,
-                              RHI::Access /*access*/, RHI::Format /*fmt*/) override
+                              RHI::Access /*access*/, RHI::Format /*fmt*/)
         {
             Record("BindImageTexture");
             ++m_BindCount;
@@ -378,11 +378,6 @@ namespace OloEngine::Testing
         void BindTexture(u32 slot, RHI::ResourceHandle texture) override
         {
             BindTexture(slot, Native(texture, RHI::ResourceKind::Texture));
-        }
-        void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
-                              u32 layer, RHI::Access access, RHI::Format format) override
-        {
-            BindImageTexture(unit, Native(texture, RHI::ResourceKind::Texture), mipLevel, layered, layer, access, format);
         }
         void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override
         {
@@ -547,6 +542,165 @@ namespace OloEngine::Testing
                                                          RHI::Backend::OpenGL);
         }
 
+        // ----------------------------------------------------------------
+        // The remaining handle forms (issue #691 step 3, item 4). Same rule as
+        // the block above: resolve exactly as a backend does, delegate to the
+        // native implementation, and record under the SAME call name — so every
+        // existing assertion about which framebuffer/buffer/texture a pass
+        // touched keeps working, with the recorded ParamU32 being the native id
+        // a real backend would have used (0 for a stale handle).
+        // ----------------------------------------------------------------
+        void BlitFramebufferToDefault(RHI::ResourceHandle srcFramebuffer, u32 width, u32 height) override
+        {
+            BlitFramebufferToDefault(Native(srcFramebuffer, RHI::ResourceKind::Framebuffer), width, height);
+        }
+        void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
+                              u32 layer, RHI::Access access, RHI::Format format) override
+        {
+            BindImageTexture(unit, Native(texture, RHI::ResourceKind::Texture), mipLevel, layered, layer, access, format);
+        }
+        void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer) override
+        {
+            DrawElementsIndirect(vertexArray, Native(indirectBuffer, RHI::ResourceKind::Buffer));
+        }
+        void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer) override
+        {
+            DrawArraysIndirect(vertexArray, Native(indirectBuffer, RHI::ResourceKind::Buffer));
+        }
+        void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer) override
+        {
+            DrawBoundElementsIndirect(Native(indirectBuffer, RHI::ResourceKind::Buffer));
+        }
+        void MultiDrawElementsIndirectCountRaw(RHI::ResourceHandle vertexArray, RHI::ResourceHandle indirectBuffer,
+                                               u32 indirectOffsetBytes, RHI::ResourceHandle parameterBuffer,
+                                               u32 parameterOffsetBytes, u32 maxDrawCount, u32 strideBytes) override
+        {
+            MultiDrawElementsIndirectCountRaw(Native(vertexArray, RHI::ResourceKind::VertexArray),
+                                              Native(indirectBuffer, RHI::ResourceKind::Buffer), indirectOffsetBytes,
+                                              Native(parameterBuffer, RHI::ResourceKind::Buffer), parameterOffsetBytes,
+                                              maxDrawCount, strideBytes);
+        }
+        void CopyFramebufferToTexture(RHI::ResourceHandle texture, u32 width, u32 height) override
+        {
+            CopyFramebufferToTexture(Native(texture, RHI::ResourceKind::Texture), width, height);
+        }
+
+        // --- named framebuffers ---
+        void AttachFramebufferColorTexture(RHI::ResourceHandle framebuffer, u32 attachmentIndex,
+                                           RHI::ResourceHandle texture, u32 mipLevel) override
+        {
+            AttachFramebufferColorTexture(Native(framebuffer, RHI::ResourceKind::Framebuffer), attachmentIndex,
+                                          Native(texture, RHI::ResourceKind::Texture), mipLevel);
+        }
+        void AttachFramebufferDepthTexture(RHI::ResourceHandle framebuffer, RHI::ResourceHandle texture,
+                                           u32 mipLevel) override
+        {
+            AttachFramebufferDepthTexture(Native(framebuffer, RHI::ResourceKind::Framebuffer),
+                                          Native(texture, RHI::ResourceKind::Texture), mipLevel);
+        }
+        [[nodiscard("Store this!")]] bool IsFramebufferComplete(RHI::ResourceHandle framebuffer) override
+        {
+            return IsFramebufferComplete(Native(framebuffer, RHI::ResourceKind::Framebuffer));
+        }
+        void SetFramebufferDrawAttachments(RHI::ResourceHandle framebuffer,
+                                           std::span<const u32> attachmentIndices) override
+        {
+            SetFramebufferDrawAttachments(Native(framebuffer, RHI::ResourceKind::Framebuffer), attachmentIndices);
+        }
+        void RestoreAllFramebufferDrawAttachments(RHI::ResourceHandle framebuffer, u32 colorAttachmentCount) override
+        {
+            RestoreAllFramebufferDrawAttachments(Native(framebuffer, RHI::ResourceKind::Framebuffer),
+                                                 colorAttachmentCount);
+        }
+        void SetFramebufferReadAttachment(RHI::ResourceHandle framebuffer, u32 attachmentIndex) override
+        {
+            SetFramebufferReadAttachment(Native(framebuffer, RHI::ResourceKind::Framebuffer), attachmentIndex);
+        }
+        void ClearFramebufferColorAttachment(RHI::ResourceHandle framebuffer, u32 attachmentIndex,
+                                             const glm::vec4& color) override
+        {
+            ClearFramebufferColorAttachment(Native(framebuffer, RHI::ResourceKind::Framebuffer), attachmentIndex, color);
+        }
+        void ClearFramebufferDepth(RHI::ResourceHandle framebuffer, f32 depth) override
+        {
+            ClearFramebufferDepth(Native(framebuffer, RHI::ResourceKind::Framebuffer), depth);
+        }
+        void BlitFramebuffer(RHI::ResourceHandle srcFramebuffer, RHI::ResourceHandle dstFramebuffer,
+                             i32 sx0, i32 sy0, i32 sx1, i32 sy1, i32 dx0, i32 dy0, i32 dx1, i32 dy1,
+                             RHI::BlitAspect aspect, RHI::Filter filter) override
+        {
+            BlitFramebuffer(Native(srcFramebuffer, RHI::ResourceKind::Framebuffer),
+                            Native(dstFramebuffer, RHI::ResourceKind::Framebuffer),
+                            sx0, sy0, sx1, sy1, dx0, dy0, dx1, dy1, aspect, filter);
+        }
+
+        // --- raw buffers ---
+        void AllocateBufferStorage(RHI::ResourceHandle buffer, u64 sizeBytes,
+                                   RHI::MemoryResidency residency) override
+        {
+            AllocateBufferStorage(Native(buffer, RHI::ResourceKind::Buffer), sizeBytes, residency);
+        }
+        void* AllocatePersistentUploadStorage(RHI::ResourceHandle buffer, u64 sizeBytes) override
+        {
+            return AllocatePersistentUploadStorage(Native(buffer, RHI::ResourceKind::Buffer), sizeBytes);
+        }
+        void UnmapBuffer(RHI::ResourceHandle buffer) override
+        {
+            UnmapBuffer(Native(buffer, RHI::ResourceKind::Buffer));
+        }
+        void UploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes,
+                                 const void* data) override
+        {
+            UploadBufferSubData(Native(buffer, RHI::ResourceKind::Buffer), offsetBytes, sizeBytes, data);
+        }
+        void ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest) override
+        {
+            ReadBufferSubData(Native(buffer, RHI::ResourceKind::Buffer), offsetBytes, sizeBytes, dest);
+        }
+        void CopyBufferSubData(RHI::ResourceHandle srcBuffer, RHI::ResourceHandle dstBuffer,
+                               u64 srcOffsetBytes, u64 dstOffsetBytes, u64 sizeBytes) override
+        {
+            CopyBufferSubData(Native(srcBuffer, RHI::ResourceKind::Buffer),
+                              Native(dstBuffer, RHI::ResourceKind::Buffer),
+                              srcOffsetBytes, dstOffsetBytes, sizeBytes);
+        }
+        void ClearBufferUInt(RHI::ResourceHandle buffer, u32 value) override
+        {
+            ClearBufferUInt(Native(buffer, RHI::ResourceKind::Buffer), value);
+        }
+        void ClearBufferFloat(RHI::ResourceHandle buffer, f32 value) override
+        {
+            ClearBufferFloat(Native(buffer, RHI::ResourceKind::Buffer), value);
+        }
+
+        // --- vertex arrays / textures ---
+        void SetVertexArrayIndexBuffer(RHI::ResourceHandle vertexArray, RHI::ResourceHandle indexBuffer) override
+        {
+            SetVertexArrayIndexBuffer(Native(vertexArray, RHI::ResourceKind::VertexArray),
+                                      Native(indexBuffer, RHI::ResourceKind::Buffer));
+        }
+        void ClearTextureUInt(RHI::ResourceHandle texture, u32 mipLevel, u32 value) override
+        {
+            ClearTextureUInt(Native(texture, RHI::ResourceKind::Texture), mipLevel, value);
+        }
+        void UploadTextureSubImage2D(RHI::ResourceHandle texture, i32 xOffset, i32 yOffset,
+                                     u32 width, u32 height, RHI::Format sourceFormat, const void* data) override
+        {
+            UploadTextureSubImage2D(Native(texture, RHI::ResourceKind::Texture), xOffset, yOffset, width, height,
+                                    sourceFormat, data);
+        }
+        void UploadTextureSubImage3D(RHI::ResourceHandle texture, i32 xOffset, i32 yOffset, i32 zOffset,
+                                     u32 width, u32 height, u32 depth,
+                                     RHI::Format sourceFormat, const void* data) override
+        {
+            UploadTextureSubImage3D(Native(texture, RHI::ResourceKind::Texture), xOffset, yOffset, zOffset,
+                                    width, height, depth, sourceFormat, data);
+        }
+        void GetTextureDimensions(RHI::ResourceHandle texture, u32 mipLevel, u32& outWidth, u32& outHeight) override
+        {
+            GetTextureDimensions(Native(texture, RHI::ResourceKind::Texture), mipLevel, outWidth, outHeight);
+        }
+
       private:
         // Kind-checked, mirroring Platform/OpenGL's Utils::ResolveNativeAs. An
         // untyped resolve would let a wrong-family handle (a buffer passed where
@@ -581,10 +735,10 @@ namespace OloEngine::Testing
         {
             Record("SetColorMaskForAttachment");
         }
-        void BeginConditionalRender(u32 queryID) override
+        void BeginConditionalRender(RHI::ResourceHandle query) override
         {
             RecordedCall c{ "BeginConditionalRender" };
-            c.ParamU32_0 = queryID;
+            c.ParamU32_0 = Native(query, RHI::ResourceKind::Query);
             m_Calls.push_back(c);
         }
         void EndConditionalRender() override
@@ -624,17 +778,17 @@ namespace OloEngine::Testing
         }
 
         void CopyImageSubData(u32 /*src*/, TextureTargetType /*srcT*/, u32 /*dst*/, TextureTargetType /*dstT*/,
-                              u32 /*w*/, u32 /*h*/) override
+                              u32 /*w*/, u32 /*h*/)
         {
             Record("CopyImageSubData");
         }
         void CopyImageSubDataFull(u32 /*src*/, TextureTargetType /*srcT*/, i32 /*srcLvl*/, i32 /*srcZ*/,
                                   u32 /*dst*/, TextureTargetType /*dstT*/, i32 /*dstLvl*/, i32 /*dstZ*/,
-                                  u32 /*w*/, u32 /*h*/) override
+                                  u32 /*w*/, u32 /*h*/)
         {
             Record("CopyImageSubDataFull");
         }
-        void CopyFramebufferToTexture(u32 /*texID*/, u32 /*w*/, u32 /*h*/) override
+        void CopyFramebufferToTexture(u32 /*texID*/, u32 /*w*/, u32 /*h*/)
         {
             Record("CopyFramebufferToTexture");
         }
@@ -648,35 +802,35 @@ namespace OloEngine::Testing
             Record("RestoreAllDrawBuffers");
         }
 
-        u32 CreateTexture2D(u32 /*w*/, u32 /*h*/, RHI::Format /*fmt*/) override
+        u32 CreateTexture2D(u32 /*w*/, u32 /*h*/, RHI::Format /*fmt*/)
         {
             Record("CreateTexture2D");
             return m_NextTextureID++;
         }
-        u32 CreateTextureCubemap(u32 /*w*/, u32 /*h*/, RHI::Format /*fmt*/) override
+        u32 CreateTextureCubemap(u32 /*w*/, u32 /*h*/, RHI::Format /*fmt*/)
         {
             Record("CreateTextureCubemap");
             return m_NextTextureID++;
         }
-        u32 CreateDepthArrayCompareOffView(u32 /*srcTextureID*/, u32 /*numLayers*/) override
+        u32 CreateDepthArrayCompareOffView(u32 /*srcTextureID*/, u32 /*numLayers*/)
         {
             Record("CreateDepthArrayCompareOffView");
             return m_NextTextureID++;
         }
-        void SetTextureFilter(u32 /*texID*/, RHI::Filter /*minFilter*/, RHI::Filter /*magFilter*/) override
+        void SetTextureFilter(u32 /*texID*/, RHI::Filter /*minFilter*/, RHI::Filter /*magFilter*/)
         {
             Record("SetTextureFilter");
         }
-        void SetTextureWrap(u32 /*texID*/, RHI::AddressMode /*wrap*/) override
+        void SetTextureWrap(u32 /*texID*/, RHI::AddressMode /*wrap*/)
         {
             Record("SetTextureWrap");
         }
         void UploadTextureSubImage2D(u32 /*texID*/, u32 /*w*/, u32 /*h*/,
-                                     RHI::Format /*sourceFormat*/, const void* /*data*/) override
+                                     RHI::Format /*sourceFormat*/, const void* /*data*/)
         {
             Record("UploadTextureSubImage2D");
         }
-        void DeleteTexture(u32 /*texID*/) override
+        void DeleteTexture(u32 /*texID*/)
         {
             Record("DeleteTexture");
         }
@@ -687,7 +841,7 @@ namespace OloEngine::Testing
         // sites they replace issued raw glXxx() through glad, which in a
         // headless test is a null function pointer.
         // ----------------------------------------------------------------
-        void BindUniformBuffer(u32 bindingPoint, u32 bufferID) override
+        void BindUniformBuffer(u32 bindingPoint, u32 bufferID)
         {
             RecordedCall c{ "BindUniformBuffer" };
             c.ParamU32_0 = bindingPoint;
@@ -695,7 +849,7 @@ namespace OloEngine::Testing
             m_Calls.push_back(c);
             ++m_BindCount;
         }
-        void BindStorageBuffer(u32 bindingPoint, u32 bufferID) override
+        void BindStorageBuffer(u32 bindingPoint, u32 bufferID)
         {
             RecordedCall c{ "BindStorageBuffer" };
             c.ParamU32_0 = bindingPoint;
@@ -703,21 +857,21 @@ namespace OloEngine::Testing
             m_Calls.push_back(c);
             ++m_BindCount;
         }
-        void BindShaderProgram(u32 programID) override
+        void BindShaderProgram(u32 programID)
         {
             RecordedCall c{ "BindShaderProgram" };
             c.ParamU32_0 = programID;
             m_Calls.push_back(c);
             ++m_BindCount;
         }
-        void BindVertexArrayRaw(u32 vaoID) override
+        void BindVertexArrayRaw(u32 vaoID)
         {
             RecordedCall c{ "BindVertexArrayRaw" };
             c.ParamU32_0 = vaoID;
             m_Calls.push_back(c);
             ++m_BindCount;
         }
-        void BindFramebuffer(u32 framebufferID) override
+        void BindFramebuffer(u32 framebufferID)
         {
             RecordedCall c{ "BindFramebuffer" };
             c.ParamU32_0 = framebufferID;
@@ -775,29 +929,29 @@ namespace OloEngine::Testing
             m_Calls.push_back(c);
         }
 
-        u32 CreateFramebuffer() override
+        u32 CreateFramebuffer()
         {
             Record("CreateFramebuffer");
             return m_NextFramebufferID++;
         }
-        void DeleteFramebuffer(u32 /*framebufferID*/) override
+        void DeleteFramebuffer(u32 /*framebufferID*/)
         {
             Record("DeleteFramebuffer");
         }
-        void AttachFramebufferColorTexture(u32 /*fb*/, u32 /*attachmentIndex*/, u32 /*texID*/, u32 /*mip*/) override
+        void AttachFramebufferColorTexture(u32 /*fb*/, u32 /*attachmentIndex*/, u32 /*texID*/, u32 /*mip*/)
         {
             Record("AttachFramebufferColorTexture");
         }
-        void AttachFramebufferDepthTexture(u32 /*fb*/, u32 /*texID*/, u32 /*mip*/) override
+        void AttachFramebufferDepthTexture(u32 /*fb*/, u32 /*texID*/, u32 /*mip*/)
         {
             Record("AttachFramebufferDepthTexture");
         }
-        [[nodiscard("Store this!")]] bool IsFramebufferComplete(u32 /*fb*/) override
+        [[nodiscard("Store this!")]] bool IsFramebufferComplete(u32 /*fb*/)
         {
             Record("IsFramebufferComplete");
             return true;
         }
-        void SetFramebufferDrawAttachments(u32 fb, std::span<const u32> attachmentIndices) override
+        void SetFramebufferDrawAttachments(u32 fb, std::span<const u32> attachmentIndices)
         {
             RecordedCall c{ "SetFramebufferDrawAttachments" };
             c.ParamU32_0 = fb;
@@ -809,21 +963,21 @@ namespace OloEngine::Testing
             c.ParamU32List.assign(attachmentIndices.begin(), attachmentIndices.end());
             m_Calls.push_back(c);
         }
-        void RestoreAllFramebufferDrawAttachments(u32 fb, u32 colorAttachmentCount) override
+        void RestoreAllFramebufferDrawAttachments(u32 fb, u32 colorAttachmentCount)
         {
             RecordedCall c{ "RestoreAllFramebufferDrawAttachments" };
             c.ParamU32_0 = fb;
             c.ParamU32_1 = colorAttachmentCount;
             m_Calls.push_back(c);
         }
-        void SetFramebufferReadAttachment(u32 fb, u32 attachmentIndex) override
+        void SetFramebufferReadAttachment(u32 fb, u32 attachmentIndex)
         {
             RecordedCall c{ "SetFramebufferReadAttachment" };
             c.ParamU32_0 = fb;
             c.ParamU32_1 = attachmentIndex;
             m_Calls.push_back(c);
         }
-        void ClearFramebufferColorAttachment(u32 fb, u32 attachmentIndex, const glm::vec4& color) override
+        void ClearFramebufferColorAttachment(u32 fb, u32 attachmentIndex, const glm::vec4& color)
         {
             RecordedCall c{ "ClearFramebufferColorAttachment" };
             c.ParamU32_0 = fb;
@@ -831,7 +985,7 @@ namespace OloEngine::Testing
             c.ParamVec4_0 = color;
             m_Calls.push_back(c);
         }
-        void ClearFramebufferDepth(u32 fb, f32 depth) override
+        void ClearFramebufferDepth(u32 fb, f32 depth)
         {
             RecordedCall c{ "ClearFramebufferDepth" };
             c.ParamU32_0 = fb;
@@ -840,7 +994,7 @@ namespace OloEngine::Testing
         }
         void BlitFramebuffer(u32 src, u32 dst, i32 /*sx0*/, i32 /*sy0*/, i32 /*sx1*/, i32 /*sy1*/,
                              i32 /*dx0*/, i32 /*dy0*/, i32 /*dx1*/, i32 /*dy1*/,
-                             RHI::BlitAspect /*aspect*/, RHI::Filter /*filter*/) override
+                             RHI::BlitAspect /*aspect*/, RHI::Filter /*filter*/)
         {
             RecordedCall c{ "BlitFramebuffer" };
             c.ParamU32_0 = src;
@@ -848,20 +1002,20 @@ namespace OloEngine::Testing
             m_Calls.push_back(c);
         }
 
-        u32 CreateBuffer() override
+        u32 CreateBuffer()
         {
             Record("CreateBuffer");
             return m_NextBufferID++;
         }
-        void DeleteBuffer(u32 /*bufferID*/) override
+        void DeleteBuffer(u32 /*bufferID*/)
         {
             Record("DeleteBuffer");
         }
-        void AllocateBufferStorage(u32 /*bufferID*/, u64 /*sizeBytes*/, RHI::MemoryResidency /*residency*/) override
+        void AllocateBufferStorage(u32 /*bufferID*/, u64 /*sizeBytes*/, RHI::MemoryResidency /*residency*/)
         {
             Record("AllocateBufferStorage");
         }
-        void* AllocatePersistentUploadStorage(u32 /*bufferID*/, u64 /*sizeBytes*/) override
+        void* AllocatePersistentUploadStorage(u32 /*bufferID*/, u64 /*sizeBytes*/)
         {
             Record("AllocatePersistentUploadStorage");
             // Null is the documented "mapping failed" answer, and every caller
@@ -870,53 +1024,53 @@ namespace OloEngine::Testing
             // memcpy into is the option that would actually crash a test.
             return nullptr;
         }
-        void UnmapBuffer(u32 /*bufferID*/) override
+        void UnmapBuffer(u32 /*bufferID*/)
         {
             Record("UnmapBuffer");
         }
-        void UploadBufferSubData(u32 /*bufferID*/, u64 /*offset*/, u64 /*size*/, const void* /*data*/) override
+        void UploadBufferSubData(u32 /*bufferID*/, u64 /*offset*/, u64 /*size*/, const void* /*data*/)
         {
             Record("UploadBufferSubData");
         }
-        void ReadBufferSubData(u32 /*bufferID*/, u64 /*offset*/, u64 /*size*/, void* /*dest*/) override
+        void ReadBufferSubData(u32 /*bufferID*/, u64 /*offset*/, u64 /*size*/, void* /*dest*/)
         {
             Record("ReadBufferSubData");
         }
-        void CopyBufferSubData(u32 /*src*/, u32 /*dst*/, u64 /*srcOff*/, u64 /*dstOff*/, u64 /*size*/) override
+        void CopyBufferSubData(u32 /*src*/, u32 /*dst*/, u64 /*srcOff*/, u64 /*dstOff*/, u64 /*size*/)
         {
             Record("CopyBufferSubData");
         }
-        void ClearBufferUInt(u32 /*bufferID*/, u32 /*value*/) override
+        void ClearBufferUInt(u32 /*bufferID*/, u32 /*value*/)
         {
             Record("ClearBufferUInt");
         }
-        void ClearBufferFloat(u32 /*bufferID*/, f32 /*value*/) override
+        void ClearBufferFloat(u32 /*bufferID*/, f32 /*value*/)
         {
             Record("ClearBufferFloat");
         }
 
-        u32 CreateVertexArray() override
+        u32 CreateVertexArray()
         {
             Record("CreateVertexArray");
             return m_NextVertexArrayID++;
         }
-        void SetVertexArrayIndexBuffer(u32 /*vaoID*/, u32 /*bufferID*/) override
+        void SetVertexArrayIndexBuffer(u32 /*vaoID*/, u32 /*bufferID*/)
         {
             Record("SetVertexArrayIndexBuffer");
         }
-        void DeleteVertexArray(u32 /*vaoID*/) override
+        void DeleteVertexArray(u32 /*vaoID*/)
         {
             Record("DeleteVertexArray");
         }
 
-        void ClearTextureFloat(u32 texID, u32 /*mip*/, const glm::vec4& color) override
+        void ClearTextureFloat(u32 texID, u32 /*mip*/, const glm::vec4& color)
         {
             RecordedCall c{ "ClearTextureFloat" };
             c.ParamU32_0 = texID;
             c.ParamVec4_0 = color;
             m_Calls.push_back(c);
         }
-        void ClearTextureUInt(u32 texID, u32 /*mip*/, u32 value) override
+        void ClearTextureUInt(u32 texID, u32 /*mip*/, u32 value)
         {
             RecordedCall c{ "ClearTextureUInt" };
             c.ParamU32_0 = texID;
@@ -924,18 +1078,18 @@ namespace OloEngine::Testing
             m_Calls.push_back(c);
         }
         void UploadTextureSubImage2D(u32 /*texID*/, i32 /*x*/, i32 /*y*/, u32 /*w*/, u32 /*h*/,
-                                     RHI::Format /*sourceFormat*/, const void* /*data*/) override
+                                     RHI::Format /*sourceFormat*/, const void* /*data*/)
         {
             Record("UploadTextureSubImage2DOffset");
         }
         void UploadTextureSubImage3D(u32 /*texID*/, i32 /*x*/, i32 /*y*/, i32 /*z*/,
                                      u32 /*w*/, u32 /*h*/, u32 /*d*/,
-                                     RHI::Format /*sourceFormat*/, const void* /*data*/) override
+                                     RHI::Format /*sourceFormat*/, const void* /*data*/)
         {
             Record("UploadTextureSubImage3D");
         }
         [[nodiscard("Store this!")]] bool ReadTextureImage(u32 /*texID*/, u32 /*mip*/, RHI::Format /*fmt*/,
-                                                           sizet /*destSizeBytes*/, void* /*dest*/) override
+                                                           sizet /*destSizeBytes*/, void* /*dest*/)
         {
             Record("ReadTextureImage");
             // False, not true: there is no device behind the mock, so `dest` is
@@ -945,12 +1099,12 @@ namespace OloEngine::Testing
         }
         [[nodiscard("Store this!")]] bool ReadTextureSubImage(u32 /*texID*/, u32 /*mip*/, i32 /*x*/, i32 /*y*/, i32 /*z*/,
                                                               u32 /*w*/, u32 /*h*/, u32 /*d*/, RHI::Format /*fmt*/,
-                                                              sizet /*destSizeBytes*/, void* /*dest*/) override
+                                                              sizet /*destSizeBytes*/, void* /*dest*/)
         {
             Record("ReadTextureSubImage");
             return false;
         }
-        void GetTextureDimensions(u32 /*texID*/, u32 /*mip*/, u32& outWidth, u32& outHeight) override
+        void GetTextureDimensions(u32 /*texID*/, u32 /*mip*/, u32& outWidth, u32& outHeight)
         {
             Record("GetTextureDimensions");
             outWidth = m_Viewport.width;
@@ -961,39 +1115,47 @@ namespace OloEngine::Testing
             Record("TextureBarrier");
         }
 
-        void CreateQueries(RHI::QueryType /*type*/, std::span<u32> outQueryIDs) override
+        // Mints real registry entries, like the backend. A test can therefore
+        // assert that a deleted query's handle goes stale — which is the whole
+        // reason queries became identities (issue #691 step 3, item 4).
+        void CreateQueries(RHI::QueryType /*type*/, std::span<RHI::ResourceHandle> outQueries) override
         {
             Record("CreateQueries");
-            for (u32& id : outQueryIDs)
+            for (RHI::ResourceHandle& query : outQueries)
             {
-                id = m_NextQueryID++;
+                query = RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Query, m_NextQueryID++,
+                                                              RHI::Backend::OpenGL);
             }
         }
-        void DeleteQueries(std::span<const u32> /*queryIDs*/) override
+        void DeleteQueries(std::span<const RHI::ResourceHandle> queries) override
         {
             Record("DeleteQueries");
+            for (const RHI::ResourceHandle query : queries)
+            {
+                RHI::ResourceRegistry::Get().Unregister(query);
+            }
         }
-        void BeginQuery(RHI::QueryType /*type*/, u32 queryID) override
+        void BeginQuery(RHI::QueryType /*type*/, RHI::ResourceHandle query) override
         {
             RecordedCall c{ "BeginQuery" };
-            c.ParamU32_0 = queryID;
+            c.ParamU32_0 = Native(query, RHI::ResourceKind::Query);
             m_Calls.push_back(c);
         }
         void EndQuery(RHI::QueryType /*type*/) override
         {
             Record("EndQuery");
         }
-        [[nodiscard("Store this!")]] bool IsQueryResultAvailable(u32 /*queryID*/) override
+        [[nodiscard("Store this!")]] bool IsQueryResultAvailable(RHI::ResourceHandle /*query*/) override
         {
             Record("IsQueryResultAvailable");
             return false;
         }
-        [[nodiscard("Store this!")]] u32 GetQueryResultU32(u32 /*queryID*/) override
+        [[nodiscard("Store this!")]] u32 GetQueryResultU32(RHI::ResourceHandle /*query*/) override
         {
             Record("GetQueryResultU32");
             return 0;
         }
-        [[nodiscard("Store this!")]] u64 GetQueryResultU64(u32 /*queryID*/) override
+        [[nodiscard("Store this!")]] u64 GetQueryResultU64(RHI::ResourceHandle /*query*/) override
         {
             Record("GetQueryResultU64");
             return 0;
@@ -1049,7 +1211,7 @@ namespace OloEngine::Testing
         {
             return 8;
         }
-        void SetProgramUniformFloat(u32 programID, std::string_view /*name*/, f32 value) override
+        void SetProgramUniformFloat(u32 programID, std::string_view /*name*/, f32 value)
         {
             RecordedCall c{ "SetProgramUniformFloat" };
             c.ParamU32_0 = programID;

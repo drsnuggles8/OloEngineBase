@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
@@ -99,7 +100,8 @@ namespace OloEngine
         bool EnsureAutoExposureResources();
         // Run the histogram + average compute passes over the HDR input,
         // leaving the metered exposure in m_ExposureStateBuffer[0].
-        void RunAutoExposureMetering(const RGCommandContext& context, u32 hdrTextureID, u32 width, u32 height);
+        void RunAutoExposureMetering(const RGCommandContext& context, RHI::ResourceHandle hdrTexture,
+                                     u32 width, u32 height);
 
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_PostProcessUBO;

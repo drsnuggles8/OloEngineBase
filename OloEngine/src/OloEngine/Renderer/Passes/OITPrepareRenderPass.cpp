@@ -117,14 +117,14 @@ namespace OloEngine
     void OITPrepareRenderPass::PrepareFramebuffer(const Ref<Framebuffer>& oitFramebuffer,
                                                   const Ref<Framebuffer>& sceneFramebuffer)
     {
-        if (!oitFramebuffer || oitFramebuffer->GetRendererID() == 0)
+        if (!oitFramebuffer || !oitFramebuffer->GetRHIHandle().IsValid())
             return;
 
         const auto& oitSpec = oitFramebuffer->GetSpecification();
         if (oitSpec.Width == 0 || oitSpec.Height == 0)
             return;
 
-        const auto oitFramebufferID = oitFramebuffer->GetRendererID();
+        const auto oitFramebufferID = oitFramebuffer->GetRHIHandle();
         const glm::vec4 accumClear(0.0f, 0.0f, 0.0f, 0.0f);
         RenderCommand::ClearFramebufferColorAttachment(oitFramebufferID, kOITAccumAttachmentIndex, accumClear);
 
@@ -132,13 +132,13 @@ namespace OloEngine
         RenderCommand::ClearFramebufferColorAttachment(oitFramebufferID, kOITRevealageAttachmentIndex, revealageClear);
 
         bool seededFromSceneDepth = false;
-        if (sceneFramebuffer && sceneFramebuffer->GetRendererID() != 0 &&
+        if (sceneFramebuffer && sceneFramebuffer->GetRHIHandle().IsValid() &&
             HasBlitCompatibleDepth(sceneFramebuffer))
         {
             const auto& sceneSpec = sceneFramebuffer->GetSpecification();
             if (sceneSpec.Width == oitSpec.Width && sceneSpec.Height == oitSpec.Height)
             {
-                RenderCommand::BlitFramebuffer(sceneFramebuffer->GetRendererID(), oitFramebufferID,
+                RenderCommand::BlitFramebuffer(sceneFramebuffer->GetRHIHandle(), oitFramebufferID,
                                                0, 0, static_cast<i32>(oitSpec.Width), static_cast<i32>(oitSpec.Height),
                                                0, 0, static_cast<i32>(oitSpec.Width), static_cast<i32>(oitSpec.Height),
                                                RHI::BlitAspect::Depth, RHI::Filter::Nearest);

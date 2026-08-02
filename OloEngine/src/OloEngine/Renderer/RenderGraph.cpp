@@ -201,7 +201,7 @@ namespace OloEngine
                     OLO_CORE_ERROR("BLACKSQUARE HUNT NAN: after pass '{}' {}FB#{} tex#{} has {} NaN channel value(s), first at texel ({}, {})",
                                    passName,
                                    watchLabel ? watchLabel : "target ",
-                                   target->GetRendererID(), colorAttachment,
+                                   target->GetRHIHandle(), colorAttachment,
                                    nanCount,
                                    texel % spec.Width, texel / spec.Width);
                 }
@@ -241,7 +241,7 @@ namespace OloEngine
                         OLO_CORE_ERROR("BLACKSQUARE HUNT: after pass '{}' {}FB#{} tex#{} has a >=64px black block at ({}, {}) [{}x{}]",
                                        passName,
                                        watchLabel ? watchLabel : "target ",
-                                       target->GetRendererID(), colorAttachment,
+                                       target->GetRHIHandle(), colorAttachment,
                                        bx * kBlock, by * kBlock, spec.Width, spec.Height);
                         return; // one report per pass per frame is enough
                     }
@@ -300,7 +300,7 @@ namespace OloEngine
 
         void PoisonTexture(const Ref<Texture>& texture, const TextureSpecification& spec, const PoisonColor& color)
         {
-            if (!texture || texture->GetRendererID() == 0)
+            if (!texture || !texture->GetRHIHandle().IsValid())
                 return;
             // Integer and depth formats take different clear formats and are
             // not implicated in the artifact; skip them.
@@ -308,13 +308,13 @@ namespace OloEngine
                 return;
             const u32 mipLevels = std::max(spec.MipLevels, 1u);
             for (u32 level = 0; level < mipLevels; ++level)
-                RenderCommand::ClearTextureFloat(texture->GetRendererID(), level,
+                RenderCommand::ClearTextureFloat(texture->GetRHIHandle(), level,
                                                  glm::vec4(color.RGBA[0], color.RGBA[1], color.RGBA[2], color.RGBA[3]));
         }
 
         void PoisonBuffer(const Ref<StorageBuffer>& buffer)
         {
-            if (!buffer || buffer->GetRendererID() == 0)
+            if (!buffer || !buffer->GetRHIHandle().IsValid())
                 return;
             // A recognizable huge constant rather than a hue: any consumer
             // reading pool-stale buffer content (exposure/histogram state,
@@ -322,7 +322,7 @@ namespace OloEngine
             // plausibly wrong. NaN would be even louder but risks GPU hangs
             // in indirect-dispatch consumers, so stay finite.
             constexpr f32 kPoisonValue = 1.0e9f;
-            RenderCommand::ClearBufferFloat(buffer->GetRendererID(), kPoisonValue);
+            RenderCommand::ClearBufferFloat(buffer->GetRHIHandle(), kPoisonValue);
         }
 
         void PoisonFramebuffer(const Ref<Framebuffer>& framebuffer, const PoisonColor& color)
@@ -1215,6 +1215,31 @@ namespace OloEngine
         return AllocateTextureHandle(name, textureID, /*isHistory=*/true, importDesc.IsPlaceholder, importDesc.PlaceholderReason);
     }
 
+    RGTextureHandle RenderGraph::ImportHistoryHandle(std::string_view name, RHI::ResourceHandle texture,
+                                                     const RGResourceDesc& desc)
+    {
+        if (!texture.IsValid())
+            return {};
+
+        RGResourceDesc importDesc = desc;
+        importDesc.Imported = true;
+        if (importDesc.Kind == RGResourceHandle::Kind::Unknown)
+            importDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        if (importDesc.DebugName.empty())
+            importDesc.DebugName = std::string(name);
+
+        m_ImportedResources[std::string(name)] = importDesc;
+        m_ResourceRegistryDirty = true;
+
+        // The identity is threaded in as a PARAMETER, not stamped on after the
+        // fact: AllocateTextureHandle's change detection decides whether to
+        // retire prior handles, and a value assigned afterwards is invisible to
+        // it (see the ImportTextureHandle story in
+        // docs/agent-rules/rhi-abstraction-boundary.md).
+        return AllocateTextureHandle(name, 0u, /*isHistory=*/true, importDesc.IsPlaceholder,
+                                     importDesc.PlaceholderReason, texture);
+    }
+
     RGTextureHandle RenderGraph::CreateFramebufferAttachmentView(std::string_view name,
                                                                  const RGFramebufferHandle framebufferHandle,
                                                                  const u32 colorAttachmentIndex)
@@ -1679,12 +1704,49 @@ namespace OloEngine
         if (!slot.Alive || slot.Generation != handle.Generation)
             return {};
 
-        // Attachment views resolve to the framebuffer's own attachment
-        // identities, which migrated in slice 3 — so this path is fully on the
-        // new currency regardless of how the parent was imported.
+        // Views. This mirrors ResolveTexture's branch case for case, and it has
+        // to: with the u32 facade forms gone (item 4) a view that answered the
+        // null handle here would bind NOTHING, where before it fell back to a
+        // native id. `ShadowMapCSMCascade*` is a TextureArrayLayer view, so the
+        // earlier "leave subresource views to the native resolver" shortcut
+        // would have silently unbound every cascade.
         if (const auto viewIt = m_TextureViewDefinitions.find(slot.Name);
             viewIt != m_TextureViewDefinitions.end())
         {
+            const auto isTextureSubresourceView = [](const TextureViewKind kind)
+            {
+                return kind == TextureViewKind::TextureMip ||
+                       kind == TextureViewKind::TextureArrayLayer ||
+                       kind == TextureViewKind::TextureCubeFace;
+            };
+
+            if (viewIt->second.Kind == TextureViewKind::TextureMultisampleResolve)
+            {
+                if (const auto backingIt = m_TextureHandlesByName.find(viewIt->second.BackingResource);
+                    backingIt != m_TextureHandlesByName.end() && IsTextureHandleCurrent(backingIt->second))
+                {
+                    return ResolveTextureHandle(backingIt->second);
+                }
+                return {};
+            }
+
+            // Deliberately the PARENT object, exactly as ResolveTexture does:
+            // a sampler binding wants the whole texture and selects the layer /
+            // face / mip in the shader. A CPU readback does not — see
+            // GetTextureViewLayerIndex's comment.
+            if (isTextureSubresourceView(viewIt->second.Kind))
+            {
+                if (const auto parentIt = m_TextureHandlesByName.find(viewIt->second.ParentResource);
+                    parentIt != m_TextureHandlesByName.end() && IsTextureHandleCurrent(parentIt->second))
+                {
+                    return ResolveTextureHandle(parentIt->second);
+                }
+                return {};
+            }
+
+            // Attachment views resolve to the framebuffer's own attachment
+            // identities, which migrated in slice 3 — so this path is fully on
+            // the new currency regardless of how the parent was imported.
             if (const auto parentIt = m_FramebufferHandlesByName.find(viewIt->second.ParentResource);
                 parentIt != m_FramebufferHandlesByName.end() && IsFramebufferHandleCurrent(parentIt->second))
             {
@@ -1695,10 +1757,6 @@ namespace OloEngine
                     return framebuffer->GetColorAttachmentHandle(viewIt->second.AttachmentIndex);
                 }
             }
-            // Subresource / multisample-resolve views defer to their parent
-            // texture, which the native path walks by name. Those chains are
-            // migrated per resource, so leave them to the native resolver until
-            // their own slice.
             return {};
         }
 
@@ -1979,7 +2037,7 @@ namespace OloEngine
     }
 
     void RenderGraph::RegisterExternalTextureSink(RGTextureHandle sourceHandle,
-                                                  const u32 textureID,
+                                                  const RHI::ResourceHandle texture,
                                                   const u32 width,
                                                   const u32 height,
                                                   bool* const validFlag)
@@ -1991,11 +2049,11 @@ namespace OloEngine
         if (sourceResource.empty())
             return;
 
-        RegisterExternalTextureSink(sourceResource, textureID, width, height, 0u, validFlag);
+        RegisterExternalTextureSink(sourceResource, texture, width, height, 0u, validFlag);
     }
 
     void RenderGraph::RegisterExternalTextureSink(RGFramebufferHandle sourceHandle,
-                                                  const u32 textureID,
+                                                  const RHI::ResourceHandle texture,
                                                   const u32 width,
                                                   const u32 height,
                                                   const u32 colorAttachmentIndex,
@@ -2008,11 +2066,11 @@ namespace OloEngine
         if (sourceResource.empty())
             return;
 
-        RegisterExternalTextureSink(sourceResource, textureID, width, height, colorAttachmentIndex, validFlag);
+        RegisterExternalTextureSink(sourceResource, texture, width, height, colorAttachmentIndex, validFlag);
     }
 
     void RenderGraph::RegisterExternalTextureSink(std::string_view sourceResource,
-                                                  const u32 textureID,
+                                                  const RHI::ResourceHandle texture,
                                                   const u32 width,
                                                   const u32 height,
                                                   const u32 colorAttachmentIndex,
@@ -2023,7 +2081,7 @@ namespace OloEngine
 
         const ExternalTextureSinkKey key{ .SourceResource = std::string(sourceResource), .ColorAttachmentIndex = colorAttachmentIndex };
         m_ExternalTextureSinks[key] = ExternalTextureSink{
-            .TextureID = textureID,
+            .Texture = texture,
             .Width = width,
             .Height = height,
             .ValidFlag = validFlag,
@@ -2074,7 +2132,7 @@ namespace OloEngine
     }
 
     void RenderGraph::RegisterHistoryTextureSink(std::string_view historyResource,
-                                                 const u32 textureID,
+                                                 const RHI::ResourceHandle texture,
                                                  const u32 width,
                                                  const u32 height,
                                                  bool* const validFlag)
@@ -2083,7 +2141,7 @@ namespace OloEngine
             return;
 
         m_HistoryTextureSinks[std::string(historyResource)] = HistoryTextureSink{
-            .TextureID = textureID,
+            .Texture = texture,
             .Width = width,
             .Height = height,
             .ValidFlag = validFlag,
@@ -2249,13 +2307,13 @@ namespace OloEngine
                 continue;
 
             auto& sink = sinkIt->second;
-            if (sink.TextureID == 0 || sink.Width == 0 || sink.Height == 0)
+            if (!sink.Texture.IsValid() || sink.Width == 0 || sink.Height == 0)
                 continue;
 
             if (!diagnoseExtractionResource(contract.SourceResource, "<history-sink>"))
                 continue;
 
-            u32 sourceTextureID = 0;
+            RHI::ResourceHandle sourceTexture{};
             if (contract.Kind == TemporalHistoryContract::SourceKind::Texture)
             {
                 const auto sourceHandle = GetTextureHandle(contract.SourceResource);
@@ -2270,7 +2328,7 @@ namespace OloEngine
                     continue;
                 }
 
-                sourceTextureID = ResolveTexture(sourceHandle);
+                sourceTexture = ResolveTextureHandle(sourceHandle);
             }
             else
             {
@@ -2287,14 +2345,14 @@ namespace OloEngine
                 }
 
                 if (auto sourceFramebuffer = ResolveFramebuffer(sourceHandle))
-                    sourceTextureID = sourceFramebuffer->GetColorAttachmentRendererID(contract.ColorAttachmentIndex);
+                    sourceTexture = sourceFramebuffer->GetColorAttachmentHandle(contract.ColorAttachmentIndex);
             }
 
-            if (sourceTextureID == 0)
+            if (!sourceTexture.IsValid())
                 continue;
 
-            RenderCommand::CopyImageSubData(sourceTextureID, RendererAPI::TextureTargetType::Texture2D,
-                                            sink.TextureID, RendererAPI::TextureTargetType::Texture2D,
+            RenderCommand::CopyImageSubData(sourceTexture, RendererAPI::TextureTargetType::Texture2D,
+                                            sink.Texture, RendererAPI::TextureTargetType::Texture2D,
                                             sink.Width, sink.Height);
             if (sink.ValidFlag)
                 *sink.ValidFlag = true;
@@ -2305,23 +2363,23 @@ namespace OloEngine
             if (sink.ValidFlag)
                 *sink.ValidFlag = false;
 
-            if (sink.TextureID == 0 || sink.Width == 0 || sink.Height == 0)
+            if (!sink.Texture.IsValid() || sink.Width == 0 || sink.Height == 0)
                 continue;
 
             if (!diagnoseExtractionResource(sinkKey.SourceResource, "<external-sink>"))
                 continue;
 
-            u32 sourceTextureID = 0;
+            RHI::ResourceHandle sourceTexture{};
             if (const auto textureHandle = GetTextureHandle(sinkKey.SourceResource);
                 textureHandle.IsValid() && IsTextureHandleCurrent(textureHandle))
             {
-                sourceTextureID = ResolveTexture(textureHandle);
+                sourceTexture = ResolveTextureHandle(textureHandle);
             }
             else if (const auto framebufferHandle = GetFramebufferHandle(sinkKey.SourceResource);
                      framebufferHandle.IsValid() && IsFramebufferHandleCurrent(framebufferHandle))
             {
                 if (auto sourceFramebuffer = ResolveFramebuffer(framebufferHandle))
-                    sourceTextureID = sourceFramebuffer->GetColorAttachmentRendererID(sinkKey.ColorAttachmentIndex);
+                    sourceTexture = sourceFramebuffer->GetColorAttachmentHandle(sinkKey.ColorAttachmentIndex);
             }
             else
             {
@@ -2334,11 +2392,11 @@ namespace OloEngine
                 continue;
             }
 
-            if (sourceTextureID == 0)
+            if (!sourceTexture.IsValid())
                 continue;
 
-            RenderCommand::CopyImageSubData(sourceTextureID, RendererAPI::TextureTargetType::Texture2D,
-                                            sink.TextureID, RendererAPI::TextureTargetType::Texture2D,
+            RenderCommand::CopyImageSubData(sourceTexture, RendererAPI::TextureTargetType::Texture2D,
+                                            sink.Texture, RendererAPI::TextureTargetType::Texture2D,
                                             sink.Width, sink.Height);
             if (sink.ValidFlag)
                 *sink.ValidFlag = true;
@@ -2539,9 +2597,10 @@ namespace OloEngine
 
     RGTextureHandle RenderGraph::DeclareTransientTexture(std::string_view name,
                                                          const RGResourceDesc& desc,
-                                                         const u32 backingTextureID)
+                                                         const u32 backingTextureID,
+                                                         const RHI::ResourceHandle backingTexture)
     {
-        if (backingTextureID == 0)
+        if (backingTextureID == 0 && !backingTexture.IsValid())
             return DeclareTransientTexture(name, desc);
 
         auto handle = AllocateTransientTextureHandle(name, desc);
@@ -2556,6 +2615,7 @@ namespace OloEngine
 
         auto& physicalTexture = m_PhysicalTextures[handle.Index];
         physicalTexture.TextureID = backingTextureID;
+        physicalTexture.Handle = backingTexture;
         physicalTexture.IsHistory = false;
         return handle;
     }
@@ -3596,7 +3656,15 @@ namespace OloEngine
                         texHandleIt != m_TextureHandlesByName.end() &&
                         texHandleIt->second.Index < m_PhysicalTextures.size())
                     {
-                        m_PhysicalTextures[texHandleIt->second.Index].TextureID = sibling ? sibling->GetRendererID() : 0;
+                        // BOTH currencies, like pass 1's acquire. Setting only
+                        // the native id here would leave every ALIASED (unallocated,
+                        // sibling-inheriting) resource resolving to a null identity,
+                        // so a pass reading it through ResolveTextureHandle would
+                        // bind nothing — silently, and only for the aliased half of
+                        // the plan.
+                        auto& phys = m_PhysicalTextures[texHandleIt->second.Index];
+                        phys.TextureID = sibling ? sibling->GetRendererID() : 0;
+                        phys.Handle = sibling ? sibling->GetRHIHandle() : RHI::NullResource;
                     }
                     break;
                 }

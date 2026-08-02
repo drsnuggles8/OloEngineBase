@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/Passes/CommandBufferRenderPass.h"
 #include "OloEngine/Renderer/FluidRenderData.h"
 #include "OloEngine/Renderer/RenderGraph.h"
@@ -614,9 +615,12 @@ namespace OloEngine
         // call site that has the Ref<Texture> in hand — deriving one from the
         // other later is impossible in Renderer/ (native -> handle is not
         // recoverable, and handle -> native may only happen in Platform/).
+        // One currency. The native trio this used to carry alongside the
+        // identities existed only so RenderPipeline could ImportTexture() the
+        // maps into the frame graph; ImportTextureHandle does that now
+        // (issue #691 step 3, item 4).
         static void SetGlobalIBL(RHI::ResourceHandle irradianceMap, RHI::ResourceHandle prefilterMap,
                                  RHI::ResourceHandle brdfLutMap, RHI::ResourceHandle environmentMap,
-                                 u32 irradianceNativeID, u32 prefilterNativeID, u32 brdfLutNativeID,
                                  f32 iblIntensity = 1.0f);
         static void ClearGlobalIBL();
         // Identity forms — what the command layer's bind cache consumes.
@@ -644,18 +648,6 @@ namespace OloEngine
         // docs/agent-rules/rhi-abstraction-boundary.md). Moving the import
         // without moving that reader would silently drop IBL from the deferred
         // path — lit scene, no ambient, no error.
-        [[nodiscard]] static u32 GetGlobalIrradianceMapNativeID()
-        {
-            return s_Data.GlobalIrradianceMapNativeID;
-        }
-        [[nodiscard]] static u32 GetGlobalPrefilterMapNativeID()
-        {
-            return s_Data.GlobalPrefilterMapNativeID;
-        }
-        [[nodiscard]] static u32 GetGlobalBRDFLutMapNativeID()
-        {
-            return s_Data.GlobalBRDFLutMapNativeID;
-        }
         // Nearest wavy water-surface depth captured by WaterRenderPass this frame
         // (0 when no water rendered). Consumed by the underwater-fog stage in the
         // ToneMap pass to find the per-pixel water boundary. See §7.2.
@@ -1545,7 +1537,8 @@ namespace OloEngine
         // them; GetGPUOcclusionPass stays private (only SubmitGPUCulledInstanced
         // uses it).
       public:
-        static GPUFrustumCuller::HZBOcclusionInputs BuildCurrentOcclusionHZB(u32 depthTextureID, u32 width, u32 height);
+        static GPUFrustumCuller::HZBOcclusionInputs BuildCurrentOcclusionHZB(RHI::ResourceHandle depthTexture,
+                                                                             u32 width, u32 height);
         static void DispatchOcclusionPhase2(const GPUFrustumCuller::TwoPhaseCullResult& cull,
                                             const GPUFrustumCuller::HZBOcclusionInputs& currentHZB);
 
@@ -1815,9 +1808,6 @@ namespace OloEngine
             // Native siblings of the three above that RenderPipeline imports
             // into the render graph. Set from the same SetGlobalIBL call so the
             // two spellings cannot describe different textures.
-            u32 GlobalIrradianceMapNativeID = 0;
-            u32 GlobalPrefilterMapNativeID = 0;
-            u32 GlobalBRDFLutMapNativeID = 0;
             f32 GlobalIBLIntensity = 1.0f;
 
             // Nearest water-surface depth texture for underwater fog (§7.2);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
 #include <array>
@@ -203,8 +204,8 @@ namespace OloEngine
             // PCSS blocker search. Plain external GL ids (the views alias the
             // graph-tracked textures above, so they need no separate barrier
             // tracking); 0 when the ShadowMap is uninitialised.
-            u32 ShadowMapCSMRawID = 0;
-            u32 ShadowMapAtlasRawID = 0;
+            RHI::ResourceHandle ShadowMapCSMRawID{};
+            RHI::ResourceHandle ShadowMapAtlasRawID{};
         };
 
         // -----------------------------------------------------------------------

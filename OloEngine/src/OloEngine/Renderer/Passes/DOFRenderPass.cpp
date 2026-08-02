@@ -87,9 +87,9 @@ namespace OloEngine
 
         // Sample-only consumer: input framebuffer is intentionally not
         // resolved here — see ReadFirstValidVersionedInputForPass docs.
-        u32 inputColorTextureID = 0u;
+        RHI::ResourceHandle inputColorTextureID{};
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
-            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+            inputColorTextureID = context.ResolveTextureHandle(inputTextureHandle);
 
         Ref<Framebuffer> outputFramebuffer;
         if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
@@ -103,17 +103,17 @@ namespace OloEngine
             return;
         }
 
-        if (inputColorTextureID == 0u || !outputFramebuffer || !m_DOFShader)
+        if (!inputColorTextureID.IsValid() || !outputFramebuffer || !m_DOFShader)
         {
             m_Target = nullptr;
             return;
         }
 
-        const u32 sceneDepthTextureID = m_SelectedSceneDepthTexture.IsValid()
-                                            ? context.ResolveTexture(m_SelectedSceneDepthTexture)
-                                            : 0u;
+        const RHI::ResourceHandle sceneDepthTextureID = m_SelectedSceneDepthTexture.IsValid()
+                                                            ? context.ResolveTextureHandle(m_SelectedSceneDepthTexture)
+                                                            : RHI::NullResource;
 
-        if (sceneDepthTextureID == 0)
+        if (!sceneDepthTextureID.IsValid())
         {
             m_Target = nullptr;
             return;

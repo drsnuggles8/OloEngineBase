@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/FluidRenderData.h"
@@ -99,16 +100,16 @@ namespace OloEngine
             return !m_FrameDraws.empty();
         }
 
-        // Raw GL id of the smoothed R32F view-depth texture (0 until targets
+        // Identity of the smoothed R32F view-depth texture (null until targets
         // exist). Valid for sampling only when RanThisFrame() is true.
-        [[nodiscard]] u32 GetSmoothedDepthTextureID() const noexcept
+        [[nodiscard]] RHI::ResourceHandle GetSmoothedDepthTextureID() const noexcept
         {
             return m_DepthTexA;
         }
 
-        // Raw GL id of the RG16F thickness texture (r = thickness metres,
+        // Identity of the RG16F thickness texture (r = thickness metres,
         // g = speed-weighted thickness). Same validity contract as above.
-        [[nodiscard]] u32 GetThicknessTextureID() const noexcept
+        [[nodiscard]] RHI::ResourceHandle GetThicknessTextureID() const noexcept
         {
             return m_ThicknessTex;
         }
@@ -158,11 +159,11 @@ namespace OloEngine
 
         u32 m_Width = 0;
         u32 m_Height = 0;
-        u32 m_DepthTexA = 0;    // R32F — splat target + final smoothed result
-        u32 m_DepthTexB = 0;    // R32F — smoothing ping-pong partner
-        u32 m_ThicknessTex = 0; // RG16F — additive thickness accumulation
-        u32 m_SplatZTex = 0;    // DEPTH_COMPONENT32F — nearest-splat z-test
-        u32 m_DepthFBO = 0;     // COLOR0 = m_DepthTexA, DEPTH = m_SplatZTex
-        u32 m_ThicknessFBO = 0; // COLOR0 = m_ThicknessTex
+        RHI::ResourceHandle m_DepthTexA{};    // R32F — splat target + final smoothed result
+        RHI::ResourceHandle m_DepthTexB{};    // R32F — smoothing ping-pong partner
+        RHI::ResourceHandle m_ThicknessTex{}; // RG16F — additive thickness accumulation
+        RHI::ResourceHandle m_SplatZTex{};    // DEPTH_COMPONENT32F — nearest-splat z-test
+        RHI::ResourceHandle m_DepthFBO{};     // COLOR0 = m_DepthTexA, DEPTH = m_SplatZTex
+        RHI::ResourceHandle m_ThicknessFBO{}; // COLOR0 = m_ThicknessTex
     };
 } // namespace OloEngine

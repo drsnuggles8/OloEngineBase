@@ -93,11 +93,6 @@ namespace OloEngine
         RenderCommand::SetDrawBuffers(attachments);
     }
 
-    void RGCommandContext::BindTexture(const u32 slot, const u32 textureID) const
-    {
-        RenderCommand::BindTexture(slot, textureID);
-    }
-
     void RGCommandContext::BindTexture(const u32 slot, const RHI::ResourceHandle texture) const
     {
         RenderCommand::BindTexture(slot, texture);

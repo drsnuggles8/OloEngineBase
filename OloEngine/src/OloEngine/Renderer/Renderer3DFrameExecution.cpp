@@ -89,18 +89,18 @@ namespace OloEngine
         // m_GBuffer` gate so the HZB always samples the depth the ACTIVE path
         // actually wrote this frame.
         const bool deferredActive = (s_Data.Settings.Path == RenderingPath::Deferred);
-        u32 depthTexID = 0;
+        RHI::ResourceHandle depthTex{};
         if (const Ref<GBuffer>& gbuffer = scenePass->GetGBuffer(); deferredActive && gbuffer)
         {
-            depthTexID = gbuffer->GetDepthAttachmentID();
+            depthTex = gbuffer->GetDepthAttachmentHandle();
         }
         else if (Ref<Framebuffer> target = scenePass->GetTarget())
         {
-            depthTexID = target->GetDepthAttachmentRendererID();
+            depthTex = target->GetDepthAttachmentHandle();
         }
 
         const auto& spec = scenePass->GetFramebufferSpecification();
-        if (depthTexID == 0 || spec.Width == 0 || spec.Height == 0)
+        if (!depthTex.IsValid() || spec.Width == 0 || spec.Height == 0)
         {
             s_Data.OcclusionHZBValid = false;
             return;
@@ -116,16 +116,17 @@ namespace OloEngine
             return;
         }
 
-        s_Data.OcclusionHZB.Generate(depthTexID);
+        s_Data.OcclusionHZB.Generate(depthTex);
         // Valid from here on — next frame's instance cull may sample it.
         s_Data.OcclusionHZBValid = true;
     }
 
-    GPUFrustumCuller::HZBOcclusionInputs Renderer3D::BuildCurrentOcclusionHZB(u32 depthTextureID, u32 width, u32 height)
+    GPUFrustumCuller::HZBOcclusionInputs Renderer3D::BuildCurrentOcclusionHZB(RHI::ResourceHandle depthTexture,
+                                                                              u32 width, u32 height)
     {
         GPUFrustumCuller::HZBOcclusionInputs inputs; // Enabled = false by default
 
-        if (depthTextureID == 0 || width == 0 || height == 0)
+        if (!depthTexture.IsValid() || width == 0 || height == 0)
             return inputs;
 
         // Rebuild the persistent pyramid from THIS frame's partial depth
@@ -136,10 +137,10 @@ namespace OloEngine
         s_Data.OcclusionHZB.Resize(width, height);
         if (!s_Data.OcclusionHZB.IsValid())
             return inputs;
-        s_Data.OcclusionHZB.Generate(depthTextureID);
+        s_Data.OcclusionHZB.Generate(depthTexture);
 
         inputs.Enabled = true;
-        inputs.HZBTextureID = s_Data.OcclusionHZB.GetHZBTextureID();
+        inputs.HZBTexture = s_Data.OcclusionHZB.GetHZBTexture();
         inputs.MipCount = s_Data.OcclusionHZB.GetMipCount();
         // Current-frame pyramid → reproject phase-2 bounds with the CURRENT VP.
         inputs.PrevViewProjection = s_Data.ViewProjectionMatrix;
@@ -162,7 +163,7 @@ namespace OloEngine
             return inputs;
 
         inputs.Enabled = true;
-        inputs.HZBTextureID = s_Data.OcclusionHZB.GetHZBTextureID();
+        inputs.HZBTexture = s_Data.OcclusionHZB.GetHZBTexture();
         inputs.MipCount = s_Data.OcclusionHZB.GetMipCount();
         // The pyramid is in LAST frame's screen space; the transforms the cull
         // reads are shifted by THIS frame's render origin, so the previous VP has

@@ -97,9 +97,11 @@ TEST(FluidRenderMath, FluidRenderDataTriviallyCopyable)
 TEST(FluidRenderMath, FluidRenderDataMemcpyRoundTrip)
 {
     FluidRenderData source{};
-    source.PositionsSSBOId = 101u;
-    source.VelocitiesSSBOId = 102u;
-    source.CountersSSBOId = 103u;
+    // Synthetic identities. A literal 0 here would mean ABSENT, not "slot 0" —
+    // see the TestHandle story in docs/agent-rules/rhi-abstraction-boundary.md.
+    source.PositionsSSBOId = RHI::ResourceHandle{ 101u, 1u };
+    source.VelocitiesSSBOId = RHI::ResourceHandle{ 102u, 1u };
+    source.CountersSSBOId = RHI::ResourceHandle{ 103u, 1u };
     source.ParticleUpperBound = 65536u;
     source.ParticleRadius = 0.075f;
     source.Tint = glm::vec3(0.2f, 0.55f, 0.9f);
@@ -116,7 +118,7 @@ TEST(FluidRenderMath, FluidRenderDataMemcpyRoundTrip)
 
     EXPECT_EQ(std::memcmp(&source, &copy, sizeof(FluidRenderData)), 0)
         << "byte-exact round-trip through a staging buffer";
-    EXPECT_EQ(copy.PositionsSSBOId, 101u);
+    EXPECT_EQ(copy.PositionsSSBOId, (RHI::ResourceHandle{ 101u, 1u }));
     EXPECT_EQ(copy.ParticleUpperBound, 65536u);
     EXPECT_EQ(copy.EntityID, 42);
 }

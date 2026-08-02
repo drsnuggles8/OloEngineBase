@@ -77,10 +77,10 @@ namespace OloEngine
     }
 
     void MorphTargetEvaluator::EvaluateGPU(
-        u32 baseVertexSSBO,
-        u32 morphDeltaSSBO,
-        u32 weightsSSBO,
-        u32 outputVertexSSBO,
+        RHI::ResourceHandle baseVertexSSBO,
+        RHI::ResourceHandle morphDeltaSSBO,
+        RHI::ResourceHandle weightsSSBO,
+        RHI::ResourceHandle outputVertexSSBO,
         u32 vertexCount,
         [[maybe_unused]] u32 targetCount)
     {
@@ -108,9 +108,9 @@ namespace OloEngine
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
 
         // Unbind SSBOs
-        RenderCommand::BindStorageBuffer(0, 0);
-        RenderCommand::BindStorageBuffer(1, 0);
-        RenderCommand::BindStorageBuffer(2, 0);
-        RenderCommand::BindStorageBuffer(3, 0);
+        RenderCommand::BindStorageBuffer(0, RHI::NullResource);
+        RenderCommand::BindStorageBuffer(1, RHI::NullResource);
+        RenderCommand::BindStorageBuffer(2, RHI::NullResource);
+        RenderCommand::BindStorageBuffer(3, RHI::NullResource);
     }
 } // namespace OloEngine

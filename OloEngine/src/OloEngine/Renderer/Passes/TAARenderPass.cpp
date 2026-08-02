@@ -103,37 +103,37 @@ namespace OloEngine
 
         // Sample-only consumer: input framebuffer is intentionally not
         // resolved here — see ReadFirstValidVersionedInputForPass docs.
-        u32 inputColorTextureID = 0u;
+        RHI::ResourceHandle inputColorTextureID{};
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
-            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+            inputColorTextureID = context.ResolveTextureHandle(inputTextureHandle);
 
         Ref<Framebuffer> outputFramebuffer;
-        u32 sceneDepthTextureID = 0;
-        u32 velocityTextureID = 0;
-        u32 historyTextureID = 0;
+        RHI::ResourceHandle sceneDepthTextureID{};
+        RHI::ResourceHandle velocityTextureID{};
+        RHI::ResourceHandle historyTextureID{};
         if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
             if (auto resolvedOutput = context.ResolveFramebuffer(outputHandle))
                 outputFramebuffer = resolvedOutput;
         }
         if (m_SelectedSceneDepthTexture.IsValid())
-            sceneDepthTextureID = context.ResolveTexture(m_SelectedSceneDepthTexture);
+            sceneDepthTextureID = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
         if (m_SelectedVelocityTexture.IsValid())
-            velocityTextureID = context.ResolveTexture(m_SelectedVelocityTexture);
+            velocityTextureID = context.ResolveTextureHandle(m_SelectedVelocityTexture);
         if (m_SelectedHistoryTexture.IsValid())
-            historyTextureID = context.ResolveTexture(m_SelectedHistoryTexture);
+            historyTextureID = context.ResolveTextureHandle(m_SelectedHistoryTexture);
         if (!m_Enabled)
         {
             m_Target = nullptr;
             return;
         }
 
-        if (inputColorTextureID == 0u || !outputFramebuffer || !m_TAAShader || !m_TAAUBO)
+        if (!inputColorTextureID.IsValid() || !outputFramebuffer || !m_TAAShader || !m_TAAUBO)
         {
             m_Target = nullptr;
             return;
         }
-        if (sceneDepthTextureID == 0)
+        if (!sceneDepthTextureID.IsValid())
         {
             m_Target = nullptr;
             return;
@@ -165,7 +165,7 @@ namespace OloEngine
         context.BindTexture(0, inputColorTextureID);
         m_TAAShader->SetInt("u_Current", 0);
 
-        const u32 historyID = historyTextureID != 0 ? historyTextureID : inputColorTextureID;
+        const RHI::ResourceHandle historyID = historyTextureID.IsValid() ? historyTextureID : inputColorTextureID;
         context.BindTexture(1, historyID);
         m_TAAShader->SetInt("u_History", 1);
 
@@ -179,7 +179,7 @@ namespace OloEngine
         taaData.FeedbackSharpnessHasVelocity = glm::vec4(
             m_Settings.TAAFeedback,
             m_Settings.TAASharpness,
-            velocityTextureID != 0 ? 1.0f : 0.0f,
+            velocityTextureID.IsValid() ? 1.0f : 0.0f,
             0.0f);
         taaData.TexelSize = glm::vec4(
             1.0f / static_cast<f32>(outSpec.Width),

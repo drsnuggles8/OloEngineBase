@@ -67,31 +67,6 @@ namespace OloEngine
             s_RendererAPI->DrawIndexedPatches(vertexArray, indexCount, patchVertices);
         }
 
-        // Raw VAO ID overloads for POD shadow casters
-        static void DrawIndexedRaw(u32 vaoID, u32 indexCount)
-        {
-            s_RendererAPI->DrawIndexedRaw(vaoID, indexCount);
-        }
-
-        // baseIndex variant — required for submeshes that share a combined IBO
-        // with their siblings (Sponza-style multi-submesh static models).
-        static void DrawIndexedRaw(u32 vaoID, u32 indexCount, u32 baseIndex)
-        {
-            s_RendererAPI->DrawIndexedRaw(vaoID, indexCount, baseIndex);
-        }
-
-        // Instanced raw variant — used by shadow caster auto-batching to collapse
-        // N casters sharing (vao, indexCount, baseIndex) into one GPU draw.
-        static void DrawIndexedInstancedRaw(u32 vaoID, u32 indexCount, u32 baseIndex, u32 instanceCount)
-        {
-            s_RendererAPI->DrawIndexedInstancedRaw(vaoID, indexCount, baseIndex, instanceCount);
-        }
-
-        static void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices)
-        {
-            s_RendererAPI->DrawIndexedPatchesRaw(vaoID, indexCount, patchVertices);
-        }
-
         static void SetLineWidth(const f32 width)
         {
             s_RendererAPI->SetLineWidth(width);
@@ -225,9 +200,9 @@ namespace OloEngine
             s_RendererAPI->BindDefaultFramebuffer();
         }
 
-        static void BlitFramebufferToDefault(u32 srcFboID, u32 width, u32 height)
+        static void BlitFramebufferToDefault(RHI::ResourceHandle srcFramebuffer, u32 width, u32 height)
         {
-            s_RendererAPI->BlitFramebufferToDefault(srcFboID, width, height);
+            s_RendererAPI->BlitFramebufferToDefault(srcFramebuffer, width, height);
         }
 
         static void BindTexture(u32 slot, RHI::ResourceHandle texture)
@@ -235,21 +210,10 @@ namespace OloEngine
             s_RendererAPI->BindTexture(slot, texture);
         }
 
-        static void BindTexture(u32 slot, u32 textureID)
-        {
-            s_RendererAPI->BindTexture(slot, textureID);
-        }
-
         static void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
                                      u32 layer, RHI::Access access, RHI::Format format)
         {
             s_RendererAPI->BindImageTexture(unit, texture, mipLevel, layered, layer, access, format);
-        }
-
-        static void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer,
-                                     RHI::Access access, RHI::Format format)
-        {
-            s_RendererAPI->BindImageTexture(unit, textureID, mipLevel, layered, layer, access, format);
         }
 
         static void SetPolygonOffset(f32 factor, f32 units)
@@ -278,21 +242,21 @@ namespace OloEngine
         }
 
         // Indirect draw calls (GPU-driven rendering)
-        static void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID)
+        static void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer)
         {
-            s_RendererAPI->DrawElementsIndirect(vertexArray, indirectBufferID);
+            s_RendererAPI->DrawElementsIndirect(vertexArray, indirectBuffer);
         }
 
-        static void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID)
+        static void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer)
         {
-            s_RendererAPI->DrawArraysIndirect(vertexArray, indirectBufferID);
+            s_RendererAPI->DrawArraysIndirect(vertexArray, indirectBuffer);
         }
 
-        // Raw-VAO variant used by the GPU frustum-cull path that only has a
-        // RendererID (no Ref<VertexArray> on hand inside the dispatcher).
-        static void DrawBoundElementsIndirect(u32 indirectBufferID)
+        // Draws from the ALREADY-BOUND vertex array — used by the GPU
+        // frustum-cull path, whose caller has just run BindVAOIfNeeded.
+        static void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer)
         {
-            s_RendererAPI->DrawBoundElementsIndirect(indirectBufferID);
+            s_RendererAPI->DrawBoundElementsIndirect(indirectBuffer);
         }
 
         static void DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 patchVertices)
@@ -317,12 +281,13 @@ namespace OloEngine
         }
 
         // Multi-draw indirect with a GPU-sourced draw count (core GL 4.6, issue #629).
-        static void MultiDrawElementsIndirectCountRaw(u32 vaoID, u32 indirectBufferID, u32 indirectOffsetBytes,
-                                                      u32 parameterBufferID, u32 parameterOffsetBytes,
+        static void MultiDrawElementsIndirectCountRaw(RHI::ResourceHandle vertexArray,
+                                                      RHI::ResourceHandle indirectBuffer, u32 indirectOffsetBytes,
+                                                      RHI::ResourceHandle parameterBuffer, u32 parameterOffsetBytes,
                                                       u32 maxDrawCount, u32 strideBytes)
         {
-            s_RendererAPI->MultiDrawElementsIndirectCountRaw(vaoID, indirectBufferID, indirectOffsetBytes,
-                                                             parameterBufferID, parameterOffsetBytes,
+            s_RendererAPI->MultiDrawElementsIndirectCountRaw(vertexArray, indirectBuffer, indirectOffsetBytes,
+                                                             parameterBuffer, parameterOffsetBytes,
                                                              maxDrawCount, strideBytes);
         }
 
@@ -348,14 +313,7 @@ namespace OloEngine
             s_RendererAPI->SetBlendFuncForAttachment(attachment, src, dst);
         }
 
-        // GPU-side image copy
-        static void CopyImageSubData(u32 srcID, RendererAPI::TextureTargetType srcTarget, u32 dstID, RendererAPI::TextureTargetType dstTarget,
-                                     u32 width, u32 height)
-        {
-            s_RendererAPI->CopyImageSubData(srcID, srcTarget, dstID, dstTarget, width, height);
-        }
-
-        // Handle form — both operands together (issue #691 step 3, slice 5).
+        // GPU-side image copy — both operands together (issue #691 step 3, slice 5).
         static void CopyImageSubData(RHI::ResourceHandle src, RendererAPI::TextureTargetType srcTarget,
                                      RHI::ResourceHandle dst, RendererAPI::TextureTargetType dstTarget,
                                      u32 width, u32 height)
@@ -363,17 +321,8 @@ namespace OloEngine
             s_RendererAPI->CopyImageSubData(src, srcTarget, dst, dstTarget, width, height);
         }
 
-        // Full image copy with source/dest z offsets (cubemap face copies)
-        static void CopyImageSubDataFull(u32 srcID, RendererAPI::TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
-                                         u32 dstID, RendererAPI::TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
-                                         u32 width, u32 height)
-        {
-            s_RendererAPI->CopyImageSubDataFull(srcID, srcTarget, srcLevel, srcZ,
-                                                dstID, dstTarget, dstLevel, dstZ,
-                                                width, height);
-        }
-
-        // Handle form — both operands together (issue #691 step 3, slice 5).
+        // Full image copy with source/dest z offsets (cubemap face copies).
+        // Both operands together (issue #691 step 3, slice 5).
         static void CopyImageSubDataFull(RHI::ResourceHandle src, RendererAPI::TextureTargetType srcTarget,
                                          i32 srcLevel, i32 srcZ,
                                          RHI::ResourceHandle dst, RendererAPI::TextureTargetType dstTarget,
@@ -386,9 +335,9 @@ namespace OloEngine
         }
 
         // Copy from currently-bound READ framebuffer to a named texture
-        static void CopyFramebufferToTexture(u32 textureID, u32 width, u32 height)
+        static void CopyFramebufferToTexture(RHI::ResourceHandle texture, u32 width, u32 height)
         {
-            s_RendererAPI->CopyFramebufferToTexture(textureID, width, height);
+            s_RendererAPI->CopyFramebufferToTexture(texture, width, height);
         }
 
         // Draw buffer control
@@ -403,21 +352,6 @@ namespace OloEngine
         }
 
         // Texture lifecycle
-        static u32 CreateTexture2D(u32 width, u32 height, RHI::Format internalFormat)
-        {
-            return s_RendererAPI->CreateTexture2D(width, height, internalFormat);
-        }
-
-        static u32 CreateTextureCubemap(u32 width, u32 height, RHI::Format internalFormat)
-        {
-            return s_RendererAPI->CreateTextureCubemap(width, height, internalFormat);
-        }
-
-        static u32 CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers)
-        {
-            return s_RendererAPI->CreateDepthArrayCompareOffView(srcTextureID, numLayers);
-        }
-
         [[nodiscard]] static RHI::ResourceHandle CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture,
                                                                                       u32 numLayers)
         {
@@ -437,31 +371,11 @@ namespace OloEngine
         {
             s_RendererAPI->UploadTextureSubImage2D(texture, width, height, sourceFormat, data);
         }
-        static void SetTextureFilter(u32 textureID, RHI::Filter minFilter, RHI::Filter magFilter)
-        {
-            s_RendererAPI->SetTextureFilter(textureID, minFilter, magFilter);
-        }
-
-        static void SetTextureWrap(u32 textureID, RHI::AddressMode wrap)
-        {
-            s_RendererAPI->SetTextureWrap(textureID, wrap);
-        }
-
-        static void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
-                                            RHI::Format sourceFormat, const void* data)
-        {
-            s_RendererAPI->UploadTextureSubImage2D(textureID, width, height, sourceFormat, data);
-        }
-
-        static void DeleteTexture(u32 textureID)
-        {
-            s_RendererAPI->DeleteTexture(textureID);
-        }
 
         // Conditional rendering (occlusion query driven)
-        static void BeginConditionalRender(u32 queryID)
+        static void BeginConditionalRender(RHI::ResourceHandle query)
         {
-            s_RendererAPI->BeginConditionalRender(queryID);
+            s_RendererAPI->BeginConditionalRender(query);
         }
 
         static void EndConditionalRender()
@@ -499,19 +413,9 @@ namespace OloEngine
             s_RendererAPI->BindUniformBuffer(bindingPoint, buffer);
         }
 
-        static void BindUniformBuffer(u32 bindingPoint, u32 bufferID)
-        {
-            s_RendererAPI->BindUniformBuffer(bindingPoint, bufferID);
-        }
-
         static void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
         {
             s_RendererAPI->BindStorageBuffer(bindingPoint, buffer);
-        }
-
-        static void BindStorageBuffer(u32 bindingPoint, u32 bufferID)
-        {
-            s_RendererAPI->BindStorageBuffer(bindingPoint, bufferID);
         }
 
         static void BindShaderProgram(RHI::ResourceHandle program)
@@ -519,29 +423,14 @@ namespace OloEngine
             s_RendererAPI->BindShaderProgram(program);
         }
 
-        static void BindShaderProgram(u32 programID)
-        {
-            s_RendererAPI->BindShaderProgram(programID);
-        }
-
         static void BindVertexArrayRaw(RHI::ResourceHandle vertexArray)
         {
             s_RendererAPI->BindVertexArrayRaw(vertexArray);
         }
 
-        static void BindVertexArrayRaw(u32 vaoID)
-        {
-            s_RendererAPI->BindVertexArrayRaw(vaoID);
-        }
-
         static void BindFramebuffer(RHI::ResourceHandle framebuffer)
         {
             s_RendererAPI->BindFramebuffer(framebuffer);
-        }
-
-        static void BindFramebuffer(u32 framebufferID)
-        {
-            s_RendererAPI->BindFramebuffer(framebufferID);
         }
 
         static void DrawBoundIndexed(RHI::PrimitiveTopology topology, u32 indexCount,
@@ -583,123 +472,106 @@ namespace OloEngine
         }
 
         // Named framebuffers
-        static u32 CreateFramebuffer()
+        static void AttachFramebufferColorTexture(RHI::ResourceHandle framebuffer, u32 attachmentIndex,
+                                                  RHI::ResourceHandle texture, u32 mipLevel = 0)
         {
-            return s_RendererAPI->CreateFramebuffer();
+            s_RendererAPI->AttachFramebufferColorTexture(framebuffer, attachmentIndex, texture, mipLevel);
         }
 
-        static void DeleteFramebuffer(u32 framebufferID)
+        static void AttachFramebufferDepthTexture(RHI::ResourceHandle framebuffer, RHI::ResourceHandle texture,
+                                                  u32 mipLevel = 0)
         {
-            s_RendererAPI->DeleteFramebuffer(framebufferID);
+            s_RendererAPI->AttachFramebufferDepthTexture(framebuffer, texture, mipLevel);
         }
 
-        static void AttachFramebufferColorTexture(u32 framebufferID, u32 attachmentIndex,
-                                                  u32 textureID, u32 mipLevel = 0)
+        [[nodiscard("Store this!")]] static bool IsFramebufferComplete(RHI::ResourceHandle framebuffer)
         {
-            s_RendererAPI->AttachFramebufferColorTexture(framebufferID, attachmentIndex, textureID, mipLevel);
+            return s_RendererAPI->IsFramebufferComplete(framebuffer);
         }
 
-        static void AttachFramebufferDepthTexture(u32 framebufferID, u32 textureID, u32 mipLevel = 0)
+        static void SetFramebufferDrawAttachments(RHI::ResourceHandle framebuffer,
+                                                  std::span<const u32> attachmentIndices)
         {
-            s_RendererAPI->AttachFramebufferDepthTexture(framebufferID, textureID, mipLevel);
+            s_RendererAPI->SetFramebufferDrawAttachments(framebuffer, attachmentIndices);
         }
 
-        [[nodiscard("Store this!")]] static bool IsFramebufferComplete(u32 framebufferID)
+        static void RestoreAllFramebufferDrawAttachments(RHI::ResourceHandle framebuffer, u32 colorAttachmentCount)
         {
-            return s_RendererAPI->IsFramebufferComplete(framebufferID);
+            s_RendererAPI->RestoreAllFramebufferDrawAttachments(framebuffer, colorAttachmentCount);
         }
 
-        static void SetFramebufferDrawAttachments(u32 framebufferID, std::span<const u32> attachmentIndices)
+        static void SetFramebufferReadAttachment(RHI::ResourceHandle framebuffer, u32 attachmentIndex)
         {
-            s_RendererAPI->SetFramebufferDrawAttachments(framebufferID, attachmentIndices);
+            s_RendererAPI->SetFramebufferReadAttachment(framebuffer, attachmentIndex);
         }
 
-        static void RestoreAllFramebufferDrawAttachments(u32 framebufferID, u32 colorAttachmentCount)
+        static void ClearFramebufferColorAttachment(RHI::ResourceHandle framebuffer, u32 attachmentIndex,
+                                                    const glm::vec4& color)
         {
-            s_RendererAPI->RestoreAllFramebufferDrawAttachments(framebufferID, colorAttachmentCount);
+            s_RendererAPI->ClearFramebufferColorAttachment(framebuffer, attachmentIndex, color);
         }
 
-        static void SetFramebufferReadAttachment(u32 framebufferID, u32 attachmentIndex)
+        static void ClearFramebufferDepth(RHI::ResourceHandle framebuffer, f32 depth)
         {
-            s_RendererAPI->SetFramebufferReadAttachment(framebufferID, attachmentIndex);
+            s_RendererAPI->ClearFramebufferDepth(framebuffer, depth);
         }
 
-        static void ClearFramebufferColorAttachment(u32 framebufferID, u32 attachmentIndex, const glm::vec4& color)
-        {
-            s_RendererAPI->ClearFramebufferColorAttachment(framebufferID, attachmentIndex, color);
-        }
-
-        static void ClearFramebufferDepth(u32 framebufferID, f32 depth)
-        {
-            s_RendererAPI->ClearFramebufferDepth(framebufferID, depth);
-        }
-
-        static void BlitFramebuffer(u32 srcFramebufferID, u32 dstFramebufferID,
+        // RHI::NullResource on either side is the DEFAULT framebuffer.
+        static void BlitFramebuffer(RHI::ResourceHandle srcFramebuffer, RHI::ResourceHandle dstFramebuffer,
                                     i32 srcX0, i32 srcY0, i32 srcX1, i32 srcY1,
                                     i32 dstX0, i32 dstY0, i32 dstX1, i32 dstY1,
                                     RHI::BlitAspect aspect, RHI::Filter filter = RHI::Filter::Nearest)
         {
-            s_RendererAPI->BlitFramebuffer(srcFramebufferID, dstFramebufferID,
+            s_RendererAPI->BlitFramebuffer(srcFramebuffer, dstFramebuffer,
                                            srcX0, srcY0, srcX1, srcY1,
                                            dstX0, dstY0, dstX1, dstY1, aspect, filter);
         }
 
         // Raw buffers
-        static u32 CreateBuffer()
+        static void AllocateBufferStorage(RHI::ResourceHandle buffer, u64 sizeBytes, RHI::MemoryResidency residency)
         {
-            return s_RendererAPI->CreateBuffer();
+            s_RendererAPI->AllocateBufferStorage(buffer, sizeBytes, residency);
         }
 
-        static void DeleteBuffer(u32 bufferID)
+        static void* AllocatePersistentUploadStorage(RHI::ResourceHandle buffer, u64 sizeBytes)
         {
-            s_RendererAPI->DeleteBuffer(bufferID);
+            return s_RendererAPI->AllocatePersistentUploadStorage(buffer, sizeBytes);
         }
 
-        static void AllocateBufferStorage(u32 bufferID, u64 sizeBytes, RHI::MemoryResidency residency)
+        static void UnmapBuffer(RHI::ResourceHandle buffer)
         {
-            s_RendererAPI->AllocateBufferStorage(bufferID, sizeBytes, residency);
+            s_RendererAPI->UnmapBuffer(buffer);
         }
 
-        static void* AllocatePersistentUploadStorage(u32 bufferID, u64 sizeBytes)
+        static void UploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, const void* data)
         {
-            return s_RendererAPI->AllocatePersistentUploadStorage(bufferID, sizeBytes);
+            s_RendererAPI->UploadBufferSubData(buffer, offsetBytes, sizeBytes, data);
         }
 
-        static void UnmapBuffer(u32 bufferID)
+        static void ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest)
         {
-            s_RendererAPI->UnmapBuffer(bufferID);
+            s_RendererAPI->ReadBufferSubData(buffer, offsetBytes, sizeBytes, dest);
         }
 
-        static void UploadBufferSubData(u32 bufferID, u64 offsetBytes, u64 sizeBytes, const void* data)
-        {
-            s_RendererAPI->UploadBufferSubData(bufferID, offsetBytes, sizeBytes, data);
-        }
-
-        static void ReadBufferSubData(u32 bufferID, u64 offsetBytes, u64 sizeBytes, void* dest)
-        {
-            s_RendererAPI->ReadBufferSubData(bufferID, offsetBytes, sizeBytes, dest);
-        }
-
-        static void CopyBufferSubData(u32 srcBufferID, u32 dstBufferID,
+        static void CopyBufferSubData(RHI::ResourceHandle srcBuffer, RHI::ResourceHandle dstBuffer,
                                       u64 srcOffsetBytes, u64 dstOffsetBytes, u64 sizeBytes)
         {
-            s_RendererAPI->CopyBufferSubData(srcBufferID, dstBufferID, srcOffsetBytes, dstOffsetBytes, sizeBytes);
+            s_RendererAPI->CopyBufferSubData(srcBuffer, dstBuffer, srcOffsetBytes, dstOffsetBytes, sizeBytes);
         }
 
-        static void ClearBufferUInt(u32 bufferID, u32 value)
+        static void ClearBufferUInt(RHI::ResourceHandle buffer, u32 value)
         {
-            s_RendererAPI->ClearBufferUInt(bufferID, value);
+            s_RendererAPI->ClearBufferUInt(buffer, value);
         }
 
-        static void ClearBufferFloat(u32 bufferID, f32 value)
+        static void ClearBufferFloat(RHI::ResourceHandle buffer, f32 value)
         {
-            s_RendererAPI->ClearBufferFloat(bufferID, value);
+            s_RendererAPI->ClearBufferFloat(buffer, value);
         }
 
-        // Vertex arrays
-        // Handle-returning raw creators (issue #691 step 3, slice 4). Siblings of
-        // the u32 forms above; the final slice deletes those and takes the names
-        // back. Delete* are overloads because their parameter differs.
+        // The resource creators (issue #691 step 3, slice 4; the u32 siblings
+        // they were added beside are gone as of item 4). Each Delete* both
+        // destroys the object and retires its identity.
         [[nodiscard]] static RHI::ResourceHandle CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat)
         {
             return s_RendererAPI->CreateTexture2DHandle(width, height, internalFormat);
@@ -736,57 +608,35 @@ namespace OloEngine
         {
             s_RendererAPI->DeleteVertexArray(vertexArray);
         }
-        static u32 CreateVertexArray()
+        static void SetVertexArrayIndexBuffer(RHI::ResourceHandle vertexArray, RHI::ResourceHandle indexBuffer)
         {
-            return s_RendererAPI->CreateVertexArray();
-        }
-
-        static void SetVertexArrayIndexBuffer(u32 vaoID, u32 bufferID)
-        {
-            s_RendererAPI->SetVertexArrayIndexBuffer(vaoID, bufferID);
-        }
-
-        static void DeleteVertexArray(u32 vaoID)
-        {
-            s_RendererAPI->DeleteVertexArray(vaoID);
+            s_RendererAPI->SetVertexArrayIndexBuffer(vertexArray, indexBuffer);
         }
 
         // Texture clear / upload / readback
-        static void ClearTextureFloat(u32 textureID, u32 mipLevel, const glm::vec4& color)
-        {
-            s_RendererAPI->ClearTextureFloat(textureID, mipLevel, color);
-        }
-
         static void ClearTextureFloat(RHI::ResourceHandle texture, u32 mipLevel, const glm::vec4& color)
         {
             s_RendererAPI->ClearTextureFloat(texture, mipLevel, color);
         }
 
-        static void ClearTextureUInt(u32 textureID, u32 mipLevel, u32 value)
+        static void ClearTextureUInt(RHI::ResourceHandle texture, u32 mipLevel, u32 value)
         {
-            s_RendererAPI->ClearTextureUInt(textureID, mipLevel, value);
+            s_RendererAPI->ClearTextureUInt(texture, mipLevel, value);
         }
 
-        static void UploadTextureSubImage2D(u32 textureID, i32 xOffset, i32 yOffset,
+        static void UploadTextureSubImage2D(RHI::ResourceHandle texture, i32 xOffset, i32 yOffset,
                                             u32 width, u32 height,
                                             RHI::Format sourceFormat, const void* data)
         {
-            s_RendererAPI->UploadTextureSubImage2D(textureID, xOffset, yOffset, width, height, sourceFormat, data);
+            s_RendererAPI->UploadTextureSubImage2D(texture, xOffset, yOffset, width, height, sourceFormat, data);
         }
 
-        static void UploadTextureSubImage3D(u32 textureID, i32 xOffset, i32 yOffset, i32 zOffset,
+        static void UploadTextureSubImage3D(RHI::ResourceHandle texture, i32 xOffset, i32 yOffset, i32 zOffset,
                                             u32 width, u32 height, u32 depth,
                                             RHI::Format sourceFormat, const void* data)
         {
-            s_RendererAPI->UploadTextureSubImage3D(textureID, xOffset, yOffset, zOffset,
+            s_RendererAPI->UploadTextureSubImage3D(texture, xOffset, yOffset, zOffset,
                                                    width, height, depth, sourceFormat, data);
-        }
-
-        [[nodiscard("Store this!")]] static bool ReadTextureImage(u32 textureID, u32 mipLevel,
-                                                                  RHI::Format destFormat,
-                                                                  sizet destSizeBytes, void* dest)
-        {
-            return s_RendererAPI->ReadTextureImage(textureID, mipLevel, destFormat, destSizeBytes, dest);
         }
 
         [[nodiscard("Store this!")]] static bool ReadTextureImage(RHI::ResourceHandle texture, u32 mipLevel,
@@ -794,16 +644,6 @@ namespace OloEngine
                                                                   sizet destSizeBytes, void* dest)
         {
             return s_RendererAPI->ReadTextureImage(texture, mipLevel, destFormat, destSizeBytes, dest);
-        }
-
-        [[nodiscard("Store this!")]] static bool ReadTextureSubImage(u32 textureID, u32 mipLevel,
-                                                                     i32 x, i32 y, i32 z,
-                                                                     u32 width, u32 height, u32 depth,
-                                                                     RHI::Format destFormat,
-                                                                     sizet destSizeBytes, void* dest)
-        {
-            return s_RendererAPI->ReadTextureSubImage(textureID, mipLevel, x, y, z, width, height, depth,
-                                                      destFormat, destSizeBytes, dest);
         }
 
         [[nodiscard("Store this!")]] static bool ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel,
@@ -816,9 +656,9 @@ namespace OloEngine
                                                       destFormat, destSizeBytes, dest);
         }
 
-        static void GetTextureDimensions(u32 textureID, u32 mipLevel, u32& outWidth, u32& outHeight)
+        static void GetTextureDimensions(RHI::ResourceHandle texture, u32 mipLevel, u32& outWidth, u32& outHeight)
         {
-            s_RendererAPI->GetTextureDimensions(textureID, mipLevel, outWidth, outHeight);
+            s_RendererAPI->GetTextureDimensions(texture, mipLevel, outWidth, outHeight);
         }
 
         static void TextureBarrier()
@@ -827,19 +667,19 @@ namespace OloEngine
         }
 
         // Queries
-        static void CreateQueries(RHI::QueryType type, std::span<u32> outQueryIDs)
+        static void CreateQueries(RHI::QueryType type, std::span<RHI::ResourceHandle> outQueries)
         {
-            s_RendererAPI->CreateQueries(type, outQueryIDs);
+            s_RendererAPI->CreateQueries(type, outQueries);
         }
 
-        static void DeleteQueries(std::span<const u32> queryIDs)
+        static void DeleteQueries(std::span<const RHI::ResourceHandle> queries)
         {
-            s_RendererAPI->DeleteQueries(queryIDs);
+            s_RendererAPI->DeleteQueries(queries);
         }
 
-        static void BeginQuery(RHI::QueryType type, u32 queryID)
+        static void BeginQuery(RHI::QueryType type, RHI::ResourceHandle query)
         {
-            s_RendererAPI->BeginQuery(type, queryID);
+            s_RendererAPI->BeginQuery(type, query);
         }
 
         static void EndQuery(RHI::QueryType type)
@@ -847,19 +687,19 @@ namespace OloEngine
             s_RendererAPI->EndQuery(type);
         }
 
-        [[nodiscard("Store this!")]] static bool IsQueryResultAvailable(u32 queryID)
+        [[nodiscard("Store this!")]] static bool IsQueryResultAvailable(RHI::ResourceHandle query)
         {
-            return s_RendererAPI->IsQueryResultAvailable(queryID);
+            return s_RendererAPI->IsQueryResultAvailable(query);
         }
 
-        [[nodiscard("Store this!")]] static u32 GetQueryResultU32(u32 queryID)
+        [[nodiscard("Store this!")]] static u32 GetQueryResultU32(RHI::ResourceHandle query)
         {
-            return s_RendererAPI->GetQueryResultU32(queryID);
+            return s_RendererAPI->GetQueryResultU32(query);
         }
 
-        [[nodiscard("Store this!")]] static u64 GetQueryResultU64(u32 queryID)
+        [[nodiscard("Store this!")]] static u64 GetQueryResultU64(RHI::ResourceHandle query)
         {
-            return s_RendererAPI->GetQueryResultU64(queryID);
+            return s_RendererAPI->GetQueryResultU64(query);
         }
 
         // Fences
@@ -916,9 +756,9 @@ namespace OloEngine
 
         // See RendererAPI.h: the one virtual with no faithful Vulkan lowering.
         // Phase 6 deletes it by moving u_GridScale into a UBO.
-        static void SetProgramUniformFloat(u32 programID, std::string_view name, f32 value)
+        static void SetProgramUniformFloat(RHI::ResourceHandle program, std::string_view name, f32 value)
         {
-            s_RendererAPI->SetProgramUniformFloat(programID, name, value);
+            s_RendererAPI->SetProgramUniformFloat(program, name, value);
         }
 
         static RendererAPI& GetRendererAPI()

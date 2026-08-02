@@ -90,9 +90,9 @@ namespace OloEngine
 
         // Sample-only consumer: input framebuffer is intentionally not resolved
         // here — see ReadFirstValidVersionedInputForPass docs.
-        u32 inputColorTextureID = 0u;
+        RHI::ResourceHandle inputColorTextureID{};
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
-            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+            inputColorTextureID = context.ResolveTextureHandle(inputTextureHandle);
 
         Ref<Framebuffer> outputFramebuffer;
         if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
@@ -101,7 +101,7 @@ namespace OloEngine
                 outputFramebuffer = resolvedOutput;
         }
 
-        if (!m_Enabled || inputColorTextureID == 0u || !outputFramebuffer || !m_EASUShader || !m_EASUUBO)
+        if (!m_Enabled || !inputColorTextureID.IsValid() || !outputFramebuffer || !m_EASUShader || !m_EASUUBO)
         {
             m_Target = nullptr;
             return;

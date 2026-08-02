@@ -37,6 +37,7 @@
 #include <gtest/gtest.h>
 
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 
 #include <array>
 #include <vector>
@@ -181,6 +182,12 @@ void main() { o_Color = vec4(1.0); }
         GLuint program = LinkProgram();
         ::glUseProgram(program);
 
+        // The facade takes identities only (issue #691 step 3, item 4), so this
+        // hand-rolled VAO has to be registered like a backend-created one. The
+        // draw then goes through the same resolve path the engine uses.
+        const RHI::ResourceHandle vaoHandle = RHI::ResourceRegistry::Get().Register(
+            RHI::ResourceKind::VertexArray, vao, RHI::Backend::OpenGL);
+
         // ── Test 1: DrawIndexedRaw without baseIndex draws triangle A (left) ──
         {
             ::glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -190,7 +197,7 @@ void main() { o_Color = vec4(1.0); }
             ::glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             ::glClear(GL_COLOR_BUFFER_BIT);
 
-            RenderCommand::DrawIndexedRaw(vao, 3);
+            RenderCommand::DrawIndexedRaw(vaoHandle, 3);
             ::glFinish();
 
             std::vector<u8> pixels(kWidth * kHeight * 4u, 0);
@@ -218,7 +225,7 @@ void main() { o_Color = vec4(1.0); }
             ::glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             ::glClear(GL_COLOR_BUFFER_BIT);
 
-            RenderCommand::DrawIndexedRaw(vao, 3, /*baseIndex*/ 3u);
+            RenderCommand::DrawIndexedRaw(vaoHandle, 3, /*baseIndex*/ 3u);
             ::glFinish();
 
             std::vector<u8> pixels(kWidth * kHeight * 4u, 0);
@@ -243,6 +250,7 @@ void main() { o_Color = vec4(1.0); }
         ::glDeleteTextures(1, &colorTex);
         ::glDeleteBuffers(1, &vbo);
         ::glDeleteBuffers(1, &ibo);
+        RHI::ResourceRegistry::Get().Unregister(vaoHandle);
         ::glDeleteVertexArrays(1, &vao);
     }
 } // namespace OloEngine::Tests

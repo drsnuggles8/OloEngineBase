@@ -145,7 +145,7 @@ namespace OloEngine
         s_Data.m_GenerateShader->SetFloat("u_Time", s_Data.m_AccumulatedTime);
 
         // Bind wind field as image for writing (unit 0, mip 0, layered for 3D)
-        RenderCommand::BindImageTexture(0, s_Data.m_WindField->GetRendererID(),
+        RenderCommand::BindImageTexture(0, s_Data.m_WindField->GetRHIHandle(),
                                         0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA16Float);
 
         // Dispatch: local_size(8,8,8) → ceil(resolution/8) groups per axis

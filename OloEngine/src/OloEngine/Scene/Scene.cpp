@@ -6090,9 +6090,6 @@ namespace OloEngine
                         envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRHIHandle() : RHI::NullResource,
                         envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRHIHandle() : RHI::NullResource,
                         envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRHIHandle() : RHI::NullResource,
-                        envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0u,
-                        envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0u,
-                        envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0u,
                         sky.m_IBLIntensity);
                 }
                 return; // Only one Star Nest sky drives the scene
@@ -6256,9 +6253,6 @@ namespace OloEngine
                         envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRHIHandle() : RHI::NullResource,
                         envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRHIHandle() : RHI::NullResource,
                         envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRHIHandle() : RHI::NullResource,
-                        envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0u,
-                        envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0u,
-                        envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0u,
                         sky.m_IBLIntensity);
                 }
                 return; // Only one procedural sky drives the scene
@@ -6332,9 +6326,6 @@ namespace OloEngine
                     envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRHIHandle() : RHI::NullResource,
                     envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRHIHandle() : RHI::NullResource,
                     envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRHIHandle() : RHI::NullResource,
-                    envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0u,
-                    envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0u,
-                    envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0u,
                     envMapComp.m_IBLIntensity);
             }
             else
@@ -6384,9 +6375,6 @@ namespace OloEngine
             envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRHIHandle() : RHI::NullResource,
             envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRHIHandle() : RHI::NullResource,
             envMap->GetEnvironmentMap() ? envMap->GetEnvironmentMap()->GetRHIHandle() : RHI::NullResource,
-            envMap->GetIrradianceMap() ? envMap->GetIrradianceMap()->GetRendererID() : 0u,
-            envMap->GetPrefilterMap() ? envMap->GetPrefilterMap()->GetRendererID() : 0u,
-            envMap->GetBRDFLutMap() ? envMap->GetBRDFLutMap()->GetRendererID() : 0u,
             bestProbe->m_Intensity);
     }
 
@@ -6936,7 +6924,7 @@ namespace OloEngine
                     if (clouds.m_WeatherMapHandle != 0)
                     {
                         if (auto weatherMap = AssetManager::GetAsset<Texture2D>(clouds.m_WeatherMapHandle))
-                            cloudState.WeatherMapTextureID = weatherMap->GetRendererID();
+                            cloudState.WeatherMapTextureID = weatherMap->GetRHIHandle();
                     }
 
                     // Lighting inputs mirror the first directional light (the
@@ -8141,9 +8129,9 @@ namespace OloEngine
                     const FluidSettings& settings = settingsAsset ? *settingsAsset : s_DefaultFluidSettings;
 
                     FluidRenderData draw;
-                    draw.PositionsSSBOId = instance->Gpu->GetPositionsSSBO()->GetRendererID();
-                    draw.VelocitiesSSBOId = instance->Gpu->GetVelocitiesSSBO()->GetRendererID();
-                    draw.CountersSSBOId = instance->Gpu->GetCountersSSBO()->GetRendererID();
+                    draw.PositionsSSBOId = instance->Gpu->GetPositionsSSBO()->GetRHIHandle();
+                    draw.VelocitiesSSBOId = instance->Gpu->GetVelocitiesSSBO()->GetRHIHandle();
+                    draw.CountersSSBOId = instance->Gpu->GetCountersSSBO()->GetRHIHandle();
                     draw.ParticleUpperBound = instance->Gpu->GetParticleUpperBound();
                     draw.ParticleRadius = settings.m_ParticleRadius;
                     draw.Tint = settings.m_Tint;
@@ -9618,7 +9606,7 @@ namespace OloEngine
             // Enable/disable soft particles per system
             {
                 SoftParticleParams softParams;
-                if (auto sceneDepthTextureID = Renderer3D::ResolveFrameGraphTexture(ResourceNames::SceneDepth); sceneDepthTextureID != 0)
+                if (auto sceneDepthTextureID = Renderer3D::ResolveFrameGraphTextureHandle(ResourceNames::SceneDepth); sceneDepthTextureID.IsValid())
                 {
                     u32 viewportWidth = 0;
                     u32 viewportHeight = 0;

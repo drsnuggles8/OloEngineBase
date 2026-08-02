@@ -171,7 +171,8 @@ namespace OloEngine
         }
     }
 
-    bool VirtualMeshRegistry::CopyThroughRing(u32 targetBufferID, u64 targetOffset, const void* payload, u64 bytes)
+    bool VirtualMeshRegistry::CopyThroughRing(RHI::ResourceHandle targetBuffer, u64 targetOffset,
+                                              const void* payload, u64 bytes)
     {
         if (bytes == 0)
         {
@@ -180,7 +181,7 @@ namespace OloEngine
         if (m_RingPtr == nullptr || bytes > m_RingSize)
         {
             // Payload larger than the ring (pathological page size): direct upload.
-            RenderCommand::UploadBufferSubData(targetBufferID, targetOffset, bytes, payload);
+            RenderCommand::UploadBufferSubData(targetBuffer, targetOffset, bytes, payload);
             return true;
         }
 
@@ -196,7 +197,7 @@ namespace OloEngine
         }
 
         std::memcpy(m_RingPtr + m_RingHead, payload, bytes);
-        RenderCommand::CopyBufferSubData(m_RingBufferID, targetBufferID, m_RingHead, targetOffset, bytes);
+        RenderCommand::CopyBufferSubData(m_RingBuffer, targetBuffer, m_RingHead, targetOffset, bytes);
         m_RingHead += bytes;
         return true;
     }
@@ -244,10 +245,10 @@ namespace OloEngine
         // Geometry payloads into the arena slot
         u64 const slotVertexBase = static_cast<u64>(slot) * m_SlotVertexCapacity;
         u64 const slotIndexBase = static_cast<u64>(slot) * m_SlotIndexCapacity;
-        CopyThroughRing(m_VertexBuffer->GetRendererID(), slotVertexBase * sizeof(VirtualGpuVertex),
+        CopyThroughRing(m_VertexBuffer->GetRHIHandle(), slotVertexBase * sizeof(VirtualGpuVertex),
                         packed.Vertices.data() + page.Info.VertexOffset,
                         static_cast<u64>(page.Info.VertexCount) * sizeof(VirtualGpuVertex));
-        CopyThroughRing(m_IndexBufferID, slotIndexBase * sizeof(u32),
+        CopyThroughRing(m_IndexBuffer, slotIndexBase * sizeof(u32),
                         packed.Indices.data() + page.Info.IndexOffset,
                         static_cast<u64>(page.Info.IndexCount) * sizeof(u32));
 
@@ -412,23 +413,23 @@ namespace OloEngine
                                                    StorageBufferUsage::DynamicCopy);
         }
         u64 const indexArenaBytes = static_cast<u64>(m_SlotIndexCapacity) * slotCount * sizeof(u32);
-        if (m_IndexBufferID == 0)
+        if (!m_IndexBuffer.IsValid())
         {
-            m_IndexBufferID = RenderCommand::CreateBuffer();
+            m_IndexBuffer = RenderCommand::CreateBufferHandle();
         }
-        RenderCommand::AllocateBufferStorage(m_IndexBufferID, indexArenaBytes, RHI::MemoryResidency::DeviceLocal);
-        if (m_VaoID == 0)
+        RenderCommand::AllocateBufferStorage(m_IndexBuffer, indexArenaBytes, RHI::MemoryResidency::DeviceLocal);
+        if (!m_Vao.IsValid())
         {
-            m_VaoID = RenderCommand::CreateVertexArray();
+            m_Vao = RenderCommand::CreateVertexArrayHandle();
         }
-        RenderCommand::SetVertexArrayIndexBuffer(m_VaoID, m_IndexBufferID);
+        RenderCommand::SetVertexArrayIndexBuffer(m_Vao, m_IndexBuffer);
 
         // Persistent-mapped upload ring
-        if (m_RingBufferID == 0)
+        if (!m_RingBuffer.IsValid())
         {
-            m_RingBufferID = RenderCommand::CreateBuffer();
+            m_RingBuffer = RenderCommand::CreateBufferHandle();
             m_RingPtr = static_cast<u8*>(
-                RenderCommand::AllocatePersistentUploadStorage(m_RingBufferID, kUploadRingBytes));
+                RenderCommand::AllocatePersistentUploadStorage(m_RingBuffer, kUploadRingBytes));
             m_RingSize = (m_RingPtr != nullptr) ? kUploadRingBytes : 0;
             m_RingHead = 0;
         }
@@ -542,7 +543,7 @@ namespace OloEngine
         if (m_VisbufferBuffer)
         {
             u32 const clearValue = 0xFFFFFFFFu;
-            RenderCommand::ClearBufferUInt(m_VisbufferBuffer->GetRendererID(), clearValue);
+            RenderCommand::ClearBufferUInt(m_VisbufferBuffer->GetRHIHandle(), clearValue);
         }
     }
 
@@ -566,18 +567,19 @@ namespace OloEngine
         // usage hint ... GL_DYNAMIC_COPY, is inconsistent with this usage pattern" (131188)
         // and then migrate the buffer VIDEO -> HOST (perf warning 131186) — permanently
         // slowing the indirect draws that read it.
-        if (m_ArgsReadbackID == 0 || m_ArgsReadbackBytes < bytes)
+        if (!m_ArgsReadback.IsValid() || m_ArgsReadbackBytes < bytes)
         {
-            if (m_ArgsReadbackID != 0)
+            if (m_ArgsReadback.IsValid())
             {
-                RenderCommand::DeleteBuffer(m_ArgsReadbackID);
+                RenderCommand::DeleteBuffer(m_ArgsReadback);
+                m_ArgsReadback = RHI::NullResource;
             }
-            m_ArgsReadbackID = RenderCommand::CreateBuffer();
-            RenderCommand::AllocateBufferStorage(m_ArgsReadbackID, bytes, RHI::MemoryResidency::DeviceToHost);
+            m_ArgsReadback = RenderCommand::CreateBufferHandle();
+            RenderCommand::AllocateBufferStorage(m_ArgsReadback, bytes, RHI::MemoryResidency::DeviceToHost);
             m_ArgsReadbackBytes = bytes;
         }
-        RenderCommand::CopyBufferSubData(m_ArgsBuffer->GetRendererID(), m_ArgsReadbackID, 0, 0, bytes);
-        RenderCommand::ReadBufferSubData(m_ArgsReadbackID, 0, bytes, args.data());
+        RenderCommand::CopyBufferSubData(m_ArgsBuffer->GetRHIHandle(), m_ArgsReadback, 0, 0, bytes);
+        RenderCommand::ReadBufferSubData(m_ArgsReadback, 0, bytes, args.data());
         sizet const phaseStride = m_FrameInstances.size();
         for (sizet i = 0; i < args.size(); ++i)
         {
@@ -606,24 +608,24 @@ namespace OloEngine
         if (viewportWidth == 0 || viewportHeight == 0)
             return;
 
-        if (m_DebugColorTexID == 0 || m_DebugWidth != viewportWidth || m_DebugHeight != viewportHeight)
+        if (!m_DebugColorTex.IsValid() || m_DebugWidth != viewportWidth || m_DebugHeight != viewportHeight)
         {
-            if (m_DebugColorTexID != 0)
-                RenderCommand::DeleteTexture(m_DebugColorTexID);
-            if (m_DebugCountTexID != 0)
-                RenderCommand::DeleteTexture(m_DebugCountTexID);
+            if (m_DebugColorTex.IsValid())
+                RenderCommand::DeleteTexture(m_DebugColorTex);
+            if (m_DebugCountTex.IsValid())
+                RenderCommand::DeleteTexture(m_DebugCountTex);
 
             // RGBA8 colour target — imageStore'd by both raster paths, imported
             // into the graph as "VirtualGeometryDebug", captured via MCP.
-            m_DebugColorTexID = RenderCommand::CreateTexture2D(viewportWidth, viewportHeight,
-                                                               RHI::Format::RGBA8UNorm);
-            RenderCommand::SetTextureFilter(m_DebugColorTexID, RHI::Filter::Nearest, RHI::Filter::Nearest);
+            m_DebugColorTex = RenderCommand::CreateTexture2DHandle(viewportWidth, viewportHeight,
+                                                                   RHI::Format::RGBA8UNorm);
+            RenderCommand::SetTextureFilter(m_DebugColorTex, RHI::Filter::Nearest, RHI::Filter::Nearest);
 
             // R32UI overdraw-count target — imageAtomicAdd'd per fragment, then
             // colorized into the colour target by VirtualDebugColorize.comp.
-            m_DebugCountTexID = RenderCommand::CreateTexture2D(viewportWidth, viewportHeight,
-                                                               RHI::Format::R32UInt);
-            RenderCommand::SetTextureFilter(m_DebugCountTexID, RHI::Filter::Nearest, RHI::Filter::Nearest);
+            m_DebugCountTex = RenderCommand::CreateTexture2DHandle(viewportWidth, viewportHeight,
+                                                                   RHI::Format::R32UInt);
+            RenderCommand::SetTextureFilter(m_DebugCountTex, RHI::Filter::Nearest, RHI::Filter::Nearest);
 
             m_DebugWidth = viewportWidth;
             m_DebugHeight = viewportHeight;
@@ -642,8 +644,8 @@ namespace OloEngine
         // Nothing reads this alpha as colour: the debug capture target is inspected per-RGB.
         {
             constexpr glm::vec4 kTransparentBlack(0.0f);
-            RenderCommand::ClearTextureFloat(m_DebugColorTexID, 0, kTransparentBlack);
-            RenderCommand::ClearTextureUInt(m_DebugCountTexID, 0, 0u);
+            RenderCommand::ClearTextureFloat(m_DebugColorTex, 0, kTransparentBlack);
+            RenderCommand::ClearTextureUInt(m_DebugCountTex, 0, 0u);
         }
     }
 
@@ -901,43 +903,43 @@ namespace OloEngine
         m_VisbufferBuffer = nullptr;
         m_VisbufferWidth = 0;
         m_VisbufferHeight = 0;
-        if (m_ArgsReadbackID != 0)
+        if (m_ArgsReadback.IsValid())
         {
-            RenderCommand::DeleteBuffer(m_ArgsReadbackID);
-            m_ArgsReadbackID = 0;
+            RenderCommand::DeleteBuffer(m_ArgsReadback);
+            m_ArgsReadback = RHI::NullResource;
             m_ArgsReadbackBytes = 0;
         }
-        if (m_RingBufferID != 0)
+        if (m_RingBuffer.IsValid())
         {
             if (m_RingPtr != nullptr)
             {
-                RenderCommand::UnmapBuffer(m_RingBufferID);
+                RenderCommand::UnmapBuffer(m_RingBuffer);
                 m_RingPtr = nullptr;
             }
-            RenderCommand::DeleteBuffer(m_RingBufferID);
-            m_RingBufferID = 0;
+            RenderCommand::DeleteBuffer(m_RingBuffer);
+            m_RingBuffer = RHI::NullResource;
             m_RingSize = 0;
             m_RingHead = 0;
         }
-        if (m_VaoID != 0)
+        if (m_Vao.IsValid())
         {
-            RenderCommand::DeleteVertexArray(m_VaoID);
-            m_VaoID = 0;
+            RenderCommand::DeleteVertexArray(m_Vao);
+            m_Vao = RHI::NullResource;
         }
-        if (m_IndexBufferID != 0)
+        if (m_IndexBuffer.IsValid())
         {
-            RenderCommand::DeleteBuffer(m_IndexBufferID);
-            m_IndexBufferID = 0;
+            RenderCommand::DeleteBuffer(m_IndexBuffer);
+            m_IndexBuffer = RHI::NullResource;
         }
-        if (m_DebugColorTexID != 0)
+        if (m_DebugColorTex.IsValid())
         {
-            RenderCommand::DeleteTexture(m_DebugColorTexID);
-            m_DebugColorTexID = 0;
+            RenderCommand::DeleteTexture(m_DebugColorTex);
+            m_DebugColorTex = RHI::NullResource;
         }
-        if (m_DebugCountTexID != 0)
+        if (m_DebugCountTex.IsValid())
         {
-            RenderCommand::DeleteTexture(m_DebugCountTexID);
-            m_DebugCountTexID = 0;
+            RenderCommand::DeleteTexture(m_DebugCountTex);
+            m_DebugCountTex = RHI::NullResource;
         }
         m_DebugWidth = 0;
         m_DebugHeight = 0;

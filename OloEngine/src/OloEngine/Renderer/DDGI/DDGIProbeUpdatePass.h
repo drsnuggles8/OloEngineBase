@@ -106,17 +106,18 @@ namespace OloEngine
         // Consumption info.
         // ---------------------------------------------------------------------
 
-        [[nodiscard]] u32 GetIrradianceAtlasID() const; // current (post-blend) — 0 until first run
-        [[nodiscard]] u32 GetVisibilityAtlasID() const;
-        [[nodiscard]] u32 GetProbeDataTextureID() const;
+        // Current (post-blend) — null until the first run.
+        [[nodiscard]] RHI::ResourceHandle GetIrradianceAtlasID() const;
+        [[nodiscard]] RHI::ResourceHandle GetVisibilityAtlasID() const;
+        [[nodiscard]] RHI::ResourceHandle GetProbeDataTextureID() const;
         // Explicit-ping accessors (issue #607): Setup() imports BOTH ping-pong
         // atlases into the render graph under stable per-ping names — "which
         // ping is current" flips every blended frame, and chasing the flip
         // with a single "current" import would invalidate the BuildFrameGraph
         // fingerprint cache every frame. The pipeline fingerprint hashes these
         // ids so atlas (re)creation triggers the rebuild that re-imports them.
-        [[nodiscard]] u32 GetIrradianceAtlasID(u32 pingIndex) const;
-        [[nodiscard]] u32 GetVisibilityAtlasID(u32 pingIndex) const;
+        [[nodiscard]] RHI::ResourceHandle GetIrradianceAtlasID(u32 pingIndex) const;
+        [[nodiscard]] RHI::ResourceHandle GetVisibilityAtlasID(u32 pingIndex) const;
 
         // Identity siblings of the two accessors above (issue #691 step 3).
         // The FINGERPRINT reads these, not the raw ids, and that is a
@@ -211,10 +212,10 @@ namespace OloEngine
         u32 m_VisibilityCurrent = 0;
 
         // Raw GL textures (formats / usage outside the Framebuffer abstraction)
-        u32 m_ProbeDataTexture = 0;   // RGBA16F, one texel per probe, CPU-written only
-        u32 m_PlaceholderTexture = 0; // 1x1 black RGBA16F for slots 56/57/58 when disabled
-        u32 m_WhiteTexture = 0;       // 1x1 white RGBA8 capture albedo fallback
-        u32 m_BlackCubemap = 0;       // 1x1 black cubemap — env fallback for the relight sky term
+        RHI::ResourceHandle m_ProbeDataTexture{};   // RGBA16F, one texel per probe, CPU-written only
+        RHI::ResourceHandle m_PlaceholderTexture{}; // 1x1 black RGBA16F for slots 56/57/58 when disabled
+        RHI::ResourceHandle m_WhiteTexture{};       // 1x1 white RGBA8 capture albedo fallback
+        RHI::ResourceHandle m_BlackCubemap{};       // 1x1 black cubemap — env fallback for the relight sky term
 
         // Resource fingerprint
         glm::ivec3 m_ResourceResolution{ 0 };

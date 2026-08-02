@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/LightCulling/LightGrid.h"
@@ -113,7 +114,7 @@ namespace OloEngine
         {
             return m_DebugVisualization;
         }
-        void RenderDebugOverlay(u32 fullscreenQuadVAO, const Ref<Shader>& debugShader) const;
+        void RenderDebugOverlay(RHI::ResourceHandle fullscreenQuadVAO, const Ref<Shader>& debugShader) const;
 
         // Stats
         [[nodiscard]] u32 GetPointLightCount() const

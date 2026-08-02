@@ -254,13 +254,13 @@ namespace OloEngine
         // Phase F slice 37 — self-resolving SceneDepth and SceneNormals: look
         // up directly from the render graph blackboard so no per-frame
         // side-channel setter calls are needed from EndScene().
-        u32 depthID = 0;
-        u32 normalsID = 0;
+        RHI::ResourceHandle depthID{};
+        RHI::ResourceHandle normalsID{};
         if (m_SelectedSceneDepthTexture.IsValid())
-            depthID = context.ResolveTexture(m_SelectedSceneDepthTexture);
+            depthID = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
         if (m_SelectedSceneNormalsTexture.IsValid())
-            normalsID = context.ResolveTexture(m_SelectedSceneNormalsTexture);
-        if (depthID == 0 || normalsID == 0)
+            normalsID = context.ResolveTextureHandle(m_SelectedSceneNormalsTexture);
+        if (!depthID.IsValid() || !normalsID.IsValid())
         {
             return;
         }
@@ -268,32 +268,32 @@ namespace OloEngine
         // Phase D / H follow-up: resolve the GTAO edge scratch texture from
         // the transient pool only. The execute path no longer falls back to
         // an owned edge texture.
-        u32 edgeTexID = 0;
-        u32 aoOutputTexID = 0;
-        u32 denoisePingTexID = 0;
-        u32 denoisePongTexID = 0;
+        RHI::ResourceHandle edgeTexID{};
+        RHI::ResourceHandle aoOutputTexID{};
+        RHI::ResourceHandle denoisePingTexID{};
+        RHI::ResourceHandle denoisePongTexID{};
         if (m_SelectedAOOutputTexture.IsValid())
-            aoOutputTexID = context.ResolveTexture(m_SelectedAOOutputTexture);
+            aoOutputTexID = context.ResolveTextureHandle(m_SelectedAOOutputTexture);
         if (m_SelectedEdgeTexture.IsValid())
-            edgeTexID = context.ResolveTexture(m_SelectedEdgeTexture);
+            edgeTexID = context.ResolveTextureHandle(m_SelectedEdgeTexture);
         if (m_SelectedDenoisePingTexture.IsValid())
-            denoisePingTexID = context.ResolveTexture(m_SelectedDenoisePingTexture);
+            denoisePingTexID = context.ResolveTextureHandle(m_SelectedDenoisePingTexture);
 
         const bool willDispatchDenoise = m_Settings.GTAODenoiseEnabled && m_Settings.GTAODenoisePasses > 0;
         if (willDispatchDenoise && m_SelectedDenoisePongTexture.IsValid())
-            denoisePongTexID = context.ResolveTexture(m_SelectedDenoisePongTexture);
+            denoisePongTexID = context.ResolveTextureHandle(m_SelectedDenoisePongTexture);
 
-        if (edgeTexID == 0 || aoOutputTexID == 0 || denoisePingTexID == 0)
+        if (!edgeTexID.IsValid() || !aoOutputTexID.IsValid() || !denoisePingTexID.IsValid())
             return;
-        if (willDispatchDenoise && denoisePongTexID == 0)
+        if (willDispatchDenoise && !denoisePongTexID.IsValid())
             return;
 
         // Phase D / H follow-up: resolve transient HZB scratch from the render
         // graph and require it to exist for execution.
-        u32 transientHZBID = 0;
+        RHI::ResourceHandle transientHZBID{};
         if (m_SelectedHZBDepthTexture.IsValid())
-            transientHZBID = context.ResolveTexture(m_SelectedHZBDepthTexture);
-        if (transientHZBID == 0)
+            transientHZBID = context.ResolveTextureHandle(m_SelectedHZBDepthTexture);
+        if (!transientHZBID.IsValid())
         {
             m_HZBGenerator.ClearExternalHZBTexture();
             return;
@@ -320,10 +320,10 @@ namespace OloEngine
             DispatchDenoise(edgeTexID, denoisePingTexID, denoisePongTexID);
         }
 
-        const u32 finalAOTextureID = (willDispatchDenoise && (m_Settings.GTAODenoisePasses % 2 != 0))
-                                         ? denoisePongTexID
-                                         : denoisePingTexID;
-        if (finalAOTextureID != 0 && finalAOTextureID != aoOutputTexID)
+        const RHI::ResourceHandle finalAOTextureID = (willDispatchDenoise && (m_Settings.GTAODenoisePasses % 2 != 0))
+                                                         ? denoisePongTexID
+                                                         : denoisePingTexID;
+        if (finalAOTextureID.IsValid() && finalAOTextureID != aoOutputTexID)
         {
             RenderCommand::MemoryBarrier(
                 MemoryBarrierFlags::ShaderImageAccess |
@@ -399,7 +399,8 @@ namespace OloEngine
         m_GTAOUBO->Bind();
     }
 
-    void GTAORenderPass::DispatchGTAO(u32 aoOutputTextureID, u32 normalsTextureID, u32 edgeTexID)
+    void GTAORenderPass::DispatchGTAO(RHI::ResourceHandle aoOutputTextureID, RHI::ResourceHandle normalsTextureID,
+                                      RHI::ResourceHandle edgeTexID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -410,12 +411,12 @@ namespace OloEngine
         RenderCommand::BindImageTexture(1, edgeTexID, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R8UNorm);
 
         // Bind inputs
-        u32 hzbID = m_HZBGenerator.GetHZBTextureID();
+        const RHI::ResourceHandle hzbID = m_HZBGenerator.GetHZBTexture();
         RenderCommand::BindTexture(GTAO_HZB_TEXTURE_SLOT, hzbID);
 
         RenderCommand::BindTexture(GTAO_NORMALS_TEXTURE_SLOT, normalsTextureID);
 
-        RenderCommand::BindTexture(GTAO_HILBERT_TEXTURE_SLOT, m_HilbertLUT->GetRendererID());
+        RenderCommand::BindTexture(GTAO_HILBERT_TEXTURE_SLOT, m_HilbertLUT->GetRHIHandle());
 
         // Dispatch 16×16 workgroups
         u32 groupsX = (m_Width + 15) / 16;
@@ -428,7 +429,8 @@ namespace OloEngine
         m_GTAOShader->Unbind();
     }
 
-    void GTAORenderPass::DispatchDenoise(u32 edgeTexID, u32 pingTextureID, u32 pongTextureID)
+    void GTAORenderPass::DispatchDenoise(RHI::ResourceHandle edgeTexID, RHI::ResourceHandle pingTextureID,
+                                         RHI::ResourceHandle pongTextureID)
     {
         OLO_PROFILE_FUNCTION();
 

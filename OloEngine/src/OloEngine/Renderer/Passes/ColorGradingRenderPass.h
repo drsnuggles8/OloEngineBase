@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -66,7 +67,7 @@ namespace OloEngine
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_PostProcessUBO;
 
-        u32 m_IdentityLUTTexture = 0;
+        RHI::ResourceHandle m_IdentityLUTTexture{};
 
         bool m_Enabled = false;
     };

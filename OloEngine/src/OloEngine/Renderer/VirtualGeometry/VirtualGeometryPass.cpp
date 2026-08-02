@@ -166,10 +166,14 @@ namespace OloEngine
                     registry.EnsureDebugTargets(gbuffer->GetWidth(), gbuffer->GetHeight());
             }
 
-            if (registry.GetDebugColorTextureID() != 0)
+            if (registry.GetDebugColorTexture().IsValid())
             {
-                [[maybe_unused]] const RGTextureHandle debugTarget = builder.ImportTexture(
-                    "VirtualGeometryDebug", registry.GetDebugColorTextureID(),
+                // ImportTextureHandle, not ImportTexture: the debug target is an
+                // identity now. The MCP capture endpoints still find it because
+                // Debug::NativeTextureIdForDiagnostics falls back to the identity
+                // when a handle-imported resource resolves natively to 0 (#736).
+                [[maybe_unused]] const RGTextureHandle debugTarget = builder.ImportTextureHandle(
+                    "VirtualGeometryDebug", registry.GetDebugColorTexture(),
                     RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "VirtualGeometryDebug"));
             }
         }
@@ -271,7 +275,7 @@ namespace OloEngine
             m_CullShader->SetInt("u_OcclusionEnabled", hzb.IsUsable() ? 1 : 0);
             if (!hzb.IsUsable())
                 return;
-            RenderCommand::BindTexture(0, hzb.HZBTextureID);
+            RenderCommand::BindTexture(0, hzb.HZBTexture);
             CommandDispatch::InvalidateTextureSlot(0);
             m_CullShader->SetInt("u_HZB", 0);
             m_CullShader->SetMat4("u_OcclusionViewProjection", hzb.PrevViewProjection);
@@ -372,7 +376,7 @@ namespace OloEngine
             targetFB->Bind();
             {
                 // All five G-Buffer MRTs, same set SceneRenderPass draws
-                RenderCommand::RestoreAllFramebufferDrawAttachments(targetFB->GetRendererID(), GBuffer::Count);
+                RenderCommand::RestoreAllFramebufferDrawAttachments(targetFB->GetRHIHandle(), GBuffer::Count);
             }
 
             // State set UNCONDITIONALLY, deliberately bypassing the context
@@ -415,15 +419,15 @@ namespace OloEngine
             if (debugActive)
             {
                 // Image units 0/1 (separate namespace from the sampler texture units).
-                RenderCommand::BindImageTexture(0, registry.GetDebugColorTextureID(), 0, false, 0,
+                RenderCommand::BindImageTexture(0, registry.GetDebugColorTexture(), 0, false, 0,
                                                 RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm);
-                RenderCommand::BindImageTexture(1, registry.GetDebugCountTextureID(), 0, false, 0,
+                RenderCommand::BindImageTexture(1, registry.GetDebugCountTexture(), 0, false, 0,
                                                 RHI::Access::StorageReadWrite, RHI::Format::R32UInt);
             }
             m_DrawInfoUBO->Bind();
 
-            u32 const commandBufferID = registry.GetCommandBuffer()->GetRendererID();
-            u32 const argsBufferID = registry.GetArgsBuffer()->GetRendererID();
+            const RHI::ResourceHandle commandBuffer = registry.GetCommandBuffer()->GetRHIHandle();
+            const RHI::ResourceHandle argsBuffer = registry.GetArgsBuffer()->GetRHIHandle();
             for (sizet i = 0; i < instances.size(); ++i)
             {
                 const auto& mat = FrameDataBufferManager::Get().GetMaterialData(
@@ -449,9 +453,9 @@ namespace OloEngine
                 }
 
                 RenderCommand::MultiDrawElementsIndirectCountRaw(
-                    registry.GetVaoID(), commandBufferID,
+                    registry.GetVao(), commandBuffer,
                     segmentBase * 32u, // this instance's command segment, in this phase's region
-                    argsBufferID,
+                    argsBuffer,
                     static_cast<u32>((argsInstanceBase + i) * sizeof(VirtualDrawArgs)),
                     instances[i].Gpu.ClusterCount, 32u);
             }
@@ -478,7 +482,7 @@ namespace OloEngine
             // framebuffer-write -> texture-fetch explicitly (a texture barrier).
             RenderCommand::TextureBarrier();
             const GPUFrustumCuller::HZBOcclusionInputs currentHZB = Renderer3D::BuildCurrentOcclusionHZB(
-                gbuffer->GetDepthAttachmentID(), gbuffer->GetWidth(), gbuffer->GetHeight());
+                gbuffer->GetDepthAttachmentHandle(), gbuffer->GetWidth(), gbuffer->GetHeight());
 
             // The HZB build bound its own program / SSBOs / images.
             bindCullResources();
@@ -517,7 +521,7 @@ namespace OloEngine
             registry.GetVertexBuffer()->Bind();
             registry.GetVisbufferBuffer()->Bind();
             RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_VIRTUAL_INDICES,
-                                             registry.GetIndexBufferID());
+                                             registry.GetIndexBuffer());
 
             u32 const maxSwRecords = frameClusterCount;
             u32 const groupsX = std::min(maxSwRecords, 4096u);
@@ -602,9 +606,9 @@ namespace OloEngine
         if (debugMode == VirtualDebugMode::Overdraw && m_ColorizeShader)
         {
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess);
-            RenderCommand::BindImageTexture(0, registry.GetDebugColorTextureID(), 0, false, 0,
+            RenderCommand::BindImageTexture(0, registry.GetDebugColorTexture(), 0, false, 0,
                                             RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm);
-            RenderCommand::BindImageTexture(1, registry.GetDebugCountTextureID(), 0, false, 0,
+            RenderCommand::BindImageTexture(1, registry.GetDebugCountTexture(), 0, false, 0,
                                             RHI::Access::StorageRead, RHI::Format::R32UInt);
             m_ColorizeShader->Bind();
             m_ColorizeShader->SetUint("u_Width", registry.GetDebugWidth());
@@ -635,33 +639,34 @@ namespace OloEngine
         // and the editor grid see the clusters we just drew — ScenePass copied
         // its exports before we ran (DeferredGPUOcclusionPass idiom). Handles
         // that alias the live attachment self-skip.
-        const auto copyExport = [&context, &gbuffer](const RGTextureHandle handle, u32 sourceTextureID,
+        const auto copyExport = [&context, &gbuffer](const RGTextureHandle handle,
+                                                     RHI::ResourceHandle sourceTextureID,
                                                      RendererAPI::TextureTargetType target)
         {
-            if (!handle.IsValid() || sourceTextureID == 0u)
+            if (!handle.IsValid() || !sourceTextureID.IsValid())
                 return;
-            u32 const exportedID = context.ResolveTexture(handle);
-            if (exportedID == 0u || exportedID == sourceTextureID)
+            const RHI::ResourceHandle exportedID = context.ResolveTextureHandle(handle);
+            if (!exportedID.IsValid() || exportedID == sourceTextureID)
                 return;
             RenderCommand::CopyImageSubData(sourceTextureID, target, exportedID, target,
                                             gbuffer->GetWidth(), gbuffer->GetHeight());
         };
-        copyExport(m_SelectedSceneDepth, gbuffer->GetDepthAttachmentID(), RendererAPI::TextureTargetType::Texture2D);
-        copyExport(m_SelectedVelocity, gbuffer->GetColorAttachmentID(GBuffer::Velocity), RendererAPI::TextureTargetType::Texture2D);
-        copyExport(m_SelectedGBufferAlbedo, gbuffer->GetColorAttachmentID(GBuffer::Albedo), RendererAPI::TextureTargetType::Texture2D);
-        copyExport(m_SelectedGBufferNormal, gbuffer->GetColorAttachmentID(GBuffer::Normal), RendererAPI::TextureTargetType::Texture2D);
-        copyExport(m_SelectedGBufferEmissive, gbuffer->GetColorAttachmentID(GBuffer::Emissive), RendererAPI::TextureTargetType::Texture2D);
+        copyExport(m_SelectedSceneDepth, gbuffer->GetDepthAttachmentHandle(), RendererAPI::TextureTargetType::Texture2D);
+        copyExport(m_SelectedVelocity, gbuffer->GetColorAttachmentHandle(GBuffer::Velocity), RendererAPI::TextureTargetType::Texture2D);
+        copyExport(m_SelectedGBufferAlbedo, gbuffer->GetColorAttachmentHandle(GBuffer::Albedo), RendererAPI::TextureTargetType::Texture2D);
+        copyExport(m_SelectedGBufferNormal, gbuffer->GetColorAttachmentHandle(GBuffer::Normal), RendererAPI::TextureTargetType::Texture2D);
+        copyExport(m_SelectedGBufferEmissive, gbuffer->GetColorAttachmentHandle(GBuffer::Emissive), RendererAPI::TextureTargetType::Texture2D);
 
         // Per-sample lighting samples the MULTISAMPLE G-Buffer, so re-export those
         // attachments too (they carry the clusters we just drew into the MS FBO).
         if (perSampleMSAA)
         {
             constexpr auto kMS = RendererAPI::TextureTargetType::Texture2DMultisample;
-            copyExport(m_SelectedSceneDepthMS, gbuffer->GetMSDepthAttachmentID(), kMS);
-            copyExport(m_SelectedVelocityMS, gbuffer->GetMSColorAttachmentID(GBuffer::Velocity), kMS);
-            copyExport(m_SelectedGBufferAlbedoMS, gbuffer->GetMSColorAttachmentID(GBuffer::Albedo), kMS);
-            copyExport(m_SelectedGBufferNormalMS, gbuffer->GetMSColorAttachmentID(GBuffer::Normal), kMS);
-            copyExport(m_SelectedGBufferEmissiveMS, gbuffer->GetMSColorAttachmentID(GBuffer::Emissive), kMS);
+            copyExport(m_SelectedSceneDepthMS, gbuffer->GetMSDepthAttachmentHandle(), kMS);
+            copyExport(m_SelectedVelocityMS, gbuffer->GetMSColorAttachmentHandle(GBuffer::Velocity), kMS);
+            copyExport(m_SelectedGBufferAlbedoMS, gbuffer->GetMSColorAttachmentHandle(GBuffer::Albedo), kMS);
+            copyExport(m_SelectedGBufferNormalMS, gbuffer->GetMSColorAttachmentHandle(GBuffer::Normal), kMS);
+            copyExport(m_SelectedGBufferEmissiveMS, gbuffer->GetMSColorAttachmentHandle(GBuffer::Emissive), kMS);
         }
     }
 } // namespace OloEngine

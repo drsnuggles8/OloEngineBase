@@ -102,9 +102,9 @@ namespace OloEngine
             return;
         }
 
-        const u32 fluidDepthID = m_IntermediatesPass->GetSmoothedDepthTextureID();
-        const u32 fluidThicknessID = m_IntermediatesPass->GetThicknessTextureID();
-        if (fluidDepthID == 0 || fluidThicknessID == 0)
+        const RHI::ResourceHandle fluidDepthID = m_IntermediatesPass->GetSmoothedDepthTextureID();
+        const RHI::ResourceHandle fluidThicknessID = m_IntermediatesPass->GetThicknessTextureID();
+        if (!fluidDepthID.IsValid() || !fluidThicknessID.IsValid())
             return;
 
         if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
@@ -120,16 +120,16 @@ namespace OloEngine
         if (fbWidth == 0 || fbHeight == 0)
             return;
 
-        u32 sceneColorID = 0;
-        u32 sceneDepthID = 0;
-        u32 refractionTexID = 0;
+        RHI::ResourceHandle sceneColorID{};
+        RHI::ResourceHandle sceneDepthID{};
+        RHI::ResourceHandle refractionTexID{};
         if (m_SelectedSceneColorTexture.IsValid())
-            sceneColorID = context.ResolveTexture(m_SelectedSceneColorTexture);
+            sceneColorID = context.ResolveTextureHandle(m_SelectedSceneColorTexture);
         if (m_SelectedSceneDepthTexture.IsValid())
-            sceneDepthID = context.ResolveTexture(m_SelectedSceneDepthTexture);
+            sceneDepthID = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
         if (m_SelectedRefractionTexture.IsValid())
-            refractionTexID = context.ResolveTexture(m_SelectedRefractionTexture);
-        if (sceneColorID == 0 || sceneDepthID == 0 || refractionTexID == 0)
+            refractionTexID = context.ResolveTextureHandle(m_SelectedRefractionTexture);
+        if (!sceneColorID.IsValid() || !sceneDepthID.IsValid() || !refractionTexID.IsValid())
             return;
 
         GLStateGuard guard("FluidCompositePass", GLStateGuard::Policy::Ignore);
@@ -192,12 +192,12 @@ namespace OloEngine
 
         // Unbind every sampler slot we touched — stale bindings leak into any
         // later pass sharing the sampler layout.
-        context.BindTexture(ShaderBindingLayout::TEX_FLUID_DEPTH, 0);
-        context.BindTexture(ShaderBindingLayout::TEX_FLUID_THICKNESS, 0);
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, 0);
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
+        context.BindTexture(ShaderBindingLayout::TEX_FLUID_DEPTH, RHI::NullResource);
+        context.BindTexture(ShaderBindingLayout::TEX_FLUID_THICKNESS, RHI::NullResource);
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, RHI::NullResource);
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, RHI::NullResource);
         if (environmentMap.IsValid())
-            context.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, 0);
+            context.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource);
 
         m_SceneFramebuffer->Unbind();
     }

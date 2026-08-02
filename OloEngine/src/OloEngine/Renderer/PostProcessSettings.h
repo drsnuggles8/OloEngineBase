@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Math/Math.h"
 #include <glm/glm.hpp>
@@ -1196,8 +1197,8 @@ namespace OloEngine
         f32 CloudWetness = 0.0f;
         f32 WindAnimationScale = 1.0f;
 
-        // Weather map (resolved scene-side; 0 = use the procedural default)
-        u32 WeatherMapTextureID = 0;
+        // Weather map (resolved scene-side; null = use the procedural default)
+        RHI::ResourceHandle WeatherMapTextureID{};
         f32 WeatherMapExtentMeters = 30000.0f;
 
         // Raymarch quality + lighting

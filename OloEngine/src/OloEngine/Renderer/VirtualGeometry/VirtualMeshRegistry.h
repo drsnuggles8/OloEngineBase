@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
@@ -242,13 +243,13 @@ namespace OloEngine
         // Sizes/clears the RGBA8 colour + R32UI count debug targets to the given
         // viewport (called by VirtualGeometryPass only when a debug mode is on).
         void EnsureDebugTargets(u32 viewportWidth, u32 viewportHeight);
-        [[nodiscard]] u32 GetDebugColorTextureID() const
+        [[nodiscard]] RHI::ResourceHandle GetDebugColorTexture() const
         {
-            return m_DebugColorTexID;
+            return m_DebugColorTex;
         }
-        [[nodiscard]] u32 GetDebugCountTextureID() const
+        [[nodiscard]] RHI::ResourceHandle GetDebugCountTexture() const
         {
-            return m_DebugCountTexID;
+            return m_DebugCountTex;
         }
         [[nodiscard]] u32 GetDebugWidth() const
         {
@@ -340,13 +341,13 @@ namespace OloEngine
         {
             return m_VisbufferBuffer;
         }
-        [[nodiscard]] u32 GetIndexBufferID() const
+        [[nodiscard]] RHI::ResourceHandle GetIndexBuffer() const
         {
-            return m_IndexBufferID;
+            return m_IndexBuffer;
         }
-        [[nodiscard]] u32 GetVaoID() const
+        [[nodiscard]] RHI::ResourceHandle GetVao() const
         {
-            return m_VaoID;
+            return m_Vao;
         }
         [[nodiscard]] u32 GetVisbufferWidth() const
         {
@@ -382,7 +383,8 @@ namespace OloEngine
         void EnsureFrameBuffers();
         bool LoadPage(u32 pageIndex);
         void EvictPage(u32 pageIndex);
-        [[nodiscard]] bool CopyThroughRing(u32 targetBufferID, u64 targetOffset, const void* payload, u64 bytes);
+        [[nodiscard]] bool CopyThroughRing(RHI::ResourceHandle targetBuffer, u64 targetOffset,
+                                           const void* payload, u64 bytes);
 
         std::unordered_map<AssetHandle, MeshParts> m_EntryLookup;
         std::vector<MeshEntry> m_Entries; // stable order => deterministic pool layout
@@ -403,9 +405,9 @@ namespace OloEngine
         Ref<StorageBuffer> m_GroupBuffer;       // SSBO_VIRTUAL_GROUPS
         Ref<StorageBuffer> m_GroupStatesBuffer; // SSBO_VIRTUAL_GROUP_STATES (bit0 resident / bit1 request / bit2 touch)
         // Budgeted geometry slot arenas (page slots of uniform capacity)
-        Ref<StorageBuffer> m_VertexBuffer; // SSBO_VIRTUAL_VERTICES arena
-        u32 m_IndexBufferID = 0;           // element-buffer + SSBO_VIRTUAL_INDICES arena
-        u32 m_VaoID = 0;                   // element-buffer-only VAO for the MDI path
+        Ref<StorageBuffer> m_VertexBuffer;   // SSBO_VIRTUAL_VERTICES arena
+        RHI::ResourceHandle m_IndexBuffer{}; // element-buffer + SSBO_VIRTUAL_INDICES arena
+        RHI::ResourceHandle m_Vao{};         // element-buffer-only VAO for the MDI path
 
         // Streaming bookkeeping
         std::vector<PageRuntime> m_Pages;
@@ -422,7 +424,7 @@ namespace OloEngine
         VirtualResidencyStats m_ResidencyStats;
 
         // Persistent-mapped upload ring (CPU staging -> arena copies)
-        u32 m_RingBufferID = 0;
+        RHI::ResourceHandle m_RingBuffer{};
         u8* m_RingPtr = nullptr;
         u64 m_RingSize = 0;
         u64 m_RingHead = 0;
@@ -434,7 +436,7 @@ namespace OloEngine
         // GL_DYNAMIC_READ staging copy of m_ArgsBuffer, so the CPU stats readback never
         // touches the video-memory-resident args buffer directly (see ReadFrameCullStats).
         // Mutable because that readback is const — it observes the frame, it doesn't build it.
-        mutable u32 m_ArgsReadbackID = 0;
+        mutable RHI::ResourceHandle m_ArgsReadback{};
         mutable u32 m_ArgsReadbackBytes = 0;
         Ref<StorageBuffer> m_VisibleBuffer;    // SSBO_VIRTUAL_VISIBLE
         Ref<StorageBuffer> m_SwListBuffer;     // SSBO_VIRTUAL_SW_LIST (16-byte header + records)
@@ -451,8 +453,8 @@ namespace OloEngine
         // RGBA8 (imported into the graph + captured); count is R32UI (overdraw
         // accumulation, colorized into the colour target).
         VirtualDebugMode m_DebugMode = VirtualDebugMode::Off;
-        u32 m_DebugColorTexID = 0;
-        u32 m_DebugCountTexID = 0;
+        RHI::ResourceHandle m_DebugColorTex{};
+        RHI::ResourceHandle m_DebugCountTex{};
         u32 m_DebugWidth = 0;
         u32 m_DebugHeight = 0;
     };

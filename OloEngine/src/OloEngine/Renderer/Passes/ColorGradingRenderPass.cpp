@@ -21,10 +21,10 @@ namespace OloEngine
 
     ColorGradingRenderPass::~ColorGradingRenderPass()
     {
-        if (m_IdentityLUTTexture != 0)
+        if (m_IdentityLUTTexture.IsValid())
         {
             RenderCommand::DeleteTexture(m_IdentityLUTTexture);
-            m_IdentityLUTTexture = 0;
+            m_IdentityLUTTexture = RHI::NullResource;
         }
     }
 
@@ -64,7 +64,7 @@ namespace OloEngine
         // pipeline fingerprint (RenderPipeline.cpp HashBool(ColorGradingEnabled)),
         // so the topology-keyed caches invalidate correctly when it flips
         // (docs/agent-rules/render-pipeline-caches.md).
-        if (m_IdentityLUTTexture != 0)
+        if (m_IdentityLUTTexture.IsValid())
         {
             // 16x16x16 identity LUT laid out as a 256x16 strip (see CreateIdentityLUT).
             RGResourceDesc lutDesc =
@@ -73,7 +73,7 @@ namespace OloEngine
             lutDesc.Width = 256;
             lutDesc.Height = 16;
             [[maybe_unused]] const RGTextureHandle lutHandle =
-                builder.ImportTexture(kIdentityLUTTargetName, m_IdentityLUTTexture, lutDesc);
+                builder.ImportTextureHandle(kIdentityLUTTargetName, m_IdentityLUTTexture, lutDesc);
         }
 
         if (blackboard.Post.ColorGradingColor.IsValid())
@@ -135,7 +135,7 @@ namespace OloEngine
             }
         }
 
-        m_IdentityLUTTexture = RenderCommand::CreateTexture2D(stripWidth, stripHeight, RHI::Format::RGBA8UNorm);
+        m_IdentityLUTTexture = RenderCommand::CreateTexture2DHandle(stripWidth, stripHeight, RHI::Format::RGBA8UNorm);
         RenderCommand::UploadTextureSubImage2D(m_IdentityLUTTexture, stripWidth, stripHeight, RHI::Format::RGBA8UNorm, pixels.data());
         // Linear filtering + clamp-to-edge so the shader's intra-tile bilinear
         // and inter-tile mix() interpolate cleanly without wrap artifacts.
@@ -161,9 +161,9 @@ namespace OloEngine
 
         // Sample-only consumer: input framebuffer is intentionally not
         // resolved here — see ReadFirstValidVersionedInputForPass docs.
-        u32 inputColorTextureID = 0u;
+        RHI::ResourceHandle inputColorTextureID{};
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
-            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+            inputColorTextureID = context.ResolveTextureHandle(inputTextureHandle);
 
         Ref<Framebuffer> outputFramebuffer;
         if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
@@ -178,7 +178,7 @@ namespace OloEngine
             return;
         }
 
-        if (inputColorTextureID == 0u || !outputFramebuffer || !m_Shader)
+        if (!inputColorTextureID.IsValid() || !outputFramebuffer || !m_Shader)
         {
             m_Target = nullptr;
             return;

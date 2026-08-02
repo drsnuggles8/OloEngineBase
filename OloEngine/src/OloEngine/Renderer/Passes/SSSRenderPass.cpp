@@ -71,10 +71,10 @@ namespace OloEngine
         // resolved here — only the input texture is sampled, and the pass
         // binds its own graph-owned output framebuffer.
         Ref<Framebuffer> outputFramebuffer;
-        u32 inputColorTextureID = 0u;
-        u32 depthID = 0u;
+        RHI::ResourceHandle inputColorTextureID{};
+        RHI::ResourceHandle depthID{};
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
-            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+            inputColorTextureID = context.ResolveTextureHandle(inputTextureHandle);
 
         if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
@@ -83,7 +83,7 @@ namespace OloEngine
         }
 
         if (m_SelectedSceneDepthTexture.IsValid())
-            depthID = context.ResolveTexture(m_SelectedSceneDepthTexture);
+            depthID = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
 
         if (!m_Settings.Enabled || !m_Settings.SSSBlurEnabled)
         {
@@ -91,7 +91,7 @@ namespace OloEngine
             return;
         }
 
-        if (inputColorTextureID == 0u || !outputFramebuffer || depthID == 0u)
+        if (!inputColorTextureID.IsValid() || !outputFramebuffer || !depthID.IsValid())
         {
             m_Target = nullptr;
             return;

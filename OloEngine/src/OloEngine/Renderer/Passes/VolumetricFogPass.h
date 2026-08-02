@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
@@ -55,8 +56,8 @@ namespace OloEngine
         glm::mat4 Projection{ 1.0f };
         glm::mat4 InverseProjection{ 1.0f };
         glm::vec3 RenderOrigin{ 0.0f };
-        u32 ScatterTextureID = 0;    // the volume the last scatter dispatch WROTE (rgb = in-scatter, a = extinction)
-        u32 IntegratedTextureID = 0; // FroxelFogIntegrate's output (rgb = accumulated in-scatter, a = transmittance)
+        RHI::ResourceHandle ScatterTextureID{};    // the volume the last scatter dispatch WROTE (rgb = in-scatter, a = extinction)
+        RHI::ResourceHandle IntegratedTextureID{}; // FroxelFogIntegrate's output (rgb = accumulated in-scatter, a = transmittance)
     };
 
     class VolumetricFogPass : public RenderGraphNode
@@ -96,9 +97,9 @@ namespace OloEngine
 
         // GL id of the integrated fog volume (0 until the pass has run).
         // FogRenderPass binds this at TEX_FROXEL_FOG for the composite.
-        [[nodiscard]] u32 GetIntegratedVolumeID() const
+        [[nodiscard]] RHI::ResourceHandle GetIntegratedVolumeID() const
         {
-            return m_IntegratedVolume ? m_IntegratedVolume->GetRendererID() : 0;
+            return m_IntegratedVolume ? m_IntegratedVolume->GetRHIHandle() : RHI::NullResource;
         }
 
         // True when the compute chain ran this frame (Execute reached the

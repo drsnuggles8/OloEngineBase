@@ -174,7 +174,7 @@ namespace OloEngine::Ocean
 
         m_ButterflyShader->Bind();
         m_ButterflyShader->SetInt("u_Resolution", static_cast<int>(N));
-        RenderCommand::BindTexture(0, m_ButterflyTex->GetRendererID());
+        RenderCommand::BindTexture(0, m_ButterflyTex->GetRHIHandle());
 
         u32 src = srcIndex;
         for (int vertical = 0; vertical <= 1; ++vertical)
@@ -183,9 +183,9 @@ namespace OloEngine::Ocean
             for (u32 stage = 0u; stage < stages; ++stage)
             {
                 m_ButterflyShader->SetInt("u_Stage", static_cast<int>(stage));
-                RenderCommand::BindImageTexture(0, m_PingPong[src]->GetRendererID(), 0, true, 0, RHI::Access::StorageRead,
+                RenderCommand::BindImageTexture(0, m_PingPong[src]->GetRHIHandle(), 0, true, 0, RHI::Access::StorageRead,
                                                 RHI::Format::RGBA32Float);
-                RenderCommand::BindImageTexture(1, m_PingPong[1u - src]->GetRendererID(), 0, true, 0, RHI::Access::StorageWrite,
+                RenderCommand::BindImageTexture(1, m_PingPong[1u - src]->GetRHIHandle(), 0, true, 0, RHI::Access::StorageWrite,
                                                 RHI::Format::RGBA32Float);
                 RenderCommand::DispatchCompute(groups, groups, kSpectraLayers);
                 RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess);
@@ -219,8 +219,8 @@ namespace OloEngine::Ocean
             m_EvolveShader->SetFloat("u_PatchSize", m_PatchSize);
             m_EvolveShader->SetFloat("u_Gravity", m_Gravity);
             m_EvolveShader->SetFloat("u_Time", time);
-            RenderCommand::BindTexture(0, m_H0Tex->GetRendererID());
-            RenderCommand::BindImageTexture(0, m_PingPong[0]->GetRendererID(), 0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA32Float);
+            RenderCommand::BindTexture(0, m_H0Tex->GetRHIHandle());
+            RenderCommand::BindImageTexture(0, m_PingPong[0]->GetRHIHandle(), 0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA32Float);
             RenderCommand::DispatchCompute(groups, groups, 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess);
         }
@@ -238,11 +238,11 @@ namespace OloEngine::Ocean
             m_AssembleShader->Bind();
             m_AssembleShader->SetInt("u_Resolution", static_cast<int>(N));
             m_AssembleShader->SetFloat("u_Choppiness", choppiness);
-            RenderCommand::BindImageTexture(0, m_PingPong[finalIndex]->GetRendererID(), 0, true, 0, RHI::Access::StorageRead,
+            RenderCommand::BindImageTexture(0, m_PingPong[finalIndex]->GetRHIHandle(), 0, true, 0, RHI::Access::StorageRead,
                                             RHI::Format::RGBA32Float);
-            RenderCommand::BindImageTexture(1, displacementTex->GetRendererID(), 0, false, 0, RHI::Access::StorageWrite,
+            RenderCommand::BindImageTexture(1, displacementTex->GetRHIHandle(), 0, false, 0, RHI::Access::StorageWrite,
                                             RHI::Format::RGBA32Float);
-            RenderCommand::BindImageTexture(2, derivativesTex->GetRendererID(), 0, false, 0, RHI::Access::StorageWrite,
+            RenderCommand::BindImageTexture(2, derivativesTex->GetRHIHandle(), 0, false, 0, RHI::Access::StorageWrite,
                                             RHI::Format::RGBA32Float);
             RenderCommand::DispatchCompute(groups, groups, 1);
             // The water shader samples these textures next; image stores must
@@ -268,14 +268,14 @@ namespace OloEngine::Ocean
         // Clear both arrays (the butterfly chain transforms all 4 layers; the
         // unused ones must not feed NaN/garbage through imageLoad).
         const glm::vec4 zero(0.0f);
-        RenderCommand::ClearTextureFloat(m_PingPong[0]->GetRendererID(), 0, zero);
-        RenderCommand::ClearTextureFloat(m_PingPong[1]->GetRendererID(), 0, zero);
+        RenderCommand::ClearTextureFloat(m_PingPong[0]->GetRHIHandle(), 0, zero);
+        RenderCommand::ClearTextureFloat(m_PingPong[1]->GetRHIHandle(), 0, zero);
 
         // Upload the input into layer 0 (rg = complex, ba unused).
         m_Scratch.assign(count, glm::vec4(0.0f));
         for (sizet i = 0; i < count; ++i)
             m_Scratch[i] = glm::vec4(freq[i].real(), freq[i].imag(), 0.0f, 0.0f);
-        RenderCommand::UploadTextureSubImage3D(m_PingPong[0]->GetRendererID(), 0, 0, 0, N, N, 1,
+        RenderCommand::UploadTextureSubImage3D(m_PingPong[0]->GetRHIHandle(), 0, 0, 0, N, N, 1,
                                                RHI::Format::RGBA32Float, m_Scratch.data());
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
 
@@ -284,7 +284,7 @@ namespace OloEngine::Ocean
         // Read back layer 0 and apply the 1/N² normalisation the production
         // path defers to the assemble pass.
         std::vector<glm::vec4> readback(count);
-        if (!RenderCommand::ReadTextureSubImage(m_PingPong[finalIndex]->GetRendererID(), 0, 0, 0, 0,
+        if (!RenderCommand::ReadTextureSubImage(m_PingPong[finalIndex]->GetRHIHandle(), 0, 0, 0, 0,
                                                 N, N, 1, RHI::Format::RGBA32Float,
                                                 count * sizeof(glm::vec4), readback.data()))
         {

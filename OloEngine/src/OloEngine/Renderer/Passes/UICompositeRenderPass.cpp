@@ -97,23 +97,24 @@ namespace OloEngine
 
         // Sample-only consumer: input framebuffer is intentionally not
         // resolved here — see ReadFirstValidVersionedInputForPass docs.
-        u32 inputColorTextureID = 0u;
+        RHI::ResourceHandle inputColorTextureID{};
         const auto inputHandle = GetPrimaryInputFramebufferHandle();
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
-            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+            inputColorTextureID = context.ResolveTextureHandle(inputTextureHandle);
         {
             static RGFramebufferHandle s_PreviousInputHandle{};
-            static u32 s_PreviousInputColorID = 0;
+            static RHI::ResourceHandle s_PreviousInputColorID{};
             static u32 s_TransitionLogCount = 0;
             if (inputHandle != s_PreviousInputHandle ||
                 inputColorTextureID != s_PreviousInputColorID)
             {
                 if (s_TransitionLogCount < 16)
                 {
-                    OLO_CORE_TRACE("UICompositePass: scene inputHandle=(idx={}, gen={}) colorTex={}",
+                    OLO_CORE_TRACE("UICompositePass: scene inputHandle=(idx={}, gen={}) colorTex=(idx={}, gen={})",
                                    inputHandle.Index,
                                    inputHandle.Generation,
-                                   inputColorTextureID);
+                                   inputColorTextureID.Index,
+                                   inputColorTextureID.Generation);
                     ++s_TransitionLogCount;
                 }
                 s_PreviousInputHandle = inputHandle;
@@ -153,7 +154,7 @@ namespace OloEngine
         outputFramebuffer->ClearAllAttachments({ 0.0f, 0.0f, 0.0f, 1.0f }, -1);
 
         // Blit the post-processed scene as background
-        if (inputColorTextureID != 0u && m_BlitShader)
+        if (inputColorTextureID.IsValid() && m_BlitShader)
         {
             m_BlitShader->Bind();
             context.BindTexture(0, inputColorTextureID);
@@ -166,7 +167,7 @@ namespace OloEngine
         else if (m_NoInputWarningCount++ < 5)
         {
             OLO_CORE_WARN("UICompositePass: No input texture ({}) or blit shader ({}) — scene background will be black",
-                          inputColorTextureID != 0u, m_BlitShader != nullptr);
+                          inputColorTextureID.IsValid(), m_BlitShader != nullptr);
         }
         else
         {

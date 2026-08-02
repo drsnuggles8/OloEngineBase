@@ -281,7 +281,7 @@ namespace OloEngine
         glClearBufferfv(GL_COLOR, static_cast<GLint>(attachmentIndex), glm::value_ptr(value));
     }
 
-    void OpenGLFramebuffer::AttachDepthTextureArrayLayer(u32 textureArrayRendererID, u32 layer)
+    void OpenGLFramebuffer::AttachDepthTextureArrayLayer(RHI::ResourceHandle textureArray, u32 layer)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -292,7 +292,7 @@ namespace OloEngine
         glNamedFramebufferTextureLayer(
             m_RendererID,
             attachmentType,
-            textureArrayRendererID,
+            Utils::ResolveNativeAs(textureArray, RHI::ResourceKind::Texture),
             0, // mip level
             static_cast<GLint>(layer));
 

@@ -4,6 +4,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include <glm/glm.hpp>
 
 namespace OloEngine
@@ -153,7 +154,7 @@ namespace OloEngine
             f32 m_DrainTimeRemaining = 0.0f;
 
             // GPU timer query objects
-            u32 m_TimerQueries[2] = { 0, 0 };
+            RHI::ResourceHandle m_TimerQueries[2] = { RHI::NullResource, RHI::NullResource };
             u32 m_CurrentTimerQuery = 0;
             bool m_TimerQueryActive = false;
 

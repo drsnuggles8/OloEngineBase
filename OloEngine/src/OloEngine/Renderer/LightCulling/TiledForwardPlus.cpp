@@ -203,7 +203,7 @@ namespace OloEngine
         return m_ActiveThisFrame && m_Initialized;
     }
 
-    void TiledForwardPlus::RenderDebugOverlay(u32 fullscreenQuadVAO, const Ref<Shader>& debugShader) const
+    void TiledForwardPlus::RenderDebugOverlay(RHI::ResourceHandle fullscreenQuadVAO, const Ref<Shader>& debugShader) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -222,7 +222,7 @@ namespace OloEngine
 
         RenderCommand::BindVertexArrayRaw(fullscreenQuadVAO);
         RenderCommand::DrawBoundArrays(RHI::PrimitiveTopology::TriangleList, 0, 6);
-        RenderCommand::BindVertexArrayRaw(0);
+        RenderCommand::BindVertexArrayRaw(RHI::NullResource);
 
         // Restore state
         RenderCommand::SetDepthTest(true);

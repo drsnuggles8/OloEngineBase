@@ -86,14 +86,14 @@ namespace OloEngine
         }
 
         /// Dispatch one bake pass of CloudNoise_Generate.comp into a 3D volume.
-        void DispatchNoiseBake(const ComputeShader& shader, u32 textureID, int mode, u32 size)
+        void DispatchNoiseBake(const ComputeShader& shader, RHI::ResourceHandle texture, int mode, u32 size)
         {
             shader.SetInt("u_Mode", mode);
             shader.SetInt("u_Size", static_cast<int>(size));
             shader.SetFloat("u_InvSize", 1.0f / static_cast<f32>(size));
 
             // Bind the volume for writing (image unit 0, mip 0, layered for 3D)
-            RenderCommand::BindImageTexture(0, textureID, 0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm);
+            RenderCommand::BindImageTexture(0, texture, 0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm);
 
             const u32 groups = (size + kLocalSize - 1) / kLocalSize;
             RenderCommand::DispatchCompute(groups, groups, groups);
@@ -134,8 +134,8 @@ namespace OloEngine
         // --- Generation compute shader ---
         s_Data.m_GenerateShader = ComputeShader::Create("assets/shaders/compute/CloudNoise_Generate.comp");
 
-        const bool texturesValid = s_Data.m_BaseNoise && s_Data.m_BaseNoise->GetRendererID() != 0 &&
-                                   s_Data.m_DetailNoise && s_Data.m_DetailNoise->GetRendererID() != 0;
+        const bool texturesValid = s_Data.m_BaseNoise && s_Data.m_BaseNoise->GetRHIHandle().IsValid() &&
+                                   s_Data.m_DetailNoise && s_Data.m_DetailNoise->GetRHIHandle().IsValid();
         const bool shaderValid = s_Data.m_GenerateShader && s_Data.m_GenerateShader->IsValid();
         if (!texturesValid || !shaderValid)
         {
@@ -151,8 +151,8 @@ namespace OloEngine
 
         // --- Bake both volumes on the GPU ---
         s_Data.m_GenerateShader->Bind();
-        DispatchNoiseBake(*s_Data.m_GenerateShader, s_Data.m_BaseNoise->GetRendererID(), 0, kBaseNoiseSize);
-        DispatchNoiseBake(*s_Data.m_GenerateShader, s_Data.m_DetailNoise->GetRendererID(), 1, kDetailNoiseSize);
+        DispatchNoiseBake(*s_Data.m_GenerateShader, s_Data.m_BaseNoise->GetRHIHandle(), 0, kBaseNoiseSize);
+        DispatchNoiseBake(*s_Data.m_GenerateShader, s_Data.m_DetailNoise->GetRHIHandle(), 1, kDetailNoiseSize);
         s_Data.m_GenerateShader->Unbind();
 
         // --- Default weather map (deterministic CPU value-noise FBM) ---
@@ -205,7 +205,7 @@ namespace OloEngine
         weatherSpec.Format = ImageFormat::RGBA8;
         weatherSpec.GenerateMips = false;
         s_Data.m_WeatherMap = Texture2D::Create(weatherSpec);
-        if (!s_Data.m_WeatherMap || s_Data.m_WeatherMap->GetRendererID() == 0)
+        if (!s_Data.m_WeatherMap || !s_Data.m_WeatherMap->GetRHIHandle().IsValid())
         {
             OLO_CORE_ERROR("CloudNoise::EnsureGenerated failed — default weather map texture could not be created");
             s_Data.m_GenerateShader = nullptr;
@@ -247,18 +247,18 @@ namespace OloEngine
         return s_Data.m_Generated;
     }
 
-    u32 CloudNoise::GetBaseNoiseTextureID()
+    RHI::ResourceHandle CloudNoise::GetBaseNoiseTexture()
     {
-        return (s_Data.m_Generated && s_Data.m_BaseNoise) ? s_Data.m_BaseNoise->GetRendererID() : 0;
+        return (s_Data.m_Generated && s_Data.m_BaseNoise) ? s_Data.m_BaseNoise->GetRHIHandle() : RHI::NullResource;
     }
 
-    u32 CloudNoise::GetDetailNoiseTextureID()
+    RHI::ResourceHandle CloudNoise::GetDetailNoiseTexture()
     {
-        return (s_Data.m_Generated && s_Data.m_DetailNoise) ? s_Data.m_DetailNoise->GetRendererID() : 0;
+        return (s_Data.m_Generated && s_Data.m_DetailNoise) ? s_Data.m_DetailNoise->GetRHIHandle() : RHI::NullResource;
     }
 
-    u32 CloudNoise::GetDefaultWeatherMapTextureID()
+    RHI::ResourceHandle CloudNoise::GetDefaultWeatherMapTexture()
     {
-        return (s_Data.m_Generated && s_Data.m_WeatherMap) ? s_Data.m_WeatherMap->GetRendererID() : 0;
+        return (s_Data.m_Generated && s_Data.m_WeatherMap) ? s_Data.m_WeatherMap->GetRHIHandle() : RHI::NullResource;
     }
 } // namespace OloEngine

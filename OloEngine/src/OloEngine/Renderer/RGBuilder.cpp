@@ -559,7 +559,7 @@ namespace OloEngine
 
     void RGBuilder::RegisterExternalTextureSink(
         const RGTextureHandle sourceHandle,
-        const u32 textureID,
+        const RHI::ResourceHandle texture,
         const u32 width,
         const u32 height,
         bool* const validFlag)
@@ -573,12 +573,12 @@ namespace OloEngine
             return;
         }
 
-        m_Graph.RegisterExternalTextureSink(sourceHandle, textureID, width, height, validFlag);
+        m_Graph.RegisterExternalTextureSink(sourceHandle, texture, width, height, validFlag);
     }
 
     void RGBuilder::RegisterExternalTextureSink(
         const RGFramebufferHandle sourceHandle,
-        const u32 textureID,
+        const RHI::ResourceHandle texture,
         const u32 width,
         const u32 height,
         const u32 colorAttachmentIndex,
@@ -593,7 +593,7 @@ namespace OloEngine
             return;
         }
 
-        m_Graph.RegisterExternalTextureSink(sourceHandle, textureID, width, height, colorAttachmentIndex, validFlag);
+        m_Graph.RegisterExternalTextureSink(sourceHandle, texture, width, height, colorAttachmentIndex, validFlag);
     }
 
     void RGBuilder::ExtractHistoryTexture(

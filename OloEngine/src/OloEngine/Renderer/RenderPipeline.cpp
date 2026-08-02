@@ -232,7 +232,7 @@ namespace OloEngine
             {
                 GPUFrustumCuller::HZBOcclusionInputs occ;
                 occ.Enabled = true;
-                occ.HZBTextureID = data.OcclusionHZB.GetHZBTextureID();
+                occ.HZBTexture = data.OcclusionHZB.GetHZBTexture();
                 occ.MipCount = data.OcclusionHZB.GetMipCount();
                 // The instance transforms fed to the cull are shifted render-
                 // relative (GPUFrustumCuller::Cull), so reproject with the prev-VP
@@ -1253,14 +1253,14 @@ namespace OloEngine
                 data.CloudFrameIndex = (data.CloudFrameIndex + 1u) & 0x3FFu;
 
                 // Weather map: scene-authored override or the procedural default.
-                const u32 weatherMapID = cloudState.WeatherMapTextureID != 0u
-                                             ? cloudState.WeatherMapTextureID
-                                             : CloudNoise::GetDefaultWeatherMapTextureID();
+                const RHI::ResourceHandle weatherMapID = cloudState.WeatherMapTextureID.IsValid()
+                                                             ? cloudState.WeatherMapTextureID
+                                                             : CloudNoise::GetDefaultWeatherMapTexture();
                 // Noise ids are handed over here (not in ConfigurePassesForFrame)
                 // because on the first enabled frame EnsureGenerated() has only
                 // just run — the getters returned 0 before this point.
-                PostProcessPasses.Cloudscape->SetNoiseTextures(CloudNoise::GetBaseNoiseTextureID(),
-                                                               CloudNoise::GetDetailNoiseTextureID(),
+                PostProcessPasses.Cloudscape->SetNoiseTextures(CloudNoise::GetBaseNoiseTexture(),
+                                                               CloudNoise::GetDetailNoiseTexture(),
                                                                weatherMapID);
                 // History AFTER PopulateBlackboard: EnsureHistoryStorage may
                 // have (re)created the texture this frame, so the id handed
@@ -1271,8 +1271,8 @@ namespace OloEngine
 
                 PostProcessPasses.Cloudscape->UploadAndBindUBO();
 
-                RenderCommand::BindTexture(ShaderBindingLayout::TEX_CLOUD_BASE_NOISE, CloudNoise::GetBaseNoiseTextureID());
-                RenderCommand::BindTexture(ShaderBindingLayout::TEX_CLOUD_DETAIL_NOISE, CloudNoise::GetDetailNoiseTextureID());
+                RenderCommand::BindTexture(ShaderBindingLayout::TEX_CLOUD_BASE_NOISE, CloudNoise::GetBaseNoiseTexture());
+                RenderCommand::BindTexture(ShaderBindingLayout::TEX_CLOUD_DETAIL_NOISE, CloudNoise::GetDetailNoiseTexture());
                 RenderCommand::BindTexture(ShaderBindingLayout::TEX_CLOUD_WEATHER_MAP, weatherMapID);
 
                 if (cloudState.CastShadows)
@@ -1526,13 +1526,15 @@ namespace OloEngine
         // was never imported, and olo_render_capture_target answered "Unknown
         // render-graph resource 'VirtualGeometryDebug'" forever.
         //
-        // The raw GL texture id is hashed for the same reason as the shadow/IBL ids
-        // above: the import is BY id, so a viewport resize (which recreates the debug
-        // targets) must re-import rather than keep a dangling id.
+        // The identity is hashed for the same reason as the shadow/IBL ones above:
+        // the import is BY resource, so a viewport resize (which recreates the debug
+        // targets) must re-import rather than keep a dangling reference. Hashing the
+        // identity rather than the driver name is what makes a destroy-then-recreate
+        // that reuses the GL name visible here at all.
         {
             const auto& virtualRegistry = VirtualMeshRegistry::Get();
             HashU32(h, static_cast<u32>(std::to_underlying(virtualRegistry.GetDebugMode())));
-            HashU32(h, virtualRegistry.GetDebugColorTextureID());
+            HashU64(h, RHI::HashKey(virtualRegistry.GetDebugColorTexture()));
         }
 
         // Selection outline gate inputs — PopulateBlackboard declares
@@ -1590,7 +1592,7 @@ namespace OloEngine
             HashU64(h, RHI::HashKey(ddgiPass.GetIrradianceAtlasHandle(1u)));
             HashU64(h, RHI::HashKey(ddgiPass.GetVisibilityAtlasHandle(0u)));
             HashU64(h, RHI::HashKey(ddgiPass.GetVisibilityAtlasHandle(1u)));
-            HashU32(h, ddgiPass.GetProbeDataTextureID());
+            HashU64(h, RHI::HashKey(ddgiPass.GetProbeDataTextureID()));
         }
         HashPassState(h, SceneCompositePasses.DeferredLighting);
         HashPassState(h, SceneCompositePasses.DeferredOpaqueDecal);
@@ -2046,8 +2048,8 @@ namespace OloEngine
             // Comparison-OFF raw-depth views for the deferred PCSS blocker search.
             // These alias the CSM array / atlas storage declared below, so they
             // ride that storage's barriers and need no separate graph resource.
-            board.Shadows.ShadowMapCSMRawID = data.Shadow.GetCSMRawRendererID();
-            board.Shadows.ShadowMapAtlasRawID = data.Shadow.GetAtlasRawRendererID();
+            board.Shadows.ShadowMapCSMRawID = data.Shadow.GetCSMRawHandle();
+            board.Shadows.ShadowMapAtlasRawID = data.Shadow.GetAtlasRawHandle();
 
             const auto buildShadowTextureDesc = [shadowResolution](const RGResourceHandle::Kind kind,
                                                                    std::string_view debugName,
@@ -2063,6 +2065,11 @@ namespace OloEngine
 
             const u32 csmID = data.Shadow.GetCSMRendererID();
             const u32 atlasID = data.Shadow.GetAtlasRendererID();
+            // Both currencies: the identity is what every consumer reads
+            // through ResolveTextureHandle, the native id is what the
+            // diagnostics and the capture endpoints read.
+            const RHI::ResourceHandle csmTexture = data.Shadow.GetCSMHandle();
+            const RHI::ResourceHandle atlasTexture = data.Shadow.GetAtlasHandle();
             if (csmID != 0)
             {
                 board.Shadows.ShadowMapCSM = graph.DeclareTransientTexture(
@@ -2070,7 +2077,7 @@ namespace OloEngine
                     buildShadowTextureDesc(RGResourceHandle::Kind::Texture2DArray,
                                            ResourceNames::ShadowMapCSM,
                                            FrameBlackboard::MaxShadowMapCascades),
-                    csmID);
+                    csmID, csmTexture);
 
                 for (u32 cascade = 0; cascade < FrameBlackboard::MaxShadowMapCascades; ++cascade)
                 {
@@ -2091,7 +2098,7 @@ namespace OloEngine
                 atlasDesc.Height = atlasResolution;
                 atlasDesc.DepthOrLayers = 1;
                 board.Shadows.ShadowMapAtlas = graph.DeclareTransientTexture(
-                    ResourceNames::ShadowMapAtlas, atlasDesc, atlasID);
+                    ResourceNames::ShadowMapAtlas, atlasDesc, atlasID, atlasTexture);
             }
 
             // Publish the comparison-OFF raw-depth views as graph resources too
@@ -2114,6 +2121,8 @@ namespace OloEngine
             // permanently absent.
             const u32 csmRawID = data.Shadow.GetCSMRawRendererID();
             const u32 atlasRawID = data.Shadow.GetAtlasRawRendererID();
+            const RHI::ResourceHandle csmRawTexture = data.Shadow.GetCSMRawHandle();
+            const RHI::ResourceHandle atlasRawTexture = data.Shadow.GetAtlasRawHandle();
             if (csmRawID != 0)
             {
                 [[maybe_unused]] const RGTextureHandle csmRaw = graph.DeclareTransientTexture(
@@ -2121,7 +2130,7 @@ namespace OloEngine
                     buildShadowTextureDesc(RGResourceHandle::Kind::Texture2DArray,
                                            ShadowMap::kCSMRawTargetName,
                                            FrameBlackboard::MaxShadowMapCascades),
-                    csmRawID);
+                    csmRawID, csmRawTexture);
             }
             if (atlasRawID != 0)
             {
@@ -2130,7 +2139,7 @@ namespace OloEngine
                 atlasRawDesc.Width = std::max(data.Shadow.GetAtlasResolution(), 1u);
                 atlasRawDesc.Height = atlasRawDesc.Width;
                 [[maybe_unused]] const RGTextureHandle atlasRaw = graph.DeclareTransientTexture(
-                    ShadowMap::kAtlasRawTargetName, atlasRawDesc, atlasRawID);
+                    ShadowMap::kAtlasRawTargetName, atlasRawDesc, atlasRawID, atlasRawTexture);
             }
         }
 
@@ -2933,15 +2942,15 @@ namespace OloEngine
             EnsureHistoryStorage(pipeline.TAAHistoryTexture, pipeline.TAAHistoryValid, taaSpec.Width, taaSpec.Height);
             graph.RegisterHistoryTextureSink(
                 ResourceNames::TAAHistory,
-                pipeline.TAAHistoryTexture ? pipeline.TAAHistoryTexture->GetRendererID() : 0u,
+                pipeline.TAAHistoryTexture ? pipeline.TAAHistoryTexture->GetRHIHandle() : RHI::NullResource,
                 pipeline.TAAHistoryTexture ? pipeline.TAAHistoryTexture->GetWidth() : 0u,
                 pipeline.TAAHistoryTexture ? pipeline.TAAHistoryTexture->GetHeight() : 0u,
                 &pipeline.TAAHistoryValid);
         }
         if (pipeline.TAAHistoryValid && pipeline.TAAHistoryTexture)
         {
-            board.Temporal.TAAHistory = graph.ImportHistory(
-                ResourceNames::TAAHistory, pipeline.TAAHistoryTexture->GetRendererID());
+            board.Temporal.TAAHistory = graph.ImportHistoryHandle(
+                ResourceNames::TAAHistory, pipeline.TAAHistoryTexture->GetRHIHandle());
         }
 
         // CloudsHistory (issue #633): half-resolution resolved-cloud
@@ -2956,15 +2965,15 @@ namespace OloEngine
             EnsureHistoryStorage(pipeline.CloudsHistoryTexture, pipeline.CloudsHistoryValid, cloudsHalfWidth, cloudsHalfHeight);
             graph.RegisterHistoryTextureSink(
                 ResourceNames::CloudsHistory,
-                pipeline.CloudsHistoryTexture ? pipeline.CloudsHistoryTexture->GetRendererID() : 0u,
+                pipeline.CloudsHistoryTexture ? pipeline.CloudsHistoryTexture->GetRHIHandle() : RHI::NullResource,
                 pipeline.CloudsHistoryTexture ? pipeline.CloudsHistoryTexture->GetWidth() : 0u,
                 pipeline.CloudsHistoryTexture ? pipeline.CloudsHistoryTexture->GetHeight() : 0u,
                 &pipeline.CloudsHistoryValid);
         }
         if (pipeline.CloudsHistoryValid && pipeline.CloudsHistoryTexture)
         {
-            board.Temporal.CloudsHistory = graph.ImportHistory(
-                ResourceNames::CloudsHistory, pipeline.CloudsHistoryTexture->GetRendererID());
+            board.Temporal.CloudsHistory = graph.ImportHistoryHandle(
+                ResourceNames::CloudsHistory, pipeline.CloudsHistoryTexture->GetRHIHandle());
         }
 
         // (The 2D FogHistory sink/import died with the screen-space fog
@@ -2974,22 +2983,26 @@ namespace OloEngine
         // ------------------------------------------------------------------
         // IBL resources
         // ------------------------------------------------------------------
-        if (data.GlobalIrradianceMapNativeID != 0)
+        // Handle imports since issue #691 step 3 item 4. The IBL trio used to
+        // carry a SECOND, native currency purely so these three lines could
+        // import it — the last reason SetGlobalIBL took both. That parameter
+        // triple is gone with it.
+        if (data.GlobalIrradianceMapID.IsValid())
         {
-            board.IBL.IrradianceMap = graph.ImportTexture(
-                ResourceNames::IrradianceMap, data.GlobalIrradianceMapNativeID,
+            board.IBL.IrradianceMap = graph.ImportTextureHandle(
+                ResourceNames::IrradianceMap, data.GlobalIrradianceMapID,
                 RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::TextureCube, ResourceNames::IrradianceMap));
         }
-        if (data.GlobalPrefilterMapNativeID != 0)
+        if (data.GlobalPrefilterMapID.IsValid())
         {
-            board.IBL.PrefilterMap = graph.ImportTexture(
-                ResourceNames::PrefilterMap, data.GlobalPrefilterMapNativeID,
+            board.IBL.PrefilterMap = graph.ImportTextureHandle(
+                ResourceNames::PrefilterMap, data.GlobalPrefilterMapID,
                 RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::TextureCube, ResourceNames::PrefilterMap));
         }
-        if (data.GlobalBRDFLutMapNativeID != 0)
+        if (data.GlobalBRDFLutMapID.IsValid())
         {
-            board.IBL.BrdfLut = graph.ImportTexture(
-                ResourceNames::BrdfLut, data.GlobalBRDFLutMapNativeID,
+            board.IBL.BrdfLut = graph.ImportTextureHandle(
+                ResourceNames::BrdfLut, data.GlobalBRDFLutMapID,
                 RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, ResourceNames::BrdfLut));
         }
     }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 
 #include <vector>
 
@@ -39,9 +40,17 @@ namespace OloEngine
         /// @return True if any samples passed, false if fully occluded.
         bool WasVisible(u32 objectIndex) const;
 
-        /// @brief Get the GL query object ID for conditional rendering.
-        /// Returns the read-buffer query ID for the given object index.
-        u32 GetQueryID(u32 objectIndex) const;
+        /// @brief Get the query object's identity for conditional rendering.
+        /// Returns the read-buffer query handle for the given object index, or
+        /// RHI::NullResource when the pool is down or the index is out of range.
+        ///
+        /// This is a FRAME-CROSSING read — the handle names a query issued in the
+        /// previous frame — which is why the identity matters: a Shutdown() +
+        /// Initialize() in between frees the native names, and GL may hand one of
+        /// them back to an unrelated query. A retired handle resolves to 0 and
+        /// the conditional render is skipped; a recycled name would have gated the
+        /// draw on someone else's occlusion result (issue #691 step 3, item 4).
+        RHI::ResourceHandle GetQueryHandle(u32 objectIndex) const;
 
         /// @brief Number of queries issued in the previous (now-readable) frame.
         u32 GetReadableQueryCount() const
@@ -73,9 +82,9 @@ namespace OloEngine
         OcclusionQueryPool& operator=(const OcclusionQueryPool&) = delete;
 
         // Double-buffered: index 0 and 1
-        std::vector<u32> m_QueryObjects[2]; // GL query IDs
-        std::vector<bool> m_QueryIssued[2]; // Per-index: was a query actually issued this frame?
-        std::vector<bool> m_Results;        // Readback visibility results
+        std::vector<RHI::ResourceHandle> m_QueryObjects[2]; // query identities
+        std::vector<bool> m_QueryIssued[2];                 // Per-index: was a query actually issued this frame?
+        std::vector<bool> m_Results;                        // Readback visibility results
 
         u32 m_MaxQueries = 0;
         u32 m_WriteBuffer = 0;        // Buffer currently being written to
