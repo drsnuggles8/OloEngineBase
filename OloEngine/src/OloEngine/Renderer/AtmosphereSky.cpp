@@ -19,7 +19,7 @@ namespace OloEngine
 {
     namespace
     {
-        [[nodiscard]] f32 SanitizeClamped(f32 v, f32 lo, f32 hi, f32 fallback)
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] f32 SanitizeClamped(f32 v, f32 lo, f32 hi, f32 fallback)
         {
             return std::isfinite(v) ? std::clamp(v, lo, hi) : fallback;
         }
@@ -45,7 +45,7 @@ namespace OloEngine
         // that into an unrelated value. NVIDIA and Mesa disagreed on star
         // positions outright, and std::sin here matched neither — so this
         // "mirror" was unverifiable in principle, not merely in practice.
-        [[nodiscard]] u32 PcgHash(u32 v)
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] u32 PcgHash(u32 v)
         {
             const u32 state = v * 747796405u + 2891336453u;
             const u32 word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
@@ -53,7 +53,7 @@ namespace OloEngine
         }
 
         // Mirrors hashCell (AtmosphereSky.glsl). Integer lattice cell -> u32.
-        [[nodiscard]] u32 HashCell(const glm::ivec3& c, u32 seed)
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] u32 HashCell(const glm::ivec3& c, u32 seed)
         {
             u32 h = PcgHash(static_cast<u32>(c.x) ^ 0x9E3779B9u);
             h = PcgHash(h ^ static_cast<u32>(c.y) ^ 0x85EBCA6Bu);
@@ -65,25 +65,25 @@ namespace OloEngine
         // Masked to 24 bits so the u32 -> f32 conversion is exact (an f32
         // mantissa holds 24 bits) and scaled by a power of two so the divide
         // rounds nothing.
-        [[nodiscard]] f32 Hash1(const glm::ivec3& c, u32 seed)
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] f32 Hash1(const glm::ivec3& c, u32 seed)
         {
             return static_cast<f32>(HashCell(c, seed) & 0xFFFFFFu) * (1.0f / 16777216.0f);
         }
 
         // Mirrors hash3 (AtmosphereSky.glsl).
-        [[nodiscard]] glm::vec3 Hash3(const glm::ivec3& c)
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] glm::vec3 Hash3(const glm::ivec3& c)
         {
             return { Hash1(c, 0u), Hash1(c, 1u), Hash1(c, 2u) };
         }
 
-        [[nodiscard]] f32 SmoothStepF(f32 edge0, f32 edge1, f32 x)
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] f32 SmoothStepF(f32 edge0, f32 edge1, f32 x)
         {
             const f32 t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
             return t * t * (3.0f - 2.0f * t);
         }
 
         // Mirrors starField() in AtmosphereSky.glsl.
-        [[nodiscard]] f32 StarField(const glm::vec3& dir, f32 rotation, f32 intensity)
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] f32 StarField(const glm::vec3& dir, f32 rotation, f32 intensity)
         {
             const f32 c = std::cos(rotation);
             const f32 s = std::sin(rotation);
@@ -105,7 +105,7 @@ namespace OloEngine
 
         // Mirrors nightLayer() in AtmosphereSky.glsl: base gradient + moon
         // glow + moon disk + stars, all scaled by the night brightness lane.
-        [[nodiscard]] glm::vec3 NightLayer(const glm::vec3& dir, const AtmosphereSkyUBO& ubo)
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] glm::vec3 NightLayer(const glm::vec3& dir, const AtmosphereSkyUBO& ubo)
         {
             const glm::vec3 moonDir(ubo.MoonDirection);
             const f32 starIntensity = ubo.NightParams.y;
@@ -145,13 +145,13 @@ namespace OloEngine
         }
 
         // Mirrors the 2D value-noise FBM cloud tint in AtmosphereSky.glsl.
-        [[nodiscard]] f32 Hash12(const glm::vec2& p)
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] f32 Hash12(const glm::vec2& p)
         {
             const f32 h = std::sin(glm::dot(p, glm::vec2(127.1f, 311.7f))) * 43758.5453f;
             return h - std::floor(h);
         }
 
-        [[nodiscard]] f32 ValueNoise2D(const glm::vec2& p)
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] f32 ValueNoise2D(const glm::vec2& p)
         {
             const glm::vec2 i = glm::floor(p);
             const glm::vec2 f = p - i;
@@ -163,7 +163,7 @@ namespace OloEngine
             return glm::mix(glm::mix(a, b, u.x), glm::mix(c, d, u.x), u.y);
         }
 
-        [[nodiscard]] f32 CloudFBM(const glm::vec2& p)
+        [[nodiscard("pure computation; discarding the result makes the call a no-op")]] f32 CloudFBM(const glm::vec2& p)
         {
             f32 sum = 0.0f;
             f32 amp = 0.5f;

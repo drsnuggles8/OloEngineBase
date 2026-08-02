@@ -43,7 +43,7 @@ namespace OloEngine
 
     // True for the block-compressed ImageFormat values, which take the
     // glCompressedTextureSubImage2D upload path instead of a client pixel format.
-    [[nodiscard]] constexpr bool IsCompressedFormat(ImageFormat format) noexcept
+    [[nodiscard("Store this!")]] constexpr bool IsCompressedFormat(ImageFormat format) noexcept
     {
         return format == ImageFormat::BC7 || format == ImageFormat::BC5 || format == ImageFormat::BC6H;
     }
@@ -60,7 +60,7 @@ namespace OloEngine
     // Slug text renderer drew (its RG16UI band texture returned zero bands, so
     // each glyph covered no pixels) while leaving the geometry, draw calls and
     // logs looking perfectly healthy.
-    [[nodiscard]] constexpr bool IsIntegerFormat(ImageFormat format) noexcept
+    [[nodiscard("Store this!")]] constexpr bool IsIntegerFormat(ImageFormat format) noexcept
     {
         return format == ImageFormat::R8UI || format == ImageFormat::R16UI ||
                format == ImageFormat::RG16UI || format == ImageFormat::R32I;
@@ -107,7 +107,7 @@ namespace OloEngine
         // migration: that one hands out the raw backend name and is deleted once
         // every caller has moved. Turning a handle back into a native object is
         // Platform/<Backend>/'s business.
-        [[nodiscard]] virtual RHI::ResourceHandle GetRHIHandle() const = 0;
+        [[nodiscard("Store this!")]] virtual RHI::ResourceHandle GetRHIHandle() const = 0;
         [[nodiscard("Store this!")]] virtual const std::string& GetPath() const = 0;
 
         virtual void SetData(void* data, u32 size) = 0;

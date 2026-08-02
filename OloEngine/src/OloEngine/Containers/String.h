@@ -49,7 +49,6 @@
 #include "OloEngine/Containers/ContainerAllocationPolicies.h"
 #include "OloEngine/Core/Base.h"
 
-#include <cctype>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -102,7 +101,7 @@ namespace OloEngine
 
         FString(const char* src)
         {
-            if (src && *src)
+            if (src != nullptr && *src != '\0')
             {
                 const sizet len = std::strlen(src);
                 ConstructFromPtrSize(src, static_cast<SizeType>(len));
@@ -129,17 +128,17 @@ namespace OloEngine
         // ------------------------------------------------------------------
 
         // Length in characters, EXCLUDING the stored null terminator.
-        [[nodiscard]] SizeType Len() const
+        [[nodiscard("Store this!")]] SizeType Len() const
         {
             return Data.Num() ? Data.Num() - 1 : 0;
         }
 
-        [[nodiscard]] bool IsEmpty() const
+        [[nodiscard("Store this!")]] bool IsEmpty() const
         {
             return Data.Num() <= 1;
         }
 
-        [[nodiscard]] bool IsValidIndex(SizeType index) const
+        [[nodiscard("Store this!")]] bool IsValidIndex(SizeType index) const
         {
             return index >= 0 && index < Len();
         }
@@ -165,7 +164,7 @@ namespace OloEngine
             Data.Shrink();
         }
 
-        [[nodiscard]] u32 GetAllocatedSize() const
+        [[nodiscard("Store this!")]] u32 GetAllocatedSize() const
         {
             return Data.GetAllocatedSize();
         }
@@ -176,32 +175,32 @@ namespace OloEngine
 
         // UE spells the raw-pointer accessor `*Str`. Always returns a valid
         // null-terminated buffer, even when empty.
-        [[nodiscard]] const char* operator*() const
+        [[nodiscard("Store this!")]] const char* operator*() const
         {
             return Data.Num() ? Data.GetData() : "";
         }
 
-        [[nodiscard]] const char* GetData() const
+        [[nodiscard("Store this!")]] const char* GetData() const
         {
             return **this;
         }
 
-        [[nodiscard]] DataType& GetCharArray()
+        [[nodiscard("Store this!")]] DataType& GetCharArray()
         {
             return Data;
         }
-        [[nodiscard]] const DataType& GetCharArray() const
+        [[nodiscard("Store this!")]] const DataType& GetCharArray() const
         {
             return Data;
         }
 
-        [[nodiscard]] char& operator[](SizeType index)
+        [[nodiscard("Store this!")]] char& operator[](SizeType index)
         {
             OLO_CORE_ASSERT(IsValidIndex(index), "FString index out of range");
             return Data.GetData()[index];
         }
 
-        [[nodiscard]] const char& operator[](SizeType index) const
+        [[nodiscard("Store this!")]] const char& operator[](SizeType index) const
         {
             OLO_CORE_ASSERT(IsValidIndex(index), "FString index out of range");
             return Data.GetData()[index];
@@ -211,12 +210,12 @@ namespace OloEngine
         // Interop with the std:: string surface the engine already uses
         // ------------------------------------------------------------------
 
-        [[nodiscard]] std::string ToStdString() const
+        [[nodiscard("Store this!")]] std::string ToStdString() const
         {
             return std::string(**this, static_cast<sizet>(Len()));
         }
 
-        [[nodiscard]] std::string_view ToView() const
+        [[nodiscard("Store this!")]] std::string_view ToView() const
         {
             return std::string_view(**this, static_cast<sizet>(Len()));
         }
@@ -311,19 +310,19 @@ namespace OloEngine
             return AppendChar(c);
         }
 
-        [[nodiscard]] friend FString operator+(FString lhs, const FString& rhs)
+        [[nodiscard("Store this!")]] friend FString operator+(FString lhs, const FString& rhs)
         {
             lhs.Append(rhs);
             return lhs;
         }
 
-        [[nodiscard]] friend FString operator+(FString lhs, const char* rhs)
+        [[nodiscard("Store this!")]] friend FString operator+(FString lhs, const char* rhs)
         {
             lhs.Append(rhs);
             return lhs;
         }
 
-        [[nodiscard]] friend FString operator+(const char* lhs, const FString& rhs)
+        [[nodiscard("Store this!")]] friend FString operator+(const char* lhs, const FString& rhs)
         {
             FString result(lhs);
             result.Append(rhs);
@@ -351,14 +350,14 @@ namespace OloEngine
             IgnoreCase
         };
 
-        [[nodiscard]] bool Equals(const FString& other, ESearchCase cs = ESearchCase::CaseSensitive) const
+        [[nodiscard("Store this!")]] bool Equals(const FString& other, ESearchCase cs = ESearchCase::CaseSensitive) const
         {
             if (Len() != other.Len())
                 return false;
             return Compare(other, cs) == 0;
         }
 
-        [[nodiscard]] i32 Compare(const FString& other, ESearchCase cs = ESearchCase::CaseSensitive) const
+        [[nodiscard("Store this!")]] i32 Compare(const FString& other, ESearchCase cs = ESearchCase::CaseSensitive) const
         {
             const char* a = **this;
             const char* b = *other;
@@ -368,23 +367,22 @@ namespace OloEngine
             for (;; ++a, ++b)
             {
                 const i32 ca = ToLowerChar(*a);
-                const i32 cb = ToLowerChar(*b);
-                if (ca != cb)
+                if (const i32 cb = ToLowerChar(*b); ca != cb)
                     return ca - cb;
                 if (*a == '\0')
                     return 0;
             }
         }
 
-        [[nodiscard]] friend bool operator==(const FString& lhs, const FString& rhs)
+        [[nodiscard("Store this!")]] friend bool operator==(const FString& lhs, const FString& rhs)
         {
             return lhs.Equals(rhs);
         }
-        [[nodiscard]] friend bool operator==(const FString& lhs, const char* rhs)
+        [[nodiscard("Store this!")]] friend bool operator==(const FString& lhs, const char* rhs)
         {
             return std::strcmp(*lhs, rhs ? rhs : "") == 0;
         }
-        [[nodiscard]] friend bool operator<(const FString& lhs, const FString& rhs)
+        [[nodiscard("Store this!")]] friend bool operator<(const FString& lhs, const FString& rhs)
         {
             return lhs.Compare(rhs) < 0;
         }
@@ -395,8 +393,8 @@ namespace OloEngine
 
         static constexpr SizeType InvalidIndex = -1;
 
-        [[nodiscard]] SizeType Find(std::string_view sub, ESearchCase cs = ESearchCase::CaseSensitive,
-                                    SizeType startPos = 0) const
+        [[nodiscard("Store this!")]] SizeType Find(std::string_view sub, ESearchCase cs = ESearchCase::CaseSensitive,
+                                                   SizeType startPos = 0) const
         {
             if (sub.empty())
                 return InvalidIndex;
@@ -426,12 +424,12 @@ namespace OloEngine
             return InvalidIndex;
         }
 
-        [[nodiscard]] bool Contains(std::string_view sub, ESearchCase cs = ESearchCase::CaseSensitive) const
+        [[nodiscard("Store this!")]] bool Contains(std::string_view sub, ESearchCase cs = ESearchCase::CaseSensitive) const
         {
             return Find(sub, cs) != InvalidIndex;
         }
 
-        [[nodiscard]] bool FindChar(char c, SizeType& outIndex) const
+        [[nodiscard("Store this!")]] bool FindChar(char c, SizeType& outIndex) const
         {
             const SizeType len = Len();
             for (SizeType i = 0; i < len; ++i)
@@ -446,7 +444,7 @@ namespace OloEngine
             return false;
         }
 
-        [[nodiscard]] bool FindLastChar(char c, SizeType& outIndex) const
+        [[nodiscard("Store this!")]] bool FindLastChar(char c, SizeType& outIndex) const
         {
             for (SizeType i = Len() - 1; i >= 0; --i)
             {
@@ -460,7 +458,7 @@ namespace OloEngine
             return false;
         }
 
-        [[nodiscard]] bool StartsWith(std::string_view prefix, ESearchCase cs = ESearchCase::CaseSensitive) const
+        [[nodiscard("Store this!")]] bool StartsWith(std::string_view prefix, ESearchCase cs = ESearchCase::CaseSensitive) const
         {
             const SizeType n = static_cast<SizeType>(prefix.size());
             if (n > Len())
@@ -475,7 +473,7 @@ namespace OloEngine
             return true;
         }
 
-        [[nodiscard]] bool EndsWith(std::string_view suffix, ESearchCase cs = ESearchCase::CaseSensitive) const
+        [[nodiscard("Store this!")]] bool EndsWith(std::string_view suffix, ESearchCase cs = ESearchCase::CaseSensitive) const
         {
             const SizeType n = static_cast<SizeType>(suffix.size());
             const SizeType len = Len();
@@ -495,19 +493,19 @@ namespace OloEngine
         // Substrings
         // ------------------------------------------------------------------
 
-        [[nodiscard]] FString Left(SizeType count) const
+        [[nodiscard("returns a NEW string; the original is unchanged — the *Inline variants modify in place")]] FString Left(SizeType count) const
         {
             return FString(**this, Clamp(count, 0, Len()));
         }
 
-        [[nodiscard]] FString Right(SizeType count) const
+        [[nodiscard("returns a NEW string; the original is unchanged — the *Inline variants modify in place")]] FString Right(SizeType count) const
         {
             const SizeType len = Len();
             const SizeType n = Clamp(count, 0, len);
             return FString(**this + (len - n), n);
         }
 
-        [[nodiscard]] FString Mid(SizeType start, SizeType count = MAX_i32) const
+        [[nodiscard("returns a NEW string; the original is unchanged — the *Inline variants modify in place")]] FString Mid(SizeType start, SizeType count = MAX_i32) const
         {
             const SizeType len = Len();
             if (start >= len || count <= 0)
@@ -517,11 +515,11 @@ namespace OloEngine
             return FString(**this + begin, n);
         }
 
-        [[nodiscard]] FString LeftChop(SizeType count) const
+        [[nodiscard("returns a NEW string; the original is unchanged — the *Inline variants modify in place")]] FString LeftChop(SizeType count) const
         {
             return Left(Len() - Clamp(count, 0, Len()));
         }
-        [[nodiscard]] FString RightChop(SizeType count) const
+        [[nodiscard("returns a NEW string; the original is unchanged — the *Inline variants modify in place")]] FString RightChop(SizeType count) const
         {
             return Mid(Clamp(count, 0, Len()));
         }
@@ -530,7 +528,7 @@ namespace OloEngine
         // Case / trimming
         // ------------------------------------------------------------------
 
-        [[nodiscard]] FString ToUpper() const
+        [[nodiscard("returns a NEW string; the original is unchanged — the *Inline variants modify in place")]] FString ToUpper() const
         {
             FString out(*this);
             out.ToUpperInline();
@@ -542,10 +540,10 @@ namespace OloEngine
             const SizeType len = Len();
             char* p = Data.GetData();
             for (SizeType i = 0; i < len; ++i)
-                p[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(p[i])));
+                p[i] = ToUpperChar(p[i]);
         }
 
-        [[nodiscard]] FString ToLower() const
+        [[nodiscard("returns a NEW string; the original is unchanged — the *Inline variants modify in place")]] FString ToLower() const
         {
             FString out(*this);
             out.ToLowerInline();
@@ -560,24 +558,24 @@ namespace OloEngine
                 p[i] = ToLowerChar(p[i]);
         }
 
-        [[nodiscard]] FString TrimStart() const
+        [[nodiscard("returns a NEW string; the original is unchanged — the *Inline variants modify in place")]] FString TrimStart() const
         {
             SizeType i = 0;
             const SizeType len = Len();
-            while (i < len && std::isspace(static_cast<unsigned char>((*this)[i])))
+            while (i < len && IsSpaceChar((*this)[i]))
                 ++i;
             return Mid(i);
         }
 
-        [[nodiscard]] FString TrimEnd() const
+        [[nodiscard("returns a NEW string; the original is unchanged — the *Inline variants modify in place")]] FString TrimEnd() const
         {
             SizeType end = Len();
-            while (end > 0 && std::isspace(static_cast<unsigned char>((*this)[end - 1])))
+            while (end > 0 && IsSpaceChar((*this)[end - 1]))
                 --end;
             return Left(end);
         }
 
-        [[nodiscard]] FString TrimStartAndEnd() const
+        [[nodiscard("returns a NEW string; the original is unchanged — the *Inline variants modify in place")]] FString TrimStartAndEnd() const
         {
             return TrimStart().TrimEnd();
         }
@@ -601,7 +599,7 @@ namespace OloEngine
             return true;
         }
 
-        [[nodiscard]] static FString Printf(const char* fmt, ...)
+        [[nodiscard("returns a NEW string; the original is unchanged — the *Inline variants modify in place")]] static FString Printf(const char* fmt, ...)
         {
             va_list args;
             va_start(args, fmt);
@@ -621,7 +619,7 @@ namespace OloEngine
             return result;
         }
 
-        [[nodiscard]] static FString FromInt(i64 value)
+        [[nodiscard("returns a NEW string; the original is unchanged — the *Inline variants modify in place")]] static FString FromInt(i64 value)
         {
             return Printf("%lld", static_cast<long long>(value));
         }
@@ -637,12 +635,32 @@ namespace OloEngine
             CheckInvariants();
         }
 
-        [[nodiscard]] static char ToLowerChar(char c)
+        // ASCII, deliberately — not <cctype>.
+        //
+        // std::toupper/tolower/isspace are LOCALE-SENSITIVE. Under a Turkish
+        // locale std::toupper('i') is not 'I', so a case-insensitive compare
+        // of engine identifiers (asset names, shader uniforms, scene keys)
+        // would change meaning with the user's system locale. They also take
+        // and return int, which is what makes `&&`-ing them read as a bool
+        // when it is not. Explicit ASCII is both correct here and free of
+        // that whole class of problem.
+        [[nodiscard("Store this!")]] static constexpr char ToLowerChar(char c) noexcept
         {
-            return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
         }
 
-        [[nodiscard]] static SizeType Clamp(SizeType v, SizeType lo, SizeType hi)
+        [[nodiscard("Store this!")]] static constexpr char ToUpperChar(char c) noexcept
+        {
+            return (c >= 'a' && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
+        }
+
+        // Matches std::isspace's default ("C" locale) set exactly.
+        [[nodiscard("Store this!")]] static constexpr bool IsSpaceChar(char c) noexcept
+        {
+            return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r';
+        }
+
+        [[nodiscard("Store this!")]] static SizeType Clamp(SizeType v, SizeType lo, SizeType hi)
         {
             return v < lo ? lo : (v > hi ? hi : v);
         }
@@ -661,7 +679,7 @@ namespace OloEngine
         };
     };
 
-    [[nodiscard]] inline u32 GetTypeHash(const FString& s)
+    [[nodiscard("Store this!")]] inline u32 GetTypeHash(const FString& s)
     {
         return static_cast<u32>(std::hash<std::string_view>{}(s.ToView()));
     }
@@ -670,7 +688,7 @@ namespace OloEngine
 template<>
 struct std::hash<OloEngine::FString>
 {
-    [[nodiscard]] std::size_t operator()(const OloEngine::FString& s) const noexcept
+    [[nodiscard("Store this!")]] std::size_t operator()(const OloEngine::FString& s) const noexcept
     {
         return std::hash<std::string_view>{}(s.ToView());
     }

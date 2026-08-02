@@ -143,6 +143,22 @@ namespace OloEngine
 
     } // namespace Utils
 
+    namespace
+    {
+        // Min filter for a 2D texture, given whether its format is integer and
+        // whether its mip chain actually holds data. Extracted because the
+        // inline form was a nested conditional in two places — see
+        // IsIntegerFormat (integer formats MUST be NEAREST or they sample as
+        // zero) and OpenGLTexture2D::m_MipsPopulated (allocated levels are not
+        // written levels).
+        [[nodiscard("Store this!")]] GLint SelectMinFilter(bool integerFormat, bool mipsUsable) noexcept
+        {
+            if (integerFormat)
+                return mipsUsable ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST;
+            return mipsUsable ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR;
+        }
+    } // namespace
+
     u32 OpenGLTexture2D::CalculateFullMipCount(u32 width, u32 height)
     {
         return static_cast<u32>(std::floor(std::log2(static_cast<f64>(std::max(width, height))))) + 1;
@@ -297,9 +313,9 @@ namespace OloEngine
             // otherwise minify against garbage after a Resize().
             const bool useMips = m_MipLevels > 1u && m_MipsPopulated;
             glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER,
-                                integerFormat ? (useMips ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST)
-                                              : (useMips ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR));
-            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, integerFormat ? GL_NEAREST : GL_LINEAR);
+                                SelectMinFilter(integerFormat, useMips));
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER,
+                                integerFormat ? GL_NEAREST : GL_LINEAR);
 
             // NOTE: Texture Filtering
             glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -726,9 +742,9 @@ namespace OloEngine
             // and generates again — see the member's note.
             const bool useMips = m_MipLevels > 1u && m_MipsPopulated;
             glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER,
-                                integerFormat ? (useMips ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST)
-                                              : (useMips ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR));
-            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, integerFormat ? GL_NEAREST : GL_LINEAR);
+                                SelectMinFilter(integerFormat, useMips));
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER,
+                                integerFormat ? GL_NEAREST : GL_LINEAR);
             glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
             glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
         }
