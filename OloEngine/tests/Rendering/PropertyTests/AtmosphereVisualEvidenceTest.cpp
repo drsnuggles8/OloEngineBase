@@ -160,13 +160,20 @@ namespace OloEngine::Tests
                 // OLOENGINE_GOLDEN_REBASE=1 a stray value would write goldens
                 // anywhere the process can reach. Accept only a plain name.
                 const std::string_view name(vendor);
+                // A separator/dot check alone is not enough on Windows: a
+                // DRIVE-RELATIVE value like "C:vendor" contains neither, yet
+                // fs::path treats it as rooted, so `base /= name` would discard
+                // base and resolve against C:'s current directory. Reject
+                // anything fs::path considers rooted at all.
+                const fs::path vendorPath(name);
                 const bool safe = name.find('/') == std::string_view::npos &&
                                   name.find('\\') == std::string_view::npos &&
-                                  name != "." && name != "..";
+                                  name != "." && name != ".." &&
+                                  !vendorPath.has_root_name() && !vendorPath.has_root_directory();
                 if (!safe)
                 {
                     ADD_FAILURE() << "OLOENGINE_GOLDEN_VENDOR must be a single directory name "
-                                     "(no separators, '.' or '..') — got '"
+                                     "(no separators, '.', '..', drive letter or root) — got '"
                                   << name << "'";
                     return base;
                 }

@@ -53,6 +53,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <string_view>
 
@@ -247,9 +248,19 @@ namespace OloEngine
             // reads freed heap. Capture the offset while the old buffer is
             // still valid and re-derive the pointer after the growth instead
             // of carrying one across it.
+            //
+            // std::less/std::greater_equal rather than raw < and >=: relational
+            // comparison of pointers that do not point into the same array is
+            // UNSPECIFIED behaviour, and an external `str` is exactly that. The
+            // std:: function objects are required to impose a total order over
+            // all pointers of a type, so the range test is well-defined however
+            // `str` was obtained -- and stays O(1), unlike scanning the buffer
+            // for a matching address.
             const char* const oldBegin = Data.GetData();
-            const bool selfAliased =
-                (oldBegin != nullptr) && (str >= oldBegin) && (str < oldBegin + Data.Num());
+            const char* const oldEnd = oldBegin + Data.Num();
+            const bool selfAliased = (oldBegin != nullptr) &&
+                                     std::greater_equal<const char*>{}(str, oldBegin) &&
+                                     std::less<const char*>{}(str, oldEnd);
             const SizeType srcOffset = selfAliased ? static_cast<SizeType>(str - oldBegin) : 0;
 
             // +1 for the terminator; Data may be completely empty here.

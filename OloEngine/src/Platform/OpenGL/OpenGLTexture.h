@@ -92,6 +92,13 @@ namespace OloEngine
         u32 m_Width{};
         u32 m_Height{};
         u32 m_MipLevels = 1;
+        // Whether levels 1..m_MipLevels-1 actually hold data. glTextureStorage2D
+        // ALLOCATES the whole chain, so m_MipLevels > 1 only means the levels
+        // exist — sampling one that was never written is defined but returns
+        // undefined content. Resize() recreates storage without regenerating,
+        // so selecting a mipmap min-filter on m_MipLevels alone would minify
+        // against garbage. Only a real upload/generate flips this true.
+        bool m_MipsPopulated = false;
         u32 m_RendererID{};
         // Generation-checked identity for m_RendererID above, kept in
         // lockstep by m_RHIHandle.Sync() at every site that assigns the

@@ -137,6 +137,7 @@ namespace OloEngine::Tests
             // the pid keeps those out of the way of new runs, and the attempt
             // suffix covers a recycled pid whose leftovers are still present.
             const long long pid = static_cast<long long>(::getpid());
+            std::error_code lastError;
             fs::path tempRoot;
             for (u32 attempt = 0; attempt < 64; ++attempt)
             {
@@ -149,12 +150,21 @@ namespace OloEngine::Tests
                     tempRoot = candidate;
                     break;
                 }
+                // Keep the last REAL error. A candidate that merely already
+                // exists returns false with ec == success, which would
+                // otherwise overwrite a genuine earlier failure and report
+                // "last error: Success".
+                if (ec)
+                    lastError = ec;
             }
 
             if (tempRoot.empty())
             {
-                error = "could not create a staging dir under " + tempDir.string() +
-                        " (last error: " + ec.message() + ")";
+                error = "could not create a staging dir under " + tempDir.string();
+                if (lastError)
+                    error += " (last error: " + lastError.message() + ")";
+                else
+                    error += " (all candidate names were already taken)";
                 return {};
             }
 
@@ -250,7 +260,18 @@ namespace OloEngine::Tests
                 {
                     ec.clear();
                     fs::remove_all(Dir, ec);
-                    if (!ec || !fs::exists(Dir))
+                    // Judge success by whether the directory is GONE, not by
+                    // what remove_all reported. The race here is a recreate
+                    // landing after the removal, which leaves remove_all
+                    // reporting success while the tree survives — so an
+                    // `!ec ||` short-circuit would return without retrying in
+                    // precisely the case the retry exists for.
+                    //
+                    // Non-throwing overload: a destructor is implicitly
+                    // noexcept, so the throwing fs::exists(Dir) would call
+                    // std::terminate rather than report a failure to clean up.
+                    std::error_code existsEc;
+                    if (!fs::exists(Dir, existsEc))
                         return;
                 }
                 OLO_CORE_WARN("AssetSceneLoad: could not remove staging dir '{}': {}", Dir.string(), ec.message());

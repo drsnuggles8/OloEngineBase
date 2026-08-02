@@ -327,21 +327,25 @@ jobs:
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           -DOLO_VIDEO_FFMPEG=OFF
           -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
-          -DCMAKE_JOB_POOLS="compile=6;link=1"
-          -DCMAKE_JOB_POOL_COMPILE=compile
-          -DCMAKE_JOB_POOL_LINK=link
+          -DOLO_LINK_JOBS=1
 
       - name: Build tests
         # Width comes from CMAKE_BUILD_PARALLEL_LEVEL in the job env — see the
         # note there for why it must be set explicitly rather than left to the
         # generator default.
         #
-        # The job pools on the configure step above are the second half of it,
-        # and the more important half for this failure: linking OloEngine-Tests
-        # is the memory spike, and a link peaks far higher than a compile. A
-        # plain -j cap still permits several concurrent links, so link=1
-        # serialises exactly the step that ran the host out of memory while
-        # leaving compiles free to use the full width.
+        # Link concurrency is the second half of it, and the more important
+        # half for this failure: linking OloEngine-Tests is the memory spike,
+        # and a link peaks far higher than a compile. A plain -j cap still
+        # permits several concurrent links.
+        #
+        # That cap now belongs to the project — the root CMakeLists owns an
+        # olo_link job pool sized by OLO_LINK_JOBS (default 2), so `ninja`
+        # obeys it too, not just `cmake --build`. The configure step above
+        # therefore sets OLO_LINK_JOBS=1 rather than declaring a second,
+        # workflow-local pool: two mechanisms binding CMAKE_JOB_POOL_LINK
+        # would have the workflow's silently win, leaving the project's
+        # setting looking effective while doing nothing.
         run: cmake --build build --target OloEngine-Tests
 
       # ---------------------------------------------------------------------

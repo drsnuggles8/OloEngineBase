@@ -98,7 +98,7 @@ cmake --build build-clang --target OloEngine-Tests --config Debug --parallel 6
 
 ### Cap build parallelism — a full-width build can OOM this machine
 
-**Always pass an explicit job count: `--parallel 6`, or `ninja -j6`.** Never a bare `--parallel`, and never `ninja` with no `-j`.
+**Never build uncapped.** Either pass an explicit job count — `--parallel 6`, or `ninja -j6` — or export `CMAKE_BUILD_PARALLEL_LEVEL=6`, which `cmake --build` uses whenever no `--parallel` is given (this is how the nightly workflow caps itself). An explicit `--parallel N` overrides the environment variable, so don't set one expecting the other to win. What is never acceptable is a bare `--parallel`, or `ninja` with no `-j` and no capping variable.
 
 This is not a style preference. The dev box is 16 cores / 31 GB and *also* hosts the `gh-runner-1/2/3` runners for another repository, so a build never has the machine to itself. Both defaults are effectively "use everything":
 

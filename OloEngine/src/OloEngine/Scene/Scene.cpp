@@ -8225,7 +8225,18 @@ namespace OloEngine
                     // whose amplitudes are far smaller.
                     constexpr f32 kMinWaveReach = 2.0f;
                     f32 waveReach = kMinWaveReach;
-                    if (water.m_UseFFT)
+                    // m_UseFFT alone is not the condition the SHADER runs on.
+                    // The render path only sets fftParams.x = 1 once the field
+                    // has actually produced both textures; until then the
+                    // surface is displaced by Gerstner waves, whose amplitude is
+                    // unrelated to m_FFTAmplitude. Sizing the fog reach from the
+                    // FFT amplitude in that window would size it for waves that
+                    // are not on screen.
+                    const bool fftActive =
+                        water.m_UseFFT && water.m_OceanField &&
+                        water.m_OceanField->GetDisplacementTextureHandle().IsValid() &&
+                        water.m_OceanField->GetDerivativesTextureHandle().IsValid();
+                    if (fftActive)
                     {
                         // Sanitize exactly as the render path does (clampF with
                         // the same bounds at the m_Amplitude / fftAmp sites

@@ -291,9 +291,14 @@ namespace OloEngine
             // then samples as zero (texelFetch included) — see IsIntegerFormat.
             const bool integerFormat = IsIntegerFormat(m_Specification.Format);
             // NOTE: Texture Wrapping
+            // Mipmap filters only once the chain HOLDS data — see
+            // m_MipsPopulated. Allocated-but-unwritten levels sample as
+            // undefined content, not as an incomplete texture, so this would
+            // otherwise minify against garbage after a Resize().
+            const bool useMips = m_MipLevels > 1u && m_MipsPopulated;
             glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER,
-                                integerFormat ? (m_MipLevels > 1u ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST)
-                                              : (m_MipLevels > 1u ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR));
+                                integerFormat ? (useMips ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST)
+                                              : (useMips ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR));
             glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, integerFormat ? GL_NEAREST : GL_LINEAR);
 
             // NOTE: Texture Filtering
@@ -512,7 +517,10 @@ namespace OloEngine
             glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<GLsizei>(fw), static_cast<GLsizei>(fh),
                                 GL_RGBA, GL_FLOAT, rgbaF.data());
             if (m_MipLevels > 1u)
+            {
                 glGenerateTextureMipmap(m_RendererID);
+                m_MipsPopulated = true;
+            }
 
             OLO_TRACK_GPU_ALLOC(this, rgbaF.size() * sizeof(f32), RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (BC6H-fallback)");
             GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (BC6H-fallback)", "Texture2D");
@@ -555,7 +563,10 @@ namespace OloEngine
         glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h),
                             GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
         if (m_MipLevels > 1u)
+        {
             glGenerateTextureMipmap(m_RendererID);
+            m_MipsPopulated = true;
+        }
 
         OLO_TRACK_GPU_ALLOC(this, rgba.size(), RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (compressed-fallback)");
         GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (compressed-fallback)", "Texture2D");
@@ -625,6 +636,10 @@ namespace OloEngine
         m_Height = height;
         m_Specification.Width = width;
         m_Specification.Height = height;
+        // Fresh storage below: whatever the old object had generated is gone,
+        // and nothing regenerates here (there is no level-0 data to generate
+        // FROM). The filter selection reads this to avoid claiming mips.
+        m_MipsPopulated = false;
 
         // Recalculate mip count if auto
         if (m_Specification.Samples > 1u)
@@ -706,9 +721,13 @@ namespace OloEngine
             // IsIntegerFormat; a linear filter here re-breaks the texture.
             const bool integerFormat = IsIntegerFormat(m_Specification.Format);
             // Reapply sampler state
+            // Resize() recreated storage above and did NOT regenerate the
+            // chain, so m_MipsPopulated is false here until something uploads
+            // and generates again — see the member's note.
+            const bool useMips = m_MipLevels > 1u && m_MipsPopulated;
             glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER,
-                                integerFormat ? (m_MipLevels > 1 ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST)
-                                              : (m_MipLevels > 1 ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR));
+                                integerFormat ? (useMips ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST)
+                                              : (useMips ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR));
             glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, integerFormat ? GL_NEAREST : GL_LINEAR);
             glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
             glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
@@ -1011,6 +1030,7 @@ namespace OloEngine
 
         glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), dataFormat, GL_UNSIGNED_BYTE, data);
         glGenerateTextureMipmap(m_RendererID);
+        m_MipsPopulated = true;
     }
     void OpenGLTexture2D::Bind(const u32 slot) const
     {
