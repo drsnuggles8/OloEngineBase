@@ -210,14 +210,19 @@ namespace OloEngine
 
         m_Shader->Bind();
 
-        context.BindTexture(0, inputColorTextureID);
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
         m_Shader->SetInt("u_Texture", 0);
 
         // The fragment shader emits its output entirely from the LUT — without
         // a texture at TEX_POSTPROCESS_LUT it samples zero and the screen goes
         // black. Bind the identity LUT as a default so enabling the toggle is
         // a no-op when no user LUT has been wired up.
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_LUT, m_IdentityLUTTexture);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_LUT, m_IdentityLUTTexture,
+                                        RHI::HeapSlotLifetime::Persistent);
+
+        // Publish the heap offsets recorded above. No-op on the slot-based path,
+        // so a converted pass costs nothing when the heap is off (issue #691).
+        context.FlushHeapOffsets();
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

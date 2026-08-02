@@ -176,7 +176,31 @@ namespace OloEngine
     void RGCommandContext::FlushHeapOffsets() const
     {
         auto& table = OffsetTable();
-        if (!table.Dirty || !RHI::DescriptorHeap::Get().IsEnabled())
+        if (!RHI::DescriptorHeap::Get().IsEnabled())
+        {
+            return;
+        }
+
+        // PUBLISH THE DESCRIPTORS FIRST, and this ordering is the whole reason
+        // this call exists rather than a once-per-frame publish.
+        //
+        // A pass mints its views inside its own Execute — `BindTextureOrHeapOffset`
+        // is called during pass execution, not during planning. So the frame-level
+        // `DescriptorHeap::Flush()` in `RenderGraph::Execute` runs BEFORE any of
+        // this frame's transient descriptors exist: they land in the CPU mirror,
+        // get marked dirty, and are never uploaded. The offsets would then index
+        // a heap whose slots still hold the previous frame's (or no) descriptor.
+        //
+        // Found by converting a batch of post-process passes and getting a black
+        // viewport. It hid until then for two reasons worth remembering: the
+        // first converted pass was one the active render path did not execute,
+        // and the GPU test called `DescriptorHeap::Flush()` by hand right after
+        // this function — so the test was supplying the very call the engine was
+        // missing. A test that sequences a mechanism for itself cannot detect
+        // that the engine fails to sequence it.
+        RHI::DescriptorHeap::Get().Flush();
+
+        if (!table.Dirty)
         {
             return;
         }

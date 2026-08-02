@@ -168,16 +168,21 @@ namespace OloEngine
 
         m_MotionBlurShader->Bind();
 
-        context.BindTexture(0, inputColorTextureID);
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
         m_MotionBlurShader->SetInt("u_Texture", 0);
 
         // Velocity slot mirrors TAA (slot 2 = u_Velocity). Bound even when 0
         // (the params UBO's hasVelocity flag gates whether the shader reads it).
-        context.BindTexture(2, velocityTextureID);
+        context.BindTextureOrHeapOffset(2, velocityTextureID, RHI::HeapSlotLifetime::FrameTransient);
         m_MotionBlurShader->SetInt("u_Velocity", 2);
 
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
         m_MotionBlurShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
+
+        // Publish the heap offsets recorded above. No-op on the slot-based path,
+        // so a converted pass costs nothing when the heap is off (issue #691).
+        context.FlushHeapOffsets();
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

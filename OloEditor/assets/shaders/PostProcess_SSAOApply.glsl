@@ -15,6 +15,23 @@ void main()
 #type fragment
 #version 460 core
 
+// Texture inputs. Under heap-bindless (issue #691 Phase 3) these become heap
+// lookups keyed by the SAME slot numbers the bindful branch declares, so the two
+// variants cannot disagree about which texture is which — and the shader BODY
+// below is unchanged between them. Inert without OLO_BINDLESS; the engine only
+// defines it on the raw-GLSL compile route.
+#include "include/BindlessHeap.glsl"
+
+#ifdef OLO_BINDLESS
+#define u_Texture OLO_HEAP_TEX_2D(0)
+#define u_SSAOTexture OLO_HEAP_TEX_2D(20) // TEX_SSAO
+#define u_DepthTexture OLO_HEAP_TEX_2D(19) // TEX_POSTPROCESS_DEPTH
+#else
+layout(binding = 0) uniform sampler2D u_Texture;
+layout(binding = 20) uniform sampler2D u_SSAOTexture;
+layout(binding = 19) uniform sampler2D u_DepthTexture;
+#endif
+
 // SSAO Apply — Modulates scene color by the SSAO occlusion factor.
 // Uses depth-aware bilateral upsampling to prevent half-res AO from bleeding
 // across depth discontinuities (which causes blurry dark halos).
@@ -24,14 +41,11 @@ layout(location = 0) out vec4 o_Color;
 layout(location = 0) in vec2 v_TexCoord;
 
 // Scene HDR color (ping-pong source)
-layout(binding = 0) uniform sampler2D u_Texture;
 
 // Blurred SSAO result (R channel = AO value, 0 = full occlusion, 1 = no occlusion)
 // This texture is at HALF resolution.
-layout(binding = 20) uniform sampler2D u_SSAOTexture;
 
 // Full-res scene depth for bilateral upsampling
-layout(binding = 19) uniform sampler2D u_DepthTexture;
 
 // SSAO UBO (binding 9) — we read intensity and debug flag from here
 layout(std140, binding = 9) uniform SSAOUBO

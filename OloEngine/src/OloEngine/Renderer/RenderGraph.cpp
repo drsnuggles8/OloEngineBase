@@ -3282,10 +3282,17 @@ namespace OloEngine
                 }
             };
         }
-        // Publish and bind the descriptor heap before any pass runs. Every
-        // transient view this frame was minted during planning, so the table is
-        // complete by now and one upload covers the whole dirty range —
-        // uploading per view would be N buffer writes for no gain.
+        // Bind the descriptor heap before any pass runs, and publish whatever is
+        // already dirty.
+        //
+        // THIS IS NOT SUFFICIENT ON ITS OWN, and an earlier version of this
+        // comment claimed it was ("every transient view this frame was minted
+        // during planning"). That is false: a pass mints its views inside its own
+        // Execute, below, so this frame's transient descriptors do not exist yet.
+        // `RGCommandContext::FlushHeapOffsets` re-publishes at each converted
+        // pass, which is what actually gets them to the GPU. This call still
+        // earns its place — it establishes the heap's SSBO binding for the frame,
+        // which a pass that only reads persistent views would otherwise never do.
         RHI::DescriptorHeap::Get().Flush();
 
         m_LastExecutionTimings = RenderGraphPlanExecutor::ExecutePlan({

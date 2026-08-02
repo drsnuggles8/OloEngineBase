@@ -581,8 +581,14 @@ void main()
         ASSERT_TRUE(normalSlotOffset.IsValid());
         ASSERT_NE(depthSlotOffset.Value, normalSlotOffset.Value);
 
+        // ONLY the pass-side call, deliberately. An earlier version also called
+        // `RHI::DescriptorHeap::Get().Flush()` here — and that hid a real engine
+        // bug for a whole batch of conversions, because it supplied by hand the
+        // publish the engine was failing to do (the frame-level flush runs before
+        // any pass mints its views). A test that sequences a mechanism for itself
+        // cannot detect that the engine fails to sequence it, so this must stay a
+        // single call: exactly what a converted pass writes.
         context.FlushHeapOffsets();
-        RHI::DescriptorHeap::Get().Flush();
 
         glBindFramebuffer(GL_FRAMEBUFFER, Fbo);
         glViewport(0, 0, static_cast<GLsizei>(kWidth), static_cast<GLsizei>(kHeight));

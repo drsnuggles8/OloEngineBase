@@ -1202,6 +1202,46 @@ drives the real `RGCommandContext` seam with slots 19 and 22 specifically becaus
 they land in different uvec4 groups **and** different components, so no layout
 bug can satisfy both.
 
+### Publishing the heap once per frame is WRONG, and the test was hiding it
+
+The first batch of converted passes rendered a **black viewport**. The cause is
+worth recording in full, because both halves of why it survived are reusable
+mistakes.
+
+`RenderGraph::Execute` published the heap once, just before `ExecutePlan`, with a
+comment asserting *"every transient view this frame was minted during planning,
+so the table is complete by now"*. That assertion is false. A pass mints its
+views inside its own `Execute` — `BindTextureOrHeapOffset` is a pass-time call —
+so at the moment of that flush **this frame's transient descriptors do not exist
+yet**. They land in the CPU mirror, get marked dirty, and are never uploaded. The
+offsets then index heap slots holding the previous frame's descriptor or nothing
+at all.
+
+The fix is that `FlushHeapOffsets()` publishes *both* — descriptors first, then
+the offsets that index them — at each converted pass. The frame-level flush stays,
+but only to establish the heap's binding for passes that read persistent views.
+
+**Why it survived the first conversion.** Two independent reasons, and each is a
+verification anti-pattern on its own:
+
+1. **The first converted pass was one the active render path did not execute.**
+   SSAO compiles and logs `[Bindless] built through the raw-GLSL route`, which
+   reads exactly like success — but the scene ran GTAO, so the converted pass
+   never drew. *A shader compiling through a new path is not evidence that the
+   path renders.* Confirm the pass executes before reading a clean frame as a
+   pass.
+2. **THE GPU TEST WAS SUPPLYING THE MISSING CALL.** It did
+   `context.FlushHeapOffsets(); RHI::DescriptorHeap::Get().Flush();` — the second
+   line being precisely the publish the engine was failing to do. The test passed
+   because it sequenced the mechanism *for* the engine.
+
+That second one is the generalisable lesson, and it is sharper than "test the
+real thing": **a test that performs a sequencing step on the subject's behalf
+cannot detect that the subject omits it.** The test now calls only what a
+converted pass calls, so the same bug would fail it. Whenever a test sets up a
+mechanism, ask which of those setup lines production code is also supposed to
+execute — those lines are exactly where a missing call hides.
+
 ### How far "full bindless" actually reaches — measured, not estimated
 
 After SSAO the counter stands at **230** (232 − 3 converted + 1 for the fallback
