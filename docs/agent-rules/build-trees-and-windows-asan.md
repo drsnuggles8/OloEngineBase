@@ -30,6 +30,18 @@ processes first.
 
 ## 2. Building and running the `clangcl-asan` preset locally
 
+**Before #697, this whole section was unrunnable locally.** `clangcl-asan`
+inherits `clangcl`, and with the default `OLO_WITH_USD=ON` neither preset
+could reach a successful link: the engine force-linked OpenUSD with a bare
+`/WHOLEARCHIVE:usd_m`, which `lld-link` (unlike `link.exe`) will not resolve
+against `/LIBPATH`, so every executable died with
+`lld-link: error: could not open 'usd_m': no such file or directory`. The
+workaround was to configure with `-DOLO_WITH_USD=OFF`; that is **no longer
+needed** — the option now carries the full path and links under both linkers.
+If you see a bare-name `/WHOLEARCHIVE` failure again, see gotcha 7 in
+[asset-import-usd-alembic.md](asset-import-usd-alembic.md) before deleting
+the option (deleting it moves the failure to runtime).
+
 The CI job (`.github/workflows/asan.yml`, "ASan (Windows/clang-cl)") works
 because of three non-obvious choices you must replicate locally:
 
@@ -39,7 +51,9 @@ because of three non-obvious choices you must replicate locally:
   ("AddressSanitizer doesn't support linking with debug runtime libraries
   yet"). The CI build/ctest steps select Release; do the same:
   `cmake --preset clangcl-asan` then
-  `cmake --build build-clang --target OloEngine-Tests --config Release --parallel`.
+  `cmake --build build-clang --target OloEngine-Tests --config Release --parallel 6`.
+  (Bare `--parallel` forwards the omission to Ninja, whose default here is
+  `cores + 2` = 18 — see CLAUDE.md; always give it a number.)
 - **Put the LLVM-matched ASan runtime directory on PATH** before running
   anything ASan-instrumented (including `OloHeaderTool.exe`, which the
   build itself executes):

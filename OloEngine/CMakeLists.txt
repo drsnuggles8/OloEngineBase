@@ -259,8 +259,18 @@ if(OLO_WITH_USD)
 	target_compile_definitions(OloEngine PUBLIC OLO_WITH_USD=1)
 	# USD registers Sdf file formats + schemas via static-init side effects; without a
 	# whole-archive force-link the linker discards those objects and UsdStage::Open fails.
+	#
+	# FULL PATH, not the bare `usd_m` (#697). CMake sets MSVC TRUE for clang-cl too, so
+	# this branch is taken under the clangcl / clangcl-asan presets — and lld-link, unlike
+	# link.exe, will NOT resolve a bare /WHOLEARCHIVE: name against /LIBPATH. It killed
+	# every clangcl link with `could not open 'usd_m': no such file or directory`. A full
+	# path force-links under both linkers (verified LLD 21.1.8 / link.exe 14.51), and
+	# OloEngine_USD_LIB's $<CONFIG> genexpr makes it config-matched into the bargain.
+	# Do NOT delete the option to "fix" a whole-archive error — it is load-bearing under
+	# both linkers, silently at runtime for link.exe and loudly at link for lld-link.
+	# Full linker matrix + failure modes: docs/agent-rules/asset-import-usd-alembic.md.
 	if(MSVC)
-		target_link_options(OloEngine PUBLIC "/WHOLEARCHIVE:usd_m")
+		target_link_options(OloEngine PUBLIC "/WHOLEARCHIVE:${OloEngine_USD_LIB}")
 	endif()
 	# Ship USD's plugInfo resource tree next to every consuming executable — PlugRegistry needs
 	# it at runtime to map .usda/.usdc/.usdz -> file-format plugin (see UsdMeshImporter). The exe
