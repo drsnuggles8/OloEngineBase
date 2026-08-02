@@ -57,7 +57,17 @@ namespace OloEngine::RHI
         // ascending order. Purely a debuggability choice: a capture that shows
         // "the shadow atlas is offset 3" every run is worth more than one where
         // the offsets shuffle between runs.
-        for (u32 index = m_PersistentCapacity; index > 0u; --index)
+        //
+        // SLOT 0 IS NEVER ALLOCATED. It is the null descriptor, permanently
+        // poisoned, and it exists because "unbind" does not survive the
+        // translation to a heap. A slot-based pass clears an input by binding a
+        // null texture; under the heap there is nothing to bind — the OFFSET is
+        // what the shader reads, and leaving it alone would keep sampling the
+        // previous frame's texture through a perfectly valid offset. Writing
+        // kNullHeapOffset instead gives that call site somewhere honest to point.
+        // (ToneMapRenderPass does exactly this with RHI::NullResource, which is
+        // how the hazard was found.)
+        for (u32 index = m_PersistentCapacity; index > kNullHeapOffset + 1u; --index)
         {
             m_PersistentFreeList.push_back(index - 1u);
         }
@@ -68,6 +78,8 @@ namespace OloEngine::RHI
         m_PersistentViewCache.clear();
         m_DirtyFirst = 0u;
         m_DirtyLast = 0u;
+
+        ++m_InitEpoch;
 
         m_Stats = Stats{};
         m_Stats.PersistentCapacity = m_PersistentCapacity;
@@ -103,6 +115,7 @@ namespace OloEngine::RHI
             }
         }
 
+        ++m_InitEpoch;
         m_Initialized = false;
         m_Enabled = false;
         m_Backend = nullptr;
@@ -150,6 +163,12 @@ namespace OloEngine::RHI
     {
         const std::lock_guard lock(m_Mutex);
         return m_Desc.PoisonOnFree;
+    }
+
+    auto DescriptorHeap::GetInitEpoch() const -> u64
+    {
+        const std::lock_guard lock(m_Mutex);
+        return m_InitEpoch;
     }
 
     // -------------------------------------------------------------------------

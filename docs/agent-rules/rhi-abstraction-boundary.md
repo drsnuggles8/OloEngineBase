@@ -1242,6 +1242,27 @@ converted pass calls, so the same bug would fail it. Whenever a test sets up a
 mechanism, ask which of those setup lines production code is also supposed to
 execute — those lines are exactly where a missing call hides.
 
+### "Unbind" has no translation, so the heap needs a reserved null descriptor
+
+A slot-based pass clears an input by binding a null texture — `ToneMapRenderPass`
+does exactly this with `RHI::NullResource`, to say "I am not using the water-depth
+input this frame". Under the heap there is **nothing to clear**: the shader reads
+an offset, and an offset left untouched is a perfectly valid index that goes on
+sampling the previous texture.
+
+That is the worst failure this model can produce — a real, plausible, wrong image
+— and it is invisible to every check that only asks "did the frame render?". So
+heap slot 0 is reserved, never allocated, permanently poisoned
+(`RHI::kNullHeapOffset`), and every call site that fails or clears points there.
+
+**Generalisable: when converting a binding model to an indexed one, enumerate the
+operations that have no index equivalent.** Binding a resource maps cleanly;
+*un*binding does not, because the old model's "absence" was a state and the new
+model's is a value that must be written. The same applies to the fallback path —
+`BindTextureOrHeapOffset` writing the null offset when it declines is not
+belt-and-braces, it is the only thing stopping a stale index surviving a
+heap-exhaustion or dead-resource case.
+
 ### How far "full bindless" actually reaches — measured, not estimated
 
 After SSAO the counter stands at **230** (232 − 3 converted + 1 for the fallback

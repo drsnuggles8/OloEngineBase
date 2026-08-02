@@ -134,7 +134,7 @@ namespace OloEngine
 
         m_EASUShader->Bind();
 
-        context.BindTexture(0, inputColorTextureID);
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
         m_EASUShader->SetInt("u_Texture", 0);
 
         // The input is a genuinely reduced-size scene target of floor(physical *
@@ -155,6 +155,9 @@ namespace OloEngine
         easuData.SampleBounds = glm::vec4(1.0f, 1.0f, 0.0f, 0.0f);
         m_EASUUBO->SetData(&easuData, EASUUBOData::GetSize());
         m_EASUUBO->Bind();
+
+        // Publish the heap offsets recorded above (no-op with the heap off).
+        context.FlushHeapOffsets();
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

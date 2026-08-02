@@ -61,6 +61,17 @@
 
 namespace OloEngine::RHI
 {
+    // The reserved null descriptor. Heap slot 0 is never handed out and stays
+    // permanently poisoned, so an offset of 0 samples nothing on every backend.
+    //
+    // It exists because UNBIND DOES NOT SURVIVE THE TRANSLATION TO A HEAP. A
+    // slot-based pass clears an input by binding a null texture; under the heap
+    // there is no bind to clear — the shader reads an OFFSET, and leaving a stale
+    // one in the table means it goes on sampling the previous texture through a
+    // perfectly valid index. Every "I am not using this input" call site needs
+    // somewhere honest to point, and this is it.
+    inline constexpr u32 kNullHeapOffset = 0u;
+
     // -------------------------------------------------------------------------
     // The backend's half of the heap.
     //
@@ -258,6 +269,17 @@ namespace OloEngine::RHI
 
         [[nodiscard]] auto IsPoisonOnFree() const -> bool;
 
+        // Bumped by every Initialize/Shutdown. Anything that caches a GPU object
+        // alongside the heap — the shared heap-offset UBO in RGCommandContext,
+        // today — must compare this and rebuild when it moves.
+        //
+        // Not a nicety: that UBO is a function-local static, so it outlives a
+        // device teardown and would otherwise be a dangling name from the
+        // previous context. Found when the null-descriptor test passed alone and
+        // failed in the full suite, where an earlier fixture had already brought
+        // the renderer up and down — the same shape as a real context loss.
+        [[nodiscard]] auto GetInitEpoch() const -> u64;
+
       private:
         DescriptorHeap() = default;
 
@@ -345,6 +367,7 @@ namespace OloEngine::RHI
         };
         std::unordered_map<PersistentViewKey, ViewHandle, PersistentViewKeyHash> m_PersistentViewCache;
 
+        u64 m_InitEpoch = 0u;
         u32 m_DirtyFirst = 0u;
         u32 m_DirtyLast = 0u; ///< exclusive; m_DirtyLast == m_DirtyFirst means clean
 

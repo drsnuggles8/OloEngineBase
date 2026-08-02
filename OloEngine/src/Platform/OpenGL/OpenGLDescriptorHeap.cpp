@@ -53,6 +53,23 @@ namespace OloEngine
         glCreateBuffers(1, &m_HeapBuffer);
         glNamedBufferStorage(m_HeapBuffer, static_cast<GLsizeiptr>(sizeof(u64) * slotCapacity), nullptr,
                              GL_DYNAMIC_STORAGE_BIT);
+
+        // ZERO THE WHOLE TABLE. `glNamedBufferStorage` with a null pointer leaves
+        // the contents UNDEFINED, and a slot the engine never allocates is never
+        // in a dirty range, so it would never be written — including slot 0, the
+        // reserved null descriptor that every cleared or failed binding points
+        // at. Sampling through undefined bits is not "black", it is whatever the
+        // driver left in that memory: a plausible wrong texture on a busy device
+        // and a GPU hang at worst.
+        //
+        // This cost a real debugging round. The null-descriptor test passed in
+        // isolation — a fresh context happened to hand back zeroed memory — and
+        // failed only in the full suite, after thousands of tests had churned GPU
+        // allocations. An "it works alone, fails in the suite" failure on a buffer
+        // you never wrote is almost always uninitialised storage rather than test
+        // pollution.
+        glClearNamedBufferData(m_HeapBuffer, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
+
         glObjectLabel(GL_BUFFER, m_HeapBuffer, -1, "RHI::DescriptorHeap");
 
         OLO_CORE_INFO("[RHI/GL] GL_ARB_bindless_texture present — descriptor heap buffer created "

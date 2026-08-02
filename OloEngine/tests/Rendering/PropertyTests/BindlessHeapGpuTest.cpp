@@ -322,6 +322,25 @@ void main()
                 glFinish();
             }
 
+            // Draw with the slot-indexed program: no offsets UBO of its own, the
+            // shader reads the shared heap-offset table the seam just published.
+            void DrawSlotIndexed()
+            {
+                glBindFramebuffer(GL_FRAMEBUFFER, Fbo);
+                glViewport(0, 0, static_cast<GLsizei>(kWidth), static_cast<GLsizei>(kHeight));
+                glDisable(GL_DEPTH_TEST);
+                glDisable(GL_BLEND);
+                glClearColor(0.0f, 1.0f, 0.0f, 1.0f); // green: "the draw never happened"
+                glClear(GL_COLOR_BUFFER_BIT);
+                glUseProgram(Program);
+                glBindVertexArray(Vao);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+                glBindVertexArray(0);
+                glUseProgram(0);
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                glFinish();
+            }
+
             [[nodiscard]] std::array<u8, 4> SampleAt(u32 x, u32 y)
             {
                 std::vector<u8> pixels;
@@ -590,19 +609,7 @@ void main()
         // single call: exactly what a converted pass writes.
         context.FlushHeapOffsets();
 
-        glBindFramebuffer(GL_FRAMEBUFFER, Fbo);
-        glViewport(0, 0, static_cast<GLsizei>(kWidth), static_cast<GLsizei>(kHeight));
-        glDisable(GL_DEPTH_TEST);
-        glDisable(GL_BLEND);
-        glClearColor(0.0f, 1.0f, 0.0f, 1.0f); // green: "the draw never happened"
-        glClear(GL_COLOR_BUFFER_BIT);
-        glUseProgram(Program);
-        glBindVertexArray(Vao);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        glBindVertexArray(0);
-        glUseProgram(0);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glFinish();
+        DrawSlotIndexed();
 
         // Left half reads slot 19, right half reads slot 22 — the same constants
         // the bindful branch would have written in `layout(binding = N)`.
@@ -613,6 +620,65 @@ void main()
         EXPECT_EQ(right[2], 255u) << "Slot 22 must resolve to the BLUE texture through the offset table.";
         EXPECT_EQ(right[0], 0u);
         EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+    }
+
+    // -------------------------------------------------------------------------
+    // UNBIND DOES NOT SURVIVE THE TRANSLATION TO A HEAP.
+    //
+    // A slot-based pass clears an input by binding a null texture — ToneMap does
+    // exactly this with `RHI::NullResource`. Under the heap there is no bind to
+    // clear: the shader reads an OFFSET, so leaving the previous one in the table
+    // means it goes on sampling last frame's texture through a perfectly valid
+    // index. That is the worst shape of bug this model can produce — a real,
+    // plausible, wrong image — so the seam must point the slot at the reserved
+    // null descriptor instead.
+    // -------------------------------------------------------------------------
+    TEST_F(HeapGpuFixture, BindingANullResourceClearsTheOffsetInsteadOfLeavingItStale)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        std::string log;
+        glDeleteProgram(Program);
+        Program = BuildProgram(kSlotIndexedFragment, log);
+        ASSERT_NE(Program, 0u) << log;
+
+        const GLuint redTex = MakeSolidTexture(255u, 0u, 0u, 255u);
+        const GLuint blueTex = MakeSolidTexture(0u, 0u, 255u, 255u);
+        OwnedTextures.push_back(redTex);
+        OwnedTextures.push_back(blueTex);
+        const RHI::ResourceHandle red = RHI::ResourceRegistry::Get().Register(
+            RHI::ResourceKind::Texture, static_cast<u64>(redTex), RHI::Backend::OpenGL);
+        const RHI::ResourceHandle blue = RHI::ResourceRegistry::Get().Register(
+            RHI::ResourceKind::Texture, static_cast<u64>(blueTex), RHI::Backend::OpenGL);
+
+        RHI::SamplerDesc sampler;
+        sampler.MinFilter = RHI::Filter::Nearest;
+        sampler.MagFilter = RHI::Filter::Nearest;
+        sampler.LinearMipFilter = false;
+
+        const RGCommandContext context;
+
+        // Frame 1: both slots carry a real texture.
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, red,
+                                        RHI::HeapSlotLifetime::Persistent, sampler);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SCENE_NORMALS, blue,
+                                        RHI::HeapSlotLifetime::Persistent, sampler);
+        context.FlushHeapOffsets();
+        DrawSlotIndexed();
+        ASSERT_EQ(SampleAt(1u, 2u)[0], 255u) << "Left half must start out RED.";
+
+        // Frame 2: the pass declares it is no longer using slot 19, the way every
+        // slot-based pass does.
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, RHI::NullResource,
+                                        RHI::HeapSlotLifetime::Persistent, sampler);
+        context.FlushHeapOffsets();
+        DrawSlotIndexed();
+
+        const auto left = SampleAt(1u, 2u);
+        EXPECT_EQ(left[0], 0u) << "A cleared input must sample the null descriptor, NOT the previous texture.";
+        EXPECT_EQ(left[1], 0u);
+        EXPECT_EQ(left[2], 0u);
+        EXPECT_EQ(SampleAt(6u, 2u)[2], 255u) << "The untouched slot must be unaffected.";
     }
 
     // -------------------------------------------------------------------------

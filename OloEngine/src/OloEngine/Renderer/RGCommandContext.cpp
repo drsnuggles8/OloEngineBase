@@ -127,6 +127,11 @@ namespace OloEngine
             std::array<u32, kVec4s * 4u> Scratch{};
             Ref<UniformBuffer> Buffer;
             bool Dirty = false;
+            // The heap epoch this Buffer was created under. A function-local
+            // static outlives a device teardown, so without this the buffer is a
+            // dangling name from the previous context after any heap
+            // re-initialisation — and the offsets silently stop arriving.
+            u64 Epoch = 0u;
         };
 
         HeapOffsetTable& OffsetTable()
@@ -170,6 +175,20 @@ namespace OloEngine
         // and a slot outside the table all render the frame the old way rather
         // than rendering it wrong.
         RenderCommand::BindTexture(slot, texture);
+
+        // …but when the heap is ON, falling back is not enough: the shader is the
+        // bindless variant and reads the OFFSET, not the binding. A stale entry
+        // left in the table would keep sampling whatever this slot pointed at
+        // last — including across an intentional unbind, which is how a pass says
+        // "I am not using this input this frame" (ToneMapRenderPass binds
+        // RHI::NullResource for exactly that). Point it at the reserved null
+        // descriptor so the shader samples nothing instead.
+        if (RHI::DescriptorHeap::Get().IsEnabled() && slot < HeapOffsetTable::kSlots)
+        {
+            auto& table = OffsetTable();
+            table.Scratch[slot] = RHI::kNullHeapOffset;
+            table.Dirty = true;
+        }
         return {};
     }
 
@@ -205,10 +224,15 @@ namespace OloEngine
             return;
         }
 
-        if (!table.Buffer)
+        // Rebuild across a device teardown. The heap bumps its epoch on every
+        // Initialize/Shutdown, and this buffer is a process-lifetime static, so
+        // without the comparison it would keep writing into a GL name that
+        // belonged to the previous context — offsets that silently never arrive.
+        if (const u64 epoch = RHI::DescriptorHeap::Get().GetInitEpoch(); !table.Buffer || table.Epoch != epoch)
         {
             table.Buffer = UniformBuffer::Create(static_cast<u32>(table.Scratch.size() * sizeof(u32)),
                                                  ShaderBindingLayout::UBO_HEAP_OFFSETS);
+            table.Epoch = epoch;
         }
 
         table.Buffer->SetData(table.Scratch.data(), static_cast<u32>(table.Scratch.size() * sizeof(u32)));

@@ -162,17 +162,18 @@ namespace OloEngine
 
         m_TAAShader->Bind();
 
-        context.BindTexture(0, inputColorTextureID);
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
         m_TAAShader->SetInt("u_Current", 0);
 
         const RHI::ResourceHandle historyID = historyTextureID.IsValid() ? historyTextureID : inputColorTextureID;
-        context.BindTexture(1, historyID);
+        context.BindTextureOrHeapOffset(1, historyID, RHI::HeapSlotLifetime::FrameTransient);
         m_TAAShader->SetInt("u_History", 1);
 
-        context.BindTexture(2, velocityTextureID);
+        context.BindTextureOrHeapOffset(2, velocityTextureID, RHI::HeapSlotLifetime::FrameTransient);
         m_TAAShader->SetInt("u_Velocity", 2);
 
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
         m_TAAShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
 
         TAAUBOData taaData;
@@ -188,6 +189,9 @@ namespace OloEngine
             0.0f);
         m_TAAUBO->SetData(&taaData, TAAUBOData::GetSize());
         m_TAAUBO->Bind();
+
+        // Publish the heap offsets recorded above (no-op with the heap off).
+        context.FlushHeapOffsets();
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

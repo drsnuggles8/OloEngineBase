@@ -15,6 +15,18 @@ void main()
 #type fragment
 #version 460 core
 
+// Texture inputs. Under heap-bindless (issue #691 Phase 3) these become heap
+// lookups keyed by the SAME slot numbers the bindful branch declares, so the two
+// variants cannot disagree about which texture is which — and the shader BODY
+// below is unchanged between them. Inert without OLO_BINDLESS.
+#include "include/BindlessHeap.glsl"
+
+#ifdef OLO_BINDLESS
+#define u_Texture OLO_HEAP_TEX_2D(0)
+#else
+layout(binding = 0) uniform sampler2D u_Texture; // Reduced-res HDR scene colour
+#endif
+
 // =============================================================================
 // FSR1 EASU — Edge-Adaptive Spatial Upsampling (#480, completes the #432 epic).
 // Port of AMD FidelityFX FSR 1.0 EASU (MIT / permissive). EASU is the spatial
@@ -46,7 +58,6 @@ layout(location = 0) out vec4 o_Color;
 
 layout(location = 0) in vec2 v_TexCoord;
 
-layout(binding = 0) uniform sampler2D u_Texture; // Reduced-res HDR scene colour
 
 // EASU constants (UBO binding 45). InputSizeAndTexel.xy = rendered region size
 // in pixels (output UV maps into this); .zw = source texel size (1/physW,
