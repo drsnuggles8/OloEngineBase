@@ -176,16 +176,12 @@ namespace OloEngine
 
     void Renderer3D::SetGlobalIBL(RHI::ResourceHandle irradianceMap, RHI::ResourceHandle prefilterMap,
                                   RHI::ResourceHandle brdfLutMap, RHI::ResourceHandle environmentMap,
-                                  u32 irradianceNativeID, u32 prefilterNativeID, u32 brdfLutNativeID,
                                   f32 iblIntensity)
     {
         s_Data.GlobalIrradianceMapID = irradianceMap;
         s_Data.GlobalPrefilterMapID = prefilterMap;
         s_Data.GlobalBRDFLutMapID = brdfLutMap;
         s_Data.GlobalEnvironmentMapID = environmentMap;
-        s_Data.GlobalIrradianceMapNativeID = irradianceNativeID;
-        s_Data.GlobalPrefilterMapNativeID = prefilterNativeID;
-        s_Data.GlobalBRDFLutMapNativeID = brdfLutNativeID;
         s_Data.GlobalIBLIntensity = iblIntensity;
     }
 
@@ -195,11 +191,6 @@ namespace OloEngine
         s_Data.GlobalPrefilterMapID = {};
         s_Data.GlobalBRDFLutMapID = {};
         s_Data.GlobalEnvironmentMapID = {};
-        // Both currencies clear together — leaving the native trio set would let
-        // the graph import a texture the bind path considers gone.
-        s_Data.GlobalIrradianceMapNativeID = 0;
-        s_Data.GlobalPrefilterMapNativeID = 0;
-        s_Data.GlobalBRDFLutMapNativeID = 0;
         s_Data.GlobalIBLIntensity = 1.0f;
     }
 

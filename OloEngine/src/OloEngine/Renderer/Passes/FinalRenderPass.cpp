@@ -74,21 +74,21 @@ namespace OloEngine
 
         // Sample-only consumer: input framebuffer is intentionally not
         // resolved here — see ReadFirstValidVersionedInputForPass docs.
-        u32 inputColorTextureID = 0u;
+        RHI::ResourceHandle inputColorTextureID{};
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
-            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+            inputColorTextureID = context.ResolveTextureHandle(inputTextureHandle);
         context.ResetGraphicsStateToDefault();
         context.BindDefaultFramebuffer();
         context.SetViewport(0, 0, m_FramebufferSpec.Width, m_FramebufferSpec.Height);
         context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
         context.Clear();
 
-        if (inputColorTextureID == 0u || !m_BlitShader)
+        if (!inputColorTextureID.IsValid() || !m_BlitShader)
         {
             if (static u32 s_MissingFinalInputWarnings = 0; s_MissingFinalInputWarnings++ < 10)
             {
                 OLO_CORE_WARN("FinalRenderPass: missing input texture ({}) or blit shader ({})",
-                              inputColorTextureID != 0u, m_BlitShader != nullptr);
+                              inputColorTextureID.IsValid(), m_BlitShader != nullptr);
             }
             return;
         }
@@ -96,7 +96,7 @@ namespace OloEngine
         m_BlitShader->Bind();
 
         // Bind the setup-selected input texture view.
-        if (inputColorTextureID == 0u)
+        if (!inputColorTextureID.IsValid())
         {
             static u32 s_InvalidFinalInputWarnings = 0;
             if (s_InvalidFinalInputWarnings++ < 10)

@@ -884,7 +884,8 @@ namespace OloEngine
         // buffer pair. The dispatcher takes the indirect-draw branch because
         // `cullIndirectBufferID` is non-zero — skipping the FrameDataBuffer
         // scratch loop and binding the pre-culled survivors at SSBO_INSTANCE_DATA.
-        const auto buildPacket = [&](u32 outputInstanceBufferID, u32 indirectBufferID) -> CommandPacket*
+        const auto buildPacket = [&](RHI::ResourceHandle outputInstanceBuffer,
+                                     RHI::ResourceHandle indirectBuffer) -> CommandPacket*
         {
             CommandPacket* packet = overlayRoute
                                         ? CreateForwardOverlayDrawCall<DrawMeshInstancedCommand>()
@@ -905,8 +906,8 @@ namespace OloEngine
             cmd->materialDataIndex = materialDataIndex;
             cmd->renderStateIndex = renderStateIndex;
             cmd->isAnimatedMesh = false;
-            cmd->cullOutputInstanceBufferID = outputInstanceBufferID;
-            cmd->cullIndirectBufferID = indirectBufferID;
+            cmd->cullOutputInstanceBufferID = outputInstanceBuffer;
+            cmd->cullIndirectBufferID = indirectBuffer;
 
             packet->SetCommandType(cmd->header.type);
             packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
@@ -935,10 +936,10 @@ namespace OloEngine
             auto twoPhase = s_Data.GPUFrustumCuller->CullTwoPhasePhase1(
                 packed, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion);
 
-            CommandPacket* phase1Packet = buildPacket(twoPhase.Phase1Output->GetStorage()->GetRendererID(),
-                                                      twoPhase.Phase1Indirect->GetRendererID());
-            CommandPacket* phase2Packet = buildPacket(twoPhase.Phase2Output->GetStorage()->GetRendererID(),
-                                                      twoPhase.Phase2Indirect->GetRendererID());
+            CommandPacket* phase1Packet = buildPacket(twoPhase.Phase1Output->GetStorage()->GetRHIHandle(),
+                                                      twoPhase.Phase1Indirect->GetRHIHandle());
+            CommandPacket* phase2Packet = buildPacket(twoPhase.Phase2Output->GetStorage()->GetRHIHandle(),
+                                                      twoPhase.Phase2Indirect->GetRHIHandle());
             if (phase1Packet)
                 SubmitRenderStreamPacket(RenderStreamType::GPUOcclusion, phase1Packet);
             if (phase2Packet)
@@ -964,13 +965,13 @@ namespace OloEngine
             auto twoPhase = s_Data.GPUFrustumCuller->CullTwoPhasePhase1(
                 packed, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion);
 
-            if (CommandPacket* phase2Packet = buildPacket(twoPhase.Phase2Output->GetStorage()->GetRendererID(),
-                                                          twoPhase.Phase2Indirect->GetRendererID()))
+            if (CommandPacket* phase2Packet = buildPacket(twoPhase.Phase2Output->GetStorage()->GetRHIHandle(),
+                                                          twoPhase.Phase2Indirect->GetRHIHandle()))
                 deferredOcclusionPass->SubmitPhase2(phase2Packet, twoPhase);
 
             // Phase 1 → caller → ScenePass G-Buffer bucket.
-            return buildPacket(twoPhase.Phase1Output->GetStorage()->GetRendererID(),
-                               twoPhase.Phase1Indirect->GetRendererID());
+            return buildPacket(twoPhase.Phase1Output->GetStorage()->GetRHIHandle(),
+                               twoPhase.Phase1Indirect->GetRHIHandle());
         }
 
         // Single-phase path: frustum-only (occlusion off, or overlayRoute
@@ -979,8 +980,8 @@ namespace OloEngine
         // ForwardOverlayPass when overlayRoute (mirrors DrawMeshInstanced()).
         auto cullResult = s_Data.GPUFrustumCuller->Cull(
             packed, mesh->GetIndexCount(), mesh->GetBaseIndex(), sphereUniform, kRadiusExpansion);
-        CommandPacket* packet = buildPacket(cullResult.OutputBuffer->GetStorage()->GetRendererID(),
-                                            cullResult.IndirectBuffer->GetRendererID());
+        CommandPacket* packet = buildPacket(cullResult.OutputBuffer->GetStorage()->GetRHIHandle(),
+                                            cullResult.IndirectBuffer->GetRHIHandle());
         if (overlayRoute)
         {
             if (packet)

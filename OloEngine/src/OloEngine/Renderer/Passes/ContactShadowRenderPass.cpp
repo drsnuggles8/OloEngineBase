@@ -82,22 +82,22 @@ namespace OloEngine
 
         // Sample-only consumer: the input framebuffer is intentionally not
         // resolved as an FBO here — see ReadFirstValidVersionedInputForPass docs.
-        u32 inputColorTextureID = 0u;
+        RHI::ResourceHandle inputColorTextureID{};
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
-            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+            inputColorTextureID = context.ResolveTextureHandle(inputTextureHandle);
 
         Ref<Framebuffer> outputFramebuffer;
-        u32 sceneDepthID = 0;
-        u32 gbufferNormalID = 0;
+        RHI::ResourceHandle sceneDepthID{};
+        RHI::ResourceHandle gbufferNormalID{};
         if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
         {
             if (auto resolvedOutput = context.ResolveFramebuffer(outputHandle))
                 outputFramebuffer = resolvedOutput;
         }
         if (m_SelectedSceneDepthTexture.IsValid())
-            sceneDepthID = context.ResolveTexture(m_SelectedSceneDepthTexture);
+            sceneDepthID = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
         if (m_SelectedGBufferNormalTexture.IsValid())
-            gbufferNormalID = context.ResolveTexture(m_SelectedGBufferNormalTexture);
+            gbufferNormalID = context.ResolveTextureHandle(m_SelectedGBufferNormalTexture);
 
         if (!m_Enabled)
         {
@@ -105,14 +105,14 @@ namespace OloEngine
             return;
         }
 
-        if (inputColorTextureID == 0u || !outputFramebuffer)
+        if (!inputColorTextureID.IsValid() || !outputFramebuffer)
         {
             m_Target = nullptr;
             if (static u32 s_MissingInputOrOutputWarnings = 0; s_MissingInputOrOutputWarnings++ < 10)
             {
                 OLO_CORE_WARN("ContactShadowRenderPass: missing input/output (inputTex={}, outputFB={}, depthTex={}, normalTex={})",
                               inputColorTextureID,
-                              outputFramebuffer ? outputFramebuffer->GetRendererID() : 0u,
+                              outputFramebuffer ? outputFramebuffer->GetRHIHandle() : RHI::NullResource,
                               sceneDepthID,
                               gbufferNormalID);
             }
@@ -121,7 +121,7 @@ namespace OloEngine
         }
 
         if (const bool shaderReady = m_ContactShadowShader && m_ContactShadowShader->IsReady();
-            !shaderReady || sceneDepthID == 0 || gbufferNormalID == 0)
+            !shaderReady || !sceneDepthID.IsValid() || !gbufferNormalID.IsValid())
         {
             m_Target = nullptr;
             if (static u32 s_InvalidExecutionStateWarnings = 0; s_InvalidExecutionStateWarnings++ < 10)

@@ -104,11 +104,12 @@ namespace OloEngine
         // Cloud noise field sampler ids (CloudNoise system; the weather map
         // may be a scene-authored override). Bound at TEX_CLOUD_BASE_NOISE /
         // TEX_CLOUD_DETAIL_NOISE / TEX_CLOUD_WEATHER_MAP (56/57/58).
-        void SetNoiseTextures(u32 baseNoiseID, u32 detailNoiseID, u32 weatherMapID) noexcept
+        void SetNoiseTextures(RHI::ResourceHandle baseNoise, RHI::ResourceHandle detailNoise,
+                              RHI::ResourceHandle weatherMap) noexcept
         {
-            m_BaseNoiseTextureID = baseNoiseID;
-            m_DetailNoiseTextureID = detailNoiseID;
-            m_WeatherMapTextureID = weatherMapID;
+            m_BaseNoiseTextureID = baseNoise;
+            m_DetailNoiseTextureID = detailNoise;
+            m_WeatherMapTextureID = weatherMap;
         }
 
         // Pipeline-owned half-res history texture (the CloudsHistory sink
@@ -147,9 +148,9 @@ namespace OloEngine
         Ref<UniformBuffer> m_CameraUBO;     // full shared camera UBO (binding 0)
         UBOStructures::CloudscapeUBO m_UBOData{};
 
-        u32 m_BaseNoiseTextureID = 0;
-        u32 m_DetailNoiseTextureID = 0;
-        u32 m_WeatherMapTextureID = 0;
+        RHI::ResourceHandle m_BaseNoiseTextureID{};
+        RHI::ResourceHandle m_DetailNoiseTextureID{};
+        RHI::ResourceHandle m_WeatherMapTextureID{};
         RHI::ResourceHandle m_HistoryTexture{};
         bool m_HistoryValid = false;
 

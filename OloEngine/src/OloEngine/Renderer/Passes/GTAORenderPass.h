@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
@@ -89,8 +90,10 @@ namespace OloEngine
       private:
         void GenerateHilbertLUT();
         void UploadGTAOUniforms();
-        void DispatchGTAO(u32 aoOutputTextureID, u32 normalsTextureID, u32 edgeTexID);
-        void DispatchDenoise(u32 edgeTexID, u32 pingTextureID, u32 pongTextureID);
+        void DispatchGTAO(RHI::ResourceHandle aoOutputTexture, RHI::ResourceHandle normalsTexture,
+                          RHI::ResourceHandle edgeTexture);
+        void DispatchDenoise(RHI::ResourceHandle edgeTexture, RHI::ResourceHandle pingTexture,
+                             RHI::ResourceHandle pongTexture);
 
         HZBGenerator m_HZBGenerator;
 

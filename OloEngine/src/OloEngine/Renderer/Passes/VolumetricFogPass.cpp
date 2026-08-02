@@ -104,7 +104,7 @@ namespace OloEngine
             desc.Width = kVolumeWidth;
             desc.Height = kVolumeHeight;
             desc.DepthOrLayers = kVolumeDepth;
-            [[maybe_unused]] const RGTextureHandle handle = builder.ImportTexture(name, volume->GetRendererID(), desc);
+            [[maybe_unused]] const RGTextureHandle handle = builder.ImportTextureHandle(name, volume->GetRHIHandle(), desc);
         };
         importVolume("FroxelFogScatter0", m_ScatterVolume[0]);
         importVolume("FroxelFogScatter1", m_ScatterVolume[1]);
@@ -173,29 +173,29 @@ namespace OloEngine
         // Shadow maps (compute-local sampler units 0/1; placeholders keep the
         // declared samplers valid when no real map exists this frame)
         auto& shadowMap = Renderer3D::GetShadowMap();
-        const u32 csmID = shadowMap.GetCSMRendererID() != 0
-                              ? shadowMap.GetCSMRendererID()
-                              : ShadowMap::GetCSMPlaceholderRendererID();
-        const u32 atlasID = shadowMap.GetAtlasRendererID() != 0
-                                ? shadowMap.GetAtlasRendererID()
-                                : ShadowMap::GetAtlasPlaceholderRendererID();
+        const RHI::ResourceHandle csmID = shadowMap.GetCSMHandle().IsValid()
+                                              ? shadowMap.GetCSMHandle()
+                                              : ShadowMap::GetCSMPlaceholderHandle();
+        const RHI::ResourceHandle atlasID = shadowMap.GetAtlasHandle().IsValid()
+                                                ? shadowMap.GetAtlasHandle()
+                                                : ShadowMap::GetAtlasPlaceholderHandle();
         RenderCommand::BindTexture(0, csmID);
         RenderCommand::BindTexture(1, atlasID);
 
         const u32 historyIndex = 1u - m_CurrentScatter;
-        RenderCommand::BindTexture(2, m_ScatterVolume[historyIndex]->GetRendererID());
+        RenderCommand::BindTexture(2, m_ScatterVolume[historyIndex]->GetRHIHandle());
 
         // --- Scatter (inject + light scattering + temporal) ---
         m_ScatterShader->Bind();
-        RenderCommand::BindImageTexture(0, m_ScatterVolume[m_CurrentScatter]->GetRendererID(),
+        RenderCommand::BindImageTexture(0, m_ScatterVolume[m_CurrentScatter]->GetRHIHandle(),
                                         0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA16Float);
         RenderCommand::DispatchCompute((kVolumeWidth + 3) / 4, (kVolumeHeight + 3) / 4, (kVolumeDepth + 3) / 4);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
 
         // --- Integrate (front-to-back accumulation per column) ---
         m_IntegrateShader->Bind();
-        RenderCommand::BindTexture(0, m_ScatterVolume[m_CurrentScatter]->GetRendererID());
-        RenderCommand::BindImageTexture(0, m_IntegratedVolume->GetRendererID(),
+        RenderCommand::BindTexture(0, m_ScatterVolume[m_CurrentScatter]->GetRHIHandle());
+        RenderCommand::BindImageTexture(0, m_IntegratedVolume->GetRHIHandle(),
                                         0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA16Float);
         RenderCommand::DispatchCompute((kVolumeWidth + 7) / 8, (kVolumeHeight + 7) / 8, 1);
         // The composite pass samples the integrated volume as a texture.
@@ -222,8 +222,8 @@ namespace OloEngine
         m_VolumeState.Projection = projection;
         m_VolumeState.InverseProjection = ubo.InverseProjection;
         m_VolumeState.RenderOrigin = renderOrigin;
-        m_VolumeState.ScatterTextureID = m_ScatterVolume[m_CurrentScatter]->GetRendererID();
-        m_VolumeState.IntegratedTextureID = m_IntegratedVolume->GetRendererID();
+        m_VolumeState.ScatterTextureID = m_ScatterVolume[m_CurrentScatter]->GetRHIHandle();
+        m_VolumeState.IntegratedTextureID = m_IntegratedVolume->GetRHIHandle();
 
         // Bookkeeping for the next frame
         m_CurrentScatter = historyIndex;

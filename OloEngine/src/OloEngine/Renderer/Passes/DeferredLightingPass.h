@@ -87,8 +87,8 @@ namespace OloEngine
             RGTextureHandle ShadowMapCSM;
             RGTextureHandle ShadowMapAtlas; // local-light shadow atlas (issue #435)
             // Comparison-OFF raw-depth view GL ids (PCSS blocker search); 0 = none.
-            u32 ShadowMapCSMRawID = 0;
-            u32 ShadowMapAtlasRawID = 0;
+            RHI::ResourceHandle ShadowMapCSMRawID{};
+            RHI::ResourceHandle ShadowMapAtlasRawID{};
             RGTextureHandle IrradianceMap;
             RGTextureHandle PrefilterMap;
             RGTextureHandle BrdfLut;

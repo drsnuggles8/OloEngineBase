@@ -128,11 +128,12 @@ namespace OloEngine
         return histogramReady && averageReady && m_HistogramBuffer && m_ExposureStateBuffer;
     }
 
-    void ToneMapRenderPass::RunAutoExposureMetering(const RGCommandContext& context, u32 hdrTextureID, u32 width, u32 height)
+    void ToneMapRenderPass::RunAutoExposureMetering(const RGCommandContext& context, RHI::ResourceHandle hdrTextureID,
+                                                    u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (width == 0u || height == 0u || hdrTextureID == 0u || !EnsureAutoExposureResources())
+        if (width == 0u || height == 0u || !hdrTextureID.IsValid() || !EnsureAutoExposureResources())
             return;
 
         // Sanitise the metering window (defends against bad serialized / scripted values).
@@ -198,9 +199,9 @@ namespace OloEngine
 
         // Sample-only consumer: input framebuffer is intentionally not
         // resolved here — see ReadFirstValidVersionedInputForPass docs.
-        u32 inputColorTextureID = 0u;
+        RHI::ResourceHandle inputColorTextureID{};
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
-            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+            inputColorTextureID = context.ResolveTextureHandle(inputTextureHandle);
 
         Ref<Framebuffer> outputFramebuffer;
         if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
@@ -215,10 +216,10 @@ namespace OloEngine
             return;
         }
 
-        if (inputColorTextureID == 0u || !outputFramebuffer || !m_Shader)
+        if (!inputColorTextureID.IsValid() || !outputFramebuffer || !m_Shader)
         {
             m_Target = nullptr;
-            if (static u32 s_MissingInputWarnings = 0; outputFramebuffer && m_Shader && inputColorTextureID == 0u && s_MissingInputWarnings++ < 10)
+            if (static u32 s_MissingInputWarnings = 0; outputFramebuffer && m_Shader && !inputColorTextureID.IsValid() && s_MissingInputWarnings++ < 10)
             {
                 OLO_CORE_WARN("ToneMapRenderPass: No valid setup-selected input texture resolved");
             }
@@ -288,10 +289,10 @@ namespace OloEngine
         m_Shader->SetInt("u_Texture", 0);
 
         // Scene depth for the underwater fog distance reconstruction.
-        u32 depthTextureID = 0u;
+        RHI::ResourceHandle depthTextureID{};
         if (m_SelectedSceneDepthTexture.IsValid())
-            depthTextureID = context.ResolveTexture(m_SelectedSceneDepthTexture);
-        if (depthTextureID != 0u)
+            depthTextureID = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
+        if (depthTextureID.IsValid())
         {
             context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
             m_Shader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
@@ -309,9 +310,9 @@ namespace OloEngine
         context.DrawIndexed(va);
 
         // Leave the depth slot clean for subsequent passes that share the layout.
-        if (depthTextureID != 0u)
-            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, 0);
-        context.BindTexture(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH, 0);
+        if (depthTextureID.IsValid())
+            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, RHI::NullResource);
+        context.BindTexture(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH, RHI::NullResource);
 
         // Leave the auto-exposure storage buffers unbound so a metered exposure
         // value can't leak into other passes or tests/tools that drive the

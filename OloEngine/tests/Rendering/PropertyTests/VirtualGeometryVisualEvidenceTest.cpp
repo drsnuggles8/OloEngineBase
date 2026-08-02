@@ -19,6 +19,7 @@
 
 #include "OloEnginePCH.h"
 
+#include "OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 #include "RenderPropertyTest.h"
 #include "RendererAttachedTest.h"
 
@@ -479,7 +480,7 @@ namespace OloEngine::Tests
             RunEditorFrames(camera, 3);
 
             std::vector<u8> rgba;
-            u32 const texID = registry.GetDebugColorTextureID();
+            u32 const texID = Debug::NativeTextureIdForDiagnostics(registry.GetDebugColorTexture());
             u32 const w = registry.GetDebugWidth();
             u32 const h = registry.GetDebugHeight();
             if (texID == 0 || w == 0 || h == 0)

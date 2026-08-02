@@ -360,10 +360,11 @@ namespace OloEngine
     }
 
     // Bind textures for particle rendering (slot 0 = diffuse, slot 1 = depth for soft particles)
-    static void BindParticleTextures(bool hasTexture, u32 textureID)
+    static void BindParticleTextures(bool hasTexture, RHI::ResourceHandle texture)
     {
-        RenderCommand::BindTexture(0, hasTexture ? textureID : s_Data.WhiteTexture->GetRendererID());
-        RenderCommand::BindTexture(1, s_Data.SoftParams.Enabled ? s_Data.SoftParams.DepthTextureID : s_Data.WhiteTexture->GetRendererID());
+        RenderCommand::BindTexture(0, hasTexture ? texture : s_Data.WhiteTexture->GetRHIHandle());
+        RenderCommand::BindTexture(1, s_Data.SoftParams.Enabled ? s_Data.SoftParams.DepthTextureID
+                                                                : s_Data.WhiteTexture->GetRHIHandle());
     }
 
     void ParticleBatchRenderer::EndBatch()
@@ -412,7 +413,7 @@ namespace OloEngine
         activeShader->Bind();
 
         // Bind textures
-        BindParticleTextures(hasTexture, hasTexture ? s_Data.CurrentTexture->GetRendererID() : 0);
+        BindParticleTextures(hasTexture, hasTexture ? s_Data.CurrentTexture->GetRHIHandle() : RHI::NullResource);
 
         // Instanced draw call
         RenderCommand::DrawIndexedInstanced(s_Data.VAO, 6, s_Data.InstanceCount);
@@ -448,7 +449,7 @@ namespace OloEngine
         s_Data.MeshParticleShader->Bind();
 
         // Bind textures
-        BindParticleTextures(hasTexture, hasTexture ? texture->GetRendererID() : 0);
+        BindParticleTextures(hasTexture, hasTexture ? texture->GetRHIHandle() : RHI::NullResource);
 
         auto vao = mesh->GetVertexArray();
         u32 indexCount = mesh->GetIndexCount();
@@ -529,7 +530,7 @@ namespace OloEngine
         s_Data.TrailShader->Bind();
 
         // Bind textures
-        BindParticleTextures(hasTexture, hasTexture ? s_Data.CurrentTrailTexture->GetRendererID() : 0);
+        BindParticleTextures(hasTexture, hasTexture ? s_Data.CurrentTrailTexture->GetRHIHandle() : RHI::NullResource);
 
         // Draw trail quads
         u32 indexCount = s_Data.TrailQuadCount * 6;
@@ -563,10 +564,10 @@ namespace OloEngine
         gpuSystem.GetPrevPositionSSBO()->Bind();
 
         // Bind textures
-        BindParticleTextures(hasTexture, hasTexture ? texture->GetRendererID() : 0);
+        BindParticleTextures(hasTexture, hasTexture ? texture->GetRHIHandle() : RHI::NullResource);
 
         // Indirect draw using the GPU-dedicated VAO (no instance attributes)
-        RenderCommand::DrawElementsIndirect(s_Data.GPUVAO, gpuSystem.GetIndirectDrawSSBO()->GetRendererID());
+        RenderCommand::DrawElementsIndirect(s_Data.GPUVAO, gpuSystem.GetIndirectDrawSSBO()->GetRHIHandle());
 
         ++s_Data.Stats.DrawCalls;
         // InstanceCount not updated here: GetAliveCount() requires a GPU→CPU readback that would stall the pipeline

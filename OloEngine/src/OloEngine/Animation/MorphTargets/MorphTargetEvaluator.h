@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "MorphTargetSet.h"
 #include "OloEngine/Core/Base.h"
 
@@ -22,10 +23,10 @@ namespace OloEngine
 
         // GPU path: compute shader evaluation
         static void EvaluateGPU(
-            u32 baseVertexSSBO,
-            u32 morphDeltaSSBO,
-            u32 weightsSSBO,
-            u32 outputVertexSSBO,
+            RHI::ResourceHandle baseVertexSSBO,
+            RHI::ResourceHandle morphDeltaSSBO,
+            RHI::ResourceHandle weightsSSBO,
+            RHI::ResourceHandle outputVertexSSBO,
             u32 vertexCount,
             u32 targetCount);
     };

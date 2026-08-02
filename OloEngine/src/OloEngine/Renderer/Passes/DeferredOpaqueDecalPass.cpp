@@ -129,13 +129,13 @@ namespace OloEngine
             m_GBuffer->Resolve();
         }
 
-        const auto copyGBufferExport = [this, &context](const RGTextureHandle handle, const u32 sourceTextureID)
+        const auto copyGBufferExport = [this, &context](const RGTextureHandle handle, const RHI::ResourceHandle sourceTextureID)
         {
-            if (!handle.IsValid() || sourceTextureID == 0u)
+            if (!handle.IsValid() || !sourceTextureID.IsValid())
                 return;
 
-            const u32 exportedTextureID = context.ResolveTexture(handle);
-            if (exportedTextureID == 0u || exportedTextureID == sourceTextureID)
+            const RHI::ResourceHandle exportedTextureID = context.ResolveTextureHandle(handle);
+            if (!exportedTextureID.IsValid() || exportedTextureID == sourceTextureID)
                 return;
 
             RenderCommand::CopyImageSubData(sourceTextureID, RendererAPI::TextureTargetType::Texture2D,
@@ -143,13 +143,13 @@ namespace OloEngine
                                             m_GBuffer->GetWidth(), m_GBuffer->GetHeight());
         };
 
-        const auto copyMultisampleGBufferExport = [this, &context](const RGTextureHandle handle, const u32 sourceTextureID)
+        const auto copyMultisampleGBufferExport = [this, &context](const RGTextureHandle handle, const RHI::ResourceHandle sourceTextureID)
         {
-            if (!handle.IsValid() || sourceTextureID == 0u)
+            if (!handle.IsValid() || !sourceTextureID.IsValid())
                 return;
 
-            const u32 exportedTextureID = context.ResolveTexture(handle);
-            if (exportedTextureID == 0u || exportedTextureID == sourceTextureID)
+            const RHI::ResourceHandle exportedTextureID = context.ResolveTextureHandle(handle);
+            if (!exportedTextureID.IsValid() || exportedTextureID == sourceTextureID)
                 return;
 
             RenderCommand::CopyImageSubData(sourceTextureID, RendererAPI::TextureTargetType::Texture2DMultisample,
@@ -157,15 +157,15 @@ namespace OloEngine
                                             m_GBuffer->GetWidth(), m_GBuffer->GetHeight());
         };
 
-        const u32 albedoID = m_GBuffer->GetColorAttachmentID(GBuffer::Albedo);
-        const u32 normalID = m_GBuffer->GetColorAttachmentID(GBuffer::Normal);
-        const u32 emissiveID = m_GBuffer->GetColorAttachmentID(GBuffer::Emissive);
+        const RHI::ResourceHandle albedoID = m_GBuffer->GetColorAttachmentHandle(GBuffer::Albedo);
+        const RHI::ResourceHandle normalID = m_GBuffer->GetColorAttachmentHandle(GBuffer::Normal);
+        const RHI::ResourceHandle emissiveID = m_GBuffer->GetColorAttachmentHandle(GBuffer::Emissive);
 
-        const u32 albedoMSID = m_GBuffer->GetMSColorAttachmentID(GBuffer::Albedo);
-        const u32 normalMSID = m_GBuffer->GetMSColorAttachmentID(GBuffer::Normal);
-        const u32 emissiveMSID = m_GBuffer->GetMSColorAttachmentID(GBuffer::Emissive);
-        const u32 velocityMSID = m_GBuffer->GetMSColorAttachmentID(GBuffer::Velocity);
-        const u32 depthMSID = m_GBuffer->GetMSDepthAttachmentID();
+        const RHI::ResourceHandle albedoMSID = m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Albedo);
+        const RHI::ResourceHandle normalMSID = m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Normal);
+        const RHI::ResourceHandle emissiveMSID = m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Emissive);
+        const RHI::ResourceHandle velocityMSID = m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Velocity);
+        const RHI::ResourceHandle depthMSID = m_GBuffer->GetMSDepthAttachmentHandle();
 
         copyGBufferExport(m_SelectedSceneNormalsExport, normalID);
         copyGBufferExport(m_SelectedGBufferAlbedoExport, albedoID);

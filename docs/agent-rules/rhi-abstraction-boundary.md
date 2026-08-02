@@ -593,19 +593,42 @@ Suggested order, each a buildable commit:
      `CreateDepthArrayCompareOffViewHandle`, `SetProgramUniformFloat`, handle
      forms of `DrawIndexedRaw` (×2), `DrawIndexedInstancedRaw`,
      `DrawIndexedPatchesRaw`, and `DrawBoundElementsIndirect`.
-3. `Scene.cpp` / `Renderer3D.h`, then the remaining passes (`ColorGrading` is a
-   near-clone of the migrated SSAO; `Cloudscape` needs `CloudNoise` migrated
-   first; `FluidIntermediates` recreates on resize and so is the first to need
-   framebuffer-attach handle forms).
-4. **Last:** delete `GetRendererID()` and the u32 facade forms. Each u32 form can
-   go as soon as its last caller does — `facade_native_id_params` falls per
-   entry point, not all at once at the end.
+3. ~~`Scene.cpp` / `Renderer3D.h`, then the remaining passes~~ — **DONE
+   (slice 7)**.
+4. ~~**Last:** delete `GetRendererID()` and the u32 facade forms~~ — **DONE
+   (item 4). `facade_native_id_params` is 0 and STEP 3 IS COMPLETE.** Three
+   corrections to this line, all worth keeping:
 
-Two producer gaps to close before their consumers can move: `VertexBuffer` /
-`IndexBuffer` expose no `GetRHIHandle()` (blocks the SSBO/indirect ids in
-`Renderer3DMeshSubmission`), and `ShadowMap`'s `GetCSMRendererID` /
-`GetAtlasRendererID` + raw/placeholder variants need handle siblings (blocks
-item 2).
+   * **It did not fall "per entry point".** The plan assumed each `u32` form
+     could go as its last caller did. In practice the LAST caller of almost
+     every form was another `u32` form's caller, so the whole facade had to
+     flip in one edit and the ~250 call sites were then repaired against the
+     compiler. That is the same shape as item 2, one level larger, and the
+     counter went 67 → 0 in a single step rather than draining gradually.
+   * **`GetRendererID()` itself is NOT deleted, and should not have been on
+     this list.** The accessor is what `Platform/` and `Renderer/Debug/` are
+     *supposed* to use, and the graph's diagnostics path reads it deliberately.
+     What item 4 actually removes is every way for the SWEEP BUCKET to reach
+     one: the facade takes identities, so a translation unit holding a native
+     name has nothing to pass it to. Deleting the accessor is Phase 8's job,
+     with the tools relocation.
+   * **The creators keep their `...Handle` suffix.** Slice 4 called it
+     temporary and expected item 4 to take the plain name back. On arriving,
+     renaming ~40 call sites bought nothing semantic and
+     `CreateTexture2DHandle` reads correctly as "create a texture, get its
+     identity". Revisit in Phase 3, where `ViewHandle` reshapes the create
+     family anyway.
+
+**BOTH "producer gaps" this list named were wrong**, and in opposite ways:
+
+* `VertexBuffer` / `IndexBuffer` "expose no `GetRHIHandle()`" — true, and
+  irrelevant. Their accessor is `GetBufferHandle()`, which is used *only*
+  inside `Platform/OpenGL/`; the thing `Renderer3DMeshSubmission` and
+  `VirtualMeshRegistry` actually hold is a `Ref<StorageBuffer>`, which has
+  minted handles since slice 2. No producer needed adding. **Grep for the
+  accessor the CALLER uses, not the one the type family suggests.**
+* `ShadowMap`'s handle siblings "block item 2" — they had already landed *in*
+  item 2, so by item 4 the native accessors were the leftovers, not the gap.
 
 ### `ImportTextureHandle` BLINDS `ResolveTexture`, and `ResolveTexture` is what the MCP capture endpoints read
 
@@ -679,8 +702,8 @@ five of the six were cleared by slices 6 and 7**, which is itself the lesson:
 | --- | --- | --- |
 | `SSAO` blur→AO copy, `SceneRenderPass`'s three exports, `GPUDrivenOcclusion`'s two | "the other operand is a **transient**, and a transient has only a native id" | **WRONG — cleared in slice 7.** See below. |
 | `Cloudscape`'s raymarch source + history | native history id + a transient resolve | **Cleared in slice 7** |
-| `Renderer3DFrameExecution`'s HZB depth, `PlanarReflection`, `Water` | feed `Renderer3D::` setters | **Water + PlanarReflection cleared in slice 6** when those setters migrated; the HZB one remains |
-| `RenderGraph`'s three external-sink copies | the sink's `TextureID` is registered from outside the graph as a raw `u32` | still open |
+| `Renderer3DFrameExecution`'s HZB depth, `PlanarReflection`, `Water` | feed `Renderer3D::` setters | **Water + PlanarReflection cleared in slice 6** when those setters migrated; **the HZB one cleared in item 4** (`HZBGenerator` and `HZBOcclusionInputs` are identity-typed) |
+| `RenderGraph`'s three external-sink copies | the sink's `TextureID` is registered from outside the graph as a raw `u32` | **Cleared in item 4** — every registrant holds a `Ref<Texture2D>`, so the sink takes the identity and the copy compares objects |
 | `RenderGraph`'s JSON topology dump | reports native ids on purpose, for external tooling | stays native |
 | `Renderer/Debug/`'s two | Phase 8 relocation | stays |
 
@@ -853,6 +876,114 @@ pass that recreates on resize would be the first to hit it, and it would look
 like a stale frame rather than a crash. **A migration's first subject is
 usually its least demanding one** — do not treat "the migrated pass works" as
 evidence that the shared machinery it exercises is correct.
+
+### Item 4 (the tail): what "delete the u32 forms" actually cost, and the two silent bugs it surfaced
+
+Step 3 finishes here. `facade_native_id_params` 67 → **0**, `sweep_renderer_id`
+345 → **182**. `RendererAPI.h` declares no `u32 <name>ID` parameter, so a
+translation unit in the sweep bucket that holds a native name has nothing to
+pass it to — the boundary is compiler-enforced rather than measured, which is
+the property §1.7 credits `sweep_glad_includes` with, now one level up.
+
+**The plan said the counter would drain per entry point. It did not.** The
+reasoning was that each `u32` form could go as its last caller migrated. What
+actually happens is that the last caller of nearly every form is *another* form's
+caller — `ResolveTexture` feeds `BindTexture`, `GetColorAttachmentRendererID`
+feeds `CopyImageSubData`, `CreateTexture2D` feeds `SetTextureFilter` — so the
+facade flips in one edit and the ~250 call sites are then repaired against the
+compiler's own `(file, line)` output. Budget item 4 as one indivisible change,
+not a drain. (The same correction item 2 needed, one size up.)
+
+#### Queries become identities, and the `.data()` trap was real
+
+`RHI::ResourceKind::Query` already existed in the registry when the mint landed,
+so leaving queries on `u32` would have left that enumerator dead. The concrete
+hazard is not hypothetical: `OcclusionQueryPool` hands a query issued in frame N
+to `BeginConditionalRender` in frame N+1. A `Shutdown()` + `Initialize()` in
+between frees the names, GL may reissue one, and the draw is then gated on an
+unrelated occlusion result — a *plausible* frame, not a broken one. A retired
+handle resolves to 0 and the conditional render is simply skipped.
+
+`CreateQueries` is where §4's `.data()` warning applies literally, because that
+warning was written about this function. The out-span never reaches the driver:
+the backend creates into its own `std::vector<GLuint>`, then registers each name
+and writes the handles back. `DeleteQueries` resolves *and* unregisters, both
+halves. `IsQueryResultAvailable` returns **false** for a stale handle rather than
+reading query 0 — for occlusion, a zero result reads as "fully occluded", so the
+honest-looking answer is the one that deletes geometry.
+
+#### TWO silent defects, both the same shape, both found by reading rather than by a test
+
+Neither is a type error; both compile, and both would have shipped a wrong frame.
+
+1. **`DeclareTransientTexture(name, desc, backingTextureID)` set only the native
+   id.** That is the call that publishes `ShadowMapCSM`, `ShadowMapAtlas` and
+   their compare-off raw views into the frame graph. Every consumer of those
+   resources reads them through `ResolveTextureHandle` — which answers **null**
+   for an entry with no `Handle` — so `DeferredLightingPass` would have fallen
+   through to `ShadowMap::GetCSMPlaceholderHandle()` on every frame. Shadows
+   gone; no error, no warning, no failing assertion.
+2. **The transient planner's alias fan-out set only the native id.** Pass 1
+   (`WillAllocate`) sets both since slice 7; pass 2 — the entries that *inherit*
+   a sibling's physical resource under aliasing — still set `TextureID` alone.
+   So the aliased half of any plan resolved to a null identity. This one is
+   worse than (1) because it is load-dependent: it appears only when the planner
+   decides to alias, which depends on the frame's resource lifetimes.
+
+**The generalisable rule, and it is a correction to `PhysicalTexture`'s own
+comment:** "TextureID and Handle are ALTERNATIVES, exactly one is set" is right
+for an **import** — an importer holds one currency and neither is derivable from
+the other. It is wrong everywhere the graph itself is the one doing the setting,
+because there the graph holds the resource *object* and reads both off one
+pointer in one statement. Slice 7 learned this for the transient acquire and
+fixed that one site. Item 4 found two more sites governed by the same rule, which
+suggests the right move next time is to grep for **every** assignment to
+`.TextureID` and check each for a matching `.Handle`, rather than fixing the one
+the current slice happens to touch.
+
+#### Two "blockers" in the worklist were phantoms, in opposite directions
+
+* **`VertexBuffer` / `IndexBuffer` expose no `GetRHIHandle()`** — true, and
+  irrelevant. Their accessor is spelled `GetBufferHandle()`, and it is used
+  *only* inside `Platform/OpenGL/`. What `Renderer3DMeshSubmission` and
+  `VirtualMeshRegistry` actually hold is a `Ref<StorageBuffer>`, which has minted
+  handles since slice 2. The gap was recorded by reasoning about the type family
+  rather than by grepping the accessor the caller uses.
+* **"A resource's import may only move to `ImportTextureHandle` after the
+  diagnostics can read one"** — still true, and by item 4 it was already
+  satisfied. #736's `Debug::NativeTextureIdForDiagnostics` unblocked six imports
+  at once (DDGI's atlases, the colour-grading LUT, the fluid intermediates, the
+  fog volumes, the TAA/clouds history, the virtual-geometry debug target). A
+  sequencing constraint that has been *met* reads exactly like one that is still
+  blocking; re-check the blocker before scoping around it.
+
+#### The IBL trio's second currency died with its only reason to exist
+
+`SetGlobalIBL` took *seven* resource parameters: four identities and three native
+ids. The natives existed for exactly three lines — `RenderPipeline`'s
+`graph.ImportTexture(ResourceNames::IrradianceMap, data.GlobalIrradianceMapNativeID, …)`
+— because at the time the graph could not import an identity. Switching those to
+`ImportTextureHandle` removed the parameters, the three `Renderer3DData` fields,
+the three accessors, and the "both currencies clear together" comment in
+`ClearGlobalIBL` that existed to keep them consistent. **When a value carries two
+currencies, find the single consumer that forced it; the rest is usually
+bookkeeping to keep the two in step.**
+
+#### What is deliberately NOT done
+
+* **`GetRendererID()` still exists** on `Texture` / `Shader` / `Framebuffer` /
+  the buffer types. It is what `Platform/` and `Renderer/Debug/` are supposed to
+  use, and the graph's diagnostics path reads it on purpose. Item 4 removes every
+  way for the sweep bucket to *use* one, not the accessor. Deleting it is Phase 8,
+  with the tools relocation.
+* **The creators keep their `...Handle` suffix.** Slice 4 called it temporary;
+  taking the plain name back would rename ~40 call sites for no semantic gain,
+  and Phase 3 reshapes the create family for `ViewHandle` anyway.
+* **`shaderRendererID` keeps its field name** on the POD command structs. It has
+  been an `RHI::ResourceHandle` since slice 6; the name is the last cosmetic
+  residue and accounts for 114 of the remaining `sweep_renderer_id` count. Renaming
+  it is churn with a collision risk (§4's `shaderHandle` story) and no behaviour
+  change — leave it for a commit that has a reason to touch those structs.
 
 ---
 

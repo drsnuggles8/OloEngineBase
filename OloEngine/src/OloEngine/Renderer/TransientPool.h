@@ -126,6 +126,17 @@ namespace OloEngine
         {
             std::string Kind; ///< "texture" | "framebuffer" | "buffer"
             u32 RendererID = 0;
+            /// The IDENTITY of the same object (issue #691 step 3, item 4).
+            ///
+            /// Carried ALONGSIDE the driver name, not instead of it: the report
+            /// is read by a human or an agent, and a GL id is what a RenderDoc
+            /// capture shows. But the question this report exists to answer —
+            /// "did these two plan entries get the same object, or a recycled
+            /// name?" (the reason RHIResourceRegistry has a generation at all) —
+            /// cannot be answered from the driver name, because a release and a
+            /// re-acquire inside one frame can legitimately reuse it. Two live
+            /// handles cannot collide, so comparing these answers it exactly.
+            RHI::ResourceHandle Handle{};
             u32 Width = 0;     ///< texture / framebuffer only
             u32 Height = 0;    ///< texture / framebuffer only
             u32 SizeBytes = 0; ///< buffer only

@@ -350,20 +350,23 @@ namespace OloEngine
             if (!texture)
                 continue;
             const auto& spec = texture->GetSpecification();
-            acquired.push_back(AcquiredInfo{ "texture", texture->GetRendererID(), spec.Width, spec.Height, 0u });
+            acquired.push_back(AcquiredInfo{ "texture", texture->GetRendererID(), texture->GetRHIHandle(),
+                                             spec.Width, spec.Height, 0u });
         }
         for (const auto& framebuffer : m_AcquiredFramebuffers)
         {
             if (!framebuffer)
                 continue;
             const auto& spec = framebuffer->GetSpecification();
-            acquired.push_back(AcquiredInfo{ "framebuffer", framebuffer->GetRendererID(), spec.Width, spec.Height, 0u });
+            acquired.push_back(AcquiredInfo{ "framebuffer", framebuffer->GetRendererID(), framebuffer->GetRHIHandle(),
+                                             spec.Width, spec.Height, 0u });
         }
         for (const auto& buffer : m_AcquiredBuffers)
         {
             if (!buffer)
                 continue;
-            acquired.push_back(AcquiredInfo{ "buffer", buffer->GetRendererID(), 0u, 0u, buffer->GetSize() });
+            acquired.push_back(AcquiredInfo{ "buffer", buffer->GetRendererID(), buffer->GetRHIHandle(),
+                                             0u, 0u, buffer->GetSize() });
         }
         return acquired;
     }

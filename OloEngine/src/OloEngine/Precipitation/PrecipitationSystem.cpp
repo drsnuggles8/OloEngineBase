@@ -217,11 +217,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        if (s_Data.m_TimerQueries[0] != 0)
+        if (s_Data.m_TimerQueries[0].IsValid())
         {
             RenderCommand::DeleteQueries(s_Data.m_TimerQueries);
-            s_Data.m_TimerQueries[0] = 0;
-            s_Data.m_TimerQueries[1] = 0;
+            s_Data.m_TimerQueries[0] = RHI::NullResource;
+            s_Data.m_TimerQueries[1] = RHI::NullResource;
         }
         s_Data.m_TimerQueryActive = false;
         s_Data.m_CurrentTimerQuery = 0;

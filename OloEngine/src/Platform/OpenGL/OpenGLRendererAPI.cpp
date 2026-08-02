@@ -620,10 +620,11 @@ namespace OloEngine
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
-    void OpenGLRendererAPI::BlitFramebufferToDefault(u32 srcFboID, u32 width, u32 height)
+    void OpenGLRendererAPI::BlitFramebufferToDefault(RHI::ResourceHandle srcFramebuffer, u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint srcFboID = Utils::ResolveNativeAs(srcFramebuffer, RHI::ResourceKind::Framebuffer);
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
 
         glBlitNamedFramebuffer(srcFboID, 0,
@@ -656,10 +657,11 @@ namespace OloEngine
         glDispatchCompute(groupsX, groupsY, groupsZ);
     }
 
-    void OpenGLRendererAPI::DrawElementsIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID)
+    void OpenGLRendererAPI::DrawElementsIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint indirectBufferID = Utils::ResolveNativeAs(indirectBuffer, RHI::ResourceKind::Buffer);
         vertexArray->Bind();
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBufferID);
         glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr);
@@ -668,10 +670,11 @@ namespace OloEngine
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
     }
 
-    void OpenGLRendererAPI::DrawBoundElementsIndirect(u32 indirectBufferID)
+    void OpenGLRendererAPI::DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint indirectBufferID = Utils::ResolveNativeAs(indirectBuffer, RHI::ResourceKind::Buffer);
         if (indirectBufferID == 0)
             return;
 
@@ -690,12 +693,18 @@ namespace OloEngine
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
     }
 
-    void OpenGLRendererAPI::MultiDrawElementsIndirectCountRaw(u32 vaoID, u32 indirectBufferID, u32 indirectOffsetBytes,
-                                                              u32 parameterBufferID, u32 parameterOffsetBytes,
+    void OpenGLRendererAPI::MultiDrawElementsIndirectCountRaw(RHI::ResourceHandle vertexArray,
+                                                              RHI::ResourceHandle indirectBuffer,
+                                                              u32 indirectOffsetBytes,
+                                                              RHI::ResourceHandle parameterBuffer,
+                                                              u32 parameterOffsetBytes,
                                                               u32 maxDrawCount, u32 strideBytes)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint vaoID = Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray);
+        const GLuint indirectBufferID = Utils::ResolveNativeAs(indirectBuffer, RHI::ResourceKind::Buffer);
+        const GLuint parameterBufferID = Utils::ResolveNativeAs(parameterBuffer, RHI::ResourceKind::Buffer);
         if (vaoID == 0 || indirectBufferID == 0 || parameterBufferID == 0 || maxDrawCount == 0)
             return;
 
@@ -714,10 +723,11 @@ namespace OloEngine
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
     }
 
-    void OpenGLRendererAPI::DrawArraysIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID)
+    void OpenGLRendererAPI::DrawArraysIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint indirectBufferID = Utils::ResolveNativeAs(indirectBuffer, RHI::ResourceKind::Buffer);
         vertexArray->Bind();
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBufferID);
         glDrawArraysIndirect(GL_TRIANGLES, nullptr);
@@ -885,10 +895,11 @@ namespace OloEngine
             static_cast<GLsizei>(width), static_cast<GLsizei>(height), 1);
     }
 
-    void OpenGLRendererAPI::CopyFramebufferToTexture(u32 textureID, u32 width, u32 height)
+    void OpenGLRendererAPI::CopyFramebufferToTexture(RHI::ResourceHandle texture, u32 width, u32 height)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint textureID = Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture);
         glCopyTextureSubImage2D(textureID, 0, 0, 0, 0, 0,
                                 static_cast<GLsizei>(width), static_cast<GLsizei>(height));
     }
@@ -1068,10 +1079,10 @@ namespace OloEngine
         glDeleteTextures(1, &textureID);
     }
 
-    void OpenGLRendererAPI::BeginConditionalRender(u32 queryID)
+    void OpenGLRendererAPI::BeginConditionalRender(RHI::ResourceHandle query)
     {
         OLO_PROFILE_FUNCTION();
-        glBeginConditionalRender(queryID, GL_QUERY_BY_REGION_WAIT);
+        glBeginConditionalRender(Utils::ResolveNativeAs(query, RHI::ResourceKind::Query), GL_QUERY_BY_REGION_WAIT);
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::StateChanges, 1);
     }
 
@@ -1250,33 +1261,50 @@ namespace OloEngine
         glDeleteFramebuffers(1, &framebufferID);
     }
 
-    void OpenGLRendererAPI::AttachFramebufferColorTexture(u32 framebufferID, u32 attachmentIndex,
-                                                          u32 textureID, u32 mipLevel)
+    void OpenGLRendererAPI::AttachFramebufferColorTexture(RHI::ResourceHandle framebuffer, u32 attachmentIndex,
+                                                          RHI::ResourceHandle texture, u32 mipLevel)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint framebufferID = Utils::ResolveNativeAs(framebuffer, RHI::ResourceKind::Framebuffer);
+        // RHI::NullResource resolves to 0, which DETACHES — the same contract the
+        // native form had for a literal 0.
+        const GLuint textureID = Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture);
         glNamedFramebufferTexture(framebufferID, GL_COLOR_ATTACHMENT0 + attachmentIndex, textureID,
                                   static_cast<GLint>(mipLevel));
     }
 
-    void OpenGLRendererAPI::AttachFramebufferDepthTexture(u32 framebufferID, u32 textureID, u32 mipLevel)
+    void OpenGLRendererAPI::AttachFramebufferDepthTexture(RHI::ResourceHandle framebuffer, RHI::ResourceHandle texture,
+                                                          u32 mipLevel)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint framebufferID = Utils::ResolveNativeAs(framebuffer, RHI::ResourceKind::Framebuffer);
+        const GLuint textureID = Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture);
         glNamedFramebufferTexture(framebufferID, GL_DEPTH_ATTACHMENT, textureID, static_cast<GLint>(mipLevel));
     }
 
-    bool OpenGLRendererAPI::IsFramebufferComplete(u32 framebufferID)
+    bool OpenGLRendererAPI::IsFramebufferComplete(RHI::ResourceHandle framebuffer)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint framebufferID = Utils::ResolveNativeAs(framebuffer, RHI::ResourceKind::Framebuffer);
+        // Framebuffer 0 (the default) always reports complete, so a stale handle
+        // would answer "yes" for an object that no longer exists. Say no instead:
+        // every caller treats false as "fall back / do not use this target".
+        if (framebufferID == 0)
+        {
+            return false;
+        }
         return glCheckNamedFramebufferStatus(framebufferID, GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
     }
 
-    void OpenGLRendererAPI::SetFramebufferDrawAttachments(u32 framebufferID, std::span<const u32> attachmentIndices)
+    void OpenGLRendererAPI::SetFramebufferDrawAttachments(RHI::ResourceHandle framebuffer,
+                                                          std::span<const u32> attachmentIndices)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint framebufferID = Utils::ResolveNativeAs(framebuffer, RHI::ResourceKind::Framebuffer);
         u32 count = static_cast<u32>(attachmentIndices.size());
         const u32 maxBuf = static_cast<u32>(m_MaxDrawBuffers);
         if (count > maxBuf)
@@ -1310,7 +1338,8 @@ namespace OloEngine
         }
     }
 
-    void OpenGLRendererAPI::RestoreAllFramebufferDrawAttachments(u32 framebufferID, u32 colorAttachmentCount)
+    void OpenGLRendererAPI::RestoreAllFramebufferDrawAttachments(RHI::ResourceHandle framebuffer,
+                                                                 u32 colorAttachmentCount)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1341,7 +1370,7 @@ namespace OloEngine
             {
                 attachments[i] = i;
             }
-            SetFramebufferDrawAttachments(framebufferID, std::span<const u32>(attachments.data(), count));
+            SetFramebufferDrawAttachments(framebuffer, std::span<const u32>(attachments.data(), count));
             return;
         }
 
@@ -1350,20 +1379,23 @@ namespace OloEngine
         {
             attachments[i] = i;
         }
-        SetFramebufferDrawAttachments(framebufferID, attachments);
+        SetFramebufferDrawAttachments(framebuffer, attachments);
     }
 
-    void OpenGLRendererAPI::SetFramebufferReadAttachment(u32 framebufferID, u32 attachmentIndex)
+    void OpenGLRendererAPI::SetFramebufferReadAttachment(RHI::ResourceHandle framebuffer, u32 attachmentIndex)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint framebufferID = Utils::ResolveNativeAs(framebuffer, RHI::ResourceKind::Framebuffer);
         glNamedFramebufferReadBuffer(framebufferID, Utils::ToGLColorAttachment(attachmentIndex));
     }
 
-    void OpenGLRendererAPI::ClearFramebufferColorAttachment(u32 framebufferID, u32 attachmentIndex,
+    void OpenGLRendererAPI::ClearFramebufferColorAttachment(RHI::ResourceHandle framebuffer, u32 attachmentIndex,
                                                             const glm::vec4& color)
     {
         OLO_PROFILE_FUNCTION();
+
+        const GLuint framebufferID = Utils::ResolveNativeAs(framebuffer, RHI::ResourceKind::Framebuffer);
 
         // The clear-program guard lives HERE, not at the call site. It is an
         // NVIDIA-driver hazard mitigation (the bound program's vertex shader is
@@ -1381,21 +1413,26 @@ namespace OloEngine
         glClearNamedFramebufferfv(framebufferID, GL_COLOR, static_cast<GLint>(attachmentIndex), &color.x);
     }
 
-    void OpenGLRendererAPI::ClearFramebufferDepth(u32 framebufferID, f32 depth)
+    void OpenGLRendererAPI::ClearFramebufferDepth(RHI::ResourceHandle framebuffer, f32 depth)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint framebufferID = Utils::ResolveNativeAs(framebuffer, RHI::ResourceKind::Framebuffer);
         Utils::GLClearProgramGuard programGuard;
         glClearNamedFramebufferfv(framebufferID, GL_DEPTH, 0, &depth);
     }
 
-    void OpenGLRendererAPI::BlitFramebuffer(u32 srcFramebufferID, u32 dstFramebufferID,
+    void OpenGLRendererAPI::BlitFramebuffer(RHI::ResourceHandle srcFramebuffer, RHI::ResourceHandle dstFramebuffer,
                                             i32 srcX0, i32 srcY0, i32 srcX1, i32 srcY1,
                                             i32 dstX0, i32 dstY0, i32 dstX1, i32 dstY1,
                                             RHI::BlitAspect aspect, RHI::Filter filter)
     {
         OLO_PROFILE_FUNCTION();
 
+        // RHI::NullResource resolves to 0 = the DEFAULT framebuffer, which is how
+        // a blit to the backbuffer is spelled.
+        const GLuint srcFramebufferID = Utils::ResolveNativeAs(srcFramebuffer, RHI::ResourceKind::Framebuffer);
+        const GLuint dstFramebufferID = Utils::ResolveNativeAs(dstFramebuffer, RHI::ResourceKind::Framebuffer);
         glBlitNamedFramebuffer(srcFramebufferID, dstFramebufferID,
                                srcX0, srcY0, srcX1, srcY1,
                                dstX0, dstY0, dstX1, dstY1,
@@ -1420,16 +1457,27 @@ namespace OloEngine
         glDeleteBuffers(1, &bufferID);
     }
 
-    void OpenGLRendererAPI::AllocateBufferStorage(u32 bufferID, u64 sizeBytes, RHI::MemoryResidency residency)
+    void OpenGLRendererAPI::AllocateBufferStorage(RHI::ResourceHandle buffer, u64 sizeBytes,
+                                                  RHI::MemoryResidency residency)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint bufferID = Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer);
         glNamedBufferData(bufferID, static_cast<GLsizeiptr>(sizeBytes), nullptr, Utils::ToGL(residency));
     }
 
-    void* OpenGLRendererAPI::AllocatePersistentUploadStorage(u32 bufferID, u64 sizeBytes)
+    void* OpenGLRendererAPI::AllocatePersistentUploadStorage(RHI::ResourceHandle buffer, u64 sizeBytes)
     {
         OLO_PROFILE_FUNCTION();
+
+        const GLuint bufferID = Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer);
+        if (bufferID == 0)
+        {
+            // Mapping buffer 0 is an error and would hand back nullptr anyway;
+            // saying so up front keeps the caller's "mapping failed" branch the
+            // single place that deals with it.
+            return nullptr;
+        }
 
         // Storage flags and map flags must agree or glMapNamedBufferRange fails
         // at map time rather than at allocation time — which is why these are
@@ -1439,49 +1487,61 @@ namespace OloEngine
         return glMapNamedBufferRange(bufferID, 0, static_cast<GLsizeiptr>(sizeBytes), kFlags);
     }
 
-    void OpenGLRendererAPI::UnmapBuffer(u32 bufferID)
+    void OpenGLRendererAPI::UnmapBuffer(RHI::ResourceHandle buffer)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint bufferID = Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer);
+        if (bufferID == 0)
+        {
+            return;
+        }
         glUnmapNamedBuffer(bufferID);
     }
 
-    void OpenGLRendererAPI::UploadBufferSubData(u32 bufferID, u64 offsetBytes, u64 sizeBytes, const void* data)
+    void OpenGLRendererAPI::UploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes,
+                                                const void* data)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint bufferID = Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer);
         glNamedBufferSubData(bufferID, static_cast<GLintptr>(offsetBytes), static_cast<GLsizeiptr>(sizeBytes), data);
     }
 
-    void OpenGLRendererAPI::ReadBufferSubData(u32 bufferID, u64 offsetBytes, u64 sizeBytes, void* dest)
+    void OpenGLRendererAPI::ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint bufferID = Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer);
         glGetNamedBufferSubData(bufferID, static_cast<GLintptr>(offsetBytes), static_cast<GLsizeiptr>(sizeBytes), dest);
     }
 
-    void OpenGLRendererAPI::CopyBufferSubData(u32 srcBufferID, u32 dstBufferID,
+    void OpenGLRendererAPI::CopyBufferSubData(RHI::ResourceHandle srcBuffer, RHI::ResourceHandle dstBuffer,
                                               u64 srcOffsetBytes, u64 dstOffsetBytes, u64 sizeBytes)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint srcBufferID = Utils::ResolveNativeAs(srcBuffer, RHI::ResourceKind::Buffer);
+        const GLuint dstBufferID = Utils::ResolveNativeAs(dstBuffer, RHI::ResourceKind::Buffer);
         glCopyNamedBufferSubData(srcBufferID, dstBufferID,
                                  static_cast<GLintptr>(srcOffsetBytes), static_cast<GLintptr>(dstOffsetBytes),
                                  static_cast<GLsizeiptr>(sizeBytes));
     }
 
-    void OpenGLRendererAPI::ClearBufferUInt(u32 bufferID, u32 value)
+    void OpenGLRendererAPI::ClearBufferUInt(RHI::ResourceHandle buffer, u32 value)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint bufferID = Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer);
         Utils::GLClearProgramGuard programGuard;
         glClearNamedBufferData(bufferID, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, &value);
     }
 
-    void OpenGLRendererAPI::ClearBufferFloat(u32 bufferID, f32 value)
+    void OpenGLRendererAPI::ClearBufferFloat(RHI::ResourceHandle buffer, f32 value)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint bufferID = Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer);
         Utils::GLClearProgramGuard programGuard;
         glClearNamedBufferData(bufferID, GL_R32F, GL_RED, GL_FLOAT, &value);
     }
@@ -1497,10 +1557,12 @@ namespace OloEngine
         return vao;
     }
 
-    void OpenGLRendererAPI::SetVertexArrayIndexBuffer(u32 vaoID, u32 bufferID)
+    void OpenGLRendererAPI::SetVertexArrayIndexBuffer(RHI::ResourceHandle vertexArray, RHI::ResourceHandle indexBuffer)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint vaoID = Utils::ResolveNativeAs(vertexArray, RHI::ResourceKind::VertexArray);
+        const GLuint bufferID = Utils::ResolveNativeAs(indexBuffer, RHI::ResourceKind::Buffer);
         glVertexArrayElementBuffer(vaoID, bufferID);
     }
 
@@ -1521,31 +1583,34 @@ namespace OloEngine
         glClearTexImage(textureID, static_cast<GLint>(mipLevel), GL_RGBA, GL_FLOAT, &color.x);
     }
 
-    void OpenGLRendererAPI::ClearTextureUInt(u32 textureID, u32 mipLevel, u32 value)
+    void OpenGLRendererAPI::ClearTextureUInt(RHI::ResourceHandle texture, u32 mipLevel, u32 value)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint textureID = Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture);
         Utils::GLClearProgramGuard programGuard;
         glClearTexImage(textureID, static_cast<GLint>(mipLevel), GL_RED_INTEGER, GL_UNSIGNED_INT, &value);
     }
 
-    void OpenGLRendererAPI::UploadTextureSubImage2D(u32 textureID, i32 xOffset, i32 yOffset,
+    void OpenGLRendererAPI::UploadTextureSubImage2D(RHI::ResourceHandle texture, i32 xOffset, i32 yOffset,
                                                     u32 width, u32 height,
                                                     RHI::Format sourceFormat, const void* data)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint textureID = Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture);
         glTextureSubImage2D(textureID, 0, xOffset, yOffset,
                             static_cast<GLsizei>(width), static_cast<GLsizei>(height),
                             Utils::ToGLPixelFormat(sourceFormat), Utils::ToGLPixelType(sourceFormat), data);
     }
 
-    void OpenGLRendererAPI::UploadTextureSubImage3D(u32 textureID, i32 xOffset, i32 yOffset, i32 zOffset,
+    void OpenGLRendererAPI::UploadTextureSubImage3D(RHI::ResourceHandle texture, i32 xOffset, i32 yOffset, i32 zOffset,
                                                     u32 width, u32 height, u32 depth,
                                                     RHI::Format sourceFormat, const void* data)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint textureID = Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture);
         glTextureSubImage3D(textureID, 0, xOffset, yOffset, zOffset,
                             static_cast<GLsizei>(width), static_cast<GLsizei>(height), static_cast<GLsizei>(depth),
                             Utils::ToGLPixelFormat(sourceFormat), Utils::ToGLPixelType(sourceFormat), data);
@@ -1593,10 +1658,12 @@ namespace OloEngine
         return glGetError() == GL_NO_ERROR;
     }
 
-    void OpenGLRendererAPI::GetTextureDimensions(u32 textureID, u32 mipLevel, u32& outWidth, u32& outHeight)
+    void OpenGLRendererAPI::GetTextureDimensions(RHI::ResourceHandle texture, u32 mipLevel, u32& outWidth,
+                                                 u32& outHeight)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint textureID = Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture);
         GLint width = 0;
         GLint height = 0;
         glGetTextureLevelParameteriv(textureID, static_cast<GLint>(mipLevel), GL_TEXTURE_WIDTH, &width);
@@ -1614,36 +1681,81 @@ namespace OloEngine
 
     // --- Queries ----------------------------------------------------------------------------
 
-    void OpenGLRendererAPI::CreateQueries(RHI::QueryType type, std::span<u32> outQueryIDs)
+    void OpenGLRendererAPI::CreateQueries(RHI::QueryType type, std::span<RHI::ResourceHandle> outQueries)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (outQueryIDs.empty())
+        if (outQueries.empty())
         {
             return;
         }
+        // The out-span NEVER reaches the driver. Handing glCreateQueries a
+        // `std::span<RHI::ResourceHandle>::data()` still compiles — the
+        // parameter is a GLuint* and the pointer converts — and GL would write
+        // 4-byte names over the low half of each 8-byte handle, leaving every
+        // Generation intact and every Index garbage. Silent, and no test would
+        // see it (ADR 0011 / §4's `.data()` trap, which was written about this
+        // exact function).
+        std::vector<GLuint> nativeNames(outQueries.size(), 0u);
+
         // glCreateQueries rather than glGenQueries: the DSA form binds the
         // object to its target at creation, so a subsequent glBeginQuery with a
         // mismatched target is an immediate error rather than a latent one.
-        glCreateQueries(Utils::ToGL(type), static_cast<GLsizei>(outQueryIDs.size()), outQueryIDs.data());
+        glCreateQueries(Utils::ToGL(type), static_cast<GLsizei>(nativeNames.size()), nativeNames.data());
+
+        auto& registry = RHI::ResourceRegistry::Get();
+        for (sizet i = 0; i < outQueries.size(); ++i)
+        {
+            outQueries[i] = nativeNames[i] != 0u
+                                ? registry.Register(RHI::ResourceKind::Query, nativeNames[i], RHI::Backend::OpenGL)
+                                : RHI::NullResource;
+        }
     }
 
-    void OpenGLRendererAPI::DeleteQueries(std::span<const u32> queryIDs)
+    void OpenGLRendererAPI::DeleteQueries(std::span<const RHI::ResourceHandle> queries)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (queryIDs.empty())
+        if (queries.empty())
         {
             return;
         }
-        glDeleteQueries(static_cast<GLsizei>(queryIDs.size()), queryIDs.data());
+
+        // Both halves. Resolving to call glDeleteQueries is the visible one;
+        // unregistering is the one that matters, because a slot whose
+        // generation never advances goes on resolving a handle to a destroyed
+        // object into a name the driver may reissue.
+        std::vector<GLuint> nativeNames;
+        nativeNames.reserve(queries.size());
+        auto& registry = RHI::ResourceRegistry::Get();
+        for (const RHI::ResourceHandle query : queries)
+        {
+            // A live handle of the wrong family names SOMEONE ELSE'S resource.
+            // ResolveNativeAs already refuses to hand back their GL name, but
+            // Unregister is not kind-aware — without this guard a mis-wired
+            // delete would retire their registry entry while leaving their GL
+            // object alive. Same guard as the other Delete* virtuals.
+            if (Utils::IsWrongKind(query, RHI::ResourceKind::Query))
+                continue;
+
+            if (const GLuint name = Utils::ResolveNativeAs(query, RHI::ResourceKind::Query); name != 0u)
+            {
+                nativeNames.push_back(name);
+            }
+            registry.Unregister(query);
+        }
+
+        if (!nativeNames.empty())
+        {
+            glDeleteQueries(static_cast<GLsizei>(nativeNames.size()), nativeNames.data());
+        }
     }
 
-    void OpenGLRendererAPI::BeginQuery(RHI::QueryType type, u32 queryID)
+    void OpenGLRendererAPI::BeginQuery(RHI::QueryType type, RHI::ResourceHandle query)
     {
         OLO_PROFILE_FUNCTION();
 
-        glBeginQuery(Utils::ToGL(type), queryID);
+        glBeginQuery(Utils::ToGL(type), Utils::ResolveNativeAs(query, RHI::ResourceKind::Query));
     }
 
     void OpenGLRendererAPI::EndQuery(RHI::QueryType type)
@@ -1653,30 +1765,48 @@ namespace OloEngine
         glEndQuery(Utils::ToGL(type));
     }
 
-    bool OpenGLRendererAPI::IsQueryResultAvailable(u32 queryID)
+    bool OpenGLRendererAPI::IsQueryResultAvailable(RHI::ResourceHandle query)
     {
         OLO_PROFILE_FUNCTION();
 
+        const GLuint name = Utils::ResolveNativeAs(query, RHI::ResourceKind::Query);
+        if (name == 0u)
+        {
+            // A stale handle has no result and never will. Reporting "available"
+            // would make the caller read query 0 and treat the zero it gets back
+            // as a real answer — for occlusion that reads as "fully occluded",
+            // which silently deletes geometry.
+            return false;
+        }
+
         GLint available = 0;
-        glGetQueryObjectiv(queryID, GL_QUERY_RESULT_AVAILABLE, &available);
+        glGetQueryObjectiv(name, GL_QUERY_RESULT_AVAILABLE, &available);
         return available != 0;
     }
 
-    u32 OpenGLRendererAPI::GetQueryResultU32(u32 queryID)
+    u32 OpenGLRendererAPI::GetQueryResultU32(RHI::ResourceHandle query)
     {
         OLO_PROFILE_FUNCTION();
 
         GLuint result = 0;
-        glGetQueryObjectuiv(queryID, GL_QUERY_RESULT, &result);
+        const GLuint name = Utils::ResolveNativeAs(query, RHI::ResourceKind::Query);
+        if (name != 0u)
+        {
+            glGetQueryObjectuiv(name, GL_QUERY_RESULT, &result);
+        }
         return result;
     }
 
-    u64 OpenGLRendererAPI::GetQueryResultU64(u32 queryID)
+    u64 OpenGLRendererAPI::GetQueryResultU64(RHI::ResourceHandle query)
     {
         OLO_PROFILE_FUNCTION();
 
         GLuint64 result = 0;
-        glGetQueryObjectui64v(queryID, GL_QUERY_RESULT, &result);
+        const GLuint name = Utils::ResolveNativeAs(query, RHI::ResourceKind::Query);
+        if (name != 0u)
+        {
+            glGetQueryObjectui64v(name, GL_QUERY_RESULT, &result);
+        }
         return result;
     }
 

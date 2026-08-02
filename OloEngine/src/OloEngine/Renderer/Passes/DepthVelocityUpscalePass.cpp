@@ -89,8 +89,8 @@ namespace OloEngine
             return;
         }
 
-        const u32 depthTextureID = context.ResolveTexture(m_ReducedDepth);
-        const u32 velocityTextureID = m_ReducedVelocity.IsValid() ? context.ResolveTexture(m_ReducedVelocity) : 0u;
+        const RHI::ResourceHandle depthTextureID = context.ResolveTextureHandle(m_ReducedDepth);
+        const RHI::ResourceHandle velocityTextureID = m_ReducedVelocity.IsValid() ? context.ResolveTextureHandle(m_ReducedVelocity) : RHI::NullResource;
 
         Ref<Framebuffer> outputFramebuffer;
         if (const auto outputHandle = GetPrimaryOutputFramebufferHandle(); outputHandle.IsValid())
@@ -99,7 +99,7 @@ namespace OloEngine
                 outputFramebuffer = resolvedOutput;
         }
 
-        if (depthTextureID == 0u || !outputFramebuffer)
+        if (!depthTextureID.IsValid() || !outputFramebuffer)
         {
             m_Target = nullptr;
             return;

@@ -291,14 +291,14 @@ namespace OloEngine
         // resource into a caller-owned texture after Execute() completes.
         void RegisterExternalTextureSink(
             RGTextureHandle sourceHandle,
-            u32 textureID,
+            RHI::ResourceHandle texture,
             u32 width,
             u32 height,
             bool* validFlag = nullptr);
 
         void RegisterExternalTextureSink(
             RGFramebufferHandle sourceHandle,
-            u32 textureID,
+            RHI::ResourceHandle texture,
             u32 width,
             u32 height,
             u32 colorAttachmentIndex = 0,

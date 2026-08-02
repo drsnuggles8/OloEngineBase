@@ -1026,7 +1026,7 @@ namespace OloEngine::MCP
             if (RenderOverrides::IsVirtualGeometryView(view))
             {
                 r.CaptureTarget = "VirtualGeometryDebug";
-                r.PassEnabled = deferred && virtualRegistry.GetDebugColorTextureID() != 0;
+                r.PassEnabled = deferred && virtualRegistry.GetDebugColorTexture().IsValid();
                 if (!deferred)
                     r.Note = "Virtual geometry renders on the DEFERRED path only (current path: " +
                              std::string(RenderingPathName(Renderer3D::GetRendererSettings().Path)) +
@@ -2284,7 +2284,10 @@ namespace OloEngine::MCP
                         bool liveFrame = false;
                         for (const auto& acquired : pool.GetAcquireOrder(&liveFrame))
                         {
-                            Json a{ { "kind", acquired.Kind }, { "glId", acquired.RendererID } };
+                            Json a{ { "kind", acquired.Kind },
+                                    { "glId", acquired.RendererID },
+                                    { "identityIndex", acquired.Handle.Index },
+                                    { "identityGeneration", acquired.Handle.Generation } };
                             if (acquired.Kind == "buffer")
                                 a["sizeBytes"] = acquired.SizeBytes;
                             else
@@ -3943,7 +3946,7 @@ namespace OloEngine::MCP
             j["swRasterMode"] = VirtualSwRasterModeToken(registry.GetSwRasterMode());
             j["swRasterThresholdPixels"] = registry.GetSwRasterThresholdPixels();
             j["forcePortableSwRaster"] = registry.GetForcePortableSwRaster();
-            j["debugTargetAvailable"] = registry.GetDebugColorTextureID() != 0;
+            j["debugTargetAvailable"] = registry.GetDebugColorTexture().IsValid();
             return j;
         }
 
@@ -4637,10 +4640,13 @@ namespace OloEngine::MCP
                                      "slice was sampled.";
                 }
 
-                probe.Raw = ProbeVolumeTexel(state.ScatterTextureID, "scatter", probe.Coord.IX, probe.Coord.IY,
-                                             probe.Coord.IZ);
-                probe.Integrated = ProbeVolumeTexel(state.IntegratedTextureID, "integrated", probe.Coord.IX,
-                                                    probe.Coord.IY, probe.Coord.IZ);
+                // The fog volumes are identities now (issue #691 step 3, item 4); this
+                // probe reads them back with raw GL, which is the sanctioned use of the
+                // diagnostics hatch.
+                probe.Raw = ProbeVolumeTexel(Debug::NativeTextureIdForDiagnostics(state.ScatterTextureID),
+                                             "scatter", probe.Coord.IX, probe.Coord.IY, probe.Coord.IZ);
+                probe.Integrated = ProbeVolumeTexel(Debug::NativeTextureIdForDiagnostics(state.IntegratedTextureID),
+                                                    "integrated", probe.Coord.IX, probe.Coord.IY, probe.Coord.IZ);
 
                 Json j = FroxelFog::ToJson(probe);
                 j["fog"] = Json{ { "enabled", fog.Enabled },

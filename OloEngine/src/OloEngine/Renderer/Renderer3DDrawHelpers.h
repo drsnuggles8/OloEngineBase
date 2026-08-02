@@ -47,9 +47,9 @@ namespace OloEngine
 
         if (material.GetType() == MaterialType::PBR)
         {
-            const u64 albedoID = material.GetAlbedoMap() ? static_cast<u64>(material.GetAlbedoMap()->GetRendererID()) : 0ULL;
-            const u64 metallicID = material.GetMetallicRoughnessMap() ? static_cast<u64>(material.GetMetallicRoughnessMap()->GetRendererID()) : 0ULL;
-            const u64 normalID = material.GetNormalMap() ? static_cast<u64>(material.GetNormalMap()->GetRendererID()) : 0ULL;
+            const u64 albedoID = material.GetAlbedoMap() ? RHI::HashKey(material.GetAlbedoMap()->GetRHIHandle()) : 0ULL;
+            const u64 metallicID = material.GetMetallicRoughnessMap() ? RHI::HashKey(material.GetMetallicRoughnessMap()->GetRHIHandle()) : 0ULL;
+            const u64 normalID = material.GetNormalMap() ? RHI::HashKey(material.GetNormalMap()->GetRHIHandle()) : 0ULL;
 
             hash = albedoID;
             hash ^= metallicID + 0x9e3779b9ULL + (hash << 6) + (hash >> 2);
@@ -57,8 +57,8 @@ namespace OloEngine
         }
         else
         {
-            const u64 diffuseID = material.GetDiffuseMap() ? static_cast<u64>(material.GetDiffuseMap()->GetRendererID()) : 0ULL;
-            const u64 specularID = material.GetSpecularMap() ? static_cast<u64>(material.GetSpecularMap()->GetRendererID()) : 0ULL;
+            const u64 diffuseID = material.GetDiffuseMap() ? RHI::HashKey(material.GetDiffuseMap()->GetRHIHandle()) : 0ULL;
+            const u64 specularID = material.GetSpecularMap() ? RHI::HashKey(material.GetSpecularMap()->GetRHIHandle()) : 0ULL;
 
             hash = diffuseID;
             hash ^= specularID + 0x9e3779b9ULL + (hash << 6) + (hash >> 2);

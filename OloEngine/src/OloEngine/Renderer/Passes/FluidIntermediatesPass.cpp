@@ -110,16 +110,16 @@ namespace OloEngine
         // fingerprint (RenderPipeline.cpp, "Fluid draws gate ..."), so the
         // topology-keyed caches invalidate correctly
         // (docs/agent-rules/render-pipeline-caches.md).
-        const auto publishTarget = [&builder](const char* name, u32 textureID, RGResourceFormat format,
+        const auto publishTarget = [&builder](const char* name, RHI::ResourceHandle texture, RGResourceFormat format,
                                               u32 width, u32 height)
         {
-            if (textureID == 0)
+            if (!texture.IsValid())
                 return;
             RGResourceDesc desc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, name);
             desc.Format = format;
             desc.Width = width;
             desc.Height = height;
-            [[maybe_unused]] const RGTextureHandle handle = builder.ImportTexture(name, textureID, desc);
+            [[maybe_unused]] const RGTextureHandle handle = builder.ImportTextureHandle(name, texture, desc);
         };
         publishTarget(kSmoothedDepthTargetName, m_DepthTexA, RGResourceFormat::R32Float, m_Width, m_Height);
         publishTarget(kThicknessTargetName, m_ThicknessTex, RGResourceFormat::RG16Float, m_Width, m_Height);
@@ -141,22 +141,22 @@ namespace OloEngine
 
         // Drop invalid submissions (missing buffers, zero instances, broken radius).
         std::erase_if(draws, [](const FluidRenderData& draw)
-                      { return draw.PositionsSSBOId == 0 || draw.VelocitiesSSBOId == 0 ||
-                               draw.CountersSSBOId == 0 || draw.ParticleUpperBound == 0 ||
+                      { return !draw.PositionsSSBOId.IsValid() || !draw.VelocitiesSSBOId.IsValid() ||
+                               !draw.CountersSSBOId.IsValid() || draw.ParticleUpperBound == 0 ||
                                !std::isfinite(draw.ParticleRadius) || draw.ParticleRadius <= 0.0f; });
         if (draws.empty())
             return;
 
         if (!m_Enabled || !IsReadyForExecution() ||
-            m_DepthFBO == 0 || m_ThicknessFBO == 0 || m_Width == 0 || m_Height == 0)
+            !m_DepthFBO.IsValid() || !m_ThicknessFBO.IsValid() || m_Width == 0 || m_Height == 0)
         {
             return;
         }
 
-        u32 sceneDepthID = 0;
+        RHI::ResourceHandle sceneDepthID{};
         if (m_SelectedSceneDepthTexture.IsValid())
-            sceneDepthID = context.ResolveTexture(m_SelectedSceneDepthTexture);
-        if (sceneDepthID == 0)
+            sceneDepthID = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
+        if (!sceneDepthID.IsValid())
             return;
 
         GLStateGuard guard("FluidIntermediatesPass", GLStateGuard::Policy::Ignore);
@@ -240,8 +240,8 @@ namespace OloEngine
         m_SmoothShader->Bind();
         const u32 groupsX = (m_Width + kSmoothLocalSize - 1) / kSmoothLocalSize;
         const u32 groupsY = (m_Height + kSmoothLocalSize - 1) / kSmoothLocalSize;
-        u32 smoothSrc = m_DepthTexA;
-        u32 smoothDst = m_DepthTexB;
+        RHI::ResourceHandle smoothSrc = m_DepthTexA;
+        RHI::ResourceHandle smoothDst = m_DepthTexB;
         for (u32 i = 0; i < kSmoothIterations; ++i)
         {
             RenderCommand::BindImageTexture(0, smoothSrc, 0, false, 0, RHI::Access::StorageRead, RHI::Format::R32Float);
@@ -261,10 +261,10 @@ namespace OloEngine
         RenderCommand::BackCull();
         CommandDispatch::InvalidateRenderStateCache();
 
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
-        RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_POSITIONS, 0);
-        RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_VELOCITIES, 0);
-        RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_COUNTERS, 0);
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, RHI::NullResource);
+        RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_POSITIONS, RHI::NullResource);
+        RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_VELOCITIES, RHI::NullResource);
+        RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_FLUID_COUNTERS, RHI::NullResource);
 
         RenderCommand::SetViewport(previousViewport.x, previousViewport.y,
                                    previousViewport.width, previousViewport.height);
@@ -323,7 +323,7 @@ namespace OloEngine
 
         const auto createTexture = [width, height](RHI::Format internalFormat, RHI::Filter filter)
         {
-            const u32 id = RenderCommand::CreateTexture2D(width, height, internalFormat);
+            const RHI::ResourceHandle id = RenderCommand::CreateTexture2DHandle(width, height, internalFormat);
             RenderCommand::SetTextureFilter(id, filter, filter);
             RenderCommand::SetTextureWrap(id, RHI::AddressMode::ClampToEdge);
             return id;
@@ -339,12 +339,12 @@ namespace OloEngine
 
         static constexpr std::array<u32, 1> kColor0 = { 0u };
 
-        m_DepthFBO = RenderCommand::CreateFramebuffer();
+        m_DepthFBO = RenderCommand::CreateFramebufferHandle();
         RenderCommand::AttachFramebufferColorTexture(m_DepthFBO, 0, m_DepthTexA, 0);
         RenderCommand::AttachFramebufferDepthTexture(m_DepthFBO, m_SplatZTex, 0);
         RenderCommand::SetFramebufferDrawAttachments(m_DepthFBO, kColor0);
 
-        m_ThicknessFBO = RenderCommand::CreateFramebuffer();
+        m_ThicknessFBO = RenderCommand::CreateFramebufferHandle();
         RenderCommand::AttachFramebufferColorTexture(m_ThicknessFBO, 0, m_ThicknessTex, 0);
         RenderCommand::SetFramebufferDrawAttachments(m_ThicknessFBO, kColor0);
 
@@ -359,23 +359,23 @@ namespace OloEngine
 
     void FluidIntermediatesPass::ReleaseTargets()
     {
-        if (m_DepthFBO != 0)
+        if (m_DepthFBO.IsValid())
         {
             RenderCommand::DeleteFramebuffer(m_DepthFBO);
-            m_DepthFBO = 0;
+            m_DepthFBO = RHI::NullResource;
         }
-        if (m_ThicknessFBO != 0)
+        if (m_ThicknessFBO.IsValid())
         {
             RenderCommand::DeleteFramebuffer(m_ThicknessFBO);
-            m_ThicknessFBO = 0;
+            m_ThicknessFBO = RHI::NullResource;
         }
 
-        const auto releaseTexture = [](u32& id)
+        const auto releaseTexture = [](RHI::ResourceHandle& id)
         {
-            if (id != 0)
+            if (id.IsValid())
             {
                 RenderCommand::DeleteTexture(id);
-                id = 0;
+                id = RHI::NullResource;
             }
         };
         releaseTexture(m_DepthTexA);

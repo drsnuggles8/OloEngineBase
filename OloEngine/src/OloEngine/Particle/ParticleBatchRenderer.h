@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Camera/Camera.h"
@@ -52,7 +53,7 @@ namespace OloEngine
     {
         bool Enabled = false;
         f32 Distance = 1.0f;
-        u32 DepthTextureID = 0;
+        RHI::ResourceHandle DepthTextureID{};
         f32 NearClip = 0.1f;
         f32 FarClip = 1000.0f;
         glm::vec2 ViewportSize = { 1280.0f, 720.0f };

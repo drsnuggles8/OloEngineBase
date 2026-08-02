@@ -27,7 +27,7 @@ namespace OloEngine
         // Create double-buffered query objects
         for (u32 buf = 0; buf < 2; ++buf)
         {
-            m_QueryObjects[buf].resize(maxQueries, 0);
+            m_QueryObjects[buf].resize(maxQueries, RHI::NullResource);
             RenderCommand::CreateQueries(RHI::QueryType::OcclusionAnySamples, m_QueryObjects[buf]);
         }
 
@@ -152,12 +152,12 @@ namespace OloEngine
         return true; // Default visible if no query was issued
     }
 
-    u32 OcclusionQueryPool::GetQueryID(u32 objectIndex) const
+    RHI::ResourceHandle OcclusionQueryPool::GetQueryHandle(u32 objectIndex) const
     {
         OLO_PROFILE_FUNCTION();
         if (!m_Initialized || objectIndex >= m_MaxQueries)
-            return 0;
-        // Return the read buffer's query ID (previous frame)
+            return RHI::NullResource;
+        // Return the read buffer's query identity (previous frame)
         u32 readBuffer = 1 - m_WriteBuffer;
         return m_QueryObjects[readBuffer][objectIndex];
     }

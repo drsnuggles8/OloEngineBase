@@ -514,6 +514,11 @@ namespace OloEngine
         // resources). Returns an invalid handle when `textureID == 0`.
         [[nodiscard]] RGTextureHandle ImportHistory(std::string_view name, u32 textureID,
                                                     const RGResourceDesc& desc = {});
+        // Identity form. Same "alternatives, never both" contract as
+        // ImportTextureHandle — the history resource carries an identity and
+        // resolves natively to 0, which the diagnostics fall back through.
+        [[nodiscard]] RGTextureHandle ImportHistoryHandle(std::string_view name, RHI::ResourceHandle texture,
+                                                          const RGResourceDesc& desc = {});
 
         // Resolve a handle back to its physical texture ID.
         // Returns 0 for an invalid handle or a handle whose backing resource
@@ -566,18 +571,18 @@ namespace OloEngine
         // readable import — it simply copies the named source resource into a
         // caller-owned texture after Execute() completes.
         void RegisterExternalTextureSink(RGTextureHandle sourceHandle,
-                                         u32 textureID,
+                                         RHI::ResourceHandle texture,
                                          u32 width,
                                          u32 height,
                                          bool* validFlag = nullptr);
         void RegisterExternalTextureSink(RGFramebufferHandle sourceHandle,
-                                         u32 textureID,
+                                         RHI::ResourceHandle texture,
                                          u32 width,
                                          u32 height,
                                          u32 colorAttachmentIndex = 0,
                                          bool* validFlag = nullptr);
         void RegisterExternalTextureSink(std::string_view sourceResource,
-                                         u32 textureID,
+                                         RHI::ResourceHandle texture,
                                          u32 width,
                                          u32 height,
                                          u32 colorAttachmentIndex = 0,
@@ -591,7 +596,7 @@ namespace OloEngine
         // This allows the graph to write next-frame history even when the
         // previous-frame history was not imported as a readable input.
         void RegisterHistoryTextureSink(std::string_view historyResource,
-                                        u32 textureID,
+                                        RHI::ResourceHandle texture,
                                         u32 width,
                                         u32 height,
                                         bool* validFlag = nullptr);
@@ -720,9 +725,21 @@ namespace OloEngine
         // the resource as frame-local/transient for lifetime/diagnostic
         // purposes, but skips transient-pool materialization and resolves the
         // handle to the provided texture object.
+        //
+        // BOTH currencies, not one — the same correction slice 7 made for the
+        // transient planner. `PhysicalTexture`'s "TextureID and Handle are
+        // ALTERNATIVES" rule is right for an IMPORT, where the importer only
+        // ever has one of them and neither is derivable from the other. It is
+        // wrong here for exactly the reason it was wrong there: the caller
+        // holds the resource object and reads both off it in one statement, so
+        // nothing is derived and nothing can drift. Supplying only the native
+        // id would make ResolveTextureHandle answer "null" for this resource,
+        // and its consumers (DeferredLightingPass' shadow binds) would silently
+        // fall back to the placeholder — shadows gone, no error, no test.
         [[nodiscard]] RGTextureHandle DeclareTransientTexture(std::string_view name,
                                                               const RGResourceDesc& desc,
-                                                              u32 backingTextureID);
+                                                              u32 backingTextureID,
+                                                              RHI::ResourceHandle backingTexture = {});
 
         // Declare a transient framebuffer resource BEFORE BuildFrameGraph().
         // Suitable for use during frame-blackboard population (e.g. OIT MRT
@@ -1524,7 +1541,7 @@ namespace OloEngine
         };
         struct ExternalTextureSink
         {
-            u32 TextureID = 0;
+            RHI::ResourceHandle Texture{};
             u32 Width = 0;
             u32 Height = 0;
             bool* ValidFlag = nullptr;
@@ -1546,7 +1563,7 @@ namespace OloEngine
         };
         struct HistoryTextureSink
         {
-            u32 TextureID = 0;
+            RHI::ResourceHandle Texture{};
             u32 Width = 0;
             u32 Height = 0;
             bool* ValidFlag = nullptr;

@@ -91,7 +91,7 @@ namespace OloEngine
 
         m_SceneFramebuffer->Bind();
 
-        const u32 sceneFBID = m_SceneFramebuffer->GetRendererID();
+        const RHI::ResourceHandle sceneFBID = m_SceneFramebuffer->GetRHIHandle();
 
         // Count color attachments on the scene FB from its specification so
         // the full-layout restore below is exact regardless of the configured
@@ -171,8 +171,8 @@ namespace OloEngine
         // Unbind shader program + VAO so the GLStateGuard surfaces only
         // genuine regressions in downstream passes (the bucket's last
         // command leaves both bound).
-        RenderCommand::BindVertexArrayRaw(0);
-        RenderCommand::BindShaderProgram(0);
+        RenderCommand::BindVertexArrayRaw(RHI::NullResource);
+        RenderCommand::BindShaderProgram(RHI::NullResource);
 
         ResetCommandBucket();
     }

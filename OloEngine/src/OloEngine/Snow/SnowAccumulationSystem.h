@@ -87,7 +87,7 @@ namespace OloEngine
         [[nodiscard]] static u32 GetTextureResolution();
 
         /// @return OpenGL texture ID of the snow depth map (for debug overlay).
-        [[nodiscard]] static u32 GetSnowDepthTextureID();
+        [[nodiscard]] static RHI::ResourceHandle GetSnowDepthTextureID();
         // Identity form, for the command layer's redundant-bind cache
         // (issue #691 step 3). The raw id stays for the graph/debug paths.
         [[nodiscard]] static RHI::ResourceHandle GetSnowDepthTextureHandle();

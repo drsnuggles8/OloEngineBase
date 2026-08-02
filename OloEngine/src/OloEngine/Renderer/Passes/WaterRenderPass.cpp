@@ -142,19 +142,19 @@ namespace OloEngine
         // scene FB directly.
         // Phase D / H follow-up: resolve both the source scene attachments and
         // the water refraction scratch from graph-published handles only.
-        u32 sceneColorID = 0u;
-        u32 depthTextureID = 0u;
-        u32 normalsTextureID = 0u;
-        u32 refractionTexID = 0;
+        RHI::ResourceHandle sceneColorID{};
+        RHI::ResourceHandle depthTextureID{};
+        RHI::ResourceHandle normalsTextureID{};
+        RHI::ResourceHandle refractionTexID{};
         if (m_SelectedSceneColorTexture.IsValid())
-            sceneColorID = context.ResolveTexture(m_SelectedSceneColorTexture);
+            sceneColorID = context.ResolveTextureHandle(m_SelectedSceneColorTexture);
         if (m_SelectedSceneDepthTexture.IsValid())
-            depthTextureID = context.ResolveTexture(m_SelectedSceneDepthTexture);
+            depthTextureID = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
         if (m_SelectedSceneNormalsTexture.IsValid())
-            normalsTextureID = context.ResolveTexture(m_SelectedSceneNormalsTexture);
+            normalsTextureID = context.ResolveTextureHandle(m_SelectedSceneNormalsTexture);
         if (m_SelectedRefractionTexture.IsValid())
-            refractionTexID = context.ResolveTexture(m_SelectedRefractionTexture);
-        if (sceneColorID == 0u || depthTextureID == 0u || normalsTextureID == 0u || refractionTexID == 0u)
+            refractionTexID = context.ResolveTextureHandle(m_SelectedRefractionTexture);
+        if (!sceneColorID.IsValid() || !depthTextureID.IsValid() || !normalsTextureID.IsValid() || !refractionTexID.IsValid())
         {
             ResetCommandBucket();
             return;
@@ -236,10 +236,10 @@ namespace OloEngine
         // Unbind the three texture slots we sampled into — leaving them
         // bound lets water-depth / scene-normals / refraction slots leak
         // into subsequent passes that share the same sampler layout.
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, 0);
-        context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, 0);
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, 0);
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_PLANAR_REFLECTION, 0);
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, RHI::NullResource);
+        context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, RHI::NullResource);
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, RHI::NullResource);
+        context.BindTexture(ShaderBindingLayout::TEX_WATER_PLANAR_REFLECTION, RHI::NullResource);
 
         m_SceneFramebuffer->Unbind();
 

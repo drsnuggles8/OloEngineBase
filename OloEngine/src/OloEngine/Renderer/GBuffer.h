@@ -113,6 +113,11 @@ namespace OloEngine
         // in the per-sample deferred lighting shader.
         [[nodiscard]] u32 GetMSColorAttachmentID(AttachmentIndex index) const;
         [[nodiscard]] u32 GetMSDepthAttachmentID() const;
+        // Identity forms of the two above (issue #691 step 3, item 4). Needed
+        // because the per-sample MSAA paths bind and COPY the multisample
+        // attachments, and the facade takes identities only.
+        [[nodiscard]] RHI::ResourceHandle GetMSColorAttachmentHandle(AttachmentIndex index) const;
+        [[nodiscard]] RHI::ResourceHandle GetMSDepthAttachmentHandle() const;
 
       private:
         GBuffer(u32 width, u32 height, u32 sampleCount);

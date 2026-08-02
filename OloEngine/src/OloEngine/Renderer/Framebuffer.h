@@ -115,7 +115,7 @@ namespace OloEngine
 
         // Attach a specific layer of a texture array as the depth attachment.
         // Used by shadow mapping to render into individual cascade layers.
-        virtual void AttachDepthTextureArrayLayer(u32 textureArrayRendererID, u32 layer) = 0;
+        virtual void AttachDepthTextureArrayLayer(RHI::ResourceHandle textureArray, u32 layer) = 0;
 
         static Ref<Framebuffer> Create(const FramebufferSpecification& spec);
     };

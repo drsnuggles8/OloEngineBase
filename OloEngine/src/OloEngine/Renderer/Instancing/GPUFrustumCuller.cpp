@@ -183,7 +183,7 @@ namespace OloEngine
             // cull runs at submission time on scratch GL texture state, so unit
             // 0 is safe to clobber — the real draws rebind their own textures at
             // graph-execute time.
-            RenderCommand::BindTexture(0, m_Occlusion.HZBTextureID);
+            RenderCommand::BindTexture(0, m_Occlusion.HZBTexture);
             cullShader->SetInt("u_OcclusionEnabled", 1);
             cullShader->SetMat4("u_PrevViewProjection", m_Occlusion.PrevViewProjection);
             cullShader->SetFloat2("u_HZBSize", m_Occlusion.HZBSize);
@@ -283,8 +283,8 @@ namespace OloEngine
         slot.InputBuffer->Bind();    // 16 — full input
         slot.OutputBuffer->Bind();   // 15 — phase-1 survivors
         slot.IndirectBuffer->Bind(); // 17 — phase-1 indirect
-        RenderCommand::BindStorageBuffer(kRejectedBinding, slot.RejectedBuffer->GetRendererID());
-        RenderCommand::BindStorageBuffer(kRejectedCountBinding, slot.RejectedCounter->GetRendererID());
+        RenderCommand::BindStorageBuffer(kRejectedBinding, slot.RejectedBuffer->GetRHIHandle());
+        RenderCommand::BindStorageBuffer(kRejectedCountBinding, slot.RejectedCounter->GetRHIHandle());
 
         // Use the occlusion variant when a previous-frame HZB is available; else
         // (frame 0 / no HZB) fall back to the frustum-only shader — no rejects
@@ -298,7 +298,7 @@ namespace OloEngine
         shader->SetFloat("u_RadiusExpansion", radiusExpansion);
         if (occlusionActive)
         {
-            RenderCommand::BindTexture(0, m_Occlusion.HZBTextureID); // previous-frame HZB
+            RenderCommand::BindTexture(0, m_Occlusion.HZBTexture); // previous-frame HZB
             shader->SetInt("u_OcclusionEnabled", 1);
             shader->SetMat4("u_PrevViewProjection", m_Occlusion.PrevViewProjection);
             shader->SetFloat2("u_HZBSize", m_Occlusion.HZBSize);
@@ -353,12 +353,12 @@ namespace OloEngine
         // indirect (17) are this slot's phase-2 buffers; the reject counter (19)
         // bounds the dispatch in-shader.
         RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_CULL_INPUT,
-                                         result.RejectedBuffer->GetRendererID());
+                                         result.RejectedBuffer->GetRHIHandle());
         result.Phase2Output->Bind(); // 15
         RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_DRAW_INDIRECT,
-                                         result.Phase2Indirect->GetRendererID());
-        RenderCommand::BindStorageBuffer(kRejectedCountBinding, result.RejectedCounter->GetRendererID());
-        RenderCommand::BindTexture(0, currentHZB.HZBTextureID); // current-frame HZB
+                                         result.Phase2Indirect->GetRHIHandle());
+        RenderCommand::BindStorageBuffer(kRejectedCountBinding, result.RejectedCounter->GetRHIHandle());
+        RenderCommand::BindTexture(0, currentHZB.HZBTexture); // current-frame HZB
 
         m_OcclusionCullShader->Bind();
         // Dispatch the worst case (whole batch); the shader clamps to the live

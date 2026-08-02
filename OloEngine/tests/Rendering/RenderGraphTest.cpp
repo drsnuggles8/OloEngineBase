@@ -321,7 +321,7 @@ class StubFramebuffer : public Framebuffer
     {
         return {};
     }
-    void AttachDepthTextureArrayLayer(u32 /*textureArrayRendererID*/, u32 /*layer*/) override {}
+    void AttachDepthTextureArrayLayer(RHI::ResourceHandle /*textureArray*/, u32 /*layer*/) override {}
 
   private:
     u32 m_RendererID = 0;
@@ -3633,7 +3633,7 @@ TEST(RenderGraphExternalTextureSinks, BuilderRegisteredTextureSinkRootsProducerA
                 31u,
                 RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ExternalSinkColor"));
             builder.Write(source, RGWriteUsage::RenderTarget);
-            builder.RegisterExternalTextureSink(source, 0u, 0u, 0u, &sinkValid);
+            builder.RegisterExternalTextureSink(source, RHI::NullResource, 0u, 0u, &sinkValid);
         },
         [](RGCommandContext& /*context*/) {});
 
@@ -3688,7 +3688,7 @@ TEST(RenderGraphExternalTextureSinks, BuilderRegisteredFramebufferSinkRootsProdu
 
             const auto source = builder.CreateFramebuffer("ExternalSinkFramebuffer", desc);
             builder.Write(source, RGWriteUsage::RenderTarget);
-            builder.RegisterExternalTextureSink(source, 0u, 0u, 0u, 0u, &sinkValid);
+            builder.RegisterExternalTextureSink(source, RHI::NullResource, 0u, 0u, 0u, &sinkValid);
         },
         [](RGCommandContext& /*context*/) {});
 
@@ -3740,7 +3740,7 @@ TEST(RenderGraphExternalTextureSinks, DumpToJsonIncludesExternalTextureSinkContr
                 41u,
                 RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, "ExternalSinkColor"));
             builder.Write(source, RGWriteUsage::RenderTarget);
-            builder.RegisterExternalTextureSink(source, 0u, 0u, 0u, &sinkValid);
+            builder.RegisterExternalTextureSink(source, RHI::NullResource, 0u, 0u, &sinkValid);
         },
         [](RGCommandContext& /*context*/) {});
 
@@ -9416,7 +9416,7 @@ TEST(RenderGraphTemporalHistoryContracts, RegisteredHistorySinkCountsAsImportedA
     graph.SetRuntimeBarrierExecutionEnabled(false);
 
     bool historyValid = true;
-    graph.RegisterHistoryTextureSink("TemporalHistory", 0, 0, 0, &historyValid);
+    graph.RegisterHistoryTextureSink("TemporalHistory", RHI::NullResource, 0, 0, &historyValid);
 
     AddSetupNode(
         graph,

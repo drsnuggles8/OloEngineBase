@@ -131,9 +131,9 @@ namespace OloEngine
         // (for decal projection). No raw framebuffer fallback; if the
         // blackboard is absent the depth slot is left unbound (acceptable for
         // headless / unit-test contexts where no geometry is dispatched).
-        u32 depthTextureID = 0;
+        RHI::ResourceHandle depthTextureID{};
         if (m_SelectedSceneDepthTexture.IsValid())
-            depthTextureID = context.ResolveTexture(m_SelectedSceneDepthTexture);
+            depthTextureID = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
 
         // Detector-only guard: captures GL state at entry and on destruction
         // diffs against exit state, logging any field this pass failed to
@@ -334,7 +334,7 @@ namespace OloEngine
         if (!depthSamplingFB)
             depthSamplingFB = writeTargetFB;
 
-        const u32 gbufferID = writeTargetFB->GetRendererID();
+        const RHI::ResourceHandle gbufferID = writeTargetFB->GetRHIHandle();
         writeTargetFB->Bind();
 
         // Bind the depth attachment of the *depth-sampling* framebuffer

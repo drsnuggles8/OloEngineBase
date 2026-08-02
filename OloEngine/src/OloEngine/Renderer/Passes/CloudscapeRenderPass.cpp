@@ -166,9 +166,9 @@ namespace OloEngine
 
         // Sample-only consumer: input framebuffer is intentionally not
         // resolved here — see ReadFirstValidVersionedInputForPass docs.
-        u32 inputColorTextureID = 0u;
+        RHI::ResourceHandle inputColorTextureID{};
         if (const auto inputTextureHandle = GetPrimaryInputTextureHandle(); inputTextureHandle.IsValid())
-            inputColorTextureID = context.ResolveTexture(inputTextureHandle);
+            inputColorTextureID = context.ResolveTextureHandle(inputTextureHandle);
 
         Ref<Framebuffer> outputFramebuffer;
         Ref<Framebuffer> cloudsRawFramebuffer;
@@ -189,17 +189,17 @@ namespace OloEngine
             return;
         }
 
-        if (inputColorTextureID == 0u || !outputFramebuffer || !cloudsRawFramebuffer || !cloudsResolvedFramebuffer ||
+        if (!inputColorTextureID.IsValid() || !outputFramebuffer || !cloudsRawFramebuffer || !cloudsResolvedFramebuffer ||
             !m_RaymarchShader || !m_ResolveShader || !m_CompositeShader)
         {
             m_Target = nullptr;
             return;
         }
 
-        const u32 sceneDepthTextureID = m_SelectedSceneDepthTexture.IsValid()
-                                            ? context.ResolveTexture(m_SelectedSceneDepthTexture)
-                                            : 0u;
-        if (sceneDepthTextureID == 0)
+        const RHI::ResourceHandle sceneDepthTextureID = m_SelectedSceneDepthTexture.IsValid()
+                                                            ? context.ResolveTextureHandle(m_SelectedSceneDepthTexture)
+                                                            : RHI::NullResource;
+        if (!sceneDepthTextureID.IsValid())
         {
             m_Target = nullptr;
             return; // raymarch termination + composite upsample both need depth
@@ -230,11 +230,11 @@ namespace OloEngine
         // (56/57/58 carry explicit layout(binding) qualifiers in
         // CloudscapeCommon.glsl). UploadExecutionState bound these already;
         // re-pin them in case an earlier pass touched the units.
-        if (m_BaseNoiseTextureID != 0)
+        if (m_BaseNoiseTextureID.IsValid())
             context.BindTexture(ShaderBindingLayout::TEX_CLOUD_BASE_NOISE, m_BaseNoiseTextureID);
-        if (m_DetailNoiseTextureID != 0)
+        if (m_DetailNoiseTextureID.IsValid())
             context.BindTexture(ShaderBindingLayout::TEX_CLOUD_DETAIL_NOISE, m_DetailNoiseTextureID);
-        if (m_WeatherMapTextureID != 0)
+        if (m_WeatherMapTextureID.IsValid())
             context.BindTexture(ShaderBindingLayout::TEX_CLOUD_WEATHER_MAP, m_WeatherMapTextureID);
 
         // ----------------------------------------------------------------

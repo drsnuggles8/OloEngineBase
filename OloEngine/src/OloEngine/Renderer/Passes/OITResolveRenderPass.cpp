@@ -78,8 +78,8 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         Ref<Framebuffer> inputFB;
-        u32 oitAccumTextureID = 0;
-        u32 oitRevealageTextureID = 0;
+        RHI::ResourceHandle oitAccumTextureID{};
+        RHI::ResourceHandle oitRevealageTextureID{};
         if (const auto inputHandle = GetPrimaryInputFramebufferHandle(); inputHandle.IsValid())
         {
             if (auto resolvedInput = context.ResolveFramebuffer(inputHandle))
@@ -87,11 +87,11 @@ namespace OloEngine
         }
 
         if (m_SelectedOITAccumTexture.IsValid())
-            oitAccumTextureID = context.ResolveTexture(m_SelectedOITAccumTexture);
+            oitAccumTextureID = context.ResolveTextureHandle(m_SelectedOITAccumTexture);
         if (m_SelectedOITRevealageTexture.IsValid())
-            oitRevealageTextureID = context.ResolveTexture(m_SelectedOITRevealageTexture);
+            oitRevealageTextureID = context.ResolveTextureHandle(m_SelectedOITRevealageTexture);
 
-        if (!m_Enabled || !inputFB || oitAccumTextureID == 0 || oitRevealageTextureID == 0 || !m_ResolveShader)
+        if (!m_Enabled || !inputFB || !oitAccumTextureID.IsValid() || !oitRevealageTextureID.IsValid() || !m_ResolveShader)
         {
             return;
         }
@@ -138,8 +138,8 @@ namespace OloEngine
         RenderCommand::SetColorMaskForAttachment(2, true, true, true, true);
         RenderCommand::SetBlendStateForAttachment(0, false);
         context.SetBlendState(false);
-        context.BindTexture(ShaderBindingLayout::TEX_OIT_ACCUM, 0);
-        context.BindTexture(ShaderBindingLayout::TEX_OIT_REVEALAGE, 0);
+        context.BindTexture(ShaderBindingLayout::TEX_OIT_ACCUM, RHI::NullResource);
+        context.BindTexture(ShaderBindingLayout::TEX_OIT_REVEALAGE, RHI::NullResource);
         context.SetDepthMask(true);
         context.SetDepthTest(true);
 

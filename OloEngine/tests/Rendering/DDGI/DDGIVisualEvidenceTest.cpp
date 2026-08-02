@@ -58,6 +58,7 @@
 
 #include "OloEnginePCH.h"
 
+#include "OloEngine/Renderer/Debug/RenderGraphResourceIdentity.h"
 #include "PropertyTests/RendererAttachedTest.h"
 #include "PropertyTests/RenderPropertyTest.h"
 
@@ -531,10 +532,14 @@ namespace OloEngine::Tests
             EXPECT_NE(pass, nullptr) << "DDGI pass missing for atlas readback";
             if (!pass)
                 return glm::dvec3(0.0);
-            const u32 atlasID = pass->GetIrradianceAtlasID();
-            EXPECT_NE(atlasID, 0u) << "Irradiance atlas not created yet — pass never ran?";
-            if (atlasID == 0u)
+            const RHI::ResourceHandle atlas = pass->GetIrradianceAtlasID();
+            EXPECT_TRUE(atlas.IsValid()) << "Irradiance atlas not created yet — pass never ran?";
+            if (!atlas.IsValid())
                 return glm::dvec3(0.0);
+            // Raw readback below, so the test needs the driver name. This is a
+            // TEST, not the sweep bucket — Debug::NativeTextureIdForDiagnostics
+            // is the sanctioned way to ask.
+            const u32 atlasID = Debug::NativeTextureIdForDiagnostics(atlas);
 
             constexpr glm::ivec3 kDims{ 4, 3, 4 }; // the rig's grid (kTotalProbes)
             const i32 probeIdx = DDGI::ProbeLinearIndex(probeCoord, kDims);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -55,11 +56,11 @@ namespace OloEngine
         void Resize(u32 viewportWidth, u32 viewportHeight);
 
         // Generate the HZB from a scene depth texture.
-        void Generate(u32 sceneDepthTextureID);
+        void Generate(RHI::ResourceHandle sceneDepthTexture);
 
         // Bind a transient/external HZB texture for the current frame.
-        // When non-zero, Generate() writes into this texture instead of m_HZBTexture.
-        void SetExternalHZBTexture(u32 textureID, u32 mipCount = 0);
+        // When valid, Generate() writes into this texture instead of m_HZBTexture.
+        void SetExternalHZBTexture(RHI::ResourceHandle texture, u32 mipCount = 0);
         void ClearExternalHZBTexture();
 
         // Select the per-quad reduction operator. Defaults to Max (GTAO). SSR
@@ -77,7 +78,7 @@ namespace OloEngine
         [[nodiscard]] bool IsValid() const;
 
         // Access the HZB texture (for binding by GTAO / SSR).
-        [[nodiscard]] u32 GetHZBTextureID() const;
+        [[nodiscard]] RHI::ResourceHandle GetHZBTexture() const;
         [[nodiscard]] u32 GetMipCount() const;
         [[nodiscard]] u32 GetHZBWidth() const
         {
@@ -97,12 +98,12 @@ namespace OloEngine
 
       private:
         [[nodiscard]] static u32 NextPowerOfTwo(u32 v);
-        void DispatchMipBatch(u32 startMip, u32 mipCount, u32 sceneDepthTextureID);
+        void DispatchMipBatch(u32 startMip, u32 mipCount, RHI::ResourceHandle sceneDepthTexture);
 
         Ref<ComputeShader> m_HZBShader;
         Ref<Texture2D> m_HZBTexture;
         ReduceMode m_ReduceMode = ReduceMode::Max;
-        u32 m_ExternalHZBTextureID = 0;
+        RHI::ResourceHandle m_ExternalHZBTexture{};
         u32 m_ExternalMipCount = 0;
 
         u32 m_HZBWidth = 0;

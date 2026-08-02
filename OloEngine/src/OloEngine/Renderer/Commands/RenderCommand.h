@@ -495,7 +495,7 @@ namespace OloEngine
     {
         CommandHeader header;
         u32 slot;
-        u32 textureID;
+        RHI::ResourceHandle textureID;
     };
 
     struct SetShaderResourceCommand
@@ -645,8 +645,8 @@ namespace OloEngine
         // the GPU without a CPU readback. Set by
         // Renderer3D::DrawMeshInstanced for submissions above the GPU-cull
         // threshold; left at 0 for the regular CPU-cull / upload path.
-        u32 cullOutputInstanceBufferID = 0;
-        u32 cullIndirectBufferID = 0;
+        RHI::ResourceHandle cullOutputInstanceBufferID{};
+        RHI::ResourceHandle cullIndirectBufferID{};
     };
 
     // Static assertion to verify DrawMeshInstancedCommand is trivially copyable

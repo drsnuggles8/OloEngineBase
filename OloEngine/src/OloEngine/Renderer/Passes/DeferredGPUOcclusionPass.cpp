@@ -105,7 +105,7 @@ namespace OloEngine
             return;
         }
 
-        const u32 targetFBID = targetFB->GetRendererID();
+        const RHI::ResourceHandle targetFBID = targetFB->GetRHIHandle();
 
         // Count the G-Buffer color attachments so the draw-buffer set matches the
         // MRT layout the deferred instanced shader writes (Albedo/Normal/
@@ -139,7 +139,7 @@ namespace OloEngine
         // Phase 2: build a Hi-Z from this frame's resolved G-Buffer depth
         // (occluders + phase-1 survivors laid down by ScenePass), re-test each
         // batch's reject list against it, and draw the disoccluded instances.
-        const u32 depthTexID = m_GBuffer->GetDepthAttachmentID();
+        const RHI::ResourceHandle depthTex = m_GBuffer->GetDepthAttachmentHandle();
 
         // ScenePass wrote (and resolved) this depth via the fixed-function
         // pipeline; the Hi-Z build samples it as a texture. Order the
@@ -148,7 +148,7 @@ namespace OloEngine
         RenderCommand::TextureBarrier();
 
         const GPUFrustumCuller::HZBOcclusionInputs currentHZB =
-            Renderer3D::BuildCurrentOcclusionHZB(depthTexID, m_GBuffer->GetWidth(), m_GBuffer->GetHeight());
+            Renderer3D::BuildCurrentOcclusionHZB(depthTex, m_GBuffer->GetWidth(), m_GBuffer->GetHeight());
 
         if (currentHZB.IsUsable())
         {
@@ -173,24 +173,25 @@ namespace OloEngine
             const u32 width = m_GBuffer->GetWidth();
             const u32 height = m_GBuffer->GetHeight();
 
-            const auto copyExport = [&context, width, height](const RGTextureHandle handle, const u32 sourceTextureID,
+            const auto copyExport = [&context, width, height](const RGTextureHandle handle,
+                                                              const RHI::ResourceHandle sourceTextureID,
                                                               const RendererAPI::TextureTargetType textureTarget)
             {
-                if (!handle.IsValid() || sourceTextureID == 0u)
+                if (!handle.IsValid() || !sourceTextureID.IsValid())
                     return;
-                const u32 exportedTextureID = context.ResolveTexture(handle);
-                if (exportedTextureID == 0u || exportedTextureID == sourceTextureID)
+                const RHI::ResourceHandle exportedTextureID = context.ResolveTextureHandle(handle);
+                if (!exportedTextureID.IsValid() || exportedTextureID == sourceTextureID)
                     return;
                 RenderCommand::CopyImageSubData(sourceTextureID, textureTarget,
                                                 exportedTextureID, textureTarget,
                                                 width, height);
             };
 
-            const u32 albedoID = m_GBuffer->GetColorAttachmentID(GBuffer::Albedo);
-            const u32 normalID = m_GBuffer->GetColorAttachmentID(GBuffer::Normal);
-            const u32 emissiveID = m_GBuffer->GetColorAttachmentID(GBuffer::Emissive);
-            const u32 velocityID = m_GBuffer->GetColorAttachmentID(GBuffer::Velocity);
-            const u32 gbufferDepthID = m_GBuffer->GetDepthAttachmentID();
+            const RHI::ResourceHandle albedoID = m_GBuffer->GetColorAttachmentHandle(GBuffer::Albedo);
+            const RHI::ResourceHandle normalID = m_GBuffer->GetColorAttachmentHandle(GBuffer::Normal);
+            const RHI::ResourceHandle emissiveID = m_GBuffer->GetColorAttachmentHandle(GBuffer::Emissive);
+            const RHI::ResourceHandle velocityID = m_GBuffer->GetColorAttachmentHandle(GBuffer::Velocity);
+            const RHI::ResourceHandle gbufferDepthID = m_GBuffer->GetDepthAttachmentHandle();
 
             copyExport(m_SelectedSceneDepthExport, gbufferDepthID, RendererAPI::TextureTargetType::Texture2D);
             copyExport(m_SelectedSceneNormalsExport, normalID, RendererAPI::TextureTargetType::Texture2D);
@@ -207,11 +208,11 @@ namespace OloEngine
             // Resolve() above.
             if (perSampleMSAA)
             {
-                copyExport(m_SelectedGBufferAlbedoMSExport, m_GBuffer->GetMSColorAttachmentID(GBuffer::Albedo), RendererAPI::TextureTargetType::Texture2DMultisample);
-                copyExport(m_SelectedGBufferNormalMSExport, m_GBuffer->GetMSColorAttachmentID(GBuffer::Normal), RendererAPI::TextureTargetType::Texture2DMultisample);
-                copyExport(m_SelectedGBufferEmissiveMSExport, m_GBuffer->GetMSColorAttachmentID(GBuffer::Emissive), RendererAPI::TextureTargetType::Texture2DMultisample);
-                copyExport(m_SelectedVelocityMSExport, m_GBuffer->GetMSColorAttachmentID(GBuffer::Velocity), RendererAPI::TextureTargetType::Texture2DMultisample);
-                copyExport(m_SelectedSceneDepthMSExport, m_GBuffer->GetMSDepthAttachmentID(), RendererAPI::TextureTargetType::Texture2DMultisample);
+                copyExport(m_SelectedGBufferAlbedoMSExport, m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Albedo), RendererAPI::TextureTargetType::Texture2DMultisample);
+                copyExport(m_SelectedGBufferNormalMSExport, m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Normal), RendererAPI::TextureTargetType::Texture2DMultisample);
+                copyExport(m_SelectedGBufferEmissiveMSExport, m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Emissive), RendererAPI::TextureTargetType::Texture2DMultisample);
+                copyExport(m_SelectedVelocityMSExport, m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Velocity), RendererAPI::TextureTargetType::Texture2DMultisample);
+                copyExport(m_SelectedSceneDepthMSExport, m_GBuffer->GetMSDepthAttachmentHandle(), RendererAPI::TextureTargetType::Texture2DMultisample);
             }
         }
 
@@ -221,8 +222,8 @@ namespace OloEngine
         context.SetBlendState(false);
         rendererAPI.SetCullFace(RHI::CullMode::Back);
         rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
-        RenderCommand::BindVertexArrayRaw(0);
-        RenderCommand::BindShaderProgram(0);
+        RenderCommand::BindVertexArrayRaw(RHI::NullResource);
+        RenderCommand::BindShaderProgram(RHI::NullResource);
 
         m_Phase2Packets.clear();
         m_Phase2Culls.clear();

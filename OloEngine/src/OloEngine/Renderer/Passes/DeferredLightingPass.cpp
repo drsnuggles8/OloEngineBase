@@ -181,7 +181,7 @@ namespace OloEngine
         const u32 h = m_GBuffer->GetHeight();
         context.SetViewport(0, 0, w, h);
 
-        const u32 sceneFBID = m_SceneFramebuffer->GetRendererID();
+        const RHI::ResourceHandle sceneFBID = m_SceneFramebuffer->GetRHIHandle();
 
         // Count color attachments on the scene FB from its specification so
         // the full-layout restore below is exact regardless of the configured
@@ -262,32 +262,38 @@ namespace OloEngine
         // disabled in a non-TAA configuration). Binding 0 to a sampler
         // reads undefined data, which on NVIDIA surfaces as random black
         // pixels and on AMD as driver crashes.
-        const auto resolveSelectedTexture = [&context](RGTextureHandle handle, u32 fallbackID) -> u32
+        const auto resolveSelectedTexture = [&context](RGTextureHandle handle,
+                                                       RHI::ResourceHandle fallback) -> RHI::ResourceHandle
         {
-            u32 id = 0;
+            RHI::ResourceHandle id{};
             if (handle.IsValid())
-                id = context.ResolveTexture(handle);
-            if (id == 0)
-                id = fallbackID;
+                id = context.ResolveTextureHandle(handle);
+            if (!id.IsValid())
+                id = fallback;
             return id;
         };
 
-        const u32 albedoID = resolveSelectedTexture(m_SelectedInputs.GBufferAlbedo,
-                                                    useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Albedo)
-                                                                   : m_GBuffer->GetColorAttachmentID(GBuffer::Albedo));
-        const u32 normalID = resolveSelectedTexture(m_SelectedInputs.GBufferNormal,
-                                                    useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Normal)
-                                                                   : m_GBuffer->GetColorAttachmentID(GBuffer::Normal));
-        const u32 emissiveID = resolveSelectedTexture(m_SelectedInputs.GBufferEmissive,
-                                                      useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Emissive)
-                                                                     : m_GBuffer->GetColorAttachmentID(GBuffer::Emissive));
-        const u32 velocityID = resolveSelectedTexture(m_SelectedInputs.Velocity,
-                                                      useMSAAShading ? m_GBuffer->GetMSColorAttachmentID(GBuffer::Velocity)
-                                                                     : m_GBuffer->GetColorAttachmentID(GBuffer::Velocity));
-        const u32 depthID = resolveSelectedTexture(m_SelectedInputs.SceneDepth,
-                                                   useMSAAShading ? m_GBuffer->GetMSDepthAttachmentID()
-                                                                  : m_GBuffer->GetDepthAttachmentID());
-        if (albedoID == 0 || normalID == 0 || emissiveID == 0 || depthID == 0)
+        const RHI::ResourceHandle albedoID = resolveSelectedTexture(
+            m_SelectedInputs.GBufferAlbedo,
+            useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Albedo)
+                           : m_GBuffer->GetColorAttachmentHandle(GBuffer::Albedo));
+        const RHI::ResourceHandle normalID = resolveSelectedTexture(
+            m_SelectedInputs.GBufferNormal,
+            useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Normal)
+                           : m_GBuffer->GetColorAttachmentHandle(GBuffer::Normal));
+        const RHI::ResourceHandle emissiveID = resolveSelectedTexture(
+            m_SelectedInputs.GBufferEmissive,
+            useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Emissive)
+                           : m_GBuffer->GetColorAttachmentHandle(GBuffer::Emissive));
+        const RHI::ResourceHandle velocityID = resolveSelectedTexture(
+            m_SelectedInputs.Velocity,
+            useMSAAShading ? m_GBuffer->GetMSColorAttachmentHandle(GBuffer::Velocity)
+                           : m_GBuffer->GetColorAttachmentHandle(GBuffer::Velocity));
+        const RHI::ResourceHandle depthID = resolveSelectedTexture(
+            m_SelectedInputs.SceneDepth,
+            useMSAAShading ? m_GBuffer->GetMSDepthAttachmentHandle()
+                           : m_GBuffer->GetDepthAttachmentHandle());
+        if (!albedoID.IsValid() || !normalID.IsValid() || !emissiveID.IsValid() || !depthID.IsValid())
         {
             OLO_CORE_ERROR("DeferredLightingPass: required G-Buffer attachment missing (albedo={}, normal={}, emissive={}, depth={}) - aborting lighting",
                            albedoID, normalID, emissiveID, depthID);
@@ -309,15 +315,15 @@ namespace OloEngine
         // infrastructure. The shader branches on DeferredControls.iblAvailable.
         if (iblAvailable)
         {
-            const u32 irradianceID = m_SelectedInputs.IrradianceMap.IsValid()
-                                         ? context.ResolveTexture(m_SelectedInputs.IrradianceMap)
-                                         : 0u;
-            const u32 prefilterID = m_SelectedInputs.PrefilterMap.IsValid()
-                                        ? context.ResolveTexture(m_SelectedInputs.PrefilterMap)
-                                        : 0u;
-            const u32 brdfLutID = m_SelectedInputs.BrdfLut.IsValid()
-                                      ? context.ResolveTexture(m_SelectedInputs.BrdfLut)
-                                      : 0u;
+            const RHI::ResourceHandle irradianceID = m_SelectedInputs.IrradianceMap.IsValid()
+                                                         ? context.ResolveTextureHandle(m_SelectedInputs.IrradianceMap)
+                                                         : RHI::NullResource;
+            const RHI::ResourceHandle prefilterID = m_SelectedInputs.PrefilterMap.IsValid()
+                                                        ? context.ResolveTextureHandle(m_SelectedInputs.PrefilterMap)
+                                                        : RHI::NullResource;
+            const RHI::ResourceHandle brdfLutID = m_SelectedInputs.BrdfLut.IsValid()
+                                                      ? context.ResolveTextureHandle(m_SelectedInputs.BrdfLut)
+                                                      : RHI::NullResource;
             context.BindTexture(ShaderBindingLayout::TEX_USER_0, irradianceID);
             context.BindTexture(ShaderBindingLayout::TEX_USER_1, prefilterID);
             context.BindTexture(ShaderBindingLayout::TEX_USER_2, brdfLutID);
@@ -330,23 +336,23 @@ namespace OloEngine
         // when no real shadow map is available — the shader's
         // u_*ShadowEnabled flags still prevent sampling, but some drivers
         // validate the bound target against the sampler type at draw time.
-        const u32 csmShadowID = m_SelectedInputs.ShadowMapCSM.IsValid()
-                                    ? context.ResolveTexture(m_SelectedInputs.ShadowMapCSM)
-                                    : ShadowMap::GetCSMPlaceholderRendererID();
-        const u32 atlasShadowID = m_SelectedInputs.ShadowMapAtlas.IsValid()
-                                      ? context.ResolveTexture(m_SelectedInputs.ShadowMapAtlas)
-                                      : ShadowMap::GetAtlasPlaceholderRendererID();
+        const RHI::ResourceHandle csmShadowID = m_SelectedInputs.ShadowMapCSM.IsValid()
+                                                    ? context.ResolveTextureHandle(m_SelectedInputs.ShadowMapCSM)
+                                                    : ShadowMap::GetCSMPlaceholderHandle();
+        const RHI::ResourceHandle atlasShadowID = m_SelectedInputs.ShadowMapAtlas.IsValid()
+                                                      ? context.ResolveTextureHandle(m_SelectedInputs.ShadowMapAtlas)
+                                                      : ShadowMap::GetAtlasPlaceholderHandle();
         context.BindTexture(ShaderBindingLayout::TEX_SHADOW, csmShadowID);
         context.BindTexture(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasShadowID);
         // Comparison-OFF raw-depth views for the PCSS blocker search (plain
         // sampler2DArray). Fall back to the raw placeholder so the declared
         // sampler always has a valid same-type binding.
-        const u32 csmRawID = (m_SelectedInputs.ShadowMapCSMRawID != 0)
-                                 ? m_SelectedInputs.ShadowMapCSMRawID
-                                 : ShadowMap::GetCSMRawPlaceholderRendererID();
-        const u32 atlasRawID = (m_SelectedInputs.ShadowMapAtlasRawID != 0)
-                                   ? m_SelectedInputs.ShadowMapAtlasRawID
-                                   : ShadowMap::GetAtlasRawPlaceholderRendererID();
+        const RHI::ResourceHandle csmRawID = m_SelectedInputs.ShadowMapCSMRawID.IsValid()
+                                                 ? m_SelectedInputs.ShadowMapCSMRawID
+                                                 : ShadowMap::GetCSMRawPlaceholderHandle();
+        const RHI::ResourceHandle atlasRawID = m_SelectedInputs.ShadowMapAtlasRawID.IsValid()
+                                                   ? m_SelectedInputs.ShadowMapAtlasRawID
+                                                   : ShadowMap::GetAtlasRawPlaceholderHandle();
         context.BindTexture(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID);
         context.BindTexture(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID);
 
@@ -378,7 +384,7 @@ namespace OloEngine
         // and downstream depth tests/samples are meaningless in Deferred.
         if (auto const& samplingFB = m_GBuffer->GetSamplingFramebuffer())
         {
-            const u32 samplingFBID = samplingFB->GetRendererID();
+            const RHI::ResourceHandle samplingFBID = samplingFB->GetRHIHandle();
             RenderCommand::BlitFramebuffer(
                 samplingFBID, sceneFBID,
                 0, 0, static_cast<i32>(w), static_cast<i32>(h),
@@ -427,8 +433,8 @@ namespace OloEngine
         // so downstream passes see a clean slate. The GLStateGuard would
         // otherwise restore both via ApplyCore() — explicit clears here keep
         // the safety net pristine so it surfaces only genuine regressions.
-        RenderCommand::BindVertexArrayRaw(0);
-        RenderCommand::BindShaderProgram(0);
+        RenderCommand::BindVertexArrayRaw(RHI::NullResource);
+        RenderCommand::BindShaderProgram(RHI::NullResource);
     }
 
     void DeferredLightingPass::BlitVirtualGeometryDebugOverlay()
@@ -447,8 +453,8 @@ namespace OloEngine
             return;
         }
 
-        const u32 debugTexID = registry.GetDebugColorTextureID();
-        if (debugTexID == 0)
+        const RHI::ResourceHandle debugTexID = registry.GetDebugColorTexture();
+        if (!debugTexID.IsValid())
         {
             return;
         }
@@ -477,7 +483,7 @@ namespace OloEngine
 
         // Scene colour only (RT0). The scene FB also carries entity-id / normals attachments;
         // writing the overlay into those would corrupt mouse picking with cluster-hash colours.
-        const u32 sceneFBID = m_SceneFramebuffer->GetRendererID();
+        const RHI::ResourceHandle sceneFBID = m_SceneFramebuffer->GetRHIHandle();
         RenderCommand::SetFramebufferDrawAttachments(sceneFBID, kAttachment0Only);
 
         RenderCommand::SetViewport(0, 0, m_SceneFramebuffer->GetSpecification().Width,
@@ -512,8 +518,8 @@ namespace OloEngine
             RenderCommand::RestoreAllFramebufferDrawAttachments(sceneFBID, colorCount);
         }
 
-        RenderCommand::BindVertexArrayRaw(0);
-        RenderCommand::BindShaderProgram(0);
+        RenderCommand::BindVertexArrayRaw(RHI::NullResource);
+        RenderCommand::BindShaderProgram(RHI::NullResource);
     }
 
     Ref<Framebuffer> DeferredLightingPass::GetTarget() const

@@ -1487,10 +1487,11 @@ namespace OloEngine
         bool startedConditionalRender = false;
         if (cmd->occlusionQueryIndex != UINT32_MAX)
         {
-            u32 queryID = OcclusionQueryPool::GetInstance().GetQueryID(cmd->occlusionQueryIndex);
-            if (queryID != 0)
+            const RHI::ResourceHandle query =
+                OcclusionQueryPool::GetInstance().GetQueryHandle(cmd->occlusionQueryIndex);
+            if (query.IsValid())
             {
-                api.BeginConditionalRender(queryID);
+                api.BeginConditionalRender(query);
                 startedConditionalRender = true;
             }
         }
@@ -1588,7 +1589,7 @@ namespace OloEngine
         // surviving count into `cullIndirectBufferID`. Skip the FrameDataBuffer
         // -> InstanceData scratch loop and the upload; bind the pre-populated
         // output buffer at SSBO_INSTANCE_DATA and draw indirect.
-        if (const bool useGPUCull = cmd->cullIndirectBufferID != 0 && cmd->cullOutputInstanceBufferID != 0; useGPUCull)
+        if (const bool useGPUCull = cmd->cullIndirectBufferID.IsValid() && cmd->cullOutputInstanceBufferID.IsValid(); useGPUCull)
         {
             // Rebind slot 15 to the per-submission output buffer. The engine-
             // wide `s_Data.ModelInstanceBuffer` is unchanged so it can be
@@ -1979,7 +1980,7 @@ namespace OloEngine
         if (auto terrainUBO = Renderer3D::GetTerrainUBO(); terrainUBO)
         {
             terrainUBO->SetData(&cmd->terrainUBOData, ShaderBindingLayout::TerrainUBO::GetSize());
-            api.BindUniformBuffer(ShaderBindingLayout::UBO_TERRAIN, terrainUBO->GetRendererID());
+            api.BindUniformBuffer(ShaderBindingLayout::UBO_TERRAIN, terrainUBO->GetRHIHandle());
         }
 
         // Bind terrain textures
@@ -2147,7 +2148,7 @@ namespace OloEngine
             decalData.DecalColor = cmd->decalColor;
             decalData.DecalParams = cmd->decalParams;
             decalUBO->SetData(&decalData, ShaderBindingLayout::DecalUBO::GetSize());
-            api.BindUniformBuffer(ShaderBindingLayout::UBO_DECAL, decalUBO->GetRendererID());
+            api.BindUniformBuffer(ShaderBindingLayout::UBO_DECAL, decalUBO->GetRHIHandle());
         }
 
         // Bind albedo texture (with redundancy check)
@@ -2238,7 +2239,7 @@ namespace OloEngine
             foliageData.ImpostorParams0 = glm::vec4(cmd->impostorFramesPerAxis, cmd->impostorHemi, cmd->impostorStartDistance, cmd->impostorBand);
             foliageData.ImpostorParams1 = glm::vec4(cmd->impostorEnabled, cmd->impostorRadius, cmd->impostorParallaxScale, 0.0f);
             foliageUBO->SetData(&foliageData, ShaderBindingLayout::FoliageUBO::GetSize());
-            api.BindUniformBuffer(ShaderBindingLayout::UBO_FOLIAGE, foliageUBO->GetRendererID());
+            api.BindUniformBuffer(ShaderBindingLayout::UBO_FOLIAGE, foliageUBO->GetRHIHandle());
         }
 
         // Bind albedo texture (with redundancy check). On the impostor path this
@@ -2327,7 +2328,7 @@ namespace OloEngine
             waterData.TessParams = cmd->tessParams;
             waterData.FFTParams = cmd->fftParams;
             waterUBO->SetData(&waterData, ShaderBindingLayout::WaterUBO::GetSize());
-            api.BindUniformBuffer(ShaderBindingLayout::UBO_WATER, waterUBO->GetRendererID());
+            api.BindUniformBuffer(ShaderBindingLayout::UBO_WATER, waterUBO->GetRHIHandle());
         }
 
         // Bind normal map and noise textures (tracked for redundancy elimination and stats)
@@ -2353,7 +2354,7 @@ namespace OloEngine
         }
         else if (s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT].IsValid())
         {
-            api.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, 0);
+            api.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource);
             s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] = {};
         }
 

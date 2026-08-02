@@ -149,8 +149,8 @@ namespace OloEngine
         if (m_SampleCount <= 1 || !m_Framebuffer || !m_ResolvedFramebuffer)
             return;
 
-        const u32 srcFB = m_Framebuffer->GetRendererID();
-        const u32 dstFB = m_ResolvedFramebuffer->GetRendererID();
+        const RHI::ResourceHandle srcFB = m_Framebuffer->GetRHIHandle();
+        const RHI::ResourceHandle dstFB = m_ResolvedFramebuffer->GetRHIHandle();
         const i32 w = static_cast<i32>(m_Width);
         const i32 h = static_cast<i32>(m_Height);
 
@@ -224,6 +224,20 @@ namespace OloEngine
         return m_Framebuffer->GetDepthAttachmentRendererID();
     }
 
+    RHI::ResourceHandle GBuffer::GetMSColorAttachmentHandle(AttachmentIndex index) const
+    {
+        if (!m_Framebuffer)
+            return RHI::NullResource;
+        return m_Framebuffer->GetColorAttachmentHandle(std::to_underlying(index));
+    }
+
+    RHI::ResourceHandle GBuffer::GetMSDepthAttachmentHandle() const
+    {
+        if (!m_Framebuffer)
+            return RHI::NullResource;
+        return m_Framebuffer->GetDepthAttachmentHandle();
+    }
+
     void GBuffer::ResolveDepthOnly()
     {
         OLO_PROFILE_FUNCTION();
@@ -231,8 +245,8 @@ namespace OloEngine
         if (m_SampleCount <= 1 || !m_Framebuffer || !m_ResolvedFramebuffer)
             return;
 
-        const u32 srcFB = m_Framebuffer->GetRendererID();
-        const u32 dstFB = m_ResolvedFramebuffer->GetRendererID();
+        const RHI::ResourceHandle srcFB = m_Framebuffer->GetRHIHandle();
+        const RHI::ResourceHandle dstFB = m_ResolvedFramebuffer->GetRHIHandle();
         const i32 w = static_cast<i32>(m_Width);
         const i32 h = static_cast<i32>(m_Height);
 

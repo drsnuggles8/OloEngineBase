@@ -49,7 +49,7 @@ namespace OloEngine
         }
 
         // Bind heightmap as image unit 0 for read/write
-        RenderCommand::BindImageTexture(0, heightmap->GetRendererID(), 0, false, 0, RHI::Access::StorageReadWrite, RHI::Format::R32Float);
+        RenderCommand::BindImageTexture(0, heightmap->GetRHIHandle(), 0, false, 0, RHI::Access::StorageReadWrite, RHI::Format::R32Float);
 
         // Bind and configure the compute shader
         m_ErosionShader->Bind();
@@ -74,7 +74,7 @@ namespace OloEngine
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
 
         // Unbind image
-        RenderCommand::BindImageTexture(0, 0, 0, false, 0, RHI::Access::StorageReadWrite, RHI::Format::R32Float);
+        RenderCommand::BindImageTexture(0, RHI::NullResource, 0, false, 0, RHI::Access::StorageReadWrite, RHI::Format::R32Float);
 
         // Read back GPU heightmap to CPU for chunk rebuilding and serialization
         if (!skipReadback)

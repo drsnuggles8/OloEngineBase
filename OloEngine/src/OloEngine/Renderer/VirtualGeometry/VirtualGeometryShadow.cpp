@@ -64,10 +64,10 @@ namespace OloEngine::VirtualGeometryShadow
 
         // Zero this cascade's draw counts (the same args buffer the main view
         // uses later — it re-zeros + re-culls after the shadow pass).
-        Ref<StorageBuffer> argsBuffer = registry.GetArgsBuffer();
+        Ref<StorageBuffer> argsStorage = registry.GetArgsBuffer();
         std::vector<VirtualDrawArgs> const zeroArgs(instances.size());
-        argsBuffer->SetData(zeroArgs.data(),
-                            static_cast<u32>(zeroArgs.size() * sizeof(VirtualDrawArgs)), 0);
+        argsStorage->SetData(zeroArgs.data(),
+                             static_cast<u32>(zeroArgs.size() * sizeof(VirtualDrawArgs)), 0);
 
         registry.GetClusterBuffer()->Bind();
         registry.GetGroupBuffer()->Bind();
@@ -105,8 +105,8 @@ namespace OloEngine::VirtualGeometryShadow
         // per-draw UBO and SSBO bindings are ours.
         s_DepthShader->Bind();
         s_DrawInfoUBO->Bind();
-        u32 const commandBufferID = registry.GetCommandBuffer()->GetRendererID();
-        u32 const argsBufferID = registry.GetArgsBuffer()->GetRendererID();
+        const RHI::ResourceHandle commandBuffer = registry.GetCommandBuffer()->GetRHIHandle();
+        const RHI::ResourceHandle argsBuffer = registry.GetArgsBuffer()->GetRHIHandle();
         for (sizet i = 0; i < instances.size(); ++i)
         {
             if (!instances[i].CastShadows)
@@ -114,12 +114,12 @@ namespace OloEngine::VirtualGeometryShadow
             u32 const drawInfo[4] = { static_cast<u32>(i), instances[i].Gpu.CommandBase, 0u, 0u };
             s_DrawInfoUBO->SetData(drawInfo, sizeof(drawInfo));
             RenderCommand::MultiDrawElementsIndirectCountRaw(
-                registry.GetVaoID(), commandBufferID,
+                registry.GetVao(), commandBuffer,
                 instances[i].Gpu.CommandBase * 32u,
-                argsBufferID, static_cast<u32>(i * sizeof(VirtualDrawArgs)),
+                argsBuffer, static_cast<u32>(i * sizeof(VirtualDrawArgs)),
                 instances[i].Gpu.ClusterCount, 32u);
         }
-        RenderCommand::BindVertexArrayRaw(0);
+        RenderCommand::BindVertexArrayRaw(RHI::NullResource);
     }
 
     void Shutdown()

@@ -296,12 +296,15 @@ namespace OloEngine::Tests
     }
 
     // ==========================================================================
-    // The facade's handle overloads (slice 2) have no callers yet — the call
-    // sites migrate in later slices. Untested dead code is how a "purely
-    // mechanical" delegation ships with the arguments transposed, so exercise
-    // them here against real GL state rather than waiting for a caller.
+    // The facade's handle forms are now the ONLY forms (issue #691 step 3, item
+    // 4), so every caller exercises them. This test predates that and is kept
+    // for the property it pins rather than the coverage it once provided: the
+    // delegation resolves an identity to a native name, and a transposed
+    // argument in that resolve is invisible to the type system — it would bind
+    // the wrong object, not fail to compile. Asserting against real GL state is
+    // the only thing that catches it.
     // ==========================================================================
-    TEST(RHIHandleNativeIdentity, FacadeHandleOverloadBindsTheSameObjectAsTheLegacyForm)
+    TEST(RHIHandleNativeIdentity, FacadeHandleFormBindsTheObjectItsIdentityNames)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
@@ -321,20 +324,17 @@ namespace OloEngine::Tests
         GLint boundViaHandle = 0;
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundViaHandle);
         EXPECT_EQ(boundViaHandle, expected)
-            << "The handle overload must reach GL with the same object the u32 form does — "
+            << "The handle form must reach GL with the object its identity names — "
                "it resolves and delegates, so a transposed argument would land here.";
 
-        // ...and confirm the legacy form still agrees, since both must coexist
-        // until the final slice deletes the u32 spelling.
-        RenderCommand::BindTexture(kSlot, 0u);
+        // The u32 spelling this used to cross-check is GONE (issue #691 step 3,
+        // item 4) — there is no second form left to agree with, which is the
+        // point. What is still worth asserting is that RHI::NullResource
+        // unbinds, because that is the contract the deleted `0` had.
+        RenderCommand::BindTexture(kSlot, RHI::NullResource);
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundViaHandle);
-        ASSERT_EQ(boundViaHandle, 0) << "precondition: slot cleared";
+        EXPECT_EQ(boundViaHandle, 0) << "RHI::NullResource must unbind, as a native 0 did";
 
-        RenderCommand::BindTexture(kSlot, texture->GetRendererID());
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &boundViaHandle);
-        EXPECT_EQ(boundViaHandle, expected);
-
-        RenderCommand::BindTexture(kSlot, 0u);
         glActiveTexture(GL_TEXTURE0);
     }
 

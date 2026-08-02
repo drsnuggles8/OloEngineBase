@@ -156,7 +156,7 @@ namespace OloEngine
             if (!m_LoggedOnce)
             {
                 OLO_CORE_INFO("ShadowRenderPass: Rendering {} CSM cascades, resolution={}, FBO={}, textureID={}",
-                              ShadowMap::MAX_CSM_CASCADES, resolution, m_ShadowFramebuffer->GetRendererID(), csmArray->GetRendererID());
+                              ShadowMap::MAX_CSM_CASCADES, resolution, m_ShadowFramebuffer->GetRHIHandle(), csmArray->GetRHIHandle());
                 m_LoggedOnce = true;
             }
             for (u32 cascade = 0; cascade < ShadowMap::MAX_CSM_CASCADES; ++cascade)
@@ -200,7 +200,7 @@ namespace OloEngine
                         continue; // No work for this cascade — skip all GL state changes
                 }
 
-                m_ShadowFramebuffer->AttachDepthTextureArrayLayer(csmArray->GetRendererID(), cascade);
+                m_ShadowFramebuffer->AttachDepthTextureArrayLayer(csmArray->GetRHIHandle(), cascade);
                 RenderCommand::ClearDepthOnly();
 
                 RenderCascadeOrFace(lightVP, ShadowPassType::CSM, cascade, &cascadeFrustum);
@@ -215,7 +215,7 @@ namespace OloEngine
         if (const auto& atlas = m_ShadowMap->GetAtlasTextureArray();
             atlas && m_ShadowMap->GetAtlasEntryCount() > 0)
         {
-            m_ShadowFramebuffer->AttachDepthTextureArrayLayer(atlas->GetRendererID(), 0);
+            m_ShadowFramebuffer->AttachDepthTextureArrayLayer(atlas->GetRHIHandle(), 0);
             // glClear honours the scissor box (not the viewport) — force it
             // off so the whole-atlas clear can't be clipped by leaked state.
             RenderCommand::DisableScissorTest();

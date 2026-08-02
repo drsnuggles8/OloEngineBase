@@ -6,6 +6,16 @@
 namespace OloEngine
 {
 
+    // Two kinds of member below, and the distinction is the whole point of
+    // issue #691 Phase 2 step 3:
+    //
+    //   * the `override`s take RHI::ResourceHandle. They ARE the facade, and no
+    //     caller above Platform/ can express anything else.
+    //   * the plain (non-virtual) members take a native GL name. They are the
+    //     backend's own implementation seam — the identity forms resolve through
+    //     Utils::ResolveNativeAs and call into them. They are reachable only
+    //     through OpenGLRendererAPI itself, which nothing outside
+    //     RendererAPI::Create names, so they cannot leak a driver name upward.
     class OpenGLRendererAPI : public RendererAPI
     {
       public:
@@ -24,14 +34,14 @@ namespace OloEngine
         void DrawLines(const Ref<VertexArray>& vertexArray, u32 vertexCount) override;
         void DrawIndexedPatches(const Ref<VertexArray>& vertexArray, u32 indexCount, u32 patchVertices) override;
 
-        void DrawIndexedRaw(u32 vaoID, u32 indexCount) override;
-        void DrawIndexedRaw(u32 vaoID, u32 indexCount, u32 baseIndex) override;
+        void DrawIndexedRaw(u32 vaoID, u32 indexCount);
+        void DrawIndexedRaw(u32 vaoID, u32 indexCount, u32 baseIndex);
         void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount) override;
         void DrawIndexedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex) override;
-        void DrawIndexedInstancedRaw(u32 vaoID, u32 indexCount, u32 baseIndex, u32 instanceCount) override;
+        void DrawIndexedInstancedRaw(u32 vaoID, u32 indexCount, u32 baseIndex, u32 instanceCount);
         void DrawIndexedInstancedRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 baseIndex,
                                      u32 instanceCount) override;
-        void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices) override;
+        void DrawIndexedPatchesRaw(u32 vaoID, u32 indexCount, u32 patchVertices);
         void DrawIndexedPatchesRaw(RHI::ResourceHandle vertexArray, u32 indexCount, u32 patchVertices) override;
 
         void SetLineWidth(f32 width) override;
@@ -66,69 +76,70 @@ namespace OloEngine
         void DisableScissorTest() override;
         void SetScissorBox(i32 x, i32 y, u32 width, u32 height) override;
 
-        void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) override;
-        void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, u32 indirectBufferID) override;
-        void DrawBoundElementsIndirect(u32 indirectBufferID) override;
-        void MultiDrawElementsIndirectCountRaw(u32 vaoID, u32 indirectBufferID, u32 indirectOffsetBytes,
-                                               u32 parameterBufferID, u32 parameterOffsetBytes,
+        void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer) override;
+        void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer) override;
+        void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer) override;
+        void MultiDrawElementsIndirectCountRaw(RHI::ResourceHandle vertexArray, RHI::ResourceHandle indirectBuffer,
+                                               u32 indirectOffsetBytes,
+                                               RHI::ResourceHandle parameterBuffer, u32 parameterOffsetBytes,
                                                u32 maxDrawCount, u32 strideBytes) override;
 
         void DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ) override;
         void MemoryBarrier(MemoryBarrierFlags flags) override;
 
         void BindDefaultFramebuffer() override;
-        void BlitFramebufferToDefault(u32 srcFboID, u32 width, u32 height) override;
-        void BindTexture(u32 slot, u32 textureID) override;
+        void BlitFramebufferToDefault(RHI::ResourceHandle srcFramebuffer, u32 width, u32 height) override;
+        void BindTexture(u32 slot, u32 textureID);
         void BindTexture(u32 slot, RHI::ResourceHandle texture) override;
         void BindImageTexture(u32 unit, u32 textureID, u32 mipLevel, bool layered, u32 layer,
-                              RHI::Access access, RHI::Format format) override;
+                              RHI::Access access, RHI::Format format);
         void BindImageTexture(u32 unit, RHI::ResourceHandle texture, u32 mipLevel, bool layered,
                               u32 layer, RHI::Access access, RHI::Format format) override;
 
         void SetBlendStateForAttachment(u32 attachment, bool enabled) override;
         void SetBlendFuncForAttachment(u32 attachment, RHI::BlendFactor src, RHI::BlendFactor dst) override;
         void CopyImageSubData(u32 srcID, TextureTargetType srcTarget, u32 dstID, TextureTargetType dstTarget,
-                              u32 width, u32 height) override;
+                              u32 width, u32 height);
         void CopyImageSubData(RHI::ResourceHandle src, TextureTargetType srcTarget,
                               RHI::ResourceHandle dst, TextureTargetType dstTarget,
                               u32 width, u32 height) override;
         void CopyImageSubDataFull(u32 srcID, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
                                   u32 dstID, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
-                                  u32 width, u32 height) override;
+                                  u32 width, u32 height);
         void CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ,
                                   RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ,
                                   u32 width, u32 height) override;
-        void CopyFramebufferToTexture(u32 textureID, u32 width, u32 height) override;
+        void CopyFramebufferToTexture(RHI::ResourceHandle texture, u32 width, u32 height) override;
         void SetDrawBuffers(std::span<const u32> attachments) override;
         void RestoreAllDrawBuffers(u32 colorAttachmentCount) override;
-        u32 CreateTexture2D(u32 width, u32 height, RHI::Format internalFormat) override;
-        u32 CreateTextureCubemap(u32 width, u32 height, RHI::Format internalFormat) override;
-        u32 CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers) override;
+        u32 CreateTexture2D(u32 width, u32 height, RHI::Format internalFormat);
+        u32 CreateTextureCubemap(u32 width, u32 height, RHI::Format internalFormat);
+        u32 CreateDepthArrayCompareOffView(u32 srcTextureID, u32 numLayers);
         [[nodiscard]] RHI::ResourceHandle CreateDepthArrayCompareOffViewHandle(RHI::ResourceHandle srcTexture,
                                                                                u32 numLayers) override;
-        void SetTextureFilter(u32 textureID, RHI::Filter minFilter, RHI::Filter magFilter) override;
+        void SetTextureFilter(u32 textureID, RHI::Filter minFilter, RHI::Filter magFilter);
         void SetTextureFilter(RHI::ResourceHandle texture, RHI::Filter minFilter, RHI::Filter magFilter) override;
-        void SetTextureWrap(u32 textureID, RHI::AddressMode wrap) override;
+        void SetTextureWrap(u32 textureID, RHI::AddressMode wrap);
         void SetTextureWrap(RHI::ResourceHandle texture, RHI::AddressMode wrap) override;
         void UploadTextureSubImage2D(u32 textureID, u32 width, u32 height,
-                                     RHI::Format sourceFormat, const void* data) override;
+                                     RHI::Format sourceFormat, const void* data);
         void UploadTextureSubImage2D(RHI::ResourceHandle texture, u32 width, u32 height,
                                      RHI::Format sourceFormat, const void* data) override;
-        void DeleteTexture(u32 textureID) override;
+        void DeleteTexture(u32 textureID);
 
-        void BeginConditionalRender(u32 queryID) override;
+        void BeginConditionalRender(RHI::ResourceHandle query) override;
         void EndConditionalRender() override;
 
         // --- Phase 2 step 2 additions (issue #691) ---------------------------
-        void BindUniformBuffer(u32 bindingPoint, u32 bufferID) override;
+        void BindUniformBuffer(u32 bindingPoint, u32 bufferID);
         void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override;
-        void BindStorageBuffer(u32 bindingPoint, u32 bufferID) override;
+        void BindStorageBuffer(u32 bindingPoint, u32 bufferID);
         void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override;
-        void BindShaderProgram(u32 programID) override;
+        void BindShaderProgram(u32 programID);
         void BindShaderProgram(RHI::ResourceHandle program) override;
-        void BindVertexArrayRaw(u32 vaoID) override;
+        void BindVertexArrayRaw(u32 vaoID);
         void BindVertexArrayRaw(RHI::ResourceHandle vertexArray) override;
-        void BindFramebuffer(u32 framebufferID) override;
+        void BindFramebuffer(u32 framebufferID);
         void BindFramebuffer(RHI::ResourceHandle framebuffer) override;
 
         void DrawBoundIndexed(RHI::PrimitiveTopology topology, u32 indexCount,
@@ -143,36 +154,39 @@ namespace OloEngine
                                   RHI::BlendFactor srcAlpha, RHI::BlendFactor dstAlpha) override;
         void SetClearDepth(f32 depth) override;
 
-        u32 CreateFramebuffer() override;
-        void DeleteFramebuffer(u32 framebufferID) override;
-        void AttachFramebufferColorTexture(u32 framebufferID, u32 attachmentIndex,
-                                           u32 textureID, u32 mipLevel) override;
-        void AttachFramebufferDepthTexture(u32 framebufferID, u32 textureID, u32 mipLevel) override;
-        [[nodiscard("Store this!")]] bool IsFramebufferComplete(u32 framebufferID) override;
-        void SetFramebufferDrawAttachments(u32 framebufferID, std::span<const u32> attachmentIndices) override;
-        void RestoreAllFramebufferDrawAttachments(u32 framebufferID, u32 colorAttachmentCount) override;
-        void SetFramebufferReadAttachment(u32 framebufferID, u32 attachmentIndex) override;
-        void ClearFramebufferColorAttachment(u32 framebufferID, u32 attachmentIndex,
+        u32 CreateFramebuffer();
+        void DeleteFramebuffer(u32 framebufferID);
+        void AttachFramebufferColorTexture(RHI::ResourceHandle framebuffer, u32 attachmentIndex,
+                                           RHI::ResourceHandle texture, u32 mipLevel) override;
+        void AttachFramebufferDepthTexture(RHI::ResourceHandle framebuffer, RHI::ResourceHandle texture,
+                                           u32 mipLevel) override;
+        [[nodiscard("Store this!")]] bool IsFramebufferComplete(RHI::ResourceHandle framebuffer) override;
+        void SetFramebufferDrawAttachments(RHI::ResourceHandle framebuffer,
+                                           std::span<const u32> attachmentIndices) override;
+        void RestoreAllFramebufferDrawAttachments(RHI::ResourceHandle framebuffer,
+                                                  u32 colorAttachmentCount) override;
+        void SetFramebufferReadAttachment(RHI::ResourceHandle framebuffer, u32 attachmentIndex) override;
+        void ClearFramebufferColorAttachment(RHI::ResourceHandle framebuffer, u32 attachmentIndex,
                                              const glm::vec4& color) override;
-        void ClearFramebufferDepth(u32 framebufferID, f32 depth) override;
-        void BlitFramebuffer(u32 srcFramebufferID, u32 dstFramebufferID,
+        void ClearFramebufferDepth(RHI::ResourceHandle framebuffer, f32 depth) override;
+        void BlitFramebuffer(RHI::ResourceHandle srcFramebuffer, RHI::ResourceHandle dstFramebuffer,
                              i32 srcX0, i32 srcY0, i32 srcX1, i32 srcY1,
                              i32 dstX0, i32 dstY0, i32 dstX1, i32 dstY1,
                              RHI::BlitAspect aspect, RHI::Filter filter) override;
 
-        u32 CreateBuffer() override;
-        void DeleteBuffer(u32 bufferID) override;
-        void AllocateBufferStorage(u32 bufferID, u64 sizeBytes, RHI::MemoryResidency residency) override;
-        void* AllocatePersistentUploadStorage(u32 bufferID, u64 sizeBytes) override;
-        void UnmapBuffer(u32 bufferID) override;
-        void UploadBufferSubData(u32 bufferID, u64 offsetBytes, u64 sizeBytes, const void* data) override;
-        void ReadBufferSubData(u32 bufferID, u64 offsetBytes, u64 sizeBytes, void* dest) override;
-        void CopyBufferSubData(u32 srcBufferID, u32 dstBufferID,
+        u32 CreateBuffer();
+        void DeleteBuffer(u32 bufferID);
+        void AllocateBufferStorage(RHI::ResourceHandle buffer, u64 sizeBytes, RHI::MemoryResidency residency) override;
+        void* AllocatePersistentUploadStorage(RHI::ResourceHandle buffer, u64 sizeBytes) override;
+        void UnmapBuffer(RHI::ResourceHandle buffer) override;
+        void UploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, const void* data) override;
+        void ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest) override;
+        void CopyBufferSubData(RHI::ResourceHandle srcBuffer, RHI::ResourceHandle dstBuffer,
                                u64 srcOffsetBytes, u64 dstOffsetBytes, u64 sizeBytes) override;
-        void ClearBufferUInt(u32 bufferID, u32 value) override;
-        void ClearBufferFloat(u32 bufferID, f32 value) override;
+        void ClearBufferUInt(RHI::ResourceHandle buffer, u32 value) override;
+        void ClearBufferFloat(RHI::ResourceHandle buffer, f32 value) override;
 
-        u32 CreateVertexArray() override;
+        u32 CreateVertexArray();
         [[nodiscard]] RHI::ResourceHandle CreateTexture2DHandle(u32 width, u32 height, RHI::Format internalFormat) override;
         [[nodiscard]] RHI::ResourceHandle CreateTextureCubemapHandle(u32 width, u32 height, RHI::Format internalFormat) override;
         [[nodiscard]] RHI::ResourceHandle CreateFramebufferHandle() override;
@@ -182,22 +196,22 @@ namespace OloEngine
         void DeleteFramebuffer(RHI::ResourceHandle framebuffer) override;
         void DeleteBuffer(RHI::ResourceHandle buffer) override;
         void DeleteVertexArray(RHI::ResourceHandle vertexArray) override;
-        void SetVertexArrayIndexBuffer(u32 vaoID, u32 bufferID) override;
-        void DeleteVertexArray(u32 vaoID) override;
+        void SetVertexArrayIndexBuffer(RHI::ResourceHandle vertexArray, RHI::ResourceHandle indexBuffer) override;
+        void DeleteVertexArray(u32 vaoID);
 
-        void ClearTextureFloat(u32 textureID, u32 mipLevel, const glm::vec4& color) override;
+        void ClearTextureFloat(u32 textureID, u32 mipLevel, const glm::vec4& color);
         void ClearTextureFloat(RHI::ResourceHandle texture, u32 mipLevel, const glm::vec4& color) override;
-        void ClearTextureUInt(u32 textureID, u32 mipLevel, u32 value) override;
+        void ClearTextureUInt(RHI::ResourceHandle texture, u32 mipLevel, u32 value) override;
         // Offset overload; the whole-image one is declared above.
-        void UploadTextureSubImage2D(u32 textureID, i32 xOffset, i32 yOffset,
+        void UploadTextureSubImage2D(RHI::ResourceHandle texture, i32 xOffset, i32 yOffset,
                                      u32 width, u32 height,
                                      RHI::Format sourceFormat, const void* data) override;
-        void UploadTextureSubImage3D(u32 textureID, i32 xOffset, i32 yOffset, i32 zOffset,
+        void UploadTextureSubImage3D(RHI::ResourceHandle texture, i32 xOffset, i32 yOffset, i32 zOffset,
                                      u32 width, u32 height, u32 depth,
                                      RHI::Format sourceFormat, const void* data) override;
         [[nodiscard("Store this!")]] bool ReadTextureImage(u32 textureID, u32 mipLevel,
                                                            RHI::Format destFormat,
-                                                           sizet destSizeBytes, void* dest) override;
+                                                           sizet destSizeBytes, void* dest);
         [[nodiscard("Store this!")]] bool ReadTextureImage(RHI::ResourceHandle texture, u32 mipLevel,
                                                            RHI::Format destFormat,
                                                            sizet destSizeBytes, void* dest) override;
@@ -205,22 +219,22 @@ namespace OloEngine
                                                               i32 x, i32 y, i32 z,
                                                               u32 width, u32 height, u32 depth,
                                                               RHI::Format destFormat,
-                                                              sizet destSizeBytes, void* dest) override;
+                                                              sizet destSizeBytes, void* dest);
         [[nodiscard("Store this!")]] bool ReadTextureSubImage(RHI::ResourceHandle texture, u32 mipLevel,
                                                               i32 x, i32 y, i32 z,
                                                               u32 width, u32 height, u32 depth,
                                                               RHI::Format destFormat,
                                                               sizet destSizeBytes, void* dest) override;
-        void GetTextureDimensions(u32 textureID, u32 mipLevel, u32& outWidth, u32& outHeight) override;
+        void GetTextureDimensions(RHI::ResourceHandle texture, u32 mipLevel, u32& outWidth, u32& outHeight) override;
         void TextureBarrier() override;
 
-        void CreateQueries(RHI::QueryType type, std::span<u32> outQueryIDs) override;
-        void DeleteQueries(std::span<const u32> queryIDs) override;
-        void BeginQuery(RHI::QueryType type, u32 queryID) override;
+        void CreateQueries(RHI::QueryType type, std::span<RHI::ResourceHandle> outQueries) override;
+        void DeleteQueries(std::span<const RHI::ResourceHandle> queries) override;
+        void BeginQuery(RHI::QueryType type, RHI::ResourceHandle query) override;
         void EndQuery(RHI::QueryType type) override;
-        [[nodiscard("Store this!")]] bool IsQueryResultAvailable(u32 queryID) override;
-        [[nodiscard("Store this!")]] u32 GetQueryResultU32(u32 queryID) override;
-        [[nodiscard("Store this!")]] u64 GetQueryResultU64(u32 queryID) override;
+        [[nodiscard("Store this!")]] bool IsQueryResultAvailable(RHI::ResourceHandle query) override;
+        [[nodiscard("Store this!")]] u32 GetQueryResultU32(RHI::ResourceHandle query) override;
+        [[nodiscard("Store this!")]] u64 GetQueryResultU64(RHI::ResourceHandle query) override;
 
         [[nodiscard("Store this!")]] u64 CreateFence() override;
         [[nodiscard("Store this!")]] RHI::FenceStatus ClientWaitFence(u64 fence, u64 timeoutNanoseconds) override;
@@ -234,7 +248,7 @@ namespace OloEngine
         [[nodiscard("Store this!")]] u32 GetMaxFramebufferSamples() const override;
         [[nodiscard("Store this!")]] u32 GetMaxColorTextureSamples() const override;
         [[nodiscard("Store this!")]] u32 GetMaxDepthTextureSamples() const override;
-        void SetProgramUniformFloat(u32 programID, std::string_view name, f32 value) override;
+        void SetProgramUniformFloat(u32 programID, std::string_view name, f32 value);
         void SetProgramUniformFloat(RHI::ResourceHandle program, std::string_view name, f32 value) override;
 
         [[nodiscard("Store this!")]] bool IsDeviceAvailable() const override;

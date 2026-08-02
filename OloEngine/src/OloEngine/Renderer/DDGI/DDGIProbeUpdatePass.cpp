@@ -72,19 +72,10 @@ namespace OloEngine
         // atlases are framebuffer ATTACHMENTS and migrated to identities; the
         // 1x1 placeholder/white/probe-data textures this pass creates itself are
         // still native and belong to a later resource-grain slice (they are also
-        // graph-imported, and ImportTextureHandle is the blocker — see the
-        // comment on importAtlas in Setup). Two complete chains on two
-        // currencies, not one half-migrated chain.
         void SetAtlasTextureParams(RHI::ResourceHandle texture, RHI::Filter filter)
         {
             RenderCommand::SetTextureFilter(texture, filter, filter);
             RenderCommand::SetTextureWrap(texture, RHI::AddressMode::ClampToEdge);
-        }
-
-        void SetAtlasTextureParams(u32 texID, RHI::Filter filter)
-        {
-            RenderCommand::SetTextureFilter(texID, filter, filter);
-            RenderCommand::SetTextureWrap(texID, RHI::AddressMode::ClampToEdge);
         }
 
         // Shared render state for the fullscreen-triangle stages (resample /
@@ -129,20 +120,20 @@ namespace OloEngine
     DDGIProbeUpdatePass::~DDGIProbeUpdatePass()
     {
         DestroyResources();
-        if (m_PlaceholderTexture != 0)
+        if (m_PlaceholderTexture.IsValid())
         {
             RenderCommand::DeleteTexture(m_PlaceholderTexture);
-            m_PlaceholderTexture = 0;
+            m_PlaceholderTexture = RHI::NullResource;
         }
-        if (m_WhiteTexture != 0)
+        if (m_WhiteTexture.IsValid())
         {
             RenderCommand::DeleteTexture(m_WhiteTexture);
-            m_WhiteTexture = 0;
+            m_WhiteTexture = RHI::NullResource;
         }
-        if (m_BlackCubemap != 0)
+        if (m_BlackCubemap.IsValid())
         {
             RenderCommand::DeleteTexture(m_BlackCubemap);
-            m_BlackCubemap = 0;
+            m_BlackCubemap = RHI::NullResource;
         }
     }
 
@@ -165,27 +156,27 @@ namespace OloEngine
         m_CaptureCameraUBO = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(),
                                                    ShaderBindingLayout::UBO_CAMERA);
 
-        if (m_PlaceholderTexture == 0)
+        if (!m_PlaceholderTexture.IsValid())
         {
             // 1x1 black RGBA16F — a single texture serves all three disabled
             // slots (sampler2D reads of .rg / .rgb / .w all see zero, and
             // state 0 == Uncaptured makes the sampler skip every probe).
-            m_PlaceholderTexture = RenderCommand::CreateTexture2D(1, 1, RHI::Format::RGBA16Float);
+            m_PlaceholderTexture = RenderCommand::CreateTexture2DHandle(1, 1, RHI::Format::RGBA16Float);
             RenderCommand::ClearTextureFloat(m_PlaceholderTexture, 0, glm::vec4(0.0f));
             SetAtlasTextureParams(m_PlaceholderTexture, RHI::Filter::Nearest);
         }
-        if (m_WhiteTexture == 0)
+        if (!m_WhiteTexture.IsValid())
         {
-            m_WhiteTexture = RenderCommand::CreateTexture2D(1, 1, RHI::Format::RGBA8UNorm);
+            m_WhiteTexture = RenderCommand::CreateTexture2DHandle(1, 1, RHI::Format::RGBA8UNorm);
             constexpr u8 white[4] = { 255, 255, 255, 255 };
             RenderCommand::UploadTextureSubImage2D(m_WhiteTexture, 1, 1, RHI::Format::RGBA8UNorm, white);
             SetAtlasTextureParams(m_WhiteTexture, RHI::Filter::Nearest);
         }
-        if (m_BlackCubemap == 0)
+        if (!m_BlackCubemap.IsValid())
         {
             // Environment fallback for the relight sky term when no global
             // IBL environment cubemap exists this frame.
-            m_BlackCubemap = RenderCommand::CreateTextureCubemap(1, 1, RHI::Format::RGBA16Float);
+            m_BlackCubemap = RenderCommand::CreateTextureCubemapHandle(1, 1, RHI::Format::RGBA16Float);
             RenderCommand::ClearTextureFloat(m_BlackCubemap, 0, glm::vec4(0.0f));
             RenderCommand::SetTextureFilter(m_BlackCubemap, RHI::Filter::Linear, RHI::Filter::Linear);
             RenderCommand::SetTextureWrap(m_BlackCubemap, RHI::AddressMode::ClampToEdge);
@@ -234,16 +225,19 @@ namespace OloEngine
         if (m_VolumeSubmitted)
             EnsureResources();
 
-        const auto importAtlas = [&builder](const char* name, u32 textureID, RGResourceFormat format,
+        // ImportTextureHandle since issue #691 step 3 item 4. Slice 5 left this
+        // native because the diagnostics could not read a handle-imported
+        // resource; Debug::NativeTextureIdForDiagnostics (#736) closed that.
+        const auto importAtlas = [&builder](const char* name, RHI::ResourceHandle texture, RGResourceFormat format,
                                             u32 width, u32 height)
         {
-            if (textureID == 0)
+            if (!texture.IsValid())
                 return;
             RGResourceDesc desc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Texture2D, name);
             desc.Format = format;
             desc.Width = width;
             desc.Height = height;
-            [[maybe_unused]] const RGTextureHandle handle = builder.ImportTexture(name, textureID, desc);
+            [[maybe_unused]] const RGTextureHandle handle = builder.ImportTextureHandle(name, texture, desc);
         };
         for (u32 ping = 0; ping < 2u; ++ping)
         {
@@ -260,7 +254,7 @@ namespace OloEngine
                             GetVisibilityAtlasID(ping), RGResourceFormat::RG16Float, spec.Width, spec.Height);
             }
         }
-        if (m_ProbeDataTexture != 0)
+        if (m_ProbeDataTexture.IsValid())
         {
             const glm::ivec2 tileDims = DDGI::AtlasTileDimensions(m_ResourceResolution);
             importAtlas("DDGIProbeData", m_ProbeDataTexture, RGResourceFormat::RGBA16Float,
@@ -303,32 +297,32 @@ namespace OloEngine
         m_Casters.push_back(caster);
     }
 
-    u32 DDGIProbeUpdatePass::GetIrradianceAtlasID() const
+    RHI::ResourceHandle DDGIProbeUpdatePass::GetIrradianceAtlasID() const
     {
         return m_IrradianceFB[m_IrradianceCurrent]
-                   ? m_IrradianceFB[m_IrradianceCurrent]->GetColorAttachmentRendererID(0)
-                   : 0;
+                   ? m_IrradianceFB[m_IrradianceCurrent]->GetColorAttachmentHandle(0)
+                   : RHI::NullResource;
     }
 
-    u32 DDGIProbeUpdatePass::GetIrradianceAtlasID(const u32 pingIndex) const
+    RHI::ResourceHandle DDGIProbeUpdatePass::GetIrradianceAtlasID(const u32 pingIndex) const
     {
         if (pingIndex >= 2u || !m_IrradianceFB[pingIndex])
-            return 0;
-        return m_IrradianceFB[pingIndex]->GetColorAttachmentRendererID(0);
+            return RHI::NullResource;
+        return m_IrradianceFB[pingIndex]->GetColorAttachmentHandle(0);
     }
 
-    u32 DDGIProbeUpdatePass::GetVisibilityAtlasID(const u32 pingIndex) const
+    RHI::ResourceHandle DDGIProbeUpdatePass::GetVisibilityAtlasID(const u32 pingIndex) const
     {
         if (pingIndex >= 2u || !m_VisibilityFB[pingIndex])
-            return 0;
-        return m_VisibilityFB[pingIndex]->GetColorAttachmentRendererID(0);
+            return RHI::NullResource;
+        return m_VisibilityFB[pingIndex]->GetColorAttachmentHandle(0);
     }
 
-    u32 DDGIProbeUpdatePass::GetVisibilityAtlasID() const
+    RHI::ResourceHandle DDGIProbeUpdatePass::GetVisibilityAtlasID() const
     {
         return m_VisibilityFB[m_VisibilityCurrent]
-                   ? m_VisibilityFB[m_VisibilityCurrent]->GetColorAttachmentRendererID(0)
-                   : 0;
+                   ? m_VisibilityFB[m_VisibilityCurrent]->GetColorAttachmentHandle(0)
+                   : RHI::NullResource;
     }
 
     RHI::ResourceHandle DDGIProbeUpdatePass::GetIrradianceAtlasHandle(const u32 pingIndex) const
@@ -345,7 +339,7 @@ namespace OloEngine
         return m_VisibilityFB[pingIndex]->GetColorAttachmentHandle(0);
     }
 
-    u32 DDGIProbeUpdatePass::GetProbeDataTextureID() const
+    RHI::ResourceHandle DDGIProbeUpdatePass::GetProbeDataTextureID() const
     {
         return m_ProbeDataTexture;
     }
@@ -386,7 +380,7 @@ namespace OloEngine
             m_DDGIUBO->SetData(&ubo, sizeof(ubo));
             m_DDGIUBO->Bind();
         }
-        if (m_PlaceholderTexture != 0)
+        if (m_PlaceholderTexture.IsValid())
         {
             RenderCommand::BindTexture(ShaderBindingLayout::TEX_DDGI_IRRADIANCE, m_PlaceholderTexture);
             RenderCommand::BindTexture(ShaderBindingLayout::TEX_DDGI_VISIBILITY, m_PlaceholderTexture);
@@ -403,10 +397,10 @@ namespace OloEngine
         m_RadianceFB = nullptr;
         m_HitFB = nullptr;
         m_CaptureFB = nullptr;
-        if (m_ProbeDataTexture != 0)
+        if (m_ProbeDataTexture.IsValid())
         {
             RenderCommand::DeleteTexture(m_ProbeDataTexture);
-            m_ProbeDataTexture = 0;
+            m_ProbeDataTexture = RHI::NullResource;
         }
         m_ResourceResolution = glm::ivec3(0);
         m_ResourceHitTexels = 0;
@@ -496,8 +490,8 @@ namespace OloEngine
         // Probe data: one texel per probe (xyz = relocation offset normalized
         // by spacing, w = state). CPU-written ONLY (glTextureSubImage2D from
         // the relocation/classification step); cleared to zero == Uncaptured.
-        m_ProbeDataTexture = RenderCommand::CreateTexture2D(static_cast<u32>(tileDims.x),
-                                                            static_cast<u32>(tileDims.y), RHI::Format::RGBA16Float);
+        m_ProbeDataTexture = RenderCommand::CreateTexture2DHandle(static_cast<u32>(tileDims.x),
+                                                                  static_cast<u32>(tileDims.y), RHI::Format::RGBA16Float);
         RenderCommand::ClearTextureFloat(m_ProbeDataTexture, 0, glm::vec4(0.0f));
         SetAtlasTextureParams(m_ProbeDataTexture, RHI::Filter::Nearest);
 
@@ -910,14 +904,18 @@ namespace OloEngine
         // evaluators expect (8 / 13 comparison, 33 / 34 raw for PCSS) — same
         // placeholder discipline as DeferredLightingPass / VolumetricFogPass.
         auto& shadowMap = Renderer3D::GetShadowMap();
-        const u32 csmID = shadowMap.GetCSMRendererID() != 0 ? shadowMap.GetCSMRendererID()
-                                                            : ShadowMap::GetCSMPlaceholderRendererID();
-        const u32 atlasID = shadowMap.GetAtlasRendererID() != 0 ? shadowMap.GetAtlasRendererID()
-                                                                : ShadowMap::GetAtlasPlaceholderRendererID();
-        const u32 csmRawID = shadowMap.GetCSMRawRendererID() != 0 ? shadowMap.GetCSMRawRendererID()
-                                                                  : ShadowMap::GetCSMRawPlaceholderRendererID();
-        const u32 atlasRawID = shadowMap.GetAtlasRawRendererID() != 0 ? shadowMap.GetAtlasRawRendererID()
-                                                                      : ShadowMap::GetAtlasRawPlaceholderRendererID();
+        const RHI::ResourceHandle csmID = shadowMap.GetCSMHandle().IsValid()
+                                              ? shadowMap.GetCSMHandle()
+                                              : ShadowMap::GetCSMPlaceholderHandle();
+        const RHI::ResourceHandle atlasID = shadowMap.GetAtlasHandle().IsValid()
+                                                ? shadowMap.GetAtlasHandle()
+                                                : ShadowMap::GetAtlasPlaceholderHandle();
+        const RHI::ResourceHandle csmRawID = shadowMap.GetCSMRawHandle().IsValid()
+                                                 ? shadowMap.GetCSMRawHandle()
+                                                 : ShadowMap::GetCSMRawPlaceholderHandle();
+        const RHI::ResourceHandle atlasRawID = shadowMap.GetAtlasRawHandle().IsValid()
+                                                   ? shadowMap.GetAtlasRawHandle()
+                                                   : ShadowMap::GetAtlasRawPlaceholderHandle();
         RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW, csmID);
         RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasID);
         RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID);
@@ -1104,7 +1102,7 @@ namespace OloEngine
         RenderCommand::EnableCulling();
         for (u32 unit = 0; unit <= 4; ++unit)
         {
-            RenderCommand::BindTexture(unit, 0);
+            RenderCommand::BindTexture(unit, RHI::NullResource);
         }
         RenderCommand::SetViewport(prevViewport.x, prevViewport.y, prevViewport.width, prevViewport.height);
         CommandDispatch::InvalidateRenderStateCache();

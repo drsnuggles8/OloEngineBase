@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
@@ -67,7 +68,7 @@ namespace OloEngine
         struct HZBOcclusionInputs
         {
             bool Enabled = false;
-            u32 HZBTextureID = 0; // max-reduction pyramid (last frame)
+            RHI::ResourceHandle HZBTexture{}; // max-reduction pyramid (last frame)
             u32 MipCount = 0;
             glm::mat4 PrevViewProjection{ 1.0f }; // last frame's view-projection
             glm::vec2 HZBSize{ 0.0f };            // HZB texture size in texels (power-of-2)
@@ -76,7 +77,7 @@ namespace OloEngine
 
             [[nodiscard]] bool IsUsable() const
             {
-                return Enabled && HZBTextureID != 0 && MipCount > 0;
+                return Enabled && HZBTexture.IsValid() && MipCount > 0;
             }
         };
 
