@@ -761,6 +761,13 @@ namespace OloEngine
         };
     };
 
+    // Helper for OLO_STATIC_ASSERT_WARN below. Ported from UE's
+    // TStaticDeprecateExpression (Misc/CoreMiscDefines.h).
+    template<bool bIsDeprecated>
+    struct TStaticDeprecateExpression
+    {
+    };
+
     // @struct TUseBitwiseSwap
     // @brief Determines if bitwise operations (memcpy/memswap) should be used for relocation
     //
@@ -1834,3 +1841,37 @@ namespace OloEngine
 #undef IS_EMPTY
 #undef IS_POD
 #undef HAS_TRIVIAL_CONSTRUCTOR
+
+// ============================================================================
+// OLO_STATIC_ASSERT_WARN
+// ============================================================================
+// A compile-time diagnostic that WARNS rather than errors. Ported from UE's
+// UE_STATIC_ASSERT_WARN (Misc/CoreMiscDefines.h); it works by attaching
+// [[deprecated]] to the overload selected when the expression is false.
+//
+// A warning, not a hard static_assert, deliberately — matching UE. Their
+// IsTriviallyRelocatable.h explains why the strict default is still commented
+// out: "there are a lot of existing violations that will need to be fixed
+// first." A hard error makes the guard unadoptable in an existing codebase;
+// a warning surfaces every violation without blocking the build.
+#define OLO_STATIC_WARN_JOIN_INNER(a, b) a##b
+#define OLO_STATIC_WARN_JOIN(a, b) OLO_STATIC_WARN_JOIN_INNER(a, b)
+
+#define OLO_STATIC_ASSERT_WARN(bExpression, Message)                                   \
+    struct OLO_STATIC_WARN_JOIN(FStaticWarningMsg_, __LINE__)                          \
+    {                                                                                  \
+        [[deprecated(Message)]] static constexpr int condition(                        \
+            ::OloEngine::TStaticDeprecateExpression<true>)                             \
+        {                                                                              \
+            return 1;                                                                  \
+        }                                                                              \
+        static constexpr int condition(::OloEngine::TStaticDeprecateExpression<false>) \
+        {                                                                              \
+            return 1;                                                                  \
+        }                                                                              \
+    };                                                                                 \
+    enum class OLO_STATIC_WARN_JOIN(EStaticWarningMsg_, __LINE__)                      \
+    {                                                                                  \
+        Value = OLO_STATIC_WARN_JOIN(FStaticWarningMsg_, __LINE__)::condition(         \
+            ::OloEngine::TStaticDeprecateExpression<!(bExpression)>())                 \
+    }

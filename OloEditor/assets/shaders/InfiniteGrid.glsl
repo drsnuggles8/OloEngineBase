@@ -143,7 +143,24 @@ void main() {
         }
 
         FragColor = gridColor;
-        gl_FragDepth = depth;
+
+        // Break the coplanar tie with scene ground geometry.
+        //
+        // The grid lies on Y=0, and scenes routinely put a ground plane on Y=0
+        // too. The ground mesh gets the rasteriser's INTERPOLATED depth; this
+        // shader writes gl_FragDepth from a position that was unprojected and
+        // then re-projected. Those two paths compute the same surface and
+        // disagree by ~1 ULP, so the depth test resolves it per-pixel on float
+        // noise. NVIDIA happens to resolve it consistently; Mesa/radeonsi does
+        // not, and the grid lines break into dashes toward the horizon
+        // ("z-precision-dashed", RMSE ~22 against the NVIDIA goldens).
+        //
+        // Nudging the grid a hair toward the camera makes it win the tie on
+        // every vendor instead of by luck. 1e-5 in [0,1] depth is ~170 quanta
+        // of a 24-bit buffer -- comfortably decisive, and far too small to lift
+        // the grid visibly off the ground.
+        const float kCoplanarBias = 1e-5;
+        gl_FragDepth = clamp(depth - kCoplanarBias, 0.0, 1.0);
         EntityID = -1;  // Grid is not pickable
         o_ViewNormal = vec2(-2.0);
 

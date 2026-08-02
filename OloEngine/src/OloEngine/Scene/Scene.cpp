@@ -8197,8 +8197,48 @@ namespace OloEngine
                     // we can safely activate near/above the waterline. Well above
                     // the water (gap < -kWaveReach) stays the water shader's own
                     // refraction/depth tint. Nearest surface (smallest |gap|) wins.
-                    constexpr f32 kWaveReach = 2.0f; // generous max crest height above the flat plane
-                    if (const f32 absGap = std::abs(gap); gap > -kWaveReach && absGap < bestSurfaceDist)
+                    // How far above the FLAT plane a crest can actually reach.
+                    //
+                    // This was a hard-coded 2 m, which is not "generous" for an
+                    // FFT sea: the field's height is scaled by m_FFTAmplitude,
+                    // so a 4 m-amplitude ocean produces crests measured at
+                    // +3.5 m. An eye between 2 m and the real crest height then
+                    // fell into a dead band — waves wash over it, but the fog
+                    // stayed off, so a view angled down through the surface hit
+                    // the seafloor with NO underwater tint at all (issue: the
+                    // FFT ocean's foreground read as the raw magenta seafloor
+                    // while the water above the horizon rendered correctly).
+                    // Derive the reach from the wave configuration instead, and
+                    // keep the old constant as a floor for the Gerstner path,
+                    // whose amplitudes are far smaller.
+                    constexpr f32 kMinWaveReach = 2.0f;
+                    f32 waveReach = kMinWaveReach;
+                    // m_UseFFT alone is not the condition the SHADER runs on.
+                    // The render path only sets fftParams.x = 1 once the field
+                    // has actually produced both textures; until then the
+                    // surface is displaced by Gerstner waves, whose amplitude is
+                    // unrelated to m_FFTAmplitude. Sizing the fog reach from the
+                    // FFT amplitude in that window would size it for waves that
+                    // are not on screen.
+                    const bool fftActive =
+                        water.m_UseFFT && water.m_OceanField &&
+                        water.m_OceanField->GetDisplacementTextureHandle().IsValid() &&
+                        water.m_OceanField->GetDerivativesTextureHandle().IsValid();
+                    if (fftActive)
+                    {
+                        // Sanitize exactly as the render path does (clampF with
+                        // the same bounds at the m_Amplitude / fftAmp sites
+                        // above). std::abs would disagree with it on a negative
+                        // amplitude, and skipping the upper bound would disagree
+                        // on an out-of-range one — the fog reach must be derived
+                        // from the wave height actually rendered, not a
+                        // differently-sanitized copy of the same field.
+                        const f32 fftAmplitude = sanitizeParam(water.m_FFTAmplitude, 0.0f, 100.0f, 2.0f);
+                        const f32 heightScale = WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale);
+                        waveReach = std::max(waveReach, fftAmplitude * heightScale);
+                    }
+
+                    if (const f32 absGap = std::abs(gap); gap > -waveReach && absGap < bestSurfaceDist)
                     {
                         bestSurfaceDist = absGap;
                         underwater.Active = true;

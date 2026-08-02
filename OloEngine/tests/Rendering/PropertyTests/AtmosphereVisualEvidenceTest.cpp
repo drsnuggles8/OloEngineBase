@@ -134,6 +134,54 @@ namespace OloEngine::Tests
             return count ? std::sqrt(sumSq / static_cast<f64>(count)) : 0.0;
         }
 
+        // Goldens are baselined per GPU vendor.
+        //
+        // These captures are compared with an RMSE threshold of 8, and a real
+        // AMD-vs-NVIDIA difference blows straight through that: on radeonsi the
+        // three NIGHT captures drift 19-24 RMSE against NVIDIA-baselined images
+        // while every day capture passes, because the night sky is where the
+        // star-field/procedural-sky float precision diverges most. That is a
+        // genuine vendor difference, not a regression, so each vendor needs its
+        // own baseline set.
+        //
+        // Mirrors GoldenImageTests::GoldenBaselineDir so both golden mechanisms
+        // scope identically; previously only that one honoured the variable, so
+        // an AMD run silently compared against — and on a rebase would have
+        // OVERWRITTEN — the NVIDIA baselines.
+        [[nodiscard]] fs::path GoldenBaselineDir()
+        {
+            fs::path base = fs::path("assets") / "tests" / "visual";
+            if (const char* vendor = std::getenv("OLOENGINE_GOLDEN_VENDOR"); vendor != nullptr && vendor[0] != '\0')
+            {
+                // The vendor must name ONE directory below the baseline root,
+                // nothing else. `base /= vendor` is not safe on its own: an
+                // absolute value REPLACES base outright (fs::path semantics),
+                // and "../.." walks out of the tree — so with
+                // OLOENGINE_GOLDEN_REBASE=1 a stray value would write goldens
+                // anywhere the process can reach. Accept only a plain name.
+                const std::string_view name(vendor);
+                // A separator/dot check alone is not enough on Windows: a
+                // DRIVE-RELATIVE value like "C:vendor" contains neither, yet
+                // fs::path treats it as rooted, so `base /= name` would discard
+                // base and resolve against C:'s current directory. Reject
+                // anything fs::path considers rooted at all.
+                const fs::path vendorPath(name);
+                const bool safe = name.find('/') == std::string_view::npos &&
+                                  name.find('\\') == std::string_view::npos &&
+                                  name != "." && name != ".." &&
+                                  !vendorPath.has_root_name() && !vendorPath.has_root_directory();
+                if (!safe)
+                {
+                    ADD_FAILURE() << "OLOENGINE_GOLDEN_VENDOR must be a single directory name "
+                                     "(no separators, '.', '..', drive letter or root) — got '"
+                                  << name << "'";
+                    return base;
+                }
+                base /= name;
+            }
+            return base;
+        }
+
         [[nodiscard]] bool GoldenRebaseRequested()
         {
             const char* v = std::getenv("OLOENGINE_GOLDEN_REBASE");
@@ -329,7 +377,7 @@ namespace OloEngine::Tests
             m_Horizon[name] = MeanBand(pixels, kHeight * 38u / 100u, kHeight * 46u / 100u);
             m_Ground[name] = MeanBand(pixels, kHeight * 75u / 100u, kHeight);
 
-            const fs::path dir = fs::path("assets") / "tests" / "visual";
+            const fs::path dir = GoldenBaselineDir();
             const std::string path = (dir / ("Atmosphere_" + name + ".png")).string();
 
             if (GoldenRebaseRequested())

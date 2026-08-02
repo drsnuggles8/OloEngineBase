@@ -43,9 +43,27 @@ namespace OloEngine
 
     // True for the block-compressed ImageFormat values, which take the
     // glCompressedTextureSubImage2D upload path instead of a client pixel format.
-    [[nodiscard]] constexpr bool IsCompressedFormat(ImageFormat format) noexcept
+    [[nodiscard("Store this!")]] constexpr bool IsCompressedFormat(ImageFormat format) noexcept
     {
         return format == ImageFormat::BC7 || format == ImageFormat::BC5 || format == ImageFormat::BC6H;
+    }
+
+    // True for the integer (non-normalised) ImageFormat values — the ones a
+    // shader reads through an isampler/usampler rather than a float sampler.
+    //
+    // These MUST be sampled with GL_NEAREST. GL requires a texture whose base
+    // format is integer to use a NEAREST mag filter; with GL_LINEAR it is
+    // *incomplete*, and sampling an incomplete texture yields zero — including
+    // through texelFetch. NVIDIA quietly tolerates the linear filter, Mesa
+    // does not, so a linear-filtered integer texture reads as all-zero on AMD
+    // and correct on NVIDIA. That asymmetry silently erased every glyph the
+    // Slug text renderer drew (its RG16UI band texture returned zero bands, so
+    // each glyph covered no pixels) while leaving the geometry, draw calls and
+    // logs looking perfectly healthy.
+    [[nodiscard("Store this!")]] constexpr bool IsIntegerFormat(ImageFormat format) noexcept
+    {
+        return format == ImageFormat::R8UI || format == ImageFormat::R16UI ||
+               format == ImageFormat::RG16UI || format == ImageFormat::R32I;
     }
 
     struct TextureSpecification
@@ -89,7 +107,7 @@ namespace OloEngine
         // migration: that one hands out the raw backend name and is deleted once
         // every caller has moved. Turning a handle back into a native object is
         // Platform/<Backend>/'s business.
-        [[nodiscard]] virtual RHI::ResourceHandle GetRHIHandle() const = 0;
+        [[nodiscard("Store this!")]] virtual RHI::ResourceHandle GetRHIHandle() const = 0;
         [[nodiscard("Store this!")]] virtual const std::string& GetPath() const = 0;
 
         virtual void SetData(void* data, u32 size) = 0;

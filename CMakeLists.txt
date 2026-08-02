@@ -77,6 +77,44 @@ list(APPEND CMAKE_MODULE_PATH
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 
+# --------------------------------------------------------------------------
+# Link concurrency (Ninja only).
+#
+# Linking is this project's memory spike, not compiling: OloEngine-Tests and
+# OloEditor pull in the whole static engine plus its vendored dependencies, and
+# each concurrent link holds that peak at once. Ninja's default width is
+# `cores + 2` (18 on a 16-core host), so an unqualified `ninja` will happily
+# start several of those together and take the machine out — which is exactly
+# how this host was OOM-killed while three other CI runners shared it.
+#
+# A pool is the right tool rather than a smaller `-j`: it throttles ONLY the
+# link step, leaving compilation at full width. It also lives in the generated
+# build.ninja, so it protects a bare `ninja` invocation too — not just
+# `cmake --build`, which is the only thing CMAKE_BUILD_PARALLEL_LEVEL reaches.
+#
+# Raise it on a machine with memory to spare: -DOLO_LINK_JOBS=4.
+if(CMAKE_GENERATOR MATCHES "Ninja")
+    set(OLO_LINK_JOBS "2" CACHE STRING "Maximum concurrent link steps (Ninja generators)")
+    # THIS PROJECT requires a finite positive depth — that is a stricter rule
+    # than the toolchain's, deliberately.
+    #
+    # Measured, rather than assumed: CMake already rejects a non-numeric depth
+    # at configure time (build.ninja is never generated), so that case needs no
+    # help here. But `depth = 0` passes straight through CMake AND ninja, and
+    # the build then runs happily with the cap doing nothing. Since the entire
+    # point of this pool is to bound peak memory during linking, a value that
+    # quietly disables it is worse than one that fails — so reject it here and
+    # say why, instead of leaving a green build that is not actually capped.
+    if(NOT OLO_LINK_JOBS MATCHES "^[1-9][0-9]*$")
+        message(FATAL_ERROR
+            "OLO_LINK_JOBS must be a positive integer (got '${OLO_LINK_JOBS}'). "
+            "It bounds concurrent link steps to limit peak memory; 0 or empty "
+            "would leave links effectively uncapped.")
+    endif()
+    set_property(GLOBAL PROPERTY JOB_POOLS olo_link=${OLO_LINK_JOBS})
+    set(CMAKE_JOB_POOL_LINK olo_link)
+endif()
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)

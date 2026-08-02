@@ -19,6 +19,7 @@
  */
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Templates/UnrealTypeTraits.h"
 #include "OloEngine/Containers/ContainerAllocationPolicies.h"
 #include "OloEngine/Containers/ArrayView.h"
 #include "OloEngine/Containers/CompactSetBase.h"
@@ -322,6 +323,10 @@ namespace OloEngine
         /** Destructor */
         ~TCompactSet()
         {
+            // TCompactSet relocates its elements bitwise like the other UE containers.
+            OLO_STATIC_ASSERT_WARN(TIsTriviallyRelocatable_V<ElementType>,
+                                   "This container can only be used with trivially relocatable types");
+
             Empty(0);
         }
 

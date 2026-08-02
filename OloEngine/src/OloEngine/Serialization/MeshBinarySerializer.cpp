@@ -350,7 +350,8 @@ namespace OloEngine
                 entry.IsRigged = sub.m_IsRigged ? 1 : 0;
 
                 WriteBytes(payload, &entry, sizeof(entry));
-                if (!WriteString(payload, sub.m_NodeName) || !WriteString(payload, sub.m_MeshName))
+                if (!WriteString(payload, sub.m_NodeName.ToStdString()) ||
+                    !WriteString(payload, sub.m_MeshName.ToStdString()))
                 {
                     return false;
                 }

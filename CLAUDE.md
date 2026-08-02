@@ -86,15 +86,39 @@ CMake presets ([CMakePresets.json](CMakePresets.json)) — note all three requir
 scripts\Win-GenerateProjectVS2022.bat   # or VS2026
 
 # Build a target
-cmake --build build --target OloEditor       --config Debug --parallel
-cmake --build build --target OloEngine-Tests --config Debug --parallel
-cmake --build build --target OloRuntime      --config Debug --parallel
-cmake --build build --target OloServer       --config Debug --parallel
+cmake --build build --target OloEditor       --config Debug --parallel 6
+cmake --build build --target OloEngine-Tests --config Debug --parallel 6
+cmake --build build --target OloRuntime      --config Debug --parallel 6
+cmake --build build --target OloServer       --config Debug --parallel 6
 
 # ClangCL (configure once, then build)
 cmake --preset clangcl
-cmake --build build-clang --target OloEngine-Tests --config Debug --parallel
+cmake --build build-clang --target OloEngine-Tests --config Debug --parallel 6
 ```
+
+### Cap build parallelism — a full-width build can OOM this machine
+
+**Never build uncapped.** Either pass an explicit job count — `--parallel 6`, or `ninja -j6` — or set `CMAKE_BUILD_PARALLEL_LEVEL`, which `cmake --build` uses whenever no `--parallel` is given (this is how the nightly workflow caps itself):
+
+```powershell
+$env:CMAKE_BUILD_PARALLEL_LEVEL = "6"   # PowerShell (the primary dev shell here)
+```
+```bash
+export CMAKE_BUILD_PARALLEL_LEVEL=6      # POSIX shell / the Linux GPU runner
+```
+
+An explicit `--parallel N` overrides the environment variable, so don't set one expecting the other to win.
+
+**`CMAKE_BUILD_PARALLEL_LEVEL` caps `cmake --build` only — `ninja` does not read it.** A direct `ninja` invocation must always carry a numeric `-jN` of its own; setting the variable and then running bare `ninja` gives you the full 18-wide default with no warning. What is never acceptable is a bare `--parallel`, or a direct `ninja` without `-jN`.
+
+This is not a style preference. The dev box is 16 cores / 31 GB and *also* hosts the `gh-runner-1/2/3` runners for another repository, so a build never has the machine to itself. Neither default is a cap:
+
+- `cmake --build … --parallel` with **no number** does not pick a number itself — it forwards the omission to the native build tool, whose own default applies (unless `CMAKE_BUILD_PARALLEL_LEVEL` is set). So the width you get depends on the generator, and it is never *lower* than the tool's default.
+- With Ninja that default is `cores + 2` — 18 on this host, confirmed by `ninja --help` reporting `[default=18 on this system]`. Dropping a `--parallel N` flag therefore *raises* the width rather than lowering it.
+
+An agent session running repeated uncapped builds — especially with a test suite running alongside — has already OOM-killed this host once. If you need it faster, use ccache (already wired in), not more jobs.
+
+Link steps are capped separately and automatically: the root `CMakeLists.txt` puts them in a Ninja job pool (`OLO_LINK_JOBS`, default 2) because linking the full static engine is the memory spike. That pool lives in the generated `build.ninja`, so it protects a bare `ninja` too — but it does **not** cap compilation, which is what the job count above is for.
 
 VS Code tasks ([.vscode/tasks.json](.vscode/tasks.json)) wrap the above: `build-oloeditor-debug`, `run-oloeditor-debug`, `build-tests-debug`, `run-tests-debug`, `build-clangcl-tests-debug`, `configure-clangcl`, etc.
 

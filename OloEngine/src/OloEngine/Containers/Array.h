@@ -433,8 +433,20 @@ namespace OloEngine
         friend class TArray;
 
         ElementAllocatorType m_AllocatorInstance;
-        SizeType m_ArrayNum;
-        SizeType m_ArrayMax;
+        // Zero-initialised in-class, NOT left indeterminate.
+        //
+        // The copy constructors call CopyToEmpty() on a freshly-declared array
+        // and CopyToEmpty in turn calls ResizeAllocation(), which short-circuits
+        // on `if (NewMax != m_ArrayMax)`. With m_ArrayMax indeterminate that
+        // comparison reads uninitialised memory, and whenever the garbage
+        // happened to equal the computed NewMax the allocation was SKIPPED —
+        // leaving GetData() null and the following ConstructItems memcpy'ing to
+        // address 0. It surfaced as a SIGSEGV in TArray<char>'s copy
+        // constructor (via FString), where the small quantised capacities are
+        // far likelier to collide with stack garbage than the larger values
+        // typical of this engine's other element types.
+        SizeType m_ArrayNum = 0;
+        SizeType m_ArrayMax = 0;
 
       public:
         // ====================================================================
@@ -552,6 +564,28 @@ namespace OloEngine
         /** Destructor */
         ~TArray()
         {
+            // TArray relocates elements BITWISE. ResizeGrow goes through the
+            // allocator's ResizeAllocation -> FMemory::Realloc, which moves the
+            // raw byte buffer and never consults any element trait; the
+            // insert/remove paths use RelocateConstructItems, which memmoves.
+            // An element type holding a pointer into itself is therefore
+            // silently corrupted — libstdc++'s std::string does exactly that
+            // under SSO, which aborted with "free(): invalid pointer".
+            //
+            // Ported verbatim in spirit from UE's ~TArray (Array.h), including
+            // its placement in the destructor and its warning-not-error level:
+            //
+            //   UE_STATIC_ASSERT_WARN(TIsTriviallyRelocatable_V<InElementType>,
+            //       "TArray can only be used with trivially relocatable types");
+            //
+            // A warning rather than a hard assert because the trait defaults to
+            // true and is opt-out, so this only fires for types someone has
+            // explicitly marked non-relocatable — exactly the cases that are
+            // already broken. Upgrading to a hard error is the right end state
+            // once the flagged types are fixed.
+            OLO_STATIC_ASSERT_WARN(TIsTriviallyRelocatable_V<InElementType>,
+                                   "TArray can only be used with trivially relocatable types");
+
             DestructItems(GetData(), m_ArrayNum);
             // Allocator destructor handles freeing memory
         }
@@ -566,7 +600,18 @@ namespace OloEngine
             if (this != &Other)
             {
                 DestructItems(GetData(), m_ArrayNum);
-                CopyToEmpty(Other.GetData(), Other.Num(), m_ArrayMax);
+                // Pass 0, not m_ArrayMax.
+                //
+                // UE's CopyToEmpty takes a PrevMax parameter and uses it to
+                // decide whether the existing allocation can be reused. This
+                // port's CopyToEmpty instead takes ExtraSlack and computes
+                // `NewMax = Count + ExtraSlack`, which is what the two
+                // slack-taking constructors above rely on. Handing it
+                // m_ArrayMax under those semantics asked for
+                // `Count + current capacity` — so every copy-assignment grew
+                // the allocation by the current capacity, without bound, for
+                // arrays that are assigned repeatedly.
+                CopyToEmpty(Other.GetData(), Other.Num(), 0);
             }
             return *this;
         }

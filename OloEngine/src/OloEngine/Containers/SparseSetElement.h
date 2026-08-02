@@ -12,6 +12,7 @@
  */
 
 #include "OloEngine/Containers/SetUtilities.h"
+#include "OloEngine/Templates/UnrealTypeTraits.h"
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
 #include <initializer_list>
@@ -69,6 +70,25 @@ namespace OloEngine
 
         /** The hash bucket that the element is currently linked to */
         mutable i32 HashIndex;
+    };
+
+    // Propagate relocatability from the wrapped element.
+    //
+    // TSparseSet stores TSparseArray<TSparseSetElement<T>>, and TArray relocates
+    // bitwise. Without this, the wrapper falls through to the permissive default
+    // (true) and REPORTS ITSELF RELOCATABLE no matter what T is — which silently
+    // muted ~TSparseArray's guard for every TSet and TMap. That is exactly how
+    // TMap<std::string, T> corrupted Material's uniform tables without any
+    // compile-time warning: std::string is correctly marked non-relocatable, and
+    // TTuple propagates it to TPair, but the wrapper threw the information away
+    // one layer before the guard could see it.
+    template<typename T>
+    struct TIsTriviallyRelocatable<TSparseSetElement<T>>
+    {
+        enum
+        {
+            Value = TIsTriviallyRelocatable<T>::Value
+        };
     };
 
     // ============================================================================

@@ -209,9 +209,10 @@ namespace OloEngine
             if (materialIndex >= realMaterialCount)
                 materialIndex = defaultMaterialIndex;
 
-            std::string meshName = submesh.m_MeshName.empty()
-                                       ? (submesh.m_NodeName.empty() ? ("Mesh_" + std::to_string(m)) : submesh.m_NodeName)
-                                       : submesh.m_MeshName;
+            std::string meshName =
+                submesh.m_MeshName.IsEmpty()
+                    ? (submesh.m_NodeName.IsEmpty() ? ("Mesh_" + std::to_string(m)) : submesh.m_NodeName.ToStdString())
+                    : submesh.m_MeshName.ToStdString();
             scene.mMeshes[m] = BuildMesh(source, submesh, materialIndex, meshName);
             scene.mRootNode->mMeshes[m] = m;
         }

@@ -106,16 +106,31 @@ If you add a third GPU gate with new wording, add its phrase there too.
 Most of the toolchain is already present. Mirroring `asan.yml`'s Linux
 dependency set, on Rocky 10:
 
+**Everything the build needs must be installed system-wide** (`/usr`, `/opt`) —
+never in a person's home directory. `/home/obueker` is mode `0700`, so anything
+under it is invisible to `gh-runner-olo`. This bit three separate times during
+bring-up: the Vulkan SDK, the runner tarball, and finally `cmake`/`ninja`, which
+were pip installs in `/home/obueker/.local/bin` and produced a bare `cmake:
+command not found`. The workflow now preflights the toolchain so the error names
+the cause.
+
 ```bash
 sudo dnf install -y \
-  ccache \
+  cmake ninja-build ccache gcc gcc-c++ \
   vulkan-loader-devel vulkan-headers \
   mesa-libGL-devel mesa-libEGL-devel libglvnd-devel \
   libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libXext-devel \
   wayland-devel wayland-protocols-devel libxkbcommon-devel \
-  glslang-devel spirv-tools
-python3 -m pip install --user jinja2   # OloHeaderTool codegen
+  glslang-devel spirv-tools \
+  python3-jinja2
 ```
+
+**`python3-jinja2` from dnf, not `pip install --user`.** glad2's code generation
+imports jinja2, and `--user` installs it into the *installing* user's home —
+invisible to `gh-runner-olo` for the same `0700` reason as everything else. That
+mistake cost a run: all three preflights passed and the build died four minutes
+in on `ModuleNotFoundError: No module named 'jinja2'`. The toolchain preflight
+now checks importable modules as well as binaries.
 
 The X11/Wayland `-devel` packages are needed to *build* GLFW even though no
 display server runs — GLFW compiles its backends unconditionally.

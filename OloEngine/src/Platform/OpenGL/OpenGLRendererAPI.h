@@ -3,6 +3,8 @@
 
 #include <glad/gl.h>
 
+#include <array>
+
 namespace OloEngine
 {
 
@@ -259,6 +261,32 @@ namespace OloEngine
         }
 
       private:
+        // Per-attachment colour write masks, mirrored from glColorMaski so a
+        // colour clear can lift them (glClear obeys the colour mask exactly as
+        // it obeys the depth/stencil write masks the Clear* paths already
+        // guard) and put them back. Index == draw-buffer index; only the first
+        // m_MaxDrawBuffers entries are meaningful.
+        struct AttachmentColorMask
+        {
+            bool R = true, G = true, B = true, A = true;
+
+            [[nodiscard]] bool IsFullyEnabled() const
+            {
+                return R && G && B && A;
+            }
+        };
+        static constexpr u32 kMaxTrackedDrawBuffers = 8;
+        std::array<AttachmentColorMask, kMaxTrackedDrawBuffers> m_AttachmentColorMasks{};
+        // True while any tracked attachment has a non-default mask, so the
+        // clear paths can skip the save/restore entirely in the common case.
+        bool m_AnyAttachmentColorMaskDisabled = false;
+
+        // Lift every per-attachment colour mask for a clear, returning true if
+        // anything was changed (in which case RestoreAttachmentColorMasks must
+        // be called once the clear has been issued).
+        bool LiftAttachmentColorMasksForClear();
+        void RestoreAttachmentColorMasks();
+
         bool m_DepthTestEnabled = false;
         bool m_DepthMaskEnabled = true;
         bool m_StencilTestEnabled = false;

@@ -26,6 +26,7 @@
  */
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Templates/UnrealTypeTraits.h"
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Containers/ArrayView.h"
 #include "OloEngine/Containers/BitArray.h"
@@ -691,6 +692,17 @@ namespace OloEngine
         /** Destructor */
         ~TSparseArray()
         {
+            // TSparseArray backs TSet, which backs TMap, so this one guard covers all
+            // three. It checks the USER-FACING element type deliberately: the
+            // internal storage is a union over TAlignedBytes, which is trivially
+            // relocatable no matter what the real element is, so a guard on the
+            // internal type would never fire.
+            //
+            // TPair is a TTuple, and TTuple propagates the trait across its
+            // members, so TMap<std::string, T> correctly trips this.
+            OLO_STATIC_ASSERT_WARN(TIsTriviallyRelocatable_V<InElementType>,
+                                   "This container can only be used with trivially relocatable types");
+
             Empty();
         }
 

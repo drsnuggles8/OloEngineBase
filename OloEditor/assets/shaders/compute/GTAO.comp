@@ -185,6 +185,21 @@ void main()
         return;
     }
 
+    // Match SSAO: no normal means no occlusion, so store full visibility.
+    //
+    // Tested next to the depth early-out rather than at the decode below: a
+    // sentinel pixel produces exactly this result regardless of depth,
+    // neighbour depths, edges or reconstructed position, so computing those
+    // first is pure waste. On a forward-path frame the overlay shaders cover
+    // a large share of the screen.
+    vec2 encodedNormal = texelFetch(u_ViewNormals, pixCoord, 0).rg;
+    if (encodedNormal.x < -1.5)
+    {
+        imageStore(o_AOTerm, pixCoord, vec4(1.0));
+        imageStore(o_Edges, pixCoord, vec4(0.0));
+        return;
+    }
+
     float viewspaceZ = LinearizeDepth(deviceZ);
 
     // Neighbour depths for edge detection
@@ -207,8 +222,22 @@ void main()
     // diverges from the real view ray increasingly toward the edges).
     vec3 viewVec = normalize(-pixCenterPos);
 
-    // Decode world-space normal from GBuffer and convert to view-space
-    vec2 encodedNormal = texelFetch(u_ViewNormals, pixCoord, 0).rg;
+    // Decode world-space normal from GBuffer and convert to view-space.
+    //
+    // (-2,-2) is the engine-wide "no normal here" sentinel, written by every
+    // shader that draws into the scene normal RT without a meaningful surface
+    // normal: InfiniteGrid, the four Particle_* shaders, and the Renderer2D_*
+    // quad/circle/line/text/polygon shaders. It is outside any valid
+    // octahedral range, so decoding it yields a garbage normal and GTAO
+    // FABRICATES occlusion wherever those shaders drew.
+    //
+    // SSAO.glsl has always guarded this ("sentinel value (-2,-2) means no
+    // normal"); GTAO.comp did not, which is why the forward path baked the
+    // editor grid into the AO buffer as a lattice of dark lines while the
+    // deferred path stayed clean -- the G-Buffer never carries those overlay
+    // draws, so only forward sees the sentinel. It cost ~4/255 mean absolute
+    // difference between the two paths at an off-axis pose.
+    //
     vec3 viewNormal = normalize(mat3(u_ViewMatrix) * OctDecode(encodedNormal));
 
     // Noise for slice rotation (.x) and sample distance along the slice (.y).

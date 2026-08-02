@@ -75,6 +75,12 @@
 
 #include <algorithm>
 #include <filesystem>
+#if defined(_WIN32)
+#include <process.h>
+#define getpid _getpid
+#else
+#include <unistd.h>
+#endif
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -91,18 +97,76 @@ namespace OloEngine::Tests
         namespace fs = std::filesystem;
 
         // Stage the entire SandboxProject into a fresh temp dir.
-        // Returns the temp project's root path (or empty on failure).
-        fs::path StageSandboxProjectIntoTemp()
+        // Returns the temp project's root path (or empty on failure, with the
+        // reason written to `error` — a bare empty path made a permission
+        // failure here indistinguishable from a copy failure).
+        fs::path StageSandboxProjectIntoTemp(std::string& error)
         {
             const fs::path sandboxRoot = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject";
-            const fs::path tempRoot =
-                fs::temp_directory_path() / "OloEngineSceneLoad";
 
             std::error_code ec;
-            fs::remove_all(tempRoot, ec);
-            fs::create_directories(tempRoot, ec);
+            const fs::path tempDir = fs::temp_directory_path(ec);
             if (ec)
+            {
+                error = "temp_directory_path failed: " + ec.message();
                 return {};
+            }
+
+            // A FIXED name under a shared, sticky /tmp is not usable. This
+            // repo's self-hosted CI runs the suite as its own account, so
+            // /tmp/OloEngineSceneLoad can already exist owned by a different
+            // user — and the sticky bit then makes it un-removable AND
+            // un-recreatable for everyone else, failing this test forever.
+            // Two concurrent runs on one box (several runners share this
+            // host) would likewise fight over the same tree mid-copy.
+            //
+            // Name the root after this process, then claim it EXCLUSIVELY.
+            //
+            // An earlier version removed a pre-existing candidate before
+            // claiming it, on the theory that it was our own leftover. That is
+            // not a safe assumption: remove_all succeeds for any directory
+            // owned by the same user, including one a CONCURRENT run by that
+            // same user is copying into right now — so the reclaim step could
+            // delete a live staging tree mid-copy, which is precisely the
+            // collision this loop exists to avoid.
+            //
+            // create_directory returns false when the path already exists, so
+            // it doubles as the claim: we only ever proceed with a directory
+            // we just created, and never touch one we did not. A crashed run
+            // therefore leaks its directory rather than risking a live one;
+            // the pid keeps those out of the way of new runs, and the attempt
+            // suffix covers a recycled pid whose leftovers are still present.
+            const long long pid = static_cast<long long>(::getpid());
+            std::error_code lastError;
+            fs::path tempRoot;
+            for (u32 attempt = 0; attempt < 64; ++attempt)
+            {
+                const fs::path candidate =
+                    tempDir / ("OloEngineSceneLoad-" + std::to_string(pid) + "-" + std::to_string(attempt));
+
+                ec.clear();
+                if (fs::create_directory(candidate, ec) && !ec)
+                {
+                    tempRoot = candidate;
+                    break;
+                }
+                // Keep the last REAL error. A candidate that merely already
+                // exists returns false with ec == success, which would
+                // otherwise overwrite a genuine earlier failure and report
+                // "last error: Success".
+                if (ec)
+                    lastError = ec;
+            }
+
+            if (tempRoot.empty())
+            {
+                error = "could not create a staging dir under " + tempDir.string();
+                if (lastError)
+                    error += " (last error: " + lastError.message() + ")";
+                else
+                    error += " (all candidate names were already taken)";
+                return {};
+            }
 
             // Recursive copy: every file, every subdirectory. We need
             // Assets/, AssetRegistry.oar, and the .oloproj at minimum;
@@ -113,7 +177,18 @@ namespace OloEngine::Tests
                          fs::copy_options::copy_symlinks,
                      ec);
             if (ec)
+            {
+                error = "copy " + sandboxRoot.string() + " -> " + tempRoot.string() + " failed: " + ec.message();
+                std::error_code cleanupEc;
+                fs::remove_all(tempRoot, cleanupEc);
+                if (cleanupEc)
+                {
+                    // Say so rather than swallow it: a partial tree left behind
+                    // is the next run's confusing failure.
+                    error += " (cleanup of " + tempRoot.string() + " also failed: " + cleanupEc.message() + ")";
+                }
                 return {};
+            }
 
             return tempRoot;
         }
@@ -158,9 +233,10 @@ namespace OloEngine::Tests
         // shared process+context.
         GLStateGuard glGuard("AssetSceneLoad.Deserialize", GLStateGuard::Policy::Restore);
 
-        const fs::path tempRoot = StageSandboxProjectIntoTemp();
+        std::string stageError;
+        const fs::path tempRoot = StageSandboxProjectIntoTemp(stageError);
         ASSERT_FALSE(tempRoot.empty())
-            << "Failed to stage SandboxProject into temp dir.";
+            << "Failed to stage SandboxProject into temp dir: " << stageError;
 
         // RAII cleanup: delete the temp dir on test exit regardless of
         // assertion outcome.
@@ -169,8 +245,36 @@ namespace OloEngine::Tests
             fs::path Dir;
             ~Cleanup()
             {
+                // Retry, and report if it still fails.
+                //
+                // remove_all walks bottom-up, and the asset manager recreates
+                // its Assets/cache/{mesh,animation} directories during teardown
+                // — if that lands between the child removal and the parent's,
+                // the parent fails ENOTEMPTY and the tree is left behind. A
+                // single silent attempt leaked a staging root per run, which
+                // used to be masked because a fixed directory name meant the
+                // next run reclaimed it; now that each run stages under its own
+                // pid, a leak accumulates instead.
                 std::error_code ec;
-                fs::remove_all(Dir, ec);
+                for (int attempt = 0; attempt < 3; ++attempt)
+                {
+                    ec.clear();
+                    fs::remove_all(Dir, ec);
+                    // Judge success by whether the directory is GONE, not by
+                    // what remove_all reported. The race here is a recreate
+                    // landing after the removal, which leaves remove_all
+                    // reporting success while the tree survives — so an
+                    // `!ec ||` short-circuit would return without retrying in
+                    // precisely the case the retry exists for.
+                    //
+                    // Non-throwing overload: a destructor is implicitly
+                    // noexcept, so the throwing fs::exists(Dir) would call
+                    // std::terminate rather than report a failure to clean up.
+                    std::error_code existsEc;
+                    if (!fs::exists(Dir, existsEc))
+                        return;
+                }
+                OLO_CORE_WARN("AssetSceneLoad: could not remove staging dir '{}': {}", Dir.string(), ec.message());
             }
         } cleanup{ tempRoot };
 

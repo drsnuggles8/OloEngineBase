@@ -90,6 +90,21 @@ jobs:
 
     env:
       BUILD_TYPE: Release
+      # Build width, set here rather than as a `--parallel` flag so it applies
+      # to EVERY `cmake --build` in the job, including any added later that
+      # forget the flag. `cmake --build` reads this whenever `--parallel` is
+      # absent; an explicit `--parallel` on a step would override it.
+      #
+      # This must be set explicitly. Dropping the flag does NOT fall back to
+      # something conservative — with the Ninja generator the default is
+      # cores + 2, which is 18 on this 16-core host, i.e. MORE than the
+      # `--parallel 12` that already ran it out of memory.
+      #
+      # 6, not 16: this host also runs the gh-runner-1/2/3 runners for another
+      # repository. A nightly at ~02:47 local should normally find them idle,
+      # but "normally" is not "always" — leave headroom so a concurrent build
+      # elsewhere on the box doesn't turn into swap thrash or an OOM.
+      CMAKE_BUILD_PARALLEL_LEVEL: 6
       # Goldens are baselined on NVIDIA hardware; GoldenImageTests.cpp reads this
       # to select a per-vendor golden directory (assets/tests/golden/amd/) so an
       # AMD run can never clobber the NVIDIA baseline set.
@@ -153,6 +168,53 @@ jobs:
           # .git/config where a later step or a compromised dependency can read
           # it — the same reasoning as Windows.yml's checkout.
           persist-credentials: false
+
+      # A self-hosted runner has whatever the box happens to have, and the runner
+      # user's PATH is NOT the admin's. cmake and ninja were originally pip
+      # installs under /home/obueker/.local/bin — on this host /home/obueker is
+      # mode 0700, so gh-runner-olo could not see them and the first run died
+      # with a bare `cmake: command not found` after a 39 s checkout. Everything
+      # the build needs must be system-wide (/usr, /opt), never in a person's
+      # home. Check that up front so the error names the cause.
+      #
+      # This runs FIRST, before the GL probe below, because that probe compiles
+      # its test program with gcc. With the order reversed a missing compiler
+      # surfaces as a bare `gcc: command not found` from the GL step instead of
+      # the remediation message here — do not reorder these two.
+      - name: Preflight — build toolchain
+        run: |
+          set -euo pipefail
+          missing=0
+          for tool in cmake ninja ccache gcc g++ python3; do
+            if command -v "$tool" >/dev/null 2>&1; then
+              printf '  %-8s %s\n' "$tool" "$(command -v "$tool")"
+            else
+              echo "::error::$tool not found on the runner's PATH"
+              missing=1
+            fi
+          done
+          # Python modules count as toolchain too. glad2's code generation
+          # imports jinja2, and a `pip install --user` puts it in the INSTALLING
+          # user's home — invisible to the runner user for the same 0700 reason
+          # as everything else. Checking only binaries let this through: the
+          # preflight passed and the build then died on ModuleNotFoundError
+          # four minutes in. Check what the build actually imports.
+          for mod in jinja2; do
+            if python3 -c "import $mod" 2>/dev/null; then
+              printf '  %-8s %s\n' "$mod" "$(python3 -c "import $mod,os; print(os.path.dirname($mod.__file__))")"
+            else
+              echo "::error::python module '$mod' not importable by $(id -un)"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Provision the runner: sudo dnf install -y cmake ninja-build ccache gcc gcc-c++ python3 python3-jinja2"
+            echo "::error::See docs/ops/self-hosted-gpu-runner.md. Everything must be system-wide —"
+            echo "::error::not under a 0700 home, and not a 'pip install --user' in someone else's account."
+            exit 1
+          fi
+          cmake --version | head -1
 
       # ---------------------------------------------------------------------
       # Preflight: prove we have a HARDWARE context before spending an hour
@@ -230,7 +292,21 @@ jobs:
           : "${VULKAN_SDK:?VULKAN_SDK is not set - see docs/ops/self-hosted-gpu-runner.md}"
           test -d "$VULKAN_SDK/include/vulkan" || { echo "::error::no headers under $VULKAN_SDK"; exit 1; }
           test -e "$VULKAN_SDK/lib/libshaderc_shared.so" || { echo "::error::no shaderc under $VULKAN_SDK"; exit 1; }
+
+          # The LunarG SDK does NOT place the loader in lib/ — it nests it under
+          # lib/VulkanLoader/lib/. CMAKE_PREFIX_PATH therefore resolves the
+          # headers and the *version* but not Vulkan_LIBRARY, and configure dies
+          # with "Could NOT find Vulkan (missing: Vulkan_LIBRARY) (found version
+          # 1.4.350)" — found-but-not-found, which reads like a version problem
+          # and is not one. Locate the loader and hand the configure step an
+          # exact path rather than letting it guess at a layout that varies
+          # between SDK versions.
+          loader=$(find "$VULKAN_SDK" -name 'libvulkan.so' -print -quit 2>/dev/null || true)
+          [ -n "$loader" ] || { echo "::error::no libvulkan.so anywhere under $VULKAN_SDK"; exit 1; }
+
           echo "Vulkan SDK: $VULKAN_SDK"
+          echo "  loader:   $loader"
+          echo "OLO_VULKAN_LIBRARY=$loader" >> "$GITHUB_ENV"
 
       - name: Configure CMake
         # Heavy optional interchange deps (USD/Alembic/MaterialX) and the FFmpeg
@@ -246,18 +322,31 @@ jobs:
           cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
           -DCMAKE_PREFIX_PATH="$VULKAN_SDK"
+          -DVulkan_LIBRARY="$OLO_VULKAN_LIBRARY"
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           -DOLO_VIDEO_FFMPEG=OFF
           -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
+          -DOLO_LINK_JOBS=1
 
       - name: Build tests
-        # --parallel 12, not nproc (16): this host also runs the gh-runner-1/2/3
-        # runners for another repository. A nightly at ~02:47 local should
-        # normally find them idle, but "normally" is not "always" — leave
-        # headroom so a concurrent build on the other runners doesn't turn into
-        # swap thrash or an OOM during the OloEngine-Tests link.
-        run: cmake --build build --target OloEngine-Tests --parallel 12
+        # Width comes from CMAKE_BUILD_PARALLEL_LEVEL in the job env — see the
+        # note there for why it must be set explicitly rather than left to the
+        # generator default.
+        #
+        # Link concurrency is the second half of it, and the more important
+        # half for this failure: linking OloEngine-Tests is the memory spike,
+        # and a link peaks far higher than a compile. A plain -j cap still
+        # permits several concurrent links.
+        #
+        # That cap now belongs to the project — the root CMakeLists owns an
+        # olo_link job pool sized by OLO_LINK_JOBS (default 2), so `ninja`
+        # obeys it too, not just `cmake --build`. The configure step above
+        # therefore sets OLO_LINK_JOBS=1 rather than declaring a second,
+        # workflow-local pool: two mechanisms binding CMAKE_JOB_POOL_LINK
+        # would have the workflow's silently win, leaving the project's
+        # setting looking effective while doing nothing.
+        run: cmake --build build --target OloEngine-Tests
 
       # ---------------------------------------------------------------------
       # The suite runs from OloEditor/ — OloEditor, OloRuntime and the test
@@ -278,8 +367,15 @@ jobs:
           MESA_LOADER_DRIVER_OVERRIDE: radeonsi
         run: |
           mkdir -p ../test_results
+          # NetworkIntegrationTest is excluded by EVERY other job in this repo
+          # (see asan.yml's --exclude-regex on all three Linux sanitiser jobs):
+          # it needs real socket plumbing that CI environments don't provide, and
+          # it failed all six cases here for the same reason. Excluding it keeps
+          # this job's red/green meaningful; it is not a GPU test and this job
+          # has no business gating on it.
           ../build/OloEngine/tests/OloEngine-Tests \
             --gtest_catch_exceptions=1 \
+            --gtest_filter=-NetworkIntegrationTest.* \
             --gtest_output=xml:../test_results/gpu_amd.xml
 
       # ---------------------------------------------------------------------

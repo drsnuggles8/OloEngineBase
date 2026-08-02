@@ -143,6 +143,22 @@ namespace OloEngine
 
     } // namespace Utils
 
+    namespace
+    {
+        // Min filter for a 2D texture, given whether its format is integer and
+        // whether its mip chain actually holds data. Extracted because the
+        // inline form was a nested conditional in two places — see
+        // IsIntegerFormat (integer formats MUST be NEAREST or they sample as
+        // zero) and OpenGLTexture2D::m_MipsPopulated (allocated levels are not
+        // written levels).
+        [[nodiscard("Store this!")]] GLint SelectMinFilter(bool integerFormat, bool mipsUsable) noexcept
+        {
+            if (integerFormat)
+                return mipsUsable ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST;
+            return mipsUsable ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR;
+        }
+    } // namespace
+
     u32 OpenGLTexture2D::CalculateFullMipCount(u32 width, u32 height)
     {
         return static_cast<u32>(std::floor(std::log2(static_cast<f64>(std::max(width, height))))) + 1;
@@ -287,9 +303,19 @@ namespace OloEngine
 
         if (m_Specification.Samples == 1u)
         {
+            // An integer-format texture is INCOMPLETE under a linear filter and
+            // then samples as zero (texelFetch included) — see IsIntegerFormat.
+            const bool integerFormat = IsIntegerFormat(m_Specification.Format);
             // NOTE: Texture Wrapping
-            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            // Mipmap filters only once the chain HOLDS data — see
+            // m_MipsPopulated. Allocated-but-unwritten levels sample as
+            // undefined content, not as an incomplete texture, so this would
+            // otherwise minify against garbage after a Resize().
+            const bool useMips = m_MipLevels > 1u && m_MipsPopulated;
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER,
+                                SelectMinFilter(integerFormat, useMips));
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER,
+                                integerFormat ? GL_NEAREST : GL_LINEAR);
 
             // NOTE: Texture Filtering
             glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -507,7 +533,10 @@ namespace OloEngine
             glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<GLsizei>(fw), static_cast<GLsizei>(fh),
                                 GL_RGBA, GL_FLOAT, rgbaF.data());
             if (m_MipLevels > 1u)
+            {
                 glGenerateTextureMipmap(m_RendererID);
+                m_MipsPopulated = true;
+            }
 
             OLO_TRACK_GPU_ALLOC(this, rgbaF.size() * sizeof(f32), RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (BC6H-fallback)");
             GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (BC6H-fallback)", "Texture2D");
@@ -550,7 +579,10 @@ namespace OloEngine
         glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<GLsizei>(w), static_cast<GLsizei>(h),
                             GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
         if (m_MipLevels > 1u)
+        {
             glGenerateTextureMipmap(m_RendererID);
+            m_MipsPopulated = true;
+        }
 
         OLO_TRACK_GPU_ALLOC(this, rgba.size(), RendererMemoryTracker::ResourceType::Texture2D, "OpenGL Texture2D (compressed-fallback)");
         GPUResourceInspector::GetInstance().RegisterTexture(m_RendererID, "Texture2D (compressed-fallback)", "Texture2D");
@@ -620,6 +652,10 @@ namespace OloEngine
         m_Height = height;
         m_Specification.Width = width;
         m_Specification.Height = height;
+        // Fresh storage below: whatever the old object had generated is gone,
+        // and nothing regenerates here (there is no level-0 data to generate
+        // FROM). The filter selection reads this to avoid claiming mips.
+        m_MipsPopulated = false;
 
         // Recalculate mip count if auto
         if (m_Specification.Samples > 1u)
@@ -697,9 +733,18 @@ namespace OloEngine
 
         if (m_Specification.Samples == 1u)
         {
+            // Keep the integer-format NEAREST rule across a resize too — see
+            // IsIntegerFormat; a linear filter here re-breaks the texture.
+            const bool integerFormat = IsIntegerFormat(m_Specification.Format);
             // Reapply sampler state
-            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER, m_MipLevels > 1 ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
-            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            // Resize() recreated storage above and did NOT regenerate the
+            // chain, so m_MipsPopulated is false here until something uploads
+            // and generates again — see the member's note.
+            const bool useMips = m_MipLevels > 1u && m_MipsPopulated;
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MIN_FILTER,
+                                SelectMinFilter(integerFormat, useMips));
+            glTextureParameteri(m_RendererID, GL_TEXTURE_MAG_FILTER,
+                                integerFormat ? GL_NEAREST : GL_LINEAR);
             glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
             glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
         }
@@ -768,6 +813,13 @@ namespace OloEngine
             case ImageFormat::R32F:
                 bpp = 4;
                 dataType = GL_FLOAT;
+                break;
+            case ImageFormat::R32I:
+                // Without this the default arm leaves GL_UNSIGNED_BYTE. bpp is
+                // 4 either way, so the size assert below still passes and the
+                // upload silently reinterprets the data.
+                bpp = 4;
+                dataType = GL_INT;
                 break;
             case ImageFormat::RG32F:
                 bpp = 8;
@@ -871,6 +923,11 @@ namespace OloEngine
                 break;
             case ImageFormat::RGBA16F:
                 dataType = GL_FLOAT;
+                break;
+            case ImageFormat::R32I:
+                // Integer format: the default arm would leave GL_UNSIGNED_BYTE
+                // and silently reinterpret the upload.
+                dataType = GL_INT;
                 break;
             default:
                 break;
@@ -989,6 +1046,7 @@ namespace OloEngine
 
         glTextureSubImage2D(m_RendererID, 0, 0, 0, static_cast<int>(m_Width), static_cast<int>(m_Height), dataFormat, GL_UNSIGNED_BYTE, data);
         glGenerateTextureMipmap(m_RendererID);
+        m_MipsPopulated = true;
     }
     void OpenGLTexture2D::Bind(const u32 slot) const
     {
@@ -1058,6 +1116,12 @@ namespace OloEngine
             case ImageFormat::R32F:
                 bytesPerPixel = 4;
                 dataType = GL_FLOAT;
+                break;
+            case ImageFormat::R32I:
+                // Integer format — readback must use GL_INT, not the default
+                // GL_UNSIGNED_BYTE, or the entity-ID values come back mangled.
+                bytesPerPixel = 4;
+                dataType = GL_INT;
                 break;
             case ImageFormat::RG32F:
                 bytesPerPixel = 8;

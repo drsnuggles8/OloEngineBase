@@ -37,6 +37,18 @@
 #include <string_view>
 #include <vector>
 
+namespace
+{
+    // See the call sites: glGetIntegerv marshals an all-bits stencil write mask
+    // through a signed GLint, and vendors differ on whether that clamps.
+    [[nodiscard]] inline bool IsAllBitsStencilMask(GLint value)
+    {
+        const unsigned int asUnsigned = static_cast<unsigned int>(value);
+        return asUnsigned == 0xFFFFFFFFu     // raw bit pattern (NVIDIA)
+               || asUnsigned == 0x7FFFFFFFu; // clamped to INT_MAX (Mesa/radeonsi)
+    }
+} // namespace
+
 namespace OloEngine::Tests
 {
     // Helper: does the diff list contain an entry whose field name starts
@@ -414,13 +426,25 @@ namespace OloEngine::Tests
         ::glGetIntegerv(GL_STENCIL_BACK_VALUE_MASK, &stencilBackValueMask);
         EXPECT_EQ(static_cast<u32>(stencilBackValueMask), 0xFFu) << "StencilBackValueMask not restored";
 
+        // An all-bits-set stencil write mask cannot be represented in the
+        // SIGNED GLint that glGetIntegerv fills, and the GL spec says
+        // out-of-range values are clamped. Mesa/radeonsi clamps to INT_MAX
+        // (0x7FFFFFFF); NVIDIA hands back the raw bit pattern (-1, which casts
+        // to 0xFFFFFFFF). Both are defensible readings, so accept either rather
+        // than pinning the test to one vendor's marshalling.
+        //
+        // The assertion still means what it meant: the guard restored the mask
+        // to "every bit the driver will report".
         GLint stencilWriteMask = 0;
         ::glGetIntegerv(GL_STENCIL_WRITEMASK, &stencilWriteMask);
-        EXPECT_EQ(static_cast<u32>(stencilWriteMask), 0xFFFFFFFFu) << "StencilWriteMask not restored";
+        EXPECT_TRUE(IsAllBitsStencilMask(stencilWriteMask))
+            << "StencilWriteMask not restored (got 0x" << std::hex << static_cast<u32>(stencilWriteMask) << ")";
 
         GLint stencilBackWriteMask = 0;
         ::glGetIntegerv(GL_STENCIL_BACK_WRITEMASK, &stencilBackWriteMask);
-        EXPECT_EQ(static_cast<u32>(stencilBackWriteMask), 0xFFFFFFFFu) << "StencilBackWriteMask not restored";
+        EXPECT_TRUE(IsAllBitsStencilMask(stencilBackWriteMask))
+            << "StencilBackWriteMask not restored (got 0x" << std::hex
+            << static_cast<u32>(stencilBackWriteMask) << ")";
 
         GLint stencilFail = 0;
         ::glGetIntegerv(GL_STENCIL_FAIL, &stencilFail);

@@ -6,6 +6,7 @@
 #include "OloEngine/Containers/SparseArray.h"
 #include "OloEngine/Containers/Set.h"
 #include "OloEngine/Containers/Map.h"
+#include "OloEngine/Containers/String.h"
 #include "OloEngine/Templates/UnrealTypeTraits.h"
 #include <string>
 
@@ -66,12 +67,17 @@ TEST(ContainerSmoke, TSetAddDuplicateAndContains)
 
 TEST(ContainerSmoke, TMapAddFindRemove)
 {
-    TMap<i32, std::string> map;
-    map.Add(1, "one");
-    map.Add(2, "two");
+    // FString, not std::string. TMap stores its pairs in a TSparseArray, which
+    // relocates bitwise, and libstdc++'s std::string does not survive that (see
+    // the TMapRelocation cases below). The relocatability guard flags it, and
+    // the guard is right -- a std::string value here was always unsound, it
+    // just happened not to grow enough in this smoke test to corrupt.
+    TMap<i32, FString> map;
+    map.Add(1, FString("one"));
+    map.Add(2, FString("two"));
     auto* found = map.Find(1);
     ASSERT_NE(found, nullptr);
-    EXPECT_EQ(*found, "one");
+    EXPECT_TRUE(found->Equals(FString("one")));
     map.Remove(1);
     EXPECT_EQ(map.Find(1), nullptr);
     EXPECT_EQ(map.Num(), 1);
@@ -210,4 +216,224 @@ TEST(TArrayTest, TElementTypeWorks)
     // STL containers with value_type
     EXPECT_TRUE((std::is_same_v<TElementType_T<std::vector<i32>>, i32>));
     EXPECT_TRUE((std::is_same_v<TElementType_T<std::array<f32, 3>>, f32>));
+}
+
+// ============================================================================
+// TArray regression tests
+//
+// Both of these were live defects found while giving Submesh a relocatable
+// string type; neither is string-specific.
+// ============================================================================
+
+// The copy constructor called CopyToEmpty() on an array whose m_ArrayNum and
+// m_ArrayMax were still indeterminate, and CopyToEmpty routed through
+// ResizeAllocation(), which short-circuits on `if (NewMax != m_ArrayMax)`.
+// Whenever the uninitialised garbage happened to equal the computed NewMax the
+// allocation was SKIPPED, leaving GetData() null for the ConstructItems memcpy
+// that immediately followed -- a segfault writing to address 0.
+//
+// Small element types are the ones that expose it: their quantised capacities
+// are small numbers that plausibly appear in recycled stack memory, whereas
+// this engine's larger element types produce values that rarely collide. Hence
+// char here.
+TEST(TArrayRegression, CopyConstructAllocatesForSmallElementTypes)
+{
+    using namespace OloEngine;
+
+    // Repeat: the bug depends on the garbage in the destination's storage, so
+    // a single copy can pass by luck. Reusing the same stack region across
+    // iterations is what makes this reliable.
+    for (i32 iteration = 0; iteration < 256; ++iteration)
+    {
+        TArray<char, TSizedDefaultAllocator<32>> source;
+        for (char c : std::string_view("Cube"))
+            source.Add(c);
+        source.Add('\0');
+
+        TArray<char, TSizedDefaultAllocator<32>> copy(source);
+
+        ASSERT_NE(copy.GetData(), nullptr) << "copy ctor skipped its allocation on iteration " << iteration;
+        ASSERT_EQ(copy.Num(), source.Num());
+        EXPECT_STREQ(copy.GetData(), "Cube");
+    }
+}
+
+// Copy-assignment passed m_ArrayMax as CopyToEmpty's third argument, which this
+// port treats as ExtraSlack (`NewMax = Count + ExtraSlack`) rather than UE's
+// PrevMax. Every assignment therefore requested Count + current capacity, so
+// capacity grew without bound across repeated assignments to the same array.
+TEST(TArrayRegression, CopyAssignmentDoesNotGrowCapacityWithoutBound)
+{
+    using namespace OloEngine;
+
+    TArray<i32, TSizedDefaultAllocator<32>> source;
+    for (i32 i = 0; i < 8; ++i)
+        source.Add(i);
+
+    TArray<i32, TSizedDefaultAllocator<32>> target;
+    target = source;
+    const auto capacityAfterFirst = target.Max();
+
+    // Assign the same contents many times. Capacity must settle, not compound.
+    for (i32 i = 0; i < 64; ++i)
+        target = source;
+
+    EXPECT_EQ(target.Num(), source.Num());
+    EXPECT_EQ(target.Max(), capacityAfterFirst)
+        << "capacity grew across repeated assignment (" << capacityAfterFirst << " -> " << target.Max() << ")";
+
+    for (i32 i = 0; i < 8; ++i)
+        EXPECT_EQ(target[i], i);
+}
+
+// ============================================================================
+// TMap element relocation — a controlled three-case matrix.
+//
+// Material.h keeps a dozen uniform tables as TMap<std::string, T>. TMap is
+// built on TSet -> TSparseArray -> TArray, and TArray relocates bitwise. The
+// question is whether that relocation reaches the element payload and corrupts
+// std::string keys the way it corrupted TArray<Submesh>.
+//
+// Three cases isolate the mechanism:
+//   1. std::string keys, too few to grow   -> must pass (no relocation)
+//   2. std::string keys, many (grows)      -> corrupts (DISABLED, see below)
+//   3. FString keys, many (grows)          -> must pass (relocatable)
+//
+// Short keys throughout: only those live in std::string's SSO inline buffer and
+// carry the self-referential pointer. Long keys point at separate heap blocks
+// and survive relocation regardless, so a test using them proves nothing.
+// ============================================================================
+
+// Case 1 — control. Few enough entries that the backing storage never grows,
+// so no element is ever relocated. If this failed, the problem would be
+// something other than relocation.
+TEST(TMapRelocation, StdStringKeysIntactWithoutGrowth)
+{
+    using namespace OloEngine;
+
+    TMap<std::string, f32> uniforms;
+    constexpr i32 kFew = 4;
+
+    for (i32 i = 0; i < kFew; ++i)
+        uniforms.Add("u" + std::to_string(i), static_cast<f32>(i));
+
+    ASSERT_EQ(uniforms.Num(), kFew);
+    for (i32 i = 0; i < kFew; ++i)
+    {
+        const f32* found = uniforms.Find("u" + std::to_string(i));
+        ASSERT_NE(found, nullptr) << "key lost WITHOUT any growth — not a relocation problem";
+        EXPECT_FLOAT_EQ(*found, static_cast<f32>(i));
+    }
+}
+
+// Case 2 — the defect. DISABLED because it fails by design: std::string is not
+// trivially relocatable, so it must not be used as a TMap key at all. Kept as
+// executable documentation of why, and as the reproduction if anyone doubts it.
+//
+// Observed: keys u0..u3 found intact, u4 lost, then the run hung walking the
+// corrupted map. Partial, scattered loss is the signature of relocation damage
+// — a logic error in Add/Find would fail uniformly, not from the fifth key on.
+//
+// Run with --gtest_also_run_disabled_tests to see it fail.
+TEST(TMapRelocation, DISABLED_StdStringKeysCorruptAcrossGrowth)
+{
+    using namespace OloEngine;
+
+    TMap<std::string, f32> uniforms;
+    constexpr i32 kCount = 512;
+
+    for (i32 i = 0; i < kCount; ++i)
+        uniforms.Add("u" + std::to_string(i), static_cast<f32>(i));
+
+    for (i32 i = 0; i < kCount; ++i)
+    {
+        const std::string key = "u" + std::to_string(i);
+        const f32* found = uniforms.Find(key);
+        ASSERT_NE(found, nullptr) << "key '" << key << "' lost across TMap growth";
+        EXPECT_FLOAT_EQ(*found, static_cast<f32>(i));
+    }
+}
+
+// Case 3 — the fix. Same shape as case 2 but with a relocatable key type.
+// This is what Material's uniform tables must use.
+TEST(TMapRelocation, FStringKeysSurviveGrowth)
+{
+    using namespace OloEngine;
+
+    TMap<FString, f32> uniforms;
+    constexpr i32 kCount = 512;
+
+    for (i32 i = 0; i < kCount; ++i)
+        uniforms.Add(FString(("u" + std::to_string(i)).c_str()), static_cast<f32>(i));
+
+    ASSERT_EQ(uniforms.Num(), kCount);
+    for (i32 i = 0; i < kCount; ++i)
+    {
+        const FString key(("u" + std::to_string(i)).c_str());
+        const f32* found = uniforms.Find(key);
+        ASSERT_NE(found, nullptr) << "key '" << *key << "' lost across TMap growth";
+        EXPECT_FLOAT_EQ(*found, static_cast<f32>(i));
+    }
+}
+
+// Diagnostic: does the relocatability trait actually propagate through the
+// types TMap is built from? The guard in ~TCompactSet checks the set's element
+// type, which for TMap is TPair<Key, Value>.
+TEST(TMapRelocation, TraitPropagatesThroughPair)
+{
+    using namespace OloEngine;
+    EXPECT_FALSE(TIsTriviallyRelocatable_V<std::string>) << "std::string must be non-relocatable";
+    EXPECT_FALSE((TIsTriviallyRelocatable_V<TPair<std::string, f32>>))
+        << "TPair must inherit non-relocatability from its key -- if this is TRUE, "
+           "the ~TCompactSet guard can never catch TMap<std::string, T>";
+    EXPECT_TRUE((TIsTriviallyRelocatable_V<TPair<FString, f32>>)) << "FString pair should be relocatable";
+}
+
+// =============================================================================
+// FString self-aliasing appends (PR #701 review).
+//
+// AppendChars used to hold a raw `const char*` across
+// Data.SetNumUninitialized(), which grows through FMemory::Realloc and MOVES
+// the buffer. When the source pointed into that same buffer the copy then read
+// freed heap: `s += s` spliced garbage into the middle of the result. Both
+// cases below reproduce it if the aliasing guard is removed.
+// =============================================================================
+TEST(FStringSelfAppend, SelfAppendAcrossGrowthKeepsContent)
+{
+    // Long enough that the append forces a reallocation rather than fitting in
+    // the existing slack.
+    std::string seed(64, 'A');
+    seed += "-TAIL";
+
+    FString s(seed.c_str());
+    const std::string expected = seed + seed;
+
+    s += s;
+
+    ASSERT_EQ(static_cast<std::size_t>(s.Len()), expected.size());
+    EXPECT_EQ(std::string(*s, static_cast<std::size_t>(s.Len())), expected)
+        << "self-append read through a dangling pointer after the buffer moved";
+}
+
+TEST(FStringSelfAppend, AppendingOwnSuffixCopiesFromTheReDerivedSource)
+{
+    // A view over this string's own tail. This is the case the offset
+    // re-derivation exists for: the source pointer is INSIDE the buffer that
+    // SetNumUninitialized may move, so a pointer captured beforehand dangles.
+    //
+    // The ranges are adjacent, not overlapping — the source is a sub-range of
+    // [0, Len()] and the destination begins at Len() — so this does not
+    // require memmove over memcpy. It exercises that the source is re-derived
+    // correctly after the growth, which is the part that can actually break.
+    std::string seed(48, 'B');
+    seed += "-SUFFIX";
+
+    FString s(seed.c_str());
+    const std::string_view suffix(*s + (s.Len() - 7), 7); // "-SUFFIX"
+    const std::string expected = seed + std::string("-SUFFIX");
+
+    s.Append(suffix);
+
+    ASSERT_EQ(static_cast<std::size_t>(s.Len()), expected.size());
+    EXPECT_EQ(std::string(*s, static_cast<std::size_t>(s.Len())), expected);
 }

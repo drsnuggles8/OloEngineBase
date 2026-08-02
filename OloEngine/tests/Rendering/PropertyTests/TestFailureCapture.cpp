@@ -355,11 +355,29 @@ namespace OloEngine::Tests::TestFailureCapture
             {
                 m_Captured = false;
                 m_FirstMessage.clear();
+                // Remember the identity here, where gtest hands it to us
+                // directly. OnTestPartResult must NOT ask UnitTest for it —
+                // see the deadlock note there.
+                m_SuiteName = info.test_suite_name();
+                m_TestName = info.name();
                 // Clear any stale capture directory from a previous run. Per
                 // test rather than per binary so parallel invocations don't
                 // race on the root directory.
                 std::error_code ec;
                 fs::remove_all(DirectoryFor(info.test_suite_name(), info.name()), ec);
+            }
+
+            void OnTestEnd(const ::testing::TestInfo&) override
+            {
+                // Drop the identity as soon as the test is over. A failure in
+                // a suite-level or global fixture (SetUpTestSuite, or an
+                // environment's SetUp/TearDown) still reaches
+                // OnTestPartResult, but with NO test active — and a stale
+                // identity here would file those diagnostics under whichever
+                // test happened to run last, which is worse than not
+                // capturing them: it looks like evidence about that test.
+                m_SuiteName.clear();
+                m_TestName.clear();
             }
 
             void OnTestPartResult(const ::testing::TestPartResult& result) override
@@ -368,15 +386,40 @@ namespace OloEngine::Tests::TestFailureCapture
                     return;
                 m_Captured = true;
                 m_FirstMessage = result.summary();
-                const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
-                if (info == nullptr)
+
+                // DO NOT call ::testing::UnitTest::GetInstance()->current_test_info()
+                // here. gtest holds its internal mutex while dispatching this
+                // callback, and current_test_info() takes that same mutex —
+                // so asking for the test's identity from inside the callback
+                // SELF-DEADLOCKS:
+                //
+                //   __lll_lock_wait
+                //   testing::internal::MutexBase::lock
+                //   testing::UnitTest::current_test_info
+                //   FailureListener::OnTestPartResult
+                //   testing::UnitTest::AddTestPartResult
+                //   <the failing EXPECT_/ASSERT_>
+                //
+                // The effect is that the FIRST failing assertion anywhere in
+                // the binary hangs the whole run instead of reporting — the
+                // failure reporter deadlocking while reporting a failure. It
+                // stalled a nightly for an hour on a test whose only crime was
+                // to fail, and it masks the real failure completely.
+                //
+                // OnTestStart already gave us the identity; use that. Both
+                // halves must be present — OnTestEnd clears them, so an empty
+                // pair means no test is active and there is nothing sensible
+                // to file the capture under.
+                if (m_SuiteName.empty() || m_TestName.empty())
                     return;
-                CaptureAll(info->test_suite_name(), info->name(), m_FirstMessage);
+                CaptureAll(m_SuiteName, m_TestName, m_FirstMessage);
             }
 
           private:
             bool m_Captured = false;
             std::string m_FirstMessage;
+            std::string m_SuiteName;
+            std::string m_TestName;
         };
 
         static bool s_Registered = false;

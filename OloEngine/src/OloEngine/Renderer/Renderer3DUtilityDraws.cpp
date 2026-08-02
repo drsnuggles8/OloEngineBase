@@ -592,6 +592,21 @@ namespace OloEngine
                 gridState.blendDstFactor = RHI::BlendFactor::OneMinusSrcAlpha;
                 gridState.depthTestEnabled = true;
                 gridState.depthWriteMask = false;
+                // Keep the grid out of the view-normals attachment (RT2), which
+                // is what GTAO samples in the forward path. glEnable(GL_BLEND) +
+                // glBlendFunc apply to EVERY draw buffer, so the shader's
+                // `o_ViewNormal = vec2(-2.0)` "no normal" sentinel gets alpha-
+                // blended against the floor's real normal: a fully covered texel
+                // keeps -2.0 (GTAO's sentinel guard forces AO=1.0, a bright
+                // streak), while an antialiased/faded one lands somewhere around
+                // -1.0 — past the `< -1.5` guard, so GTAO consumes it as a
+                // genuine normal and computes AO from garbage (a dark streak).
+                // depthWriteMask=false does NOT prevent this; it only stops depth
+                // writes. Masking RT2 leaves the floor's true normal in place, so
+                // the grid — a non-physical editor overlay — no longer perturbs
+                // AO at all. Deferred is unaffected: its G-Buffer variant draws
+                // with blending off and never touches GBufferNormal.
+                gridState.colorAttachmentWriteMask = 0xFFu & ~(1u << 2);
             }
             cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(gridState);
         }

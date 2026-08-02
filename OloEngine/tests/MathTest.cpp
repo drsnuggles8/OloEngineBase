@@ -101,20 +101,51 @@ namespace
         EXPECT_TRUE(BitwiseEqual(42, 42));
         EXPECT_FALSE(BitwiseEqual(42, 43));
 
+        // A struct with implicit padding after the trailing bool.
         struct Trivial
         {
-            f32 X;
-            i32 Y;
-            bool Z;
-            // Pad to force a struct with implicit padding bytes. Bit-exact
-            // comparison includes padding, so callers must zero-init for
-            // predictable equality — same rule as std::memcmp.
+            f32 m_X;
+            i32 m_Y;
+            bool m_Z;
         };
+        static_assert(sizeof(Trivial) > sizeof(f32) + sizeof(i32) + sizeof(bool),
+                      "this case only exercises anything while Trivial actually has padding");
 
-        const Trivial a{ 1.0f, 7, true };
-        Trivial b = a;
+        // `BitwiseEqual` is `memcmp` over `sizeof(T)`, so it compares PADDING
+        // bytes as well as members — and the language does not guarantee that
+        // copying an object reproduces them. This case previously wrote
+        // `const Trivial a{ 1.0f, 7, true }; Trivial b = a;` and asserted the
+        // two compared equal. That holds on MSVC and Clang, which copy the
+        // whole object representation, but GCC's implicit copy constructor
+        // copies member-wise and leaves the destination's padding as whatever
+        // was on the stack — so every member matched and only bytes 9-11
+        // differed. It went unnoticed until the suite first ran under GCC.
+        //
+        // Value-initialisation zero-initializes the whole object
+        // representation, padding included, so initialising both objects that
+        // way and assigning members gives a deterministic comparison. This is
+        // exactly the "zero-init for predictable equality" rule the helper's
+        // callers must follow.
+        //
+        // The spelling matters, and `Trivial a{}` is NOT it. `Trivial` is an
+        // aggregate, and for an aggregate the empty-brace form performs
+        // AGGREGATE initialization — each member is initialized from `{}`,
+        // which says nothing about the bytes between them. `Trivial()` is a
+        // value-initialized prvalue, and since C++17's guaranteed elision it
+        // initializes `a` directly with no intervening copy, so the padding
+        // guarantee actually reaches the object being compared.
+        Trivial a = Trivial();
+        a.m_X = 1.0f;
+        a.m_Y = 7;
+        a.m_Z = true;
+
+        Trivial b = Trivial();
+        b.m_X = 1.0f;
+        b.m_Y = 7;
+        b.m_Z = true;
+
         EXPECT_TRUE(BitwiseEqual(a, b));
-        b.Y = 8;
+        b.m_Y = 8;
         EXPECT_FALSE(BitwiseEqual(a, b));
     }
 
