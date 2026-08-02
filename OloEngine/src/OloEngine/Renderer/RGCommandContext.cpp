@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
+#include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 
@@ -147,7 +148,14 @@ namespace OloEngine
     {
         auto& heap = RHI::DescriptorHeap::Get();
 
-        if (heap.IsEnabled() && slot < HeapOffsetTable::kSlots)
+        // BOTH conditions, and the second is not redundant. The heap's flag is
+        // global; whether the program in flight reads the offset table is per
+        // shader, because the bindless compile route is allowed to decline and
+        // fall back to the ordinary slot-based program. Taking the heap branch
+        // for such a program would record an offset, skip the bind, and leave
+        // its sampler binding points empty — a pass rendering wrong with no
+        // diagnostic at all.
+        if (heap.IsEnabled() && Shader::IsBoundProgramBindless() && slot < HeapOffsetTable::kSlots)
         {
             RHI::ViewDesc viewDesc;
             viewDesc.Resource = texture;
@@ -183,7 +191,8 @@ namespace OloEngine
         // "I am not using this input this frame" (ToneMapRenderPass binds
         // RHI::NullResource for exactly that). Point it at the reserved null
         // descriptor so the shader samples nothing instead.
-        if (RHI::DescriptorHeap::Get().IsEnabled() && slot < HeapOffsetTable::kSlots)
+        if (RHI::DescriptorHeap::Get().IsEnabled() && Shader::IsBoundProgramBindless() &&
+            slot < HeapOffsetTable::kSlots)
         {
             auto& table = OffsetTable();
             table.Scratch[slot] = RHI::kNullHeapOffset;

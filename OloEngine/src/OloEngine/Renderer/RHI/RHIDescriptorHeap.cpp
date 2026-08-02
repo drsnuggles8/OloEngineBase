@@ -27,6 +27,14 @@ namespace OloEngine::RHI
         return *s_Instance;
     }
 
+    auto DescriptorHeap::PoisonDescriptorLocked() const -> u64
+    {
+        // The backend's real, resident, sampleable null descriptor. Zero is NOT
+        // a safe substitute: sampling an invalid bindless handle is undefined
+        // behaviour, so an instrument built on it would be reporting driver luck.
+        return m_Backend != nullptr ? m_Backend->NullDescriptor() : 0u;
+    }
+
     void DescriptorHeap::Initialize(const HeapDesc& desc, IDescriptorHeapBackend* backend)
     {
         const std::lock_guard lock(m_Mutex);
@@ -48,8 +56,27 @@ namespace OloEngine::RHI
         m_TransientCapacity = desc.FrameTransientRingSlots;
 
         const u32 total = m_PersistentCapacity + m_TransientCapacity;
+
+        // PRESERVE THE GENERATION COUNTERS. The retire loop above advanced each
+        // one precisely so a handle minted against the previous device cannot
+        // resolve into the new one — and `assign(total, ViewSlot{})` would throw
+        // that away, resetting every generation to 0 so the first CreateView
+        // hands out generation 1 again and a stale ViewHandle{N, 1} validates.
+        // Re-initialisation is exactly when the guarantee matters most.
+        std::vector<u32> survivingGenerations;
+        survivingGenerations.reserve(m_Slots.size());
+        for (const ViewSlot& slot : m_Slots)
+        {
+            survivingGenerations.push_back(slot.Generation);
+        }
+
         m_Slots.assign(total, ViewSlot{});
-        m_Mirror.assign(total, kPoisonDescriptor);
+        for (u32 index = 0u; index < total && index < static_cast<u32>(survivingGenerations.size()); ++index)
+        {
+            m_Slots[index].Generation = survivingGenerations[index];
+        }
+
+        m_Mirror.assign(total, backend != nullptr ? backend->NullDescriptor() : 0u);
 
         m_PersistentFreeList.clear();
         m_PersistentFreeList.reserve(m_PersistentCapacity);
@@ -179,7 +206,12 @@ namespace OloEngine::RHI
                                     HeapSlotLifetime lifetime) -> ViewHandle
     {
         const std::lock_guard lock(m_Mutex);
+        return CreateViewLocked(resource, view, sampler, lifetime);
+    }
 
+    auto DescriptorHeap::CreateViewLocked(ResourceHandle resource, const ViewDesc& view, const SamplerDesc& sampler,
+                                          HeapSlotLifetime lifetime) -> ViewHandle
+    {
         if (!m_Enabled)
         {
             return {};
@@ -227,7 +259,7 @@ namespace OloEngine::RHI
         }
 
         const u64 descriptor = m_Backend->AcquireDescriptor(resource, view, sampler);
-        if (descriptor == kPoisonDescriptor)
+        if (descriptor == 0u)
         {
             // The backend could not realise this view. Hand the slot back rather
             // than publishing a poisoned descriptor under a live view handle —
@@ -287,55 +319,57 @@ namespace OloEngine::RHI
     auto DescriptorHeap::GetOrCreateView(ResourceHandle resource, const ViewDesc& view, const SamplerDesc& sampler,
                                          HeapSlotLifetime lifetime) -> ViewHandle
     {
+        const std::lock_guard lock(m_Mutex);
+
+        if (!m_Enabled)
+        {
+            return {};
+        }
+
         if (lifetime == HeapSlotLifetime::FrameTransient)
         {
             // Never memoised — see the header. Two acquisitions of one physical
             // object within a frame MUST get two offsets, because that is how an
             // alias becomes visible in the heap instead of needing a mid-frame
             // rewrite.
-            return CreateView(resource, view, sampler, lifetime);
+            return CreateViewLocked(resource, view, sampler, lifetime);
         }
 
+        // ONE lock across lookup, mint and insert. Splitting it let two callers
+        // both miss the cache and both mint a view for the same triple, leaking
+        // a persistent slot per race and handing the two callers different
+        // offsets for what is meant to be one memoised view.
+        //
         // The sampler slot is resolved first so the cache key can carry it: two
         // views that differ only in sampler state are different views, and the
         // dedup makes that comparison an integer rather than a struct compare.
-        u32 samplerSlot = 0u;
-        {
-            const std::lock_guard lock(m_Mutex);
-            if (!m_Enabled)
-            {
-                return {};
-            }
-            samplerSlot = AcquireSamplerSlotLocked(sampler);
-            // Acquired only to read its index; the view below takes its own
-            // reference, so release this one or the refcount leaks by one per
-            // lookup and the slot can never be reused.
-            ReleaseSamplerSlotLocked(samplerSlot);
+        const u32 samplerSlot = AcquireSamplerSlotLocked(sampler);
+        // Acquired only to read its index; the view below takes its own
+        // reference, so release this one or the refcount leaks by one per lookup
+        // and the slot can never be reused.
+        ReleaseSamplerSlotLocked(samplerSlot);
 
-            const PersistentViewKey key{ .Resource = HashKey(resource),
-                                         .SamplerSlot = samplerSlot,
-                                         .DepthCompare = view.DepthCompare };
-            if (const auto it = m_PersistentViewCache.find(key); it != m_PersistentViewCache.end())
+        const PersistentViewKey key{ .Resource = HashKey(resource),
+                                     .SamplerSlot = samplerSlot,
+                                     .DepthCompare = view.DepthCompare };
+
+        if (const auto it = m_PersistentViewCache.find(key); it != m_PersistentViewCache.end())
+        {
+            // Revalidate rather than trust. The entry survives the resource being
+            // destroyed (nothing tells the cache), so a stale hit must fall
+            // through to a fresh mint instead of handing back a view whose slot
+            // now belongs to someone else.
+            if (ValidateLocked(it->second) != nullptr)
             {
-                // Revalidate rather than trust. The entry survives the resource
-                // being destroyed (nothing tells the cache), so a stale hit must
-                // fall through to a fresh mint instead of handing back a view
-                // whose slot now belongs to someone else.
-                if (ValidateLocked(it->second) != nullptr)
-                {
-                    return it->second;
-                }
-                m_PersistentViewCache.erase(it);
+                return it->second;
             }
+            m_PersistentViewCache.erase(it);
         }
 
-        const ViewHandle created = CreateView(resource, view, sampler, lifetime);
+        const ViewHandle created = CreateViewLocked(resource, view, sampler, lifetime);
         if (created.IsValid())
         {
-            const std::lock_guard lock(m_Mutex);
-            m_PersistentViewCache[PersistentViewKey{ .Resource = HashKey(resource),
-                                                     .SamplerSlot = samplerSlot,
-                                                     .DepthCompare = view.DepthCompare }] = created;
+            m_PersistentViewCache[key] = created;
         }
         return created;
     }
@@ -493,7 +527,7 @@ namespace OloEngine::RHI
                                             ? m_SamplerSlots[slot.SamplerSlot].Desc
                                             : SamplerDesc{};
             const u64 descriptor = m_Backend->AcquireDescriptor(slot.Resource, slot.View, sampler);
-            if (descriptor == kPoisonDescriptor)
+            if (descriptor == 0u)
             {
                 // Deliberately NOT the same policy as CreateView, which hands
                 // the slot back rather than publishing poison under a live view.
@@ -574,7 +608,7 @@ namespace OloEngine::RHI
         slot.Resource = {};
         slot.View = {};
         slot.SamplerSlot = HeapOffset::Invalid;
-        slot.Descriptor = kPoisonDescriptor;
+        slot.Descriptor = PoisonDescriptorLocked();
 
         if (m_Desc.PoisonOnFree)
         {
@@ -584,7 +618,7 @@ namespace OloEngine::RHI
             // which is what LIFO slot reuse would otherwise hide in steady
             // state, exactly as the transient POOL hides it
             // (docs/agent-rules/render-graph-transient-aliasing.md).
-            m_Mirror[index] = kPoisonDescriptor;
+            m_Mirror[index] = PoisonDescriptorLocked();
             MarkDirtyLocked(index);
             ++m_Stats.SlotsPoisoned;
         }
@@ -625,6 +659,13 @@ namespace OloEngine::RHI
                           "Harmless on OpenGL (sampler state is baked into the texture handle), "
                           "NOT harmless on a split-heap backend.",
                           m_Desc.SamplerSlotCapacity);
+            // Still take a reference. The caller releases whatever index it is
+            // handed, so returning slot 0 unreferenced would under-count it and
+            // eventually free a slot that views still point at.
+            if (!m_SamplerSlots.empty())
+            {
+                ++m_SamplerSlots[0].RefCount;
+            }
             return 0u;
         }
 

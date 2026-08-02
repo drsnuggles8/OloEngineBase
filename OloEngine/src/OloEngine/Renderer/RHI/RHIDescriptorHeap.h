@@ -123,6 +123,17 @@ namespace OloEngine::RHI
         // was dirty — and because on a descriptor-heap Vulkan backend this is a
         // command-buffer operation while the upload is not.
         virtual void BindHeap() = 0;
+
+        // The descriptor every unallocated, freed or cleared slot holds.
+        //
+        // MUST BE A REAL, VALID, SAMPLEABLE DESCRIPTOR — not a zero handle.
+        // Sampling an invalid or non-resident `ARB_bindless_texture` handle is
+        // UNDEFINED BEHAVIOUR, not a guaranteed black read, so a zeroed slot
+        // would make poison-on-free and the null descriptor depend on driver
+        // luck rather than on the spec. The GL backend returns the handle of a
+        // resident 1x1 opaque-black texture; a Vulkan backend would return a
+        // null-descriptor entry, which that API defines to read as zero.
+        [[nodiscard]] virtual auto NullDescriptor() const -> u64 = 0;
     };
 
     // -------------------------------------------------------------------------
@@ -283,15 +294,20 @@ namespace OloEngine::RHI
       private:
         DescriptorHeap() = default;
 
-        // The known-bad descriptor a freed slot is overwritten with when poison
-        // is on. Zero rather than a sentinel bit pattern because that is what
-        // both backends already treat as "nothing": a null `ARB_bindless_texture`
-        // handle samples as zero instead of as the previous tenant, which turns
-        // a use-after-free into a deterministic black read rather than a
-        // plausible-looking wrong texture. Mirrors OLO_RG_POISON_TRANSIENTS,
+        // The descriptor a freed, cleared or never-allocated slot holds. Comes
+        // from the BACKEND (`IDescriptorHeapBackend::NullDescriptor`), not from a
+        // constant here.
+        //
+        // It used to be a hard-coded 0, on the reasoning that a null handle
+        // "samples as zero". That is wrong: sampling an invalid or non-resident
+        // ARB_bindless_texture handle is UNDEFINED BEHAVIOUR, so poison-on-free
+        // and the null descriptor would have depended on driver luck rather than
+        // on the spec — a deterministic instrument resting on undefined
+        // behaviour is not an instrument. The backend supplies a real, resident,
+        // sampleable black descriptor instead. Mirrors OLO_RG_POISON_TRANSIENTS,
         // which turned a stochastic aliasing artifact into a one-screenshot
-        // signal.
-        static constexpr u64 kPoisonDescriptor = 0u;
+        // signal; this keeps that property on solid ground.
+        [[nodiscard]] auto PoisonDescriptorLocked() const -> u64;
 
         struct ViewSlot
         {
@@ -301,10 +317,12 @@ namespace OloEngine::RHI
             ResourceHandle Resource;
             ViewDesc View;
             u32 SamplerSlot = HeapOffset::Invalid;
-            u64 Descriptor = kPoisonDescriptor;
+            u64 Descriptor = 0u; ///< replaced by the backend's null descriptor on release
         };
 
         // Caller must hold m_Mutex.
+        [[nodiscard]] auto CreateViewLocked(ResourceHandle resource, const ViewDesc& view,
+                                            const SamplerDesc& sampler, HeapSlotLifetime lifetime) -> ViewHandle;
         [[nodiscard]] auto ValidateLocked(ViewHandle view) const -> const ViewSlot*;
         void ReleaseSlotLocked(u32 index);
         [[nodiscard]] auto AcquireSamplerSlotLocked(const SamplerDesc& sampler) -> u32;

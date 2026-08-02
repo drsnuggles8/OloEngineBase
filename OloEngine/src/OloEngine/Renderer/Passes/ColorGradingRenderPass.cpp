@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Passes/ColorGradingRenderPass.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -23,6 +24,13 @@ namespace OloEngine
     {
         if (m_IdentityLUTTexture.IsValid())
         {
+            // Retire the heap descriptors naming this texture BEFORE deleting it.
+            // ResourceRegistry deliberately keeps a handle alive across an
+            // in-place reload, so a view's own generation cannot detect that its
+            // descriptor now names a deleted object — OffsetOf would go on
+            // answering a valid offset, and the persistent view cache would keep
+            // serving the stale entry on a hit (issue #691 Phase 3).
+            RHI::DescriptorHeap::Get().InvalidateResource(m_IdentityLUTTexture);
             RenderCommand::DeleteTexture(m_IdentityLUTTexture);
             m_IdentityLUTTexture = RHI::NullResource;
         }

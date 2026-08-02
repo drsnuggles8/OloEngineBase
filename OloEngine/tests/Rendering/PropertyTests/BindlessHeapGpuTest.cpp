@@ -43,6 +43,7 @@
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -229,6 +230,12 @@ void main()
             GLuint Vao = 0u;
             GLuint Vbo = 0u;
             std::vector<GLuint> OwnedTextures;
+            // Registry entries this fixture minted. The registry is process-wide,
+            // so leaving them registered would keep resolving to textures the
+            // fixture then deletes — coupling unrelated tests through shared
+            // state and re-creating the recycled-name hazard the generation
+            // counter exists to prevent.
+            std::vector<RHI::ResourceHandle> OwnedHandles;
 
             static constexpr u32 kWidth = 8u;
             static constexpr u32 kHeight = 4u;
@@ -279,13 +286,20 @@ void main()
                 return Program != 0u;
             }
 
+            [[nodiscard]] RHI::ResourceHandle RegisterTexture(GLuint texture)
+            {
+                const RHI::ResourceHandle handle = RHI::ResourceRegistry::Get().Register(
+                    RHI::ResourceKind::Texture, static_cast<u64>(texture), RHI::Backend::OpenGL);
+                OwnedHandles.push_back(handle);
+                return handle;
+            }
+
             [[nodiscard]] RHI::ViewHandle AddTexture(u8 r, u8 g, u8 b, RHI::HeapSlotLifetime lifetime)
             {
                 const GLuint texture = MakeSolidTexture(r, g, b, 255u);
                 OwnedTextures.push_back(texture);
 
-                const RHI::ResourceHandle resource = RHI::ResourceRegistry::Get().Register(
-                    RHI::ResourceKind::Texture, static_cast<u64>(texture), RHI::Backend::OpenGL);
+                const RHI::ResourceHandle resource = RegisterTexture(texture);
 
                 RHI::SamplerDesc sampler;
                 sampler.MinFilter = RHI::Filter::Nearest;
@@ -345,14 +359,37 @@ void main()
             {
                 std::vector<u8> pixels;
                 ReadbackRgba8(ColorTarget, kWidth, kHeight, pixels);
+
+                // A short readback means the capture failed, not that the pixel is
+                // black — indexing past the end would turn a broken harness into a
+                // confident wrong answer.
                 const sizet base = (static_cast<sizet>(y) * kWidth + x) * 4u;
+                if (pixels.size() < base + 4u)
+                {
+                    ADD_FAILURE() << "Readback returned " << pixels.size() << " bytes; expected at least "
+                                  << (base + 4u) << ". The framebuffer read failed.";
+                    return { 0u, 0u, 0u, 0u };
+                }
                 return { pixels[base], pixels[base + 1], pixels[base + 2], pixels[base + 3] };
             }
 
             void TearDown() override
             {
+                // Process-wide, so leaving it set would tell an unrelated test's
+                // slot-based program that it reads the heap.
+                Shader::SetBoundProgramBindless(false);
+
                 RHI::DescriptorHeap::Get().Shutdown();
                 Backend.Shutdown();
+
+                // Retire before deleting the GL objects, and before the next test
+                // runs: a live entry pointing at a deleted texture is exactly the
+                // stale-resolution state the registry exists to make impossible.
+                for (const RHI::ResourceHandle handle : OwnedHandles)
+                {
+                    RHI::ResourceRegistry::Get().Unregister(handle);
+                }
+                OwnedHandles.clear();
 
                 for (const GLuint texture : OwnedTextures)
                 {
@@ -449,6 +486,13 @@ void main()
     // proves the overwrite actually reaches the shader — and that a null handle
     // samples as zero rather than trapping, which is the property that makes
     // poison a usable instrument instead of a crash.
+    //
+    // The black comes from a REAL RESIDENT 1x1 BLACK TEXTURE
+    // (`IDescriptorHeapBackend::NullDescriptor`), not from handle 0. Sampling an
+    // invalid or non-resident bindless handle is UNDEFINED BEHAVIOUR, so this
+    // assertion against a zero handle would have been asserting on driver luck —
+    // a deterministic instrument resting on undefined behaviour is not an
+    // instrument.
     // -------------------------------------------------------------------------
     TEST_F(HeapGpuFixture, PoisonedSlotSamplesBlackRatherThanThePreviousTenant)
     {
@@ -493,8 +537,7 @@ void main()
 
         const GLuint texture = MakeSolidTexture(0u, 255u, 0u, 255u);
         OwnedTextures.push_back(texture);
-        const RHI::ResourceHandle physical = RHI::ResourceRegistry::Get().Register(
-            RHI::ResourceKind::Texture, static_cast<u64>(texture), RHI::Backend::OpenGL);
+        const RHI::ResourceHandle physical = RegisterTexture(texture);
 
         RHI::SamplerDesc sampler;
         sampler.MinFilter = RHI::Filter::Nearest;
@@ -579,10 +622,8 @@ void main()
         OwnedTextures.push_back(redTex);
         OwnedTextures.push_back(blueTex);
 
-        const RHI::ResourceHandle red = RHI::ResourceRegistry::Get().Register(
-            RHI::ResourceKind::Texture, static_cast<u64>(redTex), RHI::Backend::OpenGL);
-        const RHI::ResourceHandle blue = RHI::ResourceRegistry::Get().Register(
-            RHI::ResourceKind::Texture, static_cast<u64>(blueTex), RHI::Backend::OpenGL);
+        const RHI::ResourceHandle red = RegisterTexture(redTex);
+        const RHI::ResourceHandle blue = RegisterTexture(blueTex);
 
         RHI::SamplerDesc sampler;
         sampler.MinFilter = RHI::Filter::Nearest;
@@ -590,6 +631,13 @@ void main()
         sampler.LinearMipFilter = false;
 
         // The REAL seam a converted pass calls — not a reimplementation of it.
+        // These fixtures build their program with raw glShaderSource +
+        // glUseProgram, so nothing ever runs OpenGLShader::Bind() — which is what
+        // normally records whether the program in flight reads the heap. Declare
+        // it here, because the seam now (correctly) refuses the heap path for a
+        // program it believes is slot-based.
+        Shader::SetBoundProgramBindless(true);
+
         const RGCommandContext context;
         const RHI::HeapOffset depthSlotOffset = context.BindTextureOrHeapOffset(
             ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, red, RHI::HeapSlotLifetime::Persistent, sampler);
@@ -646,16 +694,15 @@ void main()
         const GLuint blueTex = MakeSolidTexture(0u, 0u, 255u, 255u);
         OwnedTextures.push_back(redTex);
         OwnedTextures.push_back(blueTex);
-        const RHI::ResourceHandle red = RHI::ResourceRegistry::Get().Register(
-            RHI::ResourceKind::Texture, static_cast<u64>(redTex), RHI::Backend::OpenGL);
-        const RHI::ResourceHandle blue = RHI::ResourceRegistry::Get().Register(
-            RHI::ResourceKind::Texture, static_cast<u64>(blueTex), RHI::Backend::OpenGL);
+        const RHI::ResourceHandle red = RegisterTexture(redTex);
+        const RHI::ResourceHandle blue = RegisterTexture(blueTex);
 
         RHI::SamplerDesc sampler;
         sampler.MinFilter = RHI::Filter::Nearest;
         sampler.MagFilter = RHI::Filter::Nearest;
         sampler.LinearMipFilter = false;
 
+        Shader::SetBoundProgramBindless(true);
         const RGCommandContext context;
 
         // Frame 1: both slots carry a real texture.
@@ -693,8 +740,7 @@ void main()
 
         const GLuint texture = MakeSolidTexture(128u, 128u, 128u, 255u);
         OwnedTextures.push_back(texture);
-        const RHI::ResourceHandle resource = RHI::ResourceRegistry::Get().Register(
-            RHI::ResourceKind::Texture, static_cast<u64>(texture), RHI::Backend::OpenGL);
+        const RHI::ResourceHandle resource = RegisterTexture(texture);
 
         RHI::SamplerDesc nearestClamp;
         nearestClamp.MinFilter = RHI::Filter::Nearest;

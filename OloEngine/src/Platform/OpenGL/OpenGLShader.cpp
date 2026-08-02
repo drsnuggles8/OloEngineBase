@@ -803,6 +803,32 @@ namespace OloEngine
         FinalizeProgram(freshProgram, {});
         SaveProgramBinaryCache();
         m_CompilationStatus = ShaderCompilationStatus::Ready;
+
+        // NO SPIR-V MEANS NO Reflect(), so two pieces of state the ordinary route
+        // sets are absent here: `m_IsDeferredCapable` and the resource registry's
+        // discovered bindings. Every shader converted so far is post-processing,
+        // where neither matters — but a G-Buffer shader taken down this route
+        // would be silently misrouted out of the deferred producer bucket into
+        // the forward-overlay fallback, which is a whole-frame behaviour change
+        // with no error anywhere.
+        //
+        // Detecting it costs one substring scan of source we already hold, and it
+        // fails loudly at the moment someone converts such a shader rather than
+        // during a confusing frame-debugging session later.
+        for (const auto& [stage, stageSource] : m_OpenGLSourceCode)
+        {
+            if (stageSource.find("o_GBuffer") != std::string::npos ||
+                stageSource.find("gNormalRoughAO") != std::string::npos)
+            {
+                OLO_CORE_ERROR("[Bindless] '{}' looks like a G-Buffer shader, but the bindless route produces no "
+                               "SPIR-V and therefore never runs Reflect() — m_IsDeferredCapable stays false and the "
+                               "shader would be misrouted to the forward-overlay fallback. Give the bindless route a "
+                               "reflection source before converting deferred shaders (issue #691 Phase 3).",
+                               m_Name);
+                break;
+            }
+        }
+
         OLO_CORE_INFO("[Bindless] '{}' built through the raw-GLSL route (no SPIR-V).", m_Name);
         return true;
     }
@@ -1982,6 +2008,13 @@ namespace OloEngine
             return;
 
         glUseProgram(m_RendererID);
+
+        // Record whether the program now in flight actually reads the descriptor
+        // heap. The heap's enabled flag is global; this is per shader, because
+        // the bindless route may have declined and fallen back. Without it,
+        // RGCommandContext::BindTextureOrHeapOffset would skip the bind for a
+        // program that reads sampler binding points (issue #691 Phase 3).
+        Shader::SetBoundProgramBindless(m_IsBindlessVariant);
 
         // Update profiler counters
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::ShaderBinds, 1);

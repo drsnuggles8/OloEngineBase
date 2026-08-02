@@ -98,6 +98,15 @@ namespace OloEngine::Tests
             {
                 ++Binds;
             }
+
+            // A distinctive non-zero value, deliberately. Zero would let a test
+            // that meant "the slot holds the null descriptor" pass equally when
+            // the slot was simply never written.
+            static constexpr u64 kNull = 0xD15AB1EDu;
+            [[nodiscard]] auto NullDescriptor() const -> u64 override
+            {
+                return kNull;
+            }
         };
 
         // Registers a real resource identity so the heap's liveness check has
@@ -298,6 +307,104 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // GetOrCreateView — the entry point a render pass actually calls.
+    //
+    // Every test above uses CreateView, which always mints. The memoising
+    // wrapper carries the behaviour that matters in production: a pass runs
+    // every frame, so if the persistent case did not memoise it would drain the
+    // heap in seconds AND hand each frame a different offset, destroying the
+    // stability ADR 0011 §1.2 calls "the performance argument for bindless".
+    // -------------------------------------------------------------------------
+    TEST_F(HeapFixture, GetOrCreateViewMemoisesPersistentViewsPerResourceSamplerAndCompareMode)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(201u);
+
+        RHI::SamplerDesc samplerA;
+        RHI::SamplerDesc samplerB;
+        samplerB.MinFilter = RHI::Filter::Nearest;
+
+        RHI::ViewDesc compareOn;
+        RHI::ViewDesc compareOff;
+        compareOff.DepthCompare = false;
+
+        const RHI::ViewHandle first =
+            heap.GetOrCreateView(resource, compareOn, samplerA, RHI::HeapSlotLifetime::Persistent);
+        const RHI::ViewHandle again =
+            heap.GetOrCreateView(resource, compareOn, samplerA, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(first.IsValid());
+        EXPECT_EQ(first, again) << "The same (resource, sampler, compare) triple must return the SAME view.";
+
+        const RHI::ViewHandle otherSampler =
+            heap.GetOrCreateView(resource, compareOn, samplerB, RHI::HeapSlotLifetime::Persistent);
+        EXPECT_NE(first, otherSampler) << "Different sampler state is a different view.";
+
+        const RHI::ViewHandle otherCompare =
+            heap.GetOrCreateView(resource, compareOff, samplerA, RHI::HeapSlotLifetime::Persistent);
+        EXPECT_NE(first, otherCompare) << "Compare-on and compare-off are different views of one resource.";
+    }
+
+    TEST_F(HeapFixture, GetOrCreateViewNeverMemoisesTransients)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(202u);
+        const RHI::ViewHandle a = heap.GetOrCreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient);
+        const RHI::ViewHandle b = heap.GetOrCreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient);
+
+        ASSERT_TRUE(a.IsValid());
+        ASSERT_TRUE(b.IsValid());
+        // Two acquisitions of one physical object in one frame MUST get two
+        // offsets — that is how WriteNewVersion aliasing becomes visible in the
+        // heap instead of needing a mid-frame rewrite.
+        EXPECT_NE(a, b);
+        EXPECT_NE(heap.OffsetOf(a).Value, heap.OffsetOf(b).Value);
+    }
+
+    TEST_F(HeapFixture, GetOrCreateViewDoesNotServeAStaleCacheHitAfterTheViewDies)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(203u);
+        const RHI::ViewHandle first = heap.GetOrCreateView(resource, {}, {}, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(first.IsValid());
+
+        // Nothing tells the cache a view was destroyed, so the entry survives.
+        // The lookup must revalidate and fall through to a fresh mint rather
+        // than hand back a handle whose slot may now belong to someone else.
+        heap.DestroyView(first);
+
+        const RHI::ViewHandle second = heap.GetOrCreateView(resource, {}, {}, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(second.IsValid());
+        EXPECT_NE(first, second);
+        EXPECT_FALSE(heap.OffsetOf(first).IsValid());
+        EXPECT_TRUE(heap.OffsetOf(second).IsValid());
+    }
+
+    TEST_F(HeapFixture, RepeatedGetOrCreateViewDoesNotLeakSamplerSlots)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(204u);
+        for (int i = 0; i < 32; ++i)
+        {
+            ASSERT_TRUE(heap.GetOrCreateView(resource, {}, {}, RHI::HeapSlotLifetime::Persistent).IsValid());
+        }
+
+        // The lookup acquires a sampler slot just to read its index and must
+        // release it again; its own implementation comment warns the balance is
+        // leak-prone, so pin it. One distinct SamplerDesc means one slot no
+        // matter how many times a pass asks.
+        EXPECT_EQ(heap.GetStats().SamplerSlotsLive, 1u);
+        EXPECT_EQ(heap.GetStats().PersistentLive, 1u) << "Memoised, so only ONE slot may have been consumed.";
+    }
+
+    // -------------------------------------------------------------------------
     // Sampler heap — ADR 0011 §1.2a's dedup, which has no GL counterpart.
     // -------------------------------------------------------------------------
     TEST_F(HeapFixture, IdenticalSamplerStateSharesOneSamplerSlot)
@@ -353,8 +460,10 @@ namespace OloEngine::Tests
         // The live descriptor really was published, so the assertion below is
         // about poison overwriting something rather than about nothing ever
         // having been there.
-        ASSERT_FALSE(Backend.LastUpload.empty());
-        EXPECT_NE(Backend.LastUpload[slot - Backend.LastUploadFirstSlot], 0u);
+        ASSERT_GE(slot, Backend.LastUploadFirstSlot);
+        ASSERT_LT(slot - Backend.LastUploadFirstSlot, Backend.LastUpload.size())
+            << "The published range must actually contain the slot under test.";
+        EXPECT_NE(Backend.LastUpload[slot - Backend.LastUploadFirstSlot], FakeHeapBackend::kNull);
 
         heap.DestroyView(view);
         heap.Flush();
@@ -364,8 +473,10 @@ namespace OloEngine::Tests
         // transient POOL hides the same class of bug
         // (docs/agent-rules/render-graph-transient-aliasing.md). With it, the
         // read is deterministically nothing.
-        ASSERT_FALSE(Backend.LastUpload.empty());
-        EXPECT_EQ(Backend.LastUpload[slot - Backend.LastUploadFirstSlot], 0u);
+        ASSERT_GE(slot, Backend.LastUploadFirstSlot);
+        ASSERT_LT(slot - Backend.LastUploadFirstSlot, Backend.LastUpload.size());
+        EXPECT_EQ(Backend.LastUpload[slot - Backend.LastUploadFirstSlot], FakeHeapBackend::kNull)
+            << "A freed slot must hold the backend's null descriptor, not a zero that could also mean 'never written'.";
         EXPECT_GE(heap.GetStats().SlotsPoisoned, 1u);
     }
 
@@ -497,8 +608,11 @@ namespace OloEngine::Tests
         // the index to nobody while retiring a generation the frame boundary is
         // about to retire anyway. Refused and counted rather than silently
         // half-honoured.
+        const u64 rejectionsBefore = heap.GetStats().StaleOffsetRejections;
         heap.DestroyView(view);
-        EXPECT_TRUE(heap.OffsetOf(view).IsValid());
+        EXPECT_TRUE(heap.OffsetOf(view).IsValid()) << "The transient view must survive a refused hand-destroy.";
+        EXPECT_GT(heap.GetStats().StaleOffsetRejections, rejectionsBefore)
+            << "…and the refusal must be COUNTED, which is what the comment claims makes it non-silent.";
     }
 
     // -------------------------------------------------------------------------

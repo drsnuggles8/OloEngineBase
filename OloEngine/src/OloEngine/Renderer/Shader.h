@@ -30,6 +30,27 @@ namespace OloEngine
         virtual ~Shader() = default;
 
         virtual void Bind() const = 0;
+
+        // -------------------------------------------------------------------
+        // Whether the CURRENTLY BOUND program reads the descriptor heap
+        // (issue #691 Phase 3).
+        //
+        // `RHI::DescriptorHeap::IsEnabled()` is global; whether a given program
+        // actually indexes the heap is PER SHADER, because the bindless compile
+        // route is allowed to decline — `CreateProgramFromRawGLSL` falls back to
+        // the ordinary slot-based program on any compile or link failure.
+        //
+        // Without this distinction `BindTextureOrHeapOffset` would record an
+        // offset and skip the bind for a program that reads sampler binding
+        // points, leaving them unbound and the pass rendering wrong with no
+        // diagnostic. The backend's Bind() records the truth here; the pass-side
+        // seam consults it.
+        //
+        // A plain global rather than state threaded through the command context:
+        // it is written by exactly one call site per program bind, read by
+        // exactly one, and render passes run on the game thread.
+        [[nodiscard]] static auto IsBoundProgramBindless() -> bool;
+        static void SetBoundProgramBindless(bool bindless);
         virtual void Unbind() const = 0;
 
         virtual void SetInt(const std::string& name, int value) const = 0;

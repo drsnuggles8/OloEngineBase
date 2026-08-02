@@ -5,17 +5,27 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "Platform/OpenGL/OpenGLRHIConversions.h"
 
+#include <array>
+#include <vector>
+
 namespace OloEngine
 {
     namespace
     {
+        // `LinearMipFilter == false` means NO MIP FILTERING, not "nearest mip".
+        // Mapping it to a *_MIPMAP_* enum was a silent divergence between the two
+        // paths: SSAO's noise sampler sets the flag false, so the heap sampler
+        // would minify through a mip chain while the slot path used the texture's
+        // own non-mipmapped filter. Two variants of one shader that sample
+        // differently is exactly what this phase must not produce — the whole
+        // claim is that only the binding mechanism changes.
         [[nodiscard]] GLenum ToGLMinFilter(RHI::Filter minFilter, bool linearMip)
         {
             if (minFilter == RHI::Filter::Nearest)
             {
-                return linearMip ? GL_NEAREST_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_NEAREST;
+                return linearMip ? GL_NEAREST_MIPMAP_LINEAR : GL_NEAREST;
             }
-            return linearMip ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR_MIPMAP_NEAREST;
+            return linearMip ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR;
         }
     } // namespace
 
@@ -46,6 +56,27 @@ namespace OloEngine
 
         m_SlotCapacity = slotCapacity;
 
+        // The null descriptor: a real, resident, sampleable 1x1 opaque-black
+        // texture. NOT handle 0 — sampling an invalid or non-resident
+        // ARB_bindless_texture handle is UNDEFINED BEHAVIOUR, so the poison and
+        // null-descriptor guarantees would otherwise rest on driver luck.
+        // Immutable storage because a handle freezes the texture anyway.
+        glCreateTextures(GL_TEXTURE_2D, 1, &m_NullTexture);
+        glTextureStorage2D(m_NullTexture, 1, GL_RGBA8, 1, 1);
+        constexpr std::array<u8, 4> kBlack = { 0u, 0u, 0u, 255u };
+        glTextureSubImage2D(m_NullTexture, 0, 0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, kBlack.data());
+        glObjectLabel(GL_TEXTURE, m_NullTexture, -1, "RHI::DescriptorHeap null");
+
+        glCreateSamplers(1, &m_NullSampler);
+        glSamplerParameteri(m_NullSampler, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glSamplerParameteri(m_NullSampler, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        m_NullDescriptor = static_cast<u64>(glGetTextureSamplerHandleARB(m_NullTexture, m_NullSampler));
+        if (m_NullDescriptor != 0u && glIsTextureHandleResidentARB(m_NullDescriptor) != GL_TRUE)
+        {
+            glMakeTextureHandleResidentARB(m_NullDescriptor);
+        }
+
         // std430 uvec2[] — a GLuint64 handle IS a uvec2 in memory, so the CPU
         // mirror uploads verbatim with no packing step. Deliberately NOT a
         // uint64_t[] block: that would additionally require
@@ -54,13 +85,16 @@ namespace OloEngine
         glNamedBufferStorage(m_HeapBuffer, static_cast<GLsizeiptr>(sizeof(u64) * slotCapacity), nullptr,
                              GL_DYNAMIC_STORAGE_BIT);
 
-        // ZERO THE WHOLE TABLE. `glNamedBufferStorage` with a null pointer leaves
-        // the contents UNDEFINED, and a slot the engine never allocates is never
-        // in a dirty range, so it would never be written — including slot 0, the
-        // reserved null descriptor that every cleared or failed binding points
-        // at. Sampling through undefined bits is not "black", it is whatever the
-        // driver left in that memory: a plausible wrong texture on a busy device
-        // and a GPU hang at worst.
+        // FILL THE WHOLE TABLE WITH THE NULL DESCRIPTOR. `glNamedBufferStorage`
+        // with a null pointer leaves the contents UNDEFINED, and a slot the
+        // engine never allocates is never in a dirty range, so it would never be
+        // written — including slot 0, the reserved null descriptor that every
+        // cleared or failed binding points at. Sampling through undefined bits is
+        // not "black", it is whatever the driver left there.
+        //
+        // Filling with the resident black handle rather than with zeroes is the
+        // second half of the same point: a zero handle is not a valid bindless
+        // handle either, so sampling it is undefined too.
         //
         // This cost a real debugging round. The null-descriptor test passed in
         // isolation — a fresh context happened to hand back zeroed memory — and
@@ -68,7 +102,10 @@ namespace OloEngine
         // allocations. An "it works alone, fails in the suite" failure on a buffer
         // you never wrote is almost always uninitialised storage rather than test
         // pollution.
-        glClearNamedBufferData(m_HeapBuffer, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
+        {
+            const std::vector<u64> nulls(slotCapacity, m_NullDescriptor);
+            glNamedBufferSubData(m_HeapBuffer, 0, static_cast<GLsizeiptr>(sizeof(u64) * slotCapacity), nulls.data());
+        }
 
         glObjectLabel(GL_BUFFER, m_HeapBuffer, -1, "RHI::DescriptorHeap");
 
@@ -99,6 +136,25 @@ namespace OloEngine
             }
         }
         m_Samplers.clear();
+
+        if (m_NullDescriptor != 0u)
+        {
+            if (glIsTextureHandleResidentARB(m_NullDescriptor) == GL_TRUE)
+            {
+                glMakeTextureHandleNonResidentARB(m_NullDescriptor);
+            }
+            m_NullDescriptor = 0u;
+        }
+        if (m_NullSampler != 0u)
+        {
+            glDeleteSamplers(1, &m_NullSampler);
+            m_NullSampler = 0u;
+        }
+        if (m_NullTexture != 0u)
+        {
+            glDeleteTextures(1, &m_NullTexture);
+            m_NullTexture = 0u;
+        }
 
         if (m_HeapBuffer != 0u)
         {
@@ -279,6 +335,11 @@ namespace OloEngine
         }
 
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_RESOURCE_HEAP, m_HeapBuffer);
+    }
+
+    auto OpenGLDescriptorHeapBackend::NullDescriptor() const -> u64
+    {
+        return m_NullDescriptor;
     }
 
     auto OpenGLDescriptorHeapBackend::GetStats() const -> Stats

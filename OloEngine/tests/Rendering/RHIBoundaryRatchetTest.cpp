@@ -244,6 +244,36 @@ namespace OloEngine::Tests
             return count;
         }
 
+        // Phase 3's bind-site rule, in ONE place so the corpus scan and the
+        // unit test cannot drift apart.
+        //
+        // The identifier-boundary guard is not cosmetic: `BindTexture(` is a
+        // SUFFIX of `glBindTexture(`, so without it a single raw GL call in the
+        // sweep bucket would inflate both `sweep_gl_calls` and
+        // `sweep_bind_texture_sites`. That bucket is at zero today, so the
+        // numbers happen to be unaffected — exactly the latent-until-someone-
+        // regresses shape the digit-separator trap had.
+        u32 CountBindSites(const std::string& blanked)
+        {
+            u32 count = 0;
+            for (const std::string_view needle : { std::string_view("BindTexture("),
+                                                   std::string_view("BindImageTexture(") })
+            {
+                for (sizet pos = blanked.find(needle); pos != std::string::npos;
+                     pos = blanked.find(needle, pos + needle.size()))
+                {
+                    // Must start an identifier. `BindTexture(` inside
+                    // `glBindTexture(` is preceded by 'l' and is not a site.
+                    if (pos > 0 && IsWordChar(blanked[pos - 1]))
+                    {
+                        continue;
+                    }
+                    ++count;
+                }
+            }
+            return count;
+        }
+
         u32 CountOccurrences(const std::string& blanked, std::string_view needle)
         {
             u32 count = 0;
@@ -478,8 +508,7 @@ namespace OloEngine::Tests
                 // double-count each other.
                 if (!nativeNamesAllowed)
                 {
-                    const u32 binds = CountOccurrences(blanked, "BindTexture(") +
-                                      CountOccurrences(blanked, "BindImageTexture(");
+                    const u32 binds = CountBindSites(blanked);
                     tally.SweepBindTextureSites += binds;
                     if (binds > 0)
                     {
@@ -759,11 +788,12 @@ namespace OloEngine::Tests
         // "BindTexture(" is deliberately NOT a substring of "BindImageTexture(",
         // and a needle pair that overlapped would inflate the baseline in a way
         // no assertion could distinguish from real bind sites.
+        // Calls the SAME function the corpus scan uses, deliberately. An earlier
+        // version re-implemented the expression here, so a fix in one place would
+        // not have reached the other — the exact drift this file's own counting-
+        // rule tests exist to prevent.
         auto countBinds = [](const std::string& source)
-        {
-            const std::string blanked = BlankLiterals(source);
-            return CountOccurrences(blanked, "BindTexture(") + CountOccurrences(blanked, "BindImageTexture(");
-        };
+        { return CountBindSites(BlankLiterals(source)); };
 
         EXPECT_EQ(countBinds("context.BindTexture(TEX_DIFFUSE, tex);"), 1u);
         EXPECT_EQ(countBinds("RenderCommand::BindImageTexture(0, tex, 0, false, 0, a, f);"), 1u);
@@ -774,6 +804,10 @@ namespace OloEngine::Tests
         EXPECT_EQ(countBinds("virtual void BindTexture(u32 slot, RHI::ResourceHandle t) = 0;"), 1u)
             << "a declaration is a site too — it is what the conversion has to delete";
         EXPECT_EQ(countBinds("m_Stats.BindTextureCalls = 0;"), 0u) << "no '(' — not a call";
+        EXPECT_EQ(countBinds("glBindTexture(GL_TEXTURE_2D, 0);"), 0u)
+            << "a raw GL call is NOT a heap-convertible bind site — `BindTexture(` is a suffix of it";
+        EXPECT_EQ(countBinds("RenderCommand::BindTexture(0, t); glBindTexture(GL_TEXTURE_2D, 0);"), 1u)
+            << "one facade site, one GL call, on the same line";
 
         // Digit separators are not char literals. `1'000` has an ODD number of
         // quotes, so a naive scanner blanks forward to the newline and loses the

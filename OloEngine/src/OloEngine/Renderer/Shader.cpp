@@ -6,6 +6,23 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // Not atomic: written and read only from the render thread, once per
+        // program bind. See Shader.h.
+        bool s_BoundProgramIsBindless = false;
+    } // namespace
+
+    auto Shader::IsBoundProgramBindless() -> bool
+    {
+        return s_BoundProgramIsBindless;
+    }
+
+    void Shader::SetBoundProgramBindless(const bool bindless)
+    {
+        s_BoundProgramIsBindless = bindless;
+    }
+
     Ref<Shader> Shader::Create(const std::string& filepath)
     {
         switch (Renderer::GetAPI())

@@ -1287,16 +1287,16 @@ Two consequences for planning the remaining sites:
 
 ### How far "full bindless" actually reaches — measured, not estimated
 
-After SSAO the counter stands at **230** (232 − 3 converted + 1 for the fallback
-bind inside the new seam, which is a real bind site and correctly counted). The
-remainder is not homogeneous, and the split decides whether the phrase means
-anything:
+Eleven shaders and 24 sites later the counter stands at **208**, down from the
+232 measured before any conversion. The remainder is not homogeneous, and the
+split decides whether the phrase means anything:
 
 | Bucket | Sites | Shape |
 | --- | ---: | --- |
-| Ordinary pass binds (35 files under `Renderer/Passes/`) | ~150 | Mechanical, exactly like SSAO. |
+| Ordinary pass binds (`Renderer/Passes/`) | ~128 | Mechanical, exactly like the converted ones. |
 | `Renderer/Commands/` — the material path | ~21 | The redundant-bind cache. One indivisible unit, same shape as Phase 2 slice 6. |
 | **`BindImageTexture` — storage images** | **38** | **Not modelled at all.** |
+| Facade declarations, the seam's own fallback, misc | ~21 | Mostly not deletable — the fallback bind is a real site and correctly counted. |
 
 **The storage-image bucket is the real answer to "can we go full bindless".** The
 heap produces *sampler* descriptors only: `ViewDesc` + `SamplerDesc` →
@@ -1304,7 +1304,7 @@ heap produces *sampler* descriptors only: `ViewDesc` + `SamplerDesc` →
 different descriptor — `glGetImageHandleARB`, with its own residency and a
 format+layered+level key that `ViewDesc` does not carry. `ARB_bindless_texture`
 supports it and `VK_EXT_descriptor_heap` treats it as just another descriptor
-type, so this is a gap in *our* model rather than in either API — but it is ~16%
+type, so this is a gap in *our* model rather than in either API — but it is ~18%
 of the surface, it is concentrated in the compute passes, and nothing about the
 sampler path generalises to it for free. **Anyone claiming "full bindless" has to
 price this in as a second heap-side feature, not as more call sites.**

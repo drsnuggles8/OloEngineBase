@@ -1286,8 +1286,8 @@ Two consequences worth carrying forward:
 - **The expense is in the PASSES, not the shaders.** One `.glsl` behind
   `#ifdef OLO_BINDLESS` serves both paths (measured — with the define absent the
   `#extension` line is preprocessed away before glslang sees it), so the source
-  is not duplicated; only the compiled artefact is. What each of the 232 sites
-  does need is a "write an offset or bind a texture" fork, for as long as the
+  is not duplicated; only the compiled artefact is. What each REMAINING site
+  needs is a "write an offset or bind a texture" fork, for as long as the
   slot-based fallback exists — which is indefinitely (see (21)).
 - `BindlessShaderPipelineTest` pins the constraint and fails **in either
   direction**, because a toolchain that started accepting it would make a whole
@@ -1403,7 +1403,7 @@ real seam using slots that differ in both group and component.
 
 ### (26) Storage images are a SECOND heap-side feature, not more call sites
 
-The heap produces sampler descriptors only. Of the 230 remaining bind sites,
+The heap produces sampler descriptors only. Of the 208 remaining bind sites,
 **38 are `BindImageTexture`** — `imageLoad`/`imageStore` bindings, which need
 `glGetImageHandleARB` with its own residency and a format/layered/level key that
 `ViewDesc` does not carry.
@@ -1412,7 +1412,7 @@ Both APIs support it (`ARB_bindless_texture` has image handles;
 `VK_EXT_descriptor_heap` treats a storage image as just another descriptor type),
 so this is a gap in *this model*, not in either backend. It is recorded as an
 amendment rather than a TODO because it changes how the remaining work should be
-estimated: ~16% of the surface does not fall out of the sampler path at any
+estimated: ~18% of the surface does not fall out of the sampler path at any
 price, and "full bindless" costs a second descriptor kind before it costs another
 call-site sweep.
 

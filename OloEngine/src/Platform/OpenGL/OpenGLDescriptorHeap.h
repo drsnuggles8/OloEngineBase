@@ -76,6 +76,8 @@ namespace OloEngine
 
         void BindHeap() override;
 
+        [[nodiscard]] auto NullDescriptor() const -> u64 override;
+
         struct Stats
         {
             u32 ResidentHandles = 0;  ///< distinct handles currently resident
@@ -90,6 +92,13 @@ namespace OloEngine
 
         bool m_Supported = false;
         GLuint m_HeapBuffer = 0u;
+        // A resident 1x1 opaque-black texture and its handle. Every unallocated,
+        // freed or cleared slot holds this rather than 0, because sampling an
+        // invalid bindless handle is undefined behaviour and this model leans on
+        // poison reads being DETERMINISTIC.
+        GLuint m_NullTexture = 0u;
+        GLuint m_NullSampler = 0u;
+        u64 m_NullDescriptor = 0u;
         u32 m_SlotCapacity = 0u;
 
         // Residency refcount. Two views that differ only in a field GL folds
