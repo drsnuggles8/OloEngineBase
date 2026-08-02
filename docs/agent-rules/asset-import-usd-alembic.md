@@ -139,7 +139,7 @@ ExternalProject_Add(openusd DEPENDS onetbb GIT_REPOSITORY .../OpenUSD.git GIT_TA
    **`lld-link` does not** — it opens the argument as a path relative to the working directory only,
    and kills the whole link with
 
-   ```
+   ```text
    lld-link: error: could not open 'usd_m': no such file or directory
    ```
 
