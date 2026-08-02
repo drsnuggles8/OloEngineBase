@@ -1783,7 +1783,18 @@ namespace OloEngine
         // Validate BEFORE reserving worker scratch or a packet — same reasoning
         // as the non-parallel path: both come out of per-frame storage that a
         // late bail-out strands for the rest of the frame.
-        const RHI::ResourceHandle vertexArrayID = mesh->GetVertexArray()->GetRHIHandle();
+        //
+        // The null check mirrors DrawAnimatedMesh's. ValidateDrawMeshResources
+        // takes handles, so it cannot catch an absent vertex array — by then
+        // GetRHIHandle() has already been called on nothing.
+        const auto vertexArray = mesh->GetVertexArray();
+        if (!vertexArray)
+        {
+            OLO_CORE_ERROR("Renderer3D::DrawAnimatedMeshParallel: Mesh has null VAO (Vertex Array Object)!");
+            return nullptr;
+        }
+
+        const RHI::ResourceHandle vertexArrayID = vertexArray->GetRHIHandle();
         const RHI::ResourceHandle shaderRendererID = shaderToUse->GetRHIHandle();
         if (!ValidateDrawMeshResources("Renderer3D::DrawAnimatedMeshParallel", vertexArrayID, shaderRendererID))
             return nullptr;

@@ -107,7 +107,9 @@ $env:CMAKE_BUILD_PARALLEL_LEVEL = "6"   # PowerShell (the primary dev shell here
 export CMAKE_BUILD_PARALLEL_LEVEL=6      # POSIX shell / the Linux GPU runner
 ```
 
-An explicit `--parallel N` overrides the environment variable, so don't set one expecting the other to win. What is never acceptable is a bare `--parallel`, or `ninja` with no `-j` and no capping variable.
+An explicit `--parallel N` overrides the environment variable, so don't set one expecting the other to win.
+
+**`CMAKE_BUILD_PARALLEL_LEVEL` caps `cmake --build` only — `ninja` does not read it.** A direct `ninja` invocation must always carry a numeric `-jN` of its own; setting the variable and then running bare `ninja` gives you the full 18-wide default with no warning. What is never acceptable is a bare `--parallel`, or a direct `ninja` without `-jN`.
 
 This is not a style preference. The dev box is 16 cores / 31 GB and *also* hosts the `gh-runner-1/2/3` runners for another repository, so a build never has the machine to itself. Neither default is a cap:
 
