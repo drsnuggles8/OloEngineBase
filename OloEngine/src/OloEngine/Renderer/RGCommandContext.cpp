@@ -3,6 +3,11 @@
 
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
+
+#include <array>
 
 namespace OloEngine
 {
@@ -96,6 +101,94 @@ namespace OloEngine
     void RGCommandContext::BindTexture(const u32 slot, const RHI::ResourceHandle texture) const
     {
         RenderCommand::BindTexture(slot, texture);
+    }
+
+    namespace
+    {
+        // The shared heap-offset table (issue #691 Phase 3). One std140 UBO of
+        // `MAX_ENGINE_TEXTURE_SLOTS` uints, indexed by the very `TEX_*` constant
+        // the pass used to bind with — so the bindless and slot-based variants
+        // of a shader cannot disagree about which texture is which.
+        //
+        // Function-local rather than an RGCommandContext member because the
+        // context is handed to passes by const reference and is recreated per
+        // frame, while this buffer must outlive both. Render passes execute on
+        // the game thread, so the unsynchronised scratch is safe; a
+        // `.Parallelizable()` pass would need its own.
+        struct HeapOffsetTable
+        {
+            // std140 pads a `uint` array to 16-byte stride, so the CPU side is
+            // uvec4-shaped and the shader indexes [i >> 2][i & 3]. Getting this
+            // wrong is the classic std140 trap: the array would read every
+            // fourth offset and sample three wrong textures out of four.
+            static constexpr u32 kSlots = ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS;
+            static constexpr u32 kVec4s = (kSlots + 3u) / 4u;
+
+            std::array<u32, kVec4s * 4u> Scratch{};
+            Ref<UniformBuffer> Buffer;
+            bool Dirty = false;
+        };
+
+        HeapOffsetTable& OffsetTable()
+        {
+            static HeapOffsetTable s_Table;
+            return s_Table;
+        }
+    } // namespace
+
+    RHI::HeapOffset RGCommandContext::BindTextureOrHeapOffset(const u32 slot, const RHI::ResourceHandle texture,
+                                                              const RHI::HeapSlotLifetime lifetime,
+                                                              const RHI::SamplerDesc& sampler) const
+    {
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        if (heap.IsEnabled() && slot < HeapOffsetTable::kSlots)
+        {
+            RHI::ViewDesc viewDesc;
+            viewDesc.Resource = texture;
+
+            if (const RHI::ViewHandle view = heap.GetOrCreateView(texture, viewDesc, sampler, lifetime);
+                view.IsValid())
+            {
+                // Fetched at the point of write, never stored — ADR 0011 §1.2.
+                // For a persistent view this is a stable value the memoised
+                // lookup above already found; for a transient it is this frame's
+                // ring slot and is stale the moment the frame ends.
+                const RHI::HeapOffset offset = RHI::OffsetOf(view);
+                if (offset.IsValid())
+                {
+                    auto& table = OffsetTable();
+                    table.Scratch[slot] = offset.Value;
+                    table.Dirty = true;
+                    return offset;
+                }
+            }
+        }
+
+        // Every failure lands here, and that is the design: a machine without
+        // the extension, a heap that filled up, a resource that died mid-frame,
+        // and a slot outside the table all render the frame the old way rather
+        // than rendering it wrong.
+        RenderCommand::BindTexture(slot, texture);
+        return {};
+    }
+
+    void RGCommandContext::FlushHeapOffsets() const
+    {
+        auto& table = OffsetTable();
+        if (!table.Dirty || !RHI::DescriptorHeap::Get().IsEnabled())
+        {
+            return;
+        }
+
+        if (!table.Buffer)
+        {
+            table.Buffer = UniformBuffer::Create(static_cast<u32>(table.Scratch.size() * sizeof(u32)),
+                                                 ShaderBindingLayout::UBO_HEAP_OFFSETS);
+        }
+
+        table.Buffer->SetData(table.Scratch.data(), static_cast<u32>(table.Scratch.size() * sizeof(u32)));
+        table.Dirty = false;
     }
 
     void RGCommandContext::MemoryBarrier(const MemoryBarrierFlags flags) const

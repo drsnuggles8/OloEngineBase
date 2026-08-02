@@ -328,6 +328,23 @@ namespace OloEngine::Tests
             // both zero where they do not belong.
             u32 BackendResolveHatch = 0;
 
+            // Phase 3 (the bindless rehearsal). Slot-based texture-binding call
+            // sites outside Platform/ and Renderer/Debug/ — every `BindTexture(`
+            // and `BindImageTexture(` the engine still performs. Under
+            // heap-bindless there is no slot to bind to: the pass writes
+            // `RHI::OffsetOf(view)` into a UBO and the shader indexes the heap
+            // (ADR 0011 §1.3 item 1), so this is the counter that measures the
+            // phase's actual conversion rather than its infrastructure.
+            //
+            // IT IS NOT EXPECTED TO REACH ZERO IN PHASE 3, and that is a
+            // deliberate difference from the Phase 2 counters. `ARB_bindless_texture`
+            // is not universally available, so the slot-based path must survive
+            // as the fallback on any device without it — a zero here would mean
+            // the engine had stopped working on those machines, not that the
+            // phase was finished. What it must do is FALL, and never rise.
+            u32 SweepBindTextureSites = 0;
+            std::map<std::string, u32> SweepBindTextureSitesByFile;
+
             std::map<std::string, u32> SweepRendererIdByFile;
 
             // Sanity anchors — see the FloorGuards test. Without these, a broken
@@ -440,6 +457,35 @@ namespace OloEngine::Tests
                 {
                     tally.BackendResolveHatch += CountOccurrences(blanked, "ResolveNativeForBackend");
                 }
+
+                // --- Phase 3: the act of binding ----------------------------
+                //
+                // Same bucket rule as the identity currency: `Platform/` is the
+                // backend and legitimately binds, and `Renderer/Debug/` binds to
+                // inspect. Everywhere else, a texture bind is a site heap-bindless
+                // deletes.
+                //
+                // `Renderer/RHI/` is NOT exempted. It declares the heap that
+                // replaces binding and must never perform one — and because the
+                // count runs on the blanked text, the header can go on
+                // explaining what it replaces without inflating the number.
+                //
+                // The trailing '(' matters: it counts CALLS and DECLARATIONS but
+                // not the many prose mentions of the family name in the facade's
+                // own comments, which is the same precision the `gl[A-Z](` rule
+                // was written for. Note "BindTexture(" is deliberately not a
+                // substring of "BindImageTexture(", so the two needles do not
+                // double-count each other.
+                if (!nativeNamesAllowed)
+                {
+                    const u32 binds = CountOccurrences(blanked, "BindTexture(") +
+                                      CountOccurrences(blanked, "BindImageTexture(");
+                    tally.SweepBindTextureSites += binds;
+                    if (binds > 0)
+                    {
+                        tally.SweepBindTextureSitesByFile[rel] = binds;
+                    }
+                }
             }
 
             return tally;
@@ -498,6 +544,7 @@ namespace OloEngine::Tests
         ExpectRatchet("debug_escape_hatch", tally.DebugEscapeHatch, baseline);
         ExpectRatchet("sweep_renderer_id", tally.SweepRendererId, baseline);
         ExpectRatchet("backend_resolve_hatch", tally.BackendResolveHatch, baseline);
+        ExpectRatchet("sweep_bind_texture_sites", tally.SweepBindTextureSites, baseline);
 
         if (::testing::Test::HasFailure())
         {
@@ -512,6 +559,13 @@ namespace OloEngine::Tests
                  << tally.SweepRendererIdByFile.size() << " files, " << tally.SweepRendererId
                  << " mentions):\n";
             for (const auto& [file, count] : tally.SweepRendererIdByFile)
+            {
+                work << "      " << count << "\t" << file << "\n";
+            }
+            work << "\n  Files still binding textures to slots ("
+                 << tally.SweepBindTextureSitesByFile.size() << " files, " << tally.SweepBindTextureSites
+                 << " sites) — each becomes a heap offset written into a UBO:\n";
+            for (const auto& [file, count] : tally.SweepBindTextureSitesByFile)
             {
                 work << "      " << count << "\t" << file << "\n";
             }
@@ -655,6 +709,20 @@ namespace OloEngine::Tests
             << "Found only " << tally.BackendGLCalls << " GL calls inside Platform/OpenGL/. The "
             << "OpenGL backend is the one place raw GL is expected, so a low count here means the "
             << "literal-stripper or the call matcher is broken, not that the backend shrank.";
+
+        // Phase 3's counter needs its own floor, and for a reason the other two
+        // do not have: it is the ONLY counter here that a legitimate change
+        // could drive to zero, so "zero" is not self-evidently a broken
+        // scanner. It is nonetheless not reachable — the slot-based path must
+        // survive for devices without ARB_bindless_texture (that is the whole
+        // fallback design), so the engine will always contain some. A floor an
+        // order of magnitude below today's count catches a broken needle
+        // without constraining the conversion.
+        EXPECT_GT(tally.SweepBindTextureSites, 20u)
+            << "Found only " << tally.SweepBindTextureSites << " slot-based texture-bind sites outside "
+            << "Platform/. Heap-bindless deletes these, but it cannot delete ALL of them: the "
+            << "slot-based path is the fallback for devices without ARB_bindless_texture. A number "
+            << "this low means the needle stopped matching, not that the conversion finished.";
     }
 
     // -------------------------------------------------------------------------
@@ -684,6 +752,28 @@ namespace OloEngine::Tests
 
         // A block comment closed on a later line must not swallow real calls.
         EXPECT_EQ(count("/* note\n   about glClear(0) */\nglClear(0);"), 1u);
+
+        // Phase 3's bind-site needle rides on the same blanking, so pin it the
+        // same way. The trailing '(' is what separates a call from the facade's
+        // own prose, and the two needles must not double-count each other —
+        // "BindTexture(" is deliberately NOT a substring of "BindImageTexture(",
+        // and a needle pair that overlapped would inflate the baseline in a way
+        // no assertion could distinguish from real bind sites.
+        auto countBinds = [](const std::string& source)
+        {
+            const std::string blanked = BlankLiterals(source);
+            return CountOccurrences(blanked, "BindTexture(") + CountOccurrences(blanked, "BindImageTexture(");
+        };
+
+        EXPECT_EQ(countBinds("context.BindTexture(TEX_DIFFUSE, tex);"), 1u);
+        EXPECT_EQ(countBinds("RenderCommand::BindImageTexture(0, tex, 0, false, 0, a, f);"), 1u);
+        EXPECT_EQ(countBinds("BindImageTexture(0, t, 0, false, 0, a, f);"), 1u)
+            << "BindImageTexture must count once, not once for each needle";
+        EXPECT_EQ(countBinds("// BindTexture(slot, tex) disappears under heap-bindless"), 0u)
+            << "prose about the family name must not inflate the baseline";
+        EXPECT_EQ(countBinds("virtual void BindTexture(u32 slot, RHI::ResourceHandle t) = 0;"), 1u)
+            << "a declaration is a site too — it is what the conversion has to delete";
+        EXPECT_EQ(countBinds("m_Stats.BindTextureCalls = 0;"), 0u) << "no '(' — not a call";
 
         // Digit separators are not char literals. `1'000` has an ODD number of
         // quotes, so a naive scanner blanks forward to the newline and loses the

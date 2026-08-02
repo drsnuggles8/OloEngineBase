@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/RenderGraphSubmissionPlan.h"
 #include "OloEngine/Renderer/RenderGraphTransientPlanner.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 
 #include <algorithm>
@@ -3281,6 +3282,12 @@ namespace OloEngine
                 }
             };
         }
+        // Publish and bind the descriptor heap before any pass runs. Every
+        // transient view this frame was minted during planning, so the table is
+        // complete by now and one upload covers the whole dirty range —
+        // uploading per view would be N buffer writes for no gain.
+        RHI::DescriptorHeap::Get().Flush();
+
         m_LastExecutionTimings = RenderGraphPlanExecutor::ExecutePlan({
             .SubmissionPlan = m_CachedSubmissionPlan,
             .Context = commandContext,
@@ -3297,6 +3304,15 @@ namespace OloEngine
         FlushExtractions();
         m_TransientPool.ReleaseAll();
         m_TransientPool.Trim(m_TransientPoolMaxBucketSize);
+
+        // The descriptor heap's frame-transient ring resets at exactly this
+        // moment and for exactly this reason (issue #691 Phase 3, ADR 0011
+        // §1.2): `ReleaseAll` is when the physical objects the transient
+        // descriptors named stop being owned by the passes that used them.
+        // Retiring the views here bumps their generations, so a transient
+        // HeapOffset held into the next frame is DETECTABLY stale rather than
+        // silently pointing at the next tenant of that ring slot.
+        RHI::DescriptorHeap::Get().ResetFrameTransients();
     }
 
     void RenderGraph::RecordResolveFailure(const std::string_view passName, const std::string_view reason) const

@@ -12,6 +12,17 @@
 
 namespace OloEngine
 {
+    OpenGLRendererAPI::~OpenGLRendererAPI()
+    {
+        // Order matters: the neutral heap releases every descriptor through the
+        // backend, so it has to run while the backend is still alive and the
+        // context still current. Shutting the backend down first would leave
+        // every ARB_bindless_texture handle resident, which keeps its texture
+        // permanently immutable for whatever remains of the process.
+        RHI::DescriptorHeap::Get().Shutdown();
+        m_DescriptorHeapBackend.Shutdown();
+    }
+
     void OpenGLRendererAPI::Init()
     {
         OLO_PROFILE_FUNCTION();
@@ -106,6 +117,39 @@ namespace OloEngine
                           hasInt64 ? "yes" : "no", atomicExtension,
                           m_SupportsInt64Atomics ? "supported" : "unsupported",
                           m_SupportsInt64Atomics ? "single-pass 64-bit atomic" : "portable two-pass 2x32");
+        }
+
+        // ---------------------------------------------------------------------
+        // The Phase 3 descriptor heap (issue #691).
+        //
+        // Sized generously rather than tightly on purpose: a heap that runs out
+        // mid-frame falls back to the slot-based path, which is correct but
+        // makes an A/B capture compare two different renderers. 4096 persistent
+        // slots covers every texture a scene loads with room to spare, and 1024
+        // ring slots is ~16x the busiest frame's transient count.
+        //
+        // POISON DEFAULTS TO ON IN DEBUG. It costs one buffer write per freed
+        // slot and turns a use-after-free from "shows the previous tenant" —
+        // which LIFO slot reuse hides in steady state, exactly as the transient
+        // POOL hides it — into a deterministic black read. That trade is the
+        // same one OLO_RG_POISON_TRANSIENTS makes, except that instrument is
+        // opt-in because it costs a full clear per resource and this one does
+        // not.
+        // ---------------------------------------------------------------------
+        {
+            m_DescriptorHeapBackend.Initialize(kDescriptorHeapSlots);
+
+            RHI::HeapDesc heapDesc;
+            heapDesc.ResourceSlotCapacity = kDescriptorHeapPersistentSlots;
+            heapDesc.SamplerSlotCapacity = kDescriptorHeapSamplerSlots;
+            heapDesc.FrameTransientRingSlots = kDescriptorHeapTransientSlots;
+#ifdef OLO_DEBUG
+            heapDesc.PoisonOnFree = true;
+#else
+            heapDesc.PoisonOnFree = false;
+#endif
+
+            RHI::DescriptorHeap::Get().Initialize(heapDesc, &m_DescriptorHeapBackend);
         }
     }
     void OpenGLRendererAPI::SetViewport(const u32 x, const u32 y, const u32 width, const u32 height)
