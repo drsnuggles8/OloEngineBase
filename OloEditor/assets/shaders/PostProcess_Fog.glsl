@@ -15,13 +15,31 @@ void main()
 #type fragment
 #version 460 core
 
+// Texture inputs. Under heap-bindless (issue #691 Phase 3) these become heap
+// lookups keyed by the SAME slot numbers the bindful branch declares.
+//
+// NOTE the shadow array (TEX_SHADOW = 8) is deliberately NOT converted here: it
+// is declared in a SHARED include, and converting a shared declaration would
+// flip every shader that includes it in one step. This shows conversion is
+// incremental WITHIN a shader — a bindless-variant program can carry ordinary
+// `layout(binding = N)` samplers alongside heap ones, and the pass simply keeps
+// binding those the old way.
+#include "include/BindlessHeap.glsl"
+
+#ifdef OLO_BINDLESS
+#define u_DepthTexture OLO_HEAP_TEX_2D(19)      // TEX_POSTPROCESS_DEPTH
+#define u_FroxelFogVolume OLO_HEAP_TEX_3D(53)   // TEX_FROXEL_FOG (sampler3D)
+#else
+layout(binding = 19) uniform sampler2D u_DepthTexture;  // Full-res scene depth
+layout(binding = 53) uniform sampler3D u_FroxelFogVolume;
+#endif
+
 // Output: RGB = accumulated inscatter light, A = transmittance
 // Compositing happens in the upsample/composite pass
 layout(location = 0) out vec4 o_Color;
 
 layout(location = 0) in vec2 v_TexCoord;
 
-layout(binding = 19) uniform sampler2D u_DepthTexture;  // Full-res scene depth
 
 // Integrated froxel fog volume (issue #435): rgb = accumulated in-scatter,
 // a = transmittance, built by the VolumetricFogPass compute chain. The
@@ -29,7 +47,6 @@ layout(binding = 19) uniform sampler2D u_DepthTexture;  // Full-res scene depth
 // the old per-pixel screen-space raymarch (temporal accumulation now lives in
 // the 3D scatter volume, sun shadowing + local-light scattering happen in
 // FroxelFogScatter.comp).
-layout(binding = 53) uniform sampler3D u_FroxelFogVolume;
 
 // Camera UBO (binding 0)
 layout(std140, binding = 0) uniform CameraMatrices

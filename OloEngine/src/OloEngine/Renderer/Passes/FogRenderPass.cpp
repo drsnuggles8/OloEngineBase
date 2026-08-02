@@ -209,7 +209,8 @@ namespace OloEngine
         m_FogShader->Bind();
 
         // Full-resolution depth (the shader samples at half-res UV).
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
 
         // CSM shadow map for volumetric light shafts (slot TEX_SHADOW = 8).
         context.BindTexture(ShaderBindingLayout::TEX_SHADOW, shadowCSMTextureID);
@@ -222,8 +223,9 @@ namespace OloEngine
         const bool froxelRan = m_VolumetricFogPass && m_VolumetricFogPass->RanThisFrame();
         if (froxelRan)
         {
-            context.BindTexture(ShaderBindingLayout::TEX_FROXEL_FOG,
-                                m_VolumetricFogPass->GetIntegratedVolumeID());
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_FROXEL_FOG,
+                                            m_VolumetricFogPass->GetIntegratedVolumeID(),
+                                            RHI::HeapSlotLifetime::FrameTransient);
         }
         else if (m_VolumetricFogPass)
         {
@@ -231,6 +233,9 @@ namespace OloEngine
         }
 
         {
+            // Publish the heap offsets recorded above (no-op with the heap off).
+            context.FlushHeapOffsets();
+
             const auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
             context.DrawIndexed(va);

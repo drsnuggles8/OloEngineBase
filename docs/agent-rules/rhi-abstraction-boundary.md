@@ -1263,6 +1263,28 @@ model's is a value that must be written. The same applies to the fallback path �
 belt-and-braces, it is the only thing stopping a stale index surviving a
 heap-exhaustion or dead-resource case.
 
+### Conversion is incremental WITHIN a shader, which is what makes shared includes tractable
+
+`PostProcess_Fog.glsl` reads three textures: full-res depth (`sampler2D`), the
+froxel volume (`sampler3D`) and the CSM shadow array — and the shadow array's
+declaration lives in a **shared include**. Converting a shared declaration would
+flip every shader that includes it in one indivisible step, which is the shape of
+change that cannot be verified pass by pass.
+
+It turns out not to be forced: a bindless-variant program can carry ordinary
+`layout(binding = N)` samplers alongside heap ones, and the pass simply keeps
+binding those the old way. Fog is converted for its depth and froxel inputs and
+still binds `TEX_SHADOW` conventionally.
+
+Two consequences for planning the remaining sites:
+
+- **Shared includes are not a blocker**, they are just the last thing to convert.
+  A shader can be moved input by input.
+- **`sampler3D` through the heap is proven**, not assumed — fog's froxel volume
+  is a real 3D texture sampled through `OLO_HEAP_TEX_3D`. Combined with the
+  `sampler2D` passes and the GPU test's array/shadow macros, the macro layer is
+  exercised beyond the 2D case that everything else uses.
+
 ### How far "full bindless" actually reaches — measured, not estimated
 
 After SSAO the counter stands at **230** (232 − 3 converted + 1 for the fallback
