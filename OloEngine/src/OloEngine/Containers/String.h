@@ -266,8 +266,11 @@ namespace OloEngine
             Data.SetNumUninitialized(oldLen + count + 1);
 
             // memmove, not memcpy: once re-derived, source and destination are
-            // in the SAME buffer and can overlap (appending a suffix of
-            // yourself puts the source range across the old terminator).
+            // in the SAME buffer. They cannot actually overlap — the source is
+            // a sub-range of [0, oldLen] and the destination starts at oldLen,
+            // so the two are adjacent at worst — but memmove costs nothing
+            // here and removes the need to re-derive that argument every time
+            // this is read.
             const char* const src = selfAliased ? (Data.GetData() + srcOffset) : str;
             std::memmove(Data.GetData() + oldLen, src, static_cast<sizet>(count));
             Data.GetData()[oldLen + count] = '\0';
@@ -359,19 +362,39 @@ namespace OloEngine
 
         [[nodiscard("Store this!")]] i32 Compare(const FString& other, ESearchCase cs = ESearchCase::CaseSensitive) const
         {
+            // Length-aware, NOT strcmp. FString can hold embedded NULs — the
+            // counted and string_view constructors take an explicit size and
+            // never stop at one — so a terminator-driven compare would call
+            // "a\0b" and "a\0c" equal: it stops at index 1, and Equals' length
+            // guard passes because both are 3 long. Compare exactly Len()
+            // bytes, then let the shorter string sort first.
+            const SizeType lenA = Len();
+            const SizeType lenB = other.Len();
+            const SizeType common = lenA < lenB ? lenA : lenB;
             const char* a = **this;
             const char* b = *other;
-            if (cs == ESearchCase::CaseSensitive)
-                return std::strcmp(a, b);
 
-            for (;; ++a, ++b)
+            if (cs == ESearchCase::CaseSensitive)
             {
-                const i32 ca = ToLowerChar(*a);
-                if (const i32 cb = ToLowerChar(*b); ca != cb)
-                    return ca - cb;
-                if (*a == '\0')
-                    return 0;
+                if (common > 0)
+                {
+                    if (const int diff = std::memcmp(a, b, static_cast<sizet>(common)); diff != 0)
+                        return diff;
+                }
             }
+            else
+            {
+                for (SizeType i = 0; i < common; ++i)
+                {
+                    const i32 ca = ToLowerChar(a[i]);
+                    if (const i32 cb = ToLowerChar(b[i]); ca != cb)
+                        return ca - cb;
+                }
+            }
+
+            if (lenA == lenB)
+                return 0;
+            return lenA < lenB ? -1 : 1;
         }
 
         [[nodiscard("Store this!")]] friend bool operator==(const FString& lhs, const FString& rhs)
@@ -380,7 +403,11 @@ namespace OloEngine
         }
         [[nodiscard("Store this!")]] friend bool operator==(const FString& lhs, const char* rhs)
         {
-            return std::strcmp(*lhs, rhs ? rhs : "") == 0;
+            // Same length-aware path as the FString/FString overload. A raw
+            // C string cannot carry an embedded NUL, so its length IS its
+            // strlen — but lhs can, and strcmp would ignore everything past
+            // lhs's first one. A null rhs compares as the empty string.
+            return lhs.Equals(FString(rhs ? rhs : ""));
         }
         [[nodiscard("Store this!")]] friend bool operator<(const FString& lhs, const FString& rhs)
         {

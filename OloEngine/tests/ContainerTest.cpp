@@ -415,12 +415,16 @@ TEST(FStringSelfAppend, SelfAppendAcrossGrowthKeepsContent)
         << "self-append read through a dangling pointer after the buffer moved";
 }
 
-TEST(FStringSelfAppend, AppendingOwnSuffixOverlapsAndStillCopies)
+TEST(FStringSelfAppend, AppendingOwnSuffixCopiesFromTheReDerivedSource)
 {
-    // A view over this string's own tail: after the guard re-derives the
-    // source, it sits in the same buffer as the destination AND the two ranges
-    // overlap across the old terminator, which is why the copy must be a
-    // memmove rather than a memcpy.
+    // A view over this string's own tail. This is the case the offset
+    // re-derivation exists for: the source pointer is INSIDE the buffer that
+    // SetNumUninitialized may move, so a pointer captured beforehand dangles.
+    //
+    // The ranges are adjacent, not overlapping — the source is a sub-range of
+    // [0, Len()] and the destination begins at Len() — so this does not
+    // require memmove over memcpy. It exercises that the source is re-derived
+    // correctly after the growth, which is the part that can actually break.
     std::string seed(48, 'B');
     seed += "-SUFFIX";
 

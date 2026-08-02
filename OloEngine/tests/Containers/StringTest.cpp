@@ -22,6 +22,7 @@
 #include "OloEngine/Containers/String.h"
 
 #include <string>
+#include <string_view>
 
 namespace OloEngine::Tests
 {
@@ -130,6 +131,37 @@ namespace OloEngine::Tests
             EXPECT_STREQ(*FString("MiXeD").ToLower(), "mixed");
             EXPECT_STREQ(*FString("  pad  ").TrimStartAndEnd(), "pad");
             EXPECT_STREQ(*FString("\t x \n").TrimStartAndEnd(), "x");
+        }
+
+        // FString stores an explicit length, so the counted and string_view
+        // constructors can hold a NUL in the middle. Comparison must respect
+        // that: a terminator-driven strcmp stops at the first one and reported
+        // strings that differ AFTER it as equal, which Equals' length guard
+        // could not catch because the lengths matched.
+        TEST(FStringTest, ComparisonIsLengthAwareAcrossEmbeddedNuls)
+        {
+            const FString a(std::string_view("a\0b", 3));
+            const FString b(std::string_view("a\0c", 3));
+
+            ASSERT_EQ(a.Len(), 3);
+            ASSERT_EQ(b.Len(), 3);
+
+            EXPECT_FALSE(a.Equals(b));
+            EXPECT_FALSE(a == b);
+            EXPECT_NE(a.Compare(b), 0);
+            EXPECT_TRUE(a.Equals(FString(std::string_view("a\0b", 3))));
+
+            // Case-insensitive must be length-aware too.
+            const FString upper(std::string_view("A\0B", 3));
+            EXPECT_TRUE(a.Equals(upper, FString::ESearchCase::IgnoreCase));
+            EXPECT_FALSE(b.Equals(upper, FString::ESearchCase::IgnoreCase));
+
+            // A prefix must not compare equal to the longer string, and must
+            // sort before it.
+            const FString prefix(std::string_view("a\0", 2));
+            EXPECT_FALSE(prefix.Equals(a));
+            EXPECT_LT(prefix.Compare(a), 0);
+            EXPECT_GT(a.Compare(prefix), 0);
         }
 
         TEST(FStringTest, SplitFollowsUnrealSemantics)

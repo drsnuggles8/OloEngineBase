@@ -95,6 +95,17 @@ list(APPEND CMAKE_MODULE_PATH
 # Raise it on a machine with memory to spare: -DOLO_LINK_JOBS=4.
 if(CMAKE_GENERATOR MATCHES "Ninja")
     set(OLO_LINK_JOBS "2" CACHE STRING "Maximum concurrent link steps (Ninja generators)")
+    # Validate before building the pool string. Ninja requires a pool depth to
+    # be a positive integer; anything else (0, negative, "two", empty) is
+    # pasted straight into build.ninja and fails at BUILD time with a parse
+    # error pointing at a generated file, which is a poor way to learn you
+    # mistyped a -D flag. A depth of 0 is rejected too: to ninja that means
+    # "unlimited", i.e. silently the opposite of a cap.
+    if(NOT OLO_LINK_JOBS MATCHES "^[1-9][0-9]*$")
+        message(FATAL_ERROR
+            "OLO_LINK_JOBS must be a positive integer (got '${OLO_LINK_JOBS}'). "
+            "It is the maximum number of concurrent link steps; 0 would mean unlimited.")
+    endif()
     set_property(GLOBAL PROPERTY JOB_POOLS olo_link=${OLO_LINK_JOBS})
     set(CMAKE_JOB_POOL_LINK olo_link)
 endif()

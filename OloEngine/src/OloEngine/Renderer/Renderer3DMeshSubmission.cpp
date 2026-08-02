@@ -1131,6 +1131,16 @@ namespace OloEngine
             return nullptr;
         }
 
+        // Validate the GPU resources BEFORE reserving anything for this draw.
+        // Both the bone-matrix reservations below and the command packet come
+        // out of the per-frame arena, and bailing after them strands that space
+        // until the frame ends — every frame, for a mesh whose resources never
+        // become valid.
+        const RHI::ResourceHandle vertexArrayID = vertexArray->GetRHIHandle();
+        const RHI::ResourceHandle shaderRendererID = shaderToUse->GetRHIHandle();
+        if (!ValidateDrawMeshResources("Renderer3D::DrawAnimatedMesh", vertexArrayID, shaderRendererID))
+            return nullptr;
+
         // Allocate space in FrameDataBuffer for bone matrices.
         FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
         u32 boneCount = static_cast<u32>(boneMatrices.size());
@@ -1171,11 +1181,6 @@ namespace OloEngine
             return nullptr;
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
         cmd->header.type = CommandType::DrawMesh;
-
-        const RHI::ResourceHandle vertexArrayID = vertexArray->GetRHIHandle();
-        const RHI::ResourceHandle shaderRendererID = shaderToUse->GetRHIHandle();
-        if (!ValidateDrawMeshResources("Renderer3D::DrawAnimatedMesh", vertexArrayID, shaderRendererID))
-            return nullptr;
 
         // Store asset handles and renderer IDs (POD).
         cmd->meshHandle = mesh->GetHandle();
@@ -1775,6 +1780,14 @@ namespace OloEngine
             return nullptr;
         }
 
+        // Validate BEFORE reserving worker scratch or a packet — same reasoning
+        // as the non-parallel path: both come out of per-frame storage that a
+        // late bail-out strands for the rest of the frame.
+        const RHI::ResourceHandle vertexArrayID = mesh->GetVertexArray()->GetRHIHandle();
+        const RHI::ResourceHandle shaderRendererID = shaderToUse->GetRHIHandle();
+        if (!ValidateDrawMeshResources("Renderer3D::DrawAnimatedMeshParallel", vertexArrayID, shaderRendererID))
+            return nullptr;
+
         // Allocate bone matrices in worker's scratch buffer.
         FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
         const u32 boneCount = static_cast<u32>(boneMatrices.size());
@@ -1819,11 +1832,6 @@ namespace OloEngine
 
         auto* cmd = packet->GetCommandData<DrawMeshCommand>();
         cmd->header.type = CommandType::DrawMesh;
-
-        const RHI::ResourceHandle vertexArrayID = mesh->GetVertexArray()->GetRHIHandle();
-        const RHI::ResourceHandle shaderRendererID = shaderToUse->GetRHIHandle();
-        if (!ValidateDrawMeshResources("Renderer3D::DrawAnimatedMeshParallel", vertexArrayID, shaderRendererID))
-            return nullptr;
 
         cmd->meshHandle = mesh->GetHandle();
         cmd->vertexArrayID = vertexArrayID;

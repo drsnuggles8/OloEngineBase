@@ -98,12 +98,21 @@ cmake --build build-clang --target OloEngine-Tests --config Debug --parallel 6
 
 ### Cap build parallelism — a full-width build can OOM this machine
 
-**Never build uncapped.** Either pass an explicit job count — `--parallel 6`, or `ninja -j6` — or export `CMAKE_BUILD_PARALLEL_LEVEL=6`, which `cmake --build` uses whenever no `--parallel` is given (this is how the nightly workflow caps itself). An explicit `--parallel N` overrides the environment variable, so don't set one expecting the other to win. What is never acceptable is a bare `--parallel`, or `ninja` with no `-j` and no capping variable.
+**Never build uncapped.** Either pass an explicit job count — `--parallel 6`, or `ninja -j6` — or set `CMAKE_BUILD_PARALLEL_LEVEL`, which `cmake --build` uses whenever no `--parallel` is given (this is how the nightly workflow caps itself):
 
-This is not a style preference. The dev box is 16 cores / 31 GB and *also* hosts the `gh-runner-1/2/3` runners for another repository, so a build never has the machine to itself. Both defaults are effectively "use everything":
+```powershell
+$env:CMAKE_BUILD_PARALLEL_LEVEL = "6"   # PowerShell (the primary dev shell here)
+```
+```bash
+export CMAKE_BUILD_PARALLEL_LEVEL=6      # POSIX shell / the Linux GPU runner
+```
 
-- `cmake --build … --parallel` with **no number** means one job per core (16 here).
-- `ninja` with **no `-j`** means `cores + 2` — 18 here. Dropping a `--parallel N` flag therefore *raises* the width rather than lowering it.
+An explicit `--parallel N` overrides the environment variable, so don't set one expecting the other to win. What is never acceptable is a bare `--parallel`, or `ninja` with no `-j` and no capping variable.
+
+This is not a style preference. The dev box is 16 cores / 31 GB and *also* hosts the `gh-runner-1/2/3` runners for another repository, so a build never has the machine to itself. Neither default is a cap:
+
+- `cmake --build … --parallel` with **no number** does not pick a number itself — it forwards the omission to the native build tool, whose own default applies (unless `CMAKE_BUILD_PARALLEL_LEVEL` is set). So the width you get depends on the generator, and it is never *lower* than the tool's default.
+- With Ninja that default is `cores + 2` — 18 on this host, confirmed by `ninja --help` reporting `[default=18 on this system]`. Dropping a `--parallel N` flag therefore *raises* the width rather than lowering it.
 
 An agent session running repeated uncapped builds — especially with a test suite running alongside — has already OOM-killed this host once. If you need it faster, use ccache (already wired in), not more jobs.
 
