@@ -11,7 +11,6 @@
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Scene/WorldOriginSettings.h"
 #include "OloEngine/Scene/SpatialAcceleration.h"
-#include "OloEngine/AI/Flocking/FlockingSystem.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
 #include "OloEngine/Navigation/NavMesh.h"
 #include "OloEngine/Navigation/NavMeshQuery.h"
@@ -55,6 +54,7 @@ namespace OloEngine
     class GameplayEventBus;
     class UINavigation;
     class SystemScheduler;
+    struct FlockingWorkspace;
 
     namespace Animation
     {
@@ -1172,8 +1172,12 @@ namespace OloEngine
 
         // Flocking scratch (issue #731) — runtime-only, rebuilt at the top of
         // every BoidSteering tick and never serialized/copied. Persistent only
-        // so the per-tick snapshot + hash rebuild don't allocate.
-        FlockingWorkspace m_FlockingWorkspace;
+        // so the per-tick snapshot + hash rebuild don't allocate. Held behind a
+        // pointer so this header doesn't drag the flocking + spatial-hash
+        // headers into every TU that includes Scene.h (same reason as
+        // m_JoltScene / m_CrowdManager above); ~Scene() is out-of-line in
+        // Scene.cpp where the type is complete.
+        std::unique_ptr<FlockingWorkspace> m_FlockingWorkspace;
 
         // Scratch buffers for PropagateWorldTransforms (issue #499) — persistent
         // across ticks and .clear()ed at the top of each call instead of being

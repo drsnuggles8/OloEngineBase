@@ -103,7 +103,7 @@ registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "CohesionWeight", m_Cohesi
 registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "GoalWeight", m_GoalWeight, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
 registry.push_back(OLO_GFW_FIELD(BoidComponent, "GoalPosition", m_GoalPosition));
 registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "ObstacleAvoidWeight", m_ObstacleAvoidWeight, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
-registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "ObstacleLookahead", m_ObstacleLookahead, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1000.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "ObstacleAvoidRadius", m_ObstacleAvoidRadius, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1000.0f)));
 registry.push_back(OLO_GFW_FIELD(BoidComponent, "LockYAxis", m_LockYAxis));
 registry.push_back(OLO_GFW_FIELD(BoidComponent, "FaceVelocity", m_FaceVelocity));
 registry.push_back(OLO_GFW_FIELD(BoidComponent, "Velocity", m_Velocity));

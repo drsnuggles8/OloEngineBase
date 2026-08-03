@@ -10,6 +10,7 @@
 namespace OloEngine
 {
     class Scene;
+    struct BoidComponent;
 
     // Per-Scene scratch for the flocking systems (issue #731). Held by value on
     // the Scene and rebuilt every steering tick; persistent purely so the hot
@@ -74,6 +75,16 @@ namespace OloEngine
     // whatever the frame pacing and identical with
     // OLO_GAMEPLAY_SCHEDULER_SEQUENTIAL=1 set or unset.
     // =========================================================================
+    // ── Not implemented: navmesh coupling ────────────────────────────────────
+    // Issue #731 lists "optional coupling to the existing navmesh so a flock
+    // avoids static geometry rather than only each other". That bullet is NOT
+    // implemented; static geometry is avoided only where a scene places
+    // BoidObstacleComponent spheres. It is deliberately deferred rather than
+    // forgotten: per docs/agent-rules/crowd-manager-follower-parity.md,
+    // Scene::SetNavMesh with a valid mesh brings up a CrowdManager that drives
+    // EVERY NavAgentComponent, so wiring flocking to the navmesh needs a
+    // decision about how the two steering authorities compose before any code
+    // is written — that is a design question, not a missing function.
     class FlockingSystem
     {
       public:
@@ -95,5 +106,11 @@ namespace OloEngine
         // `maxForce`. A degenerate direction yields no steering.
         [[nodiscard]] static glm::vec3 SteerTowards(const glm::vec3& desiredDirection, const glm::vec3& velocity,
                                                     f32 maxSpeed, f32 maxForce);
+
+      private:
+        // One agent's steering solve. `selfIndex` indexes the workspace
+        // SNAPSHOT (not the registry) — the caller walks the same view that
+        // built it, in the same tick.
+        static void SolveAgent(const FlockingWorkspace& workspace, BoidComponent& boid, u32 selfIndex);
     };
 } // namespace OloEngine

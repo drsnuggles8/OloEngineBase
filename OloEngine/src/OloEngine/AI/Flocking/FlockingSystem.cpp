@@ -3,6 +3,7 @@
 #include "OloEngine/AI/Flocking/FlockingSystem.h"
 
 #include "OloEngine/AI/AIComponents.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Scene.h"
 
@@ -18,11 +19,6 @@ namespace OloEngine
         // Below this the direction of a vector is meaningless and normalizing
         // it would produce a NaN. Squared, so callers compare against dot().
         constexpr f32 kDegenerateLengthSq = 1.0e-12f;
-
-        [[nodiscard]] bool IsFinite(const glm::vec3& v)
-        {
-            return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
-        }
     } // namespace
 
     void FlockingWorkspace::Clear()
@@ -38,7 +34,7 @@ namespace OloEngine
 
     glm::vec3 FlockingSystem::ClampLength(const glm::vec3& v, f32 maxLength)
     {
-        if (!IsFinite(v) || !(maxLength > 0.0f))
+        if (!Math::IsFinite(v) || !(maxLength > 0.0f))
             return glm::vec3(0.0f);
 
         const f32 lengthSq = glm::dot(v, v);
@@ -53,7 +49,7 @@ namespace OloEngine
     glm::vec3 FlockingSystem::SteerTowards(const glm::vec3& desiredDirection, const glm::vec3& velocity, f32 maxSpeed,
                                            f32 maxForce)
     {
-        if (!IsFinite(desiredDirection) || !IsFinite(velocity))
+        if (!Math::IsFinite(desiredDirection) || !Math::IsFinite(velocity))
             return glm::vec3(0.0f);
 
         const f32 lengthSq = glm::dot(desiredDirection, desiredDirection);
@@ -83,7 +79,7 @@ namespace OloEngine
 
         // ── Pass 1: freeze the flock ─────────────────────────────────────────
         f32 maxNeighborRadius = FlockSpatialHash::kMinCellSize;
-        f32 maxLookahead = 0.0f;
+        f32 maxAvoidRadius = 0.0f;
         for (const auto entity : boidView)
         {
             const auto& transform = boidView.get<TransformComponent>(entity);
@@ -93,7 +89,7 @@ namespace OloEngine
             workspace.BoidVelocities.push_back(boid.m_Velocity);
 
             maxNeighborRadius = std::max(maxNeighborRadius, std::max(boid.m_NeighborRadius, boid.m_SeparationRadius));
-            maxLookahead = std::max(maxLookahead, boid.m_ObstacleLookahead);
+            maxAvoidRadius = std::max(maxAvoidRadius, boid.m_ObstacleAvoidRadius);
         }
 
         if (workspace.BoidPositions.empty())
@@ -124,9 +120,9 @@ namespace OloEngine
         if (!workspace.ObstaclePositions.empty())
         {
             // An obstacle is a sphere, so an agent's query radius is its
-            // lookahead plus the largest obstacle radius; sizing the cells to
+            // avoid radius plus the largest obstacle radius; sizing the cells to
             // that keeps the obstacle sweep at 27 cells too.
-            const f32 obstacleCellSize = std::max(maxLookahead + workspace.MaxObstacleRadius,
+            const f32 obstacleCellSize = std::max(maxAvoidRadius + workspace.MaxObstacleRadius,
                                                   FlockSpatialHash::kMinCellSize);
             workspace.ObstacleGrid.Rebuild(workspace.ObstaclePositions, obstacleCellSize);
         }
@@ -141,143 +137,153 @@ namespace OloEngine
         u32 i = 0;
         for (const auto entity : boidView)
         {
-            auto& boid = boidView.get<BoidComponent>(entity);
-            const glm::vec3 position = workspace.BoidPositions[i];
-            const glm::vec3 velocity = workspace.BoidVelocities[i];
-            const u32 selfIndex = i;
+            SolveAgent(workspace, boidView.get<BoidComponent>(entity), i);
             ++i;
+        }
+    }
 
-            boid.m_SteeringForce = glm::vec3(0.0f);
-            boid.m_NeighborCount = 0;
+    // One agent's steering solve, split out of StepSteering so the neighbour
+    // sweep, the behaviour blend and the obstacle pass read as three steps
+    // rather than one 140-line loop body.
+    //
+    // `selfIndex` indexes the workspace snapshot, NOT the registry: the caller
+    // walks the same view that built the snapshot, in the same tick, with no
+    // structural change in between.
+    void FlockingSystem::SolveAgent(const FlockingWorkspace& workspace, BoidComponent& boid, u32 selfIndex)
+    {
+        const glm::vec3 position = workspace.BoidPositions[selfIndex];
+        const glm::vec3 velocity = workspace.BoidVelocities[selfIndex];
 
-            if (!IsFinite(position) || !IsFinite(velocity))
-                continue;
+        boid.m_SteeringForce = glm::vec3(0.0f);
+        boid.m_NeighborCount = 0;
 
-            glm::vec3 separation(0.0f);
-            glm::vec3 alignment(0.0f);
-            glm::vec3 cohesion(0.0f);
-            u32 neighborCount = 0;
-            u32 separationCount = 0;
-            u32 visitedCount = 0;
+        if (!Math::IsFinite(position) || !Math::IsFinite(velocity))
+            return;
 
-            const f32 neighborRadiusSq = boid.m_NeighborRadius * boid.m_NeighborRadius;
-            const f32 separationRadiusSq = boid.m_SeparationRadius * boid.m_SeparationRadius;
-            const u32 maxNeighbors = std::max(1u, boid.m_MaxNeighbors);
+        glm::vec3 separation(0.0f);
+        glm::vec3 alignment(0.0f);
+        glm::vec3 cohesion(0.0f);
+        u32 neighborCount = 0;
+        u32 separationCount = 0;
+        u32 visitedCount = 0;
 
-            // The query must cover BOTH perception terms. m_SeparationRadius is
-            // independently authored and nothing stops it exceeding
-            // m_NeighborRadius; querying only the latter would silently truncate
-            // separation to the perception radius while pass 1 had already sized
-            // the grid cell from the wider of the two — so the cells were built
-            // for a query that never happened.
-            const f32 queryRadius = std::max(boid.m_NeighborRadius, boid.m_SeparationRadius);
+        const f32 neighborRadiusSq = boid.m_NeighborRadius * boid.m_NeighborRadius;
+        const f32 separationRadiusSq = boid.m_SeparationRadius * boid.m_SeparationRadius;
+        const u32 maxNeighbors = std::max(1u, boid.m_MaxNeighbors);
 
-            workspace.BoidGrid.ForEachInRadius(
-                position, queryRadius,
-                [&](u32 index, const glm::vec3& neighborPosition, f32 distanceSq) -> bool
+        // The query must cover BOTH perception terms. m_SeparationRadius is
+        // independently authored and nothing stops it exceeding
+        // m_NeighborRadius; querying only the latter would silently truncate
+        // separation to the perception radius while pass 1 had already sized
+        // the grid cell from the wider of the two — so the cells were built
+        // for a query that never happened.
+        const f32 neighborQueryRadius = std::max(boid.m_NeighborRadius, boid.m_SeparationRadius);
+
+        workspace.BoidGrid.ForEachInRadius(
+            position, neighborQueryRadius,
+            [&](u32 index, const glm::vec3& neighborPosition, f32 distanceSq) -> bool
+            {
+                if (index == selfIndex)
+                    return true;
+
+                // Cohesion and alignment stay scoped to the perception
+                // radius; only separation sees the wider sweep.
+                if (distanceSq <= neighborRadiusSq)
                 {
-                    if (index == selfIndex)
-                        return true;
+                    ++neighborCount;
+                    cohesion += neighborPosition;
+                    alignment += workspace.BoidVelocities[index];
+                }
 
-                    // Cohesion and alignment stay scoped to the perception
-                    // radius; only separation sees the wider sweep.
-                    if (distanceSq <= neighborRadiusSq)
-                    {
-                        ++neighborCount;
-                        cohesion += neighborPosition;
-                        alignment += workspace.BoidVelocities[index];
-                    }
+                if (distanceSq < separationRadiusSq && distanceSq > kDegenerateLengthSq)
+                {
+                    // Weight repulsion by 1/d so a near-collision dominates
+                    // a merely-close neighbour.
+                    separation += (position - neighborPosition) / distanceSq;
+                    ++separationCount;
+                }
 
-                    if (distanceSq < separationRadiusSq && distanceSq > kDegenerateLengthSq)
-                    {
-                        // Weight repulsion by 1/d so a near-collision dominates
-                        // a merely-close neighbour.
-                        separation += (position - neighborPosition) / distanceSq;
-                        ++separationCount;
-                    }
+                // The cap bounds WORK, so it counts every visited candidate
+                // rather than only the ones inside the perception radius —
+                // otherwise a separation-dominant agent would sweep its whole
+                // wider neighbourhood uncapped. The visit order is
+                // deterministic, so "the first N" is a reproducible set.
+                ++visitedCount;
+                return visitedCount < maxNeighbors;
+            });
 
-                    // The cap bounds WORK, so it counts every visited candidate
-                    // rather than only the ones inside the perception radius —
-                    // otherwise a separation-dominant agent would sweep its whole
-                    // wider neighbourhood uncapped. The visit order is
-                    // deterministic, so "the first N" is a reproducible set.
-                    ++visitedCount;
-                    return visitedCount < maxNeighbors;
+        glm::vec3 force(0.0f);
+        const f32 maxSpeed = boid.m_MaxSpeed;
+        const f32 maxForce = boid.m_MaxForce;
+
+        if (neighborCount > 0)
+        {
+            const f32 inverseCount = 1.0f / static_cast<f32>(neighborCount);
+
+            // Cohesion: steer towards the neighbourhood's centre of mass.
+            const glm::vec3 centre = cohesion * inverseCount;
+            force += boid.m_CohesionWeight * SteerTowards(centre - position, velocity, maxSpeed, maxForce);
+
+            // Alignment: match the neighbourhood's average heading.
+            force += boid.m_AlignmentWeight * SteerTowards(alignment * inverseCount, velocity, maxSpeed, maxForce);
+        }
+
+        if (separationCount > 0)
+        {
+            force += boid.m_SeparationWeight * SteerTowards(separation, velocity, maxSpeed, maxForce);
+        }
+
+        if (boid.m_GoalWeight > 0.0f && Math::IsFinite(boid.m_GoalPosition))
+        {
+            force += boid.m_GoalWeight * SteerTowards(boid.m_GoalPosition - position, velocity, maxSpeed, maxForce);
+        }
+
+        if (boid.m_ObstacleAvoidWeight > 0.0f && workspace.ObstacleGrid.GetIndexedItemCount() > 0)
+        {
+            const f32 obstacleQueryRadius = boid.m_ObstacleAvoidRadius + workspace.MaxObstacleRadius;
+            glm::vec3 avoidance(0.0f);
+            // The urgency ramp has to be applied to the STEERING WEIGHT, not
+            // just folded into the direction: SteerTowards renormalizes its
+            // input, so with a single obstacle in range a magnitude baked
+            // into `avoidance` is discarded entirely and avoidance becomes
+            // all-or-nothing — full-strength repulsion the instant an agent
+            // crosses the reach boundary. That reads as a flock stalling in
+            // front of an obstacle instead of flowing around it, and the
+            // shape of the ramp makes no difference at all. Keeping the
+            // closest obstacle's urgency and scaling the whole term by it
+            // restores the intended soft approach.
+            f32 maxUrgency = 0.0f;
+            workspace.ObstacleGrid.ForEachInRadius(
+                position, obstacleQueryRadius,
+                [&](u32 index, const glm::vec3& obstaclePosition, f32 distanceSq)
+                {
+                    const f32 reach = workspace.ObstacleRadii[index] + boid.m_ObstacleAvoidRadius;
+                    if (distanceSq >= reach * reach || distanceSq <= kDegenerateLengthSq)
+                        return;
+
+                    // Ramp from 0 at the edge of the reach to 1 at the
+                    // obstacle's centre, so an agent skimming past is
+                    // nudged and one heading into the sphere is shoved.
+                    // Per-obstacle here so the summed DIRECTION still leans
+                    // towards escaping the nearest one.
+                    const f32 distance = std::sqrt(distanceSq);
+                    const f32 urgency = 1.0f - (distance / reach);
+                    avoidance += ((position - obstaclePosition) / distance) * urgency;
+                    maxUrgency = std::max(maxUrgency, urgency);
                 });
 
-            glm::vec3 force(0.0f);
-            const f32 maxSpeed = boid.m_MaxSpeed;
-            const f32 maxForce = boid.m_MaxForce;
-
-            if (neighborCount > 0)
+            if (maxUrgency > 0.0f && glm::dot(avoidance, avoidance) > kDegenerateLengthSq)
             {
-                const f32 inverseCount = 1.0f / static_cast<f32>(neighborCount);
-
-                // Cohesion: steer towards the neighbourhood's centre of mass.
-                const glm::vec3 centre = cohesion * inverseCount;
-                force += boid.m_CohesionWeight * SteerTowards(centre - position, velocity, maxSpeed, maxForce);
-
-                // Alignment: match the neighbourhood's average heading.
-                force += boid.m_AlignmentWeight * SteerTowards(alignment * inverseCount, velocity, maxSpeed, maxForce);
+                force += (boid.m_ObstacleAvoidWeight * maxUrgency) *
+                         SteerTowards(avoidance, velocity, maxSpeed, maxForce);
             }
-
-            if (separationCount > 0)
-            {
-                force += boid.m_SeparationWeight * SteerTowards(separation, velocity, maxSpeed, maxForce);
-            }
-
-            if (boid.m_GoalWeight > 0.0f && IsFinite(boid.m_GoalPosition))
-            {
-                force += boid.m_GoalWeight * SteerTowards(boid.m_GoalPosition - position, velocity, maxSpeed, maxForce);
-            }
-
-            if (boid.m_ObstacleAvoidWeight > 0.0f && workspace.ObstacleGrid.GetIndexedItemCount() > 0)
-            {
-                const f32 queryRadius = boid.m_ObstacleLookahead + workspace.MaxObstacleRadius;
-                glm::vec3 avoidance(0.0f);
-                // The urgency ramp has to be applied to the STEERING WEIGHT, not
-                // just folded into the direction: SteerTowards renormalizes its
-                // input, so with a single obstacle in range a magnitude baked
-                // into `avoidance` is discarded entirely and avoidance becomes
-                // all-or-nothing — full-strength repulsion the instant an agent
-                // crosses the reach boundary. That reads as a flock stalling in
-                // front of an obstacle instead of flowing around it, and the
-                // shape of the ramp makes no difference at all. Keeping the
-                // closest obstacle's urgency and scaling the whole term by it
-                // restores the intended soft approach.
-                f32 maxUrgency = 0.0f;
-                workspace.ObstacleGrid.ForEachInRadius(
-                    position, queryRadius,
-                    [&](u32 index, const glm::vec3& obstaclePosition, f32 distanceSq)
-                    {
-                        const f32 reach = workspace.ObstacleRadii[index] + boid.m_ObstacleLookahead;
-                        if (distanceSq >= reach * reach || distanceSq <= kDegenerateLengthSq)
-                            return;
-
-                        // Ramp from 0 at the edge of the reach to 1 at the
-                        // obstacle's centre, so an agent skimming past is
-                        // nudged and one heading into the sphere is shoved.
-                        // Per-obstacle here so the summed DIRECTION still leans
-                        // towards escaping the nearest one.
-                        const f32 distance = std::sqrt(distanceSq);
-                        const f32 urgency = 1.0f - (distance / reach);
-                        avoidance += ((position - obstaclePosition) / distance) * urgency;
-                        maxUrgency = std::max(maxUrgency, urgency);
-                    });
-
-                if (maxUrgency > 0.0f && glm::dot(avoidance, avoidance) > kDegenerateLengthSq)
-                {
-                    force += (boid.m_ObstacleAvoidWeight * maxUrgency) *
-                             SteerTowards(avoidance, velocity, maxSpeed, maxForce);
-                }
-            }
-
-            if (boid.m_LockYAxis)
-                force.y = 0.0f;
-
-            boid.m_SteeringForce = ClampLength(force, maxForce);
-            boid.m_NeighborCount = neighborCount;
         }
+
+        if (boid.m_LockYAxis)
+            force.y = 0.0f;
+
+        boid.m_SteeringForce = ClampLength(force, maxForce);
+        boid.m_NeighborCount = neighborCount;
     }
 
     void FlockingSystem::ApplyMovement(Scene* scene, f32 dt)
@@ -292,9 +298,9 @@ namespace OloEngine
             auto& transform = view.get<TransformComponent>(entity);
             auto& boid = view.get<BoidComponent>(entity);
 
-            if (!IsFinite(boid.m_Velocity))
+            if (!Math::IsFinite(boid.m_Velocity))
                 boid.m_Velocity = glm::vec3(0.0f);
-            if (!IsFinite(boid.m_SteeringForce))
+            if (!Math::IsFinite(boid.m_SteeringForce))
                 boid.m_SteeringForce = glm::vec3(0.0f);
 
             // Semi-implicit Euler at the scheduler's FIXED timestep: velocity
@@ -307,7 +313,7 @@ namespace OloEngine
 
             boid.m_Velocity = velocity;
 
-            if (!IsFinite(transform.Translation))
+            if (!Math::IsFinite(transform.Translation))
                 continue;
 
             transform.Translation += velocity * dt;

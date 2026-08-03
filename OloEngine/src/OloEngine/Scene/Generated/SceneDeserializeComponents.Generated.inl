@@ -139,8 +139,8 @@ if (auto node = entity["BoidComponent"]; node)
     comp.m_GoalPosition = node["GoalPosition"].as<glm::vec3>(comp.m_GoalPosition);
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ObstacleAvoidWeight"], v))
         comp.m_ObstacleAvoidWeight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
-    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ObstacleLookahead"], v))
-        comp.m_ObstacleLookahead = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ObstacleAvoidRadius"], v))
+        comp.m_ObstacleAvoidRadius = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
     comp.m_LockYAxis = node["LockYAxis"].as<bool>(comp.m_LockYAxis);
     comp.m_FaceVelocity = node["FaceVelocity"].as<bool>(comp.m_FaceVelocity);
     comp.m_Velocity = node["Velocity"].as<glm::vec3>(comp.m_Velocity);

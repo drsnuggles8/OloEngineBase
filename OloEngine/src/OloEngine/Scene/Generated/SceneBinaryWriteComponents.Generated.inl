@@ -77,7 +77,7 @@ if (entity.HasComponent<BoidComponent>())
     SceneBinIO::Write(out, comp.m_GoalWeight);
     SceneBinIO::Write(out, comp.m_GoalPosition);
     SceneBinIO::Write(out, comp.m_ObstacleAvoidWeight);
-    SceneBinIO::Write(out, comp.m_ObstacleLookahead);
+    SceneBinIO::Write(out, comp.m_ObstacleAvoidRadius);
     SceneBinIO::Write(out, comp.m_LockYAxis);
     SceneBinIO::Write(out, comp.m_FaceVelocity);
     SceneBinIO::Write(out, comp.m_Velocity);

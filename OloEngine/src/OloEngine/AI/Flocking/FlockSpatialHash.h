@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Math/Math.h"
 
 #include <glm/glm.hpp>
 
@@ -15,7 +16,7 @@ namespace OloEngine
     // FlockSpatialHash — unbounded uniform-grid spatial hash over a flat array
     // of positions, addressed by INDEX.
     //
-    // Why a third spatial structure exists (read this before adding a fourth):
+    // Why a FOURTH spatial structure exists (read this before adding a fifth):
     //
     //   * SceneSpatialIndex (Scene/SpatialAcceleration.h) is the general scene
     //     query index. It is keyed by UUID and indexes EVERY entity, so a boid
@@ -28,6 +29,9 @@ namespace OloEngine
     //     head/next linked list. That is the right call for a fluid, whose
     //     domain is a bounded box; a flock roams an unbounded world, so a dense
     //     grid is not representable.
+    //   * Networking/Replication/SpatialGrid.h is a fixed-size hash grid for
+    //     replication interest management, keyed by UUID and sized to network
+    //     relevance distance rather than to a perception radius.
     //
     // So this one is deliberately narrow: it stores nothing but positions and
     // hands back INDICES into the caller's own SoA arrays, which is what makes
@@ -228,7 +232,7 @@ namespace OloEngine
             return;
         if (!(radius >= 0.0f) || !std::isfinite(radius))
             return;
-        if (!std::isfinite(center.x) || !std::isfinite(center.y) || !std::isfinite(center.z))
+        if (!Math::IsFinite(center))
             return;
 
         const f32 radiusSq = radius * radius;
@@ -252,7 +256,8 @@ namespace OloEngine
             // (the steering kernel's neighbour cap) would keep a different
             // subset depending on which path ran — so the two paths must agree
             // on order, not merely on the set they can produce.
-            for (u32 index = 0; index < static_cast<u32>(m_Positions.size()); ++index)
+            const u32 itemCount = static_cast<u32>(m_Positions.size());
+            for (u32 index = 0; index < itemCount; ++index)
             {
                 const glm::vec3& position = m_Positions[index];
                 // Skip the items Rebuild rejected, so the fallback returns
@@ -260,7 +265,7 @@ namespace OloEngine
                 // reject them anyway — every comparison against a NaN or
                 // infinite delta is false — but relying on that is a subtlety
                 // no reader should have to reconstruct.)
-                if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z))
+                if (!Math::IsFinite(position))
                     continue;
                 const glm::vec3 delta = position - center;
                 const f32 distanceSq = glm::dot(delta, delta);

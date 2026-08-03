@@ -367,6 +367,7 @@ add_executable(OloEngine-Tests
 		SaveGame/SaveGameIntegrationTest.cpp
 		SaveGame/SaveGameComponentSerializerCoverageTest.cpp
 		SaveGame/SaveGameVersionMigrationTest.cpp
+		SaveGame/BoidComponentSaveLoadSanitizeTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp
 		# Navigation Tests
 		NavMeshTest.cpp

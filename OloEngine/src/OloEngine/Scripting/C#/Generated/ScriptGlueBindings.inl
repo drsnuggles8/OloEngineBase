@@ -1654,17 +1654,17 @@ static void BoidComponent_SetObstacleAvoidWeight(UUID entityID, float value)
     comp.m_ObstacleAvoidWeight = value;
 }
 
-static float BoidComponent_GetObstacleLookahead(UUID entityID)
+static float BoidComponent_GetObstacleAvoidRadius(UUID entityID)
 {
     Scene* scene = ScriptEngine::GetSceneContext();
     OLO_CORE_ASSERT(scene);
     Entity entity = scene->GetEntityByUUID(entityID);
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<BoidComponent>();
-    return comp.m_ObstacleLookahead;
+    return comp.m_ObstacleAvoidRadius;
 }
 
-static void BoidComponent_SetObstacleLookahead(UUID entityID, float value)
+static void BoidComponent_SetObstacleAvoidRadius(UUID entityID, float value)
 {
     Scene* scene = ScriptEngine::GetSceneContext();
     OLO_CORE_ASSERT(scene);
@@ -1673,7 +1673,7 @@ static void BoidComponent_SetObstacleLookahead(UUID entityID, float value)
     if (!std::isfinite(value))
         return;
     auto& comp = entity.GetComponent<BoidComponent>();
-    comp.m_ObstacleLookahead = value;
+    comp.m_ObstacleAvoidRadius = value;
 }
 
 static bool BoidComponent_GetLockYAxis(UUID entityID)

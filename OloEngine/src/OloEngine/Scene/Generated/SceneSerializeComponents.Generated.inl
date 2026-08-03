@@ -99,7 +99,7 @@ if (entity.HasComponent<BoidComponent>())
     out << YAML::Key << "GoalWeight" << YAML::Value << comp.m_GoalWeight;
     out << YAML::Key << "GoalPosition" << YAML::Value << comp.m_GoalPosition;
     out << YAML::Key << "ObstacleAvoidWeight" << YAML::Value << comp.m_ObstacleAvoidWeight;
-    out << YAML::Key << "ObstacleLookahead" << YAML::Value << comp.m_ObstacleLookahead;
+    out << YAML::Key << "ObstacleAvoidRadius" << YAML::Value << comp.m_ObstacleAvoidRadius;
     out << YAML::Key << "LockYAxis" << YAML::Value << comp.m_LockYAxis;
     out << YAML::Key << "FaceVelocity" << YAML::Value << comp.m_FaceVelocity;
     out << YAML::Key << "Velocity" << YAML::Value << comp.m_Velocity;

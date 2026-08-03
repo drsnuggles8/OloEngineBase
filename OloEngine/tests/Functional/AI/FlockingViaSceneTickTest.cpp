@@ -378,7 +378,7 @@ class FlockingObstacleAvoidanceTest : public FunctionalTest
                 boid.m_GoalPosition = { 0.0f, 0.0f, -40.0f }; // straight through the obstacle
                 boid.m_GoalWeight = 1.0f;
                 boid.m_ObstacleAvoidWeight = 8.0f;
-                boid.m_ObstacleLookahead = 6.0f;
+                boid.m_ObstacleAvoidRadius = 6.0f;
 
                 // Flock coupling OFF so this scene isolates obstacle
                 // avoidance. With it on, cohesion pulls the whole curtain in

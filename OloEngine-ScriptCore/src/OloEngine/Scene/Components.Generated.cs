@@ -464,10 +464,10 @@ namespace OloEngine
 			set => InternalCalls.BoidComponent_SetObstacleAvoidWeight(Entity.ID, value);
 		}
 
-		public float ObstacleLookahead
+		public float ObstacleAvoidRadius
 		{
-			get => InternalCalls.BoidComponent_GetObstacleLookahead(Entity.ID);
-			set => InternalCalls.BoidComponent_SetObstacleLookahead(Entity.ID, value);
+			get => InternalCalls.BoidComponent_GetObstacleAvoidRadius(Entity.ID);
+			set => InternalCalls.BoidComponent_SetObstacleAvoidRadius(Entity.ID, value);
 		}
 
 		public bool LockYAxis

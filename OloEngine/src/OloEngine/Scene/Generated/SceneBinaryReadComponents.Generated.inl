@@ -123,8 +123,8 @@ case 3810890398u: // BoidComponent
     if (!SceneBinIO::Read(reader, comp.m_GoalPosition)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ObstacleAvoidWeight)) return false;
     comp.m_ObstacleAvoidWeight = std::clamp(comp.m_ObstacleAvoidWeight, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
-    if (!SceneBinIO::Read(reader, comp.m_ObstacleLookahead)) return false;
-    comp.m_ObstacleLookahead = std::clamp(comp.m_ObstacleLookahead, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ObstacleAvoidRadius)) return false;
+    comp.m_ObstacleAvoidRadius = std::clamp(comp.m_ObstacleAvoidRadius, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
     if (!SceneBinIO::Read(reader, comp.m_LockYAxis)) return false;
     if (!SceneBinIO::Read(reader, comp.m_FaceVelocity)) return false;
     if (!SceneBinIO::Read(reader, comp.m_Velocity)) return false;

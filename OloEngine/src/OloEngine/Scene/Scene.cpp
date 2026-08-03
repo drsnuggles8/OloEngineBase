@@ -290,7 +290,8 @@ namespace OloEngine
 
     Scene::Scene()
         : m_JoltScene(std::make_unique<JoltScene>(this)), m_GameplayEventBus(std::make_unique<GameplayEventBus>()),
-          m_UINavigation(std::make_unique<UINavigation>())
+          m_UINavigation(std::make_unique<UINavigation>()),
+          m_FlockingWorkspace(std::make_unique<FlockingWorkspace>())
     {
         // Pre-create every EnTT storage/group the Parallelizable gameplay systems
         // (issue #453: Abilities, Audio) touch, on the constructing thread. EnTT's
@@ -3645,7 +3646,7 @@ namespace OloEngine
         // Worker-safe half of the flocking split (issue #731) — no timestep is
         // taken because a steering force is a pure function of the frozen
         // snapshot, not of elapsed time. See the audit table above.
-        FlockingSystem::StepSteering(this, m_FlockingWorkspace);
+        FlockingSystem::StepSteering(this, *m_FlockingWorkspace);
     }
 
     void Scene::UpdateBoidMovement(Timestep ts)

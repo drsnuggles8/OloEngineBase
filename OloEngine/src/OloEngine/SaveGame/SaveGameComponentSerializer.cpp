@@ -2746,7 +2746,7 @@ namespace OloEngine
         ar << c.m_SeparationWeight << c.m_AlignmentWeight << c.m_CohesionWeight;
         ar << c.m_GoalWeight;
         ar << c.m_GoalPosition.x << c.m_GoalPosition.y << c.m_GoalPosition.z;
-        ar << c.m_ObstacleAvoidWeight << c.m_ObstacleLookahead;
+        ar << c.m_ObstacleAvoidWeight << c.m_ObstacleAvoidRadius;
         ar << c.m_LockYAxis << c.m_FaceVelocity;
         // Velocity is authored/carried state, not per-tick derived state — a
         // save reloaded mid-flight must resume with the flock still moving.
@@ -2780,7 +2780,7 @@ namespace OloEngine
             sanitize(c.m_CohesionWeight, 0.0f, 100.0f, 1.0f);
             sanitize(c.m_GoalWeight, 0.0f, 100.0f, 0.5f);
             sanitize(c.m_ObstacleAvoidWeight, 0.0f, 100.0f, 2.0f);
-            sanitize(c.m_ObstacleLookahead, 0.0f, 1000.0f, 3.0f);
+            sanitize(c.m_ObstacleAvoidRadius, 0.0f, 1000.0f, 3.0f);
             // Vec3s are whole-vector fallbacks, matching the generated YAML
             // decode (DecodeVec3 rejects the vector, not one component).
             if (!Math::IsFinite(c.m_GoalPosition))

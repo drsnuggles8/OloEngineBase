@@ -7078,7 +7078,7 @@ namespace OloEngine
 
             ImGui::SeparatorText("Obstacles");
             ImGui::DragFloat("Avoid Weight", &component.m_ObstacleAvoidWeight, 0.05f, 0.0f, 100.0f);
-            ImGui::DragFloat("Lookahead", &component.m_ObstacleLookahead, 0.1f, 0.0f, 1000.0f);
+            ImGui::DragFloat("Avoid Radius", &component.m_ObstacleAvoidRadius, 0.1f, 0.0f, 1000.0f);
 
             // Runtime readout — recomputed by BoidSteering every tick. Zero
             // neighbours while a flock is clearly clustered means the radius is

@@ -3377,9 +3377,9 @@ namespace OloEngine
                                         "obstacleAvoidWeight", sol::property([](const BoidComponent& b)
                                                                              { return b.m_ObstacleAvoidWeight; }, [](BoidComponent& b, f32 v)
                                                                              { if (std::isfinite(v) && v >= 0.0f) b.m_ObstacleAvoidWeight = v; }),
-                                        "obstacleLookahead", sol::property([](const BoidComponent& b)
-                                                                           { return b.m_ObstacleLookahead; }, [](BoidComponent& b, f32 v)
-                                                                           { if (std::isfinite(v) && v >= 0.0f) b.m_ObstacleLookahead = v; }),
+                                        "obstacleAvoidRadius", sol::property([](const BoidComponent& b)
+                                                                             { return b.m_ObstacleAvoidRadius; }, [](BoidComponent& b, f32 v)
+                                                                             { if (std::isfinite(v) && v >= 0.0f) b.m_ObstacleAvoidRadius = v; }),
                                         "velocity", sol::property([](const BoidComponent& b)
                                                                   { return b.m_Velocity; }, [](BoidComponent& b, const glm::vec3& v)
                                                                   { if (IsFiniteVec3(v)) b.m_Velocity = v; }),

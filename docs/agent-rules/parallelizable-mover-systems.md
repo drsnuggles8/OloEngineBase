@@ -85,16 +85,20 @@ rounding, and the whole simulation diverges. So:
    `SystemSchedulerParallelTest` fixture is the pattern) and toggle
    `SystemScheduler::SetParallelExecutionEnabled` around the two runs.
 
-## Before adding a fourth spatial structure
+## Before adding a fifth spatial structure
 
-The engine has three now, and the differences are real, not accidental:
+The engine has four now, and the differences are real, not accidental:
 
 | Structure | Shape | Keyed by | Why not reuse it |
 |---|---|---|---|
 | `Scene/SpatialAcceleration.h` `SceneSpatialIndex` | unbounded hash grid | `UUID` | Indexes **every** entity; results need an entity-map lookup + component fetch per neighbour, and one global cell size. |
 | `Fluid/CPUFluidSolver` | **dense** grid, head/next lists | index | Dense only works over a bounded domain; agents roam. |
+| `Networking/Replication/SpatialGrid` | fixed-size hash grid | `UUID` | Sized to network relevance distance, for interest management. |
 | `AI/Flocking/FlockSpatialHash` | unbounded hash grid, CSR | index into the caller's SoA | — |
 
 Note that the #731 issue text claims "a grep finds no spatial hash anywhere in
-`OloEngine/src`". That was wrong when it was written: both of the above already
-existed. Check before repeating a gap claim from an issue.
+`OloEngine/src`". That was wrong when it was written — **three** already
+existed. Check before repeating a gap claim from an issue, and count properly
+when you correct one: the first draft of this very table said "three", having
+missed the networking grid that `SpatialAcceleration.h` cross-references by
+name.

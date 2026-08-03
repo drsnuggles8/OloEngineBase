@@ -316,9 +316,9 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void BoidComponent_SetObstacleAvoidWeight(ulong entityID, float value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float BoidComponent_GetObstacleLookahead(ulong entityID);
+		internal static extern float BoidComponent_GetObstacleAvoidRadius(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void BoidComponent_SetObstacleLookahead(ulong entityID, float value);
+		internal static extern void BoidComponent_SetObstacleAvoidRadius(ulong entityID, float value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool BoidComponent_GetLockYAxis(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]

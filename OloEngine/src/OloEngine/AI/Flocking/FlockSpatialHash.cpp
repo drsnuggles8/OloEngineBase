@@ -2,6 +2,8 @@
 
 #include "OloEngine/AI/Flocking/FlockSpatialHash.h"
 
+#include "OloEngine/Math/Math.h"
+
 #include <cmath>
 
 namespace OloEngine
@@ -35,10 +37,9 @@ namespace OloEngine
 
         if (count == 0)
         {
-            m_Items.clear();
-            m_BucketStart.clear();
-            m_BucketCount = 0;
-            m_BucketMask = 0;
+            // Same end state as Clear(), minus the two arrays already emptied
+            // by the assigns above — reuse it rather than repeating the reset.
+            Clear();
             return;
         }
 
@@ -57,7 +58,7 @@ namespace OloEngine
         for (sizet i = 0; i < count; ++i)
         {
             const glm::vec3& p = positions[i];
-            if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
+            if (!Math::IsFinite(p))
                 continue; // never indexed, so never returned as a neighbour
 
             const CellCoord cell = ToCell(p);
@@ -85,7 +86,7 @@ namespace OloEngine
         for (sizet i = 0; i < count; ++i)
         {
             const glm::vec3& p = positions[i];
-            if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
+            if (!Math::IsFinite(p))
                 continue;
 
             m_Items[m_Cursor[BucketOf(m_Cells[i])]++] = static_cast<u32>(i);

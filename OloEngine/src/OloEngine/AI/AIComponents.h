@@ -250,10 +250,13 @@ namespace OloEngine
     // save game (the "silently zeroed initial velocity still simulates
     // perfectly" trap from docs/agent-rules/force-model-vehicles.md).
     //
-    // Deliberately a plain trivially-copyable aggregate: OloHeaderTool
-    // generates the scene (de)serializer, the AllComponents entry and the MCP
-    // field registry from it, and DrawComponent's memcmp undo tier works with
-    // no operator== of its own.
+    // Deliberately a plain trivially-copyable aggregate of public fields:
+    // OloHeaderTool generates the scene (de)serializer, the AllComponents entry
+    // and the MCP field registry from it with no hand-written blocks. It does
+    // define an operator== (see the bottom of the struct) — not because the
+    // codegen needs one, but because the editor's byte-level undo comparison is
+    // wrong for this component; the trait specialization in
+    // SceneHierarchyPanel opts it onto the value path.
     // =========================================================================
     struct BoidComponent
     {
@@ -309,13 +312,22 @@ namespace OloEngine
 
         // ── Obstacle avoidance ───────────────────────────────────────────────
         // Agents steer away from every BoidObstacleComponent whose sphere comes
-        // within m_ObstacleLookahead of them, ramped by how deep the overlap is.
+        // within m_ObstacleAvoidRadius of them, ramped by how deep the overlap
+        // is.
+        //
+        // This is ISOTROPIC repulsion: strength depends on distance only, so an
+        // obstacle directly behind an agent pushes exactly as hard as one dead
+        // ahead. It is deliberately not a forward-projected probe — the field
+        // is a radius, not a lookahead distance, and is named accordingly.
+        // Velocity-aware avoidance (project along the heading, only react to
+        // what is actually in the way) is a reasonable follow-up and would need
+        // its own field rather than a silent reinterpretation of this one.
         OLO_PROPERTY()
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
         f32 m_ObstacleAvoidWeight = 2.0f;
         OLO_PROPERTY()
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
-        f32 m_ObstacleLookahead = 3.0f;
+        f32 m_ObstacleAvoidRadius = 3.0f;
 
         // ── Movement options ─────────────────────────────────────────────────
         // Confine steering + motion to the XZ plane (a ground herd / a 2D
@@ -372,7 +384,7 @@ namespace OloEngine
             const bool sameGoal = Math::BitwiseEqual(m_GoalWeight, other.m_GoalWeight) &&
                                   Math::BitwiseEqual(m_GoalPosition, other.m_GoalPosition);
             const bool sameObstacles = Math::BitwiseEqual(m_ObstacleAvoidWeight, other.m_ObstacleAvoidWeight) &&
-                                       Math::BitwiseEqual(m_ObstacleLookahead, other.m_ObstacleLookahead);
+                                       Math::BitwiseEqual(m_ObstacleAvoidRadius, other.m_ObstacleAvoidRadius);
             const bool sameMotion = (m_LockYAxis == other.m_LockYAxis) &&
                                     (m_FaceVelocity == other.m_FaceVelocity) &&
                                     Math::BitwiseEqual(m_Velocity, other.m_Velocity);
