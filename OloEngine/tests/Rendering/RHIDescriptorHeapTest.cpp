@@ -385,6 +385,32 @@ namespace OloEngine::Tests
         EXPECT_TRUE(heap.OffsetOf(second).IsValid());
     }
 
+    TEST_F(HeapFixture, EvictingAStaleCacheEntryIsNotCountedAsAStaleOffsetRejection)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(205u);
+        const RHI::ViewHandle first = heap.GetOrCreateView(resource, {}, {}, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(first.IsValid());
+        heap.DestroyView(first);
+
+        // The cache still holds the dead entry; the next lookup must evict it.
+        // That eviction is internal housekeeping, NOT a caller presenting a stale
+        // handle — and StaleOffsetRejections is documented as the signal for the
+        // latter, "the moment a cached offset outlived its view". Folding
+        // evictions in would make the number unusable for the one job it has.
+        const u64 rejectionsBefore = heap.GetStats().StaleOffsetRejections;
+        const RHI::ViewHandle second = heap.GetOrCreateView(resource, {}, {}, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(second.IsValid());
+        EXPECT_EQ(heap.GetStats().StaleOffsetRejections, rejectionsBefore)
+            << "A cache eviction must not be charged to the caller-facing rejection counter.";
+
+        // …while a real caller presenting the dead handle still is.
+        EXPECT_FALSE(heap.OffsetOf(first).IsValid());
+        EXPECT_GT(heap.GetStats().StaleOffsetRejections, rejectionsBefore);
+    }
+
     TEST_F(HeapFixture, RepeatedGetOrCreateViewDoesNotLeakSamplerSlots)
     {
         SetUpHeap();

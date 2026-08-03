@@ -72,7 +72,30 @@ namespace OloEngine
         glSamplerParameteri(m_NullSampler, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
         m_NullDescriptor = static_cast<u64>(glGetTextureSamplerHandleARB(m_NullTexture, m_NullSampler));
-        if (m_NullDescriptor != 0u && glIsTextureHandleResidentARB(m_NullDescriptor) != GL_TRUE)
+        if (m_NullDescriptor == 0u)
+        {
+            // WITHOUT A NULL DESCRIPTOR THE WHOLE MODEL IS UNSAFE, so refuse to
+            // run rather than degrade quietly. A zero here would prefill the
+            // table with zeroes and hand `NullDescriptor()` a 0 to the neutral
+            // heap, so every poisoned, cleared and unallocated slot would hold an
+            // invalid handle — sampling which is undefined behaviour, i.e.
+            // exactly the state this descriptor exists to remove. Disabling the
+            // backend puts the renderer back on the slot-based path, which is
+            // the supported configuration on any device without the extension
+            // anyway.
+            OLO_CORE_ERROR("[RHI/GL] Could not create the bindless null descriptor "
+                           "(glGetTextureSamplerHandleARB returned 0). Disabling heap-bindless; "
+                           "the slot-based binding path stays in use.");
+            glDeleteSamplers(1, &m_NullSampler);
+            m_NullSampler = 0u;
+            glDeleteTextures(1, &m_NullTexture);
+            m_NullTexture = 0u;
+            m_Supported = false;
+            m_SlotCapacity = 0u;
+            return;
+        }
+
+        if (glIsTextureHandleResidentARB(m_NullDescriptor) != GL_TRUE)
         {
             glMakeTextureHandleResidentARB(m_NullDescriptor);
         }

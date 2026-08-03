@@ -324,6 +324,12 @@ namespace OloEngine::RHI
         [[nodiscard]] auto CreateViewLocked(ResourceHandle resource, const ViewDesc& view,
                                             const SamplerDesc& sampler, HeapSlotLifetime lifetime) -> ViewHandle;
         [[nodiscard]] auto ValidateLocked(ViewHandle view) const -> const ViewSlot*;
+        // Same check WITHOUT counting a rejection. For internal housekeeping —
+        // evicting a stale cache entry is not a caller presenting a dead handle,
+        // and folding the two together makes `StaleOffsetRejections` unusable for
+        // the one thing the header says it is for: spotting the moment a cached
+        // offset outlived its view.
+        [[nodiscard]] auto IsSlotLiveLocked(ViewHandle view) const -> bool;
         void ReleaseSlotLocked(u32 index);
         [[nodiscard]] auto AcquireSamplerSlotLocked(const SamplerDesc& sampler) -> u32;
         void ReleaseSamplerSlotLocked(u32 samplerSlot);

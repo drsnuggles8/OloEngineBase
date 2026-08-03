@@ -359,7 +359,12 @@ namespace OloEngine::RHI
             // destroyed (nothing tells the cache), so a stale hit must fall
             // through to a fresh mint instead of handing back a view whose slot
             // now belongs to someone else.
-            if (ValidateLocked(it->second) != nullptr)
+            //
+            // Deliberately the NON-COUNTING check: an eviction here is the cache
+            // tidying up after itself, not a caller presenting a dead handle, and
+            // charging it to StaleOffsetRejections would drown the signal that
+            // counter exists to carry.
+            if (IsSlotLiveLocked(it->second))
             {
                 return it->second;
             }
@@ -548,6 +553,16 @@ namespace OloEngine::RHI
     // -------------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------------
+
+    auto DescriptorHeap::IsSlotLiveLocked(ViewHandle view) const -> bool
+    {
+        if (!view.IsValid() || view.Index >= static_cast<u32>(m_Slots.size()))
+        {
+            return false;
+        }
+        const ViewSlot& slot = m_Slots[view.Index];
+        return slot.Live && slot.Generation == view.Generation;
+    }
 
     auto DescriptorHeap::ValidateLocked(ViewHandle view) const -> const ViewSlot*
     {
