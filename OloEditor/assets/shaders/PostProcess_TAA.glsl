@@ -33,13 +33,27 @@ void main()
 #type fragment
 #version 460 core
 
-layout(location = 0) in vec2 v_TexCoord;
-layout(location = 0) out vec4 o_Color;
+// Texture inputs. Under heap-bindless (issue #691 Phase 3) these become heap
+// lookups keyed by the SAME slot numbers the bindful branch declares, so the two
+// variants cannot disagree about which texture is which — and the shader BODY
+// below is unchanged between them. Inert without OLO_BINDLESS.
+#include "include/BindlessHeap.glsl"
 
+#ifdef OLO_BINDLESS
+#define u_Current OLO_HEAP_TEX_2D(0)
+#define u_History OLO_HEAP_TEX_2D(1)
+#define u_Velocity OLO_HEAP_TEX_2D(2)
+#define u_DepthTexture OLO_HEAP_TEX_2D(19) // TEX_POSTPROCESS_DEPTH
+#else
 layout(binding = 0) uniform sampler2D u_Current;
 layout(binding = 1) uniform sampler2D u_History;
 layout(binding = 2) uniform sampler2D u_Velocity;
 layout(binding = 19) uniform sampler2D u_DepthTexture;
+#endif
+
+layout(location = 0) in vec2 v_TexCoord;
+layout(location = 0) out vec4 o_Color;
+
 
 layout(std140, binding = 8) uniform MotionBlurMatrices
 {

@@ -603,6 +603,14 @@
 		"OloEngine/Renderer/RHI/RHIResources.h"
 		"OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 		"OloEngine/Renderer/RHI/RHIResourceRegistry.cpp"
+		# Phase 3 (the bindless rehearsal): the view registry and the
+		# shader-visible descriptor heap that make RHI::ViewHandle and
+		# RHI::HeapOffset real. Phase 2 amendment (11) deferred them here as a
+		# matched pair — a ViewHandle with no heap detects nothing, and a
+		# HeapOffset with no heap is a u32 with a wrapper. Backend-neutral: the
+		# ARB_bindless_texture half lives in Platform/OpenGL/.
+		"OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
+		"OloEngine/Renderer/RHI/RHIDescriptorHeap.cpp"
 		"OloEngine/Renderer/RGCommandContext.cpp"
 		"OloEngine/Renderer/RGCommandContext.h"
 		"OloEngine/Renderer/RGBuilder.cpp"
@@ -1376,6 +1384,12 @@
 		"Platform/OpenGL/OpenGLContext.h"
 		"Platform/OpenGL/OpenGLDebug.cpp"
 		"Platform/OpenGL/OpenGLDebug.h"
+		# The ARB_bindless_texture half of the Phase 3 descriptor heap (#691).
+		# The neutral half is Renderer/RHI/RHIDescriptorHeap.{h,cpp}; this owns
+		# only what does not generalise — handle residency, sampler objects, and
+		# publishing the table.
+		"Platform/OpenGL/OpenGLDescriptorHeap.cpp"
+		"Platform/OpenGL/OpenGLDescriptorHeap.h"
 		"Platform/OpenGL/OpenGLFramebuffer.cpp"
 		"Platform/OpenGL/OpenGLFramebuffer.h"
 		"Platform/OpenGL/OpenGLIndexBuffer.cpp"

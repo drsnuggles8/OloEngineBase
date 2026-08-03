@@ -157,6 +157,7 @@ add_executable(OloEngine-Tests
 		# declaration-only Renderer/RHI/ headers.
 		Rendering/RHIBoundaryRatchetTest.cpp
 		Rendering/RHIResourceRegistryTest.cpp
+		Rendering/RHIDescriptorHeapTest.cpp
 		Rendering/RHIEnumLoweringTest.cpp
 		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`
 		# argument (#607 native-resolution capture): the top-left-origin rect must
@@ -253,6 +254,14 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/DeferredOverlayPassTests.cpp
 		Rendering/PropertyTests/OITPropertyTests.cpp
 		Rendering/PropertyTests/ShaderCompilationTest.cpp
+		# Issue #691 Phase 3. BindlessShaderPipelineTest pins the toolchain
+		# constraint (bindless GLSL cannot enter the Vulkan-SPIR-V pipeline);
+		# BindlessHeapGpuTest is the end-to-end GPU proof — a real texture reached
+		# through nothing but an integer offset, with poison and the transient ring
+		# checked against read-back pixels. Skips cleanly without GL 4.6 or without
+		# GL_ARB_bindless_texture.
+		Rendering/PropertyTests/BindlessShaderPipelineTest.cpp
+		Rendering/PropertyTests/BindlessHeapGpuTest.cpp
 		Rendering/PropertyTests/ShaderCompileFailureRecoveryTest.cpp
 		Rendering/PropertyTests/AssetPreviewRendererTest.cpp
 		Rendering/PropertyTests/RendererAttachedTest.cpp

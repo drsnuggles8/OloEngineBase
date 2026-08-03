@@ -168,6 +168,84 @@ Use explicit `layout(binding = N)` — **never** `glUniform1i` for sampler assig
 
 Slots 13–31 are reserved for shadows, terrain layers, post-process, wind field, etc. — consult `ShaderBindingLayout.h` before assigning.
 
+### 5a. The heap-bindless alternative — opt-in, and `SSAO.glsl` is the worked example
+
+Issue #691 Phase 3 added a second way to reach a texture. It is **off by
+default** (`OLO_RHI_BINDLESS=1` enables it) and only shaders that opt in take
+it, so the rule for an unrelated shader is still: keep writing
+`layout(binding = N)`.
+
+To convert one, wrap the declarations and leave the body alone:
+
+```glsl
+#include "include/BindlessHeap.glsl"
+
+#ifdef OLO_BINDLESS
+#define u_DepthTexture OLO_HEAP_TEX_2D(19)   // TEX_POSTPROCESS_DEPTH
+#define u_NoiseTexture OLO_HEAP_TEX_2D(21)   // TEX_SSAO_NOISE
+#else
+layout(binding = 19) uniform sampler2D u_DepthTexture;
+layout(binding = 21) uniform sampler2D u_NoiseTexture;
+#endif
+
+// …every `texture(u_DepthTexture, uv)` below is UNCHANGED.
+```
+
+and on the C++ side swap `context.BindTexture(SLOT, tex)` for
+`context.BindTextureOrHeapOffset(SLOT, tex, lifetime[, sampler])`, then call
+`context.FlushHeapOffsets()` once before the draw.
+
+**The `TEX_*` number is the whole trick.** `OLO_HEAP_TEX_2D` takes the *slot
+constant*, not an offset, and looks it up in the shared offset table the pass
+just wrote. So both variants name the same constant and cannot disagree about
+which texture is which — and the body stays byte-identical, which is what makes
+a conversion reviewable. What disappears is the bind call, not the number.
+
+**Pick the lifetime deliberately** — it is the one judgement per site.
+`FrameTransient` for anything graph-owned (attachments, pooled targets), which
+retires at the frame boundary so a held offset reports stale; `Persistent` for
+pass- or asset-owned textures, whose offsets are memoised and stable.
+
+**The constraint that shapes all of this.** A shader whose bindless branch is
+active cannot travel the normal compile path at all. §1's pipeline runs GLSL
+through `shaderc` targeting **Vulkan** first, and `GL_ARB_bindless_texture` is a
+GLSL-only extension predating SPIR-V with no representation in that environment
+— so it is rejected at the first hop, not degraded. The engine therefore
+compiles the bindless variant through `glShaderSource` on the original GLSL
+(`OpenGLShader::CreateProgramFromRawGLSL`), bypassing SPIR-V and SPIRV-Cross,
+and with them the SPIR-V cache tiers and the reflection the binding-validation
+tests read. The linked-program (`.pgr`) cache still works, under a
+variant-keyed filename.
+
+`BindlessShaderPipelineTest` pins this and fails if it ever changes — including
+if it changes to *yes*, because that would delete a whole compile route.
+
+Practical rules:
+
+- `include/BindlessHeap.glsl` is **inert without `OLO_BINDLESS`**, so including
+  it costs a shader nothing on the default path, and `ShaderCompilationTest`
+  keeps compiling that path through the Vulkan target as usual.
+- Do **not** write `#extension GL_ARB_bindless_texture` in a `.glsl` yourself —
+  not even inside the `#ifdef`. The engine injects it right after `#version`,
+  because GLSL requires `#extension` to precede every non-preprocessor token and
+  that would otherwise dictate where your `#include` may sit.
+- The five SPIR-V-reading shader tests still cover a converted file's **shared**
+  declarations via the default variant; only the bindless branch is unvalidated
+  by them, which is why the GPU test drives the real seam instead.
+- **One source file CAN carry both variants** behind `#ifdef OLO_BINDLESS`.
+  Verified: with the define absent the `#extension` line is preprocessed away
+  before glslang sees it, so the slot-based variant compiles through the normal
+  Vulkan-SPIR-V path from the very same file. What cannot be shared is the
+  *compiled artefact* — two programs, two caches, two compilers — not the
+  source. (An earlier version of this section said "a second shader, not a
+  `#ifdef`", which overstated the cost: it is one file, two builds.)
+- A useful consequence of the `#ifdef` form: the SPIR-V-reading tests
+  (`ShaderReflectionBindingTest`, `ShaderUBOSizeConsistencyTest`,
+  `ShaderStageInterfaceTest`, `ShaderStageContractTest`,
+  `ShaderCrossConsistencyTest`) still cover the file's shared parts — UBO
+  layouts, stage interfaces, the math — through the default variant. Only the
+  bindless branch's own declarations go unvalidated.
+
 ---
 
 ## 6. SSBO bindings (std430)

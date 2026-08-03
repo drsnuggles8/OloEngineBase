@@ -987,6 +987,351 @@ bookkeeping to keep the two in step.**
 
 ---
 
+## 4b. Phase 3 — what the bindless rehearsal actually proved, and what it disproved
+
+Phase 3's stated *purpose* is validating the engine-side binding contract before
+Vulkan-specific effort starts. So the useful output is not "it works" — it is a
+sorted list of which predictions held and which did not, because a prediction
+that failed is worth more to Phases 4–7 than one that held. Sorted by how much
+it should change a later phase's plan.
+
+### The measured surface, and the three published numbers (again)
+
+| Source | "texture-bind sites" | What was wrong |
+| --- | ---: | --- |
+| Issue #691 body | ~125 | rough estimate, and it says "~35 passes" |
+| ADR 0011 §1.3 | ~173 | measured, but only `BindTexture(` and only in `.cpp` |
+| Phase 3 handover | 197 | `BindTexture(` outside `Platform/`, all extensions |
+| Measured, `BindTexture(` **and** `BindImageTexture(`, comments/strings blanked | **232** | — |
+
+The same lesson as §1, one phase later: **the number moves with the definition,
+so publish the definition.** The ratchet's `sweep_bind_texture_sites` counts both
+families because both disappear under the heap — an image binding is a heap slot
+too — and it counts after blanking so the facade's own prose about the family
+name does not inflate it. Correct the issue and the ADR rather than adding a
+fifth number.
+
+### DISPROVED: the shader side of the rehearsal does not transfer, and could not
+
+This is the finding that reshapes Phase 6, and it is a *toolchain* fact rather
+than a design one, which is why no amount of ADR review would have caught it.
+
+`GL_ARB_bindless_texture` is a GLSL-only extension that predates SPIR-V and has
+no representation in the Vulkan target environment. Every production shader
+enters the pipeline through `shaderc(target = vulkan 1.2)` (§6), so **bindless
+GLSL cannot travel the production shader path at all** — not "compiles to
+something suboptimal", but rejected at the first hop. The only route is handing
+the original GLSL to `glShaderSource`, bypassing SPIR-V and SPIRV-Cross
+entirely.
+
+Consequences, in order of how much they matter later:
+
+1. **The GLSL half of Phase 3 validates nothing about Vulkan.** Vulkan reaches
+   the same shape through descriptor indexing / `VK_EXT_descriptor_heap`, which
+   *is* expressible in SPIR-V and needs no second compile route. So the
+   rehearsal's shader work is genuinely throwaway, where the ADR implied it was
+   a dry run.
+2. **A dual-path renderer needs dual-path shader ARTEFACTS — but not dual
+   source files.** Measured: one `.glsl` behind `#ifdef OLO_BINDLESS` serves
+   both, because with the define absent the `#extension` line is preprocessed
+   away before glslang sees it, so the slot-based variant still travels the
+   normal Vulkan-SPIR-V path from the same file. What cannot be shared is the
+   compiled artefact: two programs, two caches, two compilers. A bonus of that
+   shape is that the five SPIR-V-reading shader tests still validate the shared
+   UBO layouts and stage interfaces via the default variant, leaving only the
+   bindless branch unchecked. **The conversion's real cost is therefore in the
+   PASSES, not the shaders** — each of the 232 sites needs a "write an offset or
+   bind a texture" fork, and that is where the silent-failure risk lives.
+3. It is pinned by `BindlessShaderPipelineTest`, which **fails if the answer
+   changes in either direction**. A `EXPECT_FALSE` on "shaderc accepted it" reads
+   backwards until you notice that good news here deletes a whole compile route,
+   and silently keeping a dead route is the failure worth catching.
+
+### DISPROVED: most of the backend does not transfer either
+
+ADR 0011 §1.2 frames `ARB_bindless_texture` and `VK_EXT_descriptor_heap` as two
+realisations of one model. Above the backend interface that is true. Below it,
+three things exist only on GL and one of them is load-bearing:
+
+- **Residency.** A handle must be made resident before use and non-resident on
+  destruction, and making an already-resident handle resident *again* is an
+  `INVALID_OPERATION` — so the backend has to refcount. Vulkan writes a
+  descriptor and is done.
+- **Immutability.** Taking a handle freezes the texture's parameters, and a
+  handle names the *object*, not a view of it.
+- **Sampler folding.** GL bakes sampler state into the handle, so the sampler
+  heap is bookkeeping on this backend. Under a split heap it is real, and an
+  exhausted sampler heap changes from a warning into a correctness failure.
+  The engine's sampler *deduplication* (§1.2a's "nothing to port") is therefore
+  the one piece of new machinery here that Phase 4 inherits directly.
+
+**What does transfer is everything above `IDescriptorHeapBackend`**: views
+owning slots, the two lifetime classes, offsets as data, fetch-don't-store,
+generation validation, poison-on-free. That is roughly the whole of
+`RHIDescriptorHeap.{h,cpp}` and all of the contract tests. Keeping the backend
+seam that narrow was worth more than any other structural decision in the phase.
+
+**One prerequisite the engine already satisfies, and it is worth knowing before
+someone budgets for it.** `ARB_bindless_texture` refuses a handle for a texture
+whose storage can still change, so every sampled texture must have been created
+with immutable storage. `OpenGLTexture*` already uses `glTextureStorage2D`
+throughout and contains **zero** `glTexImage2D` calls — a consequence of the
+DSA-only house style rather than of any bindless planning. Had it not, this
+would have been a texture-creation sweep on top of the binding sweep. Vulkan has
+the same property by construction (a `VkImage`'s format and extent are fixed at
+creation), so the constraint is not GL-specific and the engine is already
+compatible with both.
+
+### HELD, and it caught a real hazard: the resource registry's stability is a liability here
+
+`ResourceRegistry` deliberately **preserves** a handle across an in-place reload
+(`ScopedResourceHandle::Sync` repoints, never retires) — §4's "identity is the
+C++ object", and the property that makes caching a `ResourceHandle` safe.
+
+A descriptor does **not** inherit that safety. An `ARB_bindless_texture` handle
+names the underlying object, so recreating the storage leaves every descriptor
+naming a deleted object *while the view's own generation is unchanged* — which
+means `OffsetOf` cannot detect it. The cheap generation check that catches every
+other staleness in this layer is structurally blind to exactly this one.
+
+**This is the exact mirror image of the slice-6 finding** where stable identity
+made the redundant-bind cache skip a bind that had to happen. Same root cause
+(identity outliving storage), opposite symptom (stale descriptor vs skipped
+rebind), same remedy: `RHI::DescriptorHeap::InvalidateResource` is the sibling of
+`InvalidateTextureBinding`, and **every site that recreates a resource's storage
+must call both**. Generalisable well past this issue: *when a layer deliberately
+makes an identity outlive its storage, every cache keyed on that identity needs
+an explicit invalidation hook, because the identity itself can no longer report
+the change.*
+
+### HELD: two lifetime classes, and the ring is what makes aliasing expressible
+
+ADR 0011 §1.2 predicted that persistent transient slots would force a mid-frame
+offset rewrite under `WriteNewVersion` aliasing. That held exactly, and building
+it made the reason concrete: with a per-frame ring, one physical object holding
+two offsets in one frame is just two ring entries, and the alias becomes
+*visible in the heap* rather than being something the heap has to reconcile.
+`AliasedResourceHoldsTwoOffsetsInOneFrame` is the test; it is short, and it is
+the one to read first if the model ever needs re-deriving.
+
+The ring also turns §1.2's "never store a transient offset across a use" from a
+rule nobody can enforce by review into a detectable failure: retiring the ring
+bumps every generation, so a held offset does not merely go stale, it *reports*
+stale.
+
+### The counter's target is NOT zero, and that is a design decision
+
+`sweep_bind_texture_sites` is the first ratchet counter in this issue whose
+target is not zero, and the difference is worth stating because the previous
+three trained the opposite instinct. `ARB_bindless_texture` is not universally
+available, so the slot-based path must survive as the fallback; a zero would
+mean the engine had stopped working on those devices. There is also no
+type-system equivalent of `facade_native_id_params` available here — **both
+paths must compile, so nothing can make the old one unrepresentable.** It is a
+monotone-down progress measure with a floor guard, not a completion criterion.
+
+### The neutral `ViewDesc` is under-specified, and it will bite Vulkan too
+
+`RHI::ViewDesc` carries a `SubresourceRange` and a `FormatOverride` but nothing
+that lets a backend actually *build* the view: GL needs the source target and
+internal format for `glTextureView`, and Vulkan needs the same information for
+`VkImageViewCreateInfo`. The GL backend therefore declines any view that is not
+the whole resource, and counts it.
+
+Recorded as a Phase 4 input rather than fixed here, because the fix is a real
+design question — widen the neutral desc, or have the heap ask the registry for
+the resource's metadata — and choosing it against one backend is how the
+original `GLenum`-in-the-facade problem started. **The useful part is that the
+gap is a property of the neutral model, not of GL**, so it was going to surface
+during Vulkan bring-up regardless; finding it on the debuggable backend is the
+rehearsal working as intended.
+
+### The raw-GLSL route, and what converting a real pass actually cost
+
+The constraint above says bindless GLSL cannot enter the SPIR-V pipeline. The
+route around it is small and confined: `OpenGLShader::CreateProgramFromRawGLSL`
+feeds the already-include-resolved source straight to `glShaderSource`. Four
+things about it are worth knowing before building the equivalent anywhere else.
+
+**Variant selection is one token and one toggle.** A shader opts in by mentioning
+`OLO_BINDLESS`; the route is taken only when `DescriptorHeap::IsEnabled()`. On
+any failure it falls through to the ordinary path, so a broken bindless branch
+costs the frame its optimisation and never its shader. `Reload()` re-decides,
+which is what makes an A/B possible without a restart.
+
+**The engine must inject `#extension`, not the include.** GLSL requires every
+`#extension` directive to precede all non-preprocessor tokens. Put it in
+`include/BindlessHeap.glsl` and every converted shader inherits an invisible
+rule — *the include must sit above your first declaration* — which is exactly
+where you do not want it, since the natural place for it is next to the samplers
+it replaces. Injecting `#extension` + `#define OLO_BINDLESS 1` immediately after
+`#version` makes include placement a non-issue across all ~35 shaders. Found by
+writing the SSAO conversion the obvious way first.
+
+**The program-binary cache must be keyed on the variant.** A driver stamps a
+binary with its own version, not with which GLSL branch produced it, so
+`.cached_opengl.pgr` and `.cached_opengl.bindless.pgr` have to be separate files
+— otherwise a bindless binary loads into a slot-based run, links cleanly, and
+samples nothing. This is ADR 0011 §3's "encode the target env in the cache
+filename" one variant axis over, and it was caught immediately by
+`AssetContentValidity.AllCacheFilesMatchKnownPattern`, which is that whitelist
+earning its keep.
+
+**What a converted pass looks like.** SSAO, the first one, in full:
+
+- three `context.BindTexture(SLOT, tex)` became
+  `context.BindTextureOrHeapOffset(SLOT, tex, lifetime[, sampler])`, plus one
+  `FlushHeapOffsets()` before the draw;
+- the shader's sampler declarations went inside `#ifdef OLO_BINDLESS`, replaced
+  by `#define u_DepthTexture OLO_HEAP_TEX_2D(19)`;
+- **the shader body did not change by a single character.**
+
+That last point is the ergonomic result worth carrying to the other passes. It
+works because the offset table is indexed by the *same `TEX_*` constant* the
+bindful branch writes in `layout(binding = N)` — ADR 0011 §1.1's "the number
+survives, promoted from a compile-time constant to runtime data", made literal.
+The two variants are then structurally unable to disagree about which texture is
+which, and a reviewer diffs a declaration block rather than a shader.
+
+**The one genuinely dangerous line is the std140 layout.** The offset table is
+`uvec4 g_OloHeapOffsets[16]`, not `uint g_Offsets[64]`, because std140 pads a
+`uint` array to a 16-byte stride. Get it wrong and the shader reads every fourth
+entry — three textures in four sample a *different real texture*, in a frame that
+still looks plausible. `OffsetsReachTheShaderThroughTheRealSeamAtTheirSlotIndices`
+drives the real `RGCommandContext` seam with slots 19 and 22 specifically because
+they land in different uvec4 groups **and** different components, so no layout
+bug can satisfy both.
+
+### Publishing the heap once per frame is WRONG, and the test was hiding it
+
+The first batch of converted passes rendered a **black viewport**. The cause is
+worth recording in full, because both halves of why it survived are reusable
+mistakes.
+
+`RenderGraph::Execute` published the heap once, just before `ExecutePlan`, with a
+comment asserting *"every transient view this frame was minted during planning,
+so the table is complete by now"*. That assertion is false. A pass mints its
+views inside its own `Execute` — `BindTextureOrHeapOffset` is a pass-time call —
+so at the moment of that flush **this frame's transient descriptors do not exist
+yet**. They land in the CPU mirror, get marked dirty, and are never uploaded. The
+offsets then index heap slots holding the previous frame's descriptor or nothing
+at all.
+
+The fix is that `FlushHeapOffsets()` publishes *both* — descriptors first, then
+the offsets that index them — at each converted pass. The frame-level flush stays,
+but only to establish the heap's binding for passes that read persistent views.
+
+**Why it survived the first conversion.** Two independent reasons, and each is a
+verification anti-pattern on its own:
+
+1. **The first converted pass was one the active render path did not execute.**
+   SSAO compiles and logs `[Bindless] built through the raw-GLSL route`, which
+   reads exactly like success — but the scene ran GTAO, so the converted pass
+   never drew. *A shader compiling through a new path is not evidence that the
+   path renders.* Confirm the pass executes before reading a clean frame as a
+   pass.
+2. **THE GPU TEST WAS SUPPLYING THE MISSING CALL.** It did
+   `context.FlushHeapOffsets(); RHI::DescriptorHeap::Get().Flush();` — the second
+   line being precisely the publish the engine was failing to do. The test passed
+   because it sequenced the mechanism *for* the engine.
+
+That second one is the generalisable lesson, and it is sharper than "test the
+real thing": **a test that performs a sequencing step on the subject's behalf
+cannot detect that the subject omits it.** The test now calls only what a
+converted pass calls, so the same bug would fail it. Whenever a test sets up a
+mechanism, ask which of those setup lines production code is also supposed to
+execute — those lines are exactly where a missing call hides.
+
+### "Unbind" has no translation, so the heap needs a reserved null descriptor
+
+A slot-based pass clears an input by binding a null texture — `ToneMapRenderPass`
+does exactly this with `RHI::NullResource`, to say "I am not using the water-depth
+input this frame". Under the heap there is **nothing to clear**: the shader reads
+an offset, and an offset left untouched is a perfectly valid index that goes on
+sampling the previous texture.
+
+That is the worst failure this model can produce — a real, plausible, wrong image
+— and it is invisible to every check that only asks "did the frame render?". So
+heap slot 0 is reserved, never allocated, permanently poisoned
+(`RHI::kNullHeapOffset`), and every call site that fails or clears points there.
+
+**Generalisable: when converting a binding model to an indexed one, enumerate the
+operations that have no index equivalent.** Binding a resource maps cleanly;
+*un*binding does not, because the old model's "absence" was a state and the new
+model's is a value that must be written. The same applies to the fallback path —
+`BindTextureOrHeapOffset` writing the null offset when it declines is not
+belt-and-braces, it is the only thing stopping a stale index surviving a
+heap-exhaustion or dead-resource case.
+
+### Conversion is incremental WITHIN a shader, which is what makes shared includes tractable
+
+`PostProcess_Fog.glsl` reads three textures: full-res depth (`sampler2D`), the
+froxel volume (`sampler3D`) and the CSM shadow array — and the shadow array's
+declaration lives in a **shared include**. Converting a shared declaration would
+flip every shader that includes it in one indivisible step, which is the shape of
+change that cannot be verified pass by pass.
+
+It turns out not to be forced: a bindless-variant program can carry ordinary
+`layout(binding = N)` samplers alongside heap ones, and the pass simply keeps
+binding those the old way. Fog is converted for its depth and froxel inputs and
+still binds `TEX_SHADOW` conventionally.
+
+Two consequences for planning the remaining sites:
+
+- **Shared includes are not a blocker**, they are just the last thing to convert.
+  A shader can be moved input by input.
+- **`sampler3D` through the heap is proven**, not assumed — fog's froxel volume
+  is a real 3D texture sampled through `OLO_HEAP_TEX_3D`. Combined with the
+  `sampler2D` passes and the GPU test's array/shadow macros, the macro layer is
+  exercised beyond the 2D case that everything else uses.
+
+### How far "full bindless" actually reaches — measured, not estimated
+
+Eleven shaders and 24 sites later the counter stands at **208**, down from the
+232 measured before any conversion. The remainder is not homogeneous, and the
+split decides whether the phrase means anything:
+
+| Bucket | Sites | Shape |
+| --- | ---: | --- |
+| Ordinary pass binds (`Renderer/Passes/`) | ~128 | Mechanical, exactly like the converted ones. |
+| `Renderer/Commands/` — the material path | ~21 | The redundant-bind cache. One indivisible unit, same shape as Phase 2 slice 6. |
+| **`BindImageTexture` — storage images** | **38** | **Not modelled at all.** |
+| Facade declarations, the seam's own fallback, misc | ~21 | Mostly not deletable — the fallback bind is a real site and correctly counted. |
+
+**The storage-image bucket is the real answer to "can we go full bindless".** The
+heap produces *sampler* descriptors only: `ViewDesc` + `SamplerDesc` →
+`glGetTextureSamplerHandleARB`. An `imageLoad`/`imageStore` binding is a
+different descriptor — `glGetImageHandleARB`, with its own residency and a
+format+layered+level key that `ViewDesc` does not carry. `ARB_bindless_texture`
+supports it and `VK_EXT_descriptor_heap` treats it as just another descriptor
+type, so this is a gap in *our* model rather than in either API — but it is ~18%
+of the surface, it is concentrated in the compute passes, and nothing about the
+sampler path generalises to it for free. **Anyone claiming "full bindless" has to
+price this in as a second heap-side feature, not as more call sites.**
+
+### Verify a mechanism against pixels it can produce, not against a frame it changes
+
+CLAUDE.md's rendering rule says a renderer change must be checked against
+pixels. The obvious reading — convert a production pass and compare screenshots
+— is the *weaker* evidence here, and it is worth saying why, because the
+instinct is strong.
+
+A converted SSAO pass proves "SSAO still looks like SSAO", which a dozen
+unrelated bugs also produce; a wrong heap offset renders a different *real*
+texture, and against a noisy screen-space effect that is exactly the kind of
+plausible-looking wrong the noise floor swallows
+(`live-verification-noise-floor.md`). It also puts the entire shader pipeline on
+a new compile route for a mechanism that is off by default.
+
+`BindlessHeapGpuTest` instead renders two deliberately-different solid colours
+through the real heap and reads the exact texels back, so a swapped offset, a
+dead descriptor and an unbound heap each fail differently and specifically. The
+generalisable rule: **when adding a mechanism rather than changing an image,
+build the smallest scene whose correct output is known exactly, and check that
+— then keep the golden suite as proof that nothing else moved.**
+
+---
+
 ## 5. `ResourceTransition` looks backend-neutral and is neutral only by accident
 
 `RenderGraph::ResourceTransition` carries `ResourceName`, `ProducerPass`,

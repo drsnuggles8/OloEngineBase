@@ -133,8 +133,12 @@ namespace OloEngine
 
         m_Shader->Bind();
 
-        context.BindTexture(0, inputColorTextureID);
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
         m_Shader->SetInt("u_Texture", 0);
+
+        // Publish the heap offsets recorded above. No-op on the slot-based path,
+        // so a converted pass costs nothing when the heap is off (issue #691).
+        context.FlushHeapOffsets();
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

@@ -1,6 +1,9 @@
 #pragma once
 
 #include "OloEngine/Renderer/RHI/RHITypes.h"
+// HeapSlotLifetime / SamplerDesc for BindTextureOrHeapOffset (issue #691 Phase 3).
+// RHITypes.h alone is not enough — those live with the resource descriptions.
+#include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/FrameBlackboard.h"
@@ -74,6 +77,34 @@ namespace OloEngine
         void SetCulling(bool enabled) const;
         void SetDrawBuffers(std::span<const u32> attachments) const;
         void BindTexture(u32 slot, RHI::ResourceHandle texture) const;
+
+        // ---------------------------------------------------------------------
+        // The heap-bindless form of the call above (issue #691 Phase 3).
+        //
+        // ONE call replaces the bind at a pass call site, and it forks for you:
+        //
+        //   * heap enabled  -> mints/looks up the view, records the offset in the
+        //     shared heap-offset table at index `slot`, and binds NOTHING.
+        //   * heap disabled, no extension, heap full, dead resource -> falls back
+        //     to `BindTexture(slot, texture)` exactly as before.
+        //
+        // `slot` keeps its meaning either way, which is the point ADR 0011 §1.1
+        // makes: what dies is the ACT of binding; the `TEX_*` number survives,
+        // promoted from a compile-time constant to runtime data. A converted
+        // shader indexes the offset table with the same constant it used to
+        // declare `layout(binding = N)` with, so the two variants cannot
+        // disagree about which texture is which.
+        //
+        // Call `FlushHeapOffsets()` once before the draw. The return value is
+        // for a pass that wants to put the offset somewhere of its own (a
+        // material struct, an SSBO); most callers can ignore it.
+        RHI::HeapOffset BindTextureOrHeapOffset(u32 slot, RHI::ResourceHandle texture,
+                                                RHI::HeapSlotLifetime lifetime,
+                                                const RHI::SamplerDesc& sampler = {}) const;
+
+        // Uploads the offsets recorded since the last flush. No-op when the heap
+        // is disabled, so a converted pass costs nothing on the slot-based path.
+        void FlushHeapOffsets() const;
         void MemoryBarrier(MemoryBarrierFlags flags) const;
         void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount = 0) const;
         // Async-compute batch boundaries.

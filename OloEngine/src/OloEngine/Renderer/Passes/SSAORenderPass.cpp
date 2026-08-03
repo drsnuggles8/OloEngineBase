@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -91,6 +92,13 @@ namespace OloEngine
     {
         if (m_NoiseTexture.IsValid())
         {
+            // Retire the heap descriptors naming this texture BEFORE deleting it.
+            // ResourceRegistry deliberately keeps a handle alive across an
+            // in-place reload, so a view's own generation cannot detect that its
+            // descriptor now names a deleted object — OffsetOf would go on
+            // answering a valid offset, and the persistent view cache would keep
+            // serving the stale entry on a hit (issue #691 Phase 3).
+            RHI::DescriptorHeap::Get().InvalidateResource(m_NoiseTexture);
             RenderCommand::DeleteTexture(m_NoiseTexture);
         }
     }
@@ -211,14 +219,35 @@ namespace OloEngine
 
         m_SSAOShader->Bind();
 
-        // Bind scene depth at TEX_POSTPROCESS_DEPTH (slot 19)
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture);
+        // Heap-bindless where available, slot-based otherwise — one call, and the
+        // slot constant keeps its meaning either way (issue #691 Phase 3). The
+        // LIFETIME argument is the only judgement each site needs, and it is not
+        // cosmetic: a FrameTransient view is retired at the frame boundary so a
+        // held offset reports stale, while a Persistent one is memoised and its
+        // offset is stable for the object's life.
+        //
+        // Depth and normals are graph-owned attachments that can be reallocated
+        // or aliased between frames, so they are transient. The noise texture is
+        // created once in Init and lives as long as the pass.
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsTexture,
+                                        RHI::HeapSlotLifetime::FrameTransient);
 
-        // Bind scene view-space normals at TEX_SCENE_NORMALS (slot 22)
-        context.BindTexture(ShaderBindingLayout::TEX_SCENE_NORMALS, normalsTexture);
+        // Nearest+Repeat — the combination the two-bool sampler of Phase 1 could
+        // not express, and the reason RHI::Filter / RHI::AddressMode exist. Under
+        // the heap this sampler state rides in the descriptor rather than on the
+        // texture object, which is what a split sampler heap will need.
+        RHI::SamplerDesc noiseSampler;
+        noiseSampler.MinFilter = RHI::Filter::Nearest;
+        noiseSampler.MagFilter = RHI::Filter::Nearest;
+        noiseSampler.LinearMipFilter = false;
+        noiseSampler.AddressU = RHI::AddressMode::Repeat;
+        noiseSampler.AddressV = RHI::AddressMode::Repeat;
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SSAO_NOISE, m_NoiseTexture,
+                                        RHI::HeapSlotLifetime::Persistent, noiseSampler);
 
-        // Bind noise texture at TEX_SSAO_NOISE (slot 21)
-        context.BindTexture(ShaderBindingLayout::TEX_SSAO_NOISE, m_NoiseTexture);
+        context.FlushHeapOffsets();
 
         DrawFullscreenTriangle();
         rawFB->Unbind();

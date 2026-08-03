@@ -1396,9 +1396,16 @@ namespace OloEngine::Tests
             // per-shader glProgramBinary rejection flood on each launch.
             // (Matching is find_if on Subdir — one entry per subdir, so the
             // stamp must live in this regex, not a second "shader" row.)
+            // The optional `.bindless` infix is the heap-bindless program-binary
+            // variant (issue #691 Phase 3). It MUST be a separate file from the
+            // slot-based `.pgr`: a driver stamps a program binary with its own
+            // version, not with which GLSL branch produced it, so a bindless
+            // binary loaded into a slot-based run would link cleanly and sample
+            // nothing. This test caught the new filename the first time it was
+            // written, which is the whitelist working as intended.
             { "shader",
-              std::regex(R"((?:.+?(\.glsl)?\.cached_(opengl|vulkan)\.(vert|frag|comp|tesc|tese|geom|pgr))|(?:program_binary_driver_stamp\.txt))"),
-              "<name>[.glsl].cached_{opengl|vulkan}.{stage|pgr}, or program_binary_driver_stamp.txt" },
+              std::regex(R"((?:.+?(\.glsl)?\.cached_(opengl|vulkan)(\.bindless)?\.(vert|frag|comp|tesc|tese|geom|pgr))|(?:program_binary_driver_stamp\.txt))"),
+              "<name>[.glsl].cached_{opengl|vulkan}[.bindless].{stage|pgr}, or program_binary_driver_stamp.txt" },
             { "ibl",
               std::regex(R"([0-9a-fA-F]+_(irradiance|prefilter|brdf)\.iblcache)"),
               "<hash>_{irradiance|prefilter|brdf}.iblcache" },

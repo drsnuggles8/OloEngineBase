@@ -173,10 +173,16 @@ namespace OloEngine
         context.Clear();
 
         m_SSAOApplyShader->Bind();
-        context.BindTexture(0, inputColorTextureID);
-        context.BindTexture(ShaderBindingLayout::TEX_SSAO, aoTextureID);
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SSAO, aoTextureID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
         // Scene depth is used by the apply shader for bilateral upsampling.
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+
+        // Publish the heap offsets recorded above. No-op on the slot-based path,
+        // so a converted pass costs nothing when the heap is off (issue #691).
+        context.FlushHeapOffsets();
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

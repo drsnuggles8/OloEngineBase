@@ -15,13 +15,27 @@ void main()
 #type fragment
 #version 460 core
 
+// Texture inputs. Under heap-bindless (issue #691 Phase 3) these become heap
+// lookups keyed by the SAME slot numbers the bindful branch declares, so the two
+// variants cannot disagree about which texture is which — and the shader BODY
+// below is unchanged between them. Inert without OLO_BINDLESS; the engine only
+// defines it on the raw-GLSL compile route.
+#include "include/BindlessHeap.glsl"
+
+#ifdef OLO_BINDLESS
+#define u_Texture OLO_HEAP_TEX_2D(0)
+#define u_Velocity OLO_HEAP_TEX_2D(2)
+#define u_DepthTexture OLO_HEAP_TEX_2D(19) // TEX_POSTPROCESS_DEPTH
+#else
+layout(binding = 0) uniform sampler2D u_Texture;      // Scene color (HDR)
+layout(binding = 2) uniform sampler2D u_Velocity;     // Per-pixel screen-space velocity (RG16F, curr-prev in UV) — Deferred G-Buffer RT3 / Forward scene attachment 3
+layout(binding = 19) uniform sampler2D u_DepthTexture;  // Scene depth
+#endif
+
 layout(location = 0) out vec4 o_Color;
 
 layout(location = 0) in vec2 v_TexCoord;
 
-layout(binding = 0) uniform sampler2D u_Texture;      // Scene color (HDR)
-layout(binding = 2) uniform sampler2D u_Velocity;     // Per-pixel screen-space velocity (RG16F, curr-prev in UV) — Deferred G-Buffer RT3 / Forward scene attachment 3
-layout(binding = 19) uniform sampler2D u_DepthTexture;  // Scene depth
 
 layout(std140, binding = 7) uniform PostProcessUBO
 {

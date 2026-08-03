@@ -15,6 +15,22 @@ void main()
 #type fragment
 #version 460 core
 
+// Texture inputs. Under heap-bindless (issue #691 Phase 3) these become heap
+// lookups keyed by the SAME slot numbers the bindful branch declares, so the two
+// variants cannot disagree about which texture is which — and the shader BODY
+// below is unchanged between them. Inert without OLO_BINDLESS.
+#include "include/BindlessHeap.glsl"
+
+#ifdef OLO_BINDLESS
+#define u_SceneColor OLO_HEAP_TEX_2D(0)
+#define u_DepthTexture OLO_HEAP_TEX_2D(19) // TEX_POSTPROCESS_DEPTH
+#define u_GBufferNormal OLO_HEAP_TEX_2D(44) // TEX_GBUFFER_NORMAL
+#else
+layout(binding = 0) uniform sampler2D u_SceneColor;     // lit upstream HDR colour
+layout(binding = 19) uniform sampler2D u_DepthTexture;  // scene depth (nonlinear, [0,1])
+layout(binding = 44) uniform sampler2D u_GBufferNormal; // RT1: rg = oct world normal, z = roughness, w = ao
+#endif
+
 // Screen-Space Contact Shadows — short-range hard shadows for the sun (deferred path).
 //
 // The cascaded shadow map is coarse near contact points, so dynamic geometry
@@ -40,9 +56,6 @@ layout(location = 0) out vec4 o_Color;
 
 layout(location = 0) in vec2 v_TexCoord;
 
-layout(binding = 0) uniform sampler2D u_SceneColor;     // lit upstream HDR colour
-layout(binding = 19) uniform sampler2D u_DepthTexture;  // scene depth (nonlinear, [0,1])
-layout(binding = 44) uniform sampler2D u_GBufferNormal; // RT1: rg = oct world normal, z = roughness, w = ao
 
 layout(std140, binding = 41) uniform ContactShadowParams
 {
