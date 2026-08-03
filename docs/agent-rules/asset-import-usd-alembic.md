@@ -122,8 +122,9 @@ ExternalProject_Add(openusd DEPENDS onetbb GIT_REPOSITORY .../OpenUSD.git GIT_TA
    static monolithic build needs the installed `lib/usd/**/plugInfo.json` tree at runtime AND the
    objects force-linked. `UsdMeshImporter` calls `PlugRegistry::RegisterPlugins` on
    `OLO_USD_PLUGIN_PATH` (env, for the headless smoke test) or `<exe>/usd` (the tree CMake stages next
-   to the editor). The engine link adds `/WHOLEARCHIVE:usd_m` or the Sdf/schema static-init
-   registrations are dropped and `UsdStage::Open` returns null.
+   to the editor). The engine link force-links the archive with `/WHOLEARCHIVE:` or the Sdf/schema
+   static-init registrations are dropped and `UsdStage::Open` returns null. Pass it the **full
+   path**, not the bare `usd_m` — see gotcha 7.
 5. **Cost.** `usd_m.lib` ≈ **2.1 GB** Release / **2.4 GB** Debug (static archive — dead-stripped at
    the final exe link). Cold build ≈ 8–15 min per config. Config-matched builds both.
 6. **oneTBB static-Debug teardown assert.** A static Debug oneTBB trips a benign worker-teardown
@@ -133,6 +134,52 @@ ExternalProject_Add(openusd DEPENDS onetbb GIT_REPOSITORY .../OpenUSD.git GIT_TA
    respects a command-line define; disables `__TBB_ASSERT` in the compiled lib; Release already has
    it off via `NDEBUG`). Verify a fix took by grepping the assert string out of `tbb12_debug.lib`
    AND clean-relinking the consumer (MSBuild won't relink on a same-path `.lib` content change).
+7. **`/WHOLEARCHIVE:` needs a FULL PATH — a bare library name is not portable across the two
+   Windows linkers** (#697). `link.exe` resolves a bare `/WHOLEARCHIVE:usd_m` against `/LIBPATH`;
+   **`lld-link` does not** — it opens the argument as a path relative to the working directory only,
+   and kills the whole link with
+
+   ```text
+   lld-link: error: could not open 'usd_m': no such file or directory
+   ```
+
+   even though `usd_m.lib` is already on the link line by full path and its directory is in
+   `/LIBPATH`. This is not a niche path: **CMake sets `MSVC` TRUE for clang-cl** (it targets the MSVC
+   ABI), so an `if(MSVC)` guard is taken under the `clangcl` / `clangcl-asan` presets too. The result
+   was that both of those presets could not link *at all* with the default `OLO_WITH_USD=ON`, while
+   the msvc preset was perfectly green — everything compiled, so it looked like a link-config problem
+   rather than an option-spelling one.
+
+   The fix is to spell the option with the full path CMake already has
+   (`target_link_options(OloEngine PUBLIC "/WHOLEARCHIVE:${OloEngine_USD_LIB}")`), which is accepted
+   by **both** linkers. Verified against **LLD 21.1.8** and **MSVC `link.exe` 14.51** with a minimal
+   force-link probe (a static lib whose only content is a static-init side effect, and a `main` that
+   never references it):
+
+   | `/WHOLEARCHIVE:` argument                   | `link.exe` | `lld-link` |
+   | ------------------------------------------ | ---------- | ---------- |
+   | bare name, lib reachable via `/LIBPATH`     | force-links | **link fails** |
+   | full path, lib also on the link line        | force-links | force-links |
+   | full path, lib *not* on the link line       | force-links | force-links |
+   | full path containing spaces                 | force-links | force-links |
+   | *(control)* no `/WHOLEARCHIVE` at all       | object dropped | object dropped |
+
+   The control row is the part worth keeping: it is what proves the probe measures force-linking
+   rather than incidental reachability.
+
+   Do **not** "fix" a `/WHOLEARCHIVE` failure by deleting the option. It is load-bearing under both
+   linkers, but in *different* ways — measured by relinking the engine with the option commented out:
+   under `link.exe` the link succeeds and USD fails at **runtime** (gotcha 4), while under `lld-link`
+   the link fails outright with
+   `undefined symbol: __declspec(dllimport) ... UsdGeomGetStageUpAxis` — because `usd_m`'s headers
+   declare its symbols `dllimport` (the `/IGNORE:4217` flood) and lld-link will not satisfy a
+   dllimport-declared symbol from the archive without the whole-archive pull. So "it linked after I
+   removed the flag" is a *link.exe-only* observation, and it is the silent-at-link,
+   broken-at-runtime case.
+
+   `OloEngine_USD_LIB` carries a `$<CONFIG>` genexpr and `target_link_options` expands
+   it per config, so the full-path spelling is also config-matched where the bare name depended on
+   `/LIBPATH` search order to land on the right one.
 
 Silent-correctness handling in `UsdMeshImporter`: stage up-axis (Z-up → -90° X rotation),
 `metersPerUnit` scale, `orientation` (leftHanded → reversed winding), primvar interpolation

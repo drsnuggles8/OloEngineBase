@@ -55,6 +55,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
@@ -62,6 +63,7 @@
 #include <filesystem>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -633,6 +635,94 @@ namespace OloEngine::Tests
             }
             return out;
         }
+
+        // =====================================================================
+        // Property guards (#734)
+        //
+        // CompareOrBootstrap answers "does this frame still match its
+        // baseline?". It cannot answer "is the effect still doing its job?".
+        // A *partial* regression — FXAA blending only one side of an edge, a
+        // tone map that clips, a shadow that lost its penumbra, a splatmap
+        // whose layer weights got renormalised — can sit comfortably inside
+        // the RMSE/SSIM pass band while the invariant the effect exists to
+        // uphold is gone. And a baseline is only ever a recording of one
+        // machine: where a vendor baseline was baked separately (#735,
+        // assets/tests/golden/amd) the compare can pass on a frame nobody has
+        // verified is *correct*.
+        //
+        // So each golden below also asserts a property derived from the
+        // readback it already holds — one extra pass over the image, and a
+        // failure that says what broke instead of "the image moved".
+        //
+        // Index alignment used by the guards: glTextureSubImage2D uploads and
+        // glGetTextureImage reads back in the same GL row order, and a
+        // fullscreen quad drawn at the texture's own resolution samples texel
+        // centres 1:1 — so a CPU-authored input array and a readback of the
+        // frame it produced share the same texel index. Guards that cannot
+        // rely on that (the shadow mask, whose regions are placed by the
+        // authored depth map) are written to be orientation-free instead, so
+        // a flipped readback can never satisfy them by accident.
+        // =====================================================================
+
+        static f32 Rec601Luma(u8 r, u8 g, u8 b)
+        {
+            return 0.299f * static_cast<f32>(r) + 0.587f * static_cast<f32>(g) + 0.114f * static_cast<f32>(b);
+        }
+
+        struct ColorPopulation
+        {
+            u32 m_Rgb = 0; // packed 0x00RRGGBB
+            u32 m_Count = 0;
+        };
+
+        // Distinct-colour histogram, most populous first. Lets a guard find
+        // flat regions by population rather than by sampling a hard-coded
+        // screen position — which would bake a readback orientation into the
+        // assertion and quietly pass on a vertically flipped frame.
+        static std::vector<ColorPopulation> RankColorsByPopulation(const std::vector<u8>& rgba)
+        {
+            std::unordered_map<u32, u32> counts;
+            for (std::size_t i = 0; i + 3 < rgba.size(); i += 4)
+            {
+                const u32 key = (static_cast<u32>(rgba[i + 0]) << 16) |
+                                (static_cast<u32>(rgba[i + 1]) << 8) |
+                                static_cast<u32>(rgba[i + 2]);
+                ++counts[key];
+            }
+            std::vector<ColorPopulation> ranked;
+            ranked.reserve(counts.size());
+            for (const auto& [rgb, count] : counts)
+                ranked.push_back(ColorPopulation{ rgb, count });
+            std::sort(ranked.begin(), ranked.end(),
+                      [](const ColorPopulation& a, const ColorPopulation& b)
+                      { return a.m_Count > b.m_Count; });
+            return ranked;
+        }
+
+        // Mean RGB of a square patch centred on (cx, cy), in the readback's own
+        // index space (so it lines up with whatever CPU array authored the input).
+        static std::array<f32, 3> PatchMeanRgb(const std::vector<u8>& rgba, u32 width, u32 height,
+                                               u32 cx, u32 cy, u32 radius)
+        {
+            std::array<f64, 3> sum{ 0.0, 0.0, 0.0 };
+            u32 taps = 0;
+            const u32 x0 = cx > radius ? cx - radius : 0u;
+            const u32 y0 = cy > radius ? cy - radius : 0u;
+            const u32 x1 = std::min(cx + radius, width - 1u);
+            const u32 y1 = std::min(cy + radius, height - 1u);
+            for (u32 y = y0; y <= y1; ++y)
+            {
+                for (u32 x = x0; x <= x1; ++x)
+                {
+                    const std::size_t idx = (static_cast<std::size_t>(y) * width + x) * 4;
+                    for (u32 c = 0; c < 3; ++c)
+                        sum[c] += static_cast<f64>(rgba[idx + c]);
+                    ++taps;
+                }
+            }
+            const f64 n = taps > 0 ? static_cast<f64>(taps) : 1.0;
+            return { static_cast<f32>(sum[0] / n), static_cast<f32>(sum[1] / n), static_cast<f32>(sum[2] / n) };
+        }
     } // namespace
 
     // =========================================================================
@@ -760,6 +850,69 @@ namespace OloEngine::Tests
         {
             RecordProperty("result", result.m_Message);
         }
+
+        // --- Property guards (#734) ------------------------------------------
+        // Reinhard is x/(1+x): it approaches 1 asymptotically and never reaches
+        // it, so a correct frame CANNOT contain a saturated channel no matter
+        // how bright the input. That makes "peak < 255" the strongest of the
+        // four goldens' invariants, and it was entirely unasserted. A
+        // passthrough (u_TonemapOperator ignored / UBO unbound), a clipping
+        // operator substituted for Reinhard, or an exposure blowout all pin the
+        // top of this 0..4 luminance ramp at 255 — and because the bottom of
+        // the ramp is unaffected, the frame-wide RMSE can stay inside the band.
+        //
+        // Theoretical peak for the brightest channel of this ramp:
+        //     pow(4 / (1 + 4), 1 / 2.2) * 255 = 230.4
+        // so the ceiling sits just above it. The floor matters just as much:
+        // without it a black or dim frame would satisfy "never saturates"
+        // vacuously — an assertion that cannot fail is the anti-pattern here.
+        u32 peakChannel = 0;
+        for (std::size_t i = 0; i + 3 < output.size(); i += 4)
+        {
+            peakChannel = std::max({ peakChannel,
+                                     static_cast<u32>(output[i + 0]),
+                                     static_cast<u32>(output[i + 1]),
+                                     static_cast<u32>(output[i + 2]) });
+        }
+        EXPECT_LT(peakChannel, 245u)
+            << "peak output channel is " << peakChannel
+            << " — x/(1+x) is asymptotic to 1, so a (near-)saturated channel means the frame did not go "
+               "through Reinhard (passthrough / clipping operator / exposure blowout)";
+        EXPECT_GT(peakChannel, 200u)
+            << "peak output channel is only " << peakChannel
+            << " — the ramp never reaches the shoulder of the curve, so the ceiling assertion above would "
+               "pass vacuously; the input ramp or the exposure has changed";
+
+        // Monotonicity: input luminance rises with x and every per-channel
+        // coefficient in the ramp is positive, so each row must be
+        // non-decreasing left to right in every channel. A decreasing step
+        // means the curve inverted, the ramp got mirrored, or the operator
+        // stopped being a function of the input alone. Deband dither would
+        // break this, which is why the UBO leaves u_DitherAmplitude at 0 —
+        // one LSB of tolerance covers plain quantisation only.
+        constexpr u32 kMonotonicityTolerance = 1;
+        u32 monotonicityViolations = 0;
+        u32 worstDrop = 0;
+        for (u32 y = 0; y < kHeight; ++y)
+        {
+            for (u32 c = 0; c < 3; ++c)
+            {
+                u32 previous = output[(static_cast<std::size_t>(y) * kWidth) * 4 + c];
+                for (u32 x = 1; x < kWidth; ++x)
+                {
+                    const u32 current = output[((static_cast<std::size_t>(y) * kWidth) + x) * 4 + c];
+                    if (current + kMonotonicityTolerance < previous)
+                    {
+                        ++monotonicityViolations;
+                        worstDrop = std::max(worstDrop, previous - current);
+                    }
+                    previous = current;
+                }
+            }
+        }
+        EXPECT_EQ(monotonicityViolations, 0u)
+            << monotonicityViolations << " decreasing steps along the ramp (worst drop " << worstDrop
+            << " LSB) — the tone curve is no longer monotone increasing in input luminance";
     }
 
     // =========================================================================
@@ -795,6 +948,80 @@ namespace OloEngine::Tests
         h.ReadOutputRgba8(output);
         const auto result = CompareOrBootstrap("fxaa_hard_edge", kSize, kSize, output);
         EXPECT_TRUE(result.m_Passed) << result.m_Message;
+
+        // --- Property guards (#734) ------------------------------------------
+        // FXAA's entire job on this fixture is to soften the zig-zag edge, and
+        // the golden compare asserts nothing about that. Two properties do.
+        //
+        // 1. It must blend a real fraction of the frame — but only near the
+        //    edge. A no-op FXAA (edge threshold wrong, input never bound, early
+        //    exit always taken) leaves a pure 0/255 image; a runaway one (search
+        //    span or sub-pixel factor blown out) smears everything. Both can
+        //    land inside the RMSE band when only part of the frame moves.
+        //
+        // 2. The blends must be COMPLEMENTARY. Every altered pixel is a bilinear
+        //    tap taken some fraction t of a texel across a black/white edge, so
+        //    a black pixel is lifted to t and the white pixel mirrored across
+        //    the same edge is dropped to 1 - t. Pairing the sorted multiset of
+        //    dark outputs against the sorted-descending multiset of bright ones
+        //    must therefore sum to 255 everywhere. That is a genuine invariant
+        //    of blending a two-tone edge and a far sharper signal than RMSE: a
+        //    filter that blends one side harder than the other (a sign error in
+        //    stepLength, a mis-clamped finalOffset) breaks the pairing at once
+        //    while the mean image barely moves.
+        ASSERT_EQ(output.size(), static_cast<std::size_t>(kSize) * kSize * 4);
+        constexpr u32 kFxaaLsbTolerance = 1; // ignore pure float->RGBA8 rounding
+        std::vector<u32> darkBlends;         // outputs of pixels whose input was black
+        std::vector<u32> brightBlends;       // outputs of pixels whose input was white
+        for (std::size_t p = 0; p < static_cast<std::size_t>(kSize) * kSize; ++p)
+        {
+            const u32 outValue = output[p * 4];
+            if (pixels[p * 4] > 0.5f)
+            {
+                if (outValue + kFxaaLsbTolerance < 255u)
+                    brightBlends.push_back(outValue);
+            }
+            else if (outValue > kFxaaLsbTolerance)
+            {
+                darkBlends.push_back(outValue);
+            }
+        }
+
+        const u32 alteredCount = static_cast<u32>(darkBlends.size() + brightBlends.size());
+        const f32 alteredFraction = static_cast<f32>(alteredCount) / static_cast<f32>(kSize * kSize);
+        EXPECT_GT(alteredFraction, 0.005f)
+            << "FXAA altered only " << alteredCount << " of " << (kSize * kSize)
+            << " pixels — the edge is not being anti-aliased at all";
+        EXPECT_LT(alteredFraction, 0.10f)
+            << "FXAA altered " << alteredCount << " of " << (kSize * kSize)
+            << " pixels — that is a whole-frame smear, not edge anti-aliasing";
+
+        ASSERT_EQ(darkBlends.size(), brightBlends.size())
+            << "FXAA blended " << darkBlends.size() << " dark pixels but " << brightBlends.size()
+            << " bright ones — the filter is not symmetric across the edge";
+
+        std::sort(darkBlends.begin(), darkBlends.end());
+        std::sort(brightBlends.begin(), brightBlends.end());
+        u32 worstPairDeviation = 0;
+        std::size_t worstPairIndex = 0;
+        for (std::size_t i = 0; i < darkBlends.size(); ++i)
+        {
+            // darkBlends ascending against brightBlends descending.
+            const u32 sum = darkBlends[i] + brightBlends[brightBlends.size() - 1 - i];
+            if (const u32 deviation = sum > 255u ? sum - 255u : 255u - sum; deviation > worstPairDeviation)
+            {
+                worstPairDeviation = deviation;
+                worstPairIndex = i;
+            }
+        }
+        if (!darkBlends.empty())
+        {
+            EXPECT_LE(worstPairDeviation, 2u)
+                << "FXAA blend pair " << worstPairIndex << " is not complementary: dark->"
+                << darkBlends[worstPairIndex] << ", bright->"
+                << brightBlends[brightBlends.size() - 1 - worstPairIndex]
+                << " (should sum to 255, off by " << worstPairDeviation << ")";
+        }
     }
 
     // =========================================================================
@@ -972,6 +1199,67 @@ namespace OloEngine::Tests
         {
             RecordProperty("result", result.m_Message);
         }
+
+        // --- Property guards (#734) ------------------------------------------
+        // This frame is two flat regions with a PCF penumbra between them, and
+        // the golden asserted nothing about either. An implementation that lost
+        // the 3x3 kernel — a single tap, a compare-mode misconfiguration, a
+        // texelSize collapsed to zero — still produces two flat regions in the
+        // right places at nearly the right brightness, stays inside the RMSE
+        // band, and has silently thrown away the entire point of PCF.
+        //
+        // Both guards are deliberately orientation-free: they never sample a
+        // hard-coded screen position, because the shadowed region's location
+        // comes from the authored depth map and a flipped readback would then
+        // satisfy the assertion for the wrong reason.
+        const std::vector<ColorPopulation> shadowColors = RankColorsByPopulation(output);
+        ASSERT_GE(shadowColors.size(), 2u) << "shadow frame has fewer than two distinct colours";
+        EXPECT_GE(shadowColors.size(), 4u)
+            << "shadow frame has only " << shadowColors.size()
+            << " distinct colours — a 3x3 PCF kernel produces intermediate shadow factors (k/9), so this "
+               "looks like a single-tap hard shadow";
+
+        const auto unpackRgb = [](u32 rgb)
+        {
+            return std::array<u8, 3>{ static_cast<u8>(rgb >> 16),
+                                      static_cast<u8>((rgb >> 8) & 0xFFu),
+                                      static_cast<u8>(rgb & 0xFFu) };
+        };
+        const std::array<u8, 3> flatA = unpackRgb(shadowColors[0].m_Rgb);
+        const std::array<u8, 3> flatB = unpackRgb(shadowColors[1].m_Rgb);
+        const f32 lumaA = Rec601Luma(flatA[0], flatA[1], flatA[2]);
+        const f32 lumaB = Rec601Luma(flatB[0], flatB[1], flatB[2]);
+        const f32 litLuma = std::max(lumaA, lumaB);
+        const f32 shadowedLuma = std::min(lumaA, lumaB);
+        ASSERT_GT(litLuma, 0.0f) << "both flat regions are black — nothing was lit";
+
+        // Attenuation: ambient is 0.15 of full lighting, and the Reinhard +
+        // gamma chain compresses that up into the low 0.6s. A shadow that
+        // crushed to black (ambient dropped) and one that barely attenuates
+        // (shadow factor stuck near 1, or the light term not applied) both
+        // leave this ratio, and both are invisible to a threshold on RMSE.
+        const f32 attenuation = shadowedLuma / litLuma;
+        EXPECT_GT(attenuation, 0.50f)
+            << "shadowed/lit luma ratio " << attenuation << " (" << shadowedLuma << " / " << litLuma
+            << ") — the shadowed region is darker than the 0.15 ambient floor allows";
+        EXPECT_LT(attenuation, 0.75f)
+            << "shadowed/lit luma ratio " << attenuation << " (" << shadowedLuma << " / " << litLuma
+            << ") — the shadow barely attenuates; the light term or the shadow factor is not being applied";
+
+        // Penumbra width: every pixel outside the two flat populations is the
+        // PCF transition band. Requiring it to be non-empty is what makes
+        // "lost the penumbra" fail loudly; the upper bound keeps a frame that
+        // is nothing but gradient (no flat lit/shadowed regions at all) from
+        // passing.
+        const u32 shadowPixelCount = kFrameW * kFrameH;
+        const f32 flatFraction = static_cast<f32>(shadowColors[0].m_Count + shadowColors[1].m_Count) /
+                                 static_cast<f32>(shadowPixelCount);
+        EXPECT_GT(flatFraction, 0.80f)
+            << "the two most populous colours cover only " << (flatFraction * 100.0f)
+            << "% of the frame — the flat lit/shadowed regions have broken up";
+        EXPECT_LT(flatFraction, 0.98f)
+            << "the two most populous colours cover " << (flatFraction * 100.0f)
+            << "% of the frame — the PCF penumbra between them is gone (hard shadow edge)";
     }
 
     // =========================================================================
@@ -1133,5 +1421,89 @@ namespace OloEngine::Tests
         {
             RecordProperty("result", result.m_Message);
         }
+
+        // --- Property guards (#734) ------------------------------------------
+        // The golden's failure mode here is the subtle one: a channel swizzle
+        // (w.g driving layer 2), an array-layer off-by-one, or a
+        // re-normalisation inside the shader all keep this frame a smooth
+        // four-way gradient. It still *looks* like a splatmap blend, it still
+        // compares fine against a baseline recorded while the bug was present,
+        // and nothing asserts the weights are actually being applied to the
+        // layers they belong to.
+        //
+        // Guard 1 closes that completely: the blended HDR must equal
+        // Σ w_i · layer_i for the exact weights this test uploaded, texel by
+        // texel. splatPixels[i] and hdrReadback[i] are the same texel (see the
+        // index-alignment note on the guard helpers), and at 128x128 into a
+        // 128x128 target the fullscreen quad samples texel centres 1:1, so the
+        // comparison is exact rather than approximate.
+        f32 worstBlendError = 0.0f;
+        std::size_t worstBlendTexel = 0;
+        u32 worstBlendChannel = 0;
+        for (std::size_t i = 0; i < static_cast<std::size_t>(kSize) * kSize; ++i)
+        {
+            for (u32 c = 0; c < 3; ++c)
+            {
+                f32 expected = 0.0f;
+                for (u32 layer = 0; layer < 4; ++layer)
+                    expected += splatPixels[i * 4 + layer] * kLayerColors[layer][c];
+                if (const f32 error = std::abs(hdrReadback[i * 4 + c] - expected); error > worstBlendError)
+                {
+                    worstBlendError = error;
+                    worstBlendTexel = i;
+                    worstBlendChannel = c;
+                }
+            }
+        }
+        // RGBA16F carries ~3 decimal digits at these magnitudes, so 0.01 sits
+        // two orders above the fp16 quantum and an order below the smallest
+        // separation between layer colours (0.15 vs 1.8) — tight enough to
+        // catch a swizzle, loose enough not to flake on a different GPU.
+        EXPECT_LT(worstBlendError, 0.01f)
+            << "blended terrain disagrees with the CPU-authored sum(w_i * layer_i) by " << worstBlendError
+            << " at texel " << worstBlendTexel << " channel " << worstBlendChannel
+            << " — check splatmap channel->layer mapping, array layer indices, and weight normalisation";
+
+        // Guard 2 states the same invariant on the *final* tone-mapped image,
+        // which is what the golden actually compares: each edge midpoint is
+        // ~99% one layer (only the opposite-edge weight is non-zero there), so
+        // it must carry that layer's colour signature all the way through the
+        // blend + tone-map chain. Red rock and warm sand share a dominant red
+        // channel, so they are separated by their green content instead.
+        struct EdgeDominance
+        {
+            const char* m_Name;
+            u32 m_X;
+            u32 m_Y;
+            u32 m_DominantChannel; // 0=R, 1=G, 2=B
+        };
+        constexpr u32 kEdgeInset = 3;
+        constexpr u32 kEdgeRadius = 2;
+        const EdgeDominance kEdges[4] = {
+            { "layer 0 (red rock), u->0", kEdgeInset, kSize / 2, 0 },
+            { "layer 1 (grass), v->0", kSize / 2, kEdgeInset, 1 },
+            { "layer 2 (water blue), u->1", kSize - 1 - kEdgeInset, kSize / 2, 2 },
+            { "layer 3 (warm sand), v->1", kSize / 2, kSize - 1 - kEdgeInset, 0 },
+        };
+        for (const EdgeDominance& edge : kEdges)
+        {
+            const std::array<f32, 3> mean = PatchMeanRgb(output, kSize, kSize, edge.m_X, edge.m_Y, kEdgeRadius);
+            const u32 dominant = static_cast<u32>(std::distance(
+                mean.begin(), std::max_element(mean.begin(), mean.end())));
+            EXPECT_EQ(dominant, edge.m_DominantChannel)
+                << edge.m_Name << " is not dominated by its own layer at (" << edge.m_X << "," << edge.m_Y
+                << "): rgb(" << mean[0] << ", " << mean[1] << ", " << mean[2] << ")";
+        }
+        // Rock (1.8, 0.25, 0.2) tone-maps to a green/red ratio near 0.59; sand
+        // (1.7, 1.4, 0.25) to near 0.97. Anything between means the two red
+        // layers have been confused for each other.
+        const std::array<f32, 3> rockMean = PatchMeanRgb(output, kSize, kSize, kEdgeInset, kSize / 2, kEdgeRadius);
+        const std::array<f32, 3> sandMean = PatchMeanRgb(output, kSize, kSize, kSize / 2, kSize - 1 - kEdgeInset, kEdgeRadius);
+        EXPECT_LT(rockMean[1] / rockMean[0], 0.75f)
+            << "the u->0 edge has too much green for layer 0 (red rock): rgb(" << rockMean[0] << ", "
+            << rockMean[1] << ", " << rockMean[2] << ")";
+        EXPECT_GT(sandMean[1] / sandMean[0], 0.85f)
+            << "the v->1 edge has too little green for layer 3 (warm sand): rgb(" << sandMean[0] << ", "
+            << sandMean[1] << ", " << sandMean[2] << ")";
     }
 } // namespace OloEngine::Tests
