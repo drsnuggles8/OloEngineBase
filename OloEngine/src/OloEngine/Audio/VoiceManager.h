@@ -50,9 +50,10 @@ namespace OloEngine::Audio
     /// SoundGraphSound) start/stop through const-qualified backend calls; the mutated
     /// state on those classes is `mutable`. That keeps VoiceManager free of const_cast.
     ///
-    /// CONTRACT: OnVoiceQueryPosition is called while the manager's lock is held and must
-    /// NOT call back into VoiceManager. OnVoiceStart / OnVoiceStop are always invoked with
-    /// the lock released, so they may.
+    /// CONTRACT: none of these may call back into VoiceManager.
+    /// OnVoiceQueryPosition runs while the data lock is held; OnVoiceStart / OnVoiceStop
+    /// run with the data lock released but the transition lock held, so re-entering
+    /// Acquire / Release / Update / SetMaxVoices from one would self-deadlock.
     class IVoiceHost
     {
       public:
@@ -171,7 +172,10 @@ namespace OloEngine::Audio
         /// one-shots that finished while inaudible, rescore, and rebalance the budget.
         void Update(f32 deltaSeconds);
 
-        /// Drop every voice without touching the hosts. For scene teardown and tests.
+        /// Drop every voice without touching the hosts. For tests only — scene teardown
+        /// goes through each source's own Stop()/destructor, because this manager is
+        /// process-global and a scene tearing down must not evict another scene's voices
+        /// (the editor holds an authored scene alongside a running one).
         void Reset();
 
         [[nodiscard]] VoiceStats GetStats() const;
@@ -190,7 +194,17 @@ namespace OloEngine::Audio
             VoiceState State = VoiceState::Virtual;
             f64 PlaybackPosition = 0.0;
             f32 Score = 0.0f;
+            /// Set by Update when a one-shot runs past its length; the record is erased at
+            /// the end of that pass. A separate flag rather than blanking Handle, so the
+            /// record's identity stays valid for as long as it exists.
+            bool Completed = false;
         };
+
+        /// Whether this voice may be made audible right now. A losing voice is not always
+        /// resumable: issue #730 says a sound that cannot win a slot "is refused", and
+        /// seeking into a one-shot that has already advanced while silent would play an
+        /// audible fragment of its tail rather than the sound the game asked for.
+        [[nodiscard]] static bool CanBecomeAudible(const VoiceRecord& record);
 
         /// A start/stop the caller must apply once the lock is released.
         struct PendingTransition
@@ -213,6 +227,13 @@ namespace OloEngine::Audio
         /// refuses to start is put back to Virtual.
         void ApplyTransitions(std::vector<PendingTransition>& transitions);
 
+        /// Serialises "decide transitions, then apply them" as one unit. Without it two
+        /// threads can each compute a consistent transition batch, drop m_Mutex, and then
+        /// interleave the backend calls — leaving a host stopped while its record says
+        /// Playing. Always taken BEFORE m_Mutex; nothing may take m_Mutex first and then
+        /// this, or the ordering deadlocks.
+        std::mutex m_TransitionMutex;
+        /// Guards the voice table itself. Held only for short, callback-free stretches.
         mutable std::mutex m_Mutex;
         std::vector<VoiceRecord> m_Voices;
         u32 m_MaxVoices = kDefaultMaxVoices;

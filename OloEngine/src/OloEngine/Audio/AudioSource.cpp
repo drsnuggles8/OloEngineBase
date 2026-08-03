@@ -217,9 +217,11 @@ namespace OloEngine
     void AudioSource::SetConfig(const AudioSourceConfig& config)
     {
         // Mirror the config so the voice budget can re-score this source at any time
-        // without reaching back through the owning component.
+        // without reaching back through the owning component. The push to the budget
+        // happens at the END of this function, not here: BuildVoiceParams reads
+        // m_Spatialization, which is only updated further down, so syncing now would
+        // publish the previous spatialization flag alongside the new config.
         m_Config = config;
-        SyncVoiceParams();
 
         ma_sound* sound = m_Sound.get();
         ::ma_sound_set_volume(sound, config.VolumeMultiplier);
@@ -270,6 +272,10 @@ namespace OloEngine
             SetHighPassCutoff(config.HighPassCutoff);
             SetReverbSend(config.ReverbSend);
         }
+
+        // Last: m_Spatialization is settled by now, so the budget gets the whole new
+        // config in one consistent push.
+        SyncVoiceParams();
     }
 
     void AudioSource::SetPriority(const f32 priority) const

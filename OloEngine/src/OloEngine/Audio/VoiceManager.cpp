@@ -54,10 +54,10 @@ namespace OloEngine::Audio
             }
             else if (distance >= maxDistance)
             {
-                // Past MaxDistance the source is inaudible anyway, so it must lose every
-                // contest against an audible one — but keep a hair above zero so a
-                // far-away high-priority voice still outranks a far-away low-priority one
-                // and the ordering stays a total order rather than a plateau of ties.
+                // Past MaxDistance the source is inaudible, so it must lose every contest
+                // against a voice that can actually be heard. Everything out here ties at
+                // zero, which is fine precisely because none of them would make a sound:
+                // which one an empty slot happens to go to is inaudible either way.
                 attenuation = 0.0f;
             }
             else
@@ -75,8 +75,30 @@ namespace OloEngine::Audio
         return priority * gain * attenuation;
     }
 
+    bool VoiceManager::CanBecomeAudible(const VoiceRecord& record)
+    {
+        if (record.Params.Looping)
+        {
+            // The spec's virtualization case: a loop resumes in phase, so bringing it back
+            // mid-stream is exactly right.
+            return true;
+        }
+        if (record.Params.DurationSeconds <= 0.0)
+        {
+            // Unknown length — a stream, or a SoundGraph voice whose graph runs until told
+            // to stop. We cannot schedule its end, so refusing it permanently would strand
+            // it silent forever rather than merely skipping it.
+            return true;
+        }
+        // A one-shot of known length may START (position 0), but must never RESUME: it has
+        // been advancing silently, so seeking in now would play a fragment of its tail.
+        // Issue #730: a sound that cannot win a slot "is refused".
+        return record.PlaybackPosition <= 0.0;
+    }
+
     void VoiceManager::SetMaxVoices(u32 maxVoices)
     {
+        const std::scoped_lock applyLock(m_TransitionMutex);
         std::vector<PendingTransition> transitions;
         {
             const std::scoped_lock lock(m_Mutex);
@@ -153,6 +175,7 @@ namespace OloEngine::Audio
             return kInvalidVoiceHandle;
         }
 
+        const std::scoped_lock applyLock(m_TransitionMutex);
         VoiceHandle handle = kInvalidVoiceHandle;
         std::vector<PendingTransition> transitions;
         {
@@ -187,6 +210,7 @@ namespace OloEngine::Audio
             return;
         }
 
+        const std::scoped_lock applyLock(m_TransitionMutex);
         std::vector<PendingTransition> transitions;
         {
             const std::scoped_lock lock(m_Mutex);
@@ -260,6 +284,7 @@ namespace OloEngine::Audio
 
         const f64 delta = std::isfinite(deltaSeconds) ? std::max(static_cast<f64>(deltaSeconds), 0.0) : 0.0;
 
+        const std::scoped_lock applyLock(m_TransitionMutex);
         std::vector<PendingTransition> transitions;
         {
             const std::scoped_lock lock(m_Mutex);
@@ -308,17 +333,16 @@ namespace OloEngine::Audio
                         // (DurationSeconds == 0 — a stream) is never auto-retired and its
                         // owner MUST release it.
                         record.PlaybackPosition = duration;
-                        record.Handle = kInvalidVoiceHandle; // marked for removal below
+                        record.Completed = true; // erased at the end of this pass
                     }
                 }
 
                 record.Score = ComputeScore(record.Params, m_ListenerPosition);
             }
 
-            const auto removedBegin = std::ranges::remove_if(m_Voices, [](const VoiceRecord& record)
-                                                             { return record.Handle == kInvalidVoiceHandle; });
-            m_Completions += static_cast<u64>(std::distance(removedBegin.begin(), removedBegin.end()));
-            m_Voices.erase(removedBegin.begin(), removedBegin.end());
+            const auto completed = std::ranges::remove_if(m_Voices, &VoiceRecord::Completed);
+            m_Completions += static_cast<u64>(std::distance(completed.begin(), completed.end()));
+            m_Voices.erase(completed.begin(), completed.end());
 
             Rebalance(transitions);
         }
@@ -331,10 +355,9 @@ namespace OloEngine::Audio
         // Virtualize the lowest-scoring audible voices until the audible count fits.
         // This runs first and unconditionally, so the invariant holds even if the cap was
         // just lowered under a full mix.
-        auto audibleCount = [this]() -> u32
-        {
-            return static_cast<u32>(std::ranges::count(m_Voices, VoiceState::Playing, &VoiceRecord::State));
-        };
+        // Counted once and then maintained by the two transition helpers, rather than
+        // rescanned in every loop condition — the scans below are already O(n) each.
+        u32 audible = static_cast<u32>(std::ranges::count(m_Voices, VoiceState::Playing, &VoiceRecord::State));
 
         auto worstAudible = [this]() -> VoiceRecord*
         {
@@ -349,12 +372,14 @@ namespace OloEngine::Audio
             return worst;
         };
 
+        // Only voices that CanBecomeAudible are candidates — a refused one-shot stays
+        // silent for the rest of its life rather than being seeked into halfway.
         auto bestVirtual = [this]() -> VoiceRecord*
         {
             VoiceRecord* best = nullptr;
             for (auto& record : m_Voices)
             {
-                if (record.State == VoiceState::Virtual && (!best || record.Score > best->Score))
+                if (record.State == VoiceState::Virtual && CanBecomeAudible(record) && (!best || record.Score > best->Score))
                 {
                     best = &record;
                 }
@@ -362,21 +387,23 @@ namespace OloEngine::Audio
             return best;
         };
 
-        auto virtualize = [&out, this](VoiceRecord& record)
+        auto virtualize = [&out, &audible, this](VoiceRecord& record)
         {
             record.State = VoiceState::Virtual;
+            --audible;
             ++m_Virtualizations;
             out.push_back(PendingTransition{ record.Host, record.Handle, /*Start=*/false, record.PlaybackPosition });
         };
 
-        auto devirtualize = [&out, this](VoiceRecord& record)
+        auto devirtualize = [&out, &audible, this](VoiceRecord& record)
         {
             record.State = VoiceState::Playing;
+            ++audible;
             ++m_Devirtualizations;
             out.push_back(PendingTransition{ record.Host, record.Handle, /*Start=*/true, record.PlaybackPosition });
         };
 
-        while (audibleCount() > m_MaxVoices)
+        while (audible > m_MaxVoices)
         {
             VoiceRecord* worst = worstAudible();
             if (!worst)
@@ -387,7 +414,7 @@ namespace OloEngine::Audio
         }
 
         // --- Step 2: fill free slots with the best virtual voices. -----------------
-        while (audibleCount() < m_MaxVoices)
+        while (audible < m_MaxVoices)
         {
             VoiceRecord* best = bestVirtual();
             if (!best)
@@ -470,6 +497,10 @@ namespace OloEngine::Audio
 
     void VoiceManager::Reset()
     {
+        // Takes the transition lock too, even though it queues none: dropping the table
+        // out from under an in-flight ApplyTransitions is exactly the interleaving that
+        // lock exists to prevent.
+        const std::scoped_lock applyLock(m_TransitionMutex);
         const std::scoped_lock lock(m_Mutex);
         m_Voices.clear();
         m_Steals = 0;

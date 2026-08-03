@@ -55,6 +55,15 @@ Only (3) is right, and only (3) needs the manager to keep advancing a logical pl
 position (`position += dt * pitch`, wrapped modulo the clip length) for voices that are
 not playing. Assert `LastStartPosition`, not `IsPlaying()`.
 
+**But resuming is only right for a LOOP.** Issue #730 says a sound that cannot win a slot
+"is refused", and the same seek that puts a loop back in phase would put a one-shot
+somewhere in its tail — emitting the last 100 ms of an impact the player never heard
+begin. `CanBecomeAudible` is the rule: a loop always resumes; a voice of unknown length
+(a stream, a SoundGraph voice) stays promotable because we cannot schedule its end and
+refusing it forever would strand it silent; a known-length one-shot may **start**
+(position 0) but never **resume**. The distinction is "has it advanced while silent",
+not "is it a one-shot" — a fresh one-shot has missed nothing and must play.
+
 Corollary for the *audible* case: while a voice really is running, the **backend cursor is
 authoritative** (`OnVoiceQueryPosition`). Integrating `dt` for an audible voice drifts
 against the device clock, and the drift only becomes visible much later, as a wrong resume
@@ -78,11 +87,22 @@ in `Rebalance` exists only for a deliberately-zero margin.
 thread) while scripts start sounds from the game thread.
 
 `OnVoiceStart` / `OnVoiceStop` are therefore **queued as `PendingTransition`s under the
-lock and applied after it is released**. A host is entitled to call back into the manager
-from them (`AudioSource::OnVoiceStart` does not today, but nothing stops one), and a
-straight call under the lock would self-deadlock. The one exception is
-`OnVoiceQueryPosition`, which *is* called under the lock and is documented as
-must-not-re-enter.
+data lock and applied after it is released** — a backend call under the data lock would
+hold it for the length of a `ma_sound_start`.
+
+There are **two** locks, and the ordering is load-bearing:
+
+- `m_TransitionMutex` — held across "decide the transitions, then apply them" as one unit.
+  Without it, two threads can each compute a self-consistent batch, drop the data lock,
+  and then interleave their backend calls, leaving a host stopped while its record says
+  `Playing`. The data structure stays consistent; the *device* does not.
+- `m_Mutex` — the voice table, held only for short callback-free stretches.
+
+Always transition-then-data. Nothing may take the data lock first and then the transition
+lock. The cost is that **no `IVoiceHost` callback may re-enter the manager's mutating
+API** — `OnVoiceStart`/`OnVoiceStop` run with the transition lock held, so calling
+`Acquire`/`Release`/`Update`/`SetMaxVoices` from one self-deadlocks. `OnVoiceQueryPosition`
+runs under the data lock and must not re-enter either.
 
 ## 6. A slot is leaked unless something retires the voice
 

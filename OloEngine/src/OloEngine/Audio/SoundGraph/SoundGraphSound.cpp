@@ -275,13 +275,20 @@ namespace OloEngine::Audio::SoundGraph
     //==============================================================================
     /// Main Sound Interface
 
+    f32 SoundGraphSound::NormalizePriority(u8 priority)
+    {
+        // m_Priority is miniaudio-flavoured (0 = highest, 255 = lowest); every consumer
+        // wants the opposite convention (1 = most important), so invert rather than
+        // dividing straight through. Getting this backwards silently makes the most
+        // important sounds the first ones stolen — and every voice-counting test still
+        // passes. One conversion, one place.
+        return 1.0f - (static_cast<f32>(priority) / 255.0f);
+    }
+
     OloEngine::Audio::VoiceParams SoundGraphSound::BuildVoiceParams() const
     {
         OloEngine::Audio::VoiceParams params;
-        // m_Priority is miniaudio-flavoured (0 = highest); VoiceParams is the other way
-        // round (1 = highest), so invert rather than dividing straight through — getting
-        // this backwards silently makes the most important sounds the first stolen.
-        params.Priority = 1.0f - (static_cast<f32>(m_Priority) / 255.0f);
+        params.Priority = NormalizePriority(m_Priority);
         params.Volume = m_Volume;
         params.Pitch = m_Pitch;
         params.Looping = m_IsLooping;
@@ -320,10 +327,7 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphSound::ApplyEffectiveGain() const
     {
-        // RouteFloatParameter mutates the live graph, not this object's logical state; the
-        // const_cast keeps IVoiceHost's const contract (which exists for AudioSource's
-        // const-qualified playback API) without duplicating the routing helper.
-        const_cast<SoundGraphSound*>(this)->RouteFloatParameter(kVolumeParam, m_Volume * m_VoiceGainScale);
+        RouteFloatParameter(kVolumeParam, m_Volume * m_VoiceGainScale);
     }
 
     bool SoundGraphSound::IsVirtualized() const
@@ -528,7 +532,7 @@ namespace OloEngine::Audio::SoundGraph
         RouteFloatParameter(kHighPassParam, m_HighPassValue);
     }
 
-    void SoundGraphSound::RouteFloatParameter(std::string_view parameterName, f32 value)
+    void SoundGraphSound::RouteFloatParameter(std::string_view parameterName, f32 value) const
     {
         // Best-effort routing into the live graph. SoundGraphSource::SetParameter(name)
         // hashes the name, checks the graph exposes a matching input endpoint, and applies
@@ -538,7 +542,7 @@ namespace OloEngine::Audio::SoundGraph
             m_Source->SetParameter(parameterName, choc::value::createFloat32(value));
     }
 
-    void SoundGraphSound::RouteBoolParameter(std::string_view parameterName, bool value)
+    void SoundGraphSound::RouteBoolParameter(std::string_view parameterName, bool value) const
     {
         if (m_Source)
             m_Source->SetParameter(parameterName, choc::value::createBool(value));
@@ -785,7 +789,13 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        f32 basePriority = static_cast<f32>(m_Priority) / 255.0f;
+        // Shares NormalizePriority with BuildVoiceParams deliberately. This function used
+        // to divide m_Priority by 255 directly, which inverted it: m_Priority is
+        // miniaudio-flavoured (0 = highest), so the raw ratio scored the MOST important
+        // voice lowest. Nothing called this, so the bug was invisible — but two
+        // contradictory conversions of one field sitting in one class is exactly the trap
+        // docs/agent-rules/audio-voice-budget.md §7 warns about, so there is now only one.
+        f32 basePriority = NormalizePriority(m_Priority);
         f32 volumeMultiplier = m_Volume;
 
         if (m_IsFading && m_FadeDuration > 0.0f)

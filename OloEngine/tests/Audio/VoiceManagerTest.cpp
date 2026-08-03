@@ -156,8 +156,8 @@ TEST(VoiceManagerBudgetTest, AudibleVoicesNeverExceedTheCap)
     for (sizet i = 0; i < hosts.size(); ++i)
     {
         handles.push_back(manager.Acquire(&hosts[i], MakeParams(0.5f)));
-        // Checked after EVERY acquire, not just at the end: the invariant must hold at all
-        // times, including the transient inside Acquire's own rebalance.
+        // Checked after EVERY acquire, not just at the end — a cap that only holds once
+        // the dust settles is not a cap.
         EXPECT_LE(manager.GetStats().Playing, 8u) << "cap exceeded after acquiring voice " << i;
     }
 
@@ -505,6 +505,116 @@ TEST(VoiceManagerVirtualizationTest, AVoiceOfUnknownLengthIsNeverAutoRetired)
 }
 
 // ===========================================================================
+// Refusal — a losing one-shot must not be seeked into halfway
+// ===========================================================================
+
+TEST(VoiceManagerRefusalTest, AOneShotRefusedAtTheDoorNeverStartsMidway)
+{
+    // Issue #730: a sound that cannot win a slot "is refused". Promoting it later would
+    // seek past however long it spent silent and play only its tail — an audible fragment
+    // of a sound the player never heard begin. Loops resume; one-shots are refused.
+    VoiceManager manager;
+    manager.SetMaxVoices(1);
+
+    FakeVoiceHost blocker;
+    FakeVoiceHost impact;
+
+    const VoiceHandle blockerVoice = manager.Acquire(&blocker, MakeParams(0.9f));
+
+    VoiceParams oneShot = MakeParams(0.2f);
+    oneShot.Looping = false;
+    oneShot.DurationSeconds = 2.0;
+    const VoiceHandle impactVoice = manager.Acquire(&impact, oneShot);
+    ASSERT_TRUE(manager.IsVirtual(impactVoice));
+    ASSERT_EQ(impact.StartCount, 0u);
+
+    // It has now been running silently for 1 s of its 2 s.
+    manager.Update(1.0f);
+    ASSERT_NEAR(manager.GetPlaybackPosition(impactVoice), 1.0, 1e-6);
+
+    // A slot frees. The one-shot must NOT take it — starting now would emit its last 1 s.
+    manager.Release(blockerVoice);
+
+    EXPECT_EQ(impact.StartCount, 0u) << "a refused one-shot must never become audible mid-way";
+    EXPECT_TRUE(manager.IsVirtual(impactVoice));
+    EXPECT_EQ(manager.GetStats().Playing, 0u);
+
+    // It still retires on schedule rather than lingering as a zombie record.
+    manager.Update(1.5f);
+    EXPECT_FALSE(manager.IsActive(impactVoice));
+}
+
+TEST(VoiceManagerRefusalTest, AOneShotStillStartsNormallyWhenASlotIsFree)
+{
+    // The refusal rule keys on "has advanced while silent", not on "is a one-shot" — a
+    // fresh one-shot at position 0 has missed nothing and must play.
+    VoiceManager manager;
+    manager.SetMaxVoices(4);
+
+    FakeVoiceHost impact;
+    VoiceParams oneShot = MakeParams(0.2f);
+    oneShot.DurationSeconds = 2.0;
+
+    const VoiceHandle voice = manager.Acquire(&impact, oneShot);
+
+    EXPECT_TRUE(manager.IsAudible(voice));
+    EXPECT_EQ(impact.StartCount, 1u);
+    EXPECT_NEAR(impact.LastStartPosition, 0.0, 1e-6);
+}
+
+TEST(VoiceManagerRefusalTest, ALoopIsResumedWhereAOneShotWouldBeRefused)
+{
+    // Same setup as AOneShotRefusedAtTheDoorNeverStartsMidway, differing only in Looping —
+    // the two cases must diverge, or the refusal rule is really just "never promote".
+    VoiceManager manager;
+    manager.SetMaxVoices(1);
+
+    FakeVoiceHost blocker;
+    FakeVoiceHost ambience;
+
+    const VoiceHandle blockerVoice = manager.Acquire(&blocker, MakeParams(0.9f));
+
+    VoiceParams loop = MakeParams(0.2f);
+    loop.Looping = true;
+    loop.DurationSeconds = 2.0;
+    const VoiceHandle loopVoice = manager.Acquire(&ambience, loop);
+    ASSERT_TRUE(manager.IsVirtual(loopVoice));
+
+    manager.Update(1.0f);
+    manager.Release(blockerVoice);
+
+    EXPECT_TRUE(manager.IsAudible(loopVoice));
+    EXPECT_EQ(ambience.StartCount, 1u);
+    EXPECT_NEAR(ambience.LastStartPosition, 1.0, 1e-6);
+}
+
+TEST(VoiceManagerRefusalTest, AnUnknownLengthVoiceStaysPromotableSoItIsNotStrandedSilent)
+{
+    // A stream or SoundGraph voice reports DurationSeconds == 0: the manager cannot
+    // schedule its end, so refusing it permanently would leave it silent forever rather
+    // than merely skipping it. Such a voice must stay a promotion candidate.
+    VoiceManager manager;
+    manager.SetMaxVoices(1);
+
+    FakeVoiceHost blocker;
+    FakeVoiceHost stream;
+
+    const VoiceHandle blockerVoice = manager.Acquire(&blocker, MakeParams(0.9f));
+
+    VoiceParams params = MakeParams(0.2f);
+    params.Looping = false;
+    params.DurationSeconds = 0.0;
+    const VoiceHandle streamVoice = manager.Acquire(&stream, params);
+    ASSERT_TRUE(manager.IsVirtual(streamVoice));
+
+    manager.Update(1.0f);
+    manager.Release(blockerVoice);
+
+    EXPECT_TRUE(manager.IsAudible(streamVoice));
+    EXPECT_EQ(stream.StartCount, 1u);
+}
+
+// ===========================================================================
 // Slot lifecycle
 // ===========================================================================
 
@@ -517,6 +627,9 @@ TEST(VoiceManagerLifecycleTest, ReleasingAnAudibleVoicePromotesTheBestVirtualOne
     FakeVoiceHost runnerUp;
     FakeVoiceHost alsoRan;
 
+    // Unknown-duration voices, so they stay promotable — a known-length one-shot that has
+    // already advanced while silent is deliberately refused for good (see the refusal
+    // tests below).
     const VoiceHandle incumbentVoice = manager.Acquire(&incumbent, MakeParams(0.9f));
     const VoiceHandle runnerUpVoice = manager.Acquire(&runnerUp, MakeParams(0.6f));
     const VoiceHandle alsoRanVoice = manager.Acquire(&alsoRan, MakeParams(0.3f));

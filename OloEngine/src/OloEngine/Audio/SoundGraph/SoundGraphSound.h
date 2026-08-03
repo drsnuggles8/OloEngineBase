@@ -2,6 +2,7 @@
 
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphSource.h"
+#include "OloEngine/Audio/VoiceManager.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/Timestep.h"
@@ -315,9 +316,13 @@ namespace OloEngine
                 /* Push a high-level control value into the live graph as a conventionally-named
                    graph input parameter (see the kXxxParam names in the .cpp). Best-effort: a
                    graph that doesn't expose the endpoint simply ignores the write, and the call
-                   is a no-op until a source + graph are installed. */
-                void RouteFloatParameter(std::string_view parameterName, f32 value);
-                void RouteBoolParameter(std::string_view parameterName, bool value);
+                   is a no-op until a source + graph are installed.
+
+                   const because these mutate the LIVE GRAPH, not this wrapper's own logical
+                   state — which is what lets the const-qualified IVoiceHost callbacks reach
+                   them without a const_cast. */
+                void RouteFloatParameter(std::string_view parameterName, f32 value) const;
+                void RouteBoolParameter(std::string_view parameterName, bool value) const;
 
                 /* Re-push every stored high-level control (volume / pitch / looping / filters)
                    into the current graph. Called after a graph is installed so a value set
@@ -327,6 +332,11 @@ namespace OloEngine
                 // Audio frequency conversion utilities
                 static f32 NormalizedToFrequency(f32 normalizedValue);
                 static f32 FrequencyToNormalized(f32 frequency);
+
+                /// The single conversion from the stored miniaudio-flavoured priority
+                /// (0 = highest) to the 0..1, higher-is-more-important convention every
+                /// consumer wants. Shared so the two call sites cannot drift apart.
+                [[nodiscard]] static f32 NormalizePriority(u8 priority);
 
                 /* Push the current spatial state (position/orientation/up + velocity) into the
                    source's spatializer node. No-op until the source hosts one. Called from each

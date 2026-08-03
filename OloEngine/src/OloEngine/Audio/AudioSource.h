@@ -77,8 +77,16 @@ namespace OloEngine
         AudioSource(const char* filepath);
         ~AudioSource() override;
 
-        AudioSource(const AudioSource& other) = default;
-        AudioSource(AudioSource&& other) = default;
+        // Non-copyable AND non-movable. The voice budget holds a raw `const IVoiceHost*`
+        // to this object and the destructor releases by that pointer, so a move would
+        // leave two objects sharing one registration: the moved-from destructor releases
+        // the moved-to object's slot, and the budget keeps driving the husk. The copy was
+        // already implicitly deleted by the ma_sound Scope member; the move was not, and
+        // silently compiled.
+        AudioSource(const AudioSource&) = delete;
+        auto operator=(const AudioSource&) -> AudioSource& = delete;
+        AudioSource(AudioSource&&) = delete;
+        auto operator=(AudioSource&&) -> AudioSource& = delete;
 
         [[nodiscard("Store this!")]] const char* GetPath() const
         {
