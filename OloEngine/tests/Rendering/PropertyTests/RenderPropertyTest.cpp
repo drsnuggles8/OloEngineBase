@@ -6,6 +6,10 @@
 #include "OloEnginePCH.h"
 #include "RenderPropertyTest.h"
 
+#include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
@@ -647,8 +651,37 @@ namespace OloEngine::Tests
             ::glDeleteVertexArrays(1, &m_Vao);
     }
 
+    ScopedHeapInput::ScopedHeapInput(const u32 slot, const u32 texture)
+    {
+        // A plain bind. Correct because these harnesses run under
+        // ScopedSlotBasedShaders, so the program in flight reads sampler slots,
+        // not the heap offset table. The type exists to make that dependency
+        // visible at the call site rather than leaving a bare glBindTextureUnit
+        // that silently breaks the day someone drops the guard.
+        ::glBindTextureUnit(static_cast<GLuint>(slot), static_cast<GLuint>(texture));
+    }
+
+    ScopedSlotBasedShaders::ScopedSlotBasedShaders()
+        : m_WasEnabled(RHI::DescriptorHeap::Get().IsEnabled())
+    {
+        if (m_WasEnabled)
+        {
+            RHI::DescriptorHeap::Get().SetEnabled(false);
+        }
+    }
+
+    ScopedSlotBasedShaders::~ScopedSlotBasedShaders()
+    {
+        if (m_WasEnabled)
+        {
+            RHI::DescriptorHeap::Get().SetEnabled(true);
+        }
+    }
+
     void FullscreenPass::Draw(u32 inputTexture) const
     {
+        // Plain bind — see ScopedHeapInput / ScopedSlotBasedShaders for why these
+        // harnesses deliberately stay on the slot-based path.
         ::glBindTextureUnit(0, static_cast<GLuint>(inputTexture));
         ::glBindVertexArray(m_Vao);
         ::glDrawArrays(GL_TRIANGLES, 0, 6);

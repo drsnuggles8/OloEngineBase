@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+#include "OloEngine/Renderer/Shader.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -201,6 +202,25 @@ namespace OloEngine::RHI
         return m_Enabled;
     }
 
+    auto DescriptorHeap::GetBackend() const -> IDescriptorHeapBackend*
+    {
+        const std::lock_guard lock(m_Mutex);
+        return m_Backend;
+    }
+
+    auto DescriptorHeap::GetDesc() const -> HeapDesc
+    {
+        const std::lock_guard lock(m_Mutex);
+        return m_Desc;
+    }
+
+    auto DescriptorHeap::AnyBindlessProgramsExist() -> bool
+    {
+        // Lives on Shader because that is where the variant is recorded; proxied
+        // here so a caller reasoning about the heap does not need to know that.
+        return Shader::AnyBindlessProgramsExist();
+    }
+
     void DescriptorHeap::SetEnabled(bool enabled)
     {
         const std::lock_guard lock(m_Mutex);
@@ -216,6 +236,28 @@ namespace OloEngine::RHI
             }
             m_Enabled = false;
             return;
+        }
+
+        // Turning the heap OFF while bindless-variant programs are already linked
+        // leaves the two halves of the seam disagreeing: `HeapPathIsLive()` goes
+        // false so every bind takes the slot path, while those programs keep
+        // sampling `g_OloHeapOffsets` — a table nobody publishes any more. The
+        // programs are cached by shader, not by heap state, so this does not heal
+        // on its own.
+        //
+        // A warning rather than a refusal: a test fixture legitimately does this
+        // while standing its own heap up, and failing the call would be worse than
+        // reporting it.
+        // WARNED ONCE. A test harness legitimately toggles this per fixture, so a
+        // per-call warning would be a flood that trains the reader to ignore it —
+        // the failure mode the asset-degradation rules already call out.
+        static bool s_WarnedOnDisableWithBindlessPrograms = false;
+        if (m_Enabled && !enabled && !s_WarnedOnDisableWithBindlessPrograms && AnyBindlessProgramsExist())
+        {
+            s_WarnedOnDisableWithBindlessPrograms = true;
+            OLO_CORE_WARN("[RHI] Descriptor heap disabled while bindless-variant programs are still "
+                          "linked. Those programs read the offset table, which is no longer published — "
+                          "expect wrong or missing textures until they are rebuilt. (warned once)");
         }
 
         m_Enabled = enabled;

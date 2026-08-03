@@ -1536,6 +1536,84 @@ nothing ships broken, but this is open work, not a closed question.
 
 ---
 
+## 4d. Converting a shader silently changes what its TESTS have to do
+
+Converting a pass is not only an engine change. Any test that drives that
+shader directly must bind the same way the engine now does, and the compiler
+cannot tell you it doesn't.
+
+`FullscreenPass::Draw` (`tests/.../RenderPropertyTest.cpp`) bound its input with
+a raw `glBindTextureUnit(0, tex)`. That was correct until `PostProcess_FXAA`,
+`_DOF` and `_MotionBlur` were converted — after which those shaders compile to
+the **bindless variant whenever the heap is on** and read
+`g_OloHeapOffsets[TEX_*]` instead of the sampler at unit 0. The bind then
+addresses a unit nothing samples, the shader reads the reserved null descriptor,
+and the test reads back **black**: `Expected rgba >= 251, actual 0`.
+
+Three things worth carrying forward:
+
+- **The failure is total, not subtle.** A bindless shader that cannot see its
+  input samples the null and returns zero. `actual: 0` on an *identity* test
+  ("zero velocity is identity", "depth at focus distance is identity") is the
+  signature — read it as "the binding never arrived", not "the math drifted".
+- **Publish the offset AND keep the raw bind.** Which variant is in flight is
+  decided by heap state the draw helper does not control, so it must satisfy
+  both. Same reasoning as `PublishTextureOffsetAndBind`.
+- **A test harness has no frame loop.** Nothing else will call
+  `HeapBinding::FlushOffsets()`, so the helper has to — the descriptors *and*
+  the offsets indexing them are both unpublished until it does (§4b).
+
+**THE FIX IS TO OPT THE HARNESS OUT, NOT TO TEACH IT THE HEAP.** The obvious
+move — make the harness bind through `HeapBinding` like the engine does — was
+tried and abandoned after three rounds. It is recorded here because it looks
+right and costs a day:
+
+- **The heap's lifetimes assume a frame; these harnesses have none.**
+  `FrameTransient` slots are reclaimed only at a frame boundary, so the ring
+  cursor marched forward for the whole process until the 1024 slots were gone,
+  after which every acquire failed, the seam fell back, and offsets were staged
+  as null. Black frames in whichever tests ran last.
+- **Retired transient slots are released LATER, somewhere else.** The release
+  happened at the next `ResetFrameTransients` — inside an unrelated test's frame,
+  by which time the harness's texture was long deleted:
+  `GL_INVALID_OPERATION ... Not a valid texture`, attributed by the synchronous
+  debug context to whoever checked error state next. It failed
+  `VirtualGeometryPerf`, which had nothing to do with any of it.
+- **Retiring eagerly instead puts descriptor teardown next to caller-owned
+  textures.** The harness holds `FullscreenPass` as a member, so its destructor
+  body deletes the texture and only THEN destroys members — same GL error, new
+  disguise. Switching to `Persistent` fixed the ring and the errors and still
+  left an order-dependent crash that only reproduced in the full suite.
+
+So `PostProcessHarness` and its golden-image twin wrap shader creation in
+`ScopedSlotBasedShaders`, and their binds stay plain `glBindTextureUnit` (behind
+`ScopedHeapInput`, a named type whose only job is to make that dependency visible
+at the call site). Coverage does not move: `BindlessHeapGpuTest` proves the seam
+with real texel readback, and the visual-evidence suites drive these same shaders
+through the real passes with the heap on. **A math test should measure math.**
+
+The transferable rule from the wreckage: **any cleanup that touches GL must run
+while the thing it is cleaning up still exists.** That single mistake appeared
+three times in one issue wearing three costumes — `~OpenGLRendererAPI` at atexit
+after the context died, `~FullscreenPass` via member-destruction order, and a
+transient heap slot released in a later test's frame. Check it before writing the
+destructor, not after the errors appear.
+
+**The failure mode to fear is a test that starts passing for the wrong reason.**
+`MotionBlurStaticTest.ZeroVelocityIsIdentity` sat green throughout: it asserts
+that zero velocity produces an identity image, and a velocity texture the shader
+cannot see reads as zero velocity. It would have passed whether the binding
+arrived or not. Its sibling `VelocityDirectionDrivesBlur` — which asserts a
+*positive* effect — is the one that caught the bug. When converting, audit the
+identity/no-op tests in the same file: those are precisely the ones a missing
+binding satisfies.
+
+The general rule: after converting a pass, grep for tests that load that shader
+by filename. They bind through their own helper, not through the pass you just
+converted, and they will keep compiling and start lying.
+
+---
+
 ## 5. `ResourceTransition` looks backend-neutral and is neutral only by accident
 
 `RenderGraph::ResourceTransition` carries `ResourceName`, `ProducerPass`,

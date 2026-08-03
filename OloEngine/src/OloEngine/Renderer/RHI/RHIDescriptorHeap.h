@@ -220,7 +220,52 @@ namespace OloEngine::RHI
         // variable at `Initialize`, and can be flipped live for A/B capture —
         // which is how a "the heap changed a pixel" claim gets tested against
         // the identical binary rather than against a rebuild.
+        //
+        // DISABLING IS NOT SYMMETRIC WITH ENABLING, and the asymmetry is a trap.
+        // A shader's VARIANT is decided once, at compile time
+        // (`OpenGLShader::WantsBindlessVariant` reads `IsEnabled()` and the
+        // program is then cached). Turning the heap off afterwards does NOT turn
+        // those programs back into slot-based ones — it just stops the binding
+        // seam writing the offsets they still read. The result is a program
+        // sampling a table nobody updates: a plausible, wrong, silent frame.
+        //
+        // Found the expensive way. `HeapGpuFixture::TearDown` calls `Shutdown()`,
+        // and every later test in the suite whose shaders had already been built
+        // bindless then rendered wrong. Tests that pass alone and fail in the
+        // suite are the signature.
+        //
+        // Do NOT read a failure count into this. The same `Shutdown()` also bumps
+        // the heap epoch, which used to strand the offset table on indices minted
+        // by the previous heap (amendment (33)) — so the two defects overlapped in
+        // the same tests, and an early attempt to size this one by counting
+        // suite failures attributed the other one's damage to it. Excluding the
+        // fixtures changed WHICH tests failed rather than how many, which is the
+        // tell that a shared-state bug is in play and per-test attribution is
+        // measuring the wrong thing.
+        //
+        // `AnyBindlessProgramsExist()` reports the hazard so a caller can decide;
+        // the honest long-term fix is for a disable to force those programs to
+        // reload as slot-based, which needs a shader-reload hook this layer does
+        // not have.
         void SetEnabled(bool enabled);
+
+        // True when at least one program was built as the bindless variant, i.e.
+        // when disabling the heap would strand a program reading offsets nobody
+        // writes. See SetEnabled.
+        [[nodiscard]] static auto AnyBindlessProgramsExist() -> bool;
+
+        // The backend this heap was initialised with, or null. Exists so a caller
+        // that must Shutdown() and then restore the singleton — a test fixture
+        // owning process-wide state — can bring it back up against the engine's
+        // own backend instead of inventing one. See SetEnabled for why leaving it
+        // down is not an option once any bindless program exists.
+        [[nodiscard]] auto GetBackend() const -> IDescriptorHeapBackend*;
+
+        // The descriptor this heap was initialised with. Pairs with GetBackend()
+        // so a caller that must displace the singleton can put back the heap it
+        // found — same capacities, not a plausible-looking guess that could
+        // exhaust a ring the engine had sized larger.
+        [[nodiscard]] auto GetDesc() const -> HeapDesc;
 
         // ---------------------------------------------------------------------
         // Views

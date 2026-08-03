@@ -59,6 +59,11 @@ namespace OloEngine
         // registry comment in Shader.cpp for what went wrong without it.
         static void RegisterProgramBindless(u32 programID, bool bindless);
         [[nodiscard]] static auto IsProgramBindless(u32 programID) -> bool;
+
+        // True when any live program was built as the bindless variant. Disabling
+        // the heap while this holds strands those programs reading an offset table
+        // nobody updates — see DescriptorHeap::SetEnabled.
+        [[nodiscard]] static auto AnyBindlessProgramsExist() -> bool;
         virtual void Unbind() const = 0;
 
         virtual void SetInt(const std::string& name, int value) const = 0;

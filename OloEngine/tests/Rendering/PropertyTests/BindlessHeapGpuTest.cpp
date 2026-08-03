@@ -318,8 +318,17 @@ void main()
             static constexpr u32 kWidth = 8u;
             static constexpr u32 kHeight = 4u;
 
+            RHI::IDescriptorHeapBackend* EngineBackend = nullptr;
+            RHI::HeapDesc EngineDesc;
+            bool EngineHeapWasEnabled = false;
+
             [[nodiscard]] bool BringUp(bool poison)
             {
+                // Remember the engine's own heap so TearDown can hand the process
+                // back the one it found rather than a shut-down one.
+                EngineBackend = RHI::DescriptorHeap::Get().GetBackend();
+                EngineDesc = RHI::DescriptorHeap::Get().GetDesc();
+                EngineHeapWasEnabled = RHI::DescriptorHeap::Get().IsEnabled();
                 Backend.Initialize(kDescriptorHeapSlots);
                 if (!Backend.IsBindlessSupported())
                 {
@@ -457,6 +466,22 @@ void main()
                 // slot-based program that it reads the heap.
                 Shader::SetBoundProgramBindless(false);
 
+                // THIS FIXTURE OWNS A PROCESS-WIDE SINGLETON, and leaving it shut
+                // down poisons every test that runs after it.
+                //
+                // A shader's variant is baked at COMPILE time. Any production
+                // shader already built as the bindless variant keeps reading the
+                // offset table forever; shutting the heap down here just stops
+                // the seam writing it, so those shaders sample stale offsets for
+                // the rest of the process. That cost 7 suite failures which read
+                // exactly like conversion defects — SSAO, Fog, GTAO, EASU and
+                // friends, each of which PASSES when run alone.
+                //
+                // "Passes alone, fails in the suite" is the signature of shared
+                // state, and this fixture is the sharer. Re-initialise the heap
+                // against this fixture's backend so the global stays live and
+                // enabled for whoever runs next; the next fixture's BringUp
+                // re-initialises it again anyway.
                 RHI::DescriptorHeap::Get().Shutdown();
                 Backend.Shutdown();
 
@@ -497,6 +522,29 @@ void main()
                 {
                     glDeleteTextures(1, &ColorTarget);
                 }
+
+                // Hand the process back a live heap. Without this the singleton
+                // stays disabled and every later bindless-variant shader in the
+                // run samples an offset table nobody publishes (see above).
+                RestoreProcessHeap();
+            }
+
+            // Bring the global heap back up against the engine's own backend, so
+            // later tests see the state they would have seen had this fixture
+            // never run. Deliberately NOT enabling it when the environment did
+            // not ask for bindless — that would change the configuration under
+            // tests that expect the slot path.
+            void RestoreProcessHeap()
+            {
+                if (EngineBackend == nullptr)
+                {
+                    return;
+                }
+                // The desc the ENGINE was using, not a restatement of the same
+                // constants — a restatement drifts silently the day the engine
+                // resizes its heap.
+                RHI::DescriptorHeap::Get().Initialize(EngineDesc, EngineBackend);
+                RHI::DescriptorHeap::Get().SetEnabled(EngineHeapWasEnabled);
             }
         };
 
@@ -1324,5 +1372,59 @@ void main()
         EXPECT_EQ(HeapBinding::StagedOffsetAt(ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE + 2u).Value,
                   RHI::kNullStorageHeapOffset)
             << "A cleared IMAGE binding must point at the image null (slot 1), not the sampler null (slot 0).";
+    }
+
+    // -------------------------------------------------------------------------
+    // An offset is an index INTO THE HEAP THAT MINTED IT.
+    //
+    // The offset table is a process-lifetime static; the heap is re-initialised
+    // whenever the device is torn down and rebuilt (and once per fixture that
+    // stands up its own). Across that boundary every slot the next pass does not
+    // re-stage still holds a number addressing the PREVIOUS heap's descriptor —
+    // and the bindless shader samples it without complaining.
+    //
+    // This is the shape that made a suite-wide failure look like six unrelated
+    // ones: the victim is whichever converted pass happens to run next, so the
+    // failing set moves when test order moves, and nothing reproduces alone.
+    // -------------------------------------------------------------------------
+    TEST_F(HeapGpuFixture, OffsetTableIsRebasedWhenTheHeapIsReinitialised)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        Shader::SetBoundProgramBindless(true);
+
+        constexpr u32 kSlot = 3u;
+        const GLuint texture = MakeSolidTexture(255u, 0u, 0u, 255u);
+        OwnedTextures.push_back(texture);
+        const RHI::ResourceHandle resource = RegisterTexture(texture);
+
+        const RHI::HeapOffset live =
+            HeapBinding::BindTextureOrOffset(kSlot, resource, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(live.IsValid());
+        ASSERT_NE(live.Value, RHI::kNullHeapOffset)
+            << "Precondition: the slot must hold a REAL offset, or the assertion below "
+               "would pass without the reset ever happening.";
+
+        // Tear the heap down and stand a fresh one up — the epoch bump every
+        // device teardown performs.
+        RHI::DescriptorHeap::Get().Shutdown();
+        RHI::HeapDesc desc;
+        desc.ResourceSlotCapacity = 64u;
+        desc.SamplerSlotCapacity = 8u;
+        desc.FrameTransientRingSlots = 16u;
+        RHI::DescriptorHeap::Get().Initialize(desc, &Backend);
+        RHI::DescriptorHeap::Get().SetEnabled(true);
+
+        // A pass that stages nothing still publishes — this is the path that used
+        // to return early on `!Dirty` and never notice the heap had changed.
+        HeapBinding::FlushOffsets();
+
+        EXPECT_EQ(HeapBinding::StagedOffsetAt(kSlot).Value, RHI::kNullHeapOffset)
+            << "A texture slot carrying an offset minted by the previous heap must fall back "
+               "to the sampler null, not keep indexing the new heap with a stale number.";
+        EXPECT_EQ(HeapBinding::StagedOffsetAt(ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE).Value,
+                  RHI::kNullStorageHeapOffset)
+            << "The image region must reset to the IMAGE null. Zeroing it would hand image2D a "
+               "sampler descriptor — the undefined behaviour the two reserved nulls exist to avoid.";
     }
 } // namespace OloEngine::Tests

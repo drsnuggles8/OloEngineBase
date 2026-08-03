@@ -71,6 +71,11 @@ namespace OloEngine
         return s_BindlessPrograms.contains(programID);
     }
 
+    auto Shader::AnyBindlessProgramsExist() -> bool
+    {
+        return !s_BindlessPrograms.empty();
+    }
+
     Ref<Shader> Shader::Create(const std::string& filepath)
     {
         switch (Renderer::GetAPI())

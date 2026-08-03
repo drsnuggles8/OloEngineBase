@@ -52,6 +52,66 @@ namespace OloEngine::HeapBinding
             return s_Table;
         }
 
+        // Put every slot at its OWN kind's reserved null.
+        //
+        // NOT memset-to-zero, and the distinction is load-bearing: offset 0 holds a
+        // SAMPLER descriptor, so zeroing the image region would hand `image2D` a
+        // sampler handle — the exact undefined behaviour BindImageOrOffset's own
+        // fallback goes out of its way to avoid. A default-constructed `Scratch{}`
+        // has that defect at startup, which is why this also runs before the first
+        // stage rather than only on a reset.
+        void ResetScratchToNulls(HeapOffsetTable& table)
+        {
+            for (u32 i = 0u; i < HeapOffsetTable::kSlots; ++i)
+            {
+                table.Scratch[i] = (i < ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE) ? RHI::kNullHeapOffset
+                                                                                   : RHI::kNullStorageHeapOffset;
+            }
+            table.Dirty = true;
+        }
+
+        // Re-base the table onto the heap currently in force.
+        //
+        // WHY A STALE SCRATCH IS WRONG RATHER THAN MERELY UNTIDY. Offsets are
+        // indices into the heap that minted them. The heap bumps its epoch on every
+        // Initialize/Shutdown, but this table is a process-lifetime static, so
+        // across a re-initialisation every slot still holds an index minted against
+        // the PREVIOUS heap. A pass re-stages the slots it binds and is therefore
+        // fine; a slot it does not bind keeps a number that now addresses a
+        // different descriptor entirely, and the bindless shader samples it without
+        // complaint. Wrong pixels, no diagnostic, and the victim depends on which
+        // pass ran last — which is why this presents as an order-dependent failure
+        // across a test suite and never reproduces when a test is run alone.
+        //
+        // Called from StageOffset rather than only from FlushOffsets because a pass
+        // stages before it flushes: resetting at flush time would wipe the very
+        // offsets the pass just recorded.
+        // The condition is the EPOCH ALONE. Do not add `|| !table.Buffer` to it:
+        // this runs from StageOffset as well as FlushOffsets, and StageOffset
+        // clears the buffer on a genuine reset — so a null buffer would make the
+        // very next FlushOffsets "resync" and wipe the offsets the pass had just
+        // staged between the two calls. That regression took out three heap GPU
+        // tests before the suite caught it. Minting the buffer is FlushOffsets'
+        // job and is keyed off `!table.Buffer` there, separately and on purpose.
+        //
+        // The process starts at Epoch 0 and `Initialize` bumps to at least 1, so
+        // the first call always resets — which is what puts the image region on
+        // its own null instead of the zero-initialised sampler null.
+        void SyncEpoch(HeapOffsetTable& table)
+        {
+            const u64 epoch = RHI::DescriptorHeap::Get().GetInitEpoch();
+            if (table.Epoch == epoch)
+            {
+                return;
+            }
+
+            ResetScratchToNulls(table);
+            // The buffer is a GL name from the old context; drop it so the flush
+            // mints a fresh one under the current heap.
+            table.Buffer = nullptr;
+            table.Epoch = epoch;
+        }
+
         // BOTH conditions, and the second is not redundant. The heap's flag is
         // global; whether the program in flight reads the offset table is per
         // shader, because the bindless compile route is allowed to decline and
@@ -67,6 +127,7 @@ namespace OloEngine::HeapBinding
         void StageOffset(u32 tableIndex, u32 value)
         {
             auto& table = OffsetTable();
+            SyncEpoch(table);
             table.Scratch[tableIndex] = value;
             table.Dirty = true;
         }
@@ -279,20 +340,20 @@ namespace OloEngine::HeapBinding
         // the engine fails to sequence it.
         RHI::DescriptorHeap::Get().Flush();
 
+        // BEFORE the dirty check, not after. A pass that stages nothing still needs
+        // the table re-based across a heap re-initialisation — and the old code
+        // returned early here, so the buffer was never even recreated in that case.
+        SyncEpoch(table);
+
         if (!table.Dirty)
         {
             return;
         }
 
-        // Rebuild across a device teardown. The heap bumps its epoch on every
-        // Initialize/Shutdown, and this buffer is a process-lifetime static, so
-        // without the comparison it would keep writing into a GL name that belonged
-        // to the previous context — offsets that silently never arrive.
-        if (const u64 epoch = RHI::DescriptorHeap::Get().GetInitEpoch(); !table.Buffer || table.Epoch != epoch)
+        if (!table.Buffer)
         {
             table.Buffer = UniformBuffer::Create(static_cast<u32>(table.Scratch.size() * sizeof(u32)),
                                                  ShaderBindingLayout::UBO_HEAP_OFFSETS);
-            table.Epoch = epoch;
         }
 
         table.Buffer->SetData(table.Scratch.data(), static_cast<u32>(table.Scratch.size() * sizeof(u32)));

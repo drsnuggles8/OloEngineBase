@@ -20,8 +20,40 @@ namespace OloEngine
         // context still current. Shutting the backend down first would leave
         // every ARB_bindless_texture handle resident, which keeps its texture
         // permanently immutable for whatever remains of the process.
+        //
+        // BUT THE ORDER WAS RIGHT AND THE TIMING WAS NOT. This destructor runs
+        // from the static destructor of `RenderCommand::s_RendererAPI`, i.e. at
+        // atexit — long after the window and its GL context are gone. Every
+        // `glMakeTextureHandleNonResidentARB` in the release path then executes
+        // against a dead context and faults inside the driver: an access
+        // violation in nvoglv64 with a stack running through
+        // ReleaseDescriptor -> ReleaseSlotLocked -> Shutdown, and no message,
+        // because there is nothing left to log through.
+        //
+        // Releasing residency is a nicety at process exit — the driver reclaims
+        // everything when the context dies — whereas crashing is not. So the
+        // teardown happens in ShutdownGpuResources(), called while the context is
+        // still current, and this destructor does nothing if that already ran.
+        // If it did NOT run we deliberately leak rather than touch dead GL.
+        if (!m_GpuResourcesReleased)
+        {
+            OLO_CORE_WARN("[RHI/GL] OpenGLRendererAPI destroyed without ShutdownGpuResources(); "
+                          "skipping descriptor-heap teardown because the GL context is likely gone. "
+                          "Bindless handles leak until process exit, which is harmless — calling GL "
+                          "here is not.");
+        }
+    }
+
+    void OpenGLRendererAPI::ShutdownGpuResources()
+    {
+        // Call this while the context is STILL CURRENT — see the destructor.
+        if (m_GpuResourcesReleased)
+        {
+            return;
+        }
         RHI::DescriptorHeap::Get().Shutdown();
         m_DescriptorHeapBackend.Shutdown();
+        m_GpuResourcesReleased = true;
     }
 
     void OpenGLRendererAPI::Init()

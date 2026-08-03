@@ -137,9 +137,40 @@ namespace OloEngine::Tests
             return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture, native, RHI::Backend::OpenGL);
         }
 
+        // THIS FIXTURE OWNS PROCESS-WIDE STATE, and must hand it back.
+        //
+        // `DescriptorHeap::Get()` is a singleton the whole renderer binds through.
+        // Standing a fake one up over it is fine; leaving it SHUT DOWN is not, and
+        // the damage is invisible here — every test in this file passes either way,
+        // because they all drive the heap directly.
+        //
+        // What breaks is later, elsewhere. A shader's bindless-or-not variant is
+        // decided at COMPILE time and cached; the heap being switched off afterwards
+        // does not rebuild those programs, it just stops the binding seam publishing
+        // the offsets they still read. So every already-compiled bindless program in
+        // the rest of the run samples a table nobody updates.
+        //
+        // That is not hypothetical: with `OLO_RHI_BINDLESS=1`, leaving the heap down
+        // here took out six visual-evidence suites (Fog, VolumetricFog, ContactShadow,
+        // EASU, SSAO, GTAO) — every one of which runs after this file and passes in
+        // isolation. Tests that pass alone and fail in the suite are the signature;
+        // the failing SET even moves when test order moves, which is what makes this
+        // read as N independent bugs instead of one.
         struct HeapFixture : ::testing::Test
         {
             FakeHeapBackend Backend;
+
+            // The engine's own heap, captured before we displace it.
+            RHI::IDescriptorHeapBackend* EngineBackend = nullptr;
+            RHI::HeapDesc EngineDesc;
+            bool EngineHeapWasEnabled = false;
+
+            void SetUp() override
+            {
+                EngineBackend = RHI::DescriptorHeap::Get().GetBackend();
+                EngineDesc = RHI::DescriptorHeap::Get().GetDesc();
+                EngineHeapWasEnabled = RHI::DescriptorHeap::Get().IsEnabled();
+            }
 
             void SetUpHeap(u32 persistent = 8u, u32 transient = 4u, bool poison = false)
             {
@@ -161,7 +192,31 @@ namespace OloEngine::Tests
 
             void TearDown() override
             {
+                // Drop the fake FIRST — `Backend` is a member and is about to be
+                // destroyed, so the singleton must stop pointing at it either way.
                 RHI::DescriptorHeap::Get().Shutdown();
+                RestoreProcessHeap();
+            }
+
+            // Put the engine's heap back exactly as it was found, so the rest of
+            // the run sees the state it would have seen had this file never run.
+            //
+            // Restores the ENABLED FLAG rather than forcing it on: when the
+            // environment did not ask for bindless, the engine's heap is
+            // deliberately down, and switching it on here would push unrelated
+            // tests onto a path their goldens were never captured against.
+            void RestoreProcessHeap()
+            {
+                if (EngineBackend == nullptr)
+                {
+                    // No engine heap to restore — a headless run with no GL
+                    // context never built one, and Initialize(nullptr) would just
+                    // manufacture a broken one.
+                    return;
+                }
+
+                RHI::DescriptorHeap::Get().Initialize(EngineDesc, EngineBackend);
+                RHI::DescriptorHeap::Get().SetEnabled(EngineHeapWasEnabled);
             }
         };
     } // namespace

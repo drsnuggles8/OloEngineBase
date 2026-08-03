@@ -152,7 +152,11 @@ namespace OloEngine::Tests
                 spec.Height = height;
                 spec.Attachments = { FramebufferTextureFormat::RGBA8 };
                 m_OutputFB = Framebuffer::Create(spec);
-                m_Shader = Shader::Create(shaderPath);
+                // Slot-based on purpose — see ScopedSlotBasedShaders.
+                {
+                    const ScopedSlotBasedShaders slotBased;
+                    m_Shader = Shader::Create(shaderPath);
+                }
                 m_Ubo = UniformBuffer::Create(PostProcessUBOData::GetSize(), 7);
                 // Fail fast so Draw() doesn't dereference nulls later. The
                 // diagnostic names the failing resource and the shader path

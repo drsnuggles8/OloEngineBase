@@ -1606,6 +1606,82 @@ and the first converted compute pass would have written offsets for a program
 that declares no offset table while binding nothing. Both `Bind()`s now publish
 and both `Unbind()`s retract.
 
+### (33) An offset is meaningless without the heap that minted it — the table must be re-based, not just the buffer
+
+The offset table (`HeapBindingSeam.cpp`) is a process-lifetime static. It
+already knew that the *UBO* had to be recreated across a heap re-initialisation,
+because the GL name belonged to the previous context — amendment (27)'s epoch
+comparison. What it did not do was reset the **contents**.
+
+Offsets are indices into the heap that minted them. After an
+`Initialize`/`Shutdown` pair, every slot the next pass does not re-stage still
+holds a number addressing the *previous* heap's descriptor, and the bindless
+shader samples it without complaint. A pass re-stages the slots it binds, so
+this is invisible for those; the damage lands on slots a pass reads but does not
+write.
+
+**This is the same recurring family as (22) and (28) — state outliving the thing
+that gives it meaning — and it is the third time it has appeared in this phase.**
+The epoch check was in place, aimed at the buffer, and read as if it had covered
+the problem. It had covered the half that produces a *loud* failure (offsets that
+never arrive) and missed the half that produces a silent one.
+
+Two further defects fell out of the same read:
+
+- The dirty check ran **before** the epoch check, so a pass that staged nothing
+  returned early and never rebuilt the buffer at all.
+- A default-constructed `Scratch{}` is all zeros, and offset 0 is the **sampler**
+  null. The image region therefore started life pointing `image2D` at a sampler
+  descriptor — the exact UB `BindImageOrOffset`'s own fallback path takes care to
+  avoid. The reset is per-kind for that reason, not a `memset`.
+
+Pinned by `HeapGpuFixture.OffsetTableIsRebasedWhenTheHeapIsReinitialised`.
+
+**This was real but it was NOT what the six failing suites were suffering from** —
+see (34), and read the two together. Fixing it changed the failure count by zero.
+
+### (34) A test fixture that displaces the heap singleton must put it back — and the damage never appears where the bug is
+
+The actual cause of the six failing visual-evidence suites under
+`OLO_RHI_BINDLESS=1` was four lines in a *non-GPU* unit test.
+`HeapFixture::TearDown` (`RHIDescriptorHeapTest.cpp`) stood a fake backend over
+`DescriptorHeap::Get()` and, when done, called `Shutdown()` — leaving the
+process-wide heap **off** for everything that ran afterwards.
+
+Every test in that file passes either way, because they all drive the heap
+directly. The victims were Fog, VolumetricFog, ContactShadow, EASU, SSAO and
+GTAO, all of which run later in the suite and all of which pass in isolation.
+
+The mechanism is amendment (33)'s sibling and the same asymmetry `SetEnabled`
+now warns about: a shader's bindless-or-not variant is decided at COMPILE time
+and cached, so switching the heap off afterwards does not rebuild those
+programs — it only stops the seam publishing the offsets they still read.
+
+**Three diagnostic traps, all of which cost time here:**
+
+1. **A moving failure set means one shared-state bug, not N independent ones.**
+   Excluding the heap fixtures changed *which* suites failed rather than how
+   many. That was read as evidence about the individual suites; it was evidence
+   about the ordering. Attributing per-test was measuring the wrong thing.
+2. **A two-test repro can hide an order bug a full suite exposes.** Running
+   `HeapFixture` immediately followed by the Fog test PASSES — with no earlier
+   tests, Fog's shaders compile *after* the heap is already down, so they compile
+   slot-based and stay self-consistent. The bug requires shaders compiled
+   bindless FIRST. A minimal repro that passes is not proof of innocence when the
+   thing being tested is order.
+3. **Correlate against execution order before theorising.** Every failing suite
+   sat after the fixture's line in the log and the one failure before it had an
+   unrelated known cause. That correlation was available from the first full run
+   and would have pointed straight at the culprit.
+
+Both fixtures now capture the engine's backend, desc and enabled flag on entry
+and restore them on exit, via the new `DescriptorHeap::GetDesc()` — restoring the
+*flag* rather than forcing bindless on, since a run that did not ask for it must
+stay on the slot path. `GLStateGuard::kUboSlots` was also raised from
+`UBO_FLUID_RENDER` (48) to `UBO_HEAP_OFFSETS` (56): the offset table — the one
+binding every converted pass depends on — sat outside the leak detector's
+tracked range, so the detector built for this class of bug could not see it.
+
 ---
 
 ## Consequences

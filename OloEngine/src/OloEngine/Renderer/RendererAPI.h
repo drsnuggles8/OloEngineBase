@@ -51,6 +51,23 @@ namespace OloEngine
         virtual ~RendererAPI() = default;
 
         virtual void Init() = 0;
+
+        // Release GPU-side renderer state WHILE THE CONTEXT/DEVICE IS STILL LIVE.
+        //
+        // Not pure, because a backend with no such constraint has nothing to do
+        // here — but not backend-specific either, which is why it is a virtual
+        // rather than a `dynamic_cast` at the call site: `RenderCommand.h` is
+        // included across most of the engine, so reaching for the concrete
+        // OpenGL type there would drag `glad/gl.h` in behind it and undo exactly
+        // what this issue's include ratchet measures (#691).
+        //
+        // The destructor is too late for this. It runs from the static destructor
+        // of `RenderCommand::s_RendererAPI` — at atexit, after the window and its
+        // context are gone — and any GL/Vulkan call made from there executes
+        // against a dead handle. Vulkan will want the same hook to destroy its
+        // descriptor pools before `vkDestroyDevice`.
+        virtual void ShutdownGpuResources() {}
+
         virtual void SetViewport(u32 x, u32 y, u32 width, u32 height) = 0;
         virtual void SetClearColor(const glm::vec4& color) = 0;
         virtual void Clear() = 0;

@@ -65,6 +65,14 @@ namespace OloEngine
         ShaderWarmup::Shutdown();
         ShaderLibrary::ShutdownFallbackShader();
 
+        // Release the descriptor heap and its backend WHILE THE CONTEXT IS STILL
+        // CURRENT. ~OpenGLRendererAPI cannot do this: it runs from the static
+        // destructor of RenderCommand::s_RendererAPI, i.e. at atexit, by which
+        // time the window and its GL context are gone and every
+        // glMakeTextureHandleNonResidentARB in the release path faults inside the
+        // driver (issue #691 Phase 3).
+        RenderCommand::ShutdownGpuResources();
+
         // Shutdown memory tracker after all renderers are shut down
         RendererMemoryTracker::GetInstance().Shutdown();
     }

@@ -138,4 +138,68 @@ namespace OloEngine::Tests
         u32 m_Vao = 0;
         u32 m_Vbo = 0;
     };
+
+    // -------------------------------------------------------------------------
+    // Bind an AUXILIARY input (depth, velocity, ...) at `slot` for whichever
+    // shader variant is in flight.
+    //
+    // `FullscreenPass::Draw` handles slot 0 only. A converted post-process shader
+    // reads every OTHER input through the offset table too, so a bare
+    // `glBindTextureUnit(TEX_POSTPROCESS_DEPTH, depth)` is invisible to it and the
+    // shader samples the reserved null. That is how
+    // `MotionBlurVelocityTest.VelocityDirectionDrivesBlur` failed — no velocity
+    // reached the shader, so nothing smeared — and, worse, how
+    // `MotionBlurStaticTest.ZeroVelocityIsIdentity` PASSED for the wrong reason:
+    // a missing velocity texture reads as zero velocity, which is exactly what it
+    // asserts. A test that cannot fail is not evidence.
+    //
+    // Scope it around the draw(s) that need it. The destructor releases the heap
+    // registration, and tolerates the texture having already been deleted (see the
+    // .cpp) because these tests delete their textures in whatever order suits them.
+    // -------------------------------------------------------------------------
+    class ScopedHeapInput
+    {
+      public:
+        ScopedHeapInput(u32 slot, u32 texture);
+        ~ScopedHeapInput() = default;
+
+        ScopedHeapInput(const ScopedHeapInput&) = delete;
+        ScopedHeapInput& operator=(const ScopedHeapInput&) = delete;
+    };
+
+    // -------------------------------------------------------------------------
+    // Compile shaders created inside this scope as the SLOT-BASED variant.
+    //
+    // WHY THESE HARNESSES OPT OUT OF BINDLESS RATHER THAN PARTICIPATING IN IT.
+    // They are property tests of shader MATH — FXAA edge preservation, motion
+    // blur direction, DOF focus. They drive a shader file directly with their own
+    // GL binds, outside the render graph, with no frame loop.
+    //
+    // Making them bind through the heap instead was tried and is a bad trade. The
+    // heap's lifetimes assume a frame: `FrameTransient` slots are only reclaimed
+    // at a frame boundary these tests never reach (so the ring fills for the whole
+    // process, and retired slots are released against textures the test already
+    // deleted, raising GL errors inside whichever LATER test triggers the reset),
+    // while retiring eagerly puts descriptor teardown next to caller-owned
+    // textures whose deletion order the harness does not control. Every variant of
+    // that produced a different order-dependent failure.
+    //
+    // The bindless path does not lose coverage here. `BindlessHeapGpuTest` proves
+    // the seam end-to-end with real texel readback, and the visual-evidence suites
+    // exercise these very shaders through the real engine passes with the heap on.
+    // What this scope buys is that the MATH tests measure math, under both
+    // configurations, instead of measuring binding plumbing they do not use.
+    // -------------------------------------------------------------------------
+    class ScopedSlotBasedShaders
+    {
+      public:
+        ScopedSlotBasedShaders();
+        ~ScopedSlotBasedShaders();
+
+        ScopedSlotBasedShaders(const ScopedSlotBasedShaders&) = delete;
+        ScopedSlotBasedShaders& operator=(const ScopedSlotBasedShaders&) = delete;
+
+      private:
+        bool m_WasEnabled = false;
+    };
 } // namespace OloEngine::Tests
