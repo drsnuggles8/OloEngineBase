@@ -174,6 +174,10 @@ namespace OloEngine
 
         m_Clients.clear();
         m_SpawnedArchetypes.clear();
+        // Queued-but-unapplied commands belong to the session that is ending; a
+        // restart must not materialise entities the new session never asked for.
+        m_PendingSpawns.clear();
+        m_PendingDespawns.clear();
         m_History.Clear();
         m_Accumulator = 0.0f;
         m_Tick = 0;
@@ -245,9 +249,30 @@ namespace OloEngine
     Entity ServerReplicationDriver::SpawnReplicated(Scene& scene, std::string_view archetype, const std::string& name,
                                                     u32 ownerClientID, ENetworkAuthority authority)
     {
+        return SpawnReplicatedWithUUID(scene, UUID(), archetype, name, ownerClientID, authority);
+    }
+
+    void ServerReplicationDriver::QueueSpawn(UUID uuid, std::string archetype, std::string name, u32 ownerClientID,
+                                             ENetworkAuthority authority)
+    {
+        m_PendingSpawns.push_back({ uuid, std::move(archetype), std::move(name), ownerClientID, authority });
+    }
+
+    void ServerReplicationDriver::QueueDespawn(u64 entityUUID)
+    {
+        if (entityUUID != 0)
+        {
+            m_PendingDespawns.push_back(entityUUID);
+        }
+    }
+
+    Entity ServerReplicationDriver::SpawnReplicatedWithUUID(Scene& scene, UUID uuid, std::string_view archetype,
+                                                            const std::string& name, u32 ownerClientID,
+                                                            ENetworkAuthority authority)
+    {
         OLO_PROFILE_FUNCTION();
 
-        Entity entity = scene.CreateEntity(name);
+        Entity entity = scene.CreateEntityWithUUID(uuid, name);
 
         NetworkSpawnParams params;
         params.EntityUUID = static_cast<u64>(entity.GetUUID());
@@ -468,7 +493,33 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Connection lifecycle first, and every frame rather than once per
+        // Apply script-requested spawns/despawns FIRST, at the safe point. Tick runs
+        // after the scene's simulation step, so we are outside Scene::UpdateScripts
+        // and these structural changes cannot invalidate an iterator a script
+        // dispatch is holding. Swap the queues out before applying: a spawned
+        // entity's own script may queue more work, which the next tick picks up
+        // rather than mutating the container we are walking.
+        if (!m_PendingSpawns.empty())
+        {
+            std::vector<PendingSpawn> spawns;
+            spawns.swap(m_PendingSpawns);
+            for (const auto& spawn : spawns)
+            {
+                (void)SpawnReplicatedWithUUID(scene, spawn.EntityUUID, spawn.Archetype, spawn.Name,
+                                              spawn.OwnerClientID, spawn.Authority);
+            }
+        }
+        if (!m_PendingDespawns.empty())
+        {
+            std::vector<u64> despawns;
+            despawns.swap(m_PendingDespawns);
+            for (u64 const uuid : despawns)
+            {
+                DespawnReplicated(scene, server, uuid);
+            }
+        }
+
+        // Connection lifecycle next, and every frame rather than once per
         // replication tick — a client that connects and immediately sends input
         // must already have its state (and its pawn) by the time that input lands.
         for (const auto& event : server.DrainClientEvents())

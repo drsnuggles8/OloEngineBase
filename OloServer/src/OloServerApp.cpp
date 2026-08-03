@@ -195,9 +195,15 @@ namespace OloEngine
             }
 
             ProjectConfig config;
-            // A trailing separator makes filename() empty, so `--project C:/MyGame/`
-            // would otherwise name the project "".
-            config.Name = projectDir.lexically_normal().filename().string();
+            // A trailing separator makes filename() empty — and lexically_normal()
+            // PRESERVES it — so `--project C:/MyGame/` would otherwise fall through
+            // to "Untitled" rather than "MyGame". Drop the trailing separator first.
+            std::filesystem::path namePath = projectDir.lexically_normal();
+            if (!namePath.has_filename())
+            {
+                namePath = namePath.parent_path();
+            }
+            config.Name = namePath.filename().string();
             if (config.Name.empty())
             {
                 config.Name = "Untitled";

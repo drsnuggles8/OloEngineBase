@@ -767,9 +767,10 @@ namespace OloEngine
         }
         std::string archetypeStr = Utils::MonoStringToString(archetype);
         std::string nameStr = Utils::MonoStringToString(name);
-        Entity entity = NetworkManager::SpawnReplicated(archetypeStr, nameStr, ownerClientID,
-                                                        static_cast<ENetworkAuthority>(authority));
-        return entity ? static_cast<u64>(entity.GetUUID()) : 0;
+        // Deferred: the id is valid now, the entity materialises at the next
+        // network tick. See NetworkManager::SpawnReplicated.
+        return NetworkManager::SpawnReplicated(archetypeStr, nameStr, ownerClientID,
+                                               static_cast<ENetworkAuthority>(authority));
     }
 
     static void Network_Despawn(u64 entityID)
@@ -934,13 +935,18 @@ namespace OloEngine
             {
                 return RpcArg::MakeEntity(*static_cast<u64*>(::mono_object_unbox(object)));
             }
+            // Sanitize non-finite floats exactly as RpcDispatcher::ReadArg does for
+            // wire data — a locally-executed RPC never crosses the wire, so without
+            // this the same call would deliver NaN locally and 0 remotely.
             if (objectClass == ::mono_get_single_class())
             {
-                return RpcArg::MakeFloat(static_cast<f64>(*static_cast<f32*>(::mono_object_unbox(object))));
+                const f64 value = static_cast<f64>(*static_cast<f32*>(::mono_object_unbox(object)));
+                return RpcArg::MakeFloat(std::isfinite(value) ? value : 0.0);
             }
             if (objectClass == ::mono_get_double_class())
             {
-                return RpcArg::MakeFloat(*static_cast<f64*>(::mono_object_unbox(object)));
+                const f64 value = *static_cast<f64*>(::mono_object_unbox(object));
+                return RpcArg::MakeFloat(std::isfinite(value) ? value : 0.0);
             }
             if (objectClass == ::mono_get_string_class())
             {
@@ -953,6 +959,12 @@ namespace OloEngine
                     vectorClass != nullptr && objectClass == vectorClass)
                 {
                     const auto* value = static_cast<const f32*>(::mono_object_unbox(object));
+                    const bool finite =
+                        std::isfinite(value[0]) && std::isfinite(value[1]) && std::isfinite(value[2]);
+                    if (!finite)
+                    {
+                        return RpcArg::MakeVec3(glm::vec3(0.0f));
+                    }
                     return RpcArg::MakeVec3({ value[0], value[1], value[2] });
                 }
             }

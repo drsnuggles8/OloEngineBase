@@ -149,12 +149,27 @@ namespace OloEngine
                 {
                     return RpcArg::MakeInt(value.as<i64>());
                 }
+                // Sanitize exactly as RpcDispatcher::ReadArg does for wire data. A
+                // locally-executed RPC (the server running its own Multicast) never
+                // crosses the wire, so without this the same call would deliver NaN
+                // locally and 0 remotely.
+                if (!std::isfinite(asDouble))
+                {
+                    OLO_CORE_WARN_TAG("Networking", "RPC number argument is not finite; sending 0");
+                    return RpcArg::MakeFloat(0.0);
+                }
                 return RpcArg::MakeFloat(asDouble);
             }
             case sol::type::userdata:
                 if (value.is<glm::vec3>())
                 {
-                    return RpcArg::MakeVec3(value.as<glm::vec3>());
+                    const glm::vec3 v = value.as<glm::vec3>();
+                    if (!IsFiniteVec3(v))
+                    {
+                        OLO_CORE_WARN_TAG("Networking", "RPC vec3 argument is not finite; sending (0,0,0)");
+                        return RpcArg::MakeVec3(glm::vec3(0.0f));
+                    }
+                    return RpcArg::MakeVec3(v);
                 }
                 return std::nullopt;
             default:
@@ -2885,9 +2900,11 @@ namespace OloEngine
                                           OLO_CORE_WARN_TAG("Networking", "Network.spawn: invalid authority {}", rawAuthority);
                                           return 0;
                                       }
-                                      Entity entity = NetworkManager::SpawnReplicated(
+                                      // Deferred: the id is valid now, the entity
+                                      // materialises at the next network tick. See
+                                      // NetworkManager::SpawnReplicated.
+                                      return NetworkManager::SpawnReplicated(
                                           archetype, name, ownerClientID, static_cast<ENetworkAuthority>(rawAuthority));
-                                      return entity ? static_cast<u64>(entity.GetUUID()) : 0;
                                   });
         networkTable.set_function("despawn", [](u64 entityID)
                                   { NetworkManager::DespawnReplicated(entityID); });

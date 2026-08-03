@@ -24,7 +24,6 @@ struct SteamNetConnectionStatusChangedCallback_t;
 
 namespace OloEngine
 {
-    class Entity;
     class NetworkServer;
     class NetworkClient;
     class Scene;
@@ -156,10 +155,22 @@ namespace OloEngine
 
         // Server-side: create a replicated entity. Clients pick it up through the
         // normal relevance pass.
-        [[nodiscard]] static Entity SpawnReplicated(std::string_view archetype, const std::string& name,
-                                                    u32 ownerClientID, ENetworkAuthority authority);
+        //
+        // DEFERRED, and returns the entity's UUID rather than the entity: the
+        // structural registry change is applied at the top of the next Tick, not
+        // here. This is the script-facing surface, and Scene::UpdateScripts
+        // dispatches OnUpdate WHILE iterating the script pools — spawning inline
+        // from a script would invalidate that iterator. Same "always defer" rule
+        // and pre-allocated-UUID shape as Scene::ScriptCreateEntity.
+        //
+        // The returned UUID is valid immediately as an identifier (it is what the
+        // entity will have); the entity itself does not exist until the next Tick.
+        // Returns 0 if there is no active scene.
+        static u64 SpawnReplicated(std::string_view archetype, const std::string& name, u32 ownerClientID,
+                                   ENetworkAuthority authority);
 
-        // Server-side: destroy a replicated entity and tell every client that knows it.
+        // Server-side: destroy a replicated entity and tell every client that knows
+        // it. Deferred for the same reason as SpawnReplicated.
         static void DespawnReplicated(u64 entityUUID);
 
         // ── RPC ──────────────────────────────────────────────────────────────

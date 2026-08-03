@@ -105,13 +105,38 @@ namespace OloEngine
 
         // ── Server-side gameplay API ─────────────────────────────────────────
 
-        // Create a replicated entity. Clients learn about it through the normal
-        // relevance pass, so there is no separate "broadcast the spawn" step.
+        // Create a replicated entity IMMEDIATELY. Clients learn about it through
+        // the normal relevance pass, so there is no separate "broadcast the spawn"
+        // step.
+        //
+        // This is a structural registry mutation, so it is only safe from a caller
+        // that is NOT inside Scene::UpdateScripts. The driver's own player lifecycle
+        // qualifies (it runs from Tick); anything script-reachable must use the
+        // deferred queue below.
         [[nodiscard]] Entity SpawnReplicated(Scene& scene, std::string_view archetype, const std::string& name,
                                              u32 ownerClientID, ENetworkAuthority authority);
 
+        // As above, but with a caller-chosen UUID — how a deferred spawn keeps the
+        // id it already handed back to its caller.
+        [[nodiscard]] Entity SpawnReplicatedWithUUID(Scene& scene, UUID uuid, std::string_view archetype,
+                                                     const std::string& name, u32 ownerClientID,
+                                                     ENetworkAuthority authority);
+
         // Destroy a replicated entity and tell every client that already knows it.
         void DespawnReplicated(Scene& scene, NetworkServer& server, u64 entityUUID);
+
+        // Queue a spawn/despawn to be applied at the top of the next Tick.
+        //
+        // The script-safe path. Scene::UpdateScripts dispatches OnUpdate WHILE
+        // iterating the script component pools, so a script that spawned or
+        // destroyed an entity inline would invalidate that iterator — a delayed,
+        // unrelated-looking failure rather than a crash at the call site. Same
+        // "always defer" rule (and pre-allocated-UUID shape) as
+        // Scene::ScriptCreateEntity; see
+        // docs/agent-rules/script-structural-command-safe-point.md.
+        void QueueSpawn(UUID uuid, std::string archetype, std::string name, u32 ownerClientID,
+                        ENetworkAuthority authority);
+        void QueueDespawn(u64 entityUUID);
 
         // Send a Client- or Multicast-target RPC. `targetClientID` is required for
         // ERpcTarget::Client and ignored for Multicast (which also runs locally).
@@ -199,6 +224,20 @@ namespace OloEngine
 
         PlayerSpawnCallback m_PlayerSpawnCallback;
         PlayerDespawnCallback m_PlayerDespawnCallback;
+
+        // A spawn requested from script-reachable code, waiting for the safe point
+        // at the top of Tick.
+        struct PendingSpawn
+        {
+            UUID EntityUUID{ 0 };
+            std::string Archetype;
+            std::string Name;
+            u32 OwnerClientID = 0;
+            ENetworkAuthority Authority = ENetworkAuthority::Server;
+        };
+
+        std::vector<PendingSpawn> m_PendingSpawns;
+        std::vector<u64> m_PendingDespawns;
 
         std::unordered_map<u32, ClientState> m_Clients;
         std::unordered_map<u64, std::string> m_SpawnedArchetypes;

@@ -571,34 +571,35 @@ namespace OloEngine
         return s_ServerDriver.GetInputHandler();
     }
 
-    Entity NetworkManager::SpawnReplicated(std::string_view archetype, const std::string& name, u32 ownerClientID,
-                                           ENetworkAuthority authority)
+    u64 NetworkManager::SpawnReplicated(std::string_view archetype, const std::string& name, u32 ownerClientID,
+                                        ENetworkAuthority authority)
     {
-        Scene* scene = GetActiveScene();
-        if (scene == nullptr)
+        if (GetActiveScene() == nullptr)
         {
             OLO_CORE_WARN_TAG("Networking", "SpawnReplicated: no active scene");
-            return {};
+            return 0;
         }
-        return s_ServerDriver.SpawnReplicated(*scene, archetype, name, ownerClientID, authority);
+
+        // Pre-allocate the id and queue the creation for the next Tick. A script may
+        // be calling this from inside its OnUpdate, i.e. while Scene::UpdateScripts
+        // is iterating the script pools — creating the entity here would invalidate
+        // that iteration.
+        const UUID uuid;
+        s_ServerDriver.QueueSpawn(uuid, std::string(archetype), name, ownerClientID, authority);
+        return static_cast<u64>(uuid);
     }
 
     void NetworkManager::DespawnReplicated(u64 entityUUID)
     {
-        NetworkServer* server = nullptr;
-        Scene* scene = nullptr;
+        if (GetActiveScene() == nullptr)
         {
-            TUniqueLock<FMutex> lock(s_Mutex);
-            server = s_Server.get();
-            scene = s_ActiveScene;
-        }
-
-        if (scene == nullptr || server == nullptr)
-        {
-            OLO_CORE_WARN_TAG("Networking", "DespawnReplicated: no active scene or server");
+            OLO_CORE_WARN_TAG("Networking", "DespawnReplicated: no active scene");
             return;
         }
-        s_ServerDriver.DespawnReplicated(*scene, *server, entityUUID);
+
+        // Deferred for the same reason as SpawnReplicated. The despawn messaging
+        // needs a live server, which the drain checks when it runs.
+        s_ServerDriver.QueueDespawn(entityUUID);
     }
 
     void NetworkManager::RegisterRPC(RpcDescriptor descriptor)

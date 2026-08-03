@@ -634,6 +634,50 @@ TEST_F(ServerAuthoritativeLoopTest, LagCompensationRewindsToWhereTheClientSawThe
         << "lag compensation did not restore the current state";
 }
 
+TEST_F(ServerAuthoritativeLoopTest, ScriptFacingSpawnAndDespawnAreDeferredToTheSafePoint)
+{
+    // The script-facing spawn/despawn must NOT mutate the registry inline:
+    // Scene::UpdateScripts dispatches OnUpdate while iterating the script pools, so
+    // a script spawning an entity inline invalidates that iteration — a delayed,
+    // unrelated-looking failure. The queue is drained at the top of Tick, which runs
+    // after the simulation step.
+    //
+    // The id is handed back immediately (pre-allocated, like
+    // Scene::ScriptCreateEntity) even though the entity does not exist yet.
+    ConnectClient(0);
+    ASSERT_TRUE(PumpUntil([this]
+                          { return m_ClientDrivers[0].GetLocalClientID() != 0; }));
+
+    const UUID queued;
+    m_ServerDriver.QueueSpawn(queued, NetworkSpawnRegistry::kNetworkPlayerArchetype, "DeferredProp", 0,
+                              ENetworkAuthority::Server);
+
+    // Nothing yet — the queue has not been drained.
+    EXPECT_FALSE(m_ServerScene->TryGetEntityWithUUID(queued).has_value())
+        << "the spawn was applied inline instead of being deferred";
+
+    Pump();
+
+    auto spawned = m_ServerScene->TryGetEntityWithUUID(queued);
+    ASSERT_TRUE(spawned.has_value()) << "the deferred spawn never materialised";
+    EXPECT_TRUE(spawned->HasComponent<NetworkIdentityComponent>());
+    // The pre-allocated id is the one the entity actually got.
+    EXPECT_EQ(static_cast<u64>(spawned->GetUUID()), static_cast<u64>(queued));
+
+    // ...and it replicates like any other spawn.
+    ASSERT_TRUE(PumpUntil([&]
+                          { return ClientHasEntity(0, static_cast<u64>(queued)); }));
+
+    // Despawn is deferred the same way.
+    m_ServerDriver.QueueDespawn(static_cast<u64>(queued));
+    EXPECT_TRUE(m_ServerScene->TryGetEntityWithUUID(queued).has_value())
+        << "the despawn was applied inline instead of being deferred";
+
+    Pump();
+    EXPECT_FALSE(m_ServerScene->TryGetEntityWithUUID(queued).has_value())
+        << "the deferred despawn never ran";
+}
+
 TEST_F(ServerAuthoritativeLoopTest, PingQueriesDoNotDeadlockAgainstConnectionIteration)
 {
     // Regression guard for a shipped deadlock: GetClientPingMs takes the same
