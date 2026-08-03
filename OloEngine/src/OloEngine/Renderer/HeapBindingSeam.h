@@ -71,6 +71,34 @@ namespace OloEngine::HeapBinding
                              RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler = {})
         -> RHI::HeapOffset;
 
+    // PUBLISHED-GLOBAL bindings: write the offset AND perform the bind.
+    //
+    // `BindTextureOrOffset` above forks on `Shader::IsBoundProgramBindless()`,
+    // which describes the program CURRENTLY in flight. That is the right question
+    // for a pass binding its own inputs immediately before its own draw, and a
+    // meaningless one for a binding published for LATER passes to consume — at
+    // publish time the consuming program is not bound, and often has not been
+    // created yet. `SetGlobalIBL`, the DDGI atlases, the shadow maps, the froxel
+    // fog volume and the cloud-shadow map are all this shape
+    // (docs/agent-rules/render-pass-published-state.md).
+    //
+    // A published slot can also have consumers of BOTH kinds at once, so there is
+    // no single right answer to fork to: TEX_DDGI_IRRADIANCE is read by the DDGI
+    // shaders and DeferredLighting (convertible) *and* by Skybox_GBuffer, which
+    // cannot take the bindless route at all because that route produces no SPIR-V
+    // and so never runs Reflect().
+    //
+    // Doing BOTH is therefore not belt-and-braces, it is the only correct answer
+    // while a slot has mixed consumers: a bindless consumer reads the offset, a
+    // slot-based one reads the binding, and neither can tell the other happened.
+    // The cost is one redundant bind on a PER-PASS path — not per draw — which is
+    // the same trade the redundant-bind cache already makes everywhere else.
+    //
+    // Prefer `BindTextureOrOffset` whenever the consuming shader is bound at the
+    // call site; reach for this only for genuinely published state.
+    auto PublishTextureOffsetAndBind(u32 slot, RHI::ResourceHandle texture, RHI::HeapSlotLifetime lifetime,
+                                     const RHI::SamplerDesc& sampler = {}) -> RHI::HeapOffset;
+
     // True when the program in flight reads the offset table, i.e. when a bind
     // through this seam records an offset instead of touching the driver.
     //

@@ -167,6 +167,52 @@ namespace OloEngine::HeapBinding
 
     } // namespace
 
+    auto PublishTextureOffsetAndBind(const u32 slot, const RHI::ResourceHandle texture,
+                                     const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler)
+        -> RHI::HeapOffset
+    {
+        auto& heap = RHI::DescriptorHeap::Get();
+        const bool slotInRange = slot < ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS;
+
+        RHI::HeapOffset published;
+
+        // NOT gated on Shader::IsBoundProgramBindless() — see the header. At
+        // publish time the consuming program is not in flight, so that flag
+        // answers a question about an unrelated shader. The heap's own toggle is
+        // the only condition that means anything here.
+        if (heap.IsEnabled() && slotInRange)
+        {
+            RHI::ViewDesc viewDesc;
+            viewDesc.Resource = texture;
+
+            if (const RHI::ViewHandle view = heap.GetOrCreateView(texture, viewDesc, sampler, lifetime);
+                view.IsValid())
+            {
+                if (const RHI::HeapOffset offset = RHI::OffsetOf(view); offset.IsValid())
+                {
+                    StageOffset(slot, offset.Value);
+                    published = offset;
+                }
+            }
+
+            if (!published.IsValid())
+            {
+                // The heap is on and a bindless consumer WILL read this slot, so
+                // leaving the previous frame's offset there is the stale-read
+                // hazard. Point it at the reserved null instead.
+                StageOffset(slot, RHI::kNullHeapOffset);
+            }
+        }
+
+        // ALWAYS bind as well. A slot-based consumer of this same slot — of which
+        // there is at least one for the DDGI atlases (Skybox_GBuffer) — reads the
+        // binding, not the offset, and cannot be converted while the bindless
+        // route produces no reflection.
+        RenderCommand::BindTexture(slot, texture);
+
+        return published;
+    }
+
     auto BindImageOrOffset(const u32 imageUnit, const RHI::ResourceHandle texture, const u32 mipLevel,
                            const bool layered, const u32 layer, const RHI::Access access,
                            const RHI::Format format, const RHI::HeapSlotLifetime lifetime) -> RHI::HeapOffset

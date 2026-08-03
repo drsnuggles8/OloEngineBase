@@ -34,10 +34,22 @@ void main()
 
 #include "include/DDGICommon.glsl"
 
+#include "include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1). Each name maps to
+// the SAME binding number the pass binds with, so the two variants cannot
+// disagree; the shader BODY is byte-identical between them.
+#ifdef OLO_BINDLESS
+#define u_Radiance OLO_HEAP_TEX_2D(0)   // relit hit radiance cache
+#define u_HitGeo OLO_HEAP_TEX_2D(1)   // a = DDGI_HIT_* flag
+#define u_PrevIrradiance OLO_HEAP_TEX_2D(2)   // previous frame's atlas (EMA history)
+#define u_ProbeData OLO_HEAP_TEX_2D(3)   // w = probe state
+#else
 layout(binding = 0) uniform sampler2D u_Radiance;       // relit hit radiance cache
 layout(binding = 1) uniform sampler2D u_HitGeo;         // a = DDGI_HIT_* flag
 layout(binding = 2) uniform sampler2D u_PrevIrradiance; // previous frame's atlas (EMA history)
 layout(binding = 3) uniform sampler2D u_ProbeData;      // w = probe state
+#endif
 
 layout(location = 0) in vec2 v_TexCoord;
 

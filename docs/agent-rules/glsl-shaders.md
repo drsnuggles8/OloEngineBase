@@ -305,6 +305,23 @@ Two more rules that already cost debugging time:
   swap source and destination every pass, so a flush hoisted out of the loop
   publishes only the final pair.
 
+**Check that the name is not ALSO declared in an include before converting it.**
+`#define u_X OLO_HEAP_TEX_2D(N)` rewrites *every* occurrence of that token in the
+translation unit — including the `layout(binding = N) uniform sampler2D u_X;` in
+a shared header, which becomes syntactic garbage. `DDGI_Relight.glsl` hit this:
+it declares `u_ShadowMapCSMRaw` / `u_ShadowAtlasRaw` itself *and* includes
+`DeferredLightingShared.glsl`, which declares them too under a different guard.
+The bindless build failed and fell back **silently** — the only visible trace was
+a `.bindless.failed.glsl` dump, which is why
+`AssetContentValidity.AllCacheFilesMatchKnownPattern` catching a stray cache file
+is load-bearing rather than housekeeping.
+
+So the check before converting a declaration is
+`grep -rn "<name>" assets/shaders/include/`. If a header owns it too, leave that
+input on the slot path and convert the rest — §5a's "a shader can be moved input
+by input" is what makes this cheap, and `PostProcess_Fog.glsl` is the worked
+example (converted for depth + froxel, still binding `TEX_SHADOW` conventionally).
+
 **Do NOT convert a G-Buffer shader's images.** The bindless route produces no
 SPIR-V and therefore never runs `Reflect()`, so `m_IsDeferredCapable` stays false
 and the shader is misrouted into the forward-overlay fallback.

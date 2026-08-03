@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -382,9 +383,9 @@ namespace OloEngine
         }
         if (m_PlaceholderTexture.IsValid())
         {
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_DDGI_IRRADIANCE, m_PlaceholderTexture);
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_DDGI_VISIBILITY, m_PlaceholderTexture);
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_DDGI_PROBE_DATA, m_PlaceholderTexture);
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_DDGI_IRRADIANCE, m_PlaceholderTexture, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_DDGI_VISIBILITY, m_PlaceholderTexture, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_DDGI_PROBE_DATA, m_PlaceholderTexture, RHI::HeapSlotLifetime::Persistent);
         }
     }
 
@@ -692,9 +693,9 @@ namespace OloEngine
                 }
 
                 if (caster.albedoTextureID.IsValid())
-                    RenderCommand::BindTexture(0, caster.albedoTextureID);
+                    HeapBinding::BindTextureOrOffset(0, caster.albedoTextureID, RHI::HeapSlotLifetime::Persistent);
                 else
-                    RenderCommand::BindTexture(0, m_WhiteTexture);
+                    HeapBinding::BindTextureOrOffset(0, m_WhiteTexture, RHI::HeapSlotLifetime::Persistent);
 
                 DDGIPassDataUBO data{};
                 data.Model = MakeModelRelative(caster.transform, m_RenderOrigin);
@@ -703,6 +704,7 @@ namespace OloEngine
                 data.ProbePosition = glm::vec4(probeRel, static_cast<f32>(probeIdx));
                 m_PassDataUBO->SetData(&data, sizeof(data));
 
+                HeapBinding::FlushOffsets();
                 RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount, caster.baseIndex);
             }
         }
@@ -721,12 +723,13 @@ namespace OloEngine
                                    static_cast<u32>(t), static_cast<u32>(t));
 
         m_ResampleShader->Bind();
-        RenderCommand::BindTexture(0, m_CaptureFB->GetColorAttachmentHandle(0));
-        RenderCommand::BindTexture(1, m_CaptureFB->GetColorAttachmentHandle(1));
+        HeapBinding::BindTextureOrOffset(0, m_CaptureFB->GetColorAttachmentHandle(0), RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::BindTextureOrOffset(1, m_CaptureFB->GetColorAttachmentHandle(1), RHI::HeapSlotLifetime::Persistent);
         SetPassDataProbe(probeIdx, glm::vec3(0.0f));
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
+        HeapBinding::FlushOffsets();
         RenderCommand::DrawIndexed(va);
     }
 
@@ -850,8 +853,8 @@ namespace OloEngine
         SetFullscreenPassState();
 
         m_BlendVisibilityShader->Bind();
-        RenderCommand::BindTexture(0, m_HitFB->GetColorAttachmentHandle(1)); // hit geo (dist + flag)
-        RenderCommand::BindTexture(1, prevTex);                              // EMA history
+        HeapBinding::BindTextureOrOffset(0, m_HitFB->GetColorAttachmentHandle(1), RHI::HeapSlotLifetime::Persistent); // hit geo (dist + flag)
+        HeapBinding::BindTextureOrOffset(1, prevTex, RHI::HeapSlotLifetime::Persistent);                              // EMA history
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
@@ -864,6 +867,7 @@ namespace OloEngine
                                        static_cast<u32>(DDGI::kVisibilityTileTexels),
                                        static_cast<u32>(DDGI::kVisibilityTileTexels));
             SetPassDataProbe(probeIdx, glm::vec3(0.0f));
+            HeapBinding::FlushOffsets();
             RenderCommand::DrawIndexed(va);
         }
 
@@ -883,11 +887,11 @@ namespace OloEngine
         RenderCommand::SetViewport(0, 0, static_cast<u32>(radianceSize.x), static_cast<u32>(radianceSize.y));
 
         m_RelightShader->Bind();
-        RenderCommand::BindTexture(0, m_HitFB->GetColorAttachmentHandle(0));                             // hit albedo
-        RenderCommand::BindTexture(1, m_HitFB->GetColorAttachmentHandle(1));                             // hit geo
-        RenderCommand::BindTexture(2, m_IrradianceFB[m_IrradianceCurrent]->GetColorAttachmentHandle(0)); // prev irradiance (bounce)
-        RenderCommand::BindTexture(3, m_VisibilityFB[m_VisibilityCurrent]->GetColorAttachmentHandle(0)); // current visibility
-        RenderCommand::BindTexture(4, m_ProbeDataTexture);
+        HeapBinding::BindTextureOrOffset(0, m_HitFB->GetColorAttachmentHandle(0), RHI::HeapSlotLifetime::Persistent);                             // hit albedo
+        HeapBinding::BindTextureOrOffset(1, m_HitFB->GetColorAttachmentHandle(1), RHI::HeapSlotLifetime::Persistent);                             // hit geo
+        HeapBinding::BindTextureOrOffset(2, m_IrradianceFB[m_IrradianceCurrent]->GetColorAttachmentHandle(0), RHI::HeapSlotLifetime::Persistent); // prev irradiance (bounce)
+        HeapBinding::BindTextureOrOffset(3, m_VisibilityFB[m_VisibilityCurrent]->GetColorAttachmentHandle(0), RHI::HeapSlotLifetime::Persistent); // current visibility
+        HeapBinding::BindTextureOrOffset(4, m_ProbeDataTexture, RHI::HeapSlotLifetime::Persistent);
 
         // Global environment cubemap for sky texels, at the engine's canonical
         // samplerCube slot (TEX_ENVIRONMENT) — the black fallback keeps the
@@ -896,9 +900,9 @@ namespace OloEngine
         // Same split as the caster albedo above: the black fallback cubemap is
         // still a pass-owned native texture.
         if (const RHI::ResourceHandle envMap = Renderer3D::GetGlobalEnvironmentMapHandle(); envMap.IsValid())
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, envMap);
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT, envMap, RHI::HeapSlotLifetime::Persistent);
         else
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, m_BlackCubemap);
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT, m_BlackCubemap, RHI::HeapSlotLifetime::Persistent);
 
         // CSM + shadow atlas at the binding units include/PBRCommon.glsl's
         // evaluators expect (8 / 13 comparison, 33 / 34 raw for PCSS) — same
@@ -916,10 +920,10 @@ namespace OloEngine
         const RHI::ResourceHandle atlasRawID = shadowMap.GetAtlasRawHandle().IsValid()
                                                    ? shadowMap.GetAtlasRawHandle()
                                                    : ShadowMap::GetAtlasRawPlaceholderHandle();
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW, csmID);
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasID);
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID);
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW, csmID, RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasID, RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID, RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID, RHI::HeapSlotLifetime::Persistent);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
@@ -937,6 +941,7 @@ namespace OloEngine
 
         if (rowBudget >= tileRows)
         {
+            HeapBinding::FlushOffsets();
             RenderCommand::DrawIndexed(va);
         }
         else
@@ -945,10 +950,12 @@ namespace OloEngine
             const i32 r0 = m_RelightRowCursor % tileRows;
             const i32 n1 = std::min(rowBudget, tileRows - r0);
             RenderCommand::SetScissorBox(0, r0 * t, radianceSize.x, n1 * t);
+            HeapBinding::FlushOffsets();
             RenderCommand::DrawIndexed(va);
             if (const i32 n2 = rowBudget - n1; n2 > 0)
             {
                 RenderCommand::SetScissorBox(0, 0, radianceSize.x, n2 * t);
+                HeapBinding::FlushOffsets();
                 RenderCommand::DrawIndexed(va);
             }
             RenderCommand::DisableScissorTest();
@@ -969,13 +976,14 @@ namespace OloEngine
         RenderCommand::SetViewport(0, 0, static_cast<u32>(irrSize.x), static_cast<u32>(irrSize.y));
 
         m_BlendIrradianceShader->Bind();
-        RenderCommand::BindTexture(0, m_RadianceFB->GetColorAttachmentHandle(0));
-        RenderCommand::BindTexture(1, m_HitFB->GetColorAttachmentHandle(1)); // hit geo (backface flags)
-        RenderCommand::BindTexture(2, m_IrradianceFB[prevIdx]->GetColorAttachmentHandle(0));
-        RenderCommand::BindTexture(3, m_ProbeDataTexture);
+        HeapBinding::BindTextureOrOffset(0, m_RadianceFB->GetColorAttachmentHandle(0), RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::BindTextureOrOffset(1, m_HitFB->GetColorAttachmentHandle(1), RHI::HeapSlotLifetime::Persistent); // hit geo (backface flags)
+        HeapBinding::BindTextureOrOffset(2, m_IrradianceFB[prevIdx]->GetColorAttachmentHandle(0), RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::BindTextureOrOffset(3, m_ProbeDataTexture, RHI::HeapSlotLifetime::Persistent);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
+        HeapBinding::FlushOffsets();
         RenderCommand::DrawIndexed(va);
 
         // Swap AFTER the draw.
@@ -1102,7 +1110,7 @@ namespace OloEngine
         RenderCommand::EnableCulling();
         for (u32 unit = 0; unit <= 4; ++unit)
         {
-            RenderCommand::BindTexture(unit, RHI::NullResource);
+            HeapBinding::BindTextureOrOffset(unit, RHI::NullResource, RHI::HeapSlotLifetime::Persistent);
         }
         RenderCommand::SetViewport(prevViewport.x, prevViewport.y, prevViewport.width, prevViewport.height);
         CommandDispatch::InvalidateRenderStateCache();
@@ -1112,9 +1120,9 @@ namespace OloEngine
         // intended cross-pass side effect, same shape as SetGlobalIBL), DDGI
         // UBO re-bound (uploaded Enabled=1 above). MUST come after the
         // restore block so nothing reverts the publication.
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_DDGI_IRRADIANCE, GetIrradianceAtlasID());
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_DDGI_VISIBILITY, GetVisibilityAtlasID());
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_DDGI_PROBE_DATA, m_ProbeDataTexture);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_DDGI_IRRADIANCE, GetIrradianceAtlasID(), RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_DDGI_VISIBILITY, GetVisibilityAtlasID(), RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_DDGI_PROBE_DATA, m_ProbeDataTexture, RHI::HeapSlotLifetime::Persistent);
         m_DDGIUBO->Bind();
 
         m_Casters.clear();
