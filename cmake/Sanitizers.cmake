@@ -206,8 +206,29 @@ if(OLO_ENABLE_UBSAN)
         set(UBSAN_CHECKS
             signed-integer-overflow,null,alignment,float-divide-by-zero,return,unreachable,vla-bound,shift
         )
-        add_compile_options(-fsanitize=undefined -fno-sanitize-recover=${UBSAN_CHECKS} -fno-omit-frame-pointer)
-        add_link_options(-fsanitize=undefined)
+        # Enable EXACTLY the curated list above — not the whole `undefined` group.
+        #
+        # This used to be `-fsanitize=undefined`, which enables ~20 checks while the
+        # list above (and the comment introducing it) describes 8. That mismatch was
+        # not academic: the group includes `vptr`, and `-fsanitize=vptr` requires
+        # RTTI. Vendored libraries built `-fno-rtti` — GameNetworkingSockets is one,
+        # see its src/CMakeLists.txt — then have no usable typeinfo, so every virtual
+        # call through one of their interfaces reports
+        #   "member call on address 0x… which does not point to an object of type 'X'"
+        # even though the object is exactly that type. That false positive is what
+        # made the UBSan job fail the moment a test first drove GNS (issue #636).
+        #
+        # These flags are directory-scoped and inherited by every add_subdirectory,
+        # including FetchContent'd vendor targets, so the narrowing applies to them
+        # too — which is the point: we cannot fix a vendored library's RTTI setting,
+        # but we can stop asking it a question it is not built to answer.
+        #
+        # NOTE the CI jobs set `UBSAN_OPTIONS=halt_on_error=1`, which makes EVERY
+        # report fatal regardless of -fno-sanitize-recover. The *enabled* set is
+        # therefore the enforcement surface; the recover list below is kept aligned
+        # with it so behaviour is unchanged if halt_on_error is ever dropped.
+        add_compile_options(-fsanitize=${UBSAN_CHECKS} -fno-sanitize-recover=${UBSAN_CHECKS} -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=${UBSAN_CHECKS})
         message(STATUS "Undefined Behavior Sanitizer (UBSan) enabled: ${UBSAN_CHECKS}")
     else()
         message(WARNING "UBSan is only supported on GCC/Clang. Ignoring OLO_ENABLE_UBSAN.")

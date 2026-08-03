@@ -574,7 +574,23 @@ jobs:
       # cache RESOURCE_LOCK), and 2 (not Windows' 4) keeps two sanitizer-instrumented
       # processes inside the ~16 GB / 4-vCPU runner. Independent of the build step's
       # compile-time `--parallel 2` — that bounds compiler RSS, this bounds test RSS.
-      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
+      #
+      # ServerAuthoritativeLoopTest joins the three networking suites already
+      # excluded here, for the same underlying reason: it drives live
+      # GameNetworkingSockets, and GNS is not UBSan-clean under our check set.
+      # Specifically, GNS *deliberately* disables the alignment check for its own
+      # build — its vendored cmake/FindUBSan.cmake adds `-fno-sanitize=alignment`
+      # to the stock arsenm/sanitizers-cmake flags (its FindTSan.cmake is
+      # unmodified, so this is a considered change, not boilerplate) — while
+      # `alignment` is one of our eight enabled-and-fatal checks.
+      #
+      # The separate `vptr` false positive that first surfaced this (a virtual call
+      # into GNS reported as "does not point to an object of type
+      # 'ISteamNetworkingUtils'") is FIXED at the root in cmake/Sanitizers.cmake:
+      # UBSan now enables only the curated eight checks rather than the whole
+      # `undefined` group, so vptr is no longer asked of `-fno-rtti` vendor code.
+      # This exclusion covers the remaining, genuinely-GNS-side gap. See #636.
+      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
       env:
         UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
@@ -740,7 +756,22 @@ jobs:
       # not the whole suite at once), so 2-wide is safe rather than left serial.
       # Independent of the build step's compile-time `--parallel 2`: that bounds
       # peak compiler RSS, this bounds peak instrumented-test RSS.
-      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
+      #
+      # ServerAuthoritativeLoopTest — drives live GameNetworkingSockets, and trips
+      # TSan's lock-order-inversion detector inside vendored GNS. The cycle is real
+      # as a graph but unreachable as a deadlock, and GNS documents it:
+      #   * create  (ConnectByIPAddress -> BInitConnection): ConnectionLock -> TableLock
+      #   * destroy (GameNetworkingSockets_Kill -> KillConnections): TableLock -> ConnectionLock
+      # Both locks are the same rank (k_nOrder_ObjectOrTable) and BOTH paths hold
+      # SteamNetworkingGlobalLock for their whole duration. GNS's own lock checker
+      # explicitly permits same-rank object/table locks in either order while the
+      # global lock is held (steamnetworkingsockets_lowlevel_misc.cpp, AboutToLock:
+      # "If we hold the global lock, it's OK"), and BInitConnection carries a comment
+      # spelling out why creation is safe: the connection is not yet in the table, so
+      # no other thread can hold its lock. TSan's detector is a pairwise lock-order
+      # graph over mutex ADDRESSES — it models neither the dominating global lock nor
+      # object reachability, so it cannot see either guarantee. See #636.
+      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
       env:
         TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
