@@ -315,6 +315,7 @@ add_executable(OloEngine-Tests
 		Networking/InterestManagerTest.cpp
 		Networking/RpcMarshallingTest.cpp
 		Networking/EntityLifecycleTest.cpp
+		Networking/NetworkScriptBindingCoverageTest.cpp
 		Networking/LockstepTest.cpp
 		Networking/P2PRollbackTest.cpp
 		Networking/SessionLobbyTest.cpp
