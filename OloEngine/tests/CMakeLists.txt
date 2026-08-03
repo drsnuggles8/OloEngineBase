@@ -61,6 +61,7 @@ add_executable(OloEngine-Tests
 		Audio/AudioCommandRegistryTest.cpp
 		Audio/AudioEventsManagerTest.cpp
 		Audio/AudioEventsSceneIntegrationTest.cpp
+		Audio/VoiceManagerTest.cpp
 		SphericalHarmonicsTest.cpp
 
 		Async/ParkingLotTest.cpp
@@ -157,6 +158,7 @@ add_executable(OloEngine-Tests
 		# declaration-only Renderer/RHI/ headers.
 		Rendering/RHIBoundaryRatchetTest.cpp
 		Rendering/RHIResourceRegistryTest.cpp
+		Rendering/RHIDescriptorHeapTest.cpp
 		Rendering/RHIEnumLoweringTest.cpp
 		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`
 		# argument (#607 native-resolution capture): the top-left-origin rect must
@@ -253,6 +255,14 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/DeferredOverlayPassTests.cpp
 		Rendering/PropertyTests/OITPropertyTests.cpp
 		Rendering/PropertyTests/ShaderCompilationTest.cpp
+		# Issue #691 Phase 3. BindlessShaderPipelineTest pins the toolchain
+		# constraint (bindless GLSL cannot enter the Vulkan-SPIR-V pipeline);
+		# BindlessHeapGpuTest is the end-to-end GPU proof — a real texture reached
+		# through nothing but an integer offset, with poison and the transient ring
+		# checked against read-back pixels. Skips cleanly without GL 4.6 or without
+		# GL_ARB_bindless_texture.
+		Rendering/PropertyTests/BindlessShaderPipelineTest.cpp
+		Rendering/PropertyTests/BindlessHeapGpuTest.cpp
 		Rendering/PropertyTests/ShaderCompileFailureRecoveryTest.cpp
 		Rendering/PropertyTests/AssetPreviewRendererTest.cpp
 		Rendering/PropertyTests/RendererAttachedTest.cpp
@@ -361,6 +371,7 @@ add_executable(OloEngine-Tests
 		SaveGame/SaveGameIntegrationTest.cpp
 		SaveGame/SaveGameComponentSerializerCoverageTest.cpp
 		SaveGame/SaveGameVersionMigrationTest.cpp
+		SaveGame/BoidComponentSaveLoadSanitizeTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp
 		# Navigation Tests
 		NavMeshTest.cpp
@@ -396,6 +407,8 @@ add_executable(OloEngine-Tests
 		AI/GoapTest.cpp
 		# AI Sight-Perception Tests
 		AI/PerceptionMathTest.cpp
+		# AI flocking / boids spatial hash (#731)
+		AI/FlockSpatialHashTest.cpp
 		# Scene spatial acceleration structure (#430)
 		SpatialAccelerationTest.cpp
 		# Inventory Tests
@@ -827,6 +840,7 @@ add_executable(OloEngine-Tests
 		Functional/Dialogue/DialogueAcceptsQuestAndGatesOnStateTest.cpp
 		Functional/AI/BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp
 		Functional/AI/PerceptionMatchesBruteForceViaSpatialIndexTest.cpp
+		Functional/AI/FlockingViaSceneTickTest.cpp
 		Functional/Scripting/LuaReadsTransformOfAnotherEntityTest.cpp
 		Functional/SaveGame/InventoryComponentSceneYAMLRoundTripTest.cpp
 		Functional/SaveGame/HierarchyPreservedAcrossSaveLoadTest.cpp

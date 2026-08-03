@@ -145,11 +145,15 @@ namespace OloEngine
 
         m_DOFShader->Bind();
 
-        context.BindTexture(0, inputColorTextureID);
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
         m_DOFShader->SetInt("u_Texture", 0);
 
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
         m_DOFShader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
+
+        // Publish the heap offsets recorded above (no-op with the heap off).
+        context.FlushHeapOffsets();
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

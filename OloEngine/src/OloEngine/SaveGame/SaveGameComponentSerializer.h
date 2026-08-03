@@ -104,6 +104,8 @@ namespace OloEngine
     struct DialogueComponent;
     struct NavMeshBoundsComponent;
     struct NavAgentComponent;
+    struct BoidComponent;
+    struct BoidObstacleComponent;
     struct NameplateComponent;
     struct IKTargetComponent;
     struct SpringBoneComponent;
@@ -229,6 +231,8 @@ namespace OloEngine
         static void Serialize(FArchive& ar, DialogueComponent& c);
         static void Serialize(FArchive& ar, NavMeshBoundsComponent& c);
         static void Serialize(FArchive& ar, NavAgentComponent& c);
+        static void Serialize(FArchive& ar, BoidComponent& c);
+        static void Serialize(FArchive& ar, BoidObstacleComponent& c);
         static void Serialize(FArchive& ar, NameplateComponent& c);
         static void Serialize(FArchive& ar, IKTargetComponent& c);
         static void Serialize(FArchive& ar, SpringBoneComponent& c);

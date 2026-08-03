@@ -278,10 +278,17 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
         "AI",
         "Inventory",
         "Abilities",
+        // Flocking (issue #731) splits across two nodes. BoidSteering sits
+        // inside the Parallelizable cluster so it genuinely overlaps
+        // Abilities / Audio / ParticlesCPU; BoidMovement is the transform
+        // WRITER and lands last, pulled behind every transform reader above by
+        // write-after-read edges.
+        "BoidSteering",
         "Audio",
         "ParticlesCPU",
         "ParticlesGPU",
         "SnowDeformers",
+        "BoidMovement",
     };
     EXPECT_EQ(Scene::GetGameplaySystemOrderForTesting(), expected);
 }
@@ -409,6 +416,37 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     EXPECT_FALSE(sched.DependsOn("SnowDeformers", "ParticlesCPU"));
     EXPECT_FALSE(sched.DependsOn("Audio", "Abilities"));
     EXPECT_FALSE(sched.DependsOn("Abilities", "Audio"));
+
+    // ── Flocking seams (issue #731) ──────────────────────────────────────────
+    // The whole point of splitting flocking in two is that the expensive
+    // neighbour search can run on a worker while the transform write stays on
+    // the game thread. Three properties make that true, and all three are
+    // edges rather than positions:
+    //
+    // 1. The integrator consumes THIS tick's forces. Without this RAW edge on
+    //    the BoidSteering channel the movement node could start before (or
+    //    concurrently with) the solve, integrating last tick's forces — or
+    //    worse, reading m_SteeringForce while a worker writes it.
+    EXPECT_TRUE(sched.DependsOn("BoidMovement", "BoidSteering"));
+    // 2. Steering reads transforms that are already final for the tick — after
+    //    the physics fence and after navigation's moves.
+    EXPECT_TRUE(sched.DependsOn("BoidSteering", "PhysicsFence"));
+    EXPECT_TRUE(sched.DependsOn("BoidSteering", "Navigation"));
+    // 3. The transform WRITE lands after every transform reader in the tail, so
+    //    a boid never moves out from under a system mid-tick.
+    EXPECT_TRUE(sched.DependsOn("BoidMovement", "Audio"));
+    EXPECT_TRUE(sched.DependsOn("BoidMovement", "ParticlesCPU"));
+    EXPECT_TRUE(sched.DependsOn("BoidMovement", "SnowDeformers"));
+    EXPECT_TRUE(sched.DependsOn("BoidMovement", "PropagateTransforms"));
+
+    // And the independence that earns BoidSteering its Parallelizable mark: no
+    // path to or from the other marked systems, so it genuinely overlaps them.
+    EXPECT_FALSE(sched.DependsOn("BoidSteering", "Abilities"));
+    EXPECT_FALSE(sched.DependsOn("Abilities", "BoidSteering"));
+    EXPECT_FALSE(sched.DependsOn("BoidSteering", "Audio"));
+    EXPECT_FALSE(sched.DependsOn("Audio", "BoidSteering"));
+    EXPECT_FALSE(sched.DependsOn("BoidSteering", "ParticlesCPU"));
+    EXPECT_FALSE(sched.DependsOn("ParticlesCPU", "BoidSteering"));
 }
 
 // ── Parallel execution ───────────────────────────────────────────────────────

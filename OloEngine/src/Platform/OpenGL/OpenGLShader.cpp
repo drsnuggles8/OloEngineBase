@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderRegistry.h"
 #include "OloEngine/Task/ParallelFor.h"
@@ -237,6 +238,21 @@ namespace OloEngine
         const Timer timer;
 
         OLO_CORE_INFO("Compiling shader '{}' from '{}'", m_Name, filepath);
+
+        // The bindless variant is tried FIRST and is allowed to decline. It
+        // cannot share the path below — glslang rejects GL_ARB_bindless_texture
+        // when generating SPIR-V, so tier 1 would fail on the very shaders this
+        // route exists for (issue #691 Phase 3, BindlessShaderPipelineTest).
+        // On any failure it falls through to the ordinary path, so a broken
+        // bindless branch costs the optimisation and not the shader.
+        if (WantsBindlessVariant(shaderSources) && CreateProgramFromRawGLSL(shaderSources))
+        {
+            const f64 bindlessTime = timer.ElapsedMillis();
+            OLO_CORE_INFO("Shader creation took {0} ms (bindless route)", bindlessTime);
+            OLO_SHADER_COMPILATION_END(m_RendererID, m_RendererID != 0, "", bindlessTime);
+            return;
+        }
+
         if (!CompileOrGetVulkanBinaries(shaderSources))
         {
             // A user-authored GLSL syntax/compile error is not an engineering
@@ -622,6 +638,199 @@ namespace OloEngine
         }
 
         return false;
+    }
+
+    // -------------------------------------------------------------------------
+    // The heap-bindless compile route (issue #691 Phase 3).
+    // -------------------------------------------------------------------------
+
+    bool OpenGLShader::WantsBindlessVariant(const std::unordered_map<GLenum, std::string>& sources)
+    {
+        // The heap has to be live before the decision, and it is: the backend
+        // installs itself in OpenGLRendererAPI::Init, which runs before any
+        // shader is compiled. A shader compiled while the toggle was off keeps
+        // its slot-based program until it is reloaded — flipping SetEnabled at
+        // runtime does not retro-actively rebuild programs, and pretending
+        // otherwise would give a half-converted frame.
+        if (!RHI::DescriptorHeap::Get().IsEnabled())
+        {
+            return false;
+        }
+
+        // Opt-in is the token itself. A shader that never mentions OLO_BINDLESS
+        // has no bindless branch to build, so building one would just compile
+        // the same slot-based code down a route with fewer safety nets.
+        return std::ranges::any_of(sources,
+                                   [](const auto& entry)
+                                   { return entry.second.find("OLO_BINDLESS") != std::string::npos; });
+    }
+
+    bool OpenGLShader::CreateProgramFromRawGLSL(const std::unordered_map<GLenum, std::string>& sources)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        m_IsBindlessVariant = true;
+
+        const GLuint program = glCreateProgram();
+
+        // The variant-keyed cache. Same reasoning as the SPIR-V tiers: a linked
+        // program binary is the expensive artefact, and it is reusable here even
+        // though nothing else about this route is — glGetProgramBinary does not
+        // care how the program was built.
+        if (LoadProgramBinaryCache(program))
+        {
+            FinalizeProgram(program, {});
+            m_CompilationStatus = ShaderCompilationStatus::Ready;
+            OLO_CORE_TRACE("[Bindless] Loaded bindless program from binary cache: {}", m_FilePath);
+            return true;
+        }
+
+        glDeleteProgram(program);
+        const GLuint freshProgram = glCreateProgram();
+
+        std::vector<GLuint> attached;
+        attached.reserve(sources.size());
+
+        bool ok = true;
+        for (const auto& [stage, stageSource] : sources)
+        {
+            // Inject the define AND the extension directive immediately after
+            // `#version`. Both have to be here rather than in
+            // include/BindlessHeap.glsl, and the reason is a GLSL rule that bites
+            // silently: an `#extension` directive must precede every
+            // non-preprocessor token in the unit. A shader that includes the heap
+            // header below its first `layout(...)` declaration — which is the
+            // natural place to put it, right next to the samplers it replaces —
+            // would be ill-formed, and whether that is diagnosed depends on the
+            // driver. Injecting here makes include placement a non-issue across
+            // every converted shader instead of a per-file rule nobody can see.
+            //
+            // This is the only text transform the route performs. Everything else
+            // is already include-resolved by PreProcess, deliberately: each extra
+            // transform is another way for the two variants to diverge in
+            // something other than the branch the author actually wrote.
+            static constexpr std::string_view kPrologue =
+                "#extension GL_ARB_bindless_texture : require\n#define OLO_BINDLESS 1\n";
+
+            std::string patched = stageSource;
+            if (const sizet versionPos = patched.find("#version"); versionPos != std::string::npos)
+            {
+                const sizet eol = patched.find('\n', versionPos);
+                const sizet insertAt = (eol == std::string::npos) ? patched.size() : eol + 1u;
+                patched.insert(insertAt, kPrologue);
+            }
+            else
+            {
+                patched.insert(0, std::string("#version 460 core\n").append(kPrologue));
+            }
+
+            const GLuint shader = glCreateShader(stage);
+            const GLchar* const cstr = patched.c_str();
+            glShaderSource(shader, 1, &cstr, nullptr);
+            glCompileShader(shader);
+
+            GLint compiled = GL_FALSE;
+            glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+            if (compiled == GL_FALSE)
+            {
+                GLint length = 0;
+                glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
+                std::vector<char> log(static_cast<sizet>(length > 0 ? length : 1));
+                glGetShaderInfoLog(shader, length, nullptr, log.data());
+                OLO_CORE_ERROR("[Bindless] '{}' stage {} failed to compile: {}",
+                               m_FilePath, Utils::GLShaderStageToString(stage), log.data());
+
+                // Dump the exact text the driver saw. There are no #line
+                // directives on this route (PreProcess splices includes in
+                // verbatim), so a reported line number refers to the FLATTENED
+                // source and is unusable without it.
+                const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
+                const std::filesystem::path dumpPath =
+                    cacheDirectory / (std::filesystem::path(m_FilePath).filename().string() +
+                                      Utils::GLShaderStageCachedOpenGLFileExtension(stage) + ".bindless.failed.glsl");
+                if (std::ofstream dump(dumpPath); dump.is_open())
+                {
+                    dump << patched;
+                    OLO_CORE_ERROR("  Flattened bindless GLSL dumped to: {}", dumpPath.string());
+                }
+
+                glDeleteShader(shader);
+                ok = false;
+                break;
+            }
+
+            glAttachShader(freshProgram, shader);
+            attached.push_back(shader);
+            m_OpenGLSourceCode[stage] = std::move(patched);
+        }
+
+        if (ok)
+        {
+            glProgramParameteri(freshProgram, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
+            glLinkProgram(freshProgram);
+
+            GLint linked = GL_FALSE;
+            glGetProgramiv(freshProgram, GL_LINK_STATUS, &linked);
+            if (linked == GL_FALSE)
+            {
+                GLint length = 0;
+                glGetProgramiv(freshProgram, GL_INFO_LOG_LENGTH, &length);
+                std::vector<char> log(static_cast<sizet>(length > 0 ? length : 1));
+                glGetProgramInfoLog(freshProgram, length, nullptr, log.data());
+                OLO_CORE_ERROR("[Bindless] '{}' failed to link: {}", m_FilePath, log.data());
+                ok = false;
+            }
+        }
+
+        for (const GLuint shader : attached)
+        {
+            glDetachShader(freshProgram, shader);
+            glDeleteShader(shader);
+        }
+
+        if (!ok)
+        {
+            glDeleteProgram(freshProgram);
+            // Degrade, do not fail. A broken bindless branch must cost the frame
+            // its optimisation, never its shader — the caller retries on the
+            // ordinary path, which is the one every device without the extension
+            // uses anyway.
+            m_IsBindlessVariant = false;
+            m_OpenGLSourceCode.clear();
+            return false;
+        }
+
+        FinalizeProgram(freshProgram, {});
+        SaveProgramBinaryCache();
+        m_CompilationStatus = ShaderCompilationStatus::Ready;
+
+        // NO SPIR-V MEANS NO Reflect(), so two pieces of state the ordinary route
+        // sets are absent here: `m_IsDeferredCapable` and the resource registry's
+        // discovered bindings. Every shader converted so far is post-processing,
+        // where neither matters — but a G-Buffer shader taken down this route
+        // would be silently misrouted out of the deferred producer bucket into
+        // the forward-overlay fallback, which is a whole-frame behaviour change
+        // with no error anywhere.
+        //
+        // Detecting it costs one substring scan of source we already hold, and it
+        // fails loudly at the moment someone converts such a shader rather than
+        // during a confusing frame-debugging session later.
+        for (const auto& [stage, stageSource] : m_OpenGLSourceCode)
+        {
+            if (stageSource.find("o_GBuffer") != std::string::npos ||
+                stageSource.find("gNormalRoughAO") != std::string::npos)
+            {
+                OLO_CORE_ERROR("[Bindless] '{}' looks like a G-Buffer shader, but the bindless route produces no "
+                               "SPIR-V and therefore never runs Reflect() — m_IsDeferredCapable stays false and the "
+                               "shader would be misrouted to the forward-overlay fallback. Give the bindless route a "
+                               "reflection source before converting deferred shaders (issue #691 Phase 3).",
+                               m_Name);
+                break;
+            }
+        }
+
+        OLO_CORE_INFO("[Bindless] '{}' built through the raw-GLSL route (no SPIR-V).", m_Name);
+        return true;
     }
 
     std::unordered_map<GLenum, std::string> OpenGLShader::PreProcess(std::string_view source)
@@ -1214,7 +1423,7 @@ namespace OloEngine
 
         const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
         const std::filesystem::path shaderFilePath = m_FilePath;
-        const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ".cached_opengl.pgr");
+        const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ProgramBinaryCacheSuffix());
 
         std::ifstream in(cachedPath, std::ios::binary);
         if (!in.is_open())
@@ -1316,7 +1525,7 @@ namespace OloEngine
 
         const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
         const std::filesystem::path shaderFilePath = m_FilePath;
-        const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ".cached_opengl.pgr");
+        const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ProgramBinaryCacheSuffix());
 
         std::ofstream out(cachedPath, std::ios::out | std::ios::binary);
         if (out.is_open())
@@ -1441,7 +1650,7 @@ namespace OloEngine
 
         const std::filesystem::path cacheDirectory = Utils::GetCacheDirectory();
         const std::filesystem::path shaderFilePath = m_FilePath;
-        const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ".cached_opengl.pgr");
+        const std::filesystem::path cachedPath = cacheDirectory / (shaderFilePath.filename().string() + ProgramBinaryCacheSuffix());
         bool disableCache = Utils::IsShaderCacheDisabled();
 
         // Shared with the non-AMD path: parse the framing, call glProgramBinary, and
@@ -1684,7 +1893,16 @@ namespace OloEngine
 
         try
         {
-            if (!CompileOrGetVulkanBinaries(shaderSources))
+            // Re-decide the variant rather than reusing the old one. This is the
+            // one place the runtime toggle CAN take effect, which makes an A/B
+            // capture possible without a restart: flip the heap on, reload the
+            // shader, and the same file comes back bindless.
+            m_IsBindlessVariant = false;
+            if (WantsBindlessVariant(shaderSources) && CreateProgramFromRawGLSL(shaderSources))
+            {
+                EnsureLinked();
+            }
+            else if (!CompileOrGetVulkanBinaries(shaderSources))
             {
                 // Broken GLSL in the edited file — already logged via
                 // OLO_CORE_CRITICAL. Fall through to Failed; the restore-old-program
@@ -1790,6 +2008,13 @@ namespace OloEngine
             return;
 
         glUseProgram(m_RendererID);
+
+        // Record whether the program now in flight actually reads the descriptor
+        // heap. The heap's enabled flag is global; this is per shader, because
+        // the bindless route may have declined and fallen back. Without it,
+        // RGCommandContext::BindTextureOrHeapOffset would skip the bind for a
+        // program that reads sampler binding points (issue #691 Phase 3).
+        Shader::SetBoundProgramBindless(m_IsBindlessVariant);
 
         // Update profiler counters
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::ShaderBinds, 1);

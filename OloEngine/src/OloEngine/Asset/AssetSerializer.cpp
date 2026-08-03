@@ -1513,6 +1513,7 @@ namespace OloEngine
 
         out << YAML::Key << "VolumeMultiplier" << YAML::Value << config.VolumeMultiplier;
         out << YAML::Key << "PitchMultiplier" << YAML::Value << config.PitchMultiplier;
+        out << YAML::Key << "Priority" << YAML::Value << config.Priority;
         out << YAML::Key << "PlayOnAwake" << YAML::Value << config.PlayOnAwake;
         out << YAML::Key << "Looping" << YAML::Value << config.Looping;
 
@@ -1576,6 +1577,9 @@ namespace OloEngine
             // Multipliers: non-negative (a negative volume/pitch is meaningless).
             config.VolumeMultiplier = std::max(0.0f, readFloat("VolumeMultiplier", config.VolumeMultiplier));
             config.PitchMultiplier = std::max(0.0f, readFloat("PitchMultiplier", config.PitchMultiplier));
+            // Voice-budget priority (issue #730): [0, 1], neutral 0.5 when absent — a
+            // preset authored before the budget existed loads unchanged.
+            config.Priority = std::clamp(readFloat("Priority", config.Priority), 0.0f, 1.0f);
 
             if (node["PlayOnAwake"])
                 config.PlayOnAwake = node["PlayOnAwake"].as<bool>(config.PlayOnAwake);

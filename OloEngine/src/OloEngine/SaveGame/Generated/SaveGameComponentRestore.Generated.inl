@@ -22,6 +22,8 @@ TRY_LOAD_COMPONENT(AudioListenerComponent);
 TRY_LOAD_COMPONENT(AudioSourceComponent);
 TRY_LOAD_COMPONENT(BehaviorTreeComponent);
 TRY_LOAD_COMPONENT(BoatComponent);
+TRY_LOAD_COMPONENT(BoidComponent);
+TRY_LOAD_COMPONENT(BoidObstacleComponent);
 TRY_LOAD_COMPONENT(BoxCollider2DComponent);
 TRY_LOAD_COMPONENT(BoxCollider3DComponent);
 TRY_LOAD_COMPONENT(BuoyancyComponent);

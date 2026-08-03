@@ -157,9 +157,12 @@ namespace OloEngine
         context.Clear();
 
         m_ContactShadowShader->Bind();
-        context.BindTexture(0, inputColorTextureID);
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID);
-        context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_NORMAL, gbufferNormalID);
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL, gbufferNormalID, RHI::HeapSlotLifetime::FrameTransient);
+
+        // Publish the heap offsets recorded above (no-op with the heap off).
+        context.FlushHeapOffsets();
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

@@ -1,5 +1,6 @@
 #pragma once
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "Platform/OpenGL/OpenGLDescriptorHeap.h"
 
 #include <glad/gl.h>
 
@@ -21,6 +22,12 @@ namespace OloEngine
     class OpenGLRendererAPI : public RendererAPI
     {
       public:
+        // Owns the descriptor-heap backend, so the heap's residency and sampler
+        // objects are dropped with the device rather than at static destruction
+        // — a resident ARB_bindless_texture handle keeps its texture immutable,
+        // so leaking one outlives the context that could release it.
+        ~OpenGLRendererAPI() override;
+
         void Init() override;
         void SetViewport(u32 x, u32 y, u32 width, u32 height) override;
 
@@ -296,5 +303,10 @@ namespace OloEngine
         GLint m_MaxPatchVertices = 0;
         // Cached in Init(): GL_ARB_gpu_shader_int64 && GL_NV_shader_atomic_int64 (issue #629).
         bool m_SupportsInt64Atomics = false;
+        // The ARB_bindless_texture half of RHI::DescriptorHeap (issue #691
+        // Phase 3). Installed into the process-wide neutral heap by Init(); a
+        // member rather than a static so its GL objects cannot outlive the
+        // context. Inert when the extension is absent.
+        OpenGLDescriptorHeapBackend m_DescriptorHeapBackend;
     };
 } // namespace OloEngine

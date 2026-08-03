@@ -28,36 +28,205 @@ namespace OloEngine
 
     AudioSource::~AudioSource()
     {
+        // Hand the slot back before the backend object dies — the budget holds a raw
+        // pointer to this host and would otherwise drive a destroyed source.
+        ReleaseVoice();
         UninitializeDSP();
         ::ma_sound_uninit(m_Sound.get());
         m_Sound = nullptr;
     }
 
+    Audio::VoiceParams AudioSource::BuildVoiceParams() const
+    {
+        Audio::VoiceParams params;
+        params.Priority = m_Config.Priority;
+        params.Volume = m_Config.VolumeMultiplier;
+        params.Pitch = m_Config.PitchMultiplier;
+        params.Looping = m_Config.Looping;
+        params.Spatialized = m_Spatialization;
+        params.Position = m_Position;
+        params.MinDistance = m_Config.MinDistance;
+        params.MaxDistance = m_Config.MaxDistance;
+        params.DurationSeconds = GetLengthSeconds();
+        return params;
+    }
+
+    void AudioSource::ReleaseVoice() const
+    {
+        // Exchange, not load-then-store: two threads racing to release must not both hand
+        // the same handle back (the second Release would be a no-op today, but the pattern
+        // is the one that stays correct if handles are ever recycled).
+        const Audio::VoiceHandle handle = m_VoiceHandle.exchange(Audio::kInvalidVoiceHandle, std::memory_order_acq_rel);
+        if (handle != Audio::kInvalidVoiceHandle)
+        {
+            Audio::VoiceManager::Get().Release(handle);
+        }
+    }
+
+    void AudioSource::SyncVoiceParams() const
+    {
+        const Audio::VoiceHandle handle = m_VoiceHandle.load(std::memory_order_relaxed);
+        if (handle != Audio::kInvalidVoiceHandle)
+        {
+            Audio::VoiceManager::Get().UpdateParams(handle, BuildVoiceParams());
+        }
+    }
+
     void AudioSource::Play() const
     {
-        ::ma_sound_seek_to_pcm_frame(m_Sound.get(), 0);
-        ::ma_sound_start(m_Sound.get());
+        // Re-triggering an already-registered source restarts it: drop the old voice so
+        // the budget doesn't end up holding two records for one backend sound (the second
+        // of which it could never stop).
+        ReleaseVoice();
+        const Audio::VoiceHandle handle = Audio::VoiceManager::Get().Acquire(this, BuildVoiceParams());
+        m_VoiceHandle.store(handle, std::memory_order_release);
+        if (handle == Audio::kInvalidVoiceHandle)
+        {
+            // Budget unavailable (only possible if Acquire was handed a null host, which
+            // cannot happen here) — fall back to unmanaged playback rather than silence.
+            ::ma_sound_seek_to_pcm_frame(m_Sound.get(), 0);
+            ::ma_sound_start(m_Sound.get());
+        }
+        // Otherwise Acquire has already driven OnVoiceStart if this voice won a slot;
+        // if it did not, the source is virtual and starts when one frees.
     }
 
     void AudioSource::Pause() const
     {
+        // The voice stays registered — a paused source is still logically owned by its
+        // entity and must resume where it left off — but it is marked paused so the budget
+        // hands its slot to something audible AND, crucially, never calls OnVoiceStart on
+        // it. Without the paused flag the budget could promote this voice and restart
+        // playback the game explicitly stopped.
         ::ma_sound_stop(m_Sound.get());
+        const Audio::VoiceHandle handle = m_VoiceHandle.load(std::memory_order_relaxed);
+        if (handle != Audio::kInvalidVoiceHandle)
+        {
+            Audio::VoiceManager::Get().SetVoicePaused(handle, true);
+        }
     }
 
     void AudioSource::UnPause() const
     {
-        ::ma_sound_start(m_Sound.get());
+        const Audio::VoiceHandle handle = m_VoiceHandle.load(std::memory_order_relaxed);
+        if (handle == Audio::kInvalidVoiceHandle)
+        {
+            // Never registered (budget unavailable) — unmanaged resume.
+            ::ma_sound_start(m_Sound.get());
+            return;
+        }
+
+        // Clearing the pause re-enters the contest. If this voice lost its slot while
+        // paused and now wins one back, the budget drives OnVoiceStart itself (seeking to
+        // the retained position).
+        Audio::VoiceManager::Get().SetVoicePaused(handle, false);
+
+        // But a voice that was paused while UNCONTENDED never left VoiceState::Playing —
+        // nobody wanted its slot, so the budget had no transition to emit and will emit
+        // none now. Nothing would restart the backend that Pause() stopped, leaving the
+        // source silently dead. Restarting here covers that case; for a voice the budget
+        // just promoted this is a harmless second start on an already-running sound.
+        if (Audio::VoiceManager::Get().IsAudible(handle))
+        {
+            ::ma_sound_start(m_Sound.get());
+        }
     }
 
     void AudioSource::Stop() const
     {
+        ReleaseVoice();
         ::ma_sound_stop(m_Sound.get());
         ::ma_sound_seek_to_pcm_frame(m_Sound.get(), 0);
     }
 
     bool AudioSource::IsPlaying() const
     {
+        // Virtualized counts as playing — see the header. A stolen looping ambience is
+        // still "playing" from the game's point of view; only the mixer disagrees.
+        const Audio::VoiceHandle handle = m_VoiceHandle.load(std::memory_order_acquire);
+        if (handle != Audio::kInvalidVoiceHandle && Audio::VoiceManager::Get().IsActive(handle))
+        {
+            return true;
+        }
         return ::ma_sound_is_playing(m_Sound.get());
+    }
+
+    bool AudioSource::IsAudible() const
+    {
+        const Audio::VoiceHandle handle = m_VoiceHandle.load(std::memory_order_acquire);
+        if (handle == Audio::kInvalidVoiceHandle)
+        {
+            return ::ma_sound_is_playing(m_Sound.get());
+        }
+        return Audio::VoiceManager::Get().IsAudible(handle);
+    }
+
+    bool AudioSource::IsVirtualized() const
+    {
+        const Audio::VoiceHandle handle = m_VoiceHandle.load(std::memory_order_acquire);
+        return handle != Audio::kInvalidVoiceHandle && Audio::VoiceManager::Get().IsVirtual(handle);
+    }
+
+    f64 AudioSource::GetLengthSeconds() const
+    {
+        if (m_LengthSecondsCache >= 0.0)
+        {
+            return m_LengthSecondsCache;
+        }
+
+        f32 length = 0.0f;
+        if (::ma_sound_get_length_in_seconds(m_Sound.get(), &length) != MA_SUCCESS || !std::isfinite(length) || length < 0.0f)
+        {
+            // 0 = "unknown length" to the budget: such a voice is never auto-retired, so a
+            // clip whose length the backend cannot report is simply owned by its caller.
+            m_LengthSecondsCache = 0.0;
+        }
+        else
+        {
+            m_LengthSecondsCache = static_cast<f64>(length);
+        }
+        return m_LengthSecondsCache;
+    }
+
+    f64 AudioSource::GetPlaybackPositionSeconds() const
+    {
+        const Audio::VoiceHandle handle = m_VoiceHandle.load(std::memory_order_acquire);
+        if (handle != Audio::kInvalidVoiceHandle && Audio::VoiceManager::Get().IsActive(handle))
+        {
+            return Audio::VoiceManager::Get().GetPlaybackPosition(handle);
+        }
+        return OnVoiceQueryPosition();
+    }
+
+    bool AudioSource::OnVoiceStart(f64 positionSeconds) const
+    {
+        // Resume at the retained position rather than from zero — this is what makes a
+        // devirtualized loop come back in phase instead of restarting (issue #730,
+        // acceptance criterion 2).
+        const u32 sampleRate = ::ma_engine_get_sample_rate(static_cast<ma_engine*>(AudioEngine::GetEngine()));
+        const f64 safePosition = (std::isfinite(positionSeconds) && positionSeconds > 0.0) ? positionSeconds : 0.0;
+        const u64 frame = (sampleRate > 0) ? static_cast<u64>(safePosition * static_cast<f64>(sampleRate)) : 0ull;
+        ::ma_sound_seek_to_pcm_frame(m_Sound.get(), frame);
+        return ::ma_sound_start(m_Sound.get()) == MA_SUCCESS;
+    }
+
+    f64 AudioSource::OnVoiceStop() const
+    {
+        // Read the cursor BEFORE stopping: miniaudio leaves it where it was, but reading
+        // first keeps this correct regardless of any future stop-resets-cursor behavior.
+        const f64 position = OnVoiceQueryPosition();
+        ::ma_sound_stop(m_Sound.get());
+        return position;
+    }
+
+    f64 AudioSource::OnVoiceQueryPosition() const
+    {
+        f32 cursor = 0.0f;
+        if (::ma_sound_get_cursor_in_seconds(m_Sound.get(), &cursor) != MA_SUCCESS || !std::isfinite(cursor) || cursor < 0.0f)
+        {
+            return -1.0;
+        }
+        return static_cast<f64>(cursor);
     }
 
     [[nodiscard("Store this!")]] static ma_attenuation_model GetAttenuationModel(const AttenuationModelType model)
@@ -79,6 +248,13 @@ namespace OloEngine
 
     void AudioSource::SetConfig(const AudioSourceConfig& config)
     {
+        // Mirror the config so the voice budget can re-score this source at any time
+        // without reaching back through the owning component. The push to the budget
+        // happens at the END of this function, not here: BuildVoiceParams reads
+        // m_Spatialization, which is only updated further down, so syncing now would
+        // publish the previous spatialization flag alongside the new config.
+        m_Config = config;
+
         ma_sound* sound = m_Sound.get();
         ::ma_sound_set_volume(sound, config.VolumeMultiplier);
         ::ma_sound_set_pitch(sound, config.PitchMultiplier);
@@ -128,26 +304,62 @@ namespace OloEngine
             SetHighPassCutoff(config.HighPassCutoff);
             SetReverbSend(config.ReverbSend);
         }
+
+        // Last: m_Spatialization is settled by now, so the budget gets the whole new
+        // config in one consistent push.
+        SyncVoiceParams();
+    }
+
+    void AudioSource::SetPriority(const f32 priority) const
+    {
+        m_Config.Priority = std::isfinite(priority) ? std::clamp(priority, 0.0f, 1.0f) : 0.5f;
+        SyncVoiceParams();
     }
 
     void AudioSource::SetVolume(const f32 volume) const
     {
+        // Volume reaches here from YAML, script and the network, and it now feeds the
+        // voice score as well as the mixer — so reject a non-finite value rather than
+        // letting it through (CLAUDE.md / cpp-coding-quality §2, same convention as
+        // SetPriority and SoundGraphSound::SetVolume).
+        if (!std::isfinite(volume))
+        {
+            OLO_CORE_WARN("AudioSource::SetVolume - ignoring non-finite volume; keeping {}", m_Config.VolumeMultiplier);
+            return;
+        }
+
+        // Gain feeds the voice score, so every mutator that the budget ranks on has to
+        // re-sync — a source faded to silence should become the next steal victim.
+        m_Config.VolumeMultiplier = volume;
+        SyncVoiceParams();
         ::ma_sound_set_volume(m_Sound.get(), volume);
     }
 
     void AudioSource::SetPitch(const f32 pitch) const
     {
+        if (!std::isfinite(pitch))
+        {
+            OLO_CORE_WARN("AudioSource::SetPitch - ignoring non-finite pitch; keeping {}", m_Config.PitchMultiplier);
+            return;
+        }
+
+        m_Config.PitchMultiplier = pitch;
+        SyncVoiceParams();
         ::ma_sound_set_pitch(m_Sound.get(), pitch);
     }
 
     void AudioSource::SetLooping(const bool state) const
     {
+        m_Config.Looping = state;
+        SyncVoiceParams();
         ::ma_sound_set_looping(m_Sound.get(), state);
     }
 
     void AudioSource::SetSpatialization(const bool state)
     {
         m_Spatialization = state;
+        m_Config.Spatialization = state;
+        SyncVoiceParams();
         ::ma_sound_set_spatialization_enabled(m_Sound.get(), state);
     }
 
@@ -180,11 +392,15 @@ namespace OloEngine
 
     void AudioSource::SetMinDistance(const f32 minDistance) const
     {
+        m_Config.MinDistance = minDistance;
+        SyncVoiceParams();
         ::ma_sound_set_min_distance(m_Sound.get(), minDistance);
     }
 
     void AudioSource::SetMaxDistance(const f32 maxDistance) const
     {
+        m_Config.MaxDistance = maxDistance;
+        SyncVoiceParams();
         ::ma_sound_set_max_distance(m_Sound.get(), maxDistance);
     }
 
@@ -200,6 +416,11 @@ namespace OloEngine
 
     void AudioSource::SetPosition(const glm::vec3& position) const
     {
+        // Scene::UpdateAudio pushes this every frame for every source; keeping the mirror
+        // fresh is what makes distance-based stealing track a moving listener/emitter
+        // instead of ranking on wherever the sound was when it started.
+        m_Position = position;
+        SyncVoiceParams();
         ::ma_sound_set_position(m_Sound.get(), position.x, position.y, position.z);
     }
 

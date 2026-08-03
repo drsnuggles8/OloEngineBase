@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Passes/ColorGradingRenderPass.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -23,6 +24,13 @@ namespace OloEngine
     {
         if (m_IdentityLUTTexture.IsValid())
         {
+            // Retire the heap descriptors naming this texture BEFORE deleting it.
+            // ResourceRegistry deliberately keeps a handle alive across an
+            // in-place reload, so a view's own generation cannot detect that its
+            // descriptor now names a deleted object — OffsetOf would go on
+            // answering a valid offset, and the persistent view cache would keep
+            // serving the stale entry on a hit (issue #691 Phase 3).
+            RHI::DescriptorHeap::Get().InvalidateResource(m_IdentityLUTTexture);
             RenderCommand::DeleteTexture(m_IdentityLUTTexture);
             m_IdentityLUTTexture = RHI::NullResource;
         }
@@ -210,14 +218,19 @@ namespace OloEngine
 
         m_Shader->Bind();
 
-        context.BindTexture(0, inputColorTextureID);
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
         m_Shader->SetInt("u_Texture", 0);
 
         // The fragment shader emits its output entirely from the LUT — without
         // a texture at TEX_POSTPROCESS_LUT it samples zero and the screen goes
         // black. Bind the identity LUT as a default so enabling the toggle is
         // a no-op when no user LUT has been wired up.
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_LUT, m_IdentityLUTTexture);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_LUT, m_IdentityLUTTexture,
+                                        RHI::HeapSlotLifetime::Persistent);
+
+        // Publish the heap offsets recorded above. No-op on the slot-based path,
+        // so a converted pass costs nothing when the heap is off (issue #691).
+        context.FlushHeapOffsets();
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

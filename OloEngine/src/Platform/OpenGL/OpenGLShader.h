@@ -196,6 +196,49 @@ namespace OloEngine
         // in exactly one place (see issue #267).
         [[nodiscard]] bool LoadProgramBinaryCache(GLenum program) const;
 
+        // Which on-disk program-binary cache this shader's CURRENT variant owns.
+        // The two variants must never share a file: the driver stamps the binary
+        // with its own version, not with which GLSL branch produced it, so a
+        // bindless binary loaded into a slot-based run would link cleanly and
+        // sample nothing.
+        [[nodiscard]] auto ProgramBinaryCacheSuffix() const -> std::string
+        {
+            return m_IsBindlessVariant ? ".cached_opengl.bindless.pgr" : ".cached_opengl.pgr";
+        }
+
+        // ---------------------------------------------------------------------
+        // The heap-bindless compile route (issue #691 Phase 3).
+        //
+        // A shader written against include/BindlessHeap.glsl cannot travel the
+        // normal path at ALL: tier 1 targets Vulkan SPIR-V and glslang rejects
+        // GL_ARB_bindless_texture outright ("not allowed when using generating
+        // SPIR-V codes" — pinned by BindlessShaderPipelineTest). So the bindless
+        // variant is compiled from the ORIGINAL, include-resolved GLSL straight
+        // through glShaderSource, skipping shaderc and SPIRV-Cross entirely.
+        //
+        // Two consequences a reader should expect rather than discover:
+        //
+        //   * NO SPIR-V, therefore no Reflect(). The five SPIR-V-reading shader
+        //     tests still cover this file's SHARED declarations through the
+        //     default variant (one source file, two builds), so what goes
+        //     unvalidated is only the bindless branch's own declarations.
+        //   * THE PROGRAM-BINARY CACHE MUST BE KEYED ON THE VARIANT. Loading a
+        //     bindless binary into a slot-based run would be silently wrong, and
+        //     the driver cannot tell them apart — same shader file, same driver
+        //     stamp. This is the "encode the target env in the cache filename"
+        //     lesson from ADR 0011 section 3, one variant axis over.
+        // ---------------------------------------------------------------------
+
+        // True when the source opts in (`OLO_BINDLESS` appears) AND the heap is
+        // actually enabled. Checked once at compile time: flipping the runtime
+        // toggle afterwards needs a shader reload to take effect.
+        [[nodiscard]] static bool WantsBindlessVariant(const std::unordered_map<GLenum, std::string>& sources);
+
+        // Compiles + links the bindless variant. Returns false on any failure,
+        // and the caller then falls back to the ordinary path — a broken
+        // bindless branch must cost the frame its optimisation, never its shader.
+        [[nodiscard]] bool CreateProgramFromRawGLSL(const std::unordered_map<GLenum, std::string>& sources);
+
       private:
         u32 m_RendererID{};
         // Generation-checked identity for m_RendererID above, kept in
@@ -210,6 +253,13 @@ namespace OloEngine
 
         std::unordered_map<GLenum, std::string> m_OpenGLSourceCode;
         std::unordered_map<GLenum, std::string> m_OriginalSourceCode; // Store original preprocessed source
+
+        // True when this program was built by CreateProgramFromRawGLSL, i.e. it
+        // indexes the descriptor heap rather than sampler binding points. Read
+        // by the program-binary cache (which must not mix the two variants) and
+        // exposed so a pass can assert it is not writing heap offsets at a
+        // program that has no heap in it.
+        bool m_IsBindlessVariant = false;
 
         // Paths resolved during #include expansion — used to invalidate shader
         // cache when any include file is modified (not just the main .glsl).

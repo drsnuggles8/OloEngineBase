@@ -34,6 +34,19 @@ layout(location = 0) out vec4 o_Color;
 
 layout(location = 0) in vec2 v_TexCoord;
 
+// Texture inputs. Under heap-bindless (issue #691 Phase 3) these become heap
+// lookups keyed by the SAME slot numbers the bindful branch declares, so the two
+// variants cannot disagree about which texture is which — and note the shader
+// BODY below is byte-identical between them. The include is inert without
+// OLO_BINDLESS, and the engine only ever defines it on the raw-GLSL compile
+// route (glslang rejects GL_ARB_bindless_texture when generating SPIR-V).
+#include "include/BindlessHeap.glsl"
+
+#ifdef OLO_BINDLESS
+#define u_DepthTexture OLO_HEAP_TEX_2D(19)   // TEX_POSTPROCESS_DEPTH
+#define u_NormalsTexture OLO_HEAP_TEX_2D(22) // TEX_SCENE_NORMALS
+#define u_NoiseTexture OLO_HEAP_TEX_2D(21)   // TEX_SSAO_NOISE
+#else
 // Scene depth (from ScenePass)
 layout(binding = 19) uniform sampler2D u_DepthTexture;
 
@@ -42,6 +55,7 @@ layout(binding = 22) uniform sampler2D u_NormalsTexture;
 
 // 4x4 random rotation noise texture (unit vectors)
 layout(binding = 21) uniform sampler2D u_NoiseTexture;
+#endif
 
 // SSAO UBO (binding 9)
 layout(std140, binding = 9) uniform SSAOUBO

@@ -91,6 +91,26 @@ registry.push_back(OLO_GFW_FIELD_RANGE(BoatComponent, "SteerInput", m_SteerInput
 
 static void BuildRegistryChunk1(std::vector<FieldEntry>& registry)
 {
+// BoidComponent
+registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "MaxSpeed", m_MaxSpeed, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1000.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "MaxForce", m_MaxForce, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10000.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "NeighborRadius", m_NeighborRadius, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(1000.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "SeparationRadius", m_SeparationRadius, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(1000.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "MaxNeighbors", m_MaxNeighbors, OLO_GFW_BOUND(1u), OLO_GFW_BOUND(4096u)));
+registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "SeparationWeight", m_SeparationWeight, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "AlignmentWeight", m_AlignmentWeight, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "CohesionWeight", m_CohesionWeight, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "GoalWeight", m_GoalWeight, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
+registry.push_back(OLO_GFW_FIELD(BoidComponent, "GoalPosition", m_GoalPosition));
+registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "ObstacleAvoidWeight", m_ObstacleAvoidWeight, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(BoidComponent, "ObstacleAvoidRadius", m_ObstacleAvoidRadius, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1000.0f)));
+registry.push_back(OLO_GFW_FIELD(BoidComponent, "LockYAxis", m_LockYAxis));
+registry.push_back(OLO_GFW_FIELD(BoidComponent, "FaceVelocity", m_FaceVelocity));
+registry.push_back(OLO_GFW_FIELD(BoidComponent, "Velocity", m_Velocity));
+
+// BoidObstacleComponent
+registry.push_back(OLO_GFW_FIELD_RANGE(BoidObstacleComponent, "Radius", m_Radius, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(10000.0f)));
+
 // BoxCollider2DComponent
 registry.push_back(OLO_GFW_FIELD(BoxCollider2DComponent, "Offset", Offset));
 registry.push_back(OLO_GFW_FIELD(BoxCollider2DComponent, "Size", Size));
@@ -138,6 +158,10 @@ registry.push_back(OLO_GFW_FIELD(CinematicComponent, "PlayOnStart", PlayOnStart)
 registry.push_back(OLO_GFW_FIELD(CinematicComponent, "Loop", Loop));
 registry.push_back(OLO_GFW_FIELD(CinematicComponent, "PlaybackSpeed", PlaybackSpeed));
 
+}
+
+static void BuildRegistryChunk2(std::vector<FieldEntry>& registry)
+{
 // CircleCollider2DComponent
 registry.push_back(OLO_GFW_FIELD(CircleCollider2DComponent, "Offset", Offset));
 registry.push_back(OLO_GFW_FIELD(CircleCollider2DComponent, "Radius", Radius));
@@ -168,10 +192,6 @@ registry.push_back(OLO_GFW_FIELD(ClothComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD(ClothComponent, "AttachmentEntity", m_AttachmentEntity));
 registry.push_back(OLO_GFW_FIELD(ClothComponent, "AttachmentBone", m_AttachmentBone));
 
-}
-
-static void BuildRegistryChunk2(std::vector<FieldEntry>& registry)
-{
 // CloudscapeComponent
 registry.push_back(OLO_GFW_FIELD(CloudscapeComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD_RANGE(CloudscapeComponent, "LayerBottom", m_LayerBottom, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(20000.0f)));
@@ -203,6 +223,10 @@ registry.push_back(OLO_GFW_FIELD(ConvexMeshCollider3DComponent, "Scale", m_Scale
 registry.push_back(OLO_GFW_FIELD(ConvexMeshCollider3DComponent, "ConvexRadius", m_ConvexRadius));
 registry.push_back(OLO_GFW_FIELD(ConvexMeshCollider3DComponent, "MaxVertices", m_MaxVertices));
 
+}
+
+static void BuildRegistryChunk3(std::vector<FieldEntry>& registry)
+{
 // DecalComponent
 registry.push_back(OLO_GFW_FIELD(DecalComponent, "Color", m_Color));
 registry.push_back(OLO_GFW_FIELD(DecalComponent, "Size", m_Size));
@@ -241,10 +265,6 @@ registry.push_back(OLO_GFW_FIELD(EnvironmentMapComponent, "IBLIntensity", m_IBLI
 registry.push_back(OLO_GFW_FIELD(EnvironmentMapComponent, "UseSphericalHarmonics", m_UseSphericalHarmonics));
 registry.push_back(OLO_GFW_FIELD(EnvironmentMapComponent, "Tint", m_Tint));
 
-}
-
-static void BuildRegistryChunk3(std::vector<FieldEntry>& registry)
-{
 // FluidComponent
 registry.push_back(OLO_GFW_FIELD(FluidComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD(FluidComponent, "Settings", m_Settings));
@@ -274,6 +294,10 @@ registry.push_back(OLO_GFW_FIELD_RANGE(FogVolumeComponent, "BlendWeight", m_Blen
 registry.push_back(OLO_GFW_FIELD(FogVolumeComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD(FogVolumeComponent, "AffectTransparent", m_AffectTransparent));
 
+}
+
+static void BuildRegistryChunk4(std::vector<FieldEntry>& registry)
+{
 // FoliageComponent
 registry.push_back(OLO_GFW_FIELD(FoliageComponent, "Enabled", m_Enabled));
 
@@ -310,10 +334,6 @@ registry.push_back(OLO_GFW_FIELD(FootIKComponent, "RightHandTargetEntity", Right
 registry.push_back(OLO_GFW_FIELD_RANGE(FootIKComponent, "HandChainLength", HandChainLength, OLO_GFW_BOUND(2u), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD_RANGE(FootIKComponent, "HandWeight", HandWeight, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
 
-}
-
-static void BuildRegistryChunk4(std::vector<FieldEntry>& registry)
-{
 // GoapAgentComponent
 registry.push_back(OLO_GFW_FIELD(GoapAgentComponent, "Enabled", Enabled));
 
@@ -344,6 +364,10 @@ registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainTolerance", ChainToler
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainWeight", ChainWeight));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainTargetEntity", ChainTargetEntity));
 
+}
+
+static void BuildRegistryChunk5(std::vector<FieldEntry>& registry)
+{
 // InstancePortalComponent
 registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "TargetZoneID", TargetZoneID));
 registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "InstanceType", InstanceType));
@@ -376,10 +400,6 @@ registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "PickupRadius", PickupRadi
 registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "AutoPickup", AutoPickup));
 registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "DespawnTimer", DespawnTimer));
 
-}
-
-static void BuildRegistryChunk5(std::vector<FieldEntry>& registry)
-{
 // LODGroupComponent
 registry.push_back(OLO_GFW_FIELD(LODGroupComponent, "LODGroup.Bias", m_LODGroup.Bias));
 registry.push_back(OLO_GFW_FIELD(LODGroupComponent, "Enabled", m_Enabled));
@@ -425,6 +445,10 @@ registry.push_back(OLO_GFW_FIELD_RANGE(LocomotionComponent, "WalkClipSpeed", Wal
 registry.push_back(OLO_GFW_FIELD_RANGE(LocomotionComponent, "RunClipSpeed", RunClipSpeed, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(LocomotionComponent, "MaxStrideScale", MaxStrideScale, OLO_GFW_BOUND(1.0f), OLO_GFW_BOUND(4.0f)));
 
+}
+
+static void BuildRegistryChunk6(std::vector<FieldEntry>& registry)
+{
 // LuaScriptComponent
 registry.push_back(OLO_GFW_FIELD(LuaScriptComponent, "ScriptFile", ScriptFile));
 
@@ -458,10 +482,6 @@ registry.push_back(OLO_GFW_FIELD(NameplateComponent, "ManaBarColor", m_ManaBarCo
 registry.push_back(OLO_GFW_FIELD(NameplateComponent, "BarBackgroundColor", m_BarBackgroundColor));
 registry.push_back(OLO_GFW_FIELD(NameplateComponent, "ManaBarGap", m_ManaBarGap));
 
-}
-
-static void BuildRegistryChunk6(std::vector<FieldEntry>& registry)
-{
 // NavAgentComponent
 registry.push_back(OLO_GFW_FIELD_RANGE(NavAgentComponent, "Radius", m_Radius, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(100.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(NavAgentComponent, "Height", m_Height, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(100.0f)));
@@ -1311,6 +1331,15 @@ registry.push_back(MakeSetterField<AudioSourceComponent, float>(
         comp.GetConfig().PitchMultiplier = v;
         if (comp.Source)
             comp.Source->SetPitch(v);
+    }));
+registry.push_back(MakeSetterField<AudioSourceComponent, float>(
+    "AudioSourceComponent", "Priority",
+    [](const AudioSourceComponent& comp) -> float { return (comp.GetConfig().Priority); },
+    [](AudioSourceComponent& comp, const float& v)
+    {
+        comp.GetConfig().Priority = v;
+        if (comp.Source)
+            comp.Source->SetPriority(v);
     }));
 registry.push_back(MakeSetterField<AudioSourceComponent, bool>(
     "AudioSourceComponent", "PlayOnAwake",

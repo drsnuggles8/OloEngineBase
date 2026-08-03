@@ -162,6 +162,41 @@ namespace OloEngine::Tests
             return buf;
         }
 
+        // Writes exactly the fields SerializeAudioSourceConfig() reads unconditionally
+        // before its "Format v14" (voice-budget Priority, issue #730) gate, followed by
+        // the SoundConfigHandle tail AudioSourceComponent::Serialize() appends. The
+        // Priority gate sits INSIDE the config block, ahead of that handle — get the
+        // ordering wrong and a v13 save reads the handle's low bytes as a float.
+        std::vector<u8> BuildPreV14AudioSourcePayload(const AudioSourceConfig& c, AssetHandle soundConfigHandle)
+        {
+            std::vector<u8> buf;
+            FMemoryWriter w(buf);
+            w.ArIsSaveGame = true;
+
+            f32 volumeMultiplier = c.VolumeMultiplier, pitchMultiplier = c.PitchMultiplier;
+            bool playOnAwake = c.PlayOnAwake, looping = c.Looping, spatialization = c.Spatialization;
+            AttenuationModelType attenuationModel = c.AttenuationModel;
+            f32 rollOff = c.RollOff, minGain = c.MinGain, maxGain = c.MaxGain;
+            f32 minDistance = c.MinDistance, maxDistance = c.MaxDistance;
+            f32 coneInnerAngle = c.ConeInnerAngle, coneOuterAngle = c.ConeOuterAngle, coneOuterGain = c.ConeOuterGain;
+            f32 dopplerFactor = c.DopplerFactor;
+            f32 spread = c.Spread, focus = c.Focus;
+            f32 lowPassCutoff = c.LowPassCutoff, highPassCutoff = c.HighPassCutoff, reverbSend = c.ReverbSend;
+            AssetHandle handle = soundConfigHandle;
+
+            w << volumeMultiplier << pitchMultiplier;
+            w << playOnAwake << looping << spatialization;
+            w << attenuationModel;
+            w << rollOff << minGain << maxGain;
+            w << minDistance << maxDistance;
+            w << coneInnerAngle << coneOuterAngle << coneOuterGain;
+            w << dopplerFactor;
+            w << spread << focus;
+            w << lowPassCutoff << highPassCutoff << reverbSend;
+            w << handle;
+            return buf;
+        }
+
         // Locates the single typeHash+dataSize+payload component block within a
         // captured save-game buffer (SAVE_COMPONENT's on-disk framing) and returns
         // its [start, end) byte range -- start is the typeHash's first byte, end is
@@ -280,6 +315,71 @@ namespace OloEngine::Tests
         EXPECT_EQ(loaded.ChainIterations, freshDefault.ChainIterations);
         EXPECT_FLOAT_EQ(loaded.ChainTolerance, freshDefault.ChainTolerance);
         EXPECT_FLOAT_EQ(loaded.ChainWeight, freshDefault.ChainWeight);
+    }
+
+    TEST(SaveGameVersionMigration, PreV14AudioSourcePayloadDefaultsVoicePriorityNoDesync)
+    {
+        AudioSourceConfig seed;
+        seed.VolumeMultiplier = 0.75f;
+        seed.PitchMultiplier = 1.25f;
+        seed.Looping = true;
+        seed.Spatialization = true;
+        seed.MinDistance = 2.0f;
+        seed.MaxDistance = 250.0f;
+        seed.Priority = 0.9f; // must NOT survive — a v13 save never wrote it
+
+        // Not constexpr: AssetHandle is UUID, whose constructor is not constexpr.
+        const AssetHandle kPresetHandle{ 0x1234'5678'9ABC'DEF0ull };
+        std::vector<u8> payload = BuildPreV14AudioSourcePayload(seed, kPresetHandle);
+
+        AudioSourceComponent loaded;
+        FMemoryReader reader(payload);
+        reader.ArIsSaveGame = true;
+        reader.SetArchiveVersion(13); // pre-v14
+
+        SaveGameComponentSerializer::Serialize(reader, loaded);
+
+        EXPECT_FALSE(reader.IsError());
+        EXPECT_TRUE(reader.AtEnd()) << "Reader did not consume exactly the pre-v14 payload -- desync";
+
+        const auto& config = loaded.GetConfig();
+        EXPECT_FLOAT_EQ(config.VolumeMultiplier, 0.75f);
+        EXPECT_FLOAT_EQ(config.PitchMultiplier, 1.25f);
+        EXPECT_TRUE(config.Looping);
+        EXPECT_TRUE(config.Spatialization);
+        EXPECT_FLOAT_EQ(config.MinDistance, 2.0f);
+        EXPECT_FLOAT_EQ(config.MaxDistance, 250.0f);
+
+        // The v14 field stays at its constructor default. Reading it ungated would have
+        // consumed the SoundConfigHandle's first four bytes as a float, so the handle
+        // assertion below is the real desync detector.
+        const AudioSourceConfig freshDefault;
+        EXPECT_FLOAT_EQ(config.Priority, freshDefault.Priority);
+        EXPECT_EQ(static_cast<u64>(loaded.GetSoundConfigHandle()), static_cast<u64>(kPresetHandle));
+    }
+
+    TEST(SaveGameVersionMigration, V14AudioSourceRoundTripsVoicePriority)
+    {
+        AudioSourceComponent saved;
+        saved.GetConfig().Priority = 0.87f;
+        saved.SetSoundConfigHandle(AssetHandle(42));
+
+        std::vector<u8> buffer;
+        FMemoryWriter writer(buffer);
+        writer.ArIsSaveGame = true;
+        writer.SetArchiveVersion(kSaveGameFormatVersion);
+        SaveGameComponentSerializer::Serialize(writer, saved);
+
+        AudioSourceComponent loaded;
+        FMemoryReader reader(buffer);
+        reader.ArIsSaveGame = true;
+        reader.SetArchiveVersion(kSaveGameFormatVersion);
+        SaveGameComponentSerializer::Serialize(reader, loaded);
+
+        EXPECT_FALSE(reader.IsError());
+        EXPECT_TRUE(reader.AtEnd());
+        EXPECT_FLOAT_EQ(loaded.GetConfig().Priority, 0.87f);
+        EXPECT_EQ(static_cast<u64>(loaded.GetSoundConfigHandle()), 42ull);
     }
 
     TEST(SaveGameVersionMigration, PreV9LightProbeVolumePayloadDefaultsDDGIFieldsNoDesync)

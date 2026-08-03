@@ -878,6 +878,16 @@ namespace OloEngine
         static constexpr u32 UBO_CLOUDSCAPE = 53;           // Volumetric cloudscape raymarch params (CloudscapeUBO — issue #633)
         static constexpr u32 UBO_ATMOSPHERE_SHADING = 54;   // Surface weather response: wetness + cloud-shadow map transform + enables (AtmosphereShadingUBO — issue #633)
         static constexpr u32 UBO_IMPOSTOR_BAKE = 55;        // Octahedral impostor atlas bake params (view-proj + center/radius/cutoff/tint — issue #433)
+        // The heap-offset table (issue #691 Phase 3). std140 uvec4[] of
+        // RHI::HeapOffset values, indexed by the SAME TEX_* constant a slot-based
+        // shader would have used in `layout(binding = N)`. That reuse is the
+        // point: it is ADR 0011 §1.1's "the number survives, promoted from a
+        // compile-time constant to runtime data", and it makes the bindless and
+        // slot-based variants of one shader structurally unable to disagree
+        // about which texture is which. Written by
+        // RGCommandContext::BindTextureOrHeapOffset, read via
+        // include/BindlessHeap.glsl's OLO_HEAP_* macros.
+        static constexpr u32 UBO_HEAP_OFFSETS = 56;
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -1059,6 +1069,14 @@ namespace OloEngine
         static constexpr u32 SSBO_VIRTUAL_INDICES = 42;       // u32[]: pooled cluster-local index buffer (same GL buffer the MDI path uses as element array)
         static constexpr u32 SSBO_VIRTUAL_GROUP_STATES = 43;  // u32[group]: bit0 = page resident (CPU), bit1 = page requested (GPU atomicOr), bit2 = touched for LRU (GPU atomicOr)
         static constexpr u32 SSBO_VIRTUAL_REJECTED = 44;      // { uint Count; pad[3]; VirtualVisibleCluster[] }: clusters the two-phase cull's phase 1 found hidden by the PREVIOUS frame's Hi-Z, re-tested by phase 2 (issue #682)
+        // The shader-visible descriptor heap (issue #691 Phase 3). uvec2[] of
+        // ARB_bindless_texture handles, indexed by an RHI::HeapOffset that
+        // travels to the shader as ordinary UBO data. This is the binding that
+        // replaces BINDING ITSELF: under heap-bindless a pass writes an offset
+        // instead of calling BindTexture, and the TEX_* constants above survive
+        // only as the numbers, promoted from compile-time constants to runtime
+        // data (ADR 0011 §1.1). Bound once per frame, never per draw.
+        static constexpr u32 SSBO_RESOURCE_HEAP = 45;
 
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE

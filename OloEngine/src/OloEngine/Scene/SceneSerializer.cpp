@@ -1746,6 +1746,9 @@ namespace OloEngine
             };
             TrySetDsp(config.VolumeMultiplier, "VolumeMultiplier", 0.0f, 10.0f, 1.0f);
             TrySetDsp(config.PitchMultiplier, "PitchMultiplier", 0.0f, 10.0f, 1.0f);
+            // Voice-budget priority (issue #730). A missing key keeps the neutral 0.5
+            // default, so every scene authored before the budget existed loads unchanged.
+            TrySetDsp(config.Priority, "Priority", 0.0f, 1.0f, 0.5f);
             TrySetDsp(config.RollOff, "RollOff", 0.0f, 100.0f, 1.0f);
             TrySetDsp(config.MinGain, "MinGain", 0.0f, 1.0f, 0.0f);
             TrySetDsp(config.MaxGain, "MaxGain", 0.0f, 1.0f, 1.0f);
@@ -3847,6 +3850,7 @@ namespace OloEngine
             out << YAML::Key << "Filepath" << YAML::Value << f.c_str();
             out << YAML::Key << "VolumeMultiplier" << YAML::Value << config.VolumeMultiplier;
             out << YAML::Key << "PitchMultiplier" << YAML::Value << config.PitchMultiplier;
+            out << YAML::Key << "Priority" << YAML::Value << config.Priority;
             out << YAML::Key << "PlayOnAwake" << YAML::Value << config.PlayOnAwake;
             out << YAML::Key << "Looping" << YAML::Value << config.Looping;
             out << YAML::Key << "Spatialization" << YAML::Value << config.Spatialization;

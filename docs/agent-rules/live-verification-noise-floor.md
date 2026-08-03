@@ -60,6 +60,44 @@ it.
    it see real data, does the reply make sense"; deterministic tests answer "is
    the math right".
 
+## The suite's own evidence PNGs are nondeterministic — measured values
+
+`OloEngine-Tests.exe` **rewrites** the visual-evidence PNGs under
+`OloEditor/assets/tests/visual/` on every run (they are evidence, not goldens —
+nothing compares them). So `git status` after a test run routinely shows a
+handful of modified PNGs that have **nothing to do with your change**, and the
+tempting readings are both wrong: committing them as "regenerated evidence"
+launders noise into the repo, and reading them as a regression sends you
+debugging a change you did not make.
+
+Measured on one machine (RTX 4090, Debug) by running the identical binary
+twice and diffing run 1 against run 2 — i.e. with *no code change at all*:
+
+| Evidence PNG | Run-to-run delta (same binary) |
+| --- | --- |
+| `Fluid_Side` / `Fluid_ThreeQuarter` / `Fluid_Waterline` | 0.26–0.53% of pixels, max channel 19–28 |
+| `WorldOriginRebase_rebased_after` | **4.43% of pixels, max channel 111** |
+| `WorldOriginRebase_far_before` | 0.18% of pixels, max channel 8 |
+| `VirtualGeometry_Debug_ClusterId` | 2 pixels, max channel 158 |
+| `OcclusionCull_Deferred_VisualEvidence` | 0–1 pixels, max channel 8 |
+
+Two things to take from the table. The GPU fluid solver is genuinely
+order-nondeterministic, so its three images always differ. And
+`WorldOriginRebase_rebased_after` moves **4.4% of its pixels between two runs of
+the same executable** — larger than most real regressions would be, which is
+precisely the situation §The trap warns about.
+
+**The procedure, and it is cheap.** Stash nothing; just take three snapshots:
+`HEAD` (via `git show HEAD:<path>`), your run, and a *second* run of the same
+binary. Then compare `HEAD→run1` against `run1→run2`. If the first is not
+clearly larger than the second, you have measured noise. On the Phase 3 heap
+work this was unambiguous: two images landed **byte-identical to HEAD** on the
+second run after "differing" on the first, and the largest `HEAD→run1` delta was
+smaller than that image's own `run1→run2` delta.
+
+When the answer is noise, `git checkout --` the directory. A minimal diff is
+worth more to a reviewer than a folder of re-encoded PNGs.
+
 ## Corollary: intermediate targets do not look like the frame
 
 Do not sanity-check a crop of `SceneColor` against an `olo_screenshot`. The

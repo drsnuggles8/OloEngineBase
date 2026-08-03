@@ -2,6 +2,7 @@
 #include "StatisticsPanel.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Audio/AudioEngine.h"
+#include "OloEngine/Audio/VoiceManager.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -237,6 +238,26 @@ namespace OloEngine
                            "Reverb: %s", stats.ReverbAvailable ? "Available" : "Unavailable");
         ImGui::TextColored(stats.SpatializerAvailable ? ImVec4(0.4f, 1.0f, 0.4f, 1.0f) : ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
                            "Spatializer: %s", stats.SpatializerAvailable ? "Available" : "Unavailable");
+
+        // Voice budget (issue #730). "Virtual" voices are logically running but inaudible
+        // because higher-scoring voices hold every slot; they keep advancing their playback
+        // position so they resume in phase, and Steals counts how often that swap happened.
+        ImGui::Separator();
+        auto& voiceManager = Audio::VoiceManager::Get();
+        const auto voices = voiceManager.GetStats();
+        ImGui::Text("Voices: %u / %u audible", voices.Playing, voices.MaxVoices);
+        ImGui::Text("Virtualized: %u", voices.Virtual);
+        ImGui::Text("Steals: %llu   Completions: %llu",
+                    static_cast<unsigned long long>(voices.Steals),
+                    static_cast<unsigned long long>(voices.Completions));
+
+        if (int maxVoices = static_cast<int>(voices.MaxVoices);
+            ImGui::DragInt("Max Voices", &maxVoices, 1.0f, 1, 512))
+        {
+            voiceManager.SetMaxVoices(static_cast<u32>(std::max(maxVoices, 1)));
+        }
+        ImGui::SetItemTooltip("Concurrent-voice cap. Lowering it below the current audible count immediately\n"
+                              "virtualizes the lowest-scoring voices rather than cutting them off.");
 
         // Count audio source entities in the scene
         if (m_Context)

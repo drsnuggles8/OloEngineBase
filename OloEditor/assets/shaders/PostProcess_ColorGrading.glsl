@@ -15,12 +15,25 @@ void main()
 #type fragment
 #version 460 core
 
+// Texture inputs. Under heap-bindless (issue #691 Phase 3) these become heap
+// lookups keyed by the SAME slot numbers the bindful branch declares, so the two
+// variants cannot disagree about which texture is which — and the shader BODY
+// below is unchanged between them. Inert without OLO_BINDLESS; the engine only
+// defines it on the raw-GLSL compile route.
+#include "include/BindlessHeap.glsl"
+
+#ifdef OLO_BINDLESS
+#define u_Texture OLO_HEAP_TEX_2D(0)
+#define u_LUT OLO_HEAP_TEX_2D(18) // TEX_POSTPROCESS_LUT
+#else
+layout(binding = 0) uniform sampler2D u_Texture;
+layout(binding = 18) uniform sampler2D u_LUT; // 3D LUT stored as strip (e.g., 256x16)
+#endif
+
 layout(location = 0) out vec4 o_Color;
 
 layout(location = 0) in vec2 v_TexCoord;
 
-layout(binding = 0) uniform sampler2D u_Texture;
-layout(binding = 18) uniform sampler2D u_LUT; // 3D LUT stored as strip (e.g., 256x16)
 
 // LUT size: assumes 16x16x16 LUT stored as a horizontal strip of 16 tiles, each 16x16
 const float LUT_SIZE = 16.0;

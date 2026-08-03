@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/RenderGraphSubmissionPlan.h"
 #include "OloEngine/Renderer/RenderGraphTransientPlanner.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 
 #include <algorithm>
@@ -3281,6 +3282,19 @@ namespace OloEngine
                 }
             };
         }
+        // Bind the descriptor heap before any pass runs, and publish whatever is
+        // already dirty.
+        //
+        // THIS IS NOT SUFFICIENT ON ITS OWN, and an earlier version of this
+        // comment claimed it was ("every transient view this frame was minted
+        // during planning"). That is false: a pass mints its views inside its own
+        // Execute, below, so this frame's transient descriptors do not exist yet.
+        // `RGCommandContext::FlushHeapOffsets` re-publishes at each converted
+        // pass, which is what actually gets them to the GPU. This call still
+        // earns its place — it establishes the heap's SSBO binding for the frame,
+        // which a pass that only reads persistent views would otherwise never do.
+        RHI::DescriptorHeap::Get().Flush();
+
         m_LastExecutionTimings = RenderGraphPlanExecutor::ExecutePlan({
             .SubmissionPlan = m_CachedSubmissionPlan,
             .Context = commandContext,
@@ -3297,6 +3311,15 @@ namespace OloEngine
         FlushExtractions();
         m_TransientPool.ReleaseAll();
         m_TransientPool.Trim(m_TransientPoolMaxBucketSize);
+
+        // The descriptor heap's frame-transient ring resets at exactly this
+        // moment and for exactly this reason (issue #691 Phase 3, ADR 0011
+        // §1.2): `ReleaseAll` is when the physical objects the transient
+        // descriptors named stop being owned by the passes that used them.
+        // Retiring the views here bumps their generations, so a transient
+        // HeapOffset held into the next frame is DETECTABLY stale rather than
+        // silently pointing at the next tenant of that ring slot.
+        RHI::DescriptorHeap::Get().ResetFrameTransients();
     }
 
     void RenderGraph::RecordResolveFailure(const std::string_view passName, const std::string_view reason) const
