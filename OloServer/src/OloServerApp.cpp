@@ -178,15 +178,30 @@ namespace OloEngine
             }
 
             std::error_code ec;
-            if (!std::filesystem::exists(projectDir, ec) || ec)
+            if (!std::filesystem::is_directory(projectDir, ec) || ec)
             {
-                OLO_CORE_WARN("[Server] Project directory '{}' does not exist — scripts will not resolve",
+                // exists() is true for a regular FILE too; mounting one would log
+                // success and then fail every later asset resolution silently, which
+                // is the exact failure this function exists to prevent.
+                OLO_CORE_WARN("[Server] Project path '{}' is not a directory — scripts will not resolve",
+                              projectDir.string());
+                return;
+            }
+            if (!std::filesystem::is_directory(projectDir / "Assets", ec) || ec)
+            {
+                OLO_CORE_WARN("[Server] Project directory '{}' has no Assets/ subdirectory — scripts will not resolve",
                               projectDir.string());
                 return;
             }
 
             ProjectConfig config;
-            config.Name = projectDir.filename().string();
+            // A trailing separator makes filename() empty, so `--project C:/MyGame/`
+            // would otherwise name the project "".
+            config.Name = projectDir.lexically_normal().filename().string();
+            if (config.Name.empty())
+            {
+                config.Name = "Untitled";
+            }
             config.AssetDirectory = "Assets";
 
             Project::NewInMemory(projectDir, config);
@@ -208,6 +223,15 @@ namespace OloEngine
                     // Detach the outgoing scene from replication before it dies;
                     // the drivers hold a raw Scene*.
                     NetworkManager::SetActiveScene(nullptr);
+
+                    // SetActiveScene(nullptr) only forgets the pointer. Every
+                    // per-client baseline, known-entity set and history snapshot
+                    // still describes entities from the scene about to be destroyed,
+                    // so a `reload` with connections held open would delta the new
+                    // world against the old one. Drop that state; connected clients
+                    // re-receive spawns on the next relevance pass.
+                    NetworkManager::GetServerDriver().Reset();
+
                     m_ActiveScene->OnRuntimeStop();
                 }
                 m_ActiveScene = tempScene;

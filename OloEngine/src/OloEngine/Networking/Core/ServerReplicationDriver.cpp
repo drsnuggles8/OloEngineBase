@@ -161,6 +161,17 @@ namespace OloEngine
 
     void ServerReplicationDriver::Reset()
     {
+        // Per-client state lives in three places, and dropping only m_Clients leaves
+        // the other two stale. A stop/restart never runs HandleClientDisconnected,
+        // so a reconnecting client that reused an ID would find its last-processed
+        // input tick still at the previous session's high-water mark — and every
+        // input it sent would be rejected as stale until it caught up.
+        for (const auto& [clientID, state] : m_Clients)
+        {
+            m_InputHandler.RemoveClient(clientID);
+            m_Interest.RemoveClient(clientID);
+        }
+
         m_Clients.clear();
         m_SpawnedArchetypes.clear();
         m_History.Clear();
@@ -651,19 +662,16 @@ namespace OloEngine
                 // Multicast runs on the server too — it is "everyone", and the
                 // server is part of everyone. Handlers see IsServer == true so a
                 // handler that must only run client-side can opt out.
+                //
+                // Route through ExecuteLocally rather than calling the handler
+                // directly, so the server-side execution gets the same descriptor
+                // re-lookup, authority re-check and refusal logging as every other
+                // path — one place decides whether a call may run.
                 RpcDispatcher::DecodedRpc call;
                 call.Id = descriptor.Id;
                 call.EntityUUID = entityUUID;
                 call.Args = args;
-                if (descriptor.Handler)
-                {
-                    RpcContext context;
-                    context.ActiveScene = &scene;
-                    context.SenderClientID = 0;
-                    context.EntityUUID = entityUUID;
-                    context.IsServer = true;
-                    descriptor.Handler(context, args);
-                }
+                (void)RpcDispatcher::ExecuteLocally(&scene, call, /*senderClientID*/ 0, /*receivedOnServer*/ true);
                 return true;
             }
         }

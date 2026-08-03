@@ -18,6 +18,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 struct SteamNetConnectionStatusChangedCallback_t;
 

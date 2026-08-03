@@ -292,6 +292,15 @@ namespace OloEngine
             {
                 ++i; // Already handled in first pass
             }
+            else if (arg == "--port" || arg == "--max-players" || arg == "--tick-rate" ||
+                     arg == "--snapshot-rate" || arg == "--scene" || arg == "--project" || arg == "--config")
+            {
+                // Reached only when the option is the LAST token, so the `i + 1 < argc`
+                // guard on its own branch failed. Without this the flag is silently
+                // ignored and the server starts on defaults — which looks like the
+                // option not working rather than like a typo.
+                OLO_CORE_ERROR("[ServerConfig] Missing value for {}", arg);
+            }
             else
             {
                 // No additional handling required.

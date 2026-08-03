@@ -133,6 +133,18 @@ namespace OloEngine
 
     using RpcHandler = std::function<void(const RpcContext&, const RpcArgList&)>;
 
+    // Which VM (if any) owns a registration's handler.
+    //
+    // This has to distinguish the two script engines, not merely "is it a script":
+    // a handler must be dropped when ITS OWN VM goes away, and tearing down the Lua
+    // state must not unregister live C# RPCs (nor a C# assembly reload the Lua ones).
+    enum class ERpcOwner : u8
+    {
+        Native = 0, // Engine/game C++ — lives as long as the process
+        Lua,        // Captures a sol::protected_function; dies with the sol::state
+        CSharp      // Calls into managed code; dies with the Mono app domain
+    };
+
     // A registered RPC. Both ends of the wire must have registered the same Name
     // (the Id is derived from it), because the payload carries only the Id — a
     // name the receiver never registered is dropped, not guessed at.
@@ -153,9 +165,10 @@ namespace OloEngine
 
         RpcHandler Handler;
 
-        // Handlers owned by a script VM are dropped when that VM shuts down —
-        // a std::function holding a sol::protected_function outlives its
-        // sol::state otherwise, and calling it after teardown is a crash.
-        bool ScriptOwned = false;
+        // Handlers owned by a script VM are dropped when THAT VM shuts down — a
+        // std::function holding a sol::protected_function outlives its sol::state
+        // otherwise, and calling it after teardown is a crash. See ERpcOwner for why
+        // this is not a single "is a script" bool.
+        ERpcOwner Owner = ERpcOwner::Native;
     };
 } // namespace OloEngine

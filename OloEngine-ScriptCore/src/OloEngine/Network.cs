@@ -133,8 +133,15 @@ namespace OloEngine
 		/// authority violation (a client invoking a Client/Multicast RPC) is refused
 		/// rather than sent. Returns false when the call was refused.
 		///
-		/// Supported argument types: bool, int, long, ulong, float, double, string,
-		/// Vector3. Anything else is refused rather than silently coerced.
+		/// Supported argument types: bool, int, uint, long, ulong, float, double,
+		/// string, Vector3. Anything else is refused rather than silently coerced.
+		///
+		/// NOTE the asymmetry on the receive side: the wire carries only two numeric
+		/// types, so a handler receives every integral argument as <c>long</c> and
+		/// every floating-point one as <c>double</c>, whatever was passed in. Unbox
+		/// with those types — <c>(int)args[0]</c> on a boxed <c>long</c> throws
+		/// <see cref="InvalidCastException"/>; use <c>(int)(long)args[0]</c>.
+		/// (<c>ulong</c> is the exception: it round-trips as an entity id.)
 		/// </summary>
 		public static bool InvokeRPC(string name, ulong entityID = 0, object[] args = null, uint targetClientID = 0)
 			=> InternalCalls.Network_InvokeRPC(name, entityID, args ?? Array.Empty<object>(), targetClientID);

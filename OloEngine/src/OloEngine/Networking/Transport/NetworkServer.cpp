@@ -154,12 +154,24 @@ namespace OloEngine
                         const u8* payload = rawData + payloadOffset;
                         u32 payloadSize = msgSize - payloadOffset;
 
-                        // Resolve the sender's client ID from the connection handle
-                        u32 senderClientID = 0;
-                        if (auto it = m_Connections.find(pIncomingMsg->m_conn); it != m_Connections.end())
+                        // Resolve the sender's client ID from the connection handle.
+                        //
+                        // A message whose connection we cannot resolve is DROPPED, not
+                        // attributed to client 0: on the server, id 0 means "the server
+                        // itself originated this", which the RPC dispatcher reads as
+                        // permission to skip the direction and ownership checks. Issued
+                        // client IDs start at 1, so 0 must never come off the wire.
+                        auto connIt = m_Connections.find(pIncomingMsg->m_conn);
+                        if (connIt == m_Connections.end())
                         {
-                            senderClientID = it->second.GetClientID();
+                            OLO_CORE_WARN_TAG("Networking",
+                                              "Dropping a message from an untracked connection {}",
+                                              static_cast<u32>(pIncomingMsg->m_conn));
+                            pIncomingMsg->Release();
+                            numMsgs = m_Interface->ReceiveMessagesOnPollGroup(m_PollGroup, &pIncomingMsg, 1);
+                            continue;
                         }
+                        const u32 senderClientID = connIt->second.GetClientID();
 
                         if (header.Type == ENetworkMessageType::Ping)
                         {

@@ -105,11 +105,16 @@ namespace OloEngine
                     reader << header.Flags;
                     reader << header.Version;
 
-                    if (!reader.IsError())
+                    // Guard the subtraction explicitly rather than relying on the
+                    // msgSize >= kSerializedSize precondition: if a header field is
+                    // ever added without updating kSerializedSize, the u32 subtraction
+                    // would wrap and the vector construction would read far past the
+                    // buffer.
+                    if (const u32 payloadOffset = static_cast<u32>(reader.Tell());
+                        !reader.IsError() && payloadOffset <= msgSize)
                     {
-                        u32 payloadOffset = static_cast<u32>(reader.Tell());
                         const u8* payload = rawData + payloadOffset;
-                        u32 payloadSize = msgSize - payloadOffset;
+                        const u32 payloadSize = msgSize - payloadOffset;
                         pendingMessages.push_back({ header.Type, std::vector<u8>(payload, payload + payloadSize) });
                     }
                 }

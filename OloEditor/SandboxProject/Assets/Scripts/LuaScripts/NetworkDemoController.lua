@@ -109,7 +109,13 @@ function NetworkDemoController.OnUpdate(id, dt)
         -- The displacement (not a direction + speed) is what travels, because
         -- reconciliation replays these commands with no timeline of their own.
         local length = math.sqrt(vx * vx + vy * vy)
-        local step = kMoveSpeed * dt
+        -- Clamp dt before baking the step. A frame hitch (a breakpoint, a window
+        -- drag) would otherwise produce a step larger than the server's clamp: the
+        -- client predicts the full move, the server applies the clamped one, and
+        -- reconciliation yanks the pawn backwards. Keeping the two in agreement
+        -- matters more than honouring one very long frame.
+        local kMaxDt = kMaxStepDistance / kMoveSpeed
+        local step = kMoveSpeed * math.min(dt, kMaxDt)
         Network.sendMoveInput(pawn, vx / length * step, vy / length * step, 0.0)
     end
 

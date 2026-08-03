@@ -757,6 +757,14 @@ namespace OloEngine
             OLO_CORE_WARN_TAG("Networking", "Network.Spawn: invalid authority {}", authority);
             return 0;
         }
+        // mono_string_to_utf8 returns null for a null MonoString*, and std::string's
+        // constructor dereferences it — so `Network.Spawn(null, null, ...)` from C#
+        // would crash the process rather than fail.
+        if (archetype == nullptr || name == nullptr)
+        {
+            OLO_CORE_WARN_TAG("Networking", "Network.Spawn: archetype and name must not be null");
+            return 0;
+        }
         std::string archetypeStr = Utils::MonoStringToString(archetype);
         std::string nameStr = Utils::MonoStringToString(name);
         Entity entity = NetworkManager::SpawnReplicated(archetypeStr, nameStr, ownerClientID,
@@ -884,7 +892,14 @@ namespace OloEngine
             ::mono_runtime_invoke(dispatch, nullptr, params, &exception);
             if (exception != nullptr)
             {
-                OLO_CORE_ERROR("[ScriptEngine] Unhandled exception in C# RPC handler '{}'", name);
+                // Report WHAT went wrong, not merely that something did — a bare
+                // "an exception occurred" is nearly useless when debugging a script.
+                std::string detail = "<no message>";
+                if (MonoString* message = ::mono_object_to_string(exception, nullptr); message != nullptr)
+                {
+                    detail = Utils::MonoStringToString(message);
+                }
+                OLO_CORE_ERROR("[ScriptEngine] Unhandled exception in C# RPC handler '{}': {}", name, detail);
             }
         }
 
@@ -903,6 +918,13 @@ namespace OloEngine
             if (objectClass == ::mono_get_int32_class())
             {
                 return RpcArg::MakeInt(*static_cast<i32*>(::mono_object_unbox(object)));
+            }
+            if (objectClass == ::mono_get_uint32_class())
+            {
+                // Client IDs are u32 on the managed side (Network.LocalClientID), so
+                // refusing System.UInt32 would reject the most obvious RPC argument
+                // a script has to hand.
+                return RpcArg::MakeInt(static_cast<i64>(*static_cast<u32*>(::mono_object_unbox(object))));
             }
             if (objectClass == ::mono_get_int64_class())
             {
@@ -941,6 +963,11 @@ namespace OloEngine
 
     static void Network_RegisterRPC(MonoString* name, i32 target, i32 reliability, bool requiresOwnership)
     {
+        if (name == nullptr)
+        {
+            OLO_CORE_WARN_TAG("Networking", "Network.RegisterRPC: name must not be null");
+            return;
+        }
         std::string nameStr = Utils::MonoStringToString(name);
         if (nameStr.empty())
         {
@@ -959,9 +986,10 @@ namespace OloEngine
         descriptor.Target = static_cast<ERpcTarget>(target);
         descriptor.Reliability = static_cast<ERpcReliability>(reliability);
         descriptor.RequiresOwnership = requiresOwnership;
-        // Dropped when the script engine tears the app domain down — the managed
-        // delegate this ultimately calls does not survive it.
-        descriptor.ScriptOwned = true;
+        // Dropped when the C# app domain is torn down or reloaded — the managed
+        // delegate this ultimately calls does not survive it. Scoped to CSharp so a
+        // Lua shutdown does not take these with it.
+        descriptor.Owner = ERpcOwner::CSharp;
         descriptor.Handler = [nameStr](const RpcContext& context, const RpcArgList& args)
         { DispatchRpcToManaged(nameStr, context, args); };
 
@@ -970,6 +998,11 @@ namespace OloEngine
 
     static bool Network_InvokeRPC(MonoString* name, u64 entityID, MonoArray* args, u32 targetClientID)
     {
+        if (name == nullptr)
+        {
+            OLO_CORE_WARN_TAG("Networking", "Network.InvokeRPC: name must not be null");
+            return false;
+        }
         std::string nameStr = Utils::MonoStringToString(name);
 
         RpcArgList marshalled;

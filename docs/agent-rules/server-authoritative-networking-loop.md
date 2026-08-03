@@ -17,7 +17,7 @@ never called in production, so the tick would have early-returned anyway.
 `NetworkServer::PollMessages()` / `NetworkClient::PollMessages()` had no production
 call site either, so *no message was ever received*. And the header carried this:
 
-```
+```cpp
 //   - The network thread (NetworkThread) calls SteamNetworkingSockets::RunCallbacks(),
 //     dispatches queued tasks, and invokes TickSnapshots().
 ```
@@ -289,6 +289,34 @@ originate it".
 Check authority at **both** ends — the sender refuses to put an illegal call on the
 wire, and the receiver re-checks the descriptor against the direction the call
 arrived from. The second check is the one that matters; the first is only politeness.
+
+### "Received on the server" is not the same as "sent by a client"
+
+Both authority checks — the direction check and the entity-ownership check —
+originally keyed off `receivedOnServer` alone. That is wrong in the same way
+twice, because the server also executes RPCs *it* originated:
+
+* the ownership rule validates a **client** sender, so applying it to a
+  server-originated call made the server unable to act on any client-owned pawn:
+  its own check refused it;
+* the direction rule refuses a client pushing a Client/Multicast RPC, so applying
+  it to the server's own local execution of a Multicast meant the broadcast
+  reached every client **except the host**.
+
+The discriminator is `senderClientID == 0`, meaning "the server itself
+originated this". Keying both checks off it keeps the security property intact —
+a client that forges a Multicast payload still arrives with its own non-zero id
+and is still refused — while letting the server do the things it is by
+definition allowed to do.
+
+The second half of this only surfaced when the server-local Multicast path was
+routed through the shared `ExecuteLocally` instead of calling the handler
+directly. That consolidation was right (one place decides whether a call may
+run), but it moved a code path under a guard that had never seen it. **When you
+funnel a previously-special-cased path into a shared checkpoint, re-read the
+checkpoint's preconditions against the newcomer** — the test that caught this
+asserted a count of recipients (3: two clients + the server), which a "did the
+multicast arrive" check would have passed with 2.
 
 Two more that bite:
 

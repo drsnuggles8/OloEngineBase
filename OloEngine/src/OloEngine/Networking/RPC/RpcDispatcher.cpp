@@ -53,7 +53,18 @@ namespace OloEngine
                 }
                 case ERpcArgType::String:
                 {
-                    i32 length = static_cast<i32>(arg.AsString.size());
+                    // Truncate to the same bound Decode enforces. Sending a longer
+                    // string would produce a payload every receiver silently drops,
+                    // with nothing logged on the sending side.
+                    sizet byteCount = arg.AsString.size();
+                    if (byteCount > static_cast<sizet>(kMaxRpcStringLength))
+                    {
+                        OLO_CORE_WARN_TAG("Networking",
+                                          "RPC string argument is {} bytes; truncating to the {} the wire allows",
+                                          byteCount, kMaxRpcStringLength);
+                        byteCount = static_cast<sizet>(kMaxRpcStringLength);
+                    }
+                    i32 length = static_cast<i32>(byteCount);
                     ar << length;
                     if (length > 0)
                     {
@@ -257,9 +268,15 @@ namespace OloEngine
         // Authority routing, re-checked against the direction the call arrived
         // from. The sending side already refuses an illegal invocation; this is the
         // half that a forged payload cannot get around.
+        //
+        // `senderClientID == 0` on the server means the SERVER originated the call,
+        // not that some client did. That distinction is what makes this check safe
+        // to apply to the server's own local execution of a Multicast (which is a
+        // legitimate "everyone includes me") while still refusing a client that
+        // forges the same payload.
         if (receivedOnServer)
         {
-            if (descriptor->Target != ERpcTarget::Server)
+            if (senderClientID != 0 && descriptor->Target != ERpcTarget::Server)
             {
                 OLO_CORE_WARN_TAG("Networking",
                                   "Client {} tried to push '{}' to the server, but it is a {} RPC — refused",
@@ -278,7 +295,12 @@ namespace OloEngine
         // Entity ownership: the same NetworkIdentityComponent rule ServerInputHandler
         // enforces for input commands. Only meaningful server-side — a client has no
         // authority to check anything against.
-        if (receivedOnServer && descriptor->RequiresOwnership && call.EntityUUID != 0)
+        //
+        // senderClientID == 0 means the SERVER itself originated the call, so there
+        // is no client authority to validate. Without that exclusion a server-side
+        // InvokeRpc on an entity owned by any client was refused by its own
+        // ownership check — the server being unable to act on a player's own pawn.
+        if (receivedOnServer && senderClientID != 0 && descriptor->RequiresOwnership && call.EntityUUID != 0)
         {
             if (scene == nullptr)
             {

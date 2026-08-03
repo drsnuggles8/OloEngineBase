@@ -83,10 +83,10 @@ namespace OloEngine
         s_Descriptors.clear();
     }
 
-    void RpcRegistry::ClearScriptOwned()
+    void RpcRegistry::ClearOwnedBy(ERpcOwner owner)
     {
         TUniqueLock<FMutex> lock(s_Mutex);
-        std::erase_if(s_Descriptors, [](const RpcDescriptor& d)
-                      { return d.ScriptOwned; });
+        std::erase_if(s_Descriptors, [owner](const RpcDescriptor& d)
+                      { return d.Owner == owner; });
     }
 } // namespace OloEngine

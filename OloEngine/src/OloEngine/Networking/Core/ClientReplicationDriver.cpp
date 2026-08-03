@@ -169,15 +169,22 @@ namespace OloEngine
         ++m_InputTick;
         const u32 tick = m_InputTick;
 
-        m_Prediction.RecordInput(tick, entityUUID, inputData);
-
-        // Predict: apply the input to the local simulation NOW rather than waiting a
-        // round trip. Recording without applying (which is what the facade used to
-        // do) is not prediction — it only buys a replay buffer for a correction that
-        // never had anything to correct.
-        if (m_ApplyCallback)
+        // Listen server: the server half will apply this very command to the very
+        // same scene when it arrives, so predicting it here would apply it twice —
+        // and the replay buffer would never drain, because HandleInputAck skips
+        // reconciliation in shared-scene mode. Send only.
+        if (!m_SharedSceneWithServer)
         {
-            m_ApplyCallback(scene, entityUUID, inputData.data(), static_cast<u32>(inputData.size()));
+            m_Prediction.RecordInput(tick, entityUUID, inputData);
+
+            // Predict: apply the input to the local simulation NOW rather than
+            // waiting a round trip. Recording without applying (which is what the
+            // facade used to do) is not prediction — it only buys a replay buffer
+            // for a correction that never had anything to correct.
+            if (m_ApplyCallback)
+            {
+                m_ApplyCallback(scene, entityUUID, inputData.data(), static_cast<u32>(inputData.size()));
+            }
         }
 
         std::vector<u8> payload;

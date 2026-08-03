@@ -140,6 +140,14 @@ class ServerAuthoritativeLoopTest : public ::testing::Test
     void TearDown() override
     {
 #if !OLO_ASAN_ENABLED
+        // Clear the RPC registry FIRST. The RPC tests register handlers capturing
+        // test-body locals by reference, and GoogleTest destroys those locals when
+        // TestBody returns — before TearDown runs. If closing a transport below
+        // drained a queued RPC, the dispatcher would invoke a handler over destroyed
+        // references. (The fixture skips under ASan, so the sanitizer cannot catch
+        // that for us.)
+        RpcRegistry::Clear();
+
         for (auto& client : m_Clients)
         {
             if (client)
@@ -155,7 +163,6 @@ class ServerAuthoritativeLoopTest : public ::testing::Test
         m_Server.reset();
 
         s_Active = nullptr;
-        RpcRegistry::Clear();
         GameNetworkingSockets_Kill();
         // Give the OS a moment to release the listen socket before the next test
         // in this binary binds the same port.
@@ -437,6 +444,11 @@ TEST_F(ServerAuthoritativeLoopTest, PredictionAndReconciliationConvergeOnTheServ
     ASSERT_TRUE(PumpUntil([&]
                           { return ClientHasEntity(0, pawn); }));
 
+    // Assert a DISPLACEMENT, not an absolute position: if the NetworkPlayer
+    // archetype ever offsets pawns per client so two players do not overlap, an
+    // absolute assertion would fail while the code is correct.
+    const glm::vec3 startOnServer = EntityPosition(*m_ServerScene, pawn);
+
     constexpr i32 kSteps = 20;
     constexpr f32 kStep = 0.2f;
     for (i32 i = 0; i < kSteps; ++i)
@@ -448,7 +460,7 @@ TEST_F(ServerAuthoritativeLoopTest, PredictionAndReconciliationConvergeOnTheServ
 
     // Prediction applied locally straight away, so the client is already there
     // rather than waiting a round trip.
-    EXPECT_GT(EntityPosition(*m_ClientScenes[0], pawn).x, 0.5f * kSteps * kStep)
+    EXPECT_GT(EntityPosition(*m_ClientScenes[0], pawn).x, startOnServer.x + 0.5f * kSteps * kStep)
         << "the client never predicted its own movement";
 
     // Let every input be acknowledged and reconciled.
@@ -466,7 +478,7 @@ TEST_F(ServerAuthoritativeLoopTest, PredictionAndReconciliationConvergeOnTheServ
     const f32 serverX = EntityPosition(*m_ServerScene, pawn).x;
     const f32 clientX = EntityPosition(*m_ClientScenes[0], pawn).x;
 
-    EXPECT_NEAR(serverX, static_cast<f32>(kSteps) * kStep, 0.01f);
+    EXPECT_NEAR(serverX, startOnServer.x + static_cast<f32>(kSteps) * kStep, 0.01f);
     // Converged, not merely "moved": a reconciliation that replays on top of its
     // own drift passes a "did it move" check and fails this one.
     EXPECT_NEAR(clientX, serverX, 0.05f)

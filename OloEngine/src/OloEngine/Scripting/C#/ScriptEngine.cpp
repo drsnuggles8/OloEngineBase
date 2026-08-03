@@ -296,10 +296,11 @@ namespace OloEngine
 
     void ScriptEngine::ShutdownMono()
     {
-        // Drop RPC handlers the script VM owns before the domain that backs them
-        // goes away — a registered C# RPC's native handler resolves and invokes a
-        // managed method, which is a use-after-unload once the app domain is gone.
-        RpcRegistry::ClearScriptOwned();
+        // Drop the C#-owned RPC handlers before the domain that backs them goes
+        // away — a registered C# RPC's native handler resolves and invokes a managed
+        // method, which is a use-after-unload once the app domain is gone. Scoped to
+        // CSharp: Lua's registrations belong to a VM that is still alive.
+        RpcRegistry::ClearOwnedBy(ERpcOwner::CSharp);
 
         ::mono_domain_set(::mono_get_root_domain(), false);
 
@@ -347,8 +348,8 @@ namespace OloEngine
     bool ScriptEngine::ReloadAssembly()
     {
         // Same reasoning as ShutdownMono: the outgoing domain's RPC handlers must
-        // not survive it. Scripts re-register on load.
-        RpcRegistry::ClearScriptOwned();
+        // not survive it. Scripts re-register on load. Lua's are untouched.
+        RpcRegistry::ClearOwnedBy(ERpcOwner::CSharp);
 
         ::mono_domain_set(::mono_get_root_domain(), false);
 

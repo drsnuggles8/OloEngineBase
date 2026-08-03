@@ -171,6 +171,58 @@ TEST_F(RpcMarshallingTest, ServerRefusesAClientPushingAMulticastRpc)
     EXPECT_FALSE(ran);
 }
 
+TEST_F(RpcMarshallingTest, ServerMayRunAMulticastItOriginatedItself)
+{
+    // The mirror of the test above, and the reason the direction check keys on the
+    // SENDER rather than on the target alone: multicast means "everyone", and the
+    // server is part of everyone. A guard that refused every non-Server-target RPC
+    // "received on the server" would also refuse the server's own local execution,
+    // so a multicast would reach every client except the host.
+    bool ran = false;
+    bool sawServer = false;
+    RpcDescriptor descriptor;
+    descriptor.Name = "Announce";
+    descriptor.Target = ERpcTarget::Multicast;
+    descriptor.Handler = [&](const RpcContext& context, const RpcArgList&)
+    {
+        ran = true;
+        sawServer = context.IsServer;
+    };
+    RpcRegistry::Register(descriptor);
+
+    RpcDispatcher::DecodedRpc call;
+    call.Id = RpcRegistry::HashName("Announce");
+
+    // senderClientID 0 == the server itself originated it.
+    EXPECT_TRUE(RpcDispatcher::ExecuteLocally(m_Scene.get(), call, /*sender*/ 0, /*receivedOnServer*/ true));
+    EXPECT_TRUE(ran);
+    EXPECT_TRUE(sawServer);
+}
+
+TEST_F(RpcMarshallingTest, ServerMayInvokeAnEntityBoundRpcItOriginatedItself)
+{
+    // The ownership rule validates a CLIENT sender. Applying it to the server's own
+    // invocation made the server unable to act on any client-owned pawn — its own
+    // authority check refusing it.
+    MakeOwnedEntity(700ull, /*ownerClientID*/ 5);
+
+    bool ran = false;
+    RpcDescriptor descriptor;
+    descriptor.Name = "ServerDrivenEffect";
+    descriptor.Target = ERpcTarget::Server;
+    descriptor.RequiresOwnership = true;
+    descriptor.Handler = [&ran](const RpcContext&, const RpcArgList&)
+    { ran = true; };
+    RpcRegistry::Register(descriptor);
+
+    RpcDispatcher::DecodedRpc call;
+    call.Id = RpcRegistry::HashName("ServerDrivenEffect");
+    call.EntityUUID = 700ull; // owned by client 5, invoked by the server
+
+    EXPECT_TRUE(RpcDispatcher::ExecuteLocally(m_Scene.get(), call, /*sender*/ 0, /*receivedOnServer*/ true));
+    EXPECT_TRUE(ran);
+}
+
 TEST_F(RpcMarshallingTest, ClientRefusesAServerTargetRpcPushedByTheServer)
 {
     bool ran = false;
@@ -276,25 +328,40 @@ TEST_F(RpcMarshallingTest, ReRegisteringANameReplacesItsHandlerRatherThanDuplica
     EXPECT_EQ(secondRuns, 1);
 }
 
-TEST_F(RpcMarshallingTest, ClearScriptOwnedDropsOnlyScriptHandlers)
+TEST_F(RpcMarshallingTest, ClearOwnedByDropsOnlyThatVmsHandlers)
 {
-    // The VM-teardown safety net: a handler capturing a sol::protected_function must
-    // not survive its sol::state, while native registrations must.
+    // The VM-teardown safety net, and the reason it is per-owner rather than a
+    // single "is a script" flag: a handler capturing a sol::protected_function must
+    // not survive its sol::state, but tearing down Lua must NOT unregister live C#
+    // RPCs (nor a C# assembly reload the Lua ones). Native registrations outlive
+    // both.
     RpcDescriptor native;
     native.Name = "NativeRpc";
-    native.ScriptOwned = false;
+    native.Owner = ERpcOwner::Native;
     RpcRegistry::Register(native);
 
-    RpcDescriptor scripted;
-    scripted.Name = "ScriptRpc";
-    scripted.ScriptOwned = true;
-    RpcRegistry::Register(scripted);
+    RpcDescriptor lua;
+    lua.Name = "LuaRpc";
+    lua.Owner = ERpcOwner::Lua;
+    RpcRegistry::Register(lua);
 
-    ASSERT_EQ(RpcRegistry::Size(), 2u);
+    RpcDescriptor csharp;
+    csharp.Name = "CSharpRpc";
+    csharp.Owner = ERpcOwner::CSharp;
+    RpcRegistry::Register(csharp);
 
-    RpcRegistry::ClearScriptOwned();
+    ASSERT_EQ(RpcRegistry::Size(), 3u);
 
+    // Lua shuts down: only its own registration goes.
+    RpcRegistry::ClearOwnedBy(ERpcOwner::Lua);
+    EXPECT_EQ(RpcRegistry::Size(), 2u);
+    EXPECT_FALSE(RpcRegistry::FindByName("LuaRpc").has_value());
+    EXPECT_TRUE(RpcRegistry::FindByName("CSharpRpc").has_value())
+        << "a Lua shutdown unregistered a live C# RPC";
+    EXPECT_TRUE(RpcRegistry::FindByName("NativeRpc").has_value());
+
+    // Then the C# domain reloads: its registration goes, native survives.
+    RpcRegistry::ClearOwnedBy(ERpcOwner::CSharp);
     EXPECT_EQ(RpcRegistry::Size(), 1u);
     EXPECT_TRUE(RpcRegistry::FindByName("NativeRpc").has_value());
-    EXPECT_FALSE(RpcRegistry::FindByName("ScriptRpc").has_value());
 }

@@ -73,7 +73,7 @@ namespace OloEngine
         // handler is a std::function capturing a sol::protected_function; left in
         // the process-wide registry it would outlive its sol::state, and the next
         // incoming RPC would call into freed VM memory.
-        RpcRegistry::ClearScriptOwned();
+        RpcRegistry::ClearOwnedBy(ERpcOwner::Lua);
 
         delete s_LuaData.LuaState;
         s_LuaData.LuaState = nullptr;

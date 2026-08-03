@@ -131,15 +131,26 @@ namespace OloEngine
             case sol::type::string:
                 return RpcArg::MakeString(value.as<std::string>());
             case sol::type::number:
+            {
                 // Lua 5.4 keeps integers and floats as distinct number subtypes, and
                 // under SOL_ALL_SAFETIES_ON sol2's numeric check honours that — so an
                 // integral Lua value round-trips as an integer instead of silently
                 // becoming a double on the far end.
-                if (value.is<i64>())
+                //
+                // The value check is deliberately NOT left to that macro alone: it is
+                // set per-TU here, and a build that lost the define would let a
+                // fractional number pass is<i64>() and then truncate in as<i64>().
+                // Confirm the value really is integral before taking the integer path.
+                const f64 asDouble = value.as<f64>();
+                const bool integral = std::isfinite(asDouble) && std::trunc(asDouble) >= static_cast<f64>(INT64_MIN) &&
+                                      std::trunc(asDouble) <= static_cast<f64>(INT64_MAX) &&
+                                      Math::BitwiseEqual(std::trunc(asDouble), asDouble);
+                if (value.is<i64>() && integral)
                 {
                     return RpcArg::MakeInt(value.as<i64>());
                 }
-                return RpcArg::MakeFloat(value.as<f64>());
+                return RpcArg::MakeFloat(asDouble);
+            }
             case sol::type::userdata:
                 if (value.is<glm::vec3>())
                 {
@@ -2925,8 +2936,8 @@ namespace OloEngine
                     ParseRpcReliability(options.get_or<std::string>("reliability", "reliable"));
                 descriptor.RequiresOwnership = options.get_or("requiresOwnership", true);
                 // A handler owned by the Lua VM must not outlive it — the registry
-                // drops every ScriptOwned entry when the VM shuts down.
-                descriptor.ScriptOwned = true;
+                // drops the Lua-owned entries when the sol::state is destroyed.
+                descriptor.Owner = ERpcOwner::Lua;
 
                 if (handler.valid())
                 {

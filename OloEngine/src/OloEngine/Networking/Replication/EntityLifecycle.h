@@ -9,6 +9,8 @@
 #include <string_view>
 #include <vector>
 
+#include <glm/glm.hpp>
+
 namespace OloEngine
 {
     class Entity;
@@ -59,9 +61,14 @@ namespace OloEngine
     // Wire codec for ENetworkMessageType::EntitySpawn / EntityDespawn.
     //
     // Spawn payload:
-    //   [name: string][archetype: string][ownerClientID: u32][authority: u8]
+    //   [uuid: u64][name: string][archetype: string][ownerClientID: u32][authority: u8]
     //   followed by ONE standard EntitySnapshot entity record
     //   ([uuid: u64][componentCount: u16] then [id][len][bytes] per component)
+    //
+    // The uuid appears in BOTH the header and the record, and the two must agree.
+    // It has to be in the header because an entity whose replicated component set is
+    // empty produces an EMPTY record — a spawn that could not name its own entity
+    // would be undecodable.
     //
     // Reusing the snapshot record keeps a single hardened parser for the
     // attacker-controlled part of the payload and means a spawn ships the entity's

@@ -39,11 +39,16 @@ namespace OloEngine
         // Drop every registration. For test isolation.
         static void Clear();
 
-        // Drop only the registrations a script VM owns. Called when the Lua/C#
-        // engine shuts down: a std::function capturing a sol::protected_function
-        // (or a Mono GC handle) outlives its VM otherwise, and invoking it after
-        // teardown is a crash rather than a no-op.
-        static void ClearScriptOwned();
+        // Drop only the registrations owned by ONE VM. Called when that engine shuts
+        // down (or reloads its assembly): a handler capturing a
+        // sol::protected_function — or one that calls into a Mono app domain —
+        // outlives its VM otherwise, and invoking it after teardown is a crash
+        // rather than a no-op.
+        //
+        // Deliberately per-owner: a single "script-owned" flag made tearing down the
+        // Lua state silently unregister every live C# RPC, and a C# assembly reload
+        // do the same to Lua's.
+        static void ClearOwnedBy(ERpcOwner owner);
 
         // FNV-1a-32 of an RPC name → its stable wire id. Matches
         // ComponentInterpolationRegistry::HashName so the two id spaces are

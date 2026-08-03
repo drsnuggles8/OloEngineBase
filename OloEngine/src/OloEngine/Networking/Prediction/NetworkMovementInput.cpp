@@ -77,6 +77,12 @@ namespace OloEngine
             // Authority: bound the step a single command may produce. Without this
             // a client can simply send a huge delta and the server will faithfully
             // apply it — authoritative in structure but not in effect.
+            //
+            // 0 means "no bound" (the SetMaxConnections convention). That is a
+            // deliberate opt-out for a game that validates movement its own way — it
+            // is NOT a safe default, so MakeMovementApplyCallback warns and falls
+            // back to 1.0 for a non-finite or negative value rather than treating a
+            // bad config as unlimited.
             if (maxStepDistance > 0.0f)
             {
                 if (const f32 length = glm::length(input.Delta); length > maxStepDistance)
