@@ -108,7 +108,9 @@
 #include "OloEngine/Snow/SnowEjectaSystem.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Navigation/NavigationSystem.h"
+#include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/AI/AISystem.h"
+#include "OloEngine/AI/Flocking/FlockingSystem.h"
 #include "OloEngine/AI/Perception/PerceptionSystem.h"
 #include "OloEngine/Gameplay/Inventory/InventorySystem.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
@@ -288,7 +290,8 @@ namespace OloEngine
 
     Scene::Scene()
         : m_JoltScene(std::make_unique<JoltScene>(this)), m_GameplayEventBus(std::make_unique<GameplayEventBus>()),
-          m_UINavigation(std::make_unique<UINavigation>())
+          m_UINavigation(std::make_unique<UINavigation>()),
+          m_FlockingWorkspace(std::make_unique<FlockingWorkspace>())
     {
         // Pre-create every EnTT storage/group the Parallelizable gameplay systems
         // (issue #453: Abilities, Audio) touch, on the constructing thread. EnTT's
@@ -315,6 +318,14 @@ namespace OloEngine
         (void)m_Registry.storage<ParticleSystemComponent>();
         (void)m_Registry.storage<CameraComponent>();
         (void)m_Registry.group<ParticleSystemComponent>(entt::get<TransformComponent>);
+        // BoidSteering (issue #731): the worker body walks
+        // view<TransformComponent, BoidComponent> and
+        // view<TransformComponent, BoidObstacleComponent>. A view's
+        // first-touch CREATES missing storage, so both pools must exist
+        // before the first worker-side walk — a scene with no boids at all is
+        // exactly the case that would otherwise first-touch them on a worker.
+        (void)m_Registry.storage<BoidComponent>();
+        (void)m_Registry.storage<BoidObstacleComponent>();
     }
 
     template<typename T>
@@ -2810,6 +2821,12 @@ namespace OloEngine
         constexpr std::string_view kSpatialIndex = "SpatialIndex";
         // AI sight-sensing results.
         constexpr std::string_view kPerception = "Perception";
+        // Per-agent flocking steering forces (BoidComponent::m_SteeringForce):
+        // written by the worker-side BoidSteering solve, consumed by the
+        // game-thread BoidMovement integrator (issue #731). A channel of its
+        // own — NOT kLocalTransforms — is what lets the expensive half be
+        // marked Parallelizable while the transform write stays pinned.
+        constexpr std::string_view kBoidSteering = "BoidSteering";
         // The in-flight physics world step: written by PhysicsKick (launching the
         // task), consumed by PhysicsFence (joining it). Any system declaring
         // NEITHER this channel NOR a physics-touched channel may sit between them
@@ -3131,10 +3148,29 @@ namespace OloEngine
             //                       only. Stays an unmarked barrier ordered
             //                       Before(PhysicsKick) so queued impulses are
             //                       integrated this tick.
+            //   BoidSteering SAFE  — flocking neighbour search + force solve
+            //                       (issue #731). Reads TransformComponent
+            //                       translations and the Scene-owned
+            //                       FlockingWorkspace (touched by no other
+            //                       system); writes ONLY m_SteeringForce /
+            //                       m_NeighborCount on each agent's own
+            //                       BoidComponent. No GL, no Jolt, no bus
+            //                       publish, no EnTT structural change — and
+            //                       no RNG at all (steering is a pure function
+            //                       of the frozen snapshot, so the #452 seeded
+            //                       stream has nothing to replay). Its two
+            //                       views' storages (BoidComponent,
+            //                       BoidObstacleComponent) are pre-created in
+            //                       the Scene CONSTRUCTOR.
+            //   BoidMovement UNSAFE — integrates velocity and writes
+            //                       TransformComponent (+ rotation); same
+            //                       pin as Navigation. This is the deliberate
+            //                       split that lets the expensive half above be
+            //                       marked at all — see FlockingSystem.h.
             // (Dialogue / Quest / Progression run in the physics shadow above —
-            // game thread, no worker audit needed. Navigation / MorphEval are
-            // pinned main-thread: TransformComponent writes / GL vertex-buffer
-            // upload.)
+            // game thread, no worker audit needed. Navigation / MorphEval /
+            // BoidMovement are pinned main-thread: TransformComponent writes /
+            // GL vertex-buffer upload.)
             sched.AddSystem("Inventory", [](Scene& s, Timestep ts)
                             { s.UpdateInventory(ts); })
                 .Reads(kLocalTransforms);
@@ -3145,6 +3181,17 @@ namespace OloEngine
             // Audio / particles / snow read entity translations/rotations (local
             // space — the historical behavior) and never move entities, so they
             // are mutually independent.
+            // Flocking steering (issue #731): registered inside the marked
+            // cluster so it genuinely OVERLAPS Abilities / Audio / ParticlesCPU
+            // rather than being a lone task the game thread immediately waits
+            // on. It reads this tick's posted transforms and publishes the
+            // per-agent steering forces BoidMovement integrates.
+            sched.AddSystem("BoidSteering", [](Scene& s, Timestep ts)
+                            { s.UpdateBoidSteering(ts); })
+                .Reads(kLocalTransforms)
+                .Writes(kBoidSteering)
+                .Parallelizable();
+
             sched.AddSystem("Audio", [](Scene& s, Timestep ts)
                             { s.UpdateAudio(ts); })
                 .Reads(kLocalTransforms)
@@ -3164,6 +3211,21 @@ namespace OloEngine
             sched.AddSystem("SnowDeformers", [](Scene& s, Timestep ts)
                             { s.UpdateSnowDeformers(ts); })
                 .Reads(kLocalTransforms);
+
+            // Move the flock (issue #731). Registered LAST on purpose: it is a
+            // transform WRITER, so the write-after-read edges pull it behind
+            // every transform reader above (Audio / Particles / Snow /
+            // Inventory) rather than tearing a pose out from under one of them
+            // mid-tick. Same known consequence as Navigation, which is also a
+            // post-propagate transform writer: a boid's motion composes into
+            // its world matrix on the NEXT tick's PropagateTransforms. The
+            // RAW edge on BoidSteering is the one that matters — it guarantees
+            // this tick integrates THIS tick's forces, and that the worker task
+            // has been joined before any transform is touched.
+            sched.AddSystem("BoidMovement", [](Scene& s, Timestep ts)
+                            { s.UpdateBoidMovement(ts); })
+                .Reads(kBoidSteering)
+                .ReadsWrites(kLocalTransforms);
 
             sched.Build(); // derive order now; throws SystemSchedulerError if the graph is bad
             return sched;
@@ -3577,6 +3639,21 @@ namespace OloEngine
     {
         // Update AI (behavior trees and state machines)
         AISystem::OnUpdate(this, ts.GetSeconds());
+    }
+
+    void Scene::UpdateBoidSteering(Timestep)
+    {
+        // Worker-safe half of the flocking split (issue #731) — no timestep is
+        // taken because a steering force is a pure function of the frozen
+        // snapshot, not of elapsed time. See the audit table above.
+        FlockingSystem::StepSteering(this, *m_FlockingWorkspace);
+    }
+
+    void Scene::UpdateBoidMovement(Timestep ts)
+    {
+        // Game-thread half: integrate the forces the steering pass published
+        // and move the entities.
+        FlockingSystem::ApplyMovement(this, ts.GetSeconds());
     }
 
     void Scene::UpdateInventory(Timestep ts)

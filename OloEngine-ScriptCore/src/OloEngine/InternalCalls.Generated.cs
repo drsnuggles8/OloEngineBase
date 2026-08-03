@@ -270,6 +270,76 @@ namespace OloEngine
 		internal static extern void BoatComponent_SetSteerInput(ulong entityID, float value);
 		#endregion
 
+		#region BoidComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoidComponent_GetMaxSpeed(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_SetMaxSpeed(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoidComponent_GetMaxForce(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_SetMaxForce(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoidComponent_GetNeighborRadius(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_SetNeighborRadius(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoidComponent_GetSeparationRadius(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_SetSeparationRadius(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint BoidComponent_GetMaxNeighbors(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_SetMaxNeighbors(ulong entityID, uint value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoidComponent_GetSeparationWeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_SetSeparationWeight(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoidComponent_GetAlignmentWeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_SetAlignmentWeight(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoidComponent_GetCohesionWeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_SetCohesionWeight(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoidComponent_GetGoalWeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_SetGoalWeight(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_GetGoalPosition(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_SetGoalPosition(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoidComponent_GetObstacleAvoidWeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_SetObstacleAvoidWeight(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoidComponent_GetObstacleAvoidRadius(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_SetObstacleAvoidRadius(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool BoidComponent_GetLockYAxis(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_SetLockYAxis(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool BoidComponent_GetFaceVelocity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_SetFaceVelocity(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_GetVelocity(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidComponent_SetVelocity(ulong entityID, ref Vector3 value);
+		#endregion
+
+		#region BoidObstacleComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float BoidObstacleComponent_GetRadius(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void BoidObstacleComponent_SetRadius(ulong entityID, float value);
+		#endregion
+
 		#region BoxCollider2DComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void BoxCollider2DComponent_GetOffset(ulong entityID, out Vector2 value);

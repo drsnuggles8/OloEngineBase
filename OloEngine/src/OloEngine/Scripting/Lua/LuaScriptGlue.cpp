@@ -230,6 +230,8 @@ namespace OloEngine
             REGISTER_COMPONENT(VideoSurfaceComponent),
             REGISTER_COMPONENT(ParticleSystemComponent),
             REGISTER_COMPONENT(NavAgentComponent),
+            REGISTER_COMPONENT(BoidComponent),
+            REGISTER_COMPONENT(BoidObstacleComponent),
             REGISTER_COMPONENT(AbilityComponent),
             REGISTER_COMPONENT(DialogueComponent),
             REGISTER_COMPONENT(NetworkIdentityComponent),
@@ -3338,6 +3340,59 @@ namespace OloEngine
                                                 agent.m_TargetUnreachable = false;
                                                 agent.m_PathCorners.clear();
                                                 agent.m_CurrentCornerIndex = 0; });
+
+        // --- BoidComponent (issue #731) ---
+        // Exposes the steering knobs a script actually drives at runtime: the
+        // goal a flock chases and the behaviour weights. m_SteeringForce /
+        // m_NeighborCount are read-only — they are recomputed by BoidSteering
+        // every tick, so a script write would be silently discarded.
+        lua.new_usertype<BoidComponent>("BoidComponent",
+                                        "maxSpeed", sol::property([](const BoidComponent& b)
+                                                                  { return b.m_MaxSpeed; }, [](BoidComponent& b, f32 v)
+                                                                  { if (std::isfinite(v) && v >= 0.0f) b.m_MaxSpeed = v; }),
+                                        "maxForce", sol::property([](const BoidComponent& b)
+                                                                  { return b.m_MaxForce; }, [](BoidComponent& b, f32 v)
+                                                                  { if (std::isfinite(v) && v >= 0.0f) b.m_MaxForce = v; }),
+                                        "neighborRadius", sol::property([](const BoidComponent& b)
+                                                                        { return b.m_NeighborRadius; }, [](BoidComponent& b, f32 v)
+                                                                        { if (std::isfinite(v) && v > 0.0f) b.m_NeighborRadius = v; }),
+                                        "separationRadius", sol::property([](const BoidComponent& b)
+                                                                          { return b.m_SeparationRadius; }, [](BoidComponent& b, f32 v)
+                                                                          { if (std::isfinite(v) && v > 0.0f) b.m_SeparationRadius = v; }),
+                                        "separationWeight", sol::property([](const BoidComponent& b)
+                                                                          { return b.m_SeparationWeight; }, [](BoidComponent& b, f32 v)
+                                                                          { if (std::isfinite(v) && v >= 0.0f) b.m_SeparationWeight = v; }),
+                                        "alignmentWeight", sol::property([](const BoidComponent& b)
+                                                                         { return b.m_AlignmentWeight; }, [](BoidComponent& b, f32 v)
+                                                                         { if (std::isfinite(v) && v >= 0.0f) b.m_AlignmentWeight = v; }),
+                                        "cohesionWeight", sol::property([](const BoidComponent& b)
+                                                                        { return b.m_CohesionWeight; }, [](BoidComponent& b, f32 v)
+                                                                        { if (std::isfinite(v) && v >= 0.0f) b.m_CohesionWeight = v; }),
+                                        "goalWeight", sol::property([](const BoidComponent& b)
+                                                                    { return b.m_GoalWeight; }, [](BoidComponent& b, f32 v)
+                                                                    { if (std::isfinite(v) && v >= 0.0f) b.m_GoalWeight = v; }),
+                                        "goalPosition", sol::property([](const BoidComponent& b)
+                                                                      { return b.m_GoalPosition; }, [](BoidComponent& b, const glm::vec3& v)
+                                                                      { if (IsFiniteVec3(v)) b.m_GoalPosition = v; }),
+                                        "obstacleAvoidWeight", sol::property([](const BoidComponent& b)
+                                                                             { return b.m_ObstacleAvoidWeight; }, [](BoidComponent& b, f32 v)
+                                                                             { if (std::isfinite(v) && v >= 0.0f) b.m_ObstacleAvoidWeight = v; }),
+                                        "obstacleAvoidRadius", sol::property([](const BoidComponent& b)
+                                                                             { return b.m_ObstacleAvoidRadius; }, [](BoidComponent& b, f32 v)
+                                                                             { if (std::isfinite(v) && v >= 0.0f) b.m_ObstacleAvoidRadius = v; }),
+                                        "velocity", sol::property([](const BoidComponent& b)
+                                                                  { return b.m_Velocity; }, [](BoidComponent& b, const glm::vec3& v)
+                                                                  { if (IsFiniteVec3(v)) b.m_Velocity = v; }),
+                                        "lockYAxis", &BoidComponent::m_LockYAxis,
+                                        "faceVelocity", &BoidComponent::m_FaceVelocity,
+                                        "neighborCount", sol::readonly(&BoidComponent::m_NeighborCount),
+                                        "steeringForce", sol::readonly(&BoidComponent::m_SteeringForce));
+
+        // --- BoidObstacleComponent (issue #731) ---
+        lua.new_usertype<BoidObstacleComponent>("BoidObstacleComponent",
+                                                "radius", sol::property([](const BoidObstacleComponent& o)
+                                                                        { return o.m_Radius; }, [](BoidObstacleComponent& o, f32 v)
+                                                                        { if (std::isfinite(v) && v > 0.0f) o.m_Radius = v; }));
 
         // --- NavMeshBoundsComponent ---
         lua.new_usertype<NavMeshBoundsComponent>("NavMeshBoundsComponent",

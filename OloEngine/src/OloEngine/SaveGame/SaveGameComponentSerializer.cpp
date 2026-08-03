@@ -2739,6 +2739,68 @@ namespace OloEngine
         // Runtime path state intentionally excluded — recomputed by the nav system.
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, BoidComponent& c)
+    {
+        ar << c.m_MaxSpeed << c.m_MaxForce;
+        ar << c.m_NeighborRadius << c.m_SeparationRadius << c.m_MaxNeighbors;
+        ar << c.m_SeparationWeight << c.m_AlignmentWeight << c.m_CohesionWeight;
+        ar << c.m_GoalWeight;
+        ar << c.m_GoalPosition.x << c.m_GoalPosition.y << c.m_GoalPosition.z;
+        ar << c.m_ObstacleAvoidWeight << c.m_ObstacleAvoidRadius;
+        ar << c.m_LockYAxis << c.m_FaceVelocity;
+        // Velocity is authored/carried state, not per-tick derived state — a
+        // save reloaded mid-flight must resume with the flock still moving.
+        ar << c.m_Velocity.x << c.m_Velocity.y << c.m_Velocity.z;
+        // m_SteeringForce / m_NeighborCount are recomputed by the next
+        // BoidSteering tick, so they are deliberately excluded.
+
+        // The scene-YAML path gets these bounds for free from the
+        // OLO_SERIALIZE(Clamp, ...) annotations in AIComponents.h; the binary
+        // save path does not, so mirror them by hand. Keep the two in sync — a
+        // divergence between the two load paths is exactly the class of bug
+        // that made VehicleComponent::m_DriveMode need Reject over Clamp.
+        if (ar.IsLoading())
+        {
+            auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                    return;
+                }
+                v = std::clamp(v, lo, hi);
+            };
+            sanitize(c.m_MaxSpeed, 0.0f, 1000.0f, 6.0f);
+            sanitize(c.m_MaxForce, 0.0f, 10000.0f, 12.0f);
+            sanitize(c.m_NeighborRadius, 0.01f, 1000.0f, 4.0f);
+            sanitize(c.m_SeparationRadius, 0.01f, 1000.0f, 1.5f);
+            c.m_MaxNeighbors = std::clamp(c.m_MaxNeighbors, 1u, 4096u);
+            sanitize(c.m_SeparationWeight, 0.0f, 100.0f, 1.5f);
+            sanitize(c.m_AlignmentWeight, 0.0f, 100.0f, 1.0f);
+            sanitize(c.m_CohesionWeight, 0.0f, 100.0f, 1.0f);
+            sanitize(c.m_GoalWeight, 0.0f, 100.0f, 0.5f);
+            sanitize(c.m_ObstacleAvoidWeight, 0.0f, 100.0f, 2.0f);
+            sanitize(c.m_ObstacleAvoidRadius, 0.0f, 1000.0f, 3.0f);
+            // Vec3s are whole-vector fallbacks, matching the generated YAML
+            // decode (DecodeVec3 rejects the vector, not one component).
+            if (!Math::IsFinite(c.m_GoalPosition))
+                c.m_GoalPosition = glm::vec3(0.0f);
+            if (!Math::IsFinite(c.m_Velocity))
+                c.m_Velocity = glm::vec3(0.0f);
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, BoidObstacleComponent& c)
+    {
+        ar << c.m_Radius;
+
+        if (ar.IsLoading())
+        {
+            // Mirrors OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 10000.0f).
+            c.m_Radius = std::isfinite(c.m_Radius) ? std::clamp(c.m_Radius, 0.01f, 10000.0f) : 1.0f;
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, NameplateComponent& c)
     {
         ar << c.m_Enabled << c.m_ShowHealthBar << c.m_ShowManaBar;
@@ -4088,6 +4150,8 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(DialogueComponent);
         REGISTER_SAVE_COMPONENT(NavMeshBoundsComponent);
         REGISTER_SAVE_COMPONENT(NavAgentComponent);
+        REGISTER_SAVE_COMPONENT(BoidComponent);
+        REGISTER_SAVE_COMPONENT(BoidObstacleComponent);
         REGISTER_SAVE_COMPONENT(NameplateComponent);
         REGISTER_SAVE_COMPONENT(IKTargetComponent);
         REGISTER_SAVE_COMPONENT(SpringBoneComponent);

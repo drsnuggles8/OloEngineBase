@@ -21,6 +21,8 @@ using AllComponents = ComponentGroup<
     AudioSourceComponent,
     BehaviorTreeComponent,
     BoatComponent,
+    BoidComponent,
+    BoidObstacleComponent,
     BoxCollider2DComponent,
     BoxCollider3DComponent,
     BuoyancyComponent,

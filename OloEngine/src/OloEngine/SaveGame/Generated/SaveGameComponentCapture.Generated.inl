@@ -22,6 +22,8 @@ SAVE_COMPONENT(AudioListenerComponent, entity, writer);
 SAVE_COMPONENT(AudioSourceComponent, entity, writer);
 SAVE_COMPONENT(BehaviorTreeComponent, entity, writer);
 SAVE_COMPONENT(BoatComponent, entity, writer);
+SAVE_COMPONENT(BoidComponent, entity, writer);
+SAVE_COMPONENT(BoidObstacleComponent, entity, writer);
 SAVE_COMPONENT(BoxCollider2DComponent, entity, writer);
 SAVE_COMPONENT(BoxCollider3DComponent, entity, writer);
 SAVE_COMPONENT(BuoyancyComponent, entity, writer);

@@ -134,6 +134,10 @@
 		"OloEngine/AI/Perception/PerceptionMath.h"
 		"OloEngine/AI/Perception/PerceptionSystem.h"
 		"OloEngine/AI/Perception/PerceptionSystem.cpp"
+		"OloEngine/AI/Flocking/FlockSpatialHash.h"
+		"OloEngine/AI/Flocking/FlockSpatialHash.cpp"
+		"OloEngine/AI/Flocking/FlockingSystem.h"
+		"OloEngine/AI/Flocking/FlockingSystem.cpp"
 		"OloEngine/AI/BehaviorTree/BehaviorTreeSerializer.cpp"
 		"OloEngine/AI/FSM/StateMachineSerializer.cpp"
 		
