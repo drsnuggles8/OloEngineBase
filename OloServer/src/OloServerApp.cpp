@@ -9,7 +9,6 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
-#include "OloEngine/Networking/Transport/NetworkServer.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Project/Project.h"
 
@@ -236,23 +235,14 @@ namespace OloEngine
                 // Register the running scene with networking. Everything downstream
                 // — capture, interest scoping, spawn/despawn, RPC handlers — early-
                 // outs without it.
-                NetworkManager::SetActiveScene(m_ActiveScene.get());
-
-                // SetActiveScene() only swaps the pointer. Every per-client baseline,
+                // NOTE: no explicit replication reset here. Every per-client baseline,
                 // known-entity set and history snapshot still describes entities from
-                // the scene we just destroyed, so a `reload` with connections held
-                // open would delta the new world against the old one.
-                //
-                // Reset() is the WRONG tool here: it erases m_Clients, and the
-                // replication pass skips a connected client with no state — while a
-                // client that never disconnected never sends another connect event to
-                // rebuild it. Every held-open connection would go silently dead for
-                // the rest of the process. ResetForSceneSwap keeps the connections and
-                // rebuilds only what the scene owned.
-                if (NetworkServer* server = NetworkManager::GetServer())
-                {
-                    NetworkManager::GetServerDriver().ResetForSceneSwap(*m_ActiveScene, *server);
-                }
+                // the scene we just destroyed, but SetActiveScene now records the swap
+                // and the next NetworkManager::Tick rebuilds the driver against the
+                // new scene — keeping the connections, which is what a `reload` with
+                // sockets held open requires. Doing it in the facade rather than here
+                // means the editor's Stop-then-Play and OloRuntime get it too.
+                NetworkManager::SetActiveScene(m_ActiveScene.get());
 
                 OLO_CORE_INFO("[Server] Scene loaded and started");
                 return true;

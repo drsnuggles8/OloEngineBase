@@ -370,8 +370,18 @@ or the other:
 *stops* and wrong here. `Tick` skips a connected client that has no `ClientState`
 (`m_Clients.find(id) == end() → continue`), and a client that never disconnected
 never sends another connect event to rebuild one — so `Reset()` on a reload leaves
-every held-open connection permanently, silently dead. `ResetForSceneSwap` exists for
-this call site.
+every held-open connection permanently, silently dead. `ResetForSceneSwap` is the
+scene-swap half.
+
+**No host calls it directly.** `NetworkManager::SetActiveScene` records that the
+driver's state now describes a stale scene, and the next `Tick` rebuilds against the
+new one — so the dedicated server's `reload`, the editor's Stop-then-Play and
+OloRuntime are all covered by the same code. Two reasons it is a *flag* and not a
+retained `Scene*` compared in `Tick`: a swap normally passes through `nullptr`, and
+`Tick` early-outs on a null scene so a pointer comparison there never sees the
+transition; and the outgoing `Scene` is freed immediately, so a retained pointer can
+compare **equal** to a freshly allocated one at the same address and silently skip
+the rebuild.
 
 Two further asymmetries the split makes obvious once you look for them:
 

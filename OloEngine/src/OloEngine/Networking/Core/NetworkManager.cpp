@@ -28,6 +28,7 @@ namespace OloEngine
     Scope<NetworkServer> NetworkManager::s_Server = nullptr;
     Scope<NetworkClient> NetworkManager::s_Client = nullptr;
     Scene* NetworkManager::s_ActiveScene = nullptr;
+    bool NetworkManager::s_ServerSceneChanged = false;
     ServerReplicationDriver NetworkManager::s_ServerDriver;
     ClientReplicationDriver NetworkManager::s_ClientDriver;
     NetworkSession NetworkManager::s_Session;
@@ -257,6 +258,9 @@ namespace OloEngine
             s_Server.reset();
         }
         s_ServerDriver.Reset();
+        // Reset() is the stronger operation — it drops the connections too — so a
+        // pending scene-swap rebuild has nothing left to do.
+        s_ServerSceneChanged = false;
     }
 
     bool NetworkManager::IsServer()
@@ -439,6 +443,23 @@ namespace OloEngine
     void NetworkManager::SetActiveScene(Scene* scene)
     {
         TUniqueLock<FMutex> lock(s_Mutex);
+
+        // Remember that the server driver's state now describes a scene that is no
+        // longer the active one, so the next Tick can rebuild it. Recorded as a flag
+        // rather than by comparing scene pointers in Tick, for two reasons: a swap
+        // usually goes through nullptr (the editor's Stop-then-Play, and every host's
+        // teardown ordering), which a pointer comparison in Tick never observes
+        // because Tick early-outs on a null scene; and the outgoing Scene is freed
+        // immediately, so a retained pointer could compare EQUAL to a freshly
+        // allocated one at the same address and silently skip the rebuild.
+        //
+        // Only a transition away from a real scene counts — the initial nullptr to
+        // first-scene bind has nothing to rebuild.
+        if (s_ActiveScene != nullptr && s_ActiveScene != scene)
+        {
+            s_ServerSceneChanged = true;
+        }
+
         s_ActiveScene = scene;
     }
 
@@ -477,8 +498,30 @@ namespace OloEngine
 
         const bool hostingServer = server != nullptr && server->IsRunning();
 
+        // Consume the pending swap only now that a scene actually exists — the flag
+        // has to survive the null-scene frames between a teardown and the next bind.
+        bool sceneChanged = false;
+        {
+            TUniqueLock<FMutex> lock(s_Mutex);
+            sceneChanged = s_ServerSceneChanged;
+            s_ServerSceneChanged = false;
+        }
+
         if (hostingServer)
         {
+            // Rebind the driver to the new scene before anything reads from it. The
+            // same lazy-rebind shape as the client attach below, and for the same
+            // reason: a host can swap the runtime scene under a LIVE server — the
+            // dedicated server's `reload`, the editor's Stop-then-Play — and
+            // everything the driver holds about the old scene (baselines, known-entity
+            // sets, history, archetypes) then names entities that no longer exist,
+            // while the connections themselves must survive. OloServerApp does this
+            // for its own console command; doing it here covers every other host.
+            if (sceneChanged)
+            {
+                s_ServerDriver.ResetForSceneSwap(*scene, *server);
+            }
+
             // Poll first so this frame's inputs and RPCs are applied to the
             // simulation BEFORE the snapshot that reports its state.
             server->PollMessages();

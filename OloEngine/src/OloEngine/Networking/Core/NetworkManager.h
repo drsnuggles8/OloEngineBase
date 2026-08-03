@@ -212,6 +212,11 @@ namespace OloEngine
         static Scope<NetworkServer> s_Server;
         static Scope<NetworkClient> s_Client;
         static Scene* s_ActiveScene;
+        // Set when the active scene is replaced while the server driver still holds
+        // state built from the outgoing one; consumed by the next Tick that has a
+        // scene to rebuild against. See SetActiveScene for why this is a flag rather
+        // than a retained scene pointer.
+        static bool s_ServerSceneChanged;
 
         // Game-thread-only. Deliberately not mutex-protected: every path that
         // touches them is already confined to the game thread by the ECS access

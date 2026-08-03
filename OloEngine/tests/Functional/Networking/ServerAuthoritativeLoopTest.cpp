@@ -742,9 +742,17 @@ TEST_F(ServerAuthoritativeLoopTest, ALiveSceneSwapKeepsReplicatingToStillConnect
     ASSERT_TRUE(PumpUntil([this, oldPawn]
                           { return ClientHasEntity(0, oldPawn); }));
 
+    // Snapshot the tick the pre-swap replication reached, so the assertion at the
+    // end can compare against it rather than against 0.
+    const u32 tickBeforeSwap = m_ServerDriver.GetCurrentTick();
+    ASSERT_GT(tickBeforeSwap, 0u) << "no replication happened before the swap; the test proves nothing";
+
     // The swap itself, exactly as OloServerApp::LoadScene performs it.
     m_ServerScene = CreateScope<Scene>();
     m_ServerDriver.ResetForSceneSwap(*m_ServerScene, *m_Server);
+
+    EXPECT_GE(m_ServerDriver.GetCurrentTick(), tickBeforeSwap)
+        << "the swap rewound the tick clock";
 
     const std::vector<u32> tracked = m_ServerDriver.GetTrackedClients();
     ASSERT_NE(std::find(tracked.begin(), tracked.end(), clientID), tracked.end())
@@ -765,8 +773,11 @@ TEST_F(ServerAuthoritativeLoopTest, ALiveSceneSwapKeepsReplicatingToStillConnect
 
     // The tick clock must not restart: the client rejects any snapshot whose tick is
     // not newer than the last it applied, so a reset counter would starve it just as
-    // effectively as a dropped ClientState.
-    EXPECT_GT(m_ServerDriver.GetCurrentTick(), 0u);
+    // effectively as a dropped ClientState. Comparing against the PRE-SWAP tick is
+    // what makes this bite — `> 0` also passes when the clock restarted at 0 and the
+    // pumping above simply advanced it again.
+    EXPECT_GT(m_ServerDriver.GetCurrentTick(), tickBeforeSwap)
+        << "the tick clock did not advance past where the swap found it";
 }
 
 TEST_F(ServerAuthoritativeLoopTest, PingQueriesDoNotDeadlockAgainstConnectionIteration)
