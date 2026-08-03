@@ -58,11 +58,20 @@ not playing. Assert `LastStartPosition`, not `IsPlaying()`.
 **But resuming is only right for a LOOP.** Issue #730 says a sound that cannot win a slot
 "is refused", and the same seek that puts a loop back in phase would put a one-shot
 somewhere in its tail — emitting the last 100 ms of an impact the player never heard
-begin. `CanBecomeAudible` is the rule: a loop always resumes; a voice of unknown length
-(a stream, a SoundGraph voice) stays promotable because we cannot schedule its end and
-refusing it forever would strand it silent; a known-length one-shot may **start**
-(position 0) but never **resume**. The distinction is "has it advanced while silent",
-not "is it a one-shot" — a fresh one-shot has missed nothing and must play.
+begin. `CanBecomeAudible` is the rule, and its clauses are in priority order:
+
+1. **paused** → never (see §6 — owner intent outranks the budget);
+2. **was ever audible** → always, because the player heard this sound begin, so bringing
+   it back continues something already in their ear;
+3. **looping** → always (it resumes in phase, which is the whole point);
+4. **unknown length** (a stream, a SoundGraph voice) → always, because we cannot schedule
+   its end and refusing it forever would strand it silent rather than merely skip it;
+5. otherwise → only from position 0.
+
+The real distinction is **"would starting now drop the player into the middle of a sound
+they never heard start?"** — not "is it a one-shot". A fresh one-shot has missed nothing
+and must play; a one-shot that was audible and got stolen may resume; only one that has
+*only ever advanced silently* is refused.
 
 Corollary for the *audible* case: while a voice really is running, the **backend cursor is
 authoritative** (`OnVoiceQueryPosition`). Integrating `dt` for an audible voice drifts
@@ -104,7 +113,28 @@ API** — `OnVoiceStart`/`OnVoiceStop` run with the transition lock held, so cal
 `Acquire`/`Release`/`Update`/`SetMaxVoices` from one self-deadlocks. `OnVoiceQueryPosition`
 runs under the data lock and must not re-enter either.
 
-## 6. A slot is leaked unless something retires the voice
+## 6. Owner intent outranks budget policy — the pause trap
+
+A paused voice is silent, so the obvious move is to let the budget reclaim its slot. The
+non-obvious half: if a paused voice stays *promotable*, the budget will eventually call
+`OnVoiceStart` on it and **resume playback the game explicitly stopped**. Pause is an owner
+decision; the budget may take a paused voice's slot away, but must never give it back.
+
+`VoiceParams::Paused` therefore does two things: it scores the voice zero (so any voice
+that can actually be heard outbids it), and it makes `CanBecomeAudible` return false (so
+only the owner's `SetVoicePaused(handle, false)` can revive it).
+
+Two consequences worth knowing:
+
+- **An uncontended pause keeps its slot.** Scoring zero only matters when someone wants
+  the slot; with no contender there is nobody to hand it to, and stopping the backend for
+  no gain is pure churn. The budget self-corrects the instant a real contender arrives.
+- **Pause/resume is why `WasAudible` exists.** §3's refusal rule ("a one-shot that only
+  ever advanced silently must not be seeked into") would otherwise refuse a one-shot that
+  the player *did* hear, was paused mid-way, and then un-paused. The rule keys on whether
+  the voice was ever audible, not on how far it has advanced.
+
+## 7. A slot is leaked unless something retires the voice
 
 Owners are not required to call `Stop()` on a sound that simply ended, so the manager
 retires a non-looping voice itself once its logical position passes `DurationSeconds`.
@@ -116,7 +146,7 @@ voice): such a voice is **never** auto-retired and its owner must `Release` it �
 `AudioSource` / `SoundGraphSound` happens in `Stop()` *and* in the destructor, because the
 manager holds a raw `IVoiceHost*` and must never drive a torn-down host.
 
-## 7. The two backends virtualize differently, and one of them can't do it properly
+## 8. The two backends virtualize differently, and one of them can't do it properly
 
 | | clip path (`AudioSource`) | graph path (`SoundGraphSound`) |
 |---|---|---|
@@ -139,7 +169,7 @@ miniaudio-flavoured (**0 = highest**) while `VoiceParams::Priority` is the other
 important sounds the first ones stolen, and every test that only counts voices still
 passes.
 
-## 8. Adding a field to `AudioSourceConfig` is four edits, and one of them is silent
+## 9. Adding a field to `AudioSourceConfig` is four edits, and one of them is silent
 
 `AudioSourceComponent` is **not** an auto-generated-serializer component (its fields live
 behind a private `m_Cold` blob, which the generator classifies non-trivial and skips), so
@@ -160,7 +190,7 @@ behind a private `m_Cold` blob, which the generator classifies non-trivial and s
 Also note `static_assert(sizeof(AudioSourceComponent) <= 32)`: new authored audio state
 belongs in `AudioSourceColdData` / `AudioSourceConfig`, never inline on the component.
 
-## 9. Re-score on every input that moves
+## 10. Re-score on every input that moves
 
 The score is `Priority × gain × distanceAttenuation`, so **every** mutator feeding those
 inputs has to push fresh params at the manager — `SetVolume`, `SetPitch`, `SetLooping`,

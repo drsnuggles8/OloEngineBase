@@ -306,33 +306,35 @@ namespace OloEngine::Audio::SoundGraph
 
     void SoundGraphSound::ReleaseVoice() const
     {
-        if (m_VoiceHandle != OloEngine::Audio::kInvalidVoiceHandle)
+        const auto handle = m_VoiceHandle.exchange(OloEngine::Audio::kInvalidVoiceHandle, std::memory_order_acq_rel);
+        if (handle != OloEngine::Audio::kInvalidVoiceHandle)
         {
-            OloEngine::Audio::VoiceManager::Get().Release(m_VoiceHandle);
-            m_VoiceHandle = OloEngine::Audio::kInvalidVoiceHandle;
+            OloEngine::Audio::VoiceManager::Get().Release(handle);
         }
         // Never leave a released voice muted — the budget is no longer tracking it, so
         // nothing would ever bring the gain back.
-        m_VoiceGainScale = 1.0f;
+        m_VoiceGainScale.store(1.0f, std::memory_order_relaxed);
         ApplyEffectiveGain();
     }
 
     void SoundGraphSound::SyncVoiceParams() const
     {
-        if (m_VoiceHandle != OloEngine::Audio::kInvalidVoiceHandle)
+        const auto handle = m_VoiceHandle.load(std::memory_order_relaxed);
+        if (handle != OloEngine::Audio::kInvalidVoiceHandle)
         {
-            OloEngine::Audio::VoiceManager::Get().UpdateParams(m_VoiceHandle, BuildVoiceParams());
+            OloEngine::Audio::VoiceManager::Get().UpdateParams(handle, BuildVoiceParams());
         }
     }
 
     void SoundGraphSound::ApplyEffectiveGain() const
     {
-        RouteFloatParameter(kVolumeParam, m_Volume * m_VoiceGainScale);
+        RouteFloatParameter(kVolumeParam, m_Volume * m_VoiceGainScale.load(std::memory_order_relaxed));
     }
 
     bool SoundGraphSound::IsVirtualized() const
     {
-        return m_VoiceHandle != OloEngine::Audio::kInvalidVoiceHandle && OloEngine::Audio::VoiceManager::Get().IsVirtual(m_VoiceHandle);
+        const auto handle = m_VoiceHandle.load(std::memory_order_acquire);
+        return handle != OloEngine::Audio::kInvalidVoiceHandle && OloEngine::Audio::VoiceManager::Get().IsVirtual(handle);
     }
 
     void SoundGraphSound::SetPriority(u8 priority)
@@ -346,14 +348,14 @@ namespace OloEngine::Audio::SoundGraph
         // positionSeconds is ignored: the graph runtime has no seek, and it never stopped
         // advancing while muted, so it is already at the right phase. See the class
         // comment for why muting (rather than suspending) is the virtualization here.
-        m_VoiceGainScale = 1.0f;
+        m_VoiceGainScale.store(1.0f, std::memory_order_relaxed);
         ApplyEffectiveGain();
         return true;
     }
 
     f64 SoundGraphSound::OnVoiceStop() const
     {
-        m_VoiceGainScale = 0.0f;
+        m_VoiceGainScale.store(0.0f, std::memory_order_relaxed);
         ApplyEffectiveGain();
         // Negative: no transport to report a position from, so the budget keeps advancing
         // its own logical clock for this voice.
@@ -387,12 +389,13 @@ namespace OloEngine::Audio::SoundGraph
         // that is where the gain is un-muted. Starting a re-triggered sound also drops any
         // previous registration so the budget never holds two records for one graph.
         ReleaseVoice();
-        m_VoiceHandle = OloEngine::Audio::VoiceManager::Get().Acquire(this, BuildVoiceParams());
-        if (m_VoiceHandle == OloEngine::Audio::kInvalidVoiceHandle)
+        const auto handle = OloEngine::Audio::VoiceManager::Get().Acquire(this, BuildVoiceParams());
+        m_VoiceHandle.store(handle, std::memory_order_release);
+        if (handle == OloEngine::Audio::kInvalidVoiceHandle)
         {
             // Only reachable if Acquire was handed a null host, which cannot happen here;
             // fall back to unmanaged playback rather than silence.
-            m_VoiceGainScale = 1.0f;
+            m_VoiceGainScale.store(1.0f, std::memory_order_relaxed);
             ApplyEffectiveGain();
         }
 
@@ -767,6 +770,13 @@ namespace OloEngine::Audio::SoundGraph
                 if (m_Source->IsFinished() && !m_IsFinished)
                 {
                     m_IsFinished = true;
+                    // A graph reports DurationSeconds == 0 (unknown length), so the budget
+                    // cannot auto-retire it — by contract the owner must release it, and
+                    // this natural-completion path is the one place that would otherwise
+                    // never do so. Scene::InitializeAudioSoundGraph hands the Sound to the
+                    // scene and nothing calls Stop() on a graph that simply ended, so
+                    // without this every finished one-shot graph holds a slot forever.
+                    ReleaseVoice();
                     if (m_OnPlaybackComplete)
                         m_OnPlaybackComplete();
                 }

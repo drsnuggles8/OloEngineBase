@@ -41,7 +41,10 @@ namespace
         {
             ++StartCount;
             LastStartPosition = positionSeconds;
-            Running = true;
+            // Only "running" if the start actually succeeded — a refusing backend that
+            // still reported Running would make the cap assertions count a silent voice
+            // as audible, hiding exactly the bug they exist to catch.
+            Running = !RefuseToStart;
             return !RefuseToStart;
         }
 
@@ -612,6 +615,117 @@ TEST(VoiceManagerRefusalTest, AnUnknownLengthVoiceStaysPromotableSoItIsNotStrand
 
     EXPECT_TRUE(manager.IsAudible(streamVoice));
     EXPECT_EQ(stream.StartCount, 1u);
+}
+
+// ===========================================================================
+// Pause — owner intent outranks budget policy
+// ===========================================================================
+
+TEST(VoiceManagerPauseTest, TheBudgetNeverStartsAPausedVoice)
+{
+    // The bug this pins: a paused voice left promotable gets OnVoiceStart called on it the
+    // moment a slot frees, resuming playback the game explicitly stopped.
+    VoiceManager manager;
+    manager.SetMaxVoices(1);
+
+    FakeVoiceHost paused;
+    FakeVoiceHost blocker;
+
+    const VoiceHandle pausedVoice = manager.Acquire(&paused, MakeParams(0.9f));
+    ASSERT_TRUE(manager.IsAudible(pausedVoice));
+    ASSERT_EQ(paused.StartCount, 1u);
+
+    manager.SetVoicePaused(pausedVoice, true);
+
+    // Pausing yields the slot — a paused voice makes no sound, so it must not hold one
+    // against a voice that can be heard.
+    const VoiceHandle blockerVoice = manager.Acquire(&blocker, MakeParams(0.1f));
+    EXPECT_TRUE(manager.IsAudible(blockerVoice));
+    EXPECT_TRUE(manager.IsVirtual(pausedVoice));
+
+    // Now free the slot again and tick: the paused voice must NOT be restarted.
+    manager.Release(blockerVoice);
+    manager.Update(1.0f / 60.0f);
+
+    EXPECT_EQ(paused.StartCount, 1u) << "the budget resumed a paused voice without the owner asking";
+    EXPECT_TRUE(manager.IsVirtual(pausedVoice));
+}
+
+TEST(VoiceManagerPauseTest, PausingWithNoContenderKeepsTheSlotRatherThanChurning)
+{
+    // Deliberate: a paused voice scores zero, but nothing is waiting for the slot, so
+    // there is no one to hand it to. Stopping and restarting the backend for no gain is
+    // churn. The budget self-corrects the moment a real contender shows up (next test).
+    VoiceManager manager;
+    manager.SetMaxVoices(1);
+
+    FakeVoiceHost host;
+    const VoiceHandle voice = manager.Acquire(&host, MakeParams(0.9f));
+    ASSERT_TRUE(manager.IsAudible(voice));
+
+    manager.SetVoicePaused(voice, true);
+
+    EXPECT_TRUE(manager.IsAudible(voice));
+    EXPECT_EQ(host.StopCount, 0u) << "no contender, so no reason to stop the backend";
+}
+
+TEST(VoiceManagerPauseTest, UnpausingReEntersTheContestAndResumesAtItsPosition)
+{
+    VoiceManager manager;
+    manager.SetMaxVoices(1);
+
+    FakeVoiceHost host;
+    FakeVoiceHost contender;
+
+    VoiceParams params = MakeParams(0.9f);
+    params.DurationSeconds = 10.0;
+    const VoiceHandle voice = manager.Acquire(&host, params);
+    ASSERT_TRUE(manager.IsAudible(voice));
+    manager.Update(2.0f); // 2 s in
+    ASSERT_NEAR(manager.GetPlaybackPosition(voice), 2.0, 1e-6);
+
+    // Paused, so it now scores zero — a contender with any real score takes the slot even
+    // though its authored priority (0.1) is far below the paused voice's (0.9).
+    manager.SetVoicePaused(voice, true);
+    const VoiceHandle contenderVoice = manager.Acquire(&contender, MakeParams(0.1f));
+    ASSERT_TRUE(manager.IsAudible(contenderVoice));
+    ASSERT_TRUE(manager.IsVirtual(voice));
+
+    // Slot frees, but a paused voice must NOT be revived by the budget.
+    manager.Release(contenderVoice);
+    ASSERT_EQ(host.StartCount, 1u);
+    ASSERT_TRUE(manager.IsVirtual(voice));
+
+    // The owner un-pauses: now it may win the slot back, resumed where it left off. A
+    // one-shot that was audible before pausing stays resumable — unlike one refused at the
+    // door, which only ever advanced silently.
+    manager.SetVoicePaused(voice, false);
+
+    EXPECT_TRUE(manager.IsAudible(voice));
+    EXPECT_EQ(host.StartCount, 2u);
+    EXPECT_NEAR(host.LastStartPosition, 2.0, 1e-6);
+}
+
+TEST(VoiceManagerPauseTest, ACompletedAudibleOneShotIsStoppedBeforeItsSlotIsReused)
+{
+    // Length comes from the decoder, so the tracked position can reach it a hair before
+    // the device has drained. Handing the slot on without stopping would let the
+    // replacement start while the finished clip is still audible — cap+1 sounds at once.
+    VoiceManager manager;
+    manager.SetMaxVoices(1);
+
+    FakeVoiceHost oneShot;
+    VoiceParams params = MakeParams(0.9f);
+    params.DurationSeconds = 1.0;
+    const VoiceHandle voice = manager.Acquire(&oneShot, params);
+    ASSERT_TRUE(manager.IsAudible(voice));
+    ASSERT_EQ(oneShot.StopCount, 0u);
+
+    manager.Update(1.5f); // runs past its length
+
+    EXPECT_FALSE(manager.IsActive(voice));
+    EXPECT_EQ(oneShot.StopCount, 1u) << "the backend must be stopped before the slot is reused";
+    EXPECT_FALSE(oneShot.Running);
 }
 
 // ===========================================================================

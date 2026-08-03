@@ -31,6 +31,13 @@ namespace OloEngine::Audio
             return 0.0f;
         }
 
+        if (params.Paused)
+        {
+            // A paused voice makes no sound, so it must be the first thing yielded when
+            // something that CAN be heard wants the slot.
+            return 0.0f;
+        }
+
         const f32 priority = std::clamp(params.Priority, 0.0f, 1.0f);
         const f32 gain = std::clamp(params.Volume, 0.0f, 1.0f);
 
@@ -77,6 +84,19 @@ namespace OloEngine::Audio
 
     bool VoiceManager::CanBecomeAudible(const VoiceRecord& record)
     {
+        if (record.Params.Paused)
+        {
+            // Owner intent outranks budget policy. Promoting a paused voice would call
+            // OnVoiceStart and resume playback the game explicitly stopped.
+            return false;
+        }
+        if (record.WasAudible)
+        {
+            // The player heard this sound begin, so bringing it back continues something
+            // already in their ear rather than dropping them into its middle. This is also
+            // what makes pause/resume work for a one-shot.
+            return true;
+        }
         if (record.Params.Looping)
         {
             // The spec's virtualization case: a loop resumes in phase, so bringing it back
@@ -90,9 +110,9 @@ namespace OloEngine::Audio
             // it silent forever rather than merely skipping it.
             return true;
         }
-        // A one-shot of known length may START (position 0), but must never RESUME: it has
-        // been advancing silently, so seeking in now would play a fragment of its tail.
-        // Issue #730: a sound that cannot win a slot "is refused".
+        // A never-heard one-shot of known length may START (position 0), but must never be
+        // seeked into: it has only ever advanced silently, so starting now would emit a
+        // fragment of its tail. Issue #730: such a sound "is refused".
         return record.PlaybackPosition <= 0.0;
     }
 
@@ -235,6 +255,27 @@ namespace OloEngine::Audio
         }
     }
 
+    void VoiceManager::SetVoicePaused(VoiceHandle handle, bool paused)
+    {
+        const std::scoped_lock applyLock(m_TransitionMutex);
+        std::vector<PendingTransition> transitions;
+        {
+            const std::scoped_lock lock(m_Mutex);
+            auto* record = Find(handle);
+            if (!record || record->Params.Paused == paused)
+            {
+                return;
+            }
+            record->Params.Paused = paused;
+            record->Score = ComputeScore(record->Params, m_ListenerPosition);
+            // Rebalance right here rather than waiting for the next Update: pausing should
+            // hand the slot over immediately, and un-pausing should be audible on the same
+            // frame the game asked for it, not a frame later.
+            Rebalance(transitions);
+        }
+        ApplyTransitions(transitions);
+    }
+
     void VoiceManager::SetPlaybackPosition(VoiceHandle handle, f64 seconds)
     {
         const std::scoped_lock lock(m_Mutex);
@@ -334,6 +375,19 @@ namespace OloEngine::Audio
                         // owner MUST release it.
                         record.PlaybackPosition = duration;
                         record.Completed = true; // erased at the end of this pass
+                        if (record.State == VoiceState::Playing)
+                        {
+                            // Stop the backend before the slot is handed on. The length
+                            // came from the decoder, so the cursor can reach it a hair
+                            // before the device has finished draining — freeing the slot
+                            // without stopping would let the replacement voice start while
+                            // this one is still audible, i.e. cap+1 sounds at once.
+                            transitions.push_back(PendingTransition{ record.Host, record.Handle, /*Start=*/false, record.PlaybackPosition });
+                            // The record is erased just below, so Rebalance recounts the
+                            // audible set from scratch and sees the freed slot.
+                            record.State = VoiceState::Virtual;
+                            ++m_Virtualizations;
+                        }
                     }
                 }
 
@@ -398,6 +452,7 @@ namespace OloEngine::Audio
         auto devirtualize = [&out, &audible, this](VoiceRecord& record)
         {
             record.State = VoiceState::Playing;
+            record.WasAudible = true;
             ++audible;
             ++m_Devirtualizations;
             out.push_back(PendingTransition{ record.Host, record.Handle, /*Start=*/true, record.PlaybackPosition });

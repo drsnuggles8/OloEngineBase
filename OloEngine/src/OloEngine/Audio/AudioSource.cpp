@@ -53,18 +53,22 @@ namespace OloEngine
 
     void AudioSource::ReleaseVoice() const
     {
-        if (m_VoiceHandle != Audio::kInvalidVoiceHandle)
+        // Exchange, not load-then-store: two threads racing to release must not both hand
+        // the same handle back (the second Release would be a no-op today, but the pattern
+        // is the one that stays correct if handles are ever recycled).
+        const Audio::VoiceHandle handle = m_VoiceHandle.exchange(Audio::kInvalidVoiceHandle, std::memory_order_acq_rel);
+        if (handle != Audio::kInvalidVoiceHandle)
         {
-            Audio::VoiceManager::Get().Release(m_VoiceHandle);
-            m_VoiceHandle = Audio::kInvalidVoiceHandle;
+            Audio::VoiceManager::Get().Release(handle);
         }
     }
 
     void AudioSource::SyncVoiceParams() const
     {
-        if (m_VoiceHandle != Audio::kInvalidVoiceHandle)
+        const Audio::VoiceHandle handle = m_VoiceHandle.load(std::memory_order_relaxed);
+        if (handle != Audio::kInvalidVoiceHandle)
         {
-            Audio::VoiceManager::Get().UpdateParams(m_VoiceHandle, BuildVoiceParams());
+            Audio::VoiceManager::Get().UpdateParams(handle, BuildVoiceParams());
         }
     }
 
@@ -74,8 +78,9 @@ namespace OloEngine
         // the budget doesn't end up holding two records for one backend sound (the second
         // of which it could never stop).
         ReleaseVoice();
-        m_VoiceHandle = Audio::VoiceManager::Get().Acquire(this, BuildVoiceParams());
-        if (m_VoiceHandle == Audio::kInvalidVoiceHandle)
+        const Audio::VoiceHandle handle = Audio::VoiceManager::Get().Acquire(this, BuildVoiceParams());
+        m_VoiceHandle.store(handle, std::memory_order_release);
+        if (handle == Audio::kInvalidVoiceHandle)
         {
             // Budget unavailable (only possible if Acquire was handed a null host, which
             // cannot happen here) — fall back to unmanaged playback rather than silence.
@@ -88,20 +93,34 @@ namespace OloEngine
 
     void AudioSource::Pause() const
     {
-        // The voice stays registered: a paused source is still logically owned by its
-        // entity and must resume where it left off, which is exactly what the budget's
-        // retained playback position gives us.
+        // The voice stays registered — a paused source is still logically owned by its
+        // entity and must resume where it left off — but it is marked paused so the budget
+        // hands its slot to something audible AND, crucially, never calls OnVoiceStart on
+        // it. Without the paused flag the budget could promote this voice and restart
+        // playback the game explicitly stopped.
         ::ma_sound_stop(m_Sound.get());
+        const Audio::VoiceHandle handle = m_VoiceHandle.load(std::memory_order_relaxed);
+        if (handle != Audio::kInvalidVoiceHandle)
+        {
+            Audio::VoiceManager::Get().SetVoicePaused(handle, true);
+        }
     }
 
     void AudioSource::UnPause() const
     {
-        // Only resume the backend if the budget still considers this voice audible —
-        // un-pausing a source that was stolen while paused must not push the mix over cap.
-        if (m_VoiceHandle == Audio::kInvalidVoiceHandle || Audio::VoiceManager::Get().IsAudible(m_VoiceHandle))
+        const Audio::VoiceHandle handle = m_VoiceHandle.load(std::memory_order_relaxed);
+        if (handle == Audio::kInvalidVoiceHandle)
         {
+            // Never registered (budget unavailable) — unmanaged resume.
             ::ma_sound_start(m_Sound.get());
+            return;
         }
+
+        // Clearing the pause re-enters the contest. If this voice wins a slot the budget
+        // drives OnVoiceStart itself (seeking to the retained position); if it does not,
+        // the source stays silent rather than pushing the mix over cap — it will come back
+        // when it out-scores someone.
+        Audio::VoiceManager::Get().SetVoicePaused(handle, false);
     }
 
     void AudioSource::Stop() const
@@ -115,7 +134,8 @@ namespace OloEngine
     {
         // Virtualized counts as playing — see the header. A stolen looping ambience is
         // still "playing" from the game's point of view; only the mixer disagrees.
-        if (m_VoiceHandle != Audio::kInvalidVoiceHandle && Audio::VoiceManager::Get().IsActive(m_VoiceHandle))
+        const Audio::VoiceHandle handle = m_VoiceHandle.load(std::memory_order_acquire);
+        if (handle != Audio::kInvalidVoiceHandle && Audio::VoiceManager::Get().IsActive(handle))
         {
             return true;
         }
@@ -124,16 +144,18 @@ namespace OloEngine
 
     bool AudioSource::IsAudible() const
     {
-        if (m_VoiceHandle == Audio::kInvalidVoiceHandle)
+        const Audio::VoiceHandle handle = m_VoiceHandle.load(std::memory_order_acquire);
+        if (handle == Audio::kInvalidVoiceHandle)
         {
             return ::ma_sound_is_playing(m_Sound.get());
         }
-        return Audio::VoiceManager::Get().IsAudible(m_VoiceHandle);
+        return Audio::VoiceManager::Get().IsAudible(handle);
     }
 
     bool AudioSource::IsVirtualized() const
     {
-        return m_VoiceHandle != Audio::kInvalidVoiceHandle && Audio::VoiceManager::Get().IsVirtual(m_VoiceHandle);
+        const Audio::VoiceHandle handle = m_VoiceHandle.load(std::memory_order_acquire);
+        return handle != Audio::kInvalidVoiceHandle && Audio::VoiceManager::Get().IsVirtual(handle);
     }
 
     f64 AudioSource::GetLengthSeconds() const
@@ -159,9 +181,10 @@ namespace OloEngine
 
     f64 AudioSource::GetPlaybackPositionSeconds() const
     {
-        if (m_VoiceHandle != Audio::kInvalidVoiceHandle && Audio::VoiceManager::Get().IsActive(m_VoiceHandle))
+        const Audio::VoiceHandle handle = m_VoiceHandle.load(std::memory_order_acquire);
+        if (handle != Audio::kInvalidVoiceHandle && Audio::VoiceManager::Get().IsActive(handle))
         {
-            return Audio::VoiceManager::Get().GetPlaybackPosition(m_VoiceHandle);
+            return Audio::VoiceManager::Get().GetPlaybackPosition(handle);
         }
         return OnVoiceQueryPosition();
     }

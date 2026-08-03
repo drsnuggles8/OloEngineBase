@@ -8,6 +8,7 @@
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Asset/Asset.h" // For AssetHandle
 #include <glm/glm.hpp>
+#include <atomic>
 #include <string>
 #include <string_view>
 #include <functional>
@@ -365,10 +366,14 @@ namespace OloEngine
                 // Voice-budget state (issue #730). Mutable because IVoiceHost's callbacks
                 // are const-qualified (AudioSource, the other implementation, needs them
                 // that way — see VoiceManager.h).
-                mutable OloEngine::Audio::VoiceHandle m_VoiceHandle = OloEngine::Audio::kInvalidVoiceHandle;
+                /// Atomic: written by Play/Stop on the owner's thread, read by the budget
+                /// callbacks that Scene::UpdateAudio drives from a worker.
+                mutable std::atomic<OloEngine::Audio::VoiceHandle> m_VoiceHandle{ OloEngine::Audio::kInvalidVoiceHandle };
                 /// 0 while virtualized, 1 while audible. Multiplied into m_Volume on the
-                /// way to the graph so the authored volume survives a steal.
-                mutable f32 m_VoiceGainScale = 1.0f;
+                /// way to the graph so the authored volume survives a steal. Atomic because
+                /// OnVoiceStart/OnVoiceStop write it from whichever thread ticks the budget
+                /// while SetVolume reads it from the owner's.
+                mutable std::atomic<f32> m_VoiceGainScale{ 1.0f };
 
                 /* Stored Fader "resting" value. Used to restore Fader before restarting playback if a fade has occurred. */
                 f32 m_StoredFaderValue = 1.0f;

@@ -4,6 +4,8 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Audio/VoiceManager.h"
 
+#include <atomic>
+
 struct ma_sound;
 
 namespace OloEngine
@@ -167,7 +169,12 @@ namespace OloEngine
         // const-qualified — the class already treats the backing ma_sound as mutable state
         // behind const methods, and the const-ness is load-bearing at the call sites
         // (AudioEventsManager iterates its source table by const reference).
-        mutable Audio::VoiceHandle m_VoiceHandle = Audio::kInvalidVoiceHandle;
+        /// Atomic because it is the one piece of voice state genuinely touched from more
+        /// than one thread: Play/Stop can come from the game thread (scripts, streaming)
+        /// while Scene::UpdateAudio ticks the budget on a worker. The IVoiceHost callbacks
+        /// themselves touch only the ma_sound, whose setters are already internally atomic
+        /// (see the scheduler audit note in Scene.cpp).
+        mutable std::atomic<Audio::VoiceHandle> m_VoiceHandle{ Audio::kInvalidVoiceHandle };
         /// Last position pushed through SetPosition — the spatial input the score needs.
         /// miniaudio has no getter that survives a stopped/virtual voice, so mirror it.
         mutable glm::vec3 m_Position{ 0.0f };

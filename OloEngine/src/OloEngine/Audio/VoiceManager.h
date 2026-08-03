@@ -35,6 +35,12 @@ namespace OloEngine::Audio
         f32 MinDistance = 1.0f;
         f32 MaxDistance = 1000.0f;
         bool Looping = false;
+        /// The owner has paused this voice. Owner intent outranks budget policy: a paused
+        /// voice scores zero (so it yields its slot to anything that can use it) and is
+        /// never brought back by the budget — only by the owner un-pausing it. Without
+        /// this the budget would call OnVoiceStart on a paused source and resume playback
+        /// nobody asked for.
+        bool Paused = false;
         /// Playback rate; the logical position of a virtualized voice advances by
         /// deltaSeconds * Pitch so it resumes in the right *phase*, not merely playing.
         f32 Pitch = 1.0f;
@@ -156,6 +162,11 @@ namespace OloEngine::Audio
         /// Cheap: no rebalance happens here, only at Update.
         void UpdateParams(VoiceHandle handle, const VoiceParams& params);
 
+        /// Pause / resume from the owner's side. Pausing frees the slot for a voice that
+        /// can actually use it; resuming re-enters the contest (and only becomes audible
+        /// again if it wins). Rebalances immediately, so neither has a frame of latency.
+        void SetVoicePaused(VoiceHandle handle, bool paused);
+
         /// Overwrite the tracked logical playback position, e.g. after the owner seeks.
         void SetPlaybackPosition(VoiceHandle handle, f64 seconds);
         [[nodiscard]] f64 GetPlaybackPosition(VoiceHandle handle) const;
@@ -198,12 +209,17 @@ namespace OloEngine::Audio
             /// the end of that pass. A separate flag rather than blanking Handle, so the
             /// record's identity stays valid for as long as it exists.
             bool Completed = false;
+            /// Has this voice ever actually been heard? Distinguishes a one-shot the
+            /// player heard begin (resuming it continues a sound already in their ear)
+            /// from one that has only ever drifted silently (starting it now would play a
+            /// fragment of a sound they never heard start).
+            bool WasAudible = false;
         };
 
         /// Whether this voice may be made audible right now. A losing voice is not always
         /// resumable: issue #730 says a sound that cannot win a slot "is refused", and
-        /// seeking into a one-shot that has already advanced while silent would play an
-        /// audible fragment of its tail rather than the sound the game asked for.
+        /// seeking into a one-shot that has only ever advanced silently would play a
+        /// fragment of its tail rather than the sound the game asked for.
         [[nodiscard]] static bool CanBecomeAudible(const VoiceRecord& record);
 
         /// A start/stop the caller must apply once the lock is released.
