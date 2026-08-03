@@ -25,13 +25,13 @@ message(STATUS "Downloading third party libraries using CMake's FetchContent and
 FetchContent_Declare(
 	assimp
 	GIT_REPOSITORY	https://github.com/assimp/assimp.git
-	GIT_TAG			a939f2479513a4d92060f2348909886b67d548aa  # master @ 2026-06-05
+	GIT_TAG			a8278e3ad9522493657fc759d26718524a6d23e7  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
 	atomic_queue
 	GIT_REPOSITORY	https://github.com/max0x7ba/atomic_queue.git
-	GIT_TAG			97ddb62f989a6532830d78be8ac1573efca97dd8  # master @ 2026-06-05
+	GIT_TAG			67c7c9123556f3ddd22ed0e5b1e89a193303cd88  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
@@ -63,7 +63,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	glfw
 	GIT_REPOSITORY	https://github.com/glfw/glfw.git
-	GIT_TAG			7b6aead9fb88b3623e3b3725ebb42670cbe4c579  # 3.4
+	GIT_TAG			d9d6f0f1f967807ffade6598ea9a631ebaf37a56  # 3.5.1
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
@@ -75,7 +75,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	googletest
 	GIT_REPOSITORY https://github.com/google/googletest.git
-	GIT_TAG b78aa5ee64be299ae50932e7b4d7e5d7b89a72f6  # main @ 2026-06-05
+	GIT_TAG 1b6f64d659944658a4c685b7bd9f04c1c3b8a39b  # main @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 # Pin Jolt to a fixed commit (not a floating branch). A floating `GIT_TAG master`
@@ -141,7 +141,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	yaml-cpp
 	GIT_REPOSITORY	https://github.com/jbeder/yaml-cpp.git
-	GIT_TAG			356643ba267039367d87fa70ce3d8f87144f55e9  # master @ 2026-06-05
+	GIT_TAG			3eb39d5808c33aa93a113cb6c668fa2435ff3ecd  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
 FetchContent_Declare(
@@ -172,7 +172,7 @@ FetchContent_Declare(
 FetchContent_Declare(
 	GameNetworkingSockets
 	GIT_REPOSITORY	https://github.com/ValveSoftware/GameNetworkingSockets.git
-	GIT_TAG			f4525e39ee10f6b45181fd92d01fee75f7d71756  # master @ 2026-06-05
+	GIT_TAG			a7f4a60bfc916e56f6b699297f49562e97944460  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 	EXCLUDE_FROM_ALL
 )
@@ -304,7 +304,7 @@ glad_add_library(glad STATIC API gl:core=4.6 LOCATION ${PROJECT_SOURCE_DIR}/vend
 
 FetchContent_Declare(stb_image
 	GIT_REPOSITORY https://github.com/nothings/stb.git
-	GIT_TAG 31c1ad37456438565541f4919958214b6e762fb4  # master @ 2026-06-05
+	GIT_TAG 2c980bb59875b0d32144a71867fbdebb2f77cd20  # master @ 2026-06-05
 	GIT_SHALLOW FALSE)
 FetchContent_MakeAvailable(stb_image)
 add_library(stb_image INTERFACE)
@@ -318,7 +318,7 @@ set(STBIMAGE_INSTALL_DIR "${PROJECT_SOURCE_DIR}/vendor/stb_image-build")
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
-	GIT_TAG b334d19b667958ed970000073644d911fae17e57  # docking @ 2026-06-05
+	GIT_TAG b48d1afbe8ee8b238e2961dc363a949dd7304e23  # docking @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if(imgui_ADDED)
@@ -341,7 +341,7 @@ endif()
 
 CPMAddPackage(NAME imguizmo
 	GITHUB_REPOSITORY CedricGuillemet/ImGuizmo
-	GIT_TAG dc25afb98bc3ebe00dfc9a23ba7235fead2ccb1d  # master @ 2026-06-05
+	GIT_TAG 5ab7676402ace03cdf930b2d972f59c7d03c6fa8  # master @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if (imguizmo_ADDED)
@@ -385,7 +385,7 @@ endif()
 # Pinned to a fixed tag SHA for reproducible builds (#294 convention).
 CPMAddPackage(NAME cpp_httplib
   GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-  GIT_TAG d66d9a95997d51a8ba9822a611d1267757741535  # v0.51.0
+  GIT_TAG 095a5c1caf9e467ff840ee2ffd19be1a7852203b  # v0.52.0
   GIT_SHALLOW FALSE
   DOWNLOAD_ONLY YES)
 if(cpp_httplib_ADDED)
@@ -404,7 +404,7 @@ endif()
 # Pinned to a fixed commit SHA for reproducible builds (#294 convention).
 CPMAddPackage(NAME bc7enc_rdo
   GIT_REPOSITORY https://github.com/richgel999/bc7enc_rdo.git
-  GIT_TAG dbe416d28a5530b4e8cc45b14bf034dc6b96bbde  # master @ 2026-02-27
+  GIT_TAG b9438627eef73a1157e84201b6fa6eb2ffd6d9f0  # master @ 2026-02-27
   GIT_SHALLOW FALSE
   DOWNLOAD_ONLY YES)
 if(bc7enc_rdo_ADDED)
