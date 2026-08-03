@@ -116,8 +116,11 @@ namespace OloEngine
                 continue;
             }
 
-            // Only interpolate server-authoritative entities
-            if (nic.Authority != ENetworkAuthority::Server)
+            // Skip only the entity this client predicts locally. Every other
+            // replicated entity — including OTHER players' client-authoritative
+            // pawns — must interpolate, or they freeze between snapshots.
+            if (nic.Authority != ENetworkAuthority::Server && m_LocalClientID != 0 &&
+                nic.OwnerClientID == m_LocalClientID)
             {
                 continue;
             }
@@ -192,6 +195,16 @@ namespace OloEngine
     {
         f32 const delayTicks = m_RenderDelay * static_cast<f32>(m_ServerTickRate);
         return static_cast<f32>(m_LatestReceivedTick) - delayTicks;
+    }
+
+    void SnapshotInterpolator::SetLocalClientID(u32 clientID)
+    {
+        m_LocalClientID = clientID;
+    }
+
+    u32 SnapshotInterpolator::GetLocalClientID() const
+    {
+        return m_LocalClientID;
     }
 
     const SnapshotBuffer& SnapshotInterpolator::GetBuffer() const

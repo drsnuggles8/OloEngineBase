@@ -45,6 +45,15 @@ namespace OloEngine
 
         // Does the live entity currently carry this component?
         bool (*Has)(Entity&) = nullptr;
+        // Add this component to the entity if it is missing (no-op otherwise).
+        // Used by entity-spawn replication: a client that has just created a
+        // replicated entity by UUID carries none of the server's components yet,
+        // and both EntitySnapshot::Apply and SnapshotInterpolator skip a component
+        // the entity does not already Have. Leaving this null makes the component
+        // replicate only onto entities that already carry it (the pre-spawn
+        // behaviour) — correct for components a client must never materialise
+        // on its own.
+        void (*Ensure)(Entity&) = nullptr;
         // Serialize the live component into the (net) archive — the write path.
         void (*Capture)(FArchive&, Entity&) = nullptr;
         // Blend the entity's live component between two serialized snapshots

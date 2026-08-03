@@ -37,6 +37,16 @@ namespace OloEngine
             return e.HasComponent<TransformComponent>();
         }
 
+        void TransformEnsure(Entity& e)
+        {
+            // Every entity created through Scene::CreateEntityWithUUID already has
+            // one; the guard keeps Ensure total for hand-built entities too.
+            if (!e.HasComponent<TransformComponent>())
+            {
+                e.AddComponent<TransformComponent>();
+            }
+        }
+
         void TransformCapture(FArchive& ar, Entity& e)
         {
             ComponentReplicator::Serialize(ar, e.GetComponent<TransformComponent>());
@@ -81,6 +91,14 @@ namespace OloEngine
         bool Rigidbody3DHas(Entity& e)
         {
             return e.HasComponent<Rigidbody3DComponent>();
+        }
+
+        void Rigidbody3DEnsure(Entity& e)
+        {
+            if (!e.HasComponent<Rigidbody3DComponent>())
+            {
+                e.AddComponent<Rigidbody3DComponent>();
+            }
         }
 
         void Rigidbody3DCapture(FArchive& ar, Entity& e)
@@ -129,6 +147,14 @@ namespace OloEngine
             return e.HasComponent<AnimationStateComponent>();
         }
 
+        void AnimationEnsure(Entity& e)
+        {
+            if (!e.HasComponent<AnimationStateComponent>())
+            {
+                e.AddComponent<AnimationStateComponent>();
+            }
+        }
+
         void AnimationCapture(FArchive& ar, Entity& e)
         {
             ComponentReplicator::Serialize(ar, e.GetComponent<AnimationStateComponent>());
@@ -170,6 +196,7 @@ namespace OloEngine
             .Name = "TransformComponent",
             .Policy = EInterpolationPolicy::Lerp,
             .Has = &TransformHas,
+            .Ensure = &TransformEnsure,
             .Capture = &TransformCapture,
             .Interpolate = &TransformInterpolate,
             .Snap = &TransformSnap,
@@ -181,6 +208,7 @@ namespace OloEngine
             .Name = "Rigidbody3DComponent",
             .Policy = EInterpolationPolicy::Lerp,
             .Has = &Rigidbody3DHas,
+            .Ensure = &Rigidbody3DEnsure,
             .Capture = &Rigidbody3DCapture,
             .Interpolate = &Rigidbody3DInterpolate,
             .Snap = &Rigidbody3DSnap,
@@ -192,6 +220,7 @@ namespace OloEngine
             .Name = "AnimationStateComponent",
             .Policy = EInterpolationPolicy::Step,
             .Has = &AnimationHas,
+            .Ensure = &AnimationEnsure,
             .Capture = &AnimationCapture,
             .Interpolate = &AnimationInterpolate,
             .Snap = &AnimationSnap,

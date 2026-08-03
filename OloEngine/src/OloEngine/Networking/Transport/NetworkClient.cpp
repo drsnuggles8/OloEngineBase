@@ -8,6 +8,8 @@
 
 #include <steam/isteamnetworkingutils.h>
 
+#include <vector>
+
 namespace OloEngine
 {
     bool NetworkClient::Connect(const std::string& address, u16 port)
@@ -63,45 +65,69 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        TUniqueLock<FMutex> lock(m_Mutex);
-
-        if (!m_Interface || m_Connection == k_HSteamNetConnection_Invalid)
+        // Collect messages under the lock, then dispatch OUTSIDE it — the same
+        // deferred-dispatch shape NetworkServer::PollMessages uses, and for the same
+        // reason: a handler may legitimately reply on this very connection (the
+        // replication client acknowledges each snapshot it applies), and Send()
+        // takes m_Mutex too. Dispatching inside the lock self-deadlocks on the first
+        // handler that answers — which is most of them.
+        struct ReceivedMessage
         {
-            return;
-        }
+            ENetworkMessageType Type = ENetworkMessageType::None;
+            std::vector<u8> Payload;
+        };
+        std::vector<ReceivedMessage> pendingMessages;
 
-        ISteamNetworkingMessage* pIncomingMsg = nullptr;
-        i32 numMsgs = m_Interface->ReceiveMessagesOnConnection(m_Connection, &pIncomingMsg, 1);
-        while (numMsgs > 0)
         {
-            u32 msgSize = pIncomingMsg->m_cbSize;
-            m_Stats.RecordReceive(msgSize);
+            TUniqueLock<FMutex> lock(m_Mutex);
 
-            if (msgSize >= NetworkMessageHeader::kSerializedSize)
+            if (!m_Interface || m_Connection == k_HSteamNetConnection_Invalid)
             {
-                const auto* rawData = static_cast<const u8*>(pIncomingMsg->m_pData);
-                FMemoryReader reader(rawData, static_cast<i64>(msgSize));
-                reader.ArIsNetArchive = true;
-
-                NetworkMessageHeader header;
-                reader << header.Type;
-                reader << header.Size;
-                reader << header.Flags;
-                reader << header.Version;
-
-                if (!reader.IsError())
-                {
-                    u32 payloadOffset = static_cast<u32>(reader.Tell());
-                    const u8* payload = rawData + payloadOffset;
-                    u32 payloadSize = msgSize - payloadOffset;
-
-                    // Server has clientID 0
-                    m_Dispatcher.Dispatch(0, header.Type, payload, payloadSize);
-                }
+                return;
             }
 
-            pIncomingMsg->Release();
-            numMsgs = m_Interface->ReceiveMessagesOnConnection(m_Connection, &pIncomingMsg, 1);
+            ISteamNetworkingMessage* pIncomingMsg = nullptr;
+            i32 numMsgs = m_Interface->ReceiveMessagesOnConnection(m_Connection, &pIncomingMsg, 1);
+            while (numMsgs > 0)
+            {
+                u32 msgSize = pIncomingMsg->m_cbSize;
+                m_Stats.RecordReceive(msgSize);
+
+                if (msgSize >= NetworkMessageHeader::kSerializedSize)
+                {
+                    const auto* rawData = static_cast<const u8*>(pIncomingMsg->m_pData);
+                    FMemoryReader reader(rawData, static_cast<i64>(msgSize));
+                    reader.ArIsNetArchive = true;
+
+                    NetworkMessageHeader header;
+                    reader << header.Type;
+                    reader << header.Size;
+                    reader << header.Flags;
+                    reader << header.Version;
+
+                    // Guard the subtraction explicitly rather than relying on the
+                    // msgSize >= kSerializedSize precondition: if a header field is
+                    // ever added without updating kSerializedSize, the u32 subtraction
+                    // would wrap and the vector construction would read far past the
+                    // buffer.
+                    if (const u32 payloadOffset = static_cast<u32>(reader.Tell());
+                        !reader.IsError() && payloadOffset <= msgSize)
+                    {
+                        const u8* payload = rawData + payloadOffset;
+                        const u32 payloadSize = msgSize - payloadOffset;
+                        pendingMessages.push_back({ header.Type, std::vector<u8>(payload, payload + payloadSize) });
+                    }
+                }
+
+                pIncomingMsg->Release();
+                numMsgs = m_Interface->ReceiveMessagesOnConnection(m_Connection, &pIncomingMsg, 1);
+            }
+        }
+
+        // Dispatch outside the lock. Server has clientID 0.
+        for (auto& msg : pendingMessages)
+        {
+            m_Dispatcher.Dispatch(0, msg.Type, msg.Payload.data(), static_cast<u32>(msg.Payload.size()));
         }
     }
 

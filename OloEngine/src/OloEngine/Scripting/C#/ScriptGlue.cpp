@@ -52,6 +52,8 @@
 #include "OloEngine/Audio/AudioEvents/CommandID.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphSound.h"
 
+#include <mono/metadata/appdomain.h>
+#include <mono/metadata/class.h>
 #include <mono/metadata/object.h>
 #include <mono/metadata/reflection.h>
 
@@ -736,6 +738,319 @@ namespace OloEngine
     static void Network_StopServer()
     {
         NetworkManager::StopServer();
+    }
+
+    static u32 Network_GetLocalClientID()
+    {
+        return NetworkManager::GetClientDriver().GetLocalClientID();
+    }
+
+    static u32 Network_GetCurrentTick()
+    {
+        return NetworkManager::GetCurrentTick();
+    }
+
+    static u64 Network_Spawn(MonoString* archetype, MonoString* name, u32 ownerClientID, i32 authority)
+    {
+        if (authority < 0 || authority > static_cast<i32>(ENetworkAuthority::Shared))
+        {
+            OLO_CORE_WARN_TAG("Networking", "Network.Spawn: invalid authority {}", authority);
+            return 0;
+        }
+        // mono_string_to_utf8 returns null for a null MonoString*, and std::string's
+        // constructor dereferences it — so `Network.Spawn(null, null, ...)` from C#
+        // would crash the process rather than fail.
+        if (archetype == nullptr || name == nullptr)
+        {
+            OLO_CORE_WARN_TAG("Networking", "Network.Spawn: archetype and name must not be null");
+            return 0;
+        }
+        std::string archetypeStr = Utils::MonoStringToString(archetype);
+        std::string nameStr = Utils::MonoStringToString(name);
+        // Deferred: the id is valid now, the entity materialises at the next
+        // network tick. See NetworkManager::SpawnReplicated.
+        return NetworkManager::SpawnReplicated(archetypeStr, nameStr, ownerClientID,
+                                               static_cast<ENetworkAuthority>(authority));
+    }
+
+    static void Network_Despawn(u64 entityID)
+    {
+        NetworkManager::DespawnReplicated(entityID);
+    }
+
+    static void Network_SendInput(u64 entityID, MonoArray* data)
+    {
+        std::vector<u8> bytes;
+        if (data != nullptr)
+        {
+            const uintptr_t length = mono_array_length(data);
+            bytes.reserve(length);
+            for (uintptr_t i = 0; i < length; ++i)
+            {
+                bytes.push_back(mono_array_get(data, u8, i));
+            }
+        }
+        NetworkManager::SendInput(entityID, std::move(bytes));
+    }
+
+    // ── RPC ──────────────────────────────────────────────────────────────────
+    //
+    // A C#-registered RPC's handler lives in managed code (a delegate in
+    // OloEngine.Network's dictionary). Native cannot hold that delegate directly,
+    // so the descriptor's handler calls back into a single managed dispatcher —
+    // OloEngine.Network.DispatchRPC(name, sender, entity, object[]) — which looks
+    // the delegate up by name and invokes it. One bridge method, not one per RPC.
+
+    namespace
+    {
+        // Box one RPC argument into a managed object for the object[] we hand to
+        // DispatchRPC. Returns null for an argument whose managed type we cannot
+        // resolve, which the C# side sees as a null element rather than a crash.
+        MonoObject* BoxRpcArg(MonoDomain* domain, const RpcArg& arg)
+        {
+            switch (arg.Type)
+            {
+                case ERpcArgType::Bool:
+                {
+                    // mono_value_box copies the value, so a local is fine.
+                    MonoBoolean value = arg.AsBool ? 1 : 0;
+                    return ::mono_value_box(domain, ::mono_get_boolean_class(), &value);
+                }
+                case ERpcArgType::Int:
+                {
+                    i64 value = arg.AsInt;
+                    return ::mono_value_box(domain, ::mono_get_int64_class(), &value);
+                }
+                case ERpcArgType::Float:
+                {
+                    f64 value = arg.AsFloat;
+                    return ::mono_value_box(domain, ::mono_get_double_class(), &value);
+                }
+                case ERpcArgType::String:
+                    return reinterpret_cast<MonoObject*>(ScriptEngine::CreateString(arg.AsString.c_str()));
+                case ERpcArgType::Vec3:
+                {
+                    MonoImage* image = ScriptEngine::GetCoreAssemblyImage();
+                    if (image == nullptr)
+                    {
+                        return nullptr;
+                    }
+                    MonoClass* vectorClass = ::mono_class_from_name(image, "OloEngine", "Vector3");
+                    if (vectorClass == nullptr)
+                    {
+                        return nullptr;
+                    }
+                    // OloEngine.Vector3 is a plain struct of three floats, matching
+                    // glm::vec3's layout — the same assumption every other
+                    // Vector3-passing internal call in this file already makes.
+                    f32 value[3] = { arg.AsVec3.x, arg.AsVec3.y, arg.AsVec3.z };
+                    return ::mono_value_box(domain, vectorClass, value);
+                }
+                case ERpcArgType::Entity:
+                {
+                    u64 value = arg.AsEntity;
+                    return ::mono_value_box(domain, ::mono_get_uint64_class(), &value);
+                }
+            }
+            return nullptr;
+        }
+
+        void DispatchRpcToManaged(const std::string& name, const RpcContext& context, const RpcArgList& args)
+        {
+            MonoImage* image = ScriptEngine::GetCoreAssemblyImage();
+            if (image == nullptr)
+            {
+                return;
+            }
+
+            MonoClass* networkClass = ::mono_class_from_name(image, "OloEngine", "Network");
+            if (networkClass == nullptr)
+            {
+                OLO_CORE_WARN_TAG("Networking", "C# RPC dispatch: OloEngine.Network not found in the core assembly");
+                return;
+            }
+
+            MonoMethod* dispatch = ::mono_class_get_method_from_name(networkClass, "DispatchRPC", 4);
+            if (dispatch == nullptr)
+            {
+                OLO_CORE_WARN_TAG("Networking", "C# RPC dispatch: OloEngine.Network.DispatchRPC(4) not found");
+                return;
+            }
+
+            MonoDomain* domain = ::mono_domain_get();
+            MonoArray* managedArgs = ::mono_array_new(domain, ::mono_get_object_class(), args.size());
+            for (sizet i = 0; i < args.size(); ++i)
+            {
+                mono_array_setref(managedArgs, i, BoxRpcArg(domain, args[i]));
+            }
+
+            MonoString* managedName = ScriptEngine::CreateString(name.c_str());
+            u32 sender = context.SenderClientID;
+            u64 entity = context.EntityUUID;
+            void* params[4] = { managedName, &sender, &entity, managedArgs };
+
+            MonoObject* exception = nullptr;
+            ::mono_runtime_invoke(dispatch, nullptr, params, &exception);
+            if (exception != nullptr)
+            {
+                // Report WHAT went wrong, not merely that something did — a bare
+                // "an exception occurred" is nearly useless when debugging a script.
+                std::string detail = "<no message>";
+                if (MonoString* message = ::mono_object_to_string(exception, nullptr); message != nullptr)
+                {
+                    detail = Utils::MonoStringToString(message);
+                }
+                OLO_CORE_ERROR("[ScriptEngine] Unhandled exception in C# RPC handler '{}': {}", name, detail);
+            }
+        }
+
+        [[nodiscard]] std::optional<RpcArg> UnboxRpcArg(MonoObject* object)
+        {
+            if (object == nullptr)
+            {
+                return std::nullopt;
+            }
+
+            MonoClass* objectClass = ::mono_object_get_class(object);
+            if (objectClass == ::mono_get_boolean_class())
+            {
+                return RpcArg::MakeBool(*static_cast<MonoBoolean*>(::mono_object_unbox(object)) != 0);
+            }
+            if (objectClass == ::mono_get_int32_class())
+            {
+                return RpcArg::MakeInt(*static_cast<i32*>(::mono_object_unbox(object)));
+            }
+            if (objectClass == ::mono_get_uint32_class())
+            {
+                // Client IDs are u32 on the managed side (Network.LocalClientID), so
+                // refusing System.UInt32 would reject the most obvious RPC argument
+                // a script has to hand.
+                return RpcArg::MakeInt(static_cast<i64>(*static_cast<u32*>(::mono_object_unbox(object))));
+            }
+            if (objectClass == ::mono_get_int64_class())
+            {
+                return RpcArg::MakeInt(*static_cast<i64*>(::mono_object_unbox(object)));
+            }
+            if (objectClass == ::mono_get_uint64_class())
+            {
+                return RpcArg::MakeEntity(*static_cast<u64*>(::mono_object_unbox(object)));
+            }
+            // Sanitize non-finite floats exactly as RpcDispatcher::ReadArg does for
+            // wire data — a locally-executed RPC never crosses the wire, so without
+            // this the same call would deliver NaN locally and 0 remotely.
+            // The substitution is silent on the wire, so it is logged here — matching
+            // the Lua binding, where the same zero-fill warns. Without it a script
+            // that ships a NaN sees the RPC arrive as a perfectly plausible 0 with
+            // nothing anywhere to say the value was replaced.
+            if (objectClass == ::mono_get_single_class())
+            {
+                const f64 value = static_cast<f64>(*static_cast<f32*>(::mono_object_unbox(object)));
+                if (!std::isfinite(value))
+                {
+                    OLO_CORE_WARN_TAG("Networking", "RPC number argument is not finite; sending 0");
+                    return RpcArg::MakeFloat(0.0);
+                }
+                return RpcArg::MakeFloat(value);
+            }
+            if (objectClass == ::mono_get_double_class())
+            {
+                const f64 value = *static_cast<f64*>(::mono_object_unbox(object));
+                if (!std::isfinite(value))
+                {
+                    OLO_CORE_WARN_TAG("Networking", "RPC number argument is not finite; sending 0");
+                    return RpcArg::MakeFloat(0.0);
+                }
+                return RpcArg::MakeFloat(value);
+            }
+            if (objectClass == ::mono_get_string_class())
+            {
+                return RpcArg::MakeString(Utils::MonoStringToString(reinterpret_cast<MonoString*>(object)));
+            }
+
+            if (MonoImage* image = ScriptEngine::GetCoreAssemblyImage(); image != nullptr)
+            {
+                if (MonoClass* vectorClass = ::mono_class_from_name(image, "OloEngine", "Vector3");
+                    vectorClass != nullptr && objectClass == vectorClass)
+                {
+                    const auto* value = static_cast<const f32*>(::mono_object_unbox(object));
+                    const bool finite =
+                        std::isfinite(value[0]) && std::isfinite(value[1]) && std::isfinite(value[2]);
+                    if (!finite)
+                    {
+                        OLO_CORE_WARN_TAG("Networking", "RPC vec3 argument is not finite; sending (0,0,0)");
+                        return RpcArg::MakeVec3(glm::vec3(0.0f));
+                    }
+                    return RpcArg::MakeVec3({ value[0], value[1], value[2] });
+                }
+            }
+
+            return std::nullopt;
+        }
+    } // namespace
+
+    static void Network_RegisterRPC(MonoString* name, i32 target, i32 reliability, bool requiresOwnership)
+    {
+        if (name == nullptr)
+        {
+            OLO_CORE_WARN_TAG("Networking", "Network.RegisterRPC: name must not be null");
+            return;
+        }
+        std::string nameStr = Utils::MonoStringToString(name);
+        if (nameStr.empty())
+        {
+            OLO_CORE_WARN_TAG("Networking", "Network.RegisterRPC: empty name");
+            return;
+        }
+        if (target < 0 || target > static_cast<i32>(ERpcTarget::Multicast) || reliability < 0 ||
+            reliability > static_cast<i32>(ERpcReliability::Unreliable))
+        {
+            OLO_CORE_WARN_TAG("Networking", "Network.RegisterRPC('{}'): invalid target/reliability", nameStr);
+            return;
+        }
+
+        RpcDescriptor descriptor;
+        descriptor.Name = nameStr;
+        descriptor.Target = static_cast<ERpcTarget>(target);
+        descriptor.Reliability = static_cast<ERpcReliability>(reliability);
+        descriptor.RequiresOwnership = requiresOwnership;
+        // Dropped when the C# app domain is torn down or reloaded — the managed
+        // delegate this ultimately calls does not survive it. Scoped to CSharp so a
+        // Lua shutdown does not take these with it.
+        descriptor.Owner = ERpcOwner::CSharp;
+        descriptor.Handler = [nameStr](const RpcContext& context, const RpcArgList& args)
+        { DispatchRpcToManaged(nameStr, context, args); };
+
+        NetworkManager::RegisterRPC(std::move(descriptor));
+    }
+
+    static bool Network_InvokeRPC(MonoString* name, u64 entityID, MonoArray* args, u32 targetClientID)
+    {
+        if (name == nullptr)
+        {
+            OLO_CORE_WARN_TAG("Networking", "Network.InvokeRPC: name must not be null");
+            return false;
+        }
+        std::string nameStr = Utils::MonoStringToString(name);
+
+        RpcArgList marshalled;
+        if (args != nullptr)
+        {
+            const uintptr_t length = mono_array_length(args);
+            marshalled.reserve(length);
+            for (uintptr_t i = 0; i < length; ++i)
+            {
+                auto arg = UnboxRpcArg(mono_array_get(args, MonoObject*, i));
+                if (!arg.has_value())
+                {
+                    OLO_CORE_WARN_TAG("Networking",
+                                      "Network.InvokeRPC('{}'): argument {} has an unsupported type", nameStr, i);
+                    return false;
+                }
+                marshalled.push_back(std::move(*arg));
+            }
+        }
+
+        return NetworkManager::InvokeRPC(nameStr, entityID, marshalled, targetClientID);
     }
 
     // ==========================================================================
@@ -3734,6 +4049,13 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Network_Disconnect);
         OLO_ADD_INTERNAL_CALL(Network_StartServer);
         OLO_ADD_INTERNAL_CALL(Network_StopServer);
+        OLO_ADD_INTERNAL_CALL(Network_GetLocalClientID);
+        OLO_ADD_INTERNAL_CALL(Network_GetCurrentTick);
+        OLO_ADD_INTERNAL_CALL(Network_Spawn);
+        OLO_ADD_INTERNAL_CALL(Network_Despawn);
+        OLO_ADD_INTERNAL_CALL(Network_SendInput);
+        OLO_ADD_INTERNAL_CALL(Network_RegisterRPC);
+        OLO_ADD_INTERNAL_CALL(Network_InvokeRPC);
 
         ///////////////////////////////////////////////////////////////
         // Dialogue //////////////////////////////////////////////////

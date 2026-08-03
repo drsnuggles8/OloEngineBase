@@ -28,6 +28,61 @@ before starting a build in the other. This includes background builds a
 previous agent turn kicked off — check for live `MSBuild`/`ninja`/`cl`
 processes first.
 
+### 1a. `mspdbsrv` is per-USER, not per-worktree — one wedged instance stalls every build on the box
+
+Found the hard way during #636, with three worktrees live. Symptoms, in
+order of appearance:
+
+1. A vendor project fails repeatedly with
+   `error C1041: cannot open program database '…libprotocd.pdb'; if
+   multiple CL.EXE write to the same .PDB file, please use /FS`. Each retry
+   advances a few source files, then fails again on a different one.
+   `--parallel 1`, `/p:CL_MPCount=1` and `CL=/FS` all fail to fix it — which
+   is the tell that this is **not** the documented concurrency case.
+2. The `.pdb` cannot be deleted: "used by another process". The holders are
+   idle MSBuild **node-reuse** workers, which keep file handles alive for
+   ~15 minutes after their build ends.
+3. Later, compilation across the whole machine simply stops. `cl.exe`
+   processes sit for **hours** having burned only seconds of CPU — no
+   progress, no error, no output. A build that looks slow is actually dead.
+
+The shared resource is `mspdbsrv.exe`: one instance per user session,
+serialising `/Zi` PDB writes for **every** compiler on the machine,
+regardless of which worktree or build tree it belongs to. When it wedges,
+every `/Zi` compile in every worktree blocks on it indefinitely.
+
+Diagnosis — the decisive signal is **CPU time, not wall time**:
+
+```powershell
+Get-Process cl | Select-Object Id, StartTime, @{n='CPU_s';e={[math]::Round($_.CPU)}}
+```
+
+Hours of wall-clock against seconds of CPU means blocked, not busy. To find
+out whose build a stalled `cl.exe` belongs to (it is often not yours — the
+command line is just an `@…rsp` path), read the response file:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='cl.exe'" |
+  ForEach-Object { $_.CommandLine }   # -> @C:\...\tmpXXXX.rsp
+# then grep the .rsp for the source paths it lists
+```
+
+Recovery, in order:
+
+1. `Stop-Process -Name mspdbsrv -Force` — it is a service, and restarts on
+   demand. This alone unblocks a merely-contended machine.
+2. If `cl.exe` processes survive with flat CPU, they are pointed at the dead
+   pipe and will never finish: kill them too.
+3. `Stop-Process -Name MSBuild -Force` to drop idle node-reuse workers that
+   still hold `.pdb` handles, then delete the offending `.pdb`.
+4. Re-run the build. Object files persist, so it resumes rather than
+   restarting.
+
+**Before killing anything, verify no compiler is genuinely working** (a
+process with climbing CPU), because these processes are shared across every
+worktree on the box. Prevention: set `MSBUILDDISABLENODEREUSE=1` for agent
+builds so workers exit with the build instead of lingering on file handles.
+
 ## 2. Building and running the `clangcl-asan` preset locally
 
 **Before #697, this whole section was unrunnable locally.** `clangcl-asan`

@@ -5,6 +5,7 @@
 #include "OloEngine/Networking/Core/NetworkMessage.h"
 #include "OloEngine/Networking/Transport/NetworkServer.h"
 #include "OloEngine/Networking/Transport/NetworkClient.h"
+#include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Serialization/Archive.h"
 
 #include <chrono>
@@ -32,11 +33,35 @@ static bool WaitUntil(std::function<bool()> predicate, i32 timeoutMs = 3000)
 class NetworkIntegrationTest : public ::testing::Test
 {
   protected:
-    static constexpr u16 kTestPort = 27099;
+    // Where the port search starts, not the port used. CTest runs every TEST_F in
+    // its own process and runs those processes in PARALLEL, so a single fixed port
+    // has several of these tests binding the same socket at once. The failure is not
+    // a bind error — one process wins the bind and serves everybody, so another
+    // test's client connects to a server that test does not own and simply never
+    // sees its reply (observed here as PingPongBuiltin's `gotPong` staying false).
+    // Invisible when the binary is run normally, where the tests are sequential.
+    static constexpr u16 kPortSearchBase = 27099;
+
+    // The port this test actually bound; set by StartServer().
+    u16 m_Port = 0;
 
     void SetUp() override
     {
         ASSERT_TRUE(NetworkManager::Init());
+    }
+
+    // Start the server on the first free port at or after kPortSearchBase.
+    [[nodiscard]] bool StartServer()
+    {
+        for (u16 port = kPortSearchBase; port < kPortSearchBase + 64; ++port)
+        {
+            if (NetworkManager::StartServer(port))
+            {
+                m_Port = port;
+                return true;
+            }
+        }
+        return false;
     }
 
     void TearDown() override
@@ -49,7 +74,7 @@ class NetworkIntegrationTest : public ::testing::Test
 
 TEST_F(NetworkIntegrationTest, ServerStartStop)
 {
-    EXPECT_TRUE(NetworkManager::StartServer(kTestPort));
+    EXPECT_TRUE(StartServer());
     EXPECT_TRUE(NetworkManager::IsServer());
 
     NetworkManager::StopServer();
@@ -58,9 +83,9 @@ TEST_F(NetworkIntegrationTest, ServerStartStop)
 
 TEST_F(NetworkIntegrationTest, ClientConnectDisconnect)
 {
-    ASSERT_TRUE(NetworkManager::StartServer(kTestPort));
+    ASSERT_TRUE(StartServer());
 
-    ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", kTestPort));
+    ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", m_Port));
     EXPECT_TRUE(NetworkManager::IsClient());
 
     // Wait for GNS callback to establish the connection
@@ -76,8 +101,8 @@ TEST_F(NetworkIntegrationTest, ClientConnectDisconnect)
 
 TEST_F(NetworkIntegrationTest, ServerTracksConnectedClient)
 {
-    ASSERT_TRUE(NetworkManager::StartServer(kTestPort));
-    ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", kTestPort));
+    ASSERT_TRUE(StartServer());
+    ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", m_Port));
     ASSERT_TRUE(WaitUntil([]
                           { return NetworkManager::IsConnected(); }));
 
@@ -105,8 +130,8 @@ TEST_F(NetworkIntegrationTest, ServerTracksConnectedClient)
 
 TEST_F(NetworkIntegrationTest, ClientToServerMessage)
 {
-    ASSERT_TRUE(NetworkManager::StartServer(kTestPort));
-    ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", kTestPort));
+    ASSERT_TRUE(StartServer());
+    ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", m_Port));
     ASSERT_TRUE(WaitUntil([]
                           { return NetworkManager::IsConnected(); }));
 
@@ -149,8 +174,8 @@ TEST_F(NetworkIntegrationTest, ClientToServerMessage)
 
 TEST_F(NetworkIntegrationTest, ServerToClientMessage)
 {
-    ASSERT_TRUE(NetworkManager::StartServer(kTestPort));
-    ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", kTestPort));
+    ASSERT_TRUE(StartServer());
+    ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", m_Port));
     ASSERT_TRUE(WaitUntil([]
                           { return NetworkManager::IsConnected(); }));
 
@@ -208,8 +233,8 @@ TEST_F(NetworkIntegrationTest, ServerToClientMessage)
 
 TEST_F(NetworkIntegrationTest, PingPongBuiltin)
 {
-    ASSERT_TRUE(NetworkManager::StartServer(kTestPort));
-    ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", kTestPort));
+    ASSERT_TRUE(StartServer());
+    ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", m_Port));
     ASSERT_TRUE(WaitUntil([]
                           { return NetworkManager::IsConnected(); }));
 
@@ -244,8 +269,8 @@ TEST_F(NetworkIntegrationTest, PingPongBuiltin)
 
 TEST_F(NetworkIntegrationTest, StatsTrackSentAndReceived)
 {
-    ASSERT_TRUE(NetworkManager::StartServer(kTestPort));
-    ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", kTestPort));
+    ASSERT_TRUE(StartServer());
+    ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", m_Port));
     ASSERT_TRUE(WaitUntil([]
                           { return NetworkManager::IsConnected(); }));
 
@@ -292,4 +317,94 @@ TEST_F(NetworkIntegrationTest, StatsTrackSentAndReceived)
 
     NetworkManager::Disconnect();
     NetworkManager::StopServer();
+}
+
+// Regression guard for the FACADE half of the live-scene-swap contract.
+//
+// ServerReplicationDriver::ResetForSceneSwap has its own driver-level test in
+// ServerAuthoritativeLoopTest; this one proves NetworkManager actually calls it.
+// Every host swaps the runtime scene through SetActiveScene — the dedicated
+// server's `reload`, the editor's Stop-then-Play, OloRuntime — and without the
+// wiring the driver kept delta baselines and snapshot history describing entities
+// from the scene that was just destroyed. That is precisely the failure mode this
+// whole issue exists to close: working code with no call site and no test to notice.
+TEST_F(NetworkIntegrationTest, SwappingTheActiveSceneRebuildsServerReplicationState)
+{
+    constexpr f32 kTickDt = 1.0f / 20.0f; // one replication tick per call at 20 Hz
+
+    ASSERT_TRUE(StartServer());
+
+    auto sceneA = CreateScope<Scene>();
+    NetworkManager::SetActiveScene(sceneA.get());
+
+    for (i32 frame = 0; frame < 5; ++frame)
+    {
+        NetworkManager::Tick(kTickDt);
+    }
+
+    const u32 historyInA = NetworkManager::GetSnapshotBuffer().Size();
+    const u32 tickInA = NetworkManager::GetCurrentTick();
+    ASSERT_GT(historyInA, 1u) << "no replication history was built; the test proves nothing";
+
+    // Swap via nullptr, the way the editor's Stop-then-Play does it — a pointer
+    // comparison inside Tick would never observe this, because Tick early-outs
+    // while the scene is null.
+    auto sceneB = CreateScope<Scene>();
+    NetworkManager::SetActiveScene(nullptr);
+    NetworkManager::SetActiveScene(sceneB.get());
+
+    NetworkManager::Tick(kTickDt);
+
+    // One tick after the swap can only hold its own snapshot; anything more means
+    // the history from the destroyed scene survived.
+    EXPECT_LT(NetworkManager::GetSnapshotBuffer().Size(), historyInA)
+        << "the driver kept snapshot history describing the destroyed scene";
+
+    // The tick clock is connection-derived, not scene-derived, and must not restart:
+    // a client rejects any snapshot not newer than the last it applied.
+    EXPECT_GE(NetworkManager::GetCurrentTick(), tickInA) << "the swap rewound the tick clock";
+
+    NetworkManager::StopServer();
+    NetworkManager::SetActiveScene(nullptr);
+}
+
+// The client half of the same swap contract.
+//
+// Tick re-attaches the client driver only when the scene pointer differs from the
+// one it last bound. The dispatcher handlers capture that pointer BY VALUE, so if a
+// swap is missed the handlers go on dereferencing a Scene that has been destroyed —
+// a use-after-free with no error of its own, not merely stale state.
+//
+// The dangerous case is a new Scene landing at the address the old one just vacated,
+// which no pointer comparison can distinguish. Rather than depend on the allocator
+// reusing a block, this rebinds the SAME scene pointer after a trip through nullptr:
+// that is precisely the branch address reuse would take, made deterministic.
+TEST_F(NetworkIntegrationTest, RebindingTheSameSceneAddressStillReattachesTheClient)
+{
+    constexpr f32 kTickDt = 1.0f / 20.0f;
+
+    ASSERT_TRUE(StartServer());
+    ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", m_Port));
+    ASSERT_TRUE(WaitUntil([]
+                          { return NetworkManager::IsConnected(); }));
+
+    auto scene = CreateScope<Scene>();
+    NetworkManager::SetActiveScene(scene.get());
+    NetworkManager::Tick(kTickDt);
+
+    const u32 afterFirstBind = NetworkManager::GetClientDriver().GetAttachGeneration();
+    ASSERT_GT(afterFirstBind, 0u) << "the client driver never attached to the first scene";
+
+    // Stand in for "old scene destroyed, new scene allocated at the same address".
+    NetworkManager::SetActiveScene(nullptr);
+    NetworkManager::SetActiveScene(scene.get());
+    NetworkManager::Tick(kTickDt);
+
+    EXPECT_GT(NetworkManager::GetClientDriver().GetAttachGeneration(), afterFirstBind)
+        << "the client driver was not re-attached after the swap; had the scene really been "
+           "destroyed, its dispatcher handlers would now be holding freed memory";
+
+    NetworkManager::Disconnect();
+    NetworkManager::StopServer();
+    NetworkManager::SetActiveScene(nullptr);
 }

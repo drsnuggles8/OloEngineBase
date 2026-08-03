@@ -68,6 +68,9 @@ TEST(ServerConfig, DefaultValues)
     EXPECT_EQ(config.Port, 7777);
     EXPECT_EQ(config.MaxPlayers, 64u);
     EXPECT_EQ(config.TickRate, 60u);
+    // Replication rate is deliberately independent of the simulation tick rate:
+    // 60 Hz of physics does not mean 60 Hz of wire traffic.
+    EXPECT_EQ(config.SnapshotRate, 20u);
     EXPECT_TRUE(config.ScenePath.empty());
     EXPECT_TRUE(config.Password.empty());
     EXPECT_EQ(config.LogLevel, "Info");

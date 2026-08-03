@@ -9,6 +9,7 @@
 		"OloEngine/ISaveable.cs"
 		"OloEngine/KeyCode.cs"
 		"OloEngine/Localization.cs"
+		"OloEngine/Network.cs"
 		"OloEngine/NetworkManager.cs"
 		"OloEngine/Physics.cs"
 		"OloEngine/SaveGame.cs"
