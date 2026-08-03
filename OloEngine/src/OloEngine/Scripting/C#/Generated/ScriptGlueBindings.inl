@@ -821,6 +821,30 @@ static void AudioSourceComponent_SetPitch(UUID entityID, float value)
         comp.Source->SetPitch(value);
 }
 
+static float AudioSourceComponent_GetPriority(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AudioSourceComponent>();
+    return comp.GetConfig().Priority;
+}
+
+static void AudioSourceComponent_SetPriority(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AudioSourceComponent>();
+    comp.GetConfig().Priority = value;
+    if (comp.Source)
+        comp.Source->SetPriority(value);
+}
+
 static bool AudioSourceComponent_GetPlayOnAwake(UUID entityID)
 {
     Scene* scene = ScriptEngine::GetSceneContext();

@@ -28,36 +28,173 @@ namespace OloEngine
 
     AudioSource::~AudioSource()
     {
+        // Hand the slot back before the backend object dies — the budget holds a raw
+        // pointer to this host and would otherwise drive a destroyed source.
+        ReleaseVoice();
         UninitializeDSP();
         ::ma_sound_uninit(m_Sound.get());
         m_Sound = nullptr;
     }
 
+    Audio::VoiceParams AudioSource::BuildVoiceParams() const
+    {
+        Audio::VoiceParams params;
+        params.Priority = m_Config.Priority;
+        params.Volume = m_Config.VolumeMultiplier;
+        params.Pitch = m_Config.PitchMultiplier;
+        params.Looping = m_Config.Looping;
+        params.Spatialized = m_Spatialization;
+        params.Position = m_Position;
+        params.MinDistance = m_Config.MinDistance;
+        params.MaxDistance = m_Config.MaxDistance;
+        params.DurationSeconds = GetLengthSeconds();
+        return params;
+    }
+
+    void AudioSource::ReleaseVoice() const
+    {
+        if (m_VoiceHandle != Audio::kInvalidVoiceHandle)
+        {
+            Audio::VoiceManager::Get().Release(m_VoiceHandle);
+            m_VoiceHandle = Audio::kInvalidVoiceHandle;
+        }
+    }
+
+    void AudioSource::SyncVoiceParams() const
+    {
+        if (m_VoiceHandle != Audio::kInvalidVoiceHandle)
+        {
+            Audio::VoiceManager::Get().UpdateParams(m_VoiceHandle, BuildVoiceParams());
+        }
+    }
+
     void AudioSource::Play() const
     {
-        ::ma_sound_seek_to_pcm_frame(m_Sound.get(), 0);
-        ::ma_sound_start(m_Sound.get());
+        // Re-triggering an already-registered source restarts it: drop the old voice so
+        // the budget doesn't end up holding two records for one backend sound (the second
+        // of which it could never stop).
+        ReleaseVoice();
+        m_VoiceHandle = Audio::VoiceManager::Get().Acquire(this, BuildVoiceParams());
+        if (m_VoiceHandle == Audio::kInvalidVoiceHandle)
+        {
+            // Budget unavailable (only possible if Acquire was handed a null host, which
+            // cannot happen here) — fall back to unmanaged playback rather than silence.
+            ::ma_sound_seek_to_pcm_frame(m_Sound.get(), 0);
+            ::ma_sound_start(m_Sound.get());
+        }
+        // Otherwise Acquire has already driven OnVoiceStart if this voice won a slot;
+        // if it did not, the source is virtual and starts when one frees.
     }
 
     void AudioSource::Pause() const
     {
+        // The voice stays registered: a paused source is still logically owned by its
+        // entity and must resume where it left off, which is exactly what the budget's
+        // retained playback position gives us.
         ::ma_sound_stop(m_Sound.get());
     }
 
     void AudioSource::UnPause() const
     {
-        ::ma_sound_start(m_Sound.get());
+        // Only resume the backend if the budget still considers this voice audible —
+        // un-pausing a source that was stolen while paused must not push the mix over cap.
+        if (m_VoiceHandle == Audio::kInvalidVoiceHandle || Audio::VoiceManager::Get().IsAudible(m_VoiceHandle))
+        {
+            ::ma_sound_start(m_Sound.get());
+        }
     }
 
     void AudioSource::Stop() const
     {
+        ReleaseVoice();
         ::ma_sound_stop(m_Sound.get());
         ::ma_sound_seek_to_pcm_frame(m_Sound.get(), 0);
     }
 
     bool AudioSource::IsPlaying() const
     {
+        // Virtualized counts as playing — see the header. A stolen looping ambience is
+        // still "playing" from the game's point of view; only the mixer disagrees.
+        if (m_VoiceHandle != Audio::kInvalidVoiceHandle && Audio::VoiceManager::Get().IsActive(m_VoiceHandle))
+        {
+            return true;
+        }
         return ::ma_sound_is_playing(m_Sound.get());
+    }
+
+    bool AudioSource::IsAudible() const
+    {
+        if (m_VoiceHandle == Audio::kInvalidVoiceHandle)
+        {
+            return ::ma_sound_is_playing(m_Sound.get());
+        }
+        return Audio::VoiceManager::Get().IsAudible(m_VoiceHandle);
+    }
+
+    bool AudioSource::IsVirtualized() const
+    {
+        return m_VoiceHandle != Audio::kInvalidVoiceHandle && Audio::VoiceManager::Get().IsVirtual(m_VoiceHandle);
+    }
+
+    f64 AudioSource::GetLengthSeconds() const
+    {
+        if (m_LengthSecondsCache >= 0.0)
+        {
+            return m_LengthSecondsCache;
+        }
+
+        f32 length = 0.0f;
+        if (::ma_sound_get_length_in_seconds(m_Sound.get(), &length) != MA_SUCCESS || !std::isfinite(length) || length < 0.0f)
+        {
+            // 0 = "unknown length" to the budget: such a voice is never auto-retired, so a
+            // clip whose length the backend cannot report is simply owned by its caller.
+            m_LengthSecondsCache = 0.0;
+        }
+        else
+        {
+            m_LengthSecondsCache = static_cast<f64>(length);
+        }
+        return m_LengthSecondsCache;
+    }
+
+    f64 AudioSource::GetPlaybackPositionSeconds() const
+    {
+        if (m_VoiceHandle != Audio::kInvalidVoiceHandle && Audio::VoiceManager::Get().IsActive(m_VoiceHandle))
+        {
+            return Audio::VoiceManager::Get().GetPlaybackPosition(m_VoiceHandle);
+        }
+        return OnVoiceQueryPosition();
+    }
+
+    bool AudioSource::OnVoiceStart(f64 positionSeconds) const
+    {
+        // Resume at the retained position rather than from zero — this is what makes a
+        // devirtualized loop come back in phase instead of restarting (issue #730,
+        // acceptance criterion 2).
+        const u32 sampleRate = ::ma_engine_get_sample_rate(static_cast<ma_engine*>(AudioEngine::GetEngine()));
+        const f64 safePosition = (std::isfinite(positionSeconds) && positionSeconds > 0.0) ? positionSeconds : 0.0;
+        const u64 frame = (sampleRate > 0) ? static_cast<u64>(safePosition * static_cast<f64>(sampleRate)) : 0ull;
+        ::ma_sound_seek_to_pcm_frame(m_Sound.get(), frame);
+        return ::ma_sound_start(m_Sound.get()) == MA_SUCCESS;
+    }
+
+    f64 AudioSource::OnVoiceStop() const
+    {
+        // Read the cursor BEFORE stopping: miniaudio leaves it where it was, but reading
+        // first keeps this correct regardless of any future stop-resets-cursor behavior.
+        const f64 position = OnVoiceQueryPosition();
+        ::ma_sound_stop(m_Sound.get());
+        return position;
+    }
+
+    f64 AudioSource::OnVoiceQueryPosition() const
+    {
+        f32 cursor = 0.0f;
+        if (::ma_sound_get_cursor_in_seconds(m_Sound.get(), &cursor) != MA_SUCCESS || !std::isfinite(cursor) || cursor < 0.0f)
+        {
+            return -1.0;
+        }
+        return static_cast<f64>(cursor);
     }
 
     [[nodiscard("Store this!")]] static ma_attenuation_model GetAttenuationModel(const AttenuationModelType model)
@@ -79,6 +216,11 @@ namespace OloEngine
 
     void AudioSource::SetConfig(const AudioSourceConfig& config)
     {
+        // Mirror the config so the voice budget can re-score this source at any time
+        // without reaching back through the owning component.
+        m_Config = config;
+        SyncVoiceParams();
+
         ma_sound* sound = m_Sound.get();
         ::ma_sound_set_volume(sound, config.VolumeMultiplier);
         ::ma_sound_set_pitch(sound, config.PitchMultiplier);
@@ -130,24 +272,40 @@ namespace OloEngine
         }
     }
 
+    void AudioSource::SetPriority(const f32 priority) const
+    {
+        m_Config.Priority = std::isfinite(priority) ? std::clamp(priority, 0.0f, 1.0f) : 0.5f;
+        SyncVoiceParams();
+    }
+
     void AudioSource::SetVolume(const f32 volume) const
     {
+        // Gain feeds the voice score, so every mutator that the budget ranks on has to
+        // re-sync — a source faded to silence should become the next steal victim.
+        m_Config.VolumeMultiplier = volume;
+        SyncVoiceParams();
         ::ma_sound_set_volume(m_Sound.get(), volume);
     }
 
     void AudioSource::SetPitch(const f32 pitch) const
     {
+        m_Config.PitchMultiplier = pitch;
+        SyncVoiceParams();
         ::ma_sound_set_pitch(m_Sound.get(), pitch);
     }
 
     void AudioSource::SetLooping(const bool state) const
     {
+        m_Config.Looping = state;
+        SyncVoiceParams();
         ::ma_sound_set_looping(m_Sound.get(), state);
     }
 
     void AudioSource::SetSpatialization(const bool state)
     {
         m_Spatialization = state;
+        m_Config.Spatialization = state;
+        SyncVoiceParams();
         ::ma_sound_set_spatialization_enabled(m_Sound.get(), state);
     }
 
@@ -180,11 +338,15 @@ namespace OloEngine
 
     void AudioSource::SetMinDistance(const f32 minDistance) const
     {
+        m_Config.MinDistance = minDistance;
+        SyncVoiceParams();
         ::ma_sound_set_min_distance(m_Sound.get(), minDistance);
     }
 
     void AudioSource::SetMaxDistance(const f32 maxDistance) const
     {
+        m_Config.MaxDistance = maxDistance;
+        SyncVoiceParams();
         ::ma_sound_set_max_distance(m_Sound.get(), maxDistance);
     }
 
@@ -200,6 +362,11 @@ namespace OloEngine
 
     void AudioSource::SetPosition(const glm::vec3& position) const
     {
+        // Scene::UpdateAudio pushes this every frame for every source; keeping the mirror
+        // fresh is what makes distance-based stealing track a moving listener/emitter
+        // instead of ranking on wherever the sound was when it started.
+        m_Position = position;
+        SyncVoiceParams();
         ::ma_sound_set_position(m_Sound.get(), position.x, position.y, position.z);
     }
 

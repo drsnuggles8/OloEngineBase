@@ -239,6 +239,8 @@
 		"OloEngine/Audio/AudioLoader.h"
 		"OloEngine/Audio/AudioTransform.h"
 		"OloEngine/Audio/SampleBufferOperations.h"
+		"OloEngine/Audio/VoiceManager.cpp"
+		"OloEngine/Audio/VoiceManager.h"
 
 		# Audio Events
 		"OloEngine/Audio/AudioEvents/CommandID.h"

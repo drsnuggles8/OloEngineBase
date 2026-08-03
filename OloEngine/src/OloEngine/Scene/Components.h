@@ -1996,6 +1996,7 @@ namespace OloEngine
         // precedent as TransformComponent's Rotation/RotationEuler pair above).
         OLO_PROPERTY(Name = "Volume", Type = "float", Get = "comp.GetConfig().VolumeMultiplier", Set = "comp.GetConfig().VolumeMultiplier = {v}; if (comp.Source) comp.Source->SetVolume({v})")
         OLO_PROPERTY(Name = "Pitch", Type = "float", Get = "comp.GetConfig().PitchMultiplier", Set = "comp.GetConfig().PitchMultiplier = {v}; if (comp.Source) comp.Source->SetPitch({v})")
+        OLO_PROPERTY(Name = "Priority", Type = "float", Get = "comp.GetConfig().Priority", Set = "comp.GetConfig().Priority = {v}; if (comp.Source) comp.Source->SetPriority({v})")
         OLO_PROPERTY(Name = "PlayOnAwake", Type = "bool", Get = "comp.GetConfig().PlayOnAwake", Set = "comp.GetConfig().PlayOnAwake = {v}")
         OLO_PROPERTY(Name = "Looping", Type = "bool", Get = "comp.GetConfig().Looping", Set = "comp.GetConfig().Looping = {v}; if (comp.Source) comp.Source->SetLooping({v})")
         OLO_PROPERTY(Name = "Spatialization", Type = "bool", Get = "comp.GetConfig().Spatialization", Set = "comp.GetConfig().Spatialization = {v}; if (comp.Source) comp.Source->SetSpatialization({v})")

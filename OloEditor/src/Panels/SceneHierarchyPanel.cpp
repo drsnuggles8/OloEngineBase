@@ -4356,6 +4356,11 @@ namespace OloEngine
             auto& config = component.GetConfig();
             ImGui::DragFloat("Volume##AudioSource", &config.VolumeMultiplier, 0.01f, 0.0f, 2.0f);
             ImGui::DragFloat("Pitch##AudioSource", &config.PitchMultiplier, 0.01f, 0.1f, 3.0f);
+            ImGui::DragFloat("Priority##AudioSource", &config.Priority, 0.01f, 0.0f, 1.0f);
+            ImGui::SetItemTooltip("Voice-budget importance. When more sounds play than the concurrent-voice cap allows,\n"
+                                  "the lowest-scoring voices are stolen and virtualized (silent, but still advancing, so a\n"
+                                  "loop resumes in phase). Score = Priority x current gain x distance to the listener.\n"
+                                  "0.5 is neutral; raise it for sounds that must survive, lower it for ones that should yield first.");
             ImGui::Checkbox("Play On Awake##AudioSource", &config.PlayOnAwake);
             ImGui::Checkbox("Looping##AudioSource", &config.Looping);
 

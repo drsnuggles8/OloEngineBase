@@ -78,11 +78,25 @@ namespace OloEngine
     {
         namespace SoundGraph
         {
-            class SoundGraphSound : public IPlayableAudio
+            /// A SoundGraph-driven voice.
+            ///
+            /// Play()/Stop() are the admission point for the graph path into the shared
+            /// concurrent-voice budget (issue #730) — the sibling of AudioSource for the
+            /// clip path. Both paths MUST route through VoiceManager or the cap is
+            /// enforced on only half the engine's sounds.
+            ///
+            /// Limitation, deliberate: the SoundGraph runtime has no transport control
+            /// (SoundGraphSource exposes SendPlayEvent and nothing to seek or suspend
+            /// with), so virtualizing a graph voice mutes it rather than stopping it. That
+            /// still frees the audible slot and keeps the mix within budget — and it makes
+            /// resume-in-phase trivially correct, because the graph never stopped
+            /// advancing — but unlike the clip path it does NOT reclaim the DSP cost.
+            /// Reclaiming that needs a stop/seek API on SoundGraphSource first.
+            class SoundGraphSound : public IPlayableAudio, public OloEngine::Audio::IVoiceHost
             {
               public:
                 explicit SoundGraphSound();
-                ~SoundGraphSound();
+                ~SoundGraphSound() override;
 
                 //--- Sound Source Interface
                 bool Play() override;
@@ -204,12 +218,40 @@ namespace OloEngine
                 f32 GetCurrentPriority() const;
                 f32 GetPlaybackPercentage() const;
 
+                //==============================================================================
+                /// Voice budget (issue #730)
+                /// Authored importance, miniaudio-style: 0 = highest, 255 = lowest. Mapped
+                /// to VoiceParams::Priority (0..1, higher = more important) on the way in.
+                void SetPriority(u8 priority);
+                u8 GetPriority() const
+                {
+                    return m_Priority;
+                }
+                /// True while registered with the budget but muted because a higher-scoring
+                /// voice holds the slot.
+                bool IsVirtualized() const;
+
                 Audio::SoundGraph::SoundGraphSource* GetSource() const
                 {
                     return m_Source.get();
                 }
 
+                //--- OloEngine::Audio::IVoiceHost ------------------------------------------
+                // Driven by the voice budget, never called directly.
+                bool OnVoiceStart(f64 positionSeconds) const override;
+                f64 OnVoiceStop() const override;
+                f64 OnVoiceQueryPosition() const override;
+
               private:
+                /// Snapshot the current scoring inputs for the budget.
+                OloEngine::Audio::VoiceParams BuildVoiceParams() const;
+                /// Hand the slot back and forget the handle. Idempotent.
+                void ReleaseVoice() const;
+                /// Push refreshed scoring inputs at the budget.
+                void SyncVoiceParams() const;
+                /// Apply m_Volume scaled by the budget's mute state to the live graph.
+                void ApplyEffectiveGain() const;
+
                 /* Stop playback with short fade-out to prevent click.
                 @param numSamples - length of the fade-out in PCM frames
 
@@ -308,6 +350,14 @@ namespace OloEngine
 
                 // Playback status
                 u8 m_Priority = 128; // 0 = highest priority, 255 = lowest
+
+                // Voice-budget state (issue #730). Mutable because IVoiceHost's callbacks
+                // are const-qualified (AudioSource, the other implementation, needs them
+                // that way — see VoiceManager.h).
+                mutable OloEngine::Audio::VoiceHandle m_VoiceHandle = OloEngine::Audio::kInvalidVoiceHandle;
+                /// 0 while virtualized, 1 while audible. Multiplied into m_Volume on the
+                /// way to the graph so the authored volume survives a steal.
+                mutable f32 m_VoiceGainScale = 1.0f;
 
                 /* Stored Fader "resting" value. Used to restore Fader before restarting playback if a fade has occurred. */
                 f32 m_StoredFaderValue = 1.0f;

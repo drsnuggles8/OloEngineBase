@@ -79,6 +79,8 @@ OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetVolume);
 OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetVolume);
 OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetPitch);
 OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetPitch);
+OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetPriority);
+OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetPriority);
 OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetPlayOnAwake);
 OLO_ADD_INTERNAL_CALL(AudioSourceComponent_SetPlayOnAwake);
 OLO_ADD_INTERNAL_CALL(AudioSourceComponent_GetLooping);
