@@ -198,18 +198,17 @@ if(OLO_ENABLE_UBSAN)
         # - signed-integer-overflow: common in physics/math code
         # - null: null pointer dereference
         # - alignment: misaligned memory access (SIMD, GPU upload buffers)
-        # - float-divide-by-zero: particle systems, normalization
         # - return: end of non-void function without return
         # - unreachable: __builtin_unreachable hit
         # - vla-bound: negative VLA size
         # - shift: out-of-range shift
         set(UBSAN_CHECKS
-            signed-integer-overflow,null,alignment,float-divide-by-zero,return,unreachable,vla-bound,shift
+            signed-integer-overflow,null,alignment,return,unreachable,vla-bound,shift
         )
         # Enable EXACTLY the curated list above — not the whole `undefined` group.
         #
         # This used to be `-fsanitize=undefined`, which enables ~20 checks while the
-        # list above (and the comment introducing it) describes 8. That mismatch was
+        # list above (and the comment introducing it) described 8. That mismatch was
         # not academic: the group includes `vptr`, and `-fsanitize=vptr` requires
         # RTTI. Vendored libraries built `-fno-rtti` — GameNetworkingSockets is one,
         # see its src/CMakeLists.txt — then have no usable typeinfo, so every virtual
@@ -217,6 +216,19 @@ if(OLO_ENABLE_UBSAN)
         #   "member call on address 0x… which does not point to an object of type 'X'"
         # even though the object is exactly that type. That false positive is what
         # made the UBSan job fail the moment a test first drove GNS (issue #636).
+        #
+        # `float-divide-by-zero` was in that documented list and is NOT in the
+        # `undefined` group, so naming the list explicitly did not merely narrow the
+        # enabled set — it also switched a check ON for the first time. It fires
+        # immediately and legitimately on `1.0f / ray.Direction` in
+        # Renderer/BoundingVolumeHierarchy.cpp, where a zero direction component is
+        # *meant* to produce +/-inf: that is the Williams et al. slab form, and
+        # RayIntersect::RayAABB branches on std::isinf(invDir[axis]) to handle it.
+        # IEEE-754 division by zero is well-defined; only the C++ standard leaves it
+        # undefined, which is why the check is opt-in rather than part of the group.
+        # Dropping it keeps the enforcement surface exactly what it has always been.
+        # Re-enabling it is a real piece of work (a hot BVH path would need guarding)
+        # and belongs in its own change, not in a networking PR.
         #
         # These flags are directory-scoped and inherited by every add_subdirectory,
         # including FetchContent'd vendor targets, so the narrowing applies to them

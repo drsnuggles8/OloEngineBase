@@ -64,9 +64,33 @@ using namespace OloEngine;
 
 namespace
 {
-    // Distinct from NetworkIntegrationTest's port so the two can never collide if
-    // one leaves a socket in TIME_WAIT.
-    constexpr u16 kTestPort = 27101;
+    // CTest runs every TEST_F in its OWN PROCESS, and runs those processes in
+    // PARALLEL. A single fixed port therefore has a dozen of these fixtures binding
+    // the same socket at the same time — and the failure is not a bind error. One
+    // process wins the bind and serves everybody, so another test's client connects
+    // to a server this fixture does not own, gets a client id from a driver it does
+    // not own, and finds no pawn: the test dies on `pawn != 0` with nothing anywhere
+    // pointing at a port clash. Entirely invisible locally, where the whole binary is
+    // one process running the tests one at a time.
+    //
+    // So: pick a per-test starting port from the test's own name (distinct tests
+    // almost never contend), and linear-probe from there (a genuine clash — with the
+    // other suites below, or with whatever else the CI box has open — still resolves
+    // instead of failing).
+    constexpr u16 kPortRangeBase = 27200; // above NetworkIntegrationTest's 27099
+    constexpr u16 kPortRangeSpan = 600;
+    constexpr i32 kMaxPortProbes = 64;
+
+    [[nodiscard]] u16 PreferredPortForCurrentTest()
+    {
+        const ::testing::TestInfo* info = ::testing::UnitTest::GetInstance()->current_test_info();
+        u32 hash = 2166136261u; // FNV-1a, same as the RPC name hash
+        for (const char* p = (info != nullptr ? info->name() : "unknown"); *p != '\0'; ++p)
+        {
+            hash = (hash ^ static_cast<u8>(*p)) * 16777619u;
+        }
+        return static_cast<u16>(kPortRangeBase + (hash % kPortRangeSpan));
+    }
 
     // The replication tick is time-driven, so a pump step must advance enough
     // simulated time to actually fire one. 1/20 s at the default 20 Hz.
@@ -108,7 +132,8 @@ class ServerAuthoritativeLoopTest : public ::testing::Test
         m_ClientScenes[1] = CreateScope<Scene>();
 
         m_Server = CreateScope<NetworkServer>();
-        ASSERT_TRUE(m_Server->Start(kTestPort));
+        ASSERT_TRUE(StartServerOnAFreePort()) << "no free port in ["
+                                              << kPortRangeBase << ", " << (kPortRangeBase + kPortRangeSpan) << ")";
 
         // Route the messages the server driver owns. These run synchronously from
         // PollMessages inside Pump(), i.e. on this thread — the same game-thread
@@ -190,10 +215,29 @@ class ServerAuthoritativeLoopTest : public ::testing::Test
         }
     }
 
+    // Bind the first port that is actually free, starting from this test's own
+    // preferred one. See the comment on PreferredPortForCurrentTest for why a fixed
+    // port silently cross-wires parallel CTest processes.
+    [[nodiscard]] bool StartServerOnAFreePort()
+    {
+        const u16 preferred = PreferredPortForCurrentTest();
+        for (i32 probe = 0; probe < kMaxPortProbes; ++probe)
+        {
+            const u16 port =
+                static_cast<u16>(kPortRangeBase + ((preferred - kPortRangeBase + probe) % kPortRangeSpan));
+            if (m_Server->Start(port))
+            {
+                m_Port = port;
+                return true;
+            }
+        }
+        return false;
+    }
+
     void ConnectClient(sizet index)
     {
         m_Clients[index] = CreateScope<NetworkClient>();
-        ASSERT_TRUE(m_Clients[index]->Connect("127.0.0.1", kTestPort));
+        ASSERT_TRUE(m_Clients[index]->Connect("127.0.0.1", m_Port));
         m_ClientDrivers[index].AttachTo(*m_Clients[index], *m_ClientScenes[index]);
     }
 
@@ -284,6 +328,7 @@ class ServerAuthoritativeLoopTest : public ::testing::Test
     std::array<Scope<Scene>, 2> m_ClientScenes;
 
     Scope<NetworkServer> m_Server;
+    u16 m_Port = 0;
     std::array<Scope<NetworkClient>, 2> m_Clients;
 
     ServerReplicationDriver m_ServerDriver;
