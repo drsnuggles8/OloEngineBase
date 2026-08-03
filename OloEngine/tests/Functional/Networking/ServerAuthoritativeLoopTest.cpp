@@ -622,6 +622,44 @@ TEST_F(ServerAuthoritativeLoopTest, LagCompensationRewindsToWhereTheClientSawThe
         << "lag compensation did not restore the current state";
 }
 
+TEST_F(ServerAuthoritativeLoopTest, PingQueriesDoNotDeadlockAgainstConnectionIteration)
+{
+    // Regression guard for a shipped deadlock: GetClientPingMs takes the same
+    // non-recursive mutex ForEachConnection holds for the whole callback, so asking
+    // for a ping from inside the iteration hung the caller. The editor's Network
+    // Debug panel did exactly that — opening it against a live server froze the
+    // editor — as did the server console's `players` command and
+    // NetworkManager::GetClientPingMs.
+    //
+    // This test hangs rather than fails if the deadlock returns, which is the
+    // honest signal: a deadlock is not an assertion failure. Both supported shapes
+    // are exercised below.
+    ConnectClient(0);
+    ConnectClient(1);
+    ASSERT_TRUE(PumpUntil([this]
+                          { return BothClientsAssigned(); }));
+
+    // Shape 1: snapshot, then query outside the iteration (what the panel and the
+    // console command now do).
+    const auto snapshot = m_Server->GetConnectionSnapshot();
+    EXPECT_GE(snapshot.size(), 2u);
+    for (const auto& info : snapshot)
+    {
+        const i32 ping = m_Server->GetClientPingMs(info.Handle);
+        EXPECT_GE(ping, -1) << "ping query returned an impossible value";
+    }
+
+    // Shape 2: resolve-and-query by client id in one call (what the replication
+    // driver's lag compensation uses).
+    for (const auto& info : snapshot)
+    {
+        EXPECT_GE(m_Server->GetClientPingMsById(info.ClientID), -1);
+    }
+
+    // An id nobody holds resolves to "unknown" rather than blocking on a search.
+    EXPECT_EQ(m_Server->GetClientPingMsById(999999u), -1);
+}
+
 TEST_F(ServerAuthoritativeLoopTest, ServerRpcFromAClientRunsOnTheServerWithTheSendersIdentity)
 {
     ConnectClient(0);
