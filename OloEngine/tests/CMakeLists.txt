@@ -313,6 +313,8 @@ add_executable(OloEngine-Tests
 		Networking/AuthorityRejectionTest.cpp
 		Networking/LagCompensatorTest.cpp
 		Networking/InterestManagerTest.cpp
+		Networking/RpcMarshallingTest.cpp
+		Networking/EntityLifecycleTest.cpp
 		Networking/LockstepTest.cpp
 		Networking/P2PRollbackTest.cpp
 		Networking/SessionLobbyTest.cpp
@@ -724,6 +726,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/AnimationKeepsTickingUnderPhysicsLoadTest.cpp
 		Functional/SaveGame/SceneRoundTripAfterTickTest.cpp
 		Functional/Networking/PhysicsTransformReplicationTest.cpp
+		Functional/Networking/ServerAuthoritativeLoopTest.cpp
 		Functional/Networking/InterpolatedComponentsSmoothOnRemoteClientTest.cpp
 		Functional/Scene/ScenePauseFreezesAllSubsystemsTest.cpp
 		Functional/AnimationPhysics/EntityDestroyedMidTickTest.cpp

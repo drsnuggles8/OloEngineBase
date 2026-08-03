@@ -72,6 +72,18 @@ namespace OloEngine
             }
         }
 
+        // Is this entity a replication candidate at all? Mirrors the view filter
+        // Capture uses, but works on a single entity so the scoped paths (which are
+        // driven by a UUID list, not a view) apply exactly the same rule.
+        [[nodiscard]] bool IsReplicationCandidate(Entity& entity)
+        {
+            if (!entity.HasComponent<NetworkIdentityComponent>() || !entity.HasComponent<TransformComponent>())
+            {
+                return false;
+            }
+            return entity.GetComponent<NetworkIdentityComponent>().IsReplicated;
+        }
+
         [[nodiscard]] bool ComponentsEqual(const SnapshotEntity& a, const SnapshotEntity& b)
         {
             if (a.size() != b.size())
@@ -207,6 +219,123 @@ namespace OloEngine
                 entry->Snap(entity, sc.Bytes);
             }
         }
+    }
+
+    SnapshotEntity EntitySnapshot::CaptureEntity(Entity& entity)
+    {
+        OLO_PROFILE_FUNCTION();
+        return CollectComponents(entity);
+    }
+
+    void EntitySnapshot::AppendEntityRecord(std::vector<u8>& buffer, u64 uuid, const SnapshotEntity& comps)
+    {
+        FMemoryWriter writer(buffer, /*bIsPersistent*/ false, /*bSetOffset*/ true);
+        writer.ArIsNetArchive = true;
+        WriteEntity(writer, uuid, comps);
+    }
+
+    void EntitySnapshot::ApplyEntityRecord(Entity& entity, const SnapshotEntity& comps, bool ensureComponents)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        for (const auto& sc : comps)
+        {
+            const auto* entry = ComponentInterpolationRegistry::FindById(sc.Id);
+            if (entry == nullptr || entry->Snap == nullptr || entry->Has == nullptr)
+            {
+                continue;
+            }
+
+            if (!entry->Has(entity))
+            {
+                // A routine snapshot apply never materializes a component the
+                // entity does not have — that is how a client keeps its own local
+                // components off the replicated set. Spawn is the one place where
+                // adding it is the point.
+                if (!ensureComponents || entry->Ensure == nullptr)
+                {
+                    continue;
+                }
+                entry->Ensure(entity);
+                if (!entry->Has(entity))
+                {
+                    continue;
+                }
+            }
+
+            entry->Snap(entity, sc.Bytes);
+        }
+    }
+
+    std::vector<u8> EntitySnapshot::CaptureScoped(Scene& scene, const std::vector<u64>& uuids)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::vector<u8> buffer;
+        FMemoryWriter writer(buffer);
+        writer.ArIsNetArchive = true;
+
+        for (u64 const uuid : uuids)
+        {
+            auto entityOpt = scene.TryGetEntityWithUUID(UUID(uuid));
+            if (!entityOpt.has_value())
+            {
+                continue;
+            }
+            Entity entity = *entityOpt;
+            if (!IsReplicationCandidate(entity))
+            {
+                continue;
+            }
+            WriteEntity(writer, uuid, CollectComponents(entity));
+        }
+
+        return buffer;
+    }
+
+    std::vector<u8> EntitySnapshot::CaptureScopedDelta(Scene& scene, const std::vector<u64>& uuids,
+                                                       const std::vector<u8>& baseline)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const ParsedSnapshot baselineMap = Parse(baseline);
+
+        std::vector<u8> buffer;
+        FMemoryWriter writer(buffer);
+        writer.ArIsNetArchive = true;
+
+        for (u64 const uuid : uuids)
+        {
+            auto entityOpt = scene.TryGetEntityWithUUID(UUID(uuid));
+            if (!entityOpt.has_value())
+            {
+                continue;
+            }
+            Entity entity = *entityOpt;
+            if (!IsReplicationCandidate(entity))
+            {
+                continue;
+            }
+
+            SnapshotEntity comps = CollectComponents(entity);
+            if (comps.empty())
+            {
+                continue;
+            }
+
+            bool changed = true;
+            if (auto it = baselineMap.find(uuid); it != baselineMap.end())
+            {
+                changed = !ComponentsEqual(comps, it->second);
+            }
+
+            if (changed)
+            {
+                WriteEntity(writer, uuid, comps);
+            }
+        }
+
+        return buffer;
     }
 
     std::vector<u8> EntitySnapshot::CaptureDelta(Scene& scene, const std::vector<u8>& baseline)

@@ -37,6 +37,22 @@ namespace OloEngine
         // Get the current interpolation time in ticks.
         [[nodiscard]] f32 GetRenderTick() const;
 
+        // Identify which entities this client PREDICTS rather than interpolates.
+        //
+        // Interpolation must not touch an entity whose motion the local client is
+        // predicting — its authoritative state arrives through reconciliation, and
+        // blending it 100 ms in the past would fight the prediction every frame.
+        // The rule is ownership, not authority: every player pawn is
+        // client-authoritative, so skipping all of them (which is what an
+        // authority-only test does) freezes every OTHER player on screen. Only the
+        // pawn this client owns is excluded.
+        //
+        // 0 (the default) means "predict nothing" — every replicated entity
+        // interpolates, which is the right behaviour for a spectator or a client
+        // that has not been assigned an id yet.
+        void SetLocalClientID(u32 clientID);
+        [[nodiscard]] u32 GetLocalClientID() const;
+
         [[nodiscard]] const SnapshotBuffer& GetBuffer() const;
 
         // Drop all buffered/cached snapshot state (render delay and tick-rate
@@ -49,6 +65,7 @@ namespace OloEngine
         f32 m_RenderDelay = 0.1f;  // seconds behind latest tick
         u32 m_ServerTickRate = 20; // ticks per second
         u32 m_LatestReceivedTick = 0;
+        u32 m_LocalClientID = 0;
 
         // Parsed snapshot cache to avoid re-parsing every frame. Each entry is a
         // UUID → per-component byte-blob map (the registry-driven snapshot format).

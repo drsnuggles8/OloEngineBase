@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
+#include "OloEngine/Networking/Prediction/NetworkMovementInput.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/MouseCodes.h"
@@ -83,6 +84,91 @@ namespace OloEngine
     [[nodiscard]] static bool IsFiniteVec4(const glm::vec4& v)
     {
         return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z) && std::isfinite(v.w);
+    }
+
+    // ── RPC marshalling helpers ──
+    //
+    // The wire types are deliberately few (see ERpcArgType); these map the Lua
+    // value model onto them. Anything else is refused at the call site rather than
+    // coerced, because a silently-coerced argument would mean two different things
+    // on the two ends of the connection.
+    [[nodiscard]] static ERpcTarget ParseRpcTarget(std::string_view name)
+    {
+        if (name == "client")
+        {
+            return ERpcTarget::Client;
+        }
+        if (name == "multicast")
+        {
+            return ERpcTarget::Multicast;
+        }
+        if (name != "server")
+        {
+            OLO_CORE_WARN_TAG("Networking", "Unknown RPC target '{}'; defaulting to 'server'", name);
+        }
+        return ERpcTarget::Server;
+    }
+
+    [[nodiscard]] static ERpcReliability ParseRpcReliability(std::string_view name)
+    {
+        if (name == "unreliable")
+        {
+            return ERpcReliability::Unreliable;
+        }
+        if (name != "reliable")
+        {
+            OLO_CORE_WARN_TAG("Networking", "Unknown RPC reliability '{}'; defaulting to 'reliable'", name);
+        }
+        return ERpcReliability::Reliable;
+    }
+
+    [[nodiscard]] static std::optional<RpcArg> LuaToRpcArg(const sol::object& value)
+    {
+        switch (value.get_type())
+        {
+            case sol::type::boolean:
+                return RpcArg::MakeBool(value.as<bool>());
+            case sol::type::string:
+                return RpcArg::MakeString(value.as<std::string>());
+            case sol::type::number:
+                // Lua 5.4 keeps integers and floats as distinct number subtypes, and
+                // under SOL_ALL_SAFETIES_ON sol2's numeric check honours that — so an
+                // integral Lua value round-trips as an integer instead of silently
+                // becoming a double on the far end.
+                if (value.is<i64>())
+                {
+                    return RpcArg::MakeInt(value.as<i64>());
+                }
+                return RpcArg::MakeFloat(value.as<f64>());
+            case sol::type::userdata:
+                if (value.is<glm::vec3>())
+                {
+                    return RpcArg::MakeVec3(value.as<glm::vec3>());
+                }
+                return std::nullopt;
+            default:
+                return std::nullopt;
+        }
+    }
+
+    [[nodiscard]] static sol::object RpcArgToLua(sol::state_view& view, const RpcArg& arg)
+    {
+        switch (arg.Type)
+        {
+            case ERpcArgType::Bool:
+                return sol::make_object(view, arg.AsBool);
+            case ERpcArgType::Int:
+                return sol::make_object(view, arg.AsInt);
+            case ERpcArgType::Float:
+                return sol::make_object(view, arg.AsFloat);
+            case ERpcArgType::String:
+                return sol::make_object(view, arg.AsString);
+            case ERpcArgType::Vec3:
+                return sol::make_object(view, arg.AsVec3);
+            case ERpcArgType::Entity:
+                return sol::make_object(view, arg.AsEntity);
+        }
+        return sol::lua_nil;
     }
 
     // ── WeatherStateId <-> name mapping for the Lua "targetState" /
@@ -2721,6 +2807,181 @@ namespace OloEngine
         networkTable.set_function("disconnect", &NetworkManager::Disconnect);
         networkTable.set_function("startServer", &NetworkManager::StartServer);
         networkTable.set_function("stopServer", &NetworkManager::StopServer);
+
+        // The id the server assigned this client (0 before the assignment lands, or
+        // on a pure server). Scripts need it to tell "my pawn" from everyone else's.
+        networkTable.set_function("getLocalClientID", []() -> u32
+                                  { return NetworkManager::GetClientDriver().GetLocalClientID(); });
+        networkTable.set_function("getCurrentTick", &NetworkManager::GetCurrentTick);
+
+        // The pawn this client owns and predicts. 0 before the server has spawned
+        // one (or on a pure server).
+        networkTable.set_function("getLocalPlayerEntity",
+                                  []() -> u64
+                                  {
+                                      Scene* scene = NetworkManager::GetActiveScene();
+                                      if (scene == nullptr)
+                                      {
+                                          return 0;
+                                      }
+                                      return NetworkManager::GetClientDriver().FindLocalPlayerEntity(*scene);
+                                  });
+
+        // Install the engine's built-in movement input command on BOTH the client
+        // prediction path and the server's authoritative path — one function, so the
+        // predicted and authoritative results cannot drift. `maxStep` bounds a
+        // single command's displacement server-side.
+        networkTable.set_function("useMovementInput",
+                                  [](sol::optional<f32> maxStep)
+                                  {
+                                      const f32 clamp = maxStep.value_or(1.0f);
+                                      if (!std::isfinite(clamp) || clamp < 0.0f)
+                                      {
+                                          OLO_CORE_WARN_TAG("Networking",
+                                                            "Network.useMovementInput: invalid maxStep {}", clamp);
+                                          return;
+                                      }
+                                      NetworkManager::SetInputApplyCallback(MakeMovementApplyCallback(clamp));
+                                  });
+
+        // Send one movement step. The displacement is baked here (direction × speed
+        // × dt) rather than on the server, because reconciliation replays these
+        // commands with no timeline of their own — see NetworkMovementInput.
+        networkTable.set_function("sendMoveInput",
+                                  [](u64 entityID, f32 x, f32 y, f32 z)
+                                  {
+                                      if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+                                      {
+                                          OLO_CORE_WARN_TAG("Networking",
+                                                            "Network.sendMoveInput: non-finite displacement ignored");
+                                          return;
+                                      }
+                                      NetworkMovementInput input;
+                                      input.Delta = { x, y, z };
+                                      NetworkManager::SendInput(entityID, input.Encode());
+                                  });
+
+        // Server-side entity lifecycle. Returns the new entity's UUID, or 0 if
+        // there is no active scene.
+        networkTable.set_function("spawn",
+                                  [](const std::string& archetype, const std::string& name, u32 ownerClientID,
+                                     sol::optional<int> authority) -> u64
+                                  {
+                                      const int rawAuthority = authority.value_or(
+                                          static_cast<int>(ENetworkAuthority::Server));
+                                      if (rawAuthority < 0 || rawAuthority > static_cast<int>(ENetworkAuthority::Shared))
+                                      {
+                                          OLO_CORE_WARN_TAG("Networking", "Network.spawn: invalid authority {}", rawAuthority);
+                                          return 0;
+                                      }
+                                      Entity entity = NetworkManager::SpawnReplicated(
+                                          archetype, name, ownerClientID, static_cast<ENetworkAuthority>(rawAuthority));
+                                      return entity ? static_cast<u64>(entity.GetUUID()) : 0;
+                                  });
+        networkTable.set_function("despawn", [](u64 entityID)
+                                  { NetworkManager::DespawnReplicated(entityID); });
+
+        // Client-side input submission. `data` is an array of byte values (0-255);
+        // the server applies the identical bytes through the same InputApplyCallback,
+        // so the predicted and authoritative results agree by construction.
+        networkTable.set_function("sendInput",
+                                  [](u64 entityID, sol::table data)
+                                  {
+                                      std::vector<u8> bytes;
+                                      bytes.reserve(data.size());
+                                      for (sizet i = 1; i <= data.size(); ++i)
+                                      {
+                                          sol::optional<int> value = data[i];
+                                          if (!value.has_value() || *value < 0 || *value > 255)
+                                          {
+                                              OLO_CORE_WARN_TAG("Networking",
+                                                                "Network.sendInput: element {} is not a byte (0-255)", i);
+                                              return;
+                                          }
+                                          bytes.push_back(static_cast<u8>(*value));
+                                      }
+                                      NetworkManager::SendInput(entityID, std::move(bytes));
+                                  });
+
+        // --- RPC ---
+        //
+        //   Network.registerRPC("Fire", { target = "server", reliability = "reliable",
+        //                                 requiresOwnership = true },
+        //                       function(ctx, args) ... end)
+        //   Network.invokeRPC("Fire", myEntityId, { 1, "hello", true })
+        //
+        // Both ends must register the same name: the wire carries only its hash, so
+        // an unregistered name is dropped rather than guessed at. Authority is the
+        // registry's business, not the caller's — a client that invokes a
+        // client-target or multicast RPC is refused at both ends.
+        networkTable.set_function(
+            "registerRPC",
+            [](const std::string& name, sol::table options, sol::protected_function handler)
+            {
+                RpcDescriptor descriptor;
+                descriptor.Name = name;
+                descriptor.Target = ParseRpcTarget(options.get_or<std::string>("target", "server"));
+                descriptor.Reliability =
+                    ParseRpcReliability(options.get_or<std::string>("reliability", "reliable"));
+                descriptor.RequiresOwnership = options.get_or("requiresOwnership", true);
+                // A handler owned by the Lua VM must not outlive it — the registry
+                // drops every ScriptOwned entry when the VM shuts down.
+                descriptor.ScriptOwned = true;
+
+                if (handler.valid())
+                {
+                    descriptor.Handler = [handler](const RpcContext& context, const RpcArgList& args)
+                    {
+                        sol::state_view view(handler.lua_state());
+                        sol::table ctx = view.create_table();
+                        ctx["senderClientID"] = context.SenderClientID;
+                        ctx["entityID"] = context.EntityUUID;
+                        ctx["isServer"] = context.IsServer;
+
+                        sol::table luaArgs = view.create_table();
+                        for (sizet i = 0; i < args.size(); ++i)
+                        {
+                            luaArgs[i + 1] = RpcArgToLua(view, args[i]);
+                        }
+
+                        if (sol::protected_function_result result = handler(ctx, luaArgs); !result.valid())
+                        {
+                            sol::error error = result;
+                            OLO_CORE_ERROR("[Lua] RPC handler error: {}", error.what());
+                        }
+                    };
+                }
+
+                NetworkManager::RegisterRPC(std::move(descriptor));
+            });
+
+        networkTable.set_function("invokeRPC",
+                                  [](const std::string& name, u64 entityID, sol::optional<sol::table> args,
+                                     sol::optional<u32> targetClientID) -> bool
+                                  {
+                                      RpcArgList marshalled;
+                                      if (args.has_value())
+                                      {
+                                          const sol::table& table = *args;
+                                          marshalled.reserve(table.size());
+                                          for (sizet i = 1; i <= table.size(); ++i)
+                                          {
+                                              sol::object value = table[i];
+                                              auto arg = LuaToRpcArg(value);
+                                              if (!arg.has_value())
+                                              {
+                                                  OLO_CORE_WARN_TAG("Networking",
+                                                                    "Network.invokeRPC('{}'): argument {} has an "
+                                                                    "unsupported type",
+                                                                    name, i);
+                                                  return false;
+                                              }
+                                              marshalled.push_back(std::move(*arg));
+                                          }
+                                      }
+                                      return NetworkManager::InvokeRPC(name, entityID, marshalled,
+                                                                       targetClientID.value_or(0));
+                                  });
 
         // --- Input (raw + action mapping) ---
         auto inputTable = lua.create_named_table("Input");

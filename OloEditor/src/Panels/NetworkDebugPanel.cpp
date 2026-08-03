@@ -97,6 +97,48 @@ namespace OloEngine
             }
         }
 
+        // Replication loop — the state that tells you at a glance whether the
+        // server-authoritative loop is actually RUNNING, which is precisely what
+        // this subsystem had no way to show before (issue #636).
+        ImGui::Separator();
+        if (ImGui::CollapsingHeader("Replication Loop", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            const bool sceneRegistered = NetworkManager::GetActiveScene() != nullptr;
+            if (!sceneRegistered)
+            {
+                // Without a registered scene the whole loop early-outs. Say so
+                // loudly: a silent no-op here is exactly how this stayed dead.
+                ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.2f, 1.0f),
+                                   "No active scene registered — replication is idle.");
+                ImGui::TextDisabled("Enter Play mode (the editor registers the runtime scene).");
+            }
+
+            const auto& serverDriver = NetworkManager::GetServerDriver();
+            ImGui::Text("Snapshot rate:     %u Hz", NetworkManager::GetSnapshotRate());
+            ImGui::Text("Replication tick:  %u", NetworkManager::GetCurrentTick());
+            ImGui::Text("Interest scoping:  %s", serverDriver.IsInterestScopingEnabled() ? "on" : "off");
+
+            if (isServer)
+            {
+                const auto tracked = serverDriver.GetTrackedClients();
+                ImGui::Text("Tracked clients:   %zu", tracked.size());
+                for (u32 const clientID : tracked)
+                {
+                    ImGui::BulletText("client %u -> pawn %llu", clientID,
+                                      static_cast<unsigned long long>(serverDriver.GetPlayerEntity(clientID)));
+                }
+            }
+
+            if (isClient)
+            {
+                const auto& clientDriver = NetworkManager::GetClientDriver();
+                ImGui::Text("Local client ID:   %u", clientDriver.GetLocalClientID());
+                ImGui::Text("Last server tick:  %u", clientDriver.GetLastReceivedServerTick());
+                ImGui::Text("Input tick:        %u", clientDriver.GetCurrentInputTick());
+                ImGui::Text("Spawned entities:  %zu", clientDriver.GetLocallySpawnedEntities().size());
+            }
+        }
+
         // Statistics
         if (auto stats = NetworkManager::GetStats(); stats)
         {
@@ -124,14 +166,17 @@ namespace OloEngine
                 EConnectionState State = EConnectionState::None;
                 i32 PingMs = -1;
             };
+
+            // Snapshot the connections FIRST, then query each ping. Asking for a
+            // ping from inside ForEachConnection deadlocks: the iteration holds the
+            // server's non-recursive mutex and GetClientPingMs takes it again. That
+            // is what this panel used to do, so opening it against a live server
+            // hung the editor.
             std::vector<PeerEntry> peerSnapshot;
-            server->ForEachConnection([&peerSnapshot, server](HSteamNetConnection handle, const NetworkConnection& conn)
-                                      {
-                PeerEntry entry;
-                entry.ClientID = conn.GetClientID();
-                entry.State = conn.GetState();
-                entry.PingMs = server->GetClientPingMs(handle);
-                peerSnapshot.push_back(entry); });
+            for (const auto& info : server->GetConnectionSnapshot())
+            {
+                peerSnapshot.push_back({ info.ClientID, info.State, server->GetClientPingMs(info.Handle) });
+            }
 
             ImGui::Separator();
             if (ImGui::CollapsingHeader("Connected Peers", ImGuiTreeNodeFlags_DefaultOpen))

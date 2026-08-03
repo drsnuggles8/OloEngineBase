@@ -8,6 +8,7 @@
 namespace OloEngine
 {
     class Scene;
+    class Entity;
 
     // One serialized component within an entity's snapshot record: its stable
     // wire id (ComponentInterpolationRegistry::HashName) and the opaque bytes
@@ -54,5 +55,40 @@ namespace OloEngine
         // touching a Scene. Used by the interpolator (which caches and blends the
         // parsed result) and internally by Apply / CaptureDelta.
         [[nodiscard]] static ParsedSnapshot Parse(const std::vector<u8>& data);
+
+        // ── Per-connection (interest-scoped) capture ──────────────────────────
+        //
+        // The plain Capture/CaptureDelta above serialize EVERY replicated entity
+        // and are what a single shared broadcast needs. A server-authoritative loop
+        // instead sends each connection only what that connection is allowed to see
+        // (NetworkInterestManager) and deltas it against THAT connection's own
+        // baseline — one client moving out of relevance must not change what
+        // another client receives. These take the already-computed relevant set.
+
+        // Capture only `uuids`, in the given order, skipping any that are missing,
+        // not replicated, or carry no replicated component.
+        [[nodiscard]] static std::vector<u8> CaptureScoped(Scene& scene, const std::vector<u64>& uuids);
+
+        // As CaptureScoped, but emits only the entities whose serialized component
+        // set differs from `baseline` (which must be a snapshot buffer produced for
+        // the SAME connection). Returns empty when nothing in scope changed.
+        [[nodiscard]] static std::vector<u8> CaptureScopedDelta(Scene& scene, const std::vector<u64>& uuids,
+                                                                const std::vector<u8>& baseline);
+
+        // Serialize one entity's replicated components (registry order). Empty when
+        // the entity carries none. Used by entity-spawn replication, which ships an
+        // entity's full initial state alongside its identity.
+        [[nodiscard]] static SnapshotEntity CaptureEntity(Entity& entity);
+
+        // Append one entity record to an existing snapshot buffer writer's bytes.
+        // Exposed so spawn payloads and snapshots share one encoder.
+        static void AppendEntityRecord(std::vector<u8>& buffer, u64 uuid, const SnapshotEntity& comps);
+
+        // Write one parsed entity record onto a live entity. When `ensureComponents`
+        // is true, a component the entity does not yet carry is ADDED first (via the
+        // registry's Ensure hook) instead of being skipped — which is exactly what a
+        // freshly spawned client-side entity needs, and exactly what a routine
+        // snapshot apply must NOT do.
+        static void ApplyEntityRecord(Entity& entity, const SnapshotEntity& comps, bool ensureComponents);
     };
 } // namespace OloEngine

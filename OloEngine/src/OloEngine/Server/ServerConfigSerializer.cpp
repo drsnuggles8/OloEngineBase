@@ -69,9 +69,25 @@ namespace OloEngine
                     tempConfig.TickRate = val;
                 }
             }
+            if (root["snapshotRate"])
+            {
+                auto val = root["snapshotRate"].as<u32>();
+                if (val == 0)
+                {
+                    OLO_CORE_ERROR("[ServerConfig] Invalid snapshotRate 0 in '{}': must be > 0", filepath);
+                }
+                else
+                {
+                    tempConfig.SnapshotRate = val;
+                }
+            }
             if (root["scene"])
             {
                 tempConfig.ScenePath = root["scene"].as<std::string>();
+            }
+            if (root["project"])
+            {
+                tempConfig.ProjectPath = root["project"].as<std::string>();
             }
             if (root["password"])
             {
@@ -106,7 +122,9 @@ namespace OloEngine
         out << YAML::Key << "port" << YAML::Value << config.Port;
         out << YAML::Key << "maxPlayers" << YAML::Value << config.MaxPlayers;
         out << YAML::Key << "tickRate" << YAML::Value << config.TickRate;
+        out << YAML::Key << "snapshotRate" << YAML::Value << config.SnapshotRate;
         out << YAML::Key << "scene" << YAML::Value << config.ScenePath;
+        out << YAML::Key << "project" << YAML::Value << config.ProjectPath;
         out << YAML::Key << "password" << YAML::Value << config.Password;
         out << YAML::Key << "logLevel" << YAML::Value << config.LogLevel;
         out << YAML::Key << "autoSaveInterval" << YAML::Value << config.AutoSaveInterval;
@@ -232,6 +250,26 @@ namespace OloEngine
                     config.TickRate = parsed;
                 }
             }
+            else if (arg == "--snapshot-rate" && i + 1 < argc)
+            {
+                if (isOptionToken(argv[i + 1]))
+                {
+                    OLO_CORE_ERROR("[ServerConfig] Missing value for --snapshot-rate");
+                    continue;
+                }
+                const char* val = argv[++i];
+                const char* end = val + std::strlen(val);
+                u32 parsed = 0;
+                auto [ptr, ec] = std::from_chars(val, end, parsed);
+                if (ec != std::errc{} || ptr != end || parsed == 0)
+                {
+                    OLO_CORE_ERROR("[ServerConfig] Invalid --snapshot-rate value '{}': must be a positive integer", val);
+                }
+                else
+                {
+                    config.SnapshotRate = parsed;
+                }
+            }
             else if (arg == "--scene" && i + 1 < argc)
             {
                 if (isOptionToken(argv[i + 1]))
@@ -240,6 +278,15 @@ namespace OloEngine
                     continue;
                 }
                 config.ScenePath = argv[++i];
+            }
+            else if (arg == "--project" && i + 1 < argc)
+            {
+                if (isOptionToken(argv[i + 1]))
+                {
+                    OLO_CORE_ERROR("[ServerConfig] Missing value for --project");
+                    continue;
+                }
+                config.ProjectPath = argv[++i];
             }
             else if (arg == "--config" && i + 1 < argc)
             {

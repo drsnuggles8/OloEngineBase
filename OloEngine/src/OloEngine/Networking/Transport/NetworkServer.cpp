@@ -87,6 +87,9 @@ namespace OloEngine
             connection.Close(0, "Server shutting down");
         }
         m_Connections.clear();
+        // Drop transitions nobody will drain — a restarted server must not replay
+        // the previous run's connects into the new session's spawn path.
+        m_PendingClientEvents.clear();
 
         if (m_PollGroup != k_HSteamNetPollGroup_Invalid)
         {
@@ -246,6 +249,87 @@ namespace OloEngine
         Broadcast(buffer.data(), static_cast<u32>(buffer.size()), sendFlags);
     }
 
+    bool NetworkServer::SendMessageToClient(u32 clientID, ENetworkMessageType type, const u8* payload, u32 payloadSize,
+                                            i32 sendFlags)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Resolve the handle under the lock, then send outside it — SendTo takes
+        // the same mutex.
+        HSteamNetConnection target = k_HSteamNetConnection_Invalid;
+        {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            for (const auto& [handle, connection] : m_Connections)
+            {
+                if (connection.GetClientID() == clientID && connection.GetState() == EConnectionState::Connected)
+                {
+                    target = handle;
+                    break;
+                }
+            }
+        }
+
+        if (target == k_HSteamNetConnection_Invalid)
+        {
+            return false;
+        }
+
+        return SendMessage(target, type, payload, payloadSize, sendFlags);
+    }
+
+    void NetworkServer::BroadcastMessageExcept(u32 exceptClientID, ENetworkMessageType type, const u8* payload,
+                                               u32 payloadSize, i32 sendFlags)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::vector<HSteamNetConnection> targets;
+        {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            for (const auto& [handle, connection] : m_Connections)
+            {
+                if (connection.GetState() == EConnectionState::Connected &&
+                    connection.GetClientID() != exceptClientID)
+                {
+                    targets.push_back(handle);
+                }
+            }
+        }
+
+        if (targets.empty())
+        {
+            return;
+        }
+
+        auto buffer = BuildMessageBuffer(type, payload, payloadSize);
+        for (HSteamNetConnection handle : targets)
+        {
+            SendTo(handle, buffer.data(), static_cast<u32>(buffer.size()), sendFlags);
+        }
+    }
+
+    std::vector<ClientConnectionEvent> NetworkServer::DrainClientEvents()
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        std::vector<ClientConnectionEvent> events;
+        events.swap(m_PendingClientEvents);
+        return events;
+    }
+
+    std::vector<u32> NetworkServer::GetConnectedClientIDs() const
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        std::vector<u32> ids;
+        ids.reserve(m_Connections.size());
+        for (const auto& [handle, connection] : m_Connections)
+        {
+            if (connection.GetState() == EConnectionState::Connected)
+            {
+                ids.push_back(connection.GetClientID());
+            }
+        }
+        return ids;
+    }
+
     bool NetworkServer::IsRunning() const
     {
         OLO_PROFILE_FUNCTION();
@@ -284,6 +368,42 @@ namespace OloEngine
             return -1;
         }
         return status.m_nPing;
+    }
+
+    i32 NetworkServer::GetClientPingMsById(u32 clientID) const
+    {
+        // Resolve under the lock, query outside it — GetClientPingMs takes the same
+        // mutex, so doing both together is how the nested-call deadlock happens.
+        HSteamNetConnection handle = k_HSteamNetConnection_Invalid;
+        {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            for (const auto& [connHandle, connection] : m_Connections)
+            {
+                if (connection.GetClientID() == clientID)
+                {
+                    handle = connHandle;
+                    break;
+                }
+            }
+        }
+
+        if (handle == k_HSteamNetConnection_Invalid)
+        {
+            return -1;
+        }
+        return GetClientPingMs(handle);
+    }
+
+    std::vector<NetworkServer::ConnectionInfo> NetworkServer::GetConnectionSnapshot() const
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        std::vector<ConnectionInfo> snapshot;
+        snapshot.reserve(m_Connections.size());
+        for (const auto& [handle, connection] : m_Connections)
+        {
+            snapshot.push_back({ handle, connection.GetClientID(), connection.GetState() });
+        }
+        return snapshot;
     }
 
     void NetworkServer::HandlePing(HSteamNetConnection senderConn, const u8* data, u32 size)
@@ -362,8 +482,16 @@ namespace OloEngine
                 {
                     if (auto it = m_Connections.find(pInfo->m_hConn); it != m_Connections.end())
                     {
+                        // GNS can re-deliver the Connected state; only record the
+                        // first transition or the game thread would spawn a second
+                        // player entity for the same client.
+                        const bool wasConnected = it->second.GetState() == EConnectionState::Connected;
                         it->second.SetState(EConnectionState::Connected);
-                        OLO_CORE_INFO("[NetworkServer] Client connected (ID: {})", it->second.GetClientID());
+                        if (!wasConnected)
+                        {
+                            m_PendingClientEvents.push_back({ it->second.GetClientID(), /*Connected*/ true });
+                            OLO_CORE_INFO("[NetworkServer] Client connected (ID: {})", it->second.GetClientID());
+                        }
                     }
                     break;
                 }
@@ -376,6 +504,7 @@ namespace OloEngine
                         u32 const clientID = it->second.GetClientID();
                         OLO_CORE_INFO("[NetworkServer] Client disconnected (ID: {}, reason: {})",
                                       clientID, pInfo->m_info.m_szEndDebug);
+                        m_PendingClientEvents.push_back({ clientID, /*Connected*/ false });
                         m_Connections.erase(it);
 
                         if (m_ClientDisconnectedCallback)

@@ -224,6 +224,20 @@ namespace OloEngine
 		internal static extern bool Network_StartServer(ushort port);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void Network_StopServer();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint Network_GetLocalClientID();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern uint Network_GetCurrentTick();
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern ulong Network_Spawn(string archetype, string name, uint ownerClientID, int authority);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Network_Despawn(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Network_SendInput(ulong entityID, byte[] data);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void Network_RegisterRPC(string name, int target, int reliability, bool requiresOwnership);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool Network_InvokeRPC(string name, ulong entityID, object[] args, uint targetClientID);
 		#endregion
 
 		#region Dialogue

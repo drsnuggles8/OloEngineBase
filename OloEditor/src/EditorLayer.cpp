@@ -21,6 +21,7 @@
 #include "UndoRedo/EntityCommands.h"
 #include "UndoRedo/ComponentCommands.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -1202,6 +1203,12 @@ namespace OloEngine
                 // in fixed dt steps from the variable frame delta, render once.
                 m_ActiveScene->OnUpdateRuntimeFixed(ts, Application::Get().GetFixedTimeStep());
                 SaveGameManager::Tick(ts, *m_ActiveScene);
+
+                // Drive networking after the simulation step, so an editor Play
+                // session is a first-class client or listen server — the same loop
+                // the dedicated server and the shipped runtime run. Game thread
+                // only; see NetworkManager's threading contract.
+                NetworkManager::Tick(ts);
 
                 // Handle script-triggered scene transitions (issue #642).
                 // A load and a reload are mutually exclusive by construction
@@ -3694,6 +3701,16 @@ namespace OloEngine
 
         BindPanelsToScene(m_ActiveScene, nullptr);
         m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
+
+        // Register the Play scene with networking so an editor session participates
+        // in the same server-authoritative loop as OloRuntime and OloServer. This
+        // is the editor half of the acceptance criterion; the dedicated server's
+        // half lives in OloServerApp.
+        //
+        // NOTE the asymmetry with m_EditorScene: only the runtime scene is ever
+        // registered. Replicating the authored scene would let a live connection
+        // write into the document the user is editing.
+        NetworkManager::SetActiveScene(m_ActiveScene.get());
     }
 
     // Every scene-observing panel, in one place. Introduced when script-driven
@@ -3747,6 +3764,9 @@ namespace OloEngine
         m_HoveredEntity = Entity();
         m_PickingReadPending = false;
 
+        // Detach from replication before the outgoing scene dies — the drivers hold
+        // a raw Scene*. StartActiveRuntimeScene re-registers the incoming one.
+        NetworkManager::SetActiveScene(nullptr);
         m_ActiveScene->OnRuntimeStop();
 
         m_ActiveScene = loaded.LoadedScene;
@@ -3783,6 +3803,9 @@ namespace OloEngine
 
         if (m_SceneState == Play)
         {
+            // Leaving Play means leaving the loop: the runtime scene is about to be
+            // replaced by the authored one, which must never be replicated.
+            NetworkManager::SetActiveScene(nullptr);
             m_ActiveScene->OnRuntimeStop();
         }
         else if (m_SceneState == Simulate)

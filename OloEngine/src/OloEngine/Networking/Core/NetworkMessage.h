@@ -23,6 +23,13 @@ namespace OloEngine
         InputAck,
         EntitySpawn,
         EntityDespawn,
+        // Client → server: "the newest server tick I have applied". The server
+        // deltas that client's next snapshot against the state it ACKED, not
+        // against whatever was last sent. Snapshots travel unreliably, so a
+        // baseline the client never received would make every subsequent delta
+        // describe changes relative to a state that client is not in — a
+        // divergence that only shows up under packet loss and never on localhost.
+        SnapshotAck,
 
         // Lockstep
         LockstepInput,

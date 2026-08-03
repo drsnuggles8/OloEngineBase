@@ -11,6 +11,7 @@
 #include "OloEngine/Core/InputActionSerializer.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Events/KeyEvent.h"
+#include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneTransition.h"
@@ -227,6 +228,7 @@ namespace OloEngine
             CloseRebindMenu();
             if (m_ActiveScene)
             {
+                NetworkManager::SetActiveScene(nullptr);
                 m_ActiveScene->OnRuntimeStop();
                 m_ActiveScene = nullptr;
             }
@@ -265,6 +267,14 @@ namespace OloEngine
             // fixed-timestep tick (issue #452): the raw frame delta `ts` is
             // accumulated and gameplay advances in fixed dt steps, rendering once.
             m_ActiveScene->OnUpdateRuntimeFixed(ts, Application::Get().GetFixedTimeStep());
+
+            // Drive networking AFTER the simulation step: on a client this polls the
+            // transport (spawning/despawning replicated entities and running RPC
+            // handlers on this thread) and advances snapshot interpolation; on a
+            // listen server it also runs the replication tick, which must observe
+            // the state the tick above just produced. Game thread only — see the
+            // threading contract on NetworkManager.
+            NetworkManager::Tick(ts);
 
             // Drive the in-game rebind menu AFTER the scene's UI input pass so its button
             // states and captured gamepad input are current this frame.
@@ -588,6 +598,10 @@ namespace OloEngine
             // before the incoming one claims it.
             if (m_ActiveScene)
             {
+                // Unregister BEFORE the scene is released: the replication drivers
+                // hold a raw Scene*, and a tick between the swap and the
+                // re-registration would dereference the outgoing scene.
+                NetworkManager::SetActiveScene(nullptr);
                 m_ActiveScene->OnRuntimeStop();
             }
 
@@ -607,6 +621,11 @@ namespace OloEngine
             }
 
             m_ActiveScene->OnRuntimeStart();
+
+            // Register the live scene with networking so replication has something
+            // to capture into / apply onto. Without this the whole loop early-outs
+            // on a null scene, which is exactly how it stayed dead.
+            NetworkManager::SetActiveScene(m_ActiveScene.get());
             return true;
         }
     };

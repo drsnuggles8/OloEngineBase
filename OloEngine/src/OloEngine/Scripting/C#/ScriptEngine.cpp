@@ -9,6 +9,7 @@
 #include "OloEngine/Core/Buffer.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Timer.h"
+#include "OloEngine/Networking/RPC/RpcRegistry.h"
 #include "OloEngine/Task/NamedThreads.h"
 
 #include <mono/jit/jit.h>
@@ -295,6 +296,11 @@ namespace OloEngine
 
     void ScriptEngine::ShutdownMono()
     {
+        // Drop RPC handlers the script VM owns before the domain that backs them
+        // goes away — a registered C# RPC's native handler resolves and invokes a
+        // managed method, which is a use-after-unload once the app domain is gone.
+        RpcRegistry::ClearScriptOwned();
+
         ::mono_domain_set(::mono_get_root_domain(), false);
 
         ::mono_domain_unload(s_Data->AppDomain);
@@ -340,6 +346,10 @@ namespace OloEngine
 
     bool ScriptEngine::ReloadAssembly()
     {
+        // Same reasoning as ShutdownMono: the outgoing domain's RPC handlers must
+        // not survive it. Scripts re-register on load.
+        RpcRegistry::ClearScriptOwned();
+
         ::mono_domain_set(::mono_get_root_domain(), false);
 
         ::mono_domain_unload(s_Data->AppDomain);

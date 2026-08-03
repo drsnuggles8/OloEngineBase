@@ -2,6 +2,7 @@
 #include "LuaScriptEngine.h"
 #include "LuaScriptGlue.h"
 
+#include "OloEngine/Networking/RPC/RpcRegistry.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scripting/ScriptError.h"
@@ -67,6 +68,12 @@ namespace OloEngine
 
         s_LuaData.EntityScriptInstances.clear();
         s_LuaData.SceneContext = nullptr;
+
+        // Drop RPC handlers the Lua VM owns BEFORE the state dies. A registered
+        // handler is a std::function capturing a sol::protected_function; left in
+        // the process-wide registry it would outlive its sol::state, and the next
+        // incoming RPC would call into freed VM memory.
+        RpcRegistry::ClearScriptOwned();
 
         delete s_LuaData.LuaState;
         s_LuaData.LuaState = nullptr;

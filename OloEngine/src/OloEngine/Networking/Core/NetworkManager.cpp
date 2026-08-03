@@ -1,14 +1,19 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Networking/Core/NetworkManager.h"
 #include "OloEngine/Networking/Core/NetworkThread.h"
-#include "OloEngine/Networking/Transport/NetworkServer.h"
-#include "OloEngine/Networking/Transport/NetworkClient.h"
-#include "OloEngine/Networking/Replication/EntitySnapshot.h"
-#include "OloEngine/Networking/Replication/ComponentReplicator.h"
+#include "OloEngine/Networking/RPC/RpcDispatcher.h"
+#include "OloEngine/Networking/RPC/RpcRegistry.h"
 #include "OloEngine/Networking/Replication/ComponentInterpolationRegistry.h"
+#include "OloEngine/Networking/Replication/ComponentReplicator.h"
+#include "OloEngine/Networking/Replication/EntityLifecycle.h"
+#include "OloEngine/Networking/Replication/EntitySnapshot.h"
+#include "OloEngine/Networking/Transport/NetworkClient.h"
+#include "OloEngine/Networking/Transport/NetworkServer.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Memory/Platform.h" // OLO_ASAN_ENABLED
+#include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Threading/UniqueLock.h"
 
 #include "OloEngine/Serialization/Archive.h"
@@ -22,19 +27,23 @@ namespace OloEngine
     bool NetworkManager::s_Initialized = false;
     Scope<NetworkServer> NetworkManager::s_Server = nullptr;
     Scope<NetworkClient> NetworkManager::s_Client = nullptr;
-    u32 NetworkManager::s_SnapshotRateHz = 20;
-    u32 NetworkManager::s_TickCounter = 0;
-    u32 NetworkManager::s_ClientReceivedTick = 0;
-    f32 NetworkManager::s_SnapshotAccumulator = 0.0f;
     Scene* NetworkManager::s_ActiveScene = nullptr;
-    SnapshotBuffer NetworkManager::s_SnapshotBuffer;
-    SnapshotInterpolator NetworkManager::s_ClientInterpolator;
-    ClientPrediction NetworkManager::s_ClientPrediction;
-    ServerInputHandler NetworkManager::s_ServerInputHandler;
-    LagCompensator NetworkManager::s_LagCompensator;
+    ServerReplicationDriver NetworkManager::s_ServerDriver;
+    ClientReplicationDriver NetworkManager::s_ClientDriver;
     NetworkSession NetworkManager::s_Session;
     NetworkLobby NetworkManager::s_Lobby;
     NetworkPeerMesh NetworkManager::s_PeerMesh;
+
+    namespace
+    {
+        // Which (client, scene) pair the client driver's dispatcher handlers are
+        // currently bound to. Connect() can happen before a scene exists and a scene
+        // can be swapped under a live connection, so the binding is refreshed from
+        // Tick() rather than done once at connect time. Game-thread only, like
+        // Tick() itself.
+        NetworkClient* g_AttachedClient = nullptr;
+        Scene* g_AttachedScene = nullptr;
+    } // namespace
 
     static void GNSDebugOutput(ESteamNetworkingSocketsDebugOutputType eType, char const* pszMsg)
     {
@@ -111,6 +120,7 @@ namespace OloEngine
 
         ComponentReplicator::RegisterDefaults();
         ComponentInterpolationRegistry::RegisterDefaults();
+        NetworkSpawnRegistry::RegisterDefaults();
 
         // Wire LAN-discovery responses to the live player count. The provider is
         // invoked from NetworkLobby::PollDiscovery when a host answers a probe;
@@ -156,6 +166,7 @@ namespace OloEngine
 #endif
 
         TUniqueLock<FMutex> lock(s_Mutex);
+        s_ActiveScene = nullptr;
         s_Initialized = false;
         OLO_CORE_INFO("NetworkManager shut down");
     }
@@ -164,6 +175,43 @@ namespace OloEngine
     {
         TUniqueLock<FMutex> lock(s_Mutex);
         return s_Initialized;
+    }
+
+    void NetworkManager::RegisterServerHandlers()
+    {
+        // Caller holds s_Mutex and has just constructed s_Server.
+        auto& dispatcher = s_Server->GetDispatcher();
+
+        // Every one of these runs from PollMessages(), which Tick() calls on the
+        // game thread — so they may touch the scene freely.
+        dispatcher.RegisterHandler(ENetworkMessageType::InputCommand,
+                                   [](u32 senderClientID, const u8* data, u32 size)
+                                   {
+                                       if (Scene* scene = GetActiveScene(); scene != nullptr)
+                                       {
+                                           s_ServerDriver.HandleInputCommand(*scene, senderClientID, data, size);
+                                       }
+                                   });
+
+        dispatcher.RegisterHandler(ENetworkMessageType::RPC,
+                                   [](u32 senderClientID, const u8* data, u32 size)
+                                   {
+                                       if (Scene* scene = GetActiveScene(); scene != nullptr)
+                                       {
+                                           s_ServerDriver.HandleRpc(*scene, senderClientID, data, size);
+                                       }
+                                   });
+
+        dispatcher.RegisterHandler(ENetworkMessageType::SnapshotAck,
+                                   [](u32 senderClientID, const u8* data, u32 size)
+                                   { s_ServerDriver.HandleSnapshotAck(senderClientID, data, size); });
+
+        // Prune the per-client last-processed-tick entry on disconnect so it
+        // doesn't grow without bound over the lifetime of a long-running server.
+        // (The driver prunes it too, from the drained event; this keeps the
+        // transport-level contract intact even if the driver is not ticking.)
+        s_Server->SetClientDisconnectedCallback([](u32 clientID)
+                                                { s_ServerDriver.GetInputHandler().RemoveClient(clientID); });
     }
 
     bool NetworkManager::StartServer(u16 port)
@@ -191,26 +239,8 @@ namespace OloEngine
             return false;
         }
 
-        // Register server-side InputCommand handler
-        s_Server->GetDispatcher().RegisterHandler(ENetworkMessageType::InputCommand,
-                                                  [](u32 senderClientID, const u8* data, u32 size)
-                                                  {
-                                                      if (!s_ActiveScene)
-                                                      {
-                                                          return;
-                                                      }
-                                                      if (!s_ServerInputHandler.ProcessInput(*s_ActiveScene, senderClientID,
-                                                                                             data, size))
-                                                      {
-                                                          OLO_CORE_WARN_TAG("Networking", "Server rejected input from client {}", senderClientID);
-                                                      }
-                                                  });
-
-        // Prune the per-client last-processed-tick entry on disconnect so it
-        // doesn't grow without bound over the lifetime of a long-running server.
-        s_Server->SetClientDisconnectedCallback([](u32 clientID)
-                                                { s_ServerInputHandler.RemoveClient(clientID); });
-
+        s_ServerDriver.Reset();
+        RegisterServerHandlers();
         return true;
     }
 
@@ -225,6 +255,7 @@ namespace OloEngine
             s_Server->Stop();
             s_Server.reset();
         }
+        s_ServerDriver.Reset();
     }
 
     bool NetworkManager::IsServer()
@@ -258,39 +289,11 @@ namespace OloEngine
             return false;
         }
 
-        // Register default handlers for snapshot reception
-        s_Client->GetDispatcher().RegisterHandler(ENetworkMessageType::EntitySnapshot,
-                                                  [](u32 /*senderClientID*/, const u8* data, u32 size)
-                                                  {
-                                                      // Full snapshot — push into interpolator with client-side tick
-                                                      std::vector<u8> snapshotData(data, data + size);
-                                                      s_ClientInterpolator.PushSnapshot(s_ClientReceivedTick++,
-                                                                                        std::move(snapshotData));
-                                                  });
-
-        s_Client->GetDispatcher().RegisterHandler(ENetworkMessageType::DeltaSnapshot,
-                                                  [](u32 /*senderClientID*/, const u8* data, u32 size)
-                                                  {
-                                                      // Delta snapshot — push result with client-side tick
-                                                      std::vector<u8> deltaData(data, data + size);
-                                                      s_ClientInterpolator.PushSnapshot(s_ClientReceivedTick++,
-                                                                                        std::move(deltaData));
-                                                  });
-
-        // Register InputAck handler — server sends these to confirm processed input tick
-        s_Client->GetDispatcher().RegisterHandler(ENetworkMessageType::InputAck,
-                                                  [](u32 /*senderClientID*/, const u8* data, u32 size)
-                                                  {
-                                                      if (size < sizeof(u32) || !s_ActiveScene)
-                                                      {
-                                                          return;
-                                                      }
-                                                      FMemoryReader reader(data, static_cast<i64>(size));
-                                                      u32 lastProcessedTick = 0;
-                                                      reader << lastProcessedTick;
-                                                      s_ClientPrediction.Reconcile(*s_ActiveScene, lastProcessedTick);
-                                                  });
-
+        // The client driver's handlers are bound from Tick(): a scene may not exist
+        // yet at connect time, and the handlers need the scene they will write to.
+        s_ClientDriver.Reset();
+        g_AttachedClient = nullptr;
+        g_AttachedScene = nullptr;
         return true;
     }
 
@@ -306,13 +309,9 @@ namespace OloEngine
             s_Client.reset();
         }
 
-        // Drop this session's client-side snapshot/prediction state so a later
-        // reconnect never mixes stale session-A snapshots/inputs with session-B
-        // (the interpolator/prediction buffers and tick counter would otherwise
-        // survive the reset above, which only clears s_Client).
-        s_ClientInterpolator.Reset();
-        s_ClientPrediction.ResetSession();
-        s_ClientReceivedTick = 0;
+        // Drop this session's client-side replication state so a later reconnect
+        // never mixes stale session-A snapshots/inputs with session-B.
+        s_ClientDriver.Reset();
     }
 
     bool NetworkManager::IsClient()
@@ -329,6 +328,8 @@ namespace OloEngine
 
     void NetworkManager::OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo)
     {
+        // NETWORK THREAD. Transport bookkeeping only — the ECS-visible consequences
+        // (spawning/despawning a client's pawn) are queued and applied from Tick().
         TUniqueLock<FMutex> lock(s_Mutex);
 
         if (s_Server)
@@ -425,15 +426,13 @@ namespace OloEngine
 
     void NetworkManager::SetSnapshotRate(u32 hz)
     {
-        TUniqueLock<FMutex> lock(s_Mutex);
-        s_SnapshotRateHz = hz;
-        s_ClientInterpolator.SetServerTickRate(hz);
+        s_ServerDriver.SetSnapshotRate(hz);
+        s_ClientDriver.GetInterpolator().SetServerTickRate(hz);
     }
 
     u32 NetworkManager::GetSnapshotRate()
     {
-        TUniqueLock<FMutex> lock(s_Mutex);
-        return s_SnapshotRateHz;
+        return s_ServerDriver.GetSnapshotRate();
     }
 
     void NetworkManager::SetActiveScene(Scene* scene)
@@ -442,143 +441,253 @@ namespace OloEngine
         s_ActiveScene = scene;
     }
 
-    void NetworkManager::TickSnapshots()
+    Scene* NetworkManager::GetActiveScene()
+    {
+        TUniqueLock<FMutex> lock(s_Mutex);
+        return s_ActiveScene;
+    }
+
+    void NetworkManager::Tick(f32 dt)
     {
         OLO_PROFILE_FUNCTION();
 
-        TUniqueLock<FMutex> lock(s_Mutex);
+        // Snapshot the shared members once, then release the lock: everything below
+        // touches the Scene and must not hold a lock a GNS callback can block on.
+        // Safe because the lifetime-changing calls (StartServer/StopServer/
+        // Connect/Disconnect/SetActiveScene) are game-thread-only, like this.
+        NetworkServer* server = nullptr;
+        NetworkClient* client = nullptr;
+        Scene* scene = nullptr;
+        {
+            TUniqueLock<FMutex> lock(s_Mutex);
+            if (!s_Initialized)
+            {
+                return;
+            }
+            server = s_Server.get();
+            client = s_Client.get();
+            scene = s_ActiveScene;
+        }
 
-        if (!s_ActiveScene)
+        if (scene == nullptr)
         {
             return;
         }
 
-        // Server: capture and broadcast snapshots at the configured rate
-        if (s_Server && s_Server->IsRunning())
+        const bool hostingServer = server != nullptr && server->IsRunning();
+
+        if (hostingServer)
         {
-            // Rate-limit snapshot broadcasts: accumulate time from network thread tick
-            f32 const dt = 1.0f / static_cast<f32>(NetworkThread::GetTickRate());
-            s_SnapshotAccumulator += dt;
-
-            f32 const snapshotInterval = 1.0f / static_cast<f32>(s_SnapshotRateHz);
-            if (s_SnapshotAccumulator < snapshotInterval)
-            {
-                return;
-            }
-            s_SnapshotAccumulator -= snapshotInterval;
-
-            ++s_TickCounter;
-
-            // Capture a full snapshot and store in the buffer
-            auto snapshot = EntitySnapshot::Capture(*s_ActiveScene);
-            if (!snapshot.empty())
-            {
-                // Try delta against baseline
-                if (const auto* baseline = s_SnapshotBuffer.GetLatest(); baseline)
-                {
-                    auto delta = EntitySnapshot::CaptureDelta(*s_ActiveScene, baseline->Data);
-                    if (!delta.empty())
-                    {
-                        // Send delta
-                        s_Server->BroadcastMessage(ENetworkMessageType::DeltaSnapshot, delta.data(),
-                                                   static_cast<u32>(delta.size()), k_nSteamNetworkingSend_Unreliable);
-                    }
-                    // else: nothing changed, no need to send
-                }
-                else
-                {
-                    // No baseline — send full snapshot
-                    s_Server->BroadcastMessage(ENetworkMessageType::EntitySnapshot, snapshot.data(),
-                                               static_cast<u32>(snapshot.size()), k_nSteamNetworkingSend_Unreliable);
-                }
-
-                // Always store the full snapshot in the buffer for future baselines
-                s_SnapshotBuffer.Push(s_TickCounter, std::move(snapshot));
-            }
+            // Poll first so this frame's inputs and RPCs are applied to the
+            // simulation BEFORE the snapshot that reports its state.
+            server->PollMessages();
+            s_ServerDriver.Tick(*scene, *server, dt);
         }
+
+        if (client != nullptr)
+        {
+            // Listen server: this process is both ends and they share one Scene,
+            // which the server has already made authoritative. The client half must
+            // not also write replicated state into it — see
+            // ClientReplicationDriver::SetSharedSceneWithServer.
+            s_ClientDriver.SetSharedSceneWithServer(hostingServer);
+
+            // Attach lazily: Connect() can happen before a scene exists, and the
+            // handlers capture the scene they will write to.
+            if (g_AttachedScene != scene || g_AttachedClient != client)
+            {
+                s_ClientDriver.AttachTo(*client, *scene);
+                g_AttachedScene = scene;
+                g_AttachedClient = client;
+            }
+            s_ClientDriver.Tick(*scene, *client, dt);
+        }
+    }
+
+    ServerReplicationDriver& NetworkManager::GetServerDriver()
+    {
+        return s_ServerDriver;
+    }
+
+    ClientReplicationDriver& NetworkManager::GetClientDriver()
+    {
+        return s_ClientDriver;
     }
 
     SnapshotBuffer& NetworkManager::GetSnapshotBuffer()
     {
-        return s_SnapshotBuffer;
+        return s_ServerDriver.GetHistory();
     }
 
     SnapshotInterpolator& NetworkManager::GetClientInterpolator()
     {
-        return s_ClientInterpolator;
+        return s_ClientDriver.GetInterpolator();
     }
 
     u32 NetworkManager::GetCurrentTick()
     {
-        return s_TickCounter;
+        return s_ServerDriver.GetCurrentTick();
     }
 
     void NetworkManager::SendInput(u64 entityUUID, std::vector<u8> inputData)
     {
         OLO_PROFILE_FUNCTION();
 
-        TUniqueLock<FMutex> lock(s_Mutex);
+        NetworkClient* client = nullptr;
+        Scene* scene = nullptr;
+        {
+            TUniqueLock<FMutex> lock(s_Mutex);
+            client = s_Client.get();
+            scene = s_ActiveScene;
+        }
 
-        if (!s_Client || !s_Client->IsConnected())
+        if (client == nullptr || !client->IsConnected())
         {
             OLO_CORE_WARN("SendInput: not connected to a server");
             return;
         }
+        if (scene == nullptr)
+        {
+            OLO_CORE_WARN("SendInput: no active scene registered with the NetworkManager");
+            return;
+        }
 
-        u32 tick = s_TickCounter;
-
-        // Record locally for prediction
-        s_ClientPrediction.RecordInput(tick, entityUUID, inputData);
-
-        // Serialize: tick(u32) + entityUUID(u64) + inputData
-        std::vector<u8> payload;
-        FMemoryWriter writer(payload);
-        writer << tick;
-        writer << entityUUID;
-        writer.Serialize(inputData.data(), static_cast<i64>(inputData.size()));
-
-        s_Client->SendMessage(ENetworkMessageType::InputCommand, payload.data(), static_cast<u32>(payload.size()),
-                              k_nSteamNetworkingSend_Reliable);
+        s_ClientDriver.SendInput(*scene, *client, entityUUID, std::move(inputData));
     }
 
     void NetworkManager::SetInputApplyCallback(InputApplyCallback callback)
     {
-        s_ClientPrediction.SetInputApplyCallback(callback);
-        s_ServerInputHandler.SetInputApplyCallback(callback);
+        s_ClientDriver.SetInputApplyCallback(callback);
+        s_ServerDriver.GetInputHandler().SetInputApplyCallback(std::move(callback));
     }
 
     ClientPrediction& NetworkManager::GetClientPrediction()
     {
-        return s_ClientPrediction;
+        return s_ClientDriver.GetPrediction();
     }
 
     ServerInputHandler& NetworkManager::GetServerInputHandler()
     {
-        return s_ServerInputHandler;
+        return s_ServerDriver.GetInputHandler();
+    }
+
+    Entity NetworkManager::SpawnReplicated(std::string_view archetype, const std::string& name, u32 ownerClientID,
+                                           ENetworkAuthority authority)
+    {
+        Scene* scene = GetActiveScene();
+        if (scene == nullptr)
+        {
+            OLO_CORE_WARN_TAG("Networking", "SpawnReplicated: no active scene");
+            return {};
+        }
+        return s_ServerDriver.SpawnReplicated(*scene, archetype, name, ownerClientID, authority);
+    }
+
+    void NetworkManager::DespawnReplicated(u64 entityUUID)
+    {
+        NetworkServer* server = nullptr;
+        Scene* scene = nullptr;
+        {
+            TUniqueLock<FMutex> lock(s_Mutex);
+            server = s_Server.get();
+            scene = s_ActiveScene;
+        }
+
+        if (scene == nullptr || server == nullptr)
+        {
+            OLO_CORE_WARN_TAG("Networking", "DespawnReplicated: no active scene or server");
+            return;
+        }
+        s_ServerDriver.DespawnReplicated(*scene, *server, entityUUID);
+    }
+
+    void NetworkManager::RegisterRPC(RpcDescriptor descriptor)
+    {
+        RpcRegistry::Register(std::move(descriptor));
+    }
+
+    bool NetworkManager::InvokeRPC(std::string_view name, u64 entityUUID, const RpcArgList& args, u32 targetClientID)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto descriptor = RpcRegistry::FindByName(name);
+        if (!descriptor.has_value())
+        {
+            OLO_CORE_WARN_TAG("Networking", "InvokeRPC: '{}' is not registered", name);
+            return false;
+        }
+
+        NetworkServer* server = nullptr;
+        NetworkClient* client = nullptr;
+        Scene* scene = nullptr;
+        {
+            TUniqueLock<FMutex> lock(s_Mutex);
+            server = s_Server.get();
+            client = s_Client.get();
+            scene = s_ActiveScene;
+        }
+
+        // A host that is running a server acts as the authority even if it also has
+        // a client connection (listen-server topology).
+        if (server != nullptr && server->IsRunning())
+        {
+            if (scene == nullptr)
+            {
+                OLO_CORE_WARN_TAG("Networking", "InvokeRPC: no active scene");
+                return false;
+            }
+            return s_ServerDriver.InvokeRpc(*scene, *server, *descriptor, entityUUID, targetClientID, args);
+        }
+
+        if (client != nullptr && client->IsConnected())
+        {
+            return s_ClientDriver.InvokeRpc(*client, *descriptor, entityUUID, args);
+        }
+
+        OLO_CORE_WARN_TAG("Networking", "InvokeRPC: '{}' has no transport to travel on", name);
+        return false;
     }
 
     i32 NetworkManager::GetClientPingMs(u32 clientID)
     {
-        TUniqueLock<FMutex> lock(s_Mutex);
+        NetworkServer* server = nullptr;
+        {
+            TUniqueLock<FMutex> lock(s_Mutex);
+            server = s_Server.get();
+        }
 
-        if (!s_Server || !s_Server->IsRunning())
+        if (server == nullptr || !server->IsRunning())
         {
             return -1;
         }
 
-        i32 pingMs = -1;
-        s_Server->ForEachConnection([&clientID, &pingMs](HSteamNetConnection connHandle, const NetworkConnection& conn)
-                                    {
-            if (conn.GetClientID() == clientID)
-            {
-                pingMs = s_Server->GetClientPingMs(connHandle);
-            } });
-        return pingMs;
+        // GetClientPingMsById resolves the handle and queries the transport without
+        // nesting two acquisitions of the server's mutex — the previous shape here
+        // (a GetClientPingMs call from inside a ForEachConnection lambda) deadlocked
+        // on the first client whose ping was asked for.
+        return server->GetClientPingMsById(clientID);
     }
 
     LagCompensator& NetworkManager::GetLagCompensator()
     {
-        return s_LagCompensator;
+        return s_ServerDriver.GetLagCompensator();
+    }
+
+    bool NetworkManager::PerformLagCompensatedCheck(u32 clientID, const LagCompensator::RewindCallback& callback)
+    {
+        NetworkServer* server = nullptr;
+        Scene* scene = nullptr;
+        {
+            TUniqueLock<FMutex> lock(s_Mutex);
+            server = s_Server.get();
+            scene = s_ActiveScene;
+        }
+
+        if (server == nullptr || scene == nullptr)
+        {
+            return false;
+        }
+        return s_ServerDriver.PerformLagCompensatedCheck(*scene, *server, clientID, callback);
     }
 
     NetworkSession* NetworkManager::GetSession()
