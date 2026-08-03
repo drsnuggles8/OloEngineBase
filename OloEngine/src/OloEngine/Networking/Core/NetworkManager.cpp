@@ -460,6 +460,19 @@ namespace OloEngine
             s_ServerSceneChanged = true;
         }
 
+        // The CLIENT half needs the same treatment, and for a sharper reason. Tick
+        // re-attaches only when `s_AttachedScene != scene`, so if the outgoing Scene
+        // is freed and the incoming one is allocated at the same address, that test
+        // compares EQUAL, the re-attach is skipped, and the client driver's
+        // dispatcher handlers keep holding a reference to the destroyed Scene — a
+        // use-after-free, not merely stale state. Forgetting the binding here forces
+        // Tick to rebuild it. (Connect() clears the same pair for the same reason.)
+        if (s_ActiveScene != scene)
+        {
+            s_AttachedScene = nullptr;
+            s_AttachedClient = nullptr;
+        }
+
         s_ActiveScene = scene;
     }
 
@@ -743,7 +756,10 @@ namespace OloEngine
             scene = s_ActiveScene;
         }
 
-        if (server == nullptr || scene == nullptr)
+        // `!IsRunning()` matters as much as the null check: the rewind reads per-client
+        // connection state (RTT) from the transport, which a stopped server no longer
+        // has. Same guard GetClientPingMs uses.
+        if (server == nullptr || !server->IsRunning() || scene == nullptr)
         {
             return false;
         }

@@ -45,6 +45,18 @@ namespace OloEngine
         // from Tick(), on the game thread, with this scene.
         void AttachTo(NetworkClient& client, Scene& scene);
 
+        // Bumped by every AttachTo. The handlers installed above capture the scene
+        // POINTER by value, so a host that swaps the runtime scene and fails to
+        // re-attach leaves them dereferencing freed memory — a use-after-free with
+        // no error of its own. A caller cannot check that by comparing scene
+        // pointers, because a new Scene can be allocated at the address the old one
+        // just vacated and compare equal; this counter is what makes "did the
+        // rebinding actually happen" observable.
+        [[nodiscard]] u32 GetAttachGeneration() const
+        {
+            return m_AttachGeneration;
+        }
+
         // Poll the transport (running every queued handler) and advance
         // interpolation by `dt` seconds. Game thread only.
         void Tick(Scene& scene, NetworkClient& client, f32 dt);
@@ -128,6 +140,7 @@ namespace OloEngine
         u32 m_LocalClientID = 0;
         u32 m_InputTick = 0;
         u32 m_LastServerTick = 0;
+        u32 m_AttachGeneration = 0;
         bool m_SharedSceneWithServer = false;
 
         // Running authoritative state, keyed by UUID. Deltas are folded in;

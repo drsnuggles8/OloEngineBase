@@ -36,6 +36,8 @@ namespace OloEngine
         auto& dispatcher = client.GetDispatcher();
         Scene* scenePtr = &scene;
 
+        ++m_AttachGeneration;
+
         dispatcher.RegisterHandler(ENetworkMessageType::Connect,
                                    [this](u32, const u8* data, u32 size)
                                    { HandleConnectAssignment(data, size); });

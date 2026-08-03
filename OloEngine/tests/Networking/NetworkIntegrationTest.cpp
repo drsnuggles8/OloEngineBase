@@ -367,3 +367,44 @@ TEST_F(NetworkIntegrationTest, SwappingTheActiveSceneRebuildsServerReplicationSt
     NetworkManager::StopServer();
     NetworkManager::SetActiveScene(nullptr);
 }
+
+// The client half of the same swap contract.
+//
+// Tick re-attaches the client driver only when the scene pointer differs from the
+// one it last bound. The dispatcher handlers capture that pointer BY VALUE, so if a
+// swap is missed the handlers go on dereferencing a Scene that has been destroyed —
+// a use-after-free with no error of its own, not merely stale state.
+//
+// The dangerous case is a new Scene landing at the address the old one just vacated,
+// which no pointer comparison can distinguish. Rather than depend on the allocator
+// reusing a block, this rebinds the SAME scene pointer after a trip through nullptr:
+// that is precisely the branch address reuse would take, made deterministic.
+TEST_F(NetworkIntegrationTest, RebindingTheSameSceneAddressStillReattachesTheClient)
+{
+    constexpr f32 kTickDt = 1.0f / 20.0f;
+
+    ASSERT_TRUE(StartServer());
+    ASSERT_TRUE(NetworkManager::Connect("127.0.0.1", m_Port));
+    ASSERT_TRUE(WaitUntil([]
+                          { return NetworkManager::IsConnected(); }));
+
+    auto scene = CreateScope<Scene>();
+    NetworkManager::SetActiveScene(scene.get());
+    NetworkManager::Tick(kTickDt);
+
+    const u32 afterFirstBind = NetworkManager::GetClientDriver().GetAttachGeneration();
+    ASSERT_GT(afterFirstBind, 0u) << "the client driver never attached to the first scene";
+
+    // Stand in for "old scene destroyed, new scene allocated at the same address".
+    NetworkManager::SetActiveScene(nullptr);
+    NetworkManager::SetActiveScene(scene.get());
+    NetworkManager::Tick(kTickDt);
+
+    EXPECT_GT(NetworkManager::GetClientDriver().GetAttachGeneration(), afterFirstBind)
+        << "the client driver was not re-attached after the swap; had the scene really been "
+           "destroyed, its dispatcher handlers would now be holding freed memory";
+
+    NetworkManager::Disconnect();
+    NetworkManager::StopServer();
+    NetworkManager::SetActiveScene(nullptr);
+}
