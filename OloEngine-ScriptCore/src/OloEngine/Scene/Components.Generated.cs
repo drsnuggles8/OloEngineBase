@@ -232,6 +232,12 @@ namespace OloEngine
 			set => InternalCalls.AudioSourceComponent_SetPitch(Entity.ID, value);
 		}
 
+		public float Priority
+		{
+			get => InternalCalls.AudioSourceComponent_GetPriority(Entity.ID);
+			set => InternalCalls.AudioSourceComponent_SetPriority(Entity.ID, value);
+		}
+
 		public bool PlayOnAwake
 		{
 			get => InternalCalls.AudioSourceComponent_GetPlayOnAwake(Entity.ID);

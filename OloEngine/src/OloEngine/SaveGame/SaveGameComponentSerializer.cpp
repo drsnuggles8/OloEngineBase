@@ -143,6 +143,16 @@ namespace OloEngine
         ar << c.Spread << c.Focus;
         ar << c.LowPassCutoff << c.HighPassCutoff << c.ReverbSend;
 
+        // v14: voice-budget priority (issue #730). Appended last and version-gated —
+        // the archive is fixed-order, so an ungated read would consume the next
+        // component's bytes out of every v13-and-older save. Older saves keep the
+        // constructor default (0.5, neutral), which reproduces pre-#730 behavior exactly
+        // since an all-equal-priority mix ranks purely on gain and distance.
+        if (HasFieldsSince(ar, 14))
+        {
+            ar << c.Priority;
+        }
+
         if (ar.IsLoading())
         {
             auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
@@ -163,6 +173,7 @@ namespace OloEngine
             // Non-DSP fields
             sanitize(c.VolumeMultiplier, 0.0f, 10.0f, 1.0f);
             sanitize(c.PitchMultiplier, 0.0f, 10.0f, 1.0f);
+            sanitize(c.Priority, 0.0f, 1.0f, 0.5f);
             sanitize(c.RollOff, 0.0f, 100.0f, 1.0f);
             sanitize(c.MinGain, 0.0f, 1.0f, 0.0f);
             sanitize(c.MaxGain, 0.0f, 1.0f, 1.0f);

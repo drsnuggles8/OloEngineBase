@@ -162,6 +162,10 @@ namespace OloEngine
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void AudioSourceComponent_SetPitch(ulong entityID, float value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AudioSourceComponent_GetPriority(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AudioSourceComponent_SetPriority(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern bool AudioSourceComponent_GetPlayOnAwake(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void AudioSourceComponent_SetPlayOnAwake(ulong entityID, bool value);

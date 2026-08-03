@@ -591,7 +591,9 @@ TEST(McpFieldRegistry, MapFieldBarePrefixIsNotDirectlyWritable)
 
 TEST(McpFieldRegistry, CoversAudioSourceComponent)
 {
-    for (const char* field : { "Volume", "Pitch", "PlayOnAwake", "Looping", "Spatialization",
+    // "Priority" is the voice-budget importance added by issue #730 — same
+    // setter-expression mechanism as the rest (it also pushes at the live Source).
+    for (const char* field : { "Volume", "Pitch", "Priority", "PlayOnAwake", "Looping", "Spatialization",
                                "AttenuationModel", "RollOff", "MinGain", "MaxGain", "MinDistance",
                                "MaxDistance", "ConeInnerAngle", "ConeOuterAngle", "ConeOuterGain",
                                "DopplerFactor", "SoundConfigHandle" })

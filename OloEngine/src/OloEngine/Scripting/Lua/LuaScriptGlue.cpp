@@ -2462,9 +2462,19 @@ namespace OloEngine
                                                                                {
                     c.GetConfig().Spatialization = v;
                     if (c.Source) { c.Source->SetSpatialization(v); } }),
-                                               "useEventSystem", sol::property([](const AudioSourceComponent& c)
-                                                                               { return c.GetUseEventSystem(); }, [](AudioSourceComponent& c, bool v)
-                                                                               { c.SetUseEventSystem(v); }),
+                                               // Voice-budget importance in [0, 1] (issue #730). Higher survives stealing.
+                                               "priority", sol::property([](const AudioSourceComponent& c)
+                                                                         { return c.GetConfig().Priority; }, [](AudioSourceComponent& c, f32 v)
+                                                                         {
+                    c.GetConfig().Priority = v;
+                    if (c.Source) { c.Source->SetPriority(v); } }),
+                                               // True while registered with the voice budget but inaudible because
+                                               // higher-scoring voices hold every slot. `isPlaying` stays true here —
+                                               // the sound is logically running, just silent.
+                                               "isVirtualized", [](const AudioSourceComponent& c) -> bool
+                                               { return c.Source && c.Source->IsVirtualized(); }, "useEventSystem", sol::property([](const AudioSourceComponent& c)
+                                                                                                                                  { return c.GetUseEventSystem(); }, [](AudioSourceComponent& c, bool v)
+                                                                                                                                  { c.SetUseEventSystem(v); }),
                                                "startEvent", sol::property([](const AudioSourceComponent& c)
                                                                            { return c.GetStartEvent(); }, [](AudioSourceComponent& c, const std::string& v)
                                                                            {

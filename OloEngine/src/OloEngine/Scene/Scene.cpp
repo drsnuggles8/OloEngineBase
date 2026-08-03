@@ -125,6 +125,7 @@
 #include "OloEngine/Audio/AudioEvents/AudioCommandRegistry.h"
 #include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
 #include "OloEngine/Audio/AudioEngine.h"
+#include "OloEngine/Audio/VoiceManager.h"
 #include "OloEngine/Audio/AudioTransform.h"
 #include "OloEngine/Audio/DSP/Spatializer/Spatializer.h"
 #include "OloEngine/Project/Project.h"
@@ -1163,6 +1164,10 @@ namespace OloEngine
                 ac.Listener->SetConfig(ac.Config);
                 ac.Listener->SetPosition(tc.Translation);
                 ac.Listener->SetDirection(-forward);
+                // Seed the voice budget's listener before the PlayOnAwake loop below, or
+                // the first frame's admission decisions would rank every spatialized
+                // source against the origin instead of the real listener (issue #730).
+                Audio::VoiceManager::Get().SetListenerPosition(tc.Translation);
                 // Seed the 3D spatializer's listener pose so SoundGraph voices registered just
                 // below (InitializeAudioSoundGraph) compute their initial relative position
                 // against the real listener, not the default origin (issue #424).
@@ -3106,7 +3111,13 @@ namespace OloEngine
             //                       CONSTRUCTOR — worker-side view()/group()
             //                       first-touch would be a structural registry
             //                       mutation; extend that pre-warm list when
-            //                       marking a new system.
+            //                       marking a new system. The process-global
+            //                       Audio::VoiceManager it drives (issue #730) is
+            //                       mutex-guarded precisely because this system
+            //                       runs off the game thread while scripts start
+            //                       sounds on it — do not "optimise" that lock
+            //                       away on the assumption of a single audio
+            //                       thread.
             //   Inventory  UNSAFE — DestroyEntity (structural) + publishes to the
             //                       non-thread-safe GameplayEventBus. (It IS a
             //                       candidate for the physics shadow instead, but
@@ -3691,6 +3702,7 @@ namespace OloEngine
                 const glm::vec3 forward = SafeAudioBasis(glm::vec3(inverted[2]), glm::vec3(0.0f, 0.0f, 1.0f));
                 ac.Listener->SetPosition(tc.Translation);
                 ac.Listener->SetDirection(-forward);
+                Audio::VoiceManager::Get().SetListenerPosition(tc.Translation);
                 // Keep the 3D spatializer's listener in sync each frame so SoundGraph voices
                 // pan/attenuate relative to the live listener pose (issue #424).
                 if (auto* spatializer = AudioEngine::GetSpatializer())
@@ -3738,6 +3750,12 @@ namespace OloEngine
         {
             m_AudioEventsManager->Update(ts);
         }
+
+        // Tick the concurrent-voice budget LAST (issue #730): every position/gain change
+        // above, plus any source the event queue just started, has to be visible before
+        // scores are recomputed and slots are re-allocated. Running it earlier would
+        // rebalance against last frame's spatial state.
+        Audio::VoiceManager::Get().Update(ts);
     }
 
     // Whether any particle work on this entity touches the GPU (issue #576):

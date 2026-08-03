@@ -2,11 +2,13 @@
 
 #include "OloEngine/Audio/AudioSource.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphSource.h"
+#include "OloEngine/Audio/VoiceManager.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Asset/Asset.h" // For AssetHandle
 #include <glm/glm.hpp>
+#include <atomic>
 #include <string>
 #include <string_view>
 #include <functional>
@@ -78,11 +80,26 @@ namespace OloEngine
     {
         namespace SoundGraph
         {
-            class SoundGraphSound : public IPlayableAudio
+            /// A SoundGraph-driven voice.
+            ///
+            /// Play()/Stop() are the admission point for the graph path into the shared
+            /// concurrent-voice budget (issue #730) — the sibling of AudioSource for the
+            /// clip path. Both paths MUST route through VoiceManager or the cap is
+            /// enforced on only half the engine's sounds.
+            ///
+            /// Limitation, deliberate: the SoundGraph runtime has no transport control
+            /// (SoundGraphSource exposes SendPlayEvent and nothing to seek or suspend
+            /// with), so virtualizing a graph voice mutes it rather than stopping it. That
+            /// still frees the audible slot and keeps the mix within budget — and it makes
+            /// resume-in-phase trivially correct, because the graph never stopped
+            /// advancing — but unlike the clip path it does NOT reclaim the DSP cost.
+            /// Reclaiming that needs a stop/seek API on SoundGraphSource first (issue
+            /// #745).
+            class SoundGraphSound : public IPlayableAudio, public OloEngine::Audio::IVoiceHost
             {
               public:
                 explicit SoundGraphSound();
-                ~SoundGraphSound();
+                ~SoundGraphSound() override;
 
                 //--- Sound Source Interface
                 bool Play() override;
@@ -204,12 +221,47 @@ namespace OloEngine
                 f32 GetCurrentPriority() const;
                 f32 GetPlaybackPercentage() const;
 
+                //==============================================================================
+                /// Voice budget (issue #730)
+                /// Authored importance, miniaudio-style: 0 = highest, 255 = lowest. Mapped
+                /// to VoiceParams::Priority (0..1, higher = more important) on the way in.
+                void SetPriority(u8 priority);
+                u8 GetPriority() const
+                {
+                    return m_Priority;
+                }
+                /// True while registered with the budget but muted because a higher-scoring
+                /// voice holds the slot.
+                bool IsVirtualized() const;
+
                 Audio::SoundGraph::SoundGraphSource* GetSource() const
                 {
                     return m_Source.get();
                 }
 
+                //--- OloEngine::Audio::IVoiceHost ------------------------------------------
+                // Driven by the voice budget, never called directly.
+                bool OnVoiceStart(f64 positionSeconds) const override;
+                f64 OnVoiceStop() const override;
+                f64 OnVoiceQueryPosition() const override;
+
               private:
+                /// Snapshot the current scoring inputs for the budget.
+                OloEngine::Audio::VoiceParams BuildVoiceParams() const;
+                /// Hand the slot back and forget the handle. Idempotent.
+                ///
+                /// `restoreGain` decides whether the budget's mute is lifted on the way
+                /// out. Pass true when the voice is about to play again (Play) or the
+                /// object is going away (teardown); pass FALSE when retiring a voice that
+                /// is meant to fall silent (Stop, natural completion) — the graph runtime
+                /// has no transport, so un-muting a still-running virtualized graph would
+                /// make a stopped sound audible again.
+                void ReleaseVoice(bool restoreGain) const;
+                /// Push refreshed scoring inputs at the budget.
+                void SyncVoiceParams() const;
+                /// Apply m_Volume scaled by the budget's mute state to the live graph.
+                void ApplyEffectiveGain() const;
+
                 /* Stop playback with short fade-out to prevent click.
                 @param numSamples - length of the fade-out in PCM frames
 
@@ -272,9 +324,13 @@ namespace OloEngine
                 /* Push a high-level control value into the live graph as a conventionally-named
                    graph input parameter (see the kXxxParam names in the .cpp). Best-effort: a
                    graph that doesn't expose the endpoint simply ignores the write, and the call
-                   is a no-op until a source + graph are installed. */
-                void RouteFloatParameter(std::string_view parameterName, f32 value);
-                void RouteBoolParameter(std::string_view parameterName, bool value);
+                   is a no-op until a source + graph are installed.
+
+                   const because these mutate the LIVE GRAPH, not this wrapper's own logical
+                   state — which is what lets the const-qualified IVoiceHost callbacks reach
+                   them without a const_cast. */
+                void RouteFloatParameter(std::string_view parameterName, f32 value) const;
+                void RouteBoolParameter(std::string_view parameterName, bool value) const;
 
                 /* Re-push every stored high-level control (volume / pitch / looping / filters)
                    into the current graph. Called after a graph is installed so a value set
@@ -284,6 +340,11 @@ namespace OloEngine
                 // Audio frequency conversion utilities
                 static f32 NormalizedToFrequency(f32 normalizedValue);
                 static f32 FrequencyToNormalized(f32 frequency);
+
+                /// The single conversion from the stored miniaudio-flavoured priority
+                /// (0 = highest) to the 0..1, higher-is-more-important convention every
+                /// consumer wants. Shared so the two call sites cannot drift apart.
+                [[nodiscard]] static f32 NormalizePriority(u8 priority);
 
                 /* Push the current spatial state (position/orientation/up + velocity) into the
                    source's spatializer node. No-op until the source hosts one. Called from each
@@ -308,6 +369,18 @@ namespace OloEngine
 
                 // Playback status
                 u8 m_Priority = 128; // 0 = highest priority, 255 = lowest
+
+                // Voice-budget state (issue #730). Mutable because IVoiceHost's callbacks
+                // are const-qualified (AudioSource, the other implementation, needs them
+                // that way — see VoiceManager.h).
+                /// Atomic: written by Play/Stop on the owner's thread, read by the budget
+                /// callbacks that Scene::UpdateAudio drives from a worker.
+                mutable std::atomic<OloEngine::Audio::VoiceHandle> m_VoiceHandle{ OloEngine::Audio::kInvalidVoiceHandle };
+                /// 0 while virtualized, 1 while audible. Multiplied into m_Volume on the
+                /// way to the graph so the authored volume survives a steal. Atomic because
+                /// OnVoiceStart/OnVoiceStop write it from whichever thread ticks the budget
+                /// while SetVolume reads it from the owner's.
+                mutable std::atomic<f32> m_VoiceGainScale{ 1.0f };
 
                 /* Stored Fader "resting" value. Used to restore Fader before restarting playback if a fade has occurred. */
                 f32 m_StoredFaderValue = 1.0f;

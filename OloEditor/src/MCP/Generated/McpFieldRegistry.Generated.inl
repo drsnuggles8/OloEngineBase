@@ -1332,6 +1332,15 @@ registry.push_back(MakeSetterField<AudioSourceComponent, float>(
         if (comp.Source)
             comp.Source->SetPitch(v);
     }));
+registry.push_back(MakeSetterField<AudioSourceComponent, float>(
+    "AudioSourceComponent", "Priority",
+    [](const AudioSourceComponent& comp) -> float { return (comp.GetConfig().Priority); },
+    [](AudioSourceComponent& comp, const float& v)
+    {
+        comp.GetConfig().Priority = v;
+        if (comp.Source)
+            comp.Source->SetPriority(v);
+    }));
 registry.push_back(MakeSetterField<AudioSourceComponent, bool>(
     "AudioSourceComponent", "PlayOnAwake",
     [](const AudioSourceComponent& comp) -> bool { return (comp.GetConfig().PlayOnAwake); },

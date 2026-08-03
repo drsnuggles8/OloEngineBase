@@ -258,6 +258,11 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
+        // Hand the voice slot back before the graph goes away — the budget holds a raw
+        // pointer to this host and must never drive a torn-down one. Also reached from the
+        // destructor, which is the only teardown path some owners take.
+        ReleaseVoice(/*restoreGain=*/true);
+
         if (m_Source)
         {
             // Clean up - no method calls on m_Source since they don't exist
@@ -270,6 +275,114 @@ namespace OloEngine::Audio::SoundGraph
     //==============================================================================
     /// Main Sound Interface
 
+    f32 SoundGraphSound::NormalizePriority(u8 priority)
+    {
+        // m_Priority is miniaudio-flavoured (0 = highest, 255 = lowest); every consumer
+        // wants the opposite convention (1 = most important), so invert rather than
+        // dividing straight through. Getting this backwards silently makes the most
+        // important sounds the first ones stolen — and every voice-counting test still
+        // passes. One conversion, one place.
+        return 1.0f - (static_cast<f32>(priority) / 255.0f);
+    }
+
+    OloEngine::Audio::VoiceParams SoundGraphSound::BuildVoiceParams() const
+    {
+        OloEngine::Audio::VoiceParams params;
+        params.Priority = NormalizePriority(m_Priority);
+        params.Volume = m_Volume;
+        params.Pitch = m_Pitch;
+        params.Looping = m_IsLooping;
+        params.Spatialized = m_SpatializationEnabled;
+        params.Position = m_Position;
+        // The graph runtime carries no authored attenuation window; use the engine-wide
+        // default span so a graph voice ranks on the same distance curve as a clip voice.
+        params.MinDistance = 1.0f;
+        params.MaxDistance = 1000.0f;
+        // A graph produces samples for as long as it is asked to; there is no length to
+        // auto-complete against, so the owner is responsible for Stop().
+        params.DurationSeconds = 0.0;
+        return params;
+    }
+
+    void SoundGraphSound::ReleaseVoice(bool restoreGain) const
+    {
+        const auto handle = m_VoiceHandle.exchange(OloEngine::Audio::kInvalidVoiceHandle, std::memory_order_acq_rel);
+        if (handle != OloEngine::Audio::kInvalidVoiceHandle)
+        {
+            OloEngine::Audio::VoiceManager::Get().Release(handle);
+        }
+
+        if (restoreGain)
+        {
+            // The budget is no longer tracking this voice, so nothing else would ever lift
+            // its mute — do it here, before it plays again.
+            m_VoiceGainScale.store(1.0f, std::memory_order_relaxed);
+            ApplyEffectiveGain();
+        }
+        // Otherwise leave the mute in place: this voice is being retired, and the graph
+        // runtime has no way to actually stop, so restoring gain would make a sound that
+        // is supposed to be over audible again.
+    }
+
+    void SoundGraphSound::SyncVoiceParams() const
+    {
+        const auto handle = m_VoiceHandle.load(std::memory_order_relaxed);
+        if (handle != OloEngine::Audio::kInvalidVoiceHandle)
+        {
+            OloEngine::Audio::VoiceManager::Get().UpdateParams(handle, BuildVoiceParams());
+        }
+    }
+
+    void SoundGraphSound::ApplyEffectiveGain() const
+    {
+        RouteFloatParameter(kVolumeParam, m_Volume * m_VoiceGainScale.load(std::memory_order_relaxed));
+    }
+
+    bool SoundGraphSound::IsVirtualized() const
+    {
+        const auto handle = m_VoiceHandle.load(std::memory_order_acquire);
+        return handle != OloEngine::Audio::kInvalidVoiceHandle && OloEngine::Audio::VoiceManager::Get().IsVirtual(handle);
+    }
+
+    void SoundGraphSound::SetPriority(u8 priority)
+    {
+        m_Priority = priority;
+        SyncVoiceParams();
+    }
+
+    bool SoundGraphSound::OnVoiceStart(f64 /*positionSeconds*/) const
+    {
+        // positionSeconds is ignored: the graph runtime has no seek, and it never stopped
+        // advancing while muted, so it is already at the right phase. See the class
+        // comment for why muting (rather than suspending) is the virtualization here.
+        m_VoiceGainScale.store(1.0f, std::memory_order_relaxed);
+        ApplyEffectiveGain();
+        return true;
+    }
+
+    f64 SoundGraphSound::OnVoiceStop() const
+    {
+        m_VoiceGainScale.store(0.0f, std::memory_order_relaxed);
+        ApplyEffectiveGain();
+        // Negative: no transport to report a position from, so the budget keeps advancing
+        // its own logical clock for this voice.
+        return -1.0;
+    }
+
+    f64 SoundGraphSound::OnVoiceQueryPosition() const
+    {
+        if (!m_Source)
+        {
+            return -1.0;
+        }
+        const u32 sampleRate = m_Source->GetSampleRate();
+        if (sampleRate == 0)
+        {
+            return -1.0;
+        }
+        return static_cast<f64>(m_Source->GetCurrentFrame()) / static_cast<f64>(sampleRate);
+    }
+
     bool SoundGraphSound::Play()
     {
         if (!m_IsReadyToPlay)
@@ -278,11 +391,28 @@ namespace OloEngine::Audio::SoundGraph
         m_PlayState = SoundPlayState::Playing;
         m_IsFinished = false;
 
+        // Register with the shared concurrent-voice budget BEFORE raising the graph's Play
+        // event: Acquire drives OnVoiceStart synchronously when this voice wins a slot, and
+        // that is where the gain is un-muted. Starting a re-triggered sound also drops any
+        // previous registration so the budget never holds two records for one graph.
+        ReleaseVoice(/*restoreGain=*/true);
+        const auto handle = OloEngine::Audio::VoiceManager::Get().Acquire(this, BuildVoiceParams());
+        m_VoiceHandle.store(handle, std::memory_order_release);
+        if (handle == OloEngine::Audio::kInvalidVoiceHandle)
+        {
+            // Only reachable if Acquire was handed a null host, which cannot happen here;
+            // fall back to unmanaged playback rather than silence.
+            m_VoiceGainScale.store(1.0f, std::memory_order_relaxed);
+            ApplyEffectiveGain();
+        }
+
         // Forward the Play trigger into the runtime graph. Without this the play state
         // flips to Playing on the sound wrapper but the graph's "Play" event input is
         // never raised, so any node listening for that event (WavePlayer, envelopes,
         // trigger nodes) never fires — the audio callback runs but every node stays at
-        // its idle/silent default.
+        // its idle/silent default. Raised even when virtualized: the graph must keep
+        // advancing while muted, which is what makes a devirtualized loop come back in
+        // phase instead of restarting.
         if (m_Source)
             m_Source->SendPlayEvent();
 
@@ -291,6 +421,8 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphSound::Stop()
     {
+        ReleaseVoice(/*restoreGain=*/false);
+
         // Cancel any active fades
         m_IsFading = false;
         m_FadeCurrentTime = 0.0f;
@@ -337,7 +469,11 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         m_Volume = std::clamp(newVolume, 0.0f, 1.0f);
-        RouteFloatParameter(kVolumeParam, m_Volume);
+        // Route through the budget's mute scale, not straight to the graph: a SetVolume
+        // arriving while this voice is virtualized would otherwise un-mute a stolen voice
+        // and push the audible mix over the cap.
+        ApplyEffectiveGain();
+        SyncVoiceParams();
     }
 
     void SoundGraphSound::SetPitch(f32 newPitch)
@@ -351,6 +487,7 @@ namespace OloEngine::Audio::SoundGraph
         }
 
         m_Pitch = std::clamp(newPitch, 0.1f, 4.0f);
+        SyncVoiceParams();
         RouteFloatParameter(kPitchParam, m_Pitch);
     }
 
@@ -359,6 +496,7 @@ namespace OloEngine::Audio::SoundGraph
         OLO_PROFILE_FUNCTION();
 
         m_IsLooping = looping;
+        SyncVoiceParams();
         RouteBoolParameter(kLoopParam, m_IsLooping);
     }
 
@@ -404,7 +542,7 @@ namespace OloEngine::Audio::SoundGraph
         RouteFloatParameter(kHighPassParam, m_HighPassValue);
     }
 
-    void SoundGraphSound::RouteFloatParameter(std::string_view parameterName, f32 value)
+    void SoundGraphSound::RouteFloatParameter(std::string_view parameterName, f32 value) const
     {
         // Best-effort routing into the live graph. SoundGraphSource::SetParameter(name)
         // hashes the name, checks the graph exposes a matching input endpoint, and applies
@@ -414,7 +552,7 @@ namespace OloEngine::Audio::SoundGraph
             m_Source->SetParameter(parameterName, choc::value::createFloat32(value));
     }
 
-    void SoundGraphSound::RouteBoolParameter(std::string_view parameterName, bool value)
+    void SoundGraphSound::RouteBoolParameter(std::string_view parameterName, bool value) const
     {
         if (m_Source)
             m_Source->SetParameter(parameterName, choc::value::createBool(value));
@@ -425,7 +563,9 @@ namespace OloEngine::Audio::SoundGraph
         // Re-push every stored control so a value set before the graph was installed (or
         // before a graph swap) still lands. Each routes to a conventional endpoint name and
         // is ignored by a graph that doesn't expose it.
-        RouteFloatParameter(kVolumeParam, m_Volume);
+        // Volume goes through the budget's mute scale — a graph swap on a virtualized
+        // voice must not re-publish the un-muted volume.
+        ApplyEffectiveGain();
         RouteFloatParameter(kPitchParam, m_Pitch);
         RouteBoolParameter(kLoopParam, m_IsLooping);
         RouteFloatParameter(kLowPassParam, m_LowPassValue);
@@ -539,6 +679,9 @@ namespace OloEngine::Audio::SoundGraph
         if (!Math::IsFinite(location))
             return;
         m_Position = location;
+        // The voice budget scores on distance to the listener, so a moving emitter has to
+        // re-rank as it moves — otherwise a graph voice keeps the slot it earned at spawn.
+        SyncVoiceParams();
         SyncSpatialPositionToSource();
     }
 
@@ -634,6 +777,13 @@ namespace OloEngine::Audio::SoundGraph
                 if (m_Source->IsFinished() && !m_IsFinished)
                 {
                     m_IsFinished = true;
+                    // A graph reports DurationSeconds == 0 (unknown length), so the budget
+                    // cannot auto-retire it — by contract the owner must release it, and
+                    // this natural-completion path is the one place that would otherwise
+                    // never do so. Scene::InitializeAudioSoundGraph hands the Sound to the
+                    // scene and nothing calls Stop() on a graph that simply ended, so
+                    // without this every finished one-shot graph holds a slot forever.
+                    ReleaseVoice(/*restoreGain=*/false);
                     if (m_OnPlaybackComplete)
                         m_OnPlaybackComplete();
                 }
@@ -656,7 +806,13 @@ namespace OloEngine::Audio::SoundGraph
     {
         OLO_PROFILE_FUNCTION();
 
-        f32 basePriority = static_cast<f32>(m_Priority) / 255.0f;
+        // Shares NormalizePriority with BuildVoiceParams deliberately. This function used
+        // to divide m_Priority by 255 directly, which inverted it: m_Priority is
+        // miniaudio-flavoured (0 = highest), so the raw ratio scored the MOST important
+        // voice lowest. Nothing called this, so the bug was invisible — but two
+        // contradictory conversions of one field sitting in one class is exactly the trap
+        // docs/agent-rules/audio-voice-budget.md §7 warns about, so there is now only one.
+        f32 basePriority = NormalizePriority(m_Priority);
         f32 volumeMultiplier = m_Volume;
 
         if (m_IsFading && m_FadeDuration > 0.0f)
