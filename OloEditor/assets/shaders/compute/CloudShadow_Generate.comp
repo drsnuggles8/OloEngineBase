@@ -18,14 +18,7 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-#include "../include/BindlessHeap.glsl"
-
-// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
-// declaration moves into main() as a local built from the heap descriptor at
-// this image unit; the body below is unchanged either way.
-#ifndef OLO_BINDLESS
 layout(r8, binding = 0) uniform writeonly image2D u_ShadowMap;
-#endif
 
 #include "../include/NoiseCommon.glsl"
 #include "../include/CloudscapeCommon.glsl"
@@ -36,9 +29,6 @@ uniform int u_ShadowResolution;  // texels per axis
 
 void main()
 {
-#ifdef OLO_BINDLESS
-    OLO_HEAP_IMAGE(r8, writeonly, image2D, u_ShadowMap, 0);
-#endif
     ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
     if (gid.x >= u_ShadowResolution || gid.y >= u_ShadowResolution)
         return;

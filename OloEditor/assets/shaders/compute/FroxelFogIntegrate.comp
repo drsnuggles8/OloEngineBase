@@ -31,20 +31,10 @@ layout(std140, binding = 46) uniform FroxelFogData
 };
 
 layout(binding = 0) uniform sampler3D u_ScatterVolume;
-#include "../include/BindlessHeap.glsl"
-
-// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
-// declarations move into main() as locals built from the heap descriptors at
-// these image units; the body below is unchanged either way.
-#ifndef OLO_BINDLESS
 layout(binding = 0, rgba16f) writeonly uniform image3D u_IntegratedVolume;
-#endif
 
 void main()
 {
-#ifdef OLO_BINDLESS
-    OLO_HEAP_IMAGE(rgba16f, writeonly, image3D, u_IntegratedVolume, 0);
-#endif
     ivec3 dims = ivec3(u_FroxelDims.xyz);
     ivec2 column = ivec2(gl_GlobalInvocationID.xy);
     if (column.x >= dims.x || column.y >= dims.y)

@@ -7,15 +7,8 @@
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
-#include "../include/BindlessHeap.glsl"
-
-// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
-// declarations move into main() as locals built from the heap descriptors at
-// these image units; the body below is unchanged either way.
-#ifndef OLO_BINDLESS
 layout(rgba8, binding = 0) uniform writeonly image2D u_DebugColor;
 layout(r32ui, binding = 1) uniform readonly uimage2D u_DebugCount;
-#endif
 
 uniform uint u_Width;
 uniform uint u_Height;
@@ -30,10 +23,6 @@ vec3 Heat(float t)
 
 void main()
 {
-#ifdef OLO_BINDLESS
-    OLO_HEAP_IMAGE(rgba8, writeonly, image2D, u_DebugColor, 0);
-    OLO_HEAP_IMAGE(r32ui, OLO_HEAP_IMAGE_RW, uimage2D, u_DebugCount, 1);
-#endif
     uvec2 px = gl_GlobalInvocationID.xy;
     if (px.x >= u_Width || px.y >= u_Height)
         return;

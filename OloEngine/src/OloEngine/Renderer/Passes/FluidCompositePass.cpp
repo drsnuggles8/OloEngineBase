@@ -166,22 +166,30 @@ namespace OloEngine
 
         m_SceneFramebuffer->Bind();
 
-        context.BindTexture(ShaderBindingLayout::TEX_FLUID_DEPTH, fluidDepthID);
-        context.BindTexture(ShaderBindingLayout::TEX_FLUID_THICKNESS, fluidThicknessID);
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, refractionTexID);
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, sceneDepthID);
-        if (environmentMap.IsValid())
-            context.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, environmentMap);
-
         // The shader discards non-fluid pixels — no depth test, no blending,
         // no depth writes.
         RenderCommand::SetDepthTest(false);
         RenderCommand::SetDepthMask(false);
         RenderCommand::SetBlendState(false);
 
+        // BIND THE SHADER BEFORE ITS INPUTS. The binding seam asks
+        // Shader::IsBoundProgramBindless() to choose between writing an offset and
+        // issuing a bind, and that describes the program CURRENTLY in flight — so
+        // binding first makes every input take the fallback path while the
+        // composite shader, which IS the bindless variant, reads offsets nobody
+        // wrote. The fluid then renders completely transparent, with no error
+        // anywhere (glsl-shaders.md 5b).
         m_CompositeShader->Bind();
+
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_FLUID_DEPTH, fluidDepthID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_FLUID_THICKNESS, fluidThicknessID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_WATER_REFRACTION, refractionTexID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_WATER_DEPTH, sceneDepthID, RHI::HeapSlotLifetime::FrameTransient);
+        if (environmentMap.IsValid())
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_ENVIRONMENT, environmentMap, RHI::HeapSlotLifetime::FrameTransient);
         const auto fullscreenTriangle = MeshPrimitives::GetFullscreenTriangle();
         fullscreenTriangle->Bind();
+        context.FlushHeapOffsets();
         context.DrawIndexed(fullscreenTriangle);
 
         // Restore scene-pass defaults.
@@ -192,12 +200,12 @@ namespace OloEngine
 
         // Unbind every sampler slot we touched — stale bindings leak into any
         // later pass sharing the sampler layout.
-        context.BindTexture(ShaderBindingLayout::TEX_FLUID_DEPTH, RHI::NullResource);
-        context.BindTexture(ShaderBindingLayout::TEX_FLUID_THICKNESS, RHI::NullResource);
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_REFRACTION, RHI::NullResource);
-        context.BindTexture(ShaderBindingLayout::TEX_WATER_DEPTH, RHI::NullResource);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_FLUID_DEPTH, RHI::NullResource, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_FLUID_THICKNESS, RHI::NullResource, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_WATER_REFRACTION, RHI::NullResource, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_WATER_DEPTH, RHI::NullResource, RHI::HeapSlotLifetime::FrameTransient);
         if (environmentMap.IsValid())
-            context.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource, RHI::HeapSlotLifetime::FrameTransient);
 
         m_SceneFramebuffer->Unbind();
     }

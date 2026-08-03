@@ -105,14 +105,7 @@ layout(binding = 1) uniform sampler2DArrayShadow u_ShadowAtlas;
 layout(binding = 2) uniform sampler3D u_HistoryVolume;
 
 // Output scatter volume: rgb = in-scattered radiance, a = extinction
-#include "../include/BindlessHeap.glsl"
-
-// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
-// declarations move into main() as locals built from the heap descriptors at
-// these image units; the body below is unchanged either way.
-#ifndef OLO_BINDLESS
 layout(binding = 0, rgba16f) writeonly uniform image3D u_ScatterVolume;
-#endif
 
 // ---------------------------------------------------------------------------
 // Helpers (mirror PostProcess_Fog.glsl's raymarch-era functions)
@@ -321,9 +314,6 @@ vec3 evaluateClusterLightsFog(vec3 relPos, vec3 viewDir, float viewDepth, vec2 s
 
 void main()
 {
-#ifdef OLO_BINDLESS
-    OLO_HEAP_IMAGE(rgba16f, writeonly, image3D, u_ScatterVolume, 0);
-#endif
     ivec3 dims = ivec3(u_FroxelDims.xyz);
     ivec3 gid = ivec3(gl_GlobalInvocationID);
     if (gid.x >= dims.x || gid.y >= dims.y || gid.z >= dims.z)

@@ -19,14 +19,7 @@ layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
 #include "../include/NoiseCommon.glsl"
 
-#include "../include/BindlessHeap.glsl"
-
-// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
-// declaration moves into main() as a local built from the heap descriptor at
-// this image unit; the body below is unchanged either way.
-#ifndef OLO_BINDLESS
 layout(rgba8, binding = 0) uniform writeonly image3D u_Output;
-#endif
 
 // ---- Uniforms set by CloudNoise::EnsureGenerated() ----
 uniform int   u_Mode;    // 0 = base, 1 = detail
@@ -35,9 +28,6 @@ uniform float u_InvSize; // 1.0 / u_Size
 
 void main()
 {
-#ifdef OLO_BINDLESS
-    OLO_HEAP_IMAGE(rgba8, writeonly, image3D, u_Output, 0);
-#endif
     ivec3 gid = ivec3(gl_GlobalInvocationID);
 
     // Early-out for invocations beyond the volume

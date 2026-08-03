@@ -31,14 +31,7 @@ layout(std430, binding = 2) readonly buffer CounterBuffer
 };
 
 // Snow depth clipmap (R32UI for atomic CAS — stores float bits reinterpreted as uint)
-#include "../include/BindlessHeap.glsl"
-
-// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
-// declaration moves into main() as a local built from the heap descriptor at
-// this image unit; the body below is unchanged either way.
-#ifndef OLO_BINDLESS
 layout(r32ui, binding = 1) coherent uniform uimage2D u_SnowDepth;
-#endif
 
 // Per-dispatch uniforms
 uniform float u_AccumulationFeedRate;  // How much depth each landed particle contributes
@@ -50,9 +43,6 @@ uniform int   u_ClipmapResolution;    // Texture resolution (e.g. 2048)
 
 void main()
 {
-#ifdef OLO_BINDLESS
-    OLO_HEAP_IMAGE(r32ui, coherent, uimage2D, u_SnowDepth, 1);
-#endif
     uint idx = gl_GlobalInvocationID.x;
     if (idx >= aliveCount)
         return;

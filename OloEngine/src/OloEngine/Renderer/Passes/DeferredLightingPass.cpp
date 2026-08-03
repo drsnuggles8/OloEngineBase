@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/RGBuilder.h"
@@ -299,13 +300,13 @@ namespace OloEngine
                            albedoID, normalID, emissiveID, depthID);
             return;
         }
-        context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, albedoID);
-        context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_NORMAL, normalID);
-        context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_EMISSIVE, emissiveID);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, albedoID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL, normalID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_EMISSIVE, emissiveID, RHI::HeapSlotLifetime::FrameTransient);
         // Velocity RT is optional (skipped outside TAA-enabled configs);
         // the fragment shader already handles a zero bind as "no motion".
-        context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_VELOCITY, velocityID);
-        context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_DEPTH, depthID);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_VELOCITY, velocityID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_DEPTH, depthID, RHI::HeapSlotLifetime::FrameTransient);
 
         // IBL — resolve through the graph from the setup-stored handles.
         // The graph imports these textures (see RenderPipeline::PopulateBlackboard),
@@ -324,9 +325,9 @@ namespace OloEngine
             const RHI::ResourceHandle brdfLutID = m_SelectedInputs.BrdfLut.IsValid()
                                                       ? context.ResolveTextureHandle(m_SelectedInputs.BrdfLut)
                                                       : RHI::NullResource;
-            context.BindTexture(ShaderBindingLayout::TEX_USER_0, irradianceID);
-            context.BindTexture(ShaderBindingLayout::TEX_USER_1, prefilterID);
-            context.BindTexture(ShaderBindingLayout::TEX_USER_2, brdfLutID);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_0, irradianceID, RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_1, prefilterID, RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_2, brdfLutID, RHI::HeapSlotLifetime::FrameTransient);
         }
 
         // Shadow maps — resolve through the graph from setup-stored handles.
@@ -342,8 +343,8 @@ namespace OloEngine
         const RHI::ResourceHandle atlasShadowID = m_SelectedInputs.ShadowMapAtlas.IsValid()
                                                       ? context.ResolveTextureHandle(m_SelectedInputs.ShadowMapAtlas)
                                                       : ShadowMap::GetAtlasPlaceholderHandle();
-        context.BindTexture(ShaderBindingLayout::TEX_SHADOW, csmShadowID);
-        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasShadowID);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW, csmShadowID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasShadowID, RHI::HeapSlotLifetime::FrameTransient);
         // Comparison-OFF raw-depth views for the PCSS blocker search (plain
         // sampler2DArray). Fall back to the raw placeholder so the declared
         // sampler always has a valid same-type binding.
@@ -353,11 +354,12 @@ namespace OloEngine
         const RHI::ResourceHandle atlasRawID = m_SelectedInputs.ShadowMapAtlasRawID.IsValid()
                                                    ? m_SelectedInputs.ShadowMapAtlasRawID
                                                    : ShadowMap::GetAtlasRawPlaceholderHandle();
-        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID);
-        context.BindTexture(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID, RHI::HeapSlotLifetime::FrameTransient);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
+        context.FlushHeapOffsets();
         context.DrawIndexed(va);
 
         if (clusteredActive)
@@ -495,10 +497,12 @@ namespace OloEngine
         m_VirtualDebugOverlay->Bind();
         // Slot 0 is the engine's documented pass-local fullscreen-input slot (see
         // ShaderBindingLayout::IsKnownTextureBinding) — no material is bound during this draw.
-        RenderCommand::BindTexture(ShaderBindingLayout::TEX_DIFFUSE, debugTexID);
+        HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE, debugTexID,
+                                         RHI::HeapSlotLifetime::FrameTransient);
 
         auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
+        HeapBinding::FlushOffsets();
         RenderCommand::DrawIndexed(va);
 
         // Restore the scene FB's full draw-buffer set — ForwardOverlayPass runs next and

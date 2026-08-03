@@ -38,18 +38,8 @@ layout(std140, binding = 7) uniform DDGIPassData
     vec4 u_DDGIProbePosition; // w = probe linear index
 };
 
-#include "include/BindlessHeap.glsl"
-
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). Each name maps to
-// the SAME binding number the pass binds with, so the two variants cannot
-// disagree; the shader BODY is byte-identical between them.
-#ifdef OLO_BINDLESS
-#define u_HitGeo OLO_HEAP_TEX_2D(0)   // b = hit distance (<0 sky), a = flag
-#define u_PrevVisibility OLO_HEAP_TEX_2D(1)   // previous atlas (EMA history)
-#else
 layout(binding = 0) uniform sampler2D u_HitGeo;         // b = hit distance (<0 sky), a = flag
 layout(binding = 1) uniform sampler2D u_PrevVisibility; // previous atlas (EMA history)
-#endif
 
 layout(location = 0) in vec2 v_TexCoord;
 

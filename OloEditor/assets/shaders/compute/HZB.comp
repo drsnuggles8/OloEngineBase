@@ -35,21 +35,10 @@ uniform int  u_ReduceOp;                    // 0 = max (farthest), 1 = min (near
 // ---------------------------------------------------------------------------
 // Resources
 // ---------------------------------------------------------------------------
-#include "../include/BindlessHeap.glsl"
-
-// Heap-bindless conversion (issue #691 Phase 3).
-//
-// NOTE THE SCOPE. These images are used by WriteMip(), not by main(), so the
-// bindless locals are declared THERE — an image built from a buffer read is not
-// a constant expression and so cannot live at file scope, and a local in main()
-// would not be visible to the helper. The conversion is still purely a
-// declaration move; the switch below is byte-identical between the two variants.
-#ifndef OLO_BINDLESS
 layout(binding = 0, r32f) writeonly uniform image2D o_HZB_Mip0;
 layout(binding = 1, r32f) writeonly uniform image2D o_HZB_Mip1;
 layout(binding = 2, r32f) writeonly uniform image2D o_HZB_Mip2;
 layout(binding = 3, r32f) writeonly uniform image2D o_HZB_Mip3;
-#endif
 layout(binding = 4) uniform sampler2D u_InputDepth;
 
 // ---------------------------------------------------------------------------
@@ -123,12 +112,6 @@ ivec2 InitialTilePixelPosition(uint sharedIdx)
 // ---------------------------------------------------------------------------
 void WriteMip(int localMip, ivec2 pos, float depth)
 {
-#ifdef OLO_BINDLESS
-    OLO_HEAP_IMAGE(r32f, writeonly, image2D, o_HZB_Mip0, 0);
-    OLO_HEAP_IMAGE(r32f, writeonly, image2D, o_HZB_Mip1, 1);
-    OLO_HEAP_IMAGE(r32f, writeonly, image2D, o_HZB_Mip2, 2);
-    OLO_HEAP_IMAGE(r32f, writeonly, image2D, o_HZB_Mip3, 3);
-#endif
     switch (localMip)
     {
         case 0: imageStore(o_HZB_Mip0, pos, vec4(depth)); break;

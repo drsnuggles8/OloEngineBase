@@ -41,18 +41,8 @@ layout(std140, binding = 7) uniform DDGIPassData
     vec4 u_DDGIProbePosition; // w = probe linear index
 };
 
-#include "include/BindlessHeap.glsl"
-
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). Each name maps to
-// the SAME binding number the pass binds with, so the two variants cannot
-// disagree; the shader BODY is byte-identical between them.
-#ifdef OLO_BINDLESS
-#define u_CaptureAlbedo OLO_HEAP_TEX_2D(0)   // capture RT0 (albedo + flag)
-#define u_CaptureGeo OLO_HEAP_TEX_2D(1)   // capture RT1 (oct normal + distance)
-#else
 layout(binding = 0) uniform sampler2D u_CaptureAlbedo; // capture RT0 (albedo + flag)
 layout(binding = 1) uniform sampler2D u_CaptureGeo;    // capture RT1 (oct normal + distance)
-#endif
 
 layout(location = 0) in vec2 v_TexCoord;
 

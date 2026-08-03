@@ -68,16 +68,7 @@ layout(std140, binding = 7) uniform DDGIPassData
     vec4 u_DDGIProbePosition;
 };
 
-#include "include/BindlessHeap.glsl"
-
-// Heap-bindless conversion (issue #691 Phase 3, bucket 1). Each name maps to
-// the SAME binding number the pass binds with, so the two variants cannot
-// disagree; the shader BODY is byte-identical between them.
-#ifdef OLO_BINDLESS
-#define u_AlbedoMap OLO_HEAP_TEX_2D(0)   // white fallback when the caster has no texture
-#else
 layout(binding = 0) uniform sampler2D u_AlbedoMap; // white fallback when the caster has no texture
-#endif
 
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;
