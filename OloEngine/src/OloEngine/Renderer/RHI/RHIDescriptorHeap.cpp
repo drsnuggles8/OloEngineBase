@@ -10,8 +10,17 @@ namespace OloEngine::RHI
 {
     namespace
     {
+        // The engine's established debug-toggle idiom — RenderGraph.cpp,
+        // RenderPipeline.cpp and eight other sites read env vars exactly this
+        // way, and OLO_RHI_BINDLESS deliberately behaves like every other one.
         bool IsTruthyEnvironmentVariable(const char* name)
         {
+            // NOSONAR cpp:S990 — the rule flags getenv because the pointer it
+            // returns can be invalidated by a concurrent setenv/putenv. Neither
+            // appears anywhere in this engine (verified across OloEngine/src and
+            // OloEditor/src), this is read once during single-threaded renderer
+            // init, and the value is consumed immediately rather than stored — so
+            // the race the rule guards against cannot arise here.
             const char* value = std::getenv(name);
             return value && value[0] != '\0' && value[0] != '0' && value[0] != 'f' && value[0] != 'F';
         }
