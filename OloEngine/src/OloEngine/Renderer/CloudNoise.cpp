@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/CloudNoise.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Texture.h"
@@ -93,7 +94,12 @@ namespace OloEngine
             shader.SetFloat("u_InvSize", 1.0f / static_cast<f32>(size));
 
             // Bind the volume for writing (image unit 0, mip 0, layered for 3D)
-            RenderCommand::BindImageTexture(0, texture, 0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm);
+            // Persistent: the noise volumes are generated once at startup and live
+            // for the process, so their descriptors are memoised rather than drawn
+            // from the per-frame ring.
+            HeapBinding::BindImageOrOffset(0, texture, 0, true, 0, RHI::Access::StorageWrite,
+                                           RHI::Format::RGBA8UNorm, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::FlushOffsets();
 
             const u32 groups = (size + kLocalSize - 1) / kLocalSize;
             RenderCommand::DispatchCompute(groups, groups, groups);

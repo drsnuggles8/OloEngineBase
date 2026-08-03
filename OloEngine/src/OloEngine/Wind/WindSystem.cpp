@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Texture3D.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -145,8 +146,12 @@ namespace OloEngine
         s_Data.m_GenerateShader->SetFloat("u_Time", s_Data.m_AccumulatedTime);
 
         // Bind wind field as image for writing (unit 0, mip 0, layered for 3D)
-        RenderCommand::BindImageTexture(0, s_Data.m_WindField->GetRHIHandle(),
-                                        0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA16Float);
+        // Persistent: the wind field is a system-owned 3D texture that outlives every
+        // frame, so its descriptor is memoised rather than re-minted each tick.
+        HeapBinding::BindImageOrOffset(0, s_Data.m_WindField->GetRHIHandle(), 0, true, 0,
+                                       RHI::Access::StorageWrite, RHI::Format::RGBA16Float,
+                                       RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::FlushOffsets();
 
         // Dispatch: local_size(8,8,8) → ceil(resolution/8) groups per axis
         u32 groups = (resolvedResolution + 7) / 8;

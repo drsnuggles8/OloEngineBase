@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/CloudShadowMap.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -80,7 +81,12 @@ namespace OloEngine
         s_Data.m_GenerateShader->SetFloat("u_ShadowWorldSize", worldSize);
         s_Data.m_GenerateShader->SetInt("u_ShadowResolution", static_cast<int>(kShadowResolution));
 
-        RenderCommand::BindImageTexture(0, s_Data.m_Texture, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R8UNorm);
+        // Persistent: the shadow map is owned by this system for the process's
+        // life, not by the frame graph, so its descriptor is memoised once rather
+        // than re-minted from the transient ring every frame.
+        HeapBinding::BindImageOrOffset(0, s_Data.m_Texture, 0, false, 0, RHI::Access::StorageWrite,
+                                       RHI::Format::R8UNorm, RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::FlushOffsets();
         constexpr u32 kGroups = (kShadowResolution + kLocalSize - 1) / kLocalSize;
         RenderCommand::DispatchCompute(kGroups, kGroups, 1);
 

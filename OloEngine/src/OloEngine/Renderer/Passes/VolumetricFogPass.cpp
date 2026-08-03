@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/VolumetricFogPass.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/LightCulling/ClusteredLighting.h"
@@ -187,16 +188,22 @@ namespace OloEngine
 
         // --- Scatter (inject + light scattering + temporal) ---
         m_ScatterShader->Bind();
-        RenderCommand::BindImageTexture(0, m_ScatterVolume[m_CurrentScatter]->GetRHIHandle(),
-                                        0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA16Float);
+        // Persistent: the froxel volumes are pass-owned and double-buffered across
+        // frames for the temporal filter, not acquired from the transient pool.
+        HeapBinding::BindImageOrOffset(0, m_ScatterVolume[m_CurrentScatter]->GetRHIHandle(), 0, true, 0,
+                                       RHI::Access::StorageWrite, RHI::Format::RGBA16Float,
+                                       RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::FlushOffsets();
         RenderCommand::DispatchCompute((kVolumeWidth + 3) / 4, (kVolumeHeight + 3) / 4, (kVolumeDepth + 3) / 4);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
 
         // --- Integrate (front-to-back accumulation per column) ---
         m_IntegrateShader->Bind();
         RenderCommand::BindTexture(0, m_ScatterVolume[m_CurrentScatter]->GetRHIHandle());
-        RenderCommand::BindImageTexture(0, m_IntegratedVolume->GetRHIHandle(),
-                                        0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA16Float);
+        HeapBinding::BindImageOrOffset(0, m_IntegratedVolume->GetRHIHandle(), 0, true, 0,
+                                       RHI::Access::StorageWrite, RHI::Format::RGBA16Float,
+                                       RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::FlushOffsets();
         RenderCommand::DispatchCompute((kVolumeWidth + 7) / 8, (kVolumeHeight + 7) / 8, 1);
         // The composite pass samples the integrated volume as a texture.
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);

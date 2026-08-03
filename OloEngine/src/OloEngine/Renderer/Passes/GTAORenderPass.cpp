@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RGBuilder.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -406,9 +407,17 @@ namespace OloEngine
 
         m_GTAOShader->Bind();
 
-        // Bind output images
-        RenderCommand::BindImageTexture(0, aoOutputTextureID, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R8UNorm);
-        RenderCommand::BindImageTexture(1, edgeTexID, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R8UNorm);
+        // Bind output images.
+        //
+        // FrameTransient: every one of these comes from context.ResolveTextureHandle,
+        // i.e. the render graph's transient pool, so their descriptors must come from
+        // the per-frame ring. A Persistent view of a pooled target would memoise an
+        // offset onto an object the pool can hand to a different logical resource next
+        // frame — the aliasing hazard the two lifetime classes exist to separate.
+        HeapBinding::BindImageOrOffset(0, aoOutputTextureID, 0, false, 0, RHI::Access::StorageWrite,
+                                       RHI::Format::R8UNorm, RHI::HeapSlotLifetime::FrameTransient);
+        HeapBinding::BindImageOrOffset(1, edgeTexID, 0, false, 0, RHI::Access::StorageWrite,
+                                       RHI::Format::R8UNorm, RHI::HeapSlotLifetime::FrameTransient);
 
         // Bind inputs
         const RHI::ResourceHandle hzbID = m_HZBGenerator.GetHZBTexture();
@@ -421,6 +430,7 @@ namespace OloEngine
         // Dispatch 16×16 workgroups
         u32 groupsX = (m_Width + 15) / 16;
         u32 groupsY = (m_Height + 15) / 16;
+        HeapBinding::FlushOffsets();
         RenderCommand::DispatchCompute(groupsX, groupsY, 1);
 
         // Barrier: AO + edges must be visible for denoise
@@ -439,8 +449,15 @@ namespace OloEngine
         u32 groupsX = (m_Width + 7) / 8;
         u32 groupsY = (m_Height + 7) / 8;
 
-        // Edge texture is always read-only
-        RenderCommand::BindImageTexture(2, edgeTexID, 0, false, 0, RHI::Access::StorageRead, RHI::Format::R8UNorm);
+        // Edge texture is always read-only.
+        //
+        // NOTE this is the SAME texture DispatchGTAO just bound for WRITING. GL folds
+        // the two to one image handle (glGetImageHandleARB takes no access), so the
+        // backend widens its residency to READ_WRITE rather than transitioning it
+        // twice — reading a WRITE_ONLY-resident handle is undefined, and a second
+        // residency transition is an INVALID_OPERATION.
+        HeapBinding::BindImageOrOffset(2, edgeTexID, 0, false, 0, RHI::Access::StorageRead,
+                                       RHI::Format::R8UNorm, RHI::HeapSlotLifetime::FrameTransient);
 
         i32 passes = m_Settings.GTAODenoisePasses;
         bool readFromTex0 = true;
@@ -452,15 +469,22 @@ namespace OloEngine
 
             if (readFromTex0)
             {
-                RenderCommand::BindImageTexture(0, pingTextureID, 0, false, 0, RHI::Access::StorageRead, RHI::Format::R8UNorm);
-                RenderCommand::BindImageTexture(1, pongTextureID, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R8UNorm);
+                HeapBinding::BindImageOrOffset(0, pingTextureID, 0, false, 0, RHI::Access::StorageRead,
+                                               RHI::Format::R8UNorm, RHI::HeapSlotLifetime::FrameTransient);
+                HeapBinding::BindImageOrOffset(1, pongTextureID, 0, false, 0, RHI::Access::StorageWrite,
+                                               RHI::Format::R8UNorm, RHI::HeapSlotLifetime::FrameTransient);
             }
             else
             {
-                RenderCommand::BindImageTexture(0, pongTextureID, 0, false, 0, RHI::Access::StorageRead, RHI::Format::R8UNorm);
-                RenderCommand::BindImageTexture(1, pingTextureID, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R8UNorm);
+                HeapBinding::BindImageOrOffset(0, pongTextureID, 0, false, 0, RHI::Access::StorageRead,
+                                               RHI::Format::R8UNorm, RHI::HeapSlotLifetime::FrameTransient);
+                HeapBinding::BindImageOrOffset(1, pingTextureID, 0, false, 0, RHI::Access::StorageWrite,
+                                               RHI::Format::R8UNorm, RHI::HeapSlotLifetime::FrameTransient);
             }
 
+            // Per ITERATION: ping and pong swap roles every pass, so a flush hoisted
+            // out of the loop would publish only the final pass's pair.
+            HeapBinding::FlushOffsets();
             RenderCommand::DispatchCompute(groupsX, groupsY, 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
 

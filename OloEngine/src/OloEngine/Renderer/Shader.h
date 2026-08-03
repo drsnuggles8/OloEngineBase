@@ -51,6 +51,14 @@ namespace OloEngine
         // exactly one, and render passes run on the game thread.
         [[nodiscard]] static auto IsBoundProgramBindless() -> bool;
         static void SetBoundProgramBindless(bool bindless);
+
+        // Record whether a NATIVE program id was built through the bindless
+        // route, so a bind that never goes through OpenGLShader::Bind() can still
+        // publish the flag above. `CommandDispatch` binds by handle through
+        // RendererAPI::BindShaderProgram, which is exactly that case — see the
+        // registry comment in Shader.cpp for what went wrong without it.
+        static void RegisterProgramBindless(u32 programID, bool bindless);
+        [[nodiscard]] static auto IsProgramBindless(u32 programID) -> bool;
         virtual void Unbind() const = 0;
 
         virtual void SetInt(const std::string& name, int value) const = 0;

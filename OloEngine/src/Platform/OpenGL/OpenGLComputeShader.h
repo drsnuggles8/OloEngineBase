@@ -53,6 +53,10 @@ namespace OloEngine
 
       private:
         void Compile(const std::string& source);
+        // Split out of Compile so the bindless branch can retry with the plain
+        // source and still reach exactly the same link/label/track path — a second
+        // copy of it is how the two builds would drift.
+        void Link(u32 shader, const std::string& source);
 
         [[nodiscard]] GLint GetUniformLocation(const std::string& name) const;
 
@@ -64,6 +68,16 @@ namespace OloEngine
         // object can never resolve to a recycled GL name (issue #691).
         RHI::ScopedResourceHandle m_RHIHandle;
         bool m_IsValid = false;
+        // Whether this program was built with the heap-bindless branch enabled
+        // (issue #691 Phase 3). Read by Bind(), which publishes it through
+        // Shader::SetBoundProgramBindless so the binding seam knows whether the
+        // program in flight reads the offset table or its own image units.
+        //
+        // A compute shader needs NO separate raw-GLSL route the way a graphics
+        // shader does — Compile() has always fed include-resolved GLSL straight to
+        // glShaderSource, never through shaderc — so "the bindless variant" here
+        // is just the prologue injection, not a second compile path.
+        bool m_IsBindlessVariant = false;
         std::string m_Name;
         std::string m_FilePath;
         mutable std::unordered_map<std::string, GLint> m_UniformLocationCache;

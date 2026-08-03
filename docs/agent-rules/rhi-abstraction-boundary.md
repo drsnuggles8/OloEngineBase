@@ -1286,6 +1286,8 @@ Two consequences for planning the remaining sites:
   exercised beyond the 2D case that everything else uses.
 
 ### How far "full bindless" actually reaches — measured, not estimated
+<!-- The storage-image bucket called out below is now BUILT; see §4c. -->
+
 
 Eleven shaders and 24 sites later the counter stands at **208**, down from the
 232 measured before any conversion. The remainder is not homogeneous, and the
@@ -1329,6 +1331,208 @@ dead descriptor and an unbound heap each fail differently and specifically. The
 generalisable rule: **when adding a mechanism rather than changing an image,
 build the smallest scene whose correct output is known exactly, and check that
 — then keep the golden suite as proof that nothing else moved.**
+
+---
+
+## 4c. Phase 3 bucket 3 — building the second descriptor kind
+
+`sweep_bind_texture_sites` 208 → 178. **Every one of the 30 is a
+`BindImageTexture`**, and that family goes 36 → 6. §4b's table predicted this
+bucket would cost "a second heap-side feature, not more call sites"; that held,
+and the ratio is worth having: the heap and backend changes were roughly two
+thirds of the work, the 30 call sites and 15 shaders the other third.
+
+### The floor for the image family is 6, and every one of them is a real thing
+
+| Site | Count | Why it stays |
+| --- | ---: | --- |
+| `RendererAPI.h`, `RenderCommand.h` | 3 | The pure-virtual **declaration** and the facade's declaration + forward. The counter matches a declaration exactly as it matches a call. |
+| `HeapBindingSeam.cpp` | 1 | `BindImageOrOffset`'s **own fallback call**. `ARB_bindless_texture` is not universally available, so this is permanent — deleting it deletes the degradation path, not the coupling. |
+| `VirtualGeometryPass.cpp` | 2 | Deliberate. See below. |
+
+**The two deferred ones are the interesting entry.** They feed
+`VirtualMeshGBuffer.glsl`, and the bindless compile route produces no SPIR-V and
+so never runs `Reflect()` — which leaves `m_IsDeferredCapable` false and
+misroutes a G-Buffer shader out of the deferred producer bucket into the
+forward-overlay fallback. `CreateProgramFromRawGLSL` already detects and errors
+on exactly that.
+
+Converting the **call sites alone** would have been perfectly safe: the seam
+forks on `Shader::IsBoundProgramBindless()`, so an unconverted program still gets
+a real bind. It would also have bought two counter points and no behaviour
+change. That is precisely the shape of edit the counter exists to discourage, so
+they stay and say so in place. *A ratchet you can satisfy without changing
+behaviour is a ratchet you have to be willing to leave unsatisfied.*
+
+### The four things a second descriptor kind actually needed
+
+1. **`ViewUsage` on `ViewDesc`** (not a second desc type — ADR amendment (27)),
+   plus `StorageAccess`. `glGetImageHandleARB` in the backend, with its own
+   residency namespace.
+2. **A second `usage` parameter on `ReleaseDescriptor` and `NullDescriptor`.**
+   GL has two residency namespaces with two entry-point pairs, and the spec does
+   not promise a texture handle and an image handle are numerically
+   distinguishable — so a `u64` alone cannot say which call to make. Passing the
+   kind is cheaper and safer than a lookup that could answer wrongly.
+3. **A second reserved null slot.** A null is per *kind*: `image2D(samplerHandle)`
+   is undefined in exactly the way `image2D(0)` is.
+4. **A disjoint index region in the offset table.** GL image units and texture
+   units both start at zero; without `HEAP_IMAGE_SLOT_BASE` image unit 0 and
+   `TEX_DIFFUSE` overwrite each other's offsets and each renders the other's
+   resource.
+
+### Residency has an ACCESS, and it has to be widened rather than re-transitioned
+
+`glGetImageHandleARB` takes no access — `glMakeImageHandleResidentARB` does. So a
+read-only and a read-write view of the same (texture, level, layer, format) are
+**literally the same driver handle**, while reading a `WRITE_ONLY`-resident
+handle (or writing a `READ_ONLY` one) is undefined, and making an already-resident
+handle resident again is an `INVALID_OPERATION`.
+
+GTAO does this inside one frame: its edge texture is written by the main pass and
+read by the denoise pass. The backend therefore tracks the residency access and,
+when a second acquire needs one the current residency does not cover, drops
+residency and re-establishes it as `READ_WRITE` — counted in
+`Stats::ImageResidencyWidenings` so the behaviour is observable rather than
+inferred.
+
+This is the same shape as the sampler path's folding (GL bakes sampler state into
+a texture handle), and it belongs in the same place: the neutral key stays honest,
+the backend does the folding.
+
+### Three defects, none of them a type error
+
+**1. The persistent memo cache could not tell two views apart.** Its key was
+`(resource, samplerSlot, depthCompare)` — sound *only* because the GL backend
+declined every view that was not the whole resource, so no two distinguishable
+views could reach it. `HZBGenerator` asks for **four mips of one texture in one
+dispatch**; under that key the second, third and fourth would each have been
+served the first's view, and the whole pyramid would have been written at level
+0. A plausible frame with a broken occlusion pyramid.
+
+*Generalisable: a cache key that is "sufficient" only because a downstream layer
+refuses the distinguishing cases is a latent bug with a scheduled trigger date —
+the date the downstream layer stops refusing.*
+
+**2. `InvalidateResource` published a zero descriptor on a failed re-acquire.**
+The comment beside it said "poisoning renders black, which is the honest answer";
+the code stored the returned `0`. A zero bindless handle is not black — sampling
+one is undefined behaviour, which is the entire reason `NullDescriptor` is a real
+resident texture rather than a constant. The path is reached precisely when
+something has already gone wrong, which is the worst moment for the instrument to
+become non-deterministic. Pre-existing; fixed here.
+
+**3. `SetBoundProgramBindless` was published by graphics shaders only.**
+`OpenGLComputeShader::Bind()` never touched it, so a bindless graphics program
+followed by a compute program left the flag `true` — and the first converted
+compute pass would have recorded offsets into a table its program never declares
+while binding nothing at all. Latent rather than live, and it would have
+presented as garbage in a compute output with no diagnostic anywhere.
+
+### Compute needed no second compile route — check the constraint's blast radius
+
+§4b's headline finding is that bindless GLSL cannot enter the
+`shaderc(target = vulkan)` pipeline, and the graphics side needed
+`CreateProgramFromRawGLSL` to get round it. The natural inference is that compute
+needs the same thing.
+
+It does not. `OpenGLComputeShader::Compile` has **always** fed include-resolved
+GLSL straight to `glShaderSource` — it never travelled that pipeline — so the
+entire conversion was the same `#extension` + `#define` prologue injection, ~20
+lines. Budgeting this bucket from the graphics route's cost would have
+over-estimated it substantially.
+
+*Generalisable: a constraint that forced a workaround in one subsystem may simply
+not apply to the next. Check which subsystems are actually subject to it before
+pricing the workaround again.*
+
+### An image macro DECLARES; a sampler macro is an expression
+
+The one ergonomic difference, and it changes where a conversion's diff lands. A
+format layout qualifier belongs to a declaration, and an image initialised from a
+buffer read is not a constant expression — so the bindless declaration cannot sit
+at file scope and moves **into the function that uses the image**. In `HZB.comp`
+that is `WriteMip()`, not `main()`.
+
+The body is still byte-identical between the two variants, so the reviewable
+property §4b credits the sampler path with survives; the declaration simply moves
+to a different scope rather than staying at the top of the file. The full recipe
+is in [glsl-shaders.md §5b](glsl-shaders.md).
+
+### The editor gate found what 5296 tests could not — and the suite structurally cannot
+
+Running the editor with `OLO_RHI_BINDLESS=1` found **four** defects after a fully
+green suite. The reason is structural rather than bad luck, and it is worth
+internalising before trusting a green run again:
+
+**the suite never builds a bindless variant at all.** `WantsBindlessVariant()`
+requires `DescriptorHeap::IsEnabled()`, the toggle defaults off from the
+environment, and no test sets it — so every shader in every test compiles its
+DEFAULT branch. §5a of glsl-shaders.md already says the SPIR-V-reading tests
+"only leave the bindless branch unvalidated"; the operational consequence is
+stronger than it sounds: *a green suite says nothing whatsoever about the
+bindless path.*
+
+What that let through:
+
+1. **`readonly` on a bindless image local is rejected** — initialising a
+   `readonly` variable is a write (`error C7504`). Four compute shaders
+   (Terrain_Erosion, VirtualDebugColorize, FluidSmooth, GTAO_Denoise) silently
+   fell back to slot-based. The spelling probe existed and had enumerated where
+   the qualifier GOES without enumerating which qualifiers EXIST — it now covers
+   `coherent` and asserts `readonly` must fail.
+2. **A bindless image must be declared in every function that names it.** Caught
+   in HZB, missed in Terrain_Erosion (five functions). Found by writing a
+   mechanical scope audit rather than re-reading — the audit immediately turned up
+   a fifth site the manual pass had missed.
+3. **`Shader::IsBoundProgramBindless` was stale for every command-dispatched
+   draw.** `RendererAPI::BindShaderProgram` reaches `glUseProgram` without any
+   `Shader` object, so the flag carried whatever the last post-process shader set:
+   stale TRUE skips a bind an unconverted program needed, stale FALSE leaves a
+   converted program reading an offset nobody wrote. Black sky, missing terrain,
+   clean log. **This was the second instance of a bug already fixed once** (in
+   `OpenGLComputeShader::Bind`), and the first fix's note claimed "both Bind()s
+   now publish" — having fixed a class once is not evidence of having found its
+   siblings. The question is "what are ALL the paths into this state", not "where
+   else does this class occur".
+4. **A converted shader can be individually wrong.** `Skybox.glsl` rendered a flat
+   sky; reverting that one file (shaders need no rebuild, which makes this a
+   two-minute bisect) restored it. Left slot-based.
+
+### The #740 noise floor does not reproduce, and the claim it supports is suspect
+
+§4b records that the bindless A/B measured **14.36% differing pixels against a
+14.39% floor** and concluded the heap changes nothing.
+
+Re-measured on the VehiclesTest water sandbox, the same-config floor is
+**2.70–3.10%** and the OFF-vs-ON measurement is **13.65%** (RMSE 19.1) — five
+times the floor. That delta is **pre-existing**: reverting every shader converted
+after #740 leaves it at 13.65% versus 13.66% with them, so the later conversions
+contribute nothing measurable.
+
+The methodological point is the reusable one. A control landing within **0.03%**
+of the signal it is meant to calibrate is not a reassuring result, it is the
+signature `live-verification-noise-floor.md` describes — a floor that is
+accidentally measuring the same instability as the measurement, which then
+"passes" for a correct AND a broken implementation alike. A floor should be
+*small*; when it comes out the same size as the effect, the first hypothesis is
+that the harness is unstable, not that the effect is absent.
+
+So: **the bindless path currently differs visibly from the slot path, and #691
+does not yet have the evidence its notes claim.** The heap is off by default so
+nothing ships broken, but this is open work, not a closed question.
+
+### Two ordering rules the slot path did not care about
+
+- **Bind the shader before the image.** The seam consults
+  `Shader::IsBoundProgramBindless()`, which describes the program *in flight*, so
+  an image bound first silently takes the fallback path even with the heap on.
+  Two sites needed reordering (`TerrainErosion`, `VirtualGeometryPass`'s
+  colorize) — both had bound resources first purely as a matter of style.
+- **A ping-pong needs a flush per iteration.** `FluidSmooth` and `GTAO_Denoise`
+  swap source and destination every pass, so a flush hoisted out of the loop
+  publishes only the final pair. Same rule as §4b's "a pass with several draws
+  needs a flush per draw", one loop level down.
 
 ---
 

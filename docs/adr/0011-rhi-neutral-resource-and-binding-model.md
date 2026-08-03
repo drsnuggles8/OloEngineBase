@@ -1418,6 +1418,164 @@ call-site sweep.
 
 ---
 
+## Amendments from Phase 3, bucket 3 (2026-08-03) — the storage-image kind
+
+Amendment (26) predicted the shape and the prediction held: the descriptor kind
+cost more than the 30 call sites it unblocked. What follows is only what amends a
+decision above; the working notes are in
+[docs/agent-rules/rhi-abstraction-boundary.md §4c](../agent-rules/rhi-abstraction-boundary.md).
+
+### (27) `ViewUsage` goes on `ViewDesc` — one view description, two descriptor kinds
+
+`RHI::ViewUsage { Sampled, Storage }` is a member of `ViewDesc`, not a separate
+`StorageViewDesc` type, and the choice is decided by Vulkan rather than by GL.
+
+Under `VkImageViewCreateInfo` **one view description serves both**: a
+`COMBINED_IMAGE_SAMPLER` and a `STORAGE_IMAGE` differ in the descriptor written,
+not in how the view is described. GL is the backend that makes them look like
+different things, because its sampler-handle form
+(`glGetTextureSamplerHandleARB`) cannot express a subresource at all without a
+`glTextureView`, while its image-handle form (`glGetImageHandleARB`) takes
+level/layered/layer/format inline. Splitting the *description* would have
+modelled that GL implementation detail as if it were part of the neutral
+contract — §1.7's `GLenum`-in-the-facade mistake, one layer up.
+
+`StorageAccess` is the one field whose justification is backend-asymmetric, and
+it is on the desc anyway: Vulkan puts read/write intent in shader qualifiers and
+barriers, GL puts it in **residency**. Since `glGetImageHandleARB` takes no
+access, two views differing only there are the same driver handle — so the
+backend folds them and widens residency, exactly as it already folds sampler
+state into a texture handle. The neutral key stays honest; the folding stays in
+the backend.
+
+### (28) A reserved null is needed per DESCRIPTOR KIND, not per heap
+
+Amendment (26)'s companion finding, and it generalises the "unbind has no
+translation" rule rather than repeating it.
+
+Heap slot 0 holds a sampler descriptor. Constructing an `image2D` from a sampler
+handle is undefined in **exactly** the way constructing one from zero is, so
+pointing a cleared or failed *image* binding at slot 0 would have traded a
+stale-read bug for an undefined-behaviour bug. Slot 1 is therefore reserved as
+the null storage-image descriptor (`RHI::kNullStorageHeapOffset`), and
+`IDescriptorHeapBackend::NullDescriptor` takes a `ViewUsage`.
+
+**The generalisation:** when converting a binding model to an indexed one,
+enumerate the operations with no index equivalent (amendment (26)'s rule) **and
+then enumerate the kinds each of those operations has to answer for**. One null
+per heap is only correct while the heap holds one kind.
+
+### (29) Image units are a second index space in the same offset table
+
+`glBindImageTexture(unit, …)` and `glBindTextureUnit(slot, …)` are separate GL
+namespaces that both start at zero, and Vulkan's descriptor indexing has the same
+property (a storage image and a sampled image are distinct binding arrays). The
+single offset table therefore reserves a disjoint region: image unit `u` lives at
+`ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE + u`, and
+`include/BindlessHeap.glsl`'s `OLO_HEAP_IMAGE_*` macros apply the identical base
+from the same constant.
+
+Without it, image unit 0 and `TEX_DIFFUSE` collide and each silently publishes
+over the other — a wrong *real* resource, which is this model's worst failure
+shape. Amendment (25)'s "both variants name the same number" property survives
+because the base is applied on both sides from one place, so a converted shader
+still names the image unit its bind named.
+
+### (30) Amendment (20) is PARTIALLY closed, and the remaining half is smaller and better specified
+
+The storage path supplies two of (20)'s three missing pieces and **exercises**
+them: the concrete **format**, and the **subresource selection** (GL's
+`layered`/`layer` pair and Vulkan's `baseArrayLayer`/`layerCount` pair are the
+same statement twice, so `SubresourceRange` needed no new fields — see
+`RHI::MakeStorageViewDesc`).
+
+What remains is genuinely narrower:
+
+- the **view dimension** (GL's `glTextureView` target, Vulkan's
+  `VkImageViewType`), which the image path does not need; and
+- resolving `FormatOverride == Unknown` against the resource's own format, which
+  needs resource metadata the heap does not hold.
+
+Both were deliberately **not** added. A neutral field with no consumer and no
+test is the invented vocabulary Phase 2 step 2 paid for, and adding one now would
+have meant guessing its shape against the only backend in the tree — the exact
+failure (20) was recorded to avoid. So (20) stays open, with its scope reduced
+from "the desc cannot describe a view" to "the desc cannot describe a view's
+*shape*, and cannot resolve an inherited format".
+
+### (32) A SHARED slot-indexed offset table is the wrong vehicle for PER-DRAW material textures
+
+Bucket 2 (`Renderer/Commands/`) routed its binds through the seam and then stopped
+short of converting the material shaders, and the reason is a property of the
+offset table rather than of the material path.
+
+`FlushOffsets()` publishes the staged offsets **and re-establishes the heap's SSBO
+binding**. Per pass that is free; the table is written once and read by every draw
+in the pass. The material path changes textures **per draw**, so a converted
+material shader needs a flush per draw — which gives back exactly the cost §1.2
+names as the performance argument for bindless ("bound once per frame, never per
+draw"). Converting it that way would be a measurable regression dressed as
+progress, and the ratchet would happily record it as a win.
+
+§1.2 already describes the right shape and it is a *different* mechanism, not a
+different call site: *"the offset is stable for the object's life, so it can be
+baked once into material data and never touched."* Per-material offsets belong in
+`PODMaterialData` / the material UBO, fetched once when the material is built,
+not restaged into a shared table per draw.
+
+So bucket 2 splits in two, and only the first half is done:
+
+- **Done:** every bind in `Renderer/Commands/` goes through the seam
+  (21 counted sites → 2, and both survivors are the `CommandDispatch::BindTexture`
+  *handler's own name* — a declaration and a definition, the same
+  name-collision-inflates-the-counter case §1.3's survey hit with
+  `ShaderResourceRegistry::BindTexture`). With no bindless material program in
+  flight the seam falls back, so this is inert until the second half lands and
+  costs nothing meanwhile.
+- **Deferred with a reason:** baking per-material offsets into material data. That
+  is the change that makes the material path actually bindless, and it is a
+  data-layout change to `PODMaterialData` rather than a binding change.
+
+Two smaller findings from the same bucket:
+
+- **A redundant-bind cache must not short-circuit an offset write.**
+  `BoundTextures[slot]` means "this slot's GL binding is already correct", which is
+  sound because a binding persists until something rebinds it. It does **not** mean
+  "this slot's offset is already correct": the offset table is shared with every
+  pass that binds through the seam, and those passes do not update that array.
+  Skipping saves nothing either — the write is a CPU array store, not a driver
+  call. `HeapBinding::WritesOffsetsForBoundProgram()` exists for exactly this
+  distinction and for nothing else.
+- **The fallback has to go through the CALLER'S `RendererAPI&`.** The dispatch
+  handlers receive one by reference and the suite executes packets against
+  `MockRendererAPI`, which records every `BindTexture`. Routing the fallback
+  through the static `RenderCommand` facade instead keeps compiling, keeps working
+  in the editor, and silently stops the mock ever seeing the call — the `.data()`
+  trap of amendment (14) in a new place: a redirection the type system cannot
+  object to.
+
+### (31) Compute shaders needed no second compile route — check the constraint's blast radius
+
+Amendment (19) established that bindless GLSL cannot enter the
+`shaderc(target = vulkan)` pipeline, and the graphics side needed
+`CreateProgramFromRawGLSL` to get around it. The natural inference is that
+compute needs the same.
+
+It does not. `OpenGLComputeShader::Compile` has always fed include-resolved GLSL
+straight to `glShaderSource` and never travelled that pipeline at all, so the
+whole conversion was the same `#extension` + `#define` prologue injection. **A
+constraint that forced a workaround in one subsystem may simply not apply to the
+next** — check before budgeting from the workaround's cost.
+
+The genuine finding there was elsewhere and was a latent bug:
+`Shader::SetBoundProgramBindless` was published by `OpenGLShader::Bind()` only,
+so a bindless graphics program followed by a compute program left the flag set —
+and the first converted compute pass would have written offsets for a program
+that declares no offset table while binding nothing. Both `Bind()`s now publish
+and both `Unbind()`s retract.
+
+---
+
 ## Consequences
 
 - The renderer carries **four** boundary concepts where it carries one today

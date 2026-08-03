@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
@@ -104,148 +105,21 @@ namespace OloEngine
         RenderCommand::BindTexture(slot, texture);
     }
 
-    namespace
-    {
-        // The shared heap-offset table (issue #691 Phase 3). One std140 UBO of
-        // `MAX_ENGINE_TEXTURE_SLOTS` uints, indexed by the very `TEX_*` constant
-        // the pass used to bind with — so the bindless and slot-based variants
-        // of a shader cannot disagree about which texture is which.
-        //
-        // Function-local rather than an RGCommandContext member because the
-        // context is handed to passes by const reference and is recreated per
-        // frame, while this buffer must outlive both. Render passes execute on
-        // the game thread, so the unsynchronised scratch is safe; a
-        // `.Parallelizable()` pass would need its own.
-        struct HeapOffsetTable
-        {
-            // std140 pads a `uint` array to 16-byte stride, so the CPU side is
-            // uvec4-shaped and the shader indexes [i >> 2][i & 3]. Getting this
-            // wrong is the classic std140 trap: the array would read every
-            // fourth offset and sample three wrong textures out of four.
-            static constexpr u32 kSlots = ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS;
-            static constexpr u32 kVec4s = (kSlots + 3u) / 4u;
-
-            std::array<u32, kVec4s * 4u> Scratch{};
-            Ref<UniformBuffer> Buffer;
-            bool Dirty = false;
-            // The heap epoch this Buffer was created under. A function-local
-            // static outlives a device teardown, so without this the buffer is a
-            // dangling name from the previous context after any heap
-            // re-initialisation — and the offsets silently stop arriving.
-            u64 Epoch = 0u;
-        };
-
-        HeapOffsetTable& OffsetTable()
-        {
-            static HeapOffsetTable s_Table;
-            return s_Table;
-        }
-    } // namespace
-
     RHI::HeapOffset RGCommandContext::BindTextureOrHeapOffset(const u32 slot, const RHI::ResourceHandle texture,
                                                               const RHI::HeapSlotLifetime lifetime,
                                                               const RHI::SamplerDesc& sampler) const
     {
-        auto& heap = RHI::DescriptorHeap::Get();
-
-        // BOTH conditions, and the second is not redundant. The heap's flag is
-        // global; whether the program in flight reads the offset table is per
-        // shader, because the bindless compile route is allowed to decline and
-        // fall back to the ordinary slot-based program. Taking the heap branch
-        // for such a program would record an offset, skip the bind, and leave
-        // its sampler binding points empty — a pass rendering wrong with no
-        // diagnostic at all.
-        if (heap.IsEnabled() && Shader::IsBoundProgramBindless() && slot < HeapOffsetTable::kSlots)
-        {
-            RHI::ViewDesc viewDesc;
-            viewDesc.Resource = texture;
-
-            if (const RHI::ViewHandle view = heap.GetOrCreateView(texture, viewDesc, sampler, lifetime);
-                view.IsValid())
-            {
-                // Fetched at the point of write, never stored — ADR 0011 §1.2.
-                // For a persistent view this is a stable value the memoised
-                // lookup above already found; for a transient it is this frame's
-                // ring slot and is stale the moment the frame ends.
-                const RHI::HeapOffset offset = RHI::OffsetOf(view);
-                if (offset.IsValid())
-                {
-                    auto& table = OffsetTable();
-                    table.Scratch[slot] = offset.Value;
-                    table.Dirty = true;
-                    return offset;
-                }
-            }
-        }
-
-        // Every failure lands here, and that is the design: a machine without
-        // the extension, a heap that filled up, a resource that died mid-frame,
-        // and a slot outside the table all render the frame the old way rather
-        // than rendering it wrong.
-        RenderCommand::BindTexture(slot, texture);
-
-        // …but when the heap is ON, falling back is not enough: the shader is the
-        // bindless variant and reads the OFFSET, not the binding. A stale entry
-        // left in the table would keep sampling whatever this slot pointed at
-        // last — including across an intentional unbind, which is how a pass says
-        // "I am not using this input this frame" (ToneMapRenderPass binds
-        // RHI::NullResource for exactly that). Point it at the reserved null
-        // descriptor so the shader samples nothing instead.
-        if (RHI::DescriptorHeap::Get().IsEnabled() && Shader::IsBoundProgramBindless() &&
-            slot < HeapOffsetTable::kSlots)
-        {
-            auto& table = OffsetTable();
-            table.Scratch[slot] = RHI::kNullHeapOffset;
-            table.Dirty = true;
-        }
-        return {};
+        // Forwards to HeapBindingSeam, which owns the single shared offset table.
+        // It lives there rather than here because most STORAGE-IMAGE bind sites
+        // are compute systems with no render-graph context at all, and a second
+        // table for them would mean two flushes, two binding points and two ways
+        // for a pass and its shader to disagree about which one carries a slot.
+        return HeapBinding::BindTextureOrOffset(slot, texture, lifetime, sampler);
     }
 
     void RGCommandContext::FlushHeapOffsets() const
     {
-        auto& table = OffsetTable();
-        if (!RHI::DescriptorHeap::Get().IsEnabled())
-        {
-            return;
-        }
-
-        // PUBLISH THE DESCRIPTORS FIRST, and this ordering is the whole reason
-        // this call exists rather than a once-per-frame publish.
-        //
-        // A pass mints its views inside its own Execute — `BindTextureOrHeapOffset`
-        // is called during pass execution, not during planning. So the frame-level
-        // `DescriptorHeap::Flush()` in `RenderGraph::Execute` runs BEFORE any of
-        // this frame's transient descriptors exist: they land in the CPU mirror,
-        // get marked dirty, and are never uploaded. The offsets would then index
-        // a heap whose slots still hold the previous frame's (or no) descriptor.
-        //
-        // Found by converting a batch of post-process passes and getting a black
-        // viewport. It hid until then for two reasons worth remembering: the
-        // first converted pass was one the active render path did not execute,
-        // and the GPU test called `DescriptorHeap::Flush()` by hand right after
-        // this function — so the test was supplying the very call the engine was
-        // missing. A test that sequences a mechanism for itself cannot detect
-        // that the engine fails to sequence it.
-        RHI::DescriptorHeap::Get().Flush();
-
-        if (!table.Dirty)
-        {
-            return;
-        }
-
-        // Rebuild across a device teardown. The heap bumps its epoch on every
-        // Initialize/Shutdown, and this buffer is a process-lifetime static, so
-        // without the comparison it would keep writing into a GL name that
-        // belonged to the previous context — offsets that silently never arrive.
-        if (const u64 epoch = RHI::DescriptorHeap::Get().GetInitEpoch(); !table.Buffer || table.Epoch != epoch)
-        {
-            table.Buffer = UniformBuffer::Create(static_cast<u32>(table.Scratch.size() * sizeof(u32)),
-                                                 ShaderBindingLayout::UBO_HEAP_OFFSETS);
-            table.Epoch = epoch;
-        }
-
-        table.Buffer->SetData(table.Scratch.data(), static_cast<u32>(table.Scratch.size() * sizeof(u32)));
-        table.Dirty = false;
+        HeapBinding::FlushOffsets();
     }
 
     void RGCommandContext::MemoryBarrier(const MemoryBarrierFlags flags) const

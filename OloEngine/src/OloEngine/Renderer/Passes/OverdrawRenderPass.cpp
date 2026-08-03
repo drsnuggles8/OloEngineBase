@@ -176,10 +176,13 @@ namespace OloEngine
         context.Clear();
 
         m_HeatmapShader->Bind();
-        context.BindTexture(0, m_AccumFramebuffer->GetColorAttachmentHandle(0));
+        // Persistent: the accumulation target is pass-owned.
+        context.BindTextureOrHeapOffset(0, m_AccumFramebuffer->GetColorAttachmentHandle(0),
+                                        RHI::HeapSlotLifetime::Persistent);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
+        context.FlushHeapOffsets();
         RenderCommand::DrawIndexed(va);
 
         outputFramebuffer->Unbind();

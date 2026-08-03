@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/FluidIntermediatesPass.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
@@ -244,8 +245,18 @@ namespace OloEngine
         RHI::ResourceHandle smoothDst = m_DepthTexB;
         for (u32 i = 0; i < kSmoothIterations; ++i)
         {
-            RenderCommand::BindImageTexture(0, smoothSrc, 0, false, 0, RHI::Access::StorageRead, RHI::Format::R32Float);
-            RenderCommand::BindImageTexture(1, smoothDst, 0, false, 0, RHI::Access::StorageWrite, RHI::Format::R32Float);
+            // A PING-PONG NEEDS A FLUSH PER ITERATION, not one before the loop: src
+            // and dst swap every pass, so each iteration stages two different offsets
+            // and a hoisted flush would publish only the last pair.
+            //
+            // Persistent: both depth textures are pass-owned members, and each is read
+            // in one iteration and written in the next — two accesses of one handle,
+            // which is the case the backend widens residency for.
+            HeapBinding::BindImageOrOffset(0, smoothSrc, 0, false, 0, RHI::Access::StorageRead,
+                                           RHI::Format::R32Float, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindImageOrOffset(1, smoothDst, 0, false, 0, RHI::Access::StorageWrite,
+                                           RHI::Format::R32Float, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::FlushOffsets();
             RenderCommand::DispatchCompute(groupsX, groupsY, 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
             std::swap(smoothSrc, smoothDst);

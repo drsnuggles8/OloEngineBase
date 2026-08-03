@@ -5,6 +5,7 @@
 // RenderPathDrift.EveryMeshSubmissionPathUsesTheSharedMaterialResolver.
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -438,14 +439,30 @@ namespace OloEngine
     // DSA form, where the target is a property of the texture object itself. The
     // 2D-vs-cubemap distinction was therefore never carrying information the
     // driver did not already have (issue #691 Phase 2 step 2).
+    // THE REDUNDANT-BIND CACHE MUST NOT SHORT-CIRCUIT THE OFFSET WRITE, and the
+    // reason is that the two caches guard different claims. `BoundTextures[slot]`
+    // means "this slot's GL BINDING is already correct", which is sound because a
+    // GL binding persists until something rebinds it and every tracked rebind goes
+    // through here. It does NOT mean "this slot's OFFSET is already correct": the
+    // offset table is shared with every pass that binds through the seam, and those
+    // passes do not update this array. Skipping the write would leave another
+    // pass's offset in the slot and sample a different real texture.
+    //
+    // Skipping also saves nothing under the heap — the write is a store into a CPU
+    // scratch array, not a driver call. The cache still earns its keep on the
+    // slot-based path, which is what the predicate selects between.
     static void BindTrackedTexture(RHI::ResourceHandle texture, u32 slot)
     {
-        if (texture.IsValid() && s_Data.BoundTextures[slot] != texture)
-        {
-            RenderCommand::BindTexture(slot, texture);
-            s_Data.BoundTextures[slot] = texture;
-            ++s_Data.Stats.TextureBinds;
-        }
+        if (!texture.IsValid())
+            return;
+        if (s_Data.BoundTextures[slot] == texture && !HeapBinding::WritesOffsetsForBoundProgram())
+            return;
+
+        // Persistent: material and IBL textures are asset-owned and outlive the
+        // frame, so their descriptors are memoised rather than drawn from the ring.
+        HeapBinding::BindTextureOrOffset(slot, texture, RHI::HeapSlotLifetime::Persistent);
+        s_Data.BoundTextures[slot] = texture;
+        ++s_Data.Stats.TextureBinds;
     }
 
     // Helper: Bind all PBR material textures (albedo, metallic-roughness, normal,
@@ -576,12 +593,15 @@ namespace OloEngine
     {
         if (!texture.IsValid())
             return;
-        if (s_Data.BoundTextures[slot] != texture)
-        {
-            RenderCommand::BindTexture(slot, texture);
-            s_Data.BoundTextures[slot] = texture;
-            ++s_Data.Stats.TextureBinds;
-        }
+        // Same cache/offset split as BindTrackedTexture above — see the note there.
+        if (s_Data.BoundTextures[slot] == texture && !HeapBinding::WritesOffsetsForBoundProgram())
+            return;
+
+        // Persistent: shadow maps, the snow clipmap and the cloud-shadow map are
+        // system-owned and survive the frame, like the material textures above.
+        HeapBinding::BindTextureOrOffset(slot, texture, RHI::HeapSlotLifetime::Persistent);
+        s_Data.BoundTextures[slot] = texture;
+        ++s_Data.Stats.TextureBinds;
     }
 
     // Helper: Bind per-frame shadow and snow depth textures (only relevant for PBR paths).
@@ -1244,7 +1264,7 @@ namespace OloEngine
     void CommandDispatch::BindTexture(const void* data, RendererAPI& api)
     {
         auto const* cmd = static_cast<const BindTextureCommand*>(data);
-        api.BindTexture(cmd->slot, cmd->textureID);
+        HeapBinding::BindTextureOrOffset(api, cmd->slot, cmd->textureID, RHI::HeapSlotLifetime::Persistent);
     }
 
     void CommandDispatch::SetShaderResource(const void* data, RendererAPI& /*api*/)
@@ -1813,12 +1833,31 @@ namespace OloEngine
         }
 
         // Bind skybox cubemap texture using renderer ID directly
-        if (s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] != cmd->skyboxTextureID)
+        // The offset write must survive a cache hit — see BindTrackedTexture's note.
+        if (s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] != cmd->skyboxTextureID ||
+            HeapBinding::WritesOffsetsForBoundProgram())
         {
-            api.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, cmd->skyboxTextureID);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, cmd->skyboxTextureID, RHI::HeapSlotLifetime::Persistent);
             s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] = cmd->skyboxTextureID;
             ++s_Data.Stats.TextureBinds;
         }
+
+        // Publish the staged offsets before the draw that reads them.
+        //
+        // ONLY HERE, and the absence elsewhere in this file is deliberate. A flush
+        // re-establishes the heap's SSBO binding, so one per DRAW gives back the
+        // exact cost heap-bindless exists to remove ("bound once per frame, never
+        // per draw" — include/BindlessHeap.glsl). The skybox draws once a frame, so
+        // it pays that once and the conversion is genuinely live.
+        //
+        // The per-draw MATERIAL path is why the rest of this file's binds are
+        // routed through the seam but their shaders are NOT converted: with no
+        // bindless material program in flight the seam falls back, no offsets are
+        // staged, and no flush is owed. Converting them properly means baking each
+        // material's offsets into its UBO (ADR 0011 §1.2's "stable for the object's
+        // life, so it can be baked once into material data") rather than restaging
+        // a shared table per draw — a different change from this one.
+        HeapBinding::FlushOffsets();
 
         // Bind VAO (cached) and draw
         BindVAOIfNeeded(cmd->vertexArrayID);
@@ -1874,9 +1913,11 @@ namespace OloEngine
         }
 
         // Bind texture using renderer ID directly
-        if (s_Data.BoundTextures[ShaderBindingLayout::TEX_DIFFUSE] != cmd->textureID)
+        // The offset write must survive a cache hit — see BindTrackedTexture's note.
+        if (s_Data.BoundTextures[ShaderBindingLayout::TEX_DIFFUSE] != cmd->textureID ||
+            HeapBinding::WritesOffsetsForBoundProgram())
         {
-            api.BindTexture(ShaderBindingLayout::TEX_DIFFUSE, cmd->textureID);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_DIFFUSE, cmd->textureID, RHI::HeapSlotLifetime::Persistent);
             s_Data.BoundTextures[ShaderBindingLayout::TEX_DIFFUSE] = cmd->textureID;
             ++s_Data.Stats.TextureBinds;
         }
@@ -1986,27 +2027,27 @@ namespace OloEngine
         // Bind terrain textures
         if (cmd->heightmapTextureID.IsValid())
         {
-            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP, cmd->heightmapTextureID);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP, cmd->heightmapTextureID, RHI::HeapSlotLifetime::Persistent);
         }
         if (cmd->splatmapTextureID.IsValid())
         {
-            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP, cmd->splatmapTextureID);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_SPLATMAP, cmd->splatmapTextureID, RHI::HeapSlotLifetime::Persistent);
         }
         if (cmd->splatmap1TextureID.IsValid())
         {
-            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_SPLATMAP_1, cmd->splatmap1TextureID);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_SPLATMAP_1, cmd->splatmap1TextureID, RHI::HeapSlotLifetime::Persistent);
         }
         if (cmd->albedoArrayTextureID.IsValid())
         {
-            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, cmd->albedoArrayTextureID);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, cmd->albedoArrayTextureID, RHI::HeapSlotLifetime::Persistent);
         }
         if (cmd->normalArrayTextureID.IsValid())
         {
-            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, cmd->normalArrayTextureID);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, cmd->normalArrayTextureID, RHI::HeapSlotLifetime::Persistent);
         }
         if (cmd->armArrayTextureID.IsValid())
         {
-            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID, RHI::HeapSlotLifetime::Persistent);
         }
 
         // Bind the full shadow contract the terrain shaders sample — CSM, spot,
@@ -2069,15 +2110,15 @@ namespace OloEngine
         // Bind textures for triplanar sampling
         if (cmd->albedoArrayTextureID.IsValid())
         {
-            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, cmd->albedoArrayTextureID);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, cmd->albedoArrayTextureID, RHI::HeapSlotLifetime::Persistent);
         }
         if (cmd->normalArrayTextureID.IsValid())
         {
-            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, cmd->normalArrayTextureID);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, cmd->normalArrayTextureID, RHI::HeapSlotLifetime::Persistent);
         }
         if (cmd->armArrayTextureID.IsValid())
         {
-            api.BindTexture(ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID, RHI::HeapSlotLifetime::Persistent);
         }
 
         // Bind the shadow contract Terrain_Voxel.glsl samples (CSM + spot + PCSS
@@ -2156,7 +2197,7 @@ namespace OloEngine
         {
             if (s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_0] != cmd->albedoTextureID)
             {
-                api.BindTexture(ShaderBindingLayout::TEX_USER_0, cmd->albedoTextureID);
+                HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_USER_0, cmd->albedoTextureID, RHI::HeapSlotLifetime::Persistent);
                 s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_0] = cmd->albedoTextureID;
                 ++s_Data.Stats.TextureBinds;
             }
@@ -2168,14 +2209,14 @@ namespace OloEngine
         if (cmd->normalTextureID.IsValid() &&
             s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_1] != cmd->normalTextureID)
         {
-            api.BindTexture(ShaderBindingLayout::TEX_USER_1, cmd->normalTextureID);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_USER_1, cmd->normalTextureID, RHI::HeapSlotLifetime::Persistent);
             s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_1] = cmd->normalTextureID;
             ++s_Data.Stats.TextureBinds;
         }
         if (cmd->rmaTextureID.IsValid() &&
             s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_2] != cmd->rmaTextureID)
         {
-            api.BindTexture(ShaderBindingLayout::TEX_USER_2, cmd->rmaTextureID);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_USER_2, cmd->rmaTextureID, RHI::HeapSlotLifetime::Persistent);
             s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_2] = cmd->rmaTextureID;
             ++s_Data.Stats.TextureBinds;
         }
@@ -2246,9 +2287,11 @@ namespace OloEngine
         // is the octahedral albedo atlas.
         if (cmd->albedoTextureID.IsValid())
         {
-            if (s_Data.BoundTextures[ShaderBindingLayout::TEX_DIFFUSE] != cmd->albedoTextureID)
+            // The offset write must survive a cache hit — see BindTrackedTexture's note.
+            if (s_Data.BoundTextures[ShaderBindingLayout::TEX_DIFFUSE] != cmd->albedoTextureID ||
+                HeapBinding::WritesOffsetsForBoundProgram())
             {
-                api.BindTexture(ShaderBindingLayout::TEX_DIFFUSE, cmd->albedoTextureID);
+                HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_DIFFUSE, cmd->albedoTextureID, RHI::HeapSlotLifetime::Persistent);
                 s_Data.BoundTextures[ShaderBindingLayout::TEX_DIFFUSE] = cmd->albedoTextureID;
                 ++s_Data.Stats.TextureBinds;
             }
@@ -2354,7 +2397,7 @@ namespace OloEngine
         }
         else if (s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT].IsValid())
         {
-            api.BindTexture(ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource, RHI::HeapSlotLifetime::Persistent);
             s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] = {};
         }
 

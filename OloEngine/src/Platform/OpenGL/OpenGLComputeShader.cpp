@@ -8,6 +8,8 @@
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
+#include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderRegistry.h"
 
 #include <glad/gl.h>
@@ -96,8 +98,42 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // The heap-bindless branch (issue #691 Phase 3, bucket 3).
+        //
+        // A compute shader needs NO second compile route: this function has
+        // always handed include-resolved GLSL straight to glShaderSource, so it
+        // never travelled the shaderc(vulkan) hop that rejects
+        // GL_ARB_bindless_texture in the first place. All that is missing is the
+        // prologue the graphics route injects, and for the identical reason —
+        // GLSL requires every `#extension` directive to precede all
+        // non-preprocessor tokens, so it cannot live in
+        // include/BindlessHeap.glsl without imposing an invisible
+        // "put the #include above your first declaration" rule on every file.
+        //
+        // Opt-in is the token itself, and the heap must be live: a shader
+        // compiled while the toggle was off keeps its slot-based program until it
+        // is reloaded, exactly as on the graphics route.
+        std::string patched = source;
+        m_IsBindlessVariant =
+            RHI::DescriptorHeap::Get().IsEnabled() && source.find("OLO_BINDLESS") != std::string::npos;
+        if (m_IsBindlessVariant)
+        {
+            static constexpr std::string_view kPrologue =
+                "#extension GL_ARB_bindless_texture : require\n#define OLO_BINDLESS 1\n";
+            if (const sizet versionPos = patched.find("#version"); versionPos != std::string::npos)
+            {
+                const sizet eol = patched.find('\n', versionPos);
+                const sizet insertAt = (eol == std::string::npos) ? patched.size() : eol + 1u;
+                patched.insert(insertAt, kPrologue);
+            }
+            else
+            {
+                patched.insert(0, std::string("#version 460 core\n").append(kPrologue));
+            }
+        }
+
         const u32 shader = glCreateShader(GL_COMPUTE_SHADER);
-        const char* src = source.c_str();
+        const char* src = patched.c_str();
         glShaderSource(shader, 1, &src, nullptr);
         glCompileShader(shader);
 
@@ -111,12 +147,48 @@ namespace OloEngine
             glGetShaderInfoLog(shader, length, &length, infoLog.data());
             glDeleteShader(shader);
             OLO_CORE_ERROR("Compute shader compilation failed ({0}):\n{1}", m_Name, infoLog);
+
+            // A broken bindless BRANCH must cost the dispatch its optimisation,
+            // never its shader — same degradation policy as the graphics route,
+            // and it matters more here because a compute pass that fails to
+            // compile takes a whole system offline (no snow, no wind, no HZB)
+            // rather than one draw. Retry the slot-based source once.
+            if (m_IsBindlessVariant)
+            {
+                OLO_CORE_WARN("[Bindless] Compute shader '{0}' failed with the bindless branch; "
+                              "falling back to the slot-based build.",
+                              m_Name);
+                m_IsBindlessVariant = false;
+                const u32 retry = glCreateShader(GL_COMPUTE_SHADER);
+                const char* plain = source.c_str();
+                glShaderSource(retry, 1, &plain, nullptr);
+                glCompileShader(retry);
+
+                GLint retryCompiled = 0;
+                glGetShaderiv(retry, GL_COMPILE_STATUS, &retryCompiled);
+                if (retryCompiled != GL_FALSE)
+                {
+                    Link(retry, source);
+                    return;
+                }
+                glDeleteShader(retry);
+            }
+
             OLO_CORE_ASSERT(false, "Compute shader compilation failure!");
             return;
         }
 
+        Link(shader, source);
+    }
+
+    void OpenGLComputeShader::Link(u32 shader, const std::string& source)
+    {
+        OLO_PROFILE_FUNCTION();
+
         m_RendererID = glCreateProgram();
         m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
+        // Same registration as the graphics route — see OpenGLShader::FinalizeProgram.
+        Shader::RegisterProgramBindless(m_RendererID, m_IsBindlessVariant);
         glAttachShader(m_RendererID, shader);
         glLinkProgram(m_RendererID);
 
@@ -154,12 +226,26 @@ namespace OloEngine
 
         OLO_SHADER_REGISTER_MANUAL(m_RendererID, m_Name, m_FilePath);
         m_IsValid = true;
-        OLO_CORE_INFO("Compiled compute shader '{0}'", m_Name);
+        OLO_CORE_INFO("Compiled compute shader '{0}'{1}", m_Name, m_IsBindlessVariant ? " (bindless)" : "");
     }
 
     void OpenGLComputeShader::Bind() const
     {
         glUseProgram(m_RendererID);
+
+        // PUBLISH WHETHER THIS PROGRAM READS THE HEAP, and this line is load-
+        // bearing rather than bookkeeping. `Shader::SetBoundProgramBindless` is a
+        // process-wide flag that the binding seam consults to decide between
+        // writing an offset and issuing a bind. Before this, only
+        // OpenGLShader::Bind() ever set it — so binding a bindless GRAPHICS
+        // program and then a compute program left the flag TRUE, and the first
+        // converted compute pass would have recorded offsets into a table its
+        // program never declares while binding nothing at all.
+        //
+        // That failure has no diagnostic: the dispatch runs, reads an unwritten
+        // image unit, and writes plausible garbage.
+        Shader::SetBoundProgramBindless(m_IsBindlessVariant);
+
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::ShaderBinds, 1);
         OLO_SHADER_BIND(m_RendererID);
     }
@@ -167,6 +253,11 @@ namespace OloEngine
     void OpenGLComputeShader::Unbind() const
     {
         glUseProgram(0);
+
+        // No program is bound, so no program reads the heap. Leaving the flag set
+        // would let a bind issued between an Unbind() and the next Bind() take the
+        // heap path on the strength of a program that is no longer in flight.
+        Shader::SetBoundProgramBindless(false);
     }
 
     GLint OpenGLComputeShader::GetUniformLocation(const std::string& name) const

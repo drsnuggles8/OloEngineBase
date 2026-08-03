@@ -72,6 +72,30 @@ namespace OloEngine::RHI
     // somewhere honest to point, and this is it.
     inline constexpr u32 kNullHeapOffset = 0u;
 
+    // The reserved null STORAGE-IMAGE descriptor (issue #691 Phase 3, bucket 3).
+    //
+    // A second reserved slot, and the reason generalises past this engine: a null
+    // needs to exist PER DESCRIPTOR KIND, not per heap. Slot 0 holds a sampler
+    // descriptor, and constructing an `image2D` from a sampler handle is
+    // undefined behaviour just as surely as constructing one from zero is — so a
+    // failed or cleared IMAGE binding pointing at `kNullHeapOffset` would swap a
+    // stale-read bug for an undefined-behaviour bug rather than fixing anything.
+    //
+    // Same argument the null descriptor itself rests on, one axis over: the model
+    // leans on poison reads being DETERMINISTIC, and determinism cannot come from
+    // a descriptor the API says nothing about.
+    inline constexpr u32 kNullStorageHeapOffset = 1u;
+
+    // The first slot the allocator may hand out. Both nulls sit below it.
+    inline constexpr u32 kFirstAllocatableHeapSlot = kNullStorageHeapOffset + 1u;
+
+    // The null offset appropriate to a view's kind. Every "I am not using this
+    // input" and every failed acquire must point at one of the two.
+    [[nodiscard]] constexpr auto NullOffsetFor(ViewUsage usage) -> u32
+    {
+        return usage == ViewUsage::Storage ? kNullStorageHeapOffset : kNullHeapOffset;
+    }
+
     // -------------------------------------------------------------------------
     // The backend's half of the heap.
     //
@@ -100,6 +124,12 @@ namespace OloEngine::RHI
         // same deterministic wrong-render a use-after-free does rather than to
         // whatever bit pattern happened to be in the slot.
         //
+        // `view.Usage` selects the DESCRIPTOR KIND, and the two are genuinely
+        // different API calls rather than two configurations of one
+        // (`glGetTextureSamplerHandleARB` vs `glGetImageHandleARB`;
+        // `COMBINED_IMAGE_SAMPLER` vs `STORAGE_IMAGE`). `sampler` is meaningless
+        // for a storage view and backends must ignore it there.
+        //
         // RESIDENCY HAS NO VULKAN ANALOGUE and is the main way this rehearsal
         // differs from the real thing: `ARB_bindless_texture` requires an
         // explicit resident/non-resident transition per handle, and a texture is
@@ -112,7 +142,15 @@ namespace OloEngine::RHI
         // `AcquireDescriptor`. Called exactly once per successful acquire; the
         // backend refcounts internally, because two views that differ only in a
         // field the backend folds away legitimately produce the same descriptor.
-        virtual void ReleaseDescriptor(u64 descriptor) = 0;
+        //
+        // `usage` IS REQUIRED and is not a convenience: GL has two disjoint
+        // residency namespaces with two entry-point pairs
+        // (`glMakeTextureHandleNonResidentARB` vs
+        // `glMakeImageHandleNonResidentARB`), and the spec does not promise that
+        // a texture handle and an image handle are numerically distinguishable —
+        // so a 64-bit value alone cannot say which call to make. Passing the kind
+        // is cheaper and safer than a lookup that could answer wrongly.
+        virtual void ReleaseDescriptor(u64 descriptor, ViewUsage usage) = 0;
 
         // Publish a contiguous run of the CPU-side mirror to the GPU-visible
         // table. Called once per frame with the dirty range, not per slot.
@@ -124,7 +162,8 @@ namespace OloEngine::RHI
         // command-buffer operation while the upload is not.
         virtual void BindHeap() = 0;
 
-        // The descriptor every unallocated, freed or cleared slot holds.
+        // The descriptor every unallocated, freed or cleared slot of this KIND
+        // holds.
         //
         // MUST BE A REAL, VALID, SAMPLEABLE DESCRIPTOR — not a zero handle.
         // Sampling an invalid or non-resident `ARB_bindless_texture` handle is
@@ -133,7 +172,12 @@ namespace OloEngine::RHI
         // luck rather than on the spec. The GL backend returns the handle of a
         // resident 1x1 opaque-black texture; a Vulkan backend would return a
         // null-descriptor entry, which that API defines to read as zero.
-        [[nodiscard]] virtual auto NullDescriptor() const -> u64 = 0;
+        //
+        // It takes a `usage` because a sampler handle and an image handle are not
+        // interchangeable in a shader — `image2D(samplerHandle)` is undefined in
+        // exactly the way `sampler2D(0)` is. One null per kind is the minimum
+        // that keeps the determinism this model is built on.
+        [[nodiscard]] virtual auto NullDescriptor(ViewUsage usage) const -> u64 = 0;
     };
 
     // -------------------------------------------------------------------------
@@ -205,6 +249,35 @@ namespace OloEngine::RHI
         // get two offsets (see the aliasing note above).
         [[nodiscard]] auto GetOrCreateView(ResourceHandle resource, const ViewDesc& view, const SamplerDesc& sampler,
                                            HeapSlotLifetime lifetime) -> ViewHandle;
+
+        // ---------------------------------------------------------------------
+        // Storage images — the SECOND descriptor kind (ADR 0011 amendment (26)).
+        //
+        // Separate entry points rather than a `SamplerDesc{}` argument on the two
+        // above, because a storage view has no sampler at all and an API that
+        // asks for one invites a caller to pass a meaningful-looking value that
+        // is silently ignored. These force `Usage = ViewUsage::Storage` so a
+        // caller cannot half-describe a storage view.
+        //
+        // Build `view` with `RHI::MakeStorageViewDesc(...)`, which takes the same
+        // (mipLevel, layered, layer, access, format) the slot-based
+        // `BindImageTexture` takes.
+        //
+        // The slot budget is shared with sampled views on purpose: under
+        // `VK_EXT_descriptor_heap` a storage image is just another entry in the
+        // same resource heap, and giving it a second allocator here would model a
+        // split neither backend has. (The SAMPLER heap is genuinely separate —
+        // §1.2a — and a storage view consumes none of it.)
+        // ---------------------------------------------------------------------
+        [[nodiscard]] auto CreateStorageView(ResourceHandle resource, const ViewDesc& view,
+                                             HeapSlotLifetime lifetime) -> ViewHandle;
+        [[nodiscard]] auto GetOrCreateStorageView(ResourceHandle resource, const ViewDesc& view,
+                                                  HeapSlotLifetime lifetime) -> ViewHandle;
+
+        // Which kind of descriptor a live view produces. Answers `Sampled` for a
+        // dead handle, matching `LifetimeOf`'s reasoning: the offset is already
+        // invalid, so nothing can act on this without first failing `OffsetOf`.
+        [[nodiscard]] auto UsageOf(ViewHandle view) const -> ViewUsage;
 
         // Persistent views only. A frame-transient view is retired wholesale by
         // `ResetFrameTransients` and destroying one by hand is a bug the heap counts
@@ -307,7 +380,11 @@ namespace OloEngine::RHI
         // sampleable black descriptor instead. Mirrors OLO_RG_POISON_TRANSIENTS,
         // which turned a stochastic aliasing artifact into a one-screenshot
         // signal; this keeps that property on solid ground.
-        [[nodiscard]] auto PoisonDescriptorLocked() const -> u64;
+        //
+        // Per KIND: poisoning a released storage slot with a sampler handle would
+        // put the shader back on undefined behaviour at exactly the moment the
+        // instrument is supposed to be reporting.
+        [[nodiscard]] auto PoisonDescriptorLocked(ViewUsage usage) const -> u64;
 
         struct ViewSlot
         {
@@ -316,8 +393,8 @@ namespace OloEngine::RHI
             HeapSlotLifetime Lifetime = HeapSlotLifetime::Persistent;
             ResourceHandle Resource;
             ViewDesc View;
-            u32 SamplerSlot = HeapOffset::Invalid;
-            u64 Descriptor = 0u; ///< replaced by the backend's null descriptor on release
+            u32 SamplerSlot = HeapOffset::Invalid; ///< Invalid for a storage view — it consumes no sampler slot
+            u64 Descriptor = 0u;                   ///< replaced by the backend's null descriptor on release
         };
 
         // Caller must hold m_Mutex.
@@ -373,11 +450,22 @@ namespace OloEngine::RHI
         // resource's GENERATION as well as its index, so a destroy/recreate that
         // reuses the slot cannot hand the new resource the old resource's view —
         // the same reason the handle carries a generation at all.
+        //
+        // IT ALSO CARRIES THE WHOLE `ViewDesc`, and that stopped being optional
+        // when storage images arrived. The key used to be (resource, samplerSlot,
+        // depthCompare) — sound only because the GL backend declined every view
+        // that was not the whole resource, so no two distinguishable views could
+        // reach the cache. A storage view is a mip level AND a format AND a layer
+        // selection, and HZBGenerator alone asks for four levels of one texture in
+        // one dispatch: under the old key the second request would have been
+        // served the first's view and written every mip of the pyramid at level 0.
+        // The `ViewDesc` compare is a handful of scalars and settles it by
+        // construction rather than by enumerating which fields matter today.
         struct PersistentViewKey
         {
             u64 Resource = 0u; ///< RHI::HashKey(resource)
             u32 SamplerSlot = 0u;
-            bool DepthCompare = true;
+            ViewDesc View;
 
             [[nodiscard]] auto operator==(const PersistentViewKey& other) const -> bool = default;
         };
@@ -385,8 +473,18 @@ namespace OloEngine::RHI
         {
             [[nodiscard]] auto operator()(const PersistentViewKey& key) const noexcept -> std::size_t
             {
+                // Only the fields that actually vary across live views are mixed
+                // in — a hash may collide, `operator==` is what decides identity,
+                // and mixing every field would cost more than the linear probe it
+                // saves.
+                const std::size_t range = std::hash<u32>{}(key.View.Range.BaseMip) ^
+                                          (std::hash<u32>{}(key.View.Range.BaseLayer) << 3u) ^
+                                          (std::hash<u32>{}(key.View.Range.LayerCount) << 5u);
                 return std::hash<u64>{}(key.Resource) ^ (std::hash<u32>{}(key.SamplerSlot) << 1u) ^
-                       (key.DepthCompare ? 0x9E3779B9u : 0u);
+                       (key.View.DepthCompare ? 0x9E3779B9u : 0u) ^
+                       (std::hash<u16>{}(static_cast<u16>(key.View.FormatOverride)) << 7u) ^
+                       (std::hash<u8>{}(static_cast<u8>(key.View.Usage)) << 11u) ^
+                       (std::hash<u8>{}(static_cast<u8>(key.View.StorageAccess)) << 13u) ^ range;
             }
         };
         std::unordered_map<PersistentViewKey, ViewHandle, PersistentViewKeyHash> m_PersistentViewCache;

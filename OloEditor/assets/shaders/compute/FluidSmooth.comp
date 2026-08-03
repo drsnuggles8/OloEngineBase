@@ -24,11 +24,22 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 #include "../include/FluidRenderCommon.glsl"
 
+#include "../include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
+// declarations move into main() as locals built from the heap descriptors at
+// these image units; the body below is unchanged either way.
+#ifndef OLO_BINDLESS
 layout(binding = 0, r32f) uniform readonly image2D u_FluidDepthIn;
 layout(binding = 1, r32f) uniform writeonly image2D u_FluidDepthOut;
+#endif
 
 void main()
 {
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(r32f, OLO_HEAP_IMAGE_RW, image2D, u_FluidDepthIn, 0);
+    OLO_HEAP_IMAGE(r32f, writeonly, image2D, u_FluidDepthOut, 1);
+#endif
     ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
     ivec2 size = imageSize(u_FluidDepthOut);
     if (texel.x >= size.x || texel.y >= size.y)

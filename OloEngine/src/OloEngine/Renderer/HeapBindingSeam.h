@@ -1,0 +1,120 @@
+#pragma once
+
+// =============================================================================
+// HeapBindingSeam.h — the one place a bind forks into "write an offset" or
+// "bind the old way".
+//
+// Issue #691 Phase 3, ADR 0011 §1.1 / amendments (25) and (26).
+//
+// WHY THIS IS NOT A MEMBER OF RGCommandContext, where the sampler half started.
+// Most storage-image bindings in this engine are issued by COMPUTE SYSTEMS that
+// have no render-graph context at all — SnowAccumulationSystem, WindSystem,
+// CloudNoise, CloudShadowMap, HZBGenerator, OceanFFTGpu, TerrainErosion — and
+// they reach the driver through the static `RenderCommand` facade. A seam only a
+// pass could call would have left ~60% of the image sites unconvertible, or
+// forced a second offset table for the ones that could not reach the first.
+//
+// There must be exactly ONE table. It is indexed by slot number, and two tables
+// would mean two flushes, two binding points, and two chances for a pass and its
+// shader to disagree about which one carries a given slot.
+//
+// `RGCommandContext` keeps its `BindTextureOrHeapOffset` / `FlushHeapOffsets`
+// spelling and forwards here, so no already-converted pass changes.
+//
+// THE TABLE'S INDEX SPACE, and the one thing to get right when adding a kind:
+// texture slots occupy [0, MAX_ENGINE_TEXTURE_SLOTS) and image units occupy
+// [HEAP_IMAGE_SLOT_BASE, + MAX_ENGINE_IMAGE_SLOTS). GL image units and texture
+// units are separate namespaces that both start at zero, so without the base a
+// compute pass writing image unit 0 would overwrite TEX_DIFFUSE's offset and
+// each would silently render the other's resource.
+// =============================================================================
+
+#include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHIResources.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
+
+namespace OloEngine
+{
+    class RendererAPI;
+}
+
+namespace OloEngine::HeapBinding
+{
+    // The heap-bindless form of `RenderCommand::BindTexture`.
+    //
+    //   * heap enabled and the bound program is the bindless variant -> mints or
+    //     looks up the view, records its offset at table index `slot`, binds
+    //     NOTHING.
+    //   * anything else (no extension, toggle off, heap full, dead resource,
+    //     slot out of range) -> falls back to `RenderCommand::BindTexture`.
+    //
+    // `slot` keeps its meaning either way: a converted shader indexes the table
+    // with the same `TEX_*` constant it used to declare `layout(binding = N)`
+    // with, so the two variants cannot disagree about which texture is which.
+    auto BindTextureOrOffset(u32 slot, RHI::ResourceHandle texture, RHI::HeapSlotLifetime lifetime,
+                             const RHI::SamplerDesc& sampler = {}) -> RHI::HeapOffset;
+
+    // The same seam for a caller that already holds a `RendererAPI&`, i.e. the
+    // command-bucket dispatch handlers.
+    //
+    // THE OVERLOAD EXISTS FOR THE FALLBACK, and it is not a convenience. The
+    // handlers receive their `api` by reference and the test suite dispatches
+    // packets against `MockRendererAPI`, which records every `BindTexture` — so
+    // routing the fallback through the static `RenderCommand` facade instead
+    // would keep compiling, keep working in the editor, and silently stop the
+    // mock from ever seeing the call. That is the same shape as the `.data()`
+    // trap Phase 2 recorded: a change the type system cannot object to that
+    // redirects which object is actually spoken to.
+    //
+    // The heap path is identical either way — a heap write touches no backend.
+    auto BindTextureOrOffset(RendererAPI& api, u32 slot, RHI::ResourceHandle texture,
+                             RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler = {})
+        -> RHI::HeapOffset;
+
+    // True when the program in flight reads the offset table, i.e. when a bind
+    // through this seam records an offset instead of touching the driver.
+    //
+    // EXPOSED FOR ONE REASON: a caller with its own redundant-bind cache must not
+    // let that cache short-circuit the offset write. The two caches guard
+    // different things — "this slot's GL binding is already correct" is not the
+    // same claim as "this slot's OFFSET is already correct", because the offset
+    // table is shared with every pass that binds through the seam while
+    // `CommandDispatch::BoundTextures` only tracks binds that went through
+    // CommandDispatch. Under the heap the write is a CPU array store, so
+    // skipping it saves nothing and can leave another pass's offset in place.
+    //
+    // Do NOT use this to fork behaviour that the seam already forks for you.
+    [[nodiscard]] auto WritesOffsetsForBoundProgram() -> bool;
+
+    // The heap-bindless form of `RenderCommand::BindImageTexture`, taking exactly
+    // the parameters that call already takes so a conversion is a spelling change.
+    //
+    // `imageUnit` is a GL IMAGE unit, not a texture slot — it is rebased onto the
+    // table's image region here, and `include/BindlessHeap.glsl`'s
+    // OLO_HEAP_IMAGE_* macros apply the identical base on the shader side from the
+    // same constant.
+    //
+    // `format` is MANDATORY (`Format::Unknown` falls back): a storage image's
+    // format is part of its binding contract and must match the shader's format
+    // layout qualifier, so there is nothing sensible to infer.
+    auto BindImageOrOffset(u32 imageUnit, RHI::ResourceHandle texture, u32 mipLevel, bool layered, u32 layer,
+                           RHI::Access access, RHI::Format format, RHI::HeapSlotLifetime lifetime)
+        -> RHI::HeapOffset;
+
+    // Publish the descriptors minted since the last flush AND the offsets that
+    // index them, in that order. Call once before the draw or dispatch.
+    //
+    // BOTH, and the order is the whole reason this is not a once-per-frame
+    // publish: a pass mints its views inside its own Execute, so a frame-level
+    // `DescriptorHeap::Flush()` runs before this frame's transient descriptors
+    // exist — they land in the CPU mirror, get marked dirty and are never
+    // uploaded, and the offsets then index slots holding the previous frame's
+    // descriptor. That rendered a black viewport for a whole batch of
+    // conversions.
+    void FlushOffsets();
+
+    // Diagnostics/tests only: the value currently staged at a table index, or
+    // HeapOffset::Invalid for an out-of-range index. Reads the CPU scratch, not
+    // the GPU buffer, so it answers "what would the next flush publish".
+    [[nodiscard]] auto StagedOffsetAt(u32 tableIndex) -> RHI::HeapOffset;
+} // namespace OloEngine::HeapBinding

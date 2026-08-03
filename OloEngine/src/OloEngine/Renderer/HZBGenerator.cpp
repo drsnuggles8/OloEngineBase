@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/HZBGenerator.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 
 #include <glm/glm.hpp>
 
@@ -163,15 +164,23 @@ namespace OloEngine
 
         // Bind output image mips (up to 4 per batch)
         u32 endMip = std::min(startMip + MAX_MIP_BATCH_SIZE, mipCount);
+        // FOUR MIPS OF ONE TEXTURE, IN ONE DISPATCH — the case that forced the
+        // descriptor-heap memo cache to carry the whole ViewDesc. Its old key was
+        // (resource, samplerSlot, depthCompare), which cannot tell these four
+        // apart; they would all have been served the first view and the entire
+        // pyramid would have been written at level 0, in a frame that still looks
+        // plausible until something reads the occlusion result.
         for (u32 mip = startMip; mip < endMip; ++mip)
         {
             u32 localIdx = mip - startMip;
-            RenderCommand::BindImageTexture(localIdx, hzbTex, mip, false, 0, RHI::Access::StorageWrite, RHI::Format::R32Float);
+            HeapBinding::BindImageOrOffset(localIdx, hzbTex, mip, false, 0, RHI::Access::StorageWrite,
+                                           RHI::Format::R32Float, RHI::HeapSlotLifetime::Persistent);
         }
         // Fill remaining image slots with the last valid mip to avoid undefined bindings
         for (u32 localIdx = endMip - startMip; localIdx < MAX_MIP_BATCH_SIZE; ++localIdx)
         {
-            RenderCommand::BindImageTexture(localIdx, hzbTex, endMip - 1, false, 0, RHI::Access::StorageWrite, RHI::Format::R32Float);
+            HeapBinding::BindImageOrOffset(localIdx, hzbTex, endMip - 1, false, 0, RHI::Access::StorageWrite,
+                                           RHI::Format::R32Float, RHI::HeapSlotLifetime::Persistent);
         }
 
         // Bind input: scene depth for first pass, HZB itself for subsequent passes
@@ -251,6 +260,10 @@ namespace OloEngine
         // Dispatch: one workgroup per LOCAL_SIZE x LOCAL_SIZE block of the destination mip
         u32 groupsX = (dstW + LOCAL_SIZE - 1) / LOCAL_SIZE;
         u32 groupsY = (dstH + LOCAL_SIZE - 1) / LOCAL_SIZE;
+        // One flush per DISPATCH, not per batch: this function is called once per
+        // 4-mip batch and each batch stages its own four offsets, so a flush hoisted
+        // out to the caller would publish only the last batch's.
+        HeapBinding::FlushOffsets();
         RenderCommand::DispatchCompute(groupsX, groupsY, 1);
     }
 

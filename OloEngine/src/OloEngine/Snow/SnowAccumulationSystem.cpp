@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
@@ -180,8 +181,12 @@ namespace OloEngine
         if (s_Data.m_NeedsClear)
         {
             s_Data.m_ClearShader->Bind();
-            RenderCommand::BindImageTexture(0, s_Data.m_SnowDepthTexture->GetRHIHandle(),
-                                            0, false, 0, RHI::Access::StorageWrite, RHI::Format::R32Float);
+            // Persistent: the snow-depth clipmap is system-owned and lives across
+            // frames, so its descriptors are memoised rather than ring-allocated.
+            HeapBinding::BindImageOrOffset(0, s_Data.m_SnowDepthTexture->GetRHIHandle(), 0, false, 0,
+                                           RHI::Access::StorageWrite, RHI::Format::R32Float,
+                                           RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::FlushOffsets();
             u32 groups = (kSnowDepthResolution + 15) / 16;
             RenderCommand::DispatchCompute(groups, groups, 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
@@ -204,8 +209,10 @@ namespace OloEngine
         s_Data.m_AccumulateShader->SetFloat2("u_ClipmapCenter", glm::vec2(ce.x, ce.y));
         s_Data.m_AccumulateShader->SetFloat("u_ClipmapExtent", ce.z);
 
-        RenderCommand::BindImageTexture(0, s_Data.m_SnowDepthTexture->GetRHIHandle(),
-                                        0, false, 0, RHI::Access::StorageReadWrite, RHI::Format::R32Float);
+        HeapBinding::BindImageOrOffset(0, s_Data.m_SnowDepthTexture->GetRHIHandle(), 0, false, 0,
+                                       RHI::Access::StorageReadWrite, RHI::Format::R32Float,
+                                       RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::FlushOffsets();
 
         u32 accumGroups = (s_Data.m_TextureResolution + 15) / 16;
         RenderCommand::DispatchCompute(accumGroups, accumGroups, 1);
@@ -248,8 +255,10 @@ namespace OloEngine
         s_Data.m_DeformShader->SetFloat2("u_ClipmapCenter", glm::vec2(ce.x, ce.y));
         s_Data.m_DeformShader->SetFloat("u_ClipmapExtent", ce.z);
 
-        RenderCommand::BindImageTexture(0, s_Data.m_SnowDepthTexture->GetRHIHandle(),
-                                        0, false, 0, RHI::Access::StorageReadWrite, RHI::Format::R32Float);
+        HeapBinding::BindImageOrOffset(0, s_Data.m_SnowDepthTexture->GetRHIHandle(), 0, false, 0,
+                                       RHI::Access::StorageReadWrite, RHI::Format::R32Float,
+                                       RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::FlushOffsets();
 
         u32 deformGroups = (s_Data.m_TextureResolution + 15) / 16;
         RenderCommand::DispatchCompute(deformGroups, deformGroups, 1);
@@ -264,8 +273,10 @@ namespace OloEngine
         {
             return;
         }
-        RenderCommand::BindImageTexture(imageUnit, s_Data.m_SnowDepthTexture->GetRHIHandle(),
-                                        0, false, 0, RHI::Access::StorageReadWrite, RHI::Format::R32Float);
+        HeapBinding::BindImageOrOffset(imageUnit, s_Data.m_SnowDepthTexture->GetRHIHandle(), 0, false, 0,
+                                       RHI::Access::StorageReadWrite, RHI::Format::R32Float,
+                                       RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::FlushOffsets();
     }
 
     void SnowAccumulationSystem::BindSnowDepthImageUint(u32 imageUnit)
@@ -278,8 +289,14 @@ namespace OloEngine
         }
         // Bind as R32UI so the feed shader can use imageAtomicCompSwap for race-free float accumulation.
         // The float bits are reinterpreted as uint; the shader uses floatBitsToUint/uintBitsToFloat.
-        RenderCommand::BindImageTexture(imageUnit, s_Data.m_SnowDepthTexture->GetRHIHandle(),
-                                        0, false, 0, RHI::Access::StorageReadWrite, RHI::Format::R32UInt);
+        // The SAME texture as BindSnowDepthImage above, viewed as R32UI. Under the
+        // heap that is a genuinely different descriptor, not a different bind of one:
+        // glGetImageHandleARB keys on the format, so the two get two heap slots and
+        // the memo cache must (and does) tell them apart.
+        HeapBinding::BindImageOrOffset(imageUnit, s_Data.m_SnowDepthTexture->GetRHIHandle(), 0, false, 0,
+                                       RHI::Access::StorageReadWrite, RHI::Format::R32UInt,
+                                       RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::FlushOffsets();
     }
 
     glm::vec4 SnowAccumulationSystem::GetClipmapParams()

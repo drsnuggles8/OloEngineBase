@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "TerrainErosion.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Terrain/TerrainData.h"
@@ -48,10 +49,15 @@ namespace OloEngine
             return;
         }
 
-        // Bind heightmap as image unit 0 for read/write
-        RenderCommand::BindImageTexture(0, heightmap->GetRHIHandle(), 0, false, 0, RHI::Access::StorageReadWrite, RHI::Format::R32Float);
-
-        // Bind and configure the compute shader
+        // Bind and configure the compute shader.
+        //
+        // THE SHADER MUST BE BOUND BEFORE THE IMAGE, and under the heap that
+        // ordering is load-bearing where the slot-based path did not care. The
+        // binding seam asks `Shader::IsBoundProgramBindless()` to decide between
+        // writing an offset and issuing a bind, and that flag describes the
+        // program currently in flight — so an image bound first would silently
+        // take the fallback path even with the heap enabled, and the offset table
+        // would keep whatever this unit pointed at last.
         m_ErosionShader->Bind();
         m_ErosionShader->SetUint("u_Resolution", resolution);
         m_ErosionShader->SetUint("u_MaxDropletSteps", settings.MaxDropletSteps);
@@ -68,13 +74,26 @@ namespace OloEngine
         m_ErosionShader->SetUint("u_Seed", m_IterationSeed);
         m_ErosionShader->SetUint("u_DropletCount", settings.DropletCount);
 
+        // Bind the heightmap as image unit 0 for read/write. Persistent: the
+        // heightmap is an editor-owned terrain asset, not a graph-owned target.
+        HeapBinding::BindImageOrOffset(0, heightmap->GetRHIHandle(), 0, false, 0,
+                                       RHI::Access::StorageReadWrite, RHI::Format::R32Float,
+                                       RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::FlushOffsets();
+
         // Dispatch — one thread per droplet
         u32 groups = (settings.DropletCount + 255) / 256;
         RenderCommand::DispatchCompute(groups, 1, 1);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
 
-        // Unbind image
-        RenderCommand::BindImageTexture(0, RHI::NullResource, 0, false, 0, RHI::Access::StorageReadWrite, RHI::Format::R32Float);
+        // Unbind the image. Under the heap there is no bind to clear — the shader
+        // reads an OFFSET — so this stages the reserved null IMAGE descriptor
+        // instead, and the flush publishes it. Leaving the previous offset would
+        // let a later dispatch that forgot to bind this unit go on writing the
+        // heightmap through a perfectly valid index.
+        HeapBinding::BindImageOrOffset(0, RHI::NullResource, 0, false, 0, RHI::Access::StorageReadWrite,
+                                       RHI::Format::R32Float, RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::FlushOffsets();
 
         // Read back GPU heightmap to CPU for chunk rebuilding and serialization
         if (!skipReadback)

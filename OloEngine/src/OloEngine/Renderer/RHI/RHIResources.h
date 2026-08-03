@@ -170,6 +170,36 @@ namespace OloEngine::RHI
         [[nodiscard]] auto operator==(const SubresourceRange& other) const -> bool = default;
     };
 
+    // WHICH KIND OF DESCRIPTOR a view produces (issue #691 Phase 3, ADR 0011
+    // amendment (26)).
+    //
+    // A heap holds descriptors of several types, and "sampled" and "storage" are
+    // NOT two ways of describing one descriptor — they are different descriptors
+    // built by different API calls, with different residency and different
+    // shader-side types. On GL that is `glGetTextureSamplerHandleARB` versus
+    // `glGetImageHandleARB`; on Vulkan it is `COMBINED_IMAGE_SAMPLER` versus
+    // `STORAGE_IMAGE`. Both APIs put them in the same heap, so this belongs on
+    // the view rather than in a second heap.
+    //
+    // The discriminator is on `ViewDesc` and not a separate desc type on purpose:
+    // under `VkImageViewCreateInfo` ONE view description serves both, so splitting
+    // the description would model a GL implementation detail (that the sampler
+    // form cannot express a subresource without a `glTextureView`) as if it were
+    // part of the neutral contract.
+    enum class ViewUsage : u8
+    {
+        // Read through a sampler. `SamplerDesc` applies; `FormatOverride` may be
+        // Unknown, meaning "the resource's own format".
+        Sampled = 0,
+
+        // Read/written by `imageLoad` / `imageStore`. NO sampler applies, and
+        // `FormatOverride` is MANDATORY — a storage image's format is part of the
+        // binding contract (it must match the shader's format layout qualifier),
+        // so "inherit the resource's format" is not an answer a backend can act
+        // on. A `Storage` view with `Format::Unknown` is declined, not guessed.
+        Storage,
+    };
+
     // The *description* of a view — the key a view cache is keyed on. The
     // identity handed back is RHI::ViewHandle (RHITypes.h).
     //
@@ -187,14 +217,62 @@ namespace OloEngine::RHI
         SubresourceRange Range;
         // Unknown = inherit the resource's format. A different value is a
         // deliberate reinterpretation (e.g. reading a depth texture as R32Float).
+        // MANDATORY when `Usage == Storage` — see ViewUsage.
         Format FormatOverride = Format::Unknown;
         // Depth textures only: false gives a raw-depth read where the resource's
         // own view would give a hardware comparison result. Models
-        // CreateDepthArrayCompareOffView neutrally.
+        // CreateDepthArrayCompareOffView neutrally. Ignored when
+        // `Usage == Storage` (an image binding has no sampler at all).
         bool DepthCompare = true;
+
+        ViewUsage Usage = ViewUsage::Sampled;
+
+        // `Usage == Storage` only. Read/write intent for the binding.
+        //
+        // THIS IS PART OF THE KEY, and it is the one field here whose reason is
+        // backend-asymmetric enough to be worth stating. Vulkan puts read/write
+        // intent in the shader's `readonly`/`writeonly` qualifiers and in
+        // barriers, not in the descriptor. `ARB_bindless_texture` puts it in
+        // RESIDENCY: `glMakeImageHandleResidentARB(handle, access)`, where
+        // reading a WRITE_ONLY-resident handle (or writing a READ_ONLY one) is
+        // undefined. Since `glGetImageHandleARB` does NOT take an access, two
+        // views differing only here produce the same GL handle — so the backend
+        // folds them, exactly as it folds sampler state into the texture handle.
+        // Carrying it neutrally keeps the memoised view honest (a caller asking
+        // for read-write gets a view whose residency covers read-write) and keeps
+        // the folding where backend knowledge belongs.
+        Access StorageAccess = Access::StorageReadWrite;
 
         [[nodiscard]] auto operator==(const ViewDesc& other) const -> bool = default;
     };
+
+    // Build the `ViewDesc` for a storage-image binding from the parameters a call
+    // site already has — the same five the slot-based
+    // `RendererAPI::BindImageTexture(unit, texture, mipLevel, layered, layer,
+    // access, format)` takes, so a conversion is a spelling change rather than a
+    // re-derivation.
+    //
+    // The mapping onto `SubresourceRange` is the whole reason no new fields were
+    // needed for the subresource half: GL's `layered`/`layer` pair and Vulkan's
+    // `baseArrayLayer`/`layerCount` pair say the same thing two ways.
+    //   layered == true  -> the whole level, every layer (layer is ignored)
+    //   layered == false -> exactly one layer
+    // and a storage image is always exactly ONE mip level, never a chain.
+    [[nodiscard]] inline auto MakeStorageViewDesc(ResourceHandle resource, u32 mipLevel, bool layered, u32 layer,
+                                                  Access access, Format format) -> ViewDesc
+    {
+        ViewDesc desc;
+        desc.Resource = resource;
+        desc.Range.BaseMip = mipLevel;
+        desc.Range.MipCount = 1u;
+        desc.Range.BaseLayer = layered ? 0u : layer;
+        desc.Range.LayerCount = layered ? SubresourceRange::AllRemaining : 1u;
+        desc.FormatOverride = format;
+        desc.DepthCompare = false;
+        desc.Usage = ViewUsage::Storage;
+        desc.StorageAccess = access;
+        return desc;
+    }
 
     // Slot lifetime follows the resource's lifetime class. The engine already
     // has exactly two and they are already separated in code — do not invent a

@@ -42,6 +42,7 @@
 
 #include "RenderPropertyTest.h"
 
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
@@ -54,6 +55,7 @@
 #include <glad/gl.h>
 
 #include <array>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -137,6 +139,81 @@ void main()
 {
     o_Color = (v_TexCoord.x < 0.5) ? texture(u_DepthTexture, v_TexCoord)
                                    : texture(u_NormalsTexture, v_TexCoord);
+}
+)";
+
+        // -------------------------------------------------------------------
+        // STORAGE IMAGES — the second descriptor kind (ADR 0011 amendment (26)).
+        //
+        // Both compute sources below mirror `include/BindlessHeap.glsl`'s image
+        // macros CHARACTER FOR CHARACTER after expansion, for the same reason the
+        // sampler sources above do: this test compiles with glShaderSource
+        // directly, so if the header and these ever disagree the test fails
+        // rather than silently proving a different shader.
+        //
+        // The three things that make an image macro different from a sampler one
+        // are all visible here and all forced:
+        //   * the format layout qualifier is part of the type,
+        //   * the declaration is LOCAL (an image initialised from a buffer read is
+        //     not a constant expression, so it cannot sit at global scope),
+        //   * image units are rebased by OLO_HEAP_IMAGE_BASE, because GL image
+        //     units and texture units are separate namespaces that both start at 0.
+        // -------------------------------------------------------------------
+
+        // Direct-offset form: the offset arrives in its own tiny UBO, so this
+        // isolates "can a shader build an image from a heap descriptor at all"
+        // from "does the offset table reach it".
+        constexpr const char* kImageComputeSource = R"(#version 460 core
+#extension GL_ARB_bindless_texture : require
+layout(local_size_x = 2, local_size_y = 2) in;
+
+layout(std430, binding = 45) readonly buffer OloResourceHeapBlock
+{
+    uvec2 g_OloResourceHeap[];
+};
+
+layout(std140, binding = 9) uniform HeapOffsets
+{
+    uint u_ImageOffset;
+};
+
+void main()
+{
+    layout(r32f) image2D u_Output = layout(r32f) image2D(g_OloResourceHeap[u_ImageOffset]);
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    imageStore(u_Output, coord, vec4(float(coord.x) + 10.0 * float(coord.y), 0.0, 0.0, 0.0));
+}
+)";
+
+        // Slot-indexed form: exactly what a CONVERTED compute pass produces —
+        // no offset of its own, only an image UNIT going through the shared
+        // offset table at its rebased index.
+        constexpr const char* kSlotIndexedImageCompute = R"(#version 460 core
+#extension GL_ARB_bindless_texture : require
+layout(local_size_x = 2, local_size_y = 2) in;
+
+layout(std430, binding = 45) readonly buffer OloResourceHeapBlock
+{
+    uvec2 g_OloResourceHeap[];
+};
+
+layout(std140, binding = 56) uniform OloHeapOffsetBlock
+{
+    uvec4 g_OloHeapOffsets[18];
+};
+
+#define OLO_HEAP_OFFSET(texSlot) (g_OloHeapOffsets[(texSlot) >> 2][(texSlot) & 3])
+#define OLO_HEAP_IMAGE_BASE 64u
+#define OLO_HEAP_IMAGE_OFFSET(imgUnit) OLO_HEAP_OFFSET(OLO_HEAP_IMAGE_BASE + uint(imgUnit))
+#define OLO_HEAP_IMAGE_RW
+#define OLO_HEAP_IMAGE(fmt, mem, type, name, imgUnit) \
+    layout(fmt) mem type name = layout(fmt) type(g_OloResourceHeap[OLO_HEAP_IMAGE_OFFSET(imgUnit)])
+
+void main()
+{
+    OLO_HEAP_IMAGE(r32f, OLO_HEAP_IMAGE_RW, image2D, u_Output, 1);
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    imageStore(u_Output, coord, vec4(float(coord.x) + 10.0 * float(coord.y), 0.0, 0.0, 0.0));
 }
 )";
 
@@ -764,5 +841,432 @@ void main()
             << "Two distinct SamplerDesc values must produce two GL sampler objects — and only two.";
         EXPECT_EQ(Backend.GetStats().ResidentHandles, 2u)
             << "One texture, two sampler configurations, two DISTINCT bindless handles.";
+    }
+
+    // =========================================================================
+    // STORAGE IMAGES, END TO END (ADR 0011 amendment (26)).
+    //
+    // The sampler tests above prove a texture can be READ through an offset.
+    // These prove a texture can be WRITTEN through one — a different descriptor
+    // (`glGetImageHandleARB`), a different residency namespace, a different
+    // shader-side type, and a different reserved null. Nothing about the sampler
+    // path generalises to it for free, which is the whole point of amendment (26).
+    //
+    // They read the written texels back exactly, so a wrong offset, a wrong mip,
+    // a wrong format and an unbound heap each fail differently and specifically.
+    // =========================================================================
+    namespace
+    {
+        [[nodiscard]] GLuint BuildComputeProgram(const char* source, std::string& outLog)
+        {
+            const GLuint cs = CompileStage(GL_COMPUTE_SHADER, source, outLog);
+            if (cs == 0u)
+            {
+                return 0u;
+            }
+
+            const GLuint program = glCreateProgram();
+            glAttachShader(program, cs);
+            glLinkProgram(program);
+
+            GLint linked = 0;
+            glGetProgramiv(program, GL_LINK_STATUS, &linked);
+            glDetachShader(program, cs);
+            glDeleteShader(cs);
+
+            if (linked == GL_FALSE)
+            {
+                GLint length = 0;
+                glGetProgramiv(program, GL_INFO_LOG_LENGTH, &length);
+                std::vector<char> log(static_cast<sizet>(length > 0 ? length : 1));
+                glGetProgramInfoLog(program, length, nullptr, log.data());
+                outLog.assign(log.data());
+                glDeleteProgram(program);
+                return 0u;
+            }
+            return program;
+        }
+
+        // A 2x2 R32F texture prefilled with a value no correct dispatch produces,
+        // so "the shader never ran" and "the shader wrote the right thing" cannot
+        // be confused.
+        [[nodiscard]] GLuint MakeStorageTexture()
+        {
+            GLuint texture = 0u;
+            glCreateTextures(GL_TEXTURE_2D, 1, &texture);
+            glTextureStorage2D(texture, 1, GL_R32F, 2, 2);
+            const std::array<f32, 4> sentinel = { -1.0f, -1.0f, -1.0f, -1.0f };
+            glTextureSubImage2D(texture, 0, 0, 0, 2, 2, GL_RED, GL_FLOAT, sentinel.data());
+            return texture;
+        }
+
+        [[nodiscard]] std::array<f32, 4> ReadStorageTexture(GLuint texture)
+        {
+            std::array<f32, 4> pixels = { 0.0f, 0.0f, 0.0f, 0.0f };
+            glGetTextureImage(texture, 0, GL_RED, GL_FLOAT, static_cast<GLsizei>(sizeof(pixels)), pixels.data());
+            return pixels;
+        }
+    } // namespace
+
+    // -------------------------------------------------------------------------
+    // THE SPELLING PROBE.
+    //
+    // `ARB_bindless_texture` says an image can be constructed from a handle and
+    // that image types carry a format layout qualifier, but it does not settle in
+    // one place WHERE the qualifier goes for a constructor, nor whether a memory
+    // qualifier (`writeonly` / `readonly`) may ride along on a local. Those are
+    // exactly the details `include/BindlessHeap.glsl`'s macros have to commit to,
+    // and getting one wrong makes every converted compute shader fail to build.
+    //
+    // So this asks the driver rather than the spec, and reports EVERY answer
+    // instead of stopping at the first. It fails only if the spelling the header
+    // actually uses is rejected — the others are recorded so the next person
+    // widening the macro set does not have to re-derive them.
+    //
+    // Generalisable: when a mechanism's syntax is decided by an extension rather
+    // than by the core language, pin it with a probe that names the alternatives.
+    // A test that only checks the chosen spelling tells you it broke, not what to
+    // replace it with.
+    // -------------------------------------------------------------------------
+    TEST_F(HeapGpuFixture, TheImageConstructorSpellingTheHeaderUsesIsAcceptedByTheDriver)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        struct Candidate
+        {
+            const char* Name;
+            const char* Declaration;
+        };
+
+        // Every spelling is the same program apart from the one line under test.
+        static constexpr std::array kCandidates = {
+            Candidate{ "qualifier-on-both (what BindlessHeap.glsl uses)",
+                       "layout(r32f) image2D img = layout(r32f) image2D(g_OloResourceHeap[u_ImageOffset]);" },
+            Candidate{ "qualifier-on-declaration-only",
+                       "layout(r32f) image2D img = image2D(g_OloResourceHeap[u_ImageOffset]);" },
+            Candidate{ "qualifier-on-constructor-only",
+                       "image2D img = layout(r32f) image2D(g_OloResourceHeap[u_ImageOffset]);" },
+            Candidate{ "writeonly on both",
+                       "layout(r32f) writeonly image2D img = layout(r32f) writeonly "
+                       "image2D(g_OloResourceHeap[u_ImageOffset]);" },
+            Candidate{ "writeonly on declaration only",
+                       "layout(r32f) writeonly image2D img = layout(r32f) "
+                       "image2D(g_OloResourceHeap[u_ImageOffset]);" },
+            // `coherent` — Terrain_Erosion and Precipitation_Feed need it for
+            // cross-invocation visibility, so dropping it would be a silent
+            // correctness change rather than a cosmetic one.
+            Candidate{ "coherent on declaration",
+                       "layout(r32f) coherent image2D img = layout(r32f) "
+                       "image2D(g_OloResourceHeap[u_ImageOffset]);" },
+            // `readonly` MUST FAIL, and this entry is the one that earns the
+            // probe's keep. Initialising a readonly variable is a write, so the
+            // driver rejects the declaration outright — but nothing in the test
+            // suite compiles a bindless branch (the suite runs with the heap off,
+            // so only the default variant is built), and it took a live editor run
+            // to surface it across four shaders at once.
+            //
+            // The original probe enumerated where the qualifier GOES and not which
+            // qualifiers EXIST, which is exactly the hole this closes.
+            Candidate{ "readonly on declaration (EXPECTED TO FAIL)",
+                       "layout(r32f) readonly image2D img = layout(r32f) "
+                       "image2D(g_OloResourceHeap[u_ImageOffset]);" },
+        };
+        // Index of the readonly candidate above — it is the one spelling the
+        // header must NOT use, so the assertion below is inverted for it.
+        constexpr sizet kReadonlyCandidate = 6;
+
+        static constexpr const char* kPrefix = R"(#version 460 core
+#extension GL_ARB_bindless_texture : require
+layout(local_size_x = 1) in;
+layout(std430, binding = 45) readonly buffer OloResourceHeapBlock { uvec2 g_OloResourceHeap[]; };
+layout(std140, binding = 9) uniform HeapOffsets { uint u_ImageOffset; };
+void main()
+{
+    )";
+        static constexpr const char* kSuffix = R"(
+    imageStore(img, ivec2(gl_GlobalInvocationID.xy), vec4(1.0, 0.0, 0.0, 0.0));
+}
+)";
+
+        bool headerSpellingCompiles = false;
+        for (sizet i = 0; i < kCandidates.size(); ++i)
+        {
+            const std::string source = std::string(kPrefix) + kCandidates[i].Declaration + kSuffix;
+            std::string log;
+            const GLuint shader = CompileStage(GL_COMPUTE_SHADER, source.c_str(), log);
+            const bool ok = shader != 0u;
+            if (ok)
+            {
+                glDeleteShader(shader);
+            }
+
+            std::cout << "[bindless image spelling] " << (ok ? "OK      " : "REJECTED") << "  "
+                      << kCandidates[i].Name << (ok ? "" : "\n    driver said: ") << (ok ? "" : log)
+                      << std::endl;
+
+            if (i == 0)
+            {
+                headerSpellingCompiles = ok;
+            }
+            if (i == kReadonlyCandidate)
+            {
+                EXPECT_FALSE(ok)
+                    << "`readonly` on a bindless image local COMPILED, which contradicts the rule "
+                       "include/BindlessHeap.glsl documents (initialising a readonly variable is a write). "
+                       "If a driver starts accepting it, the header's advice to pass OLO_HEAP_IMAGE_RW in "
+                       "place of `readonly` is over-cautious and can be revisited — but do not simply "
+                       "delete this expectation, because the shaders that hit it fall back SILENTLY.";
+            }
+        }
+
+        EXPECT_TRUE(headerSpellingCompiles)
+            << "include/BindlessHeap.glsl's OLO_HEAP_IMAGE_* macros use a spelling this driver rejects. "
+               "The log above lists which alternatives it accepts — change the header to one of them.";
+    }
+
+    // The headline: a compute shader writes real texels through nothing but an
+    // integer, and the texels come back exactly right. `imageStore(coord) =
+    // x + 10*y` makes every texel distinguishable, so a transposed or collapsed
+    // write is a different failure from a missing one.
+    TEST_F(HeapGpuFixture, AComputeShaderWritesThroughAStorageImageDescriptor)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        std::string log;
+        const GLuint compute = BuildComputeProgram(kImageComputeSource, log);
+        ASSERT_NE(compute, 0u) << "Bindless storage-image GLSL failed to build via glShaderSource:\n"
+                               << log;
+
+        const GLuint texture = MakeStorageTexture();
+        OwnedTextures.push_back(texture);
+        const RHI::ResourceHandle resource = RegisterTexture(texture);
+
+        auto& heap = RHI::DescriptorHeap::Get();
+        const RHI::ViewHandle view = heap.CreateStorageView(
+            resource,
+            RHI::MakeStorageViewDesc(resource, 0u, false, 0u, RHI::Access::StorageWrite, RHI::Format::R32Float),
+            RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(view.IsValid()) << "The backend must be able to realise a whole-level storage view.";
+
+        const RHI::HeapOffset offset = RHI::OffsetOf(view);
+        ASSERT_TRUE(offset.IsValid());
+
+        const std::array<u32, 4> offsets = { offset.Value, 0u, 0u, 0u };
+        glNamedBufferSubData(OffsetsUbo, 0, static_cast<GLsizeiptr>(sizeof(offsets)), offsets.data());
+
+        heap.Flush();
+        glUseProgram(compute);
+        glBindBufferBase(GL_UNIFORM_BUFFER, 9, OffsetsUbo);
+        glDispatchCompute(1, 1, 1);
+        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_UPDATE_BARRIER_BIT);
+        glFinish();
+        glUseProgram(0);
+
+        const auto pixels = ReadStorageTexture(texture);
+        EXPECT_FLOAT_EQ(pixels[0], 0.0f);  // (0,0)
+        EXPECT_FLOAT_EQ(pixels[1], 1.0f);  // (1,0)
+        EXPECT_FLOAT_EQ(pixels[2], 10.0f); // (0,1)
+        EXPECT_FLOAT_EQ(pixels[3], 11.0f); // (1,1)
+        EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+        EXPECT_EQ(Backend.GetStats().ResidentImageHandles, 1u)
+            << "An image handle has its OWN residency namespace; it must not be counted as a sampler handle.";
+
+        glDeleteProgram(compute);
+    }
+
+    // THE REBASE, through the real seam. Image units and texture units are
+    // separate GL namespaces that both start at 0, so image unit 1 and
+    // TEX_SPECULAR would collide in a single-index offset table. This drives
+    // `HeapBinding::BindImageOrOffset` — the call a converted compute pass writes
+    // — and the shader reads image unit 1 through OLO_HEAP_IMAGE_BASE + 1.
+    //
+    // A missing or mismatched base does not render black: it reads whatever
+    // descriptor the colliding TEXTURE slot published, which is a real resource
+    // of the wrong kind.
+    TEST_F(HeapGpuFixture, AnImageUnitReachesTheShaderThroughTheRebasedOffsetTable)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        std::string log;
+        const GLuint compute = BuildComputeProgram(kSlotIndexedImageCompute, log);
+        ASSERT_NE(compute, 0u) << "Slot-indexed bindless storage-image GLSL failed to build:\n"
+                               << log;
+
+        const GLuint texture = MakeStorageTexture();
+        OwnedTextures.push_back(texture);
+        const RHI::ResourceHandle resource = RegisterTexture(texture);
+
+        // A DIFFERENT texture on the colliding TEXTURE slot, so a missing rebase
+        // is caught as "wrote the wrong object" rather than passing by luck on an
+        // empty table.
+        const GLuint decoy = MakeSolidTexture(255u, 255u, 255u, 255u);
+        OwnedTextures.push_back(decoy);
+        const RHI::ResourceHandle decoyResource = RegisterTexture(decoy);
+
+        // Nothing runs OpenGLShader::Bind() here (the program is raw
+        // glShaderSource + glUseProgram), so declare the program bindless by hand
+        // — the seam correctly refuses the heap path for a program it believes is
+        // slot-based.
+        Shader::SetBoundProgramBindless(true);
+
+        RHI::SamplerDesc sampler;
+        sampler.MinFilter = RHI::Filter::Nearest;
+        sampler.MagFilter = RHI::Filter::Nearest;
+        sampler.LinearMipFilter = false;
+        (void)HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_SPECULAR, decoyResource,
+                                               RHI::HeapSlotLifetime::Persistent, sampler);
+
+        const RHI::HeapOffset imageOffset =
+            HeapBinding::BindImageOrOffset(/*imageUnit*/ 1u, resource, /*mipLevel*/ 0u, /*layered*/ false,
+                                           /*layer*/ 0u, RHI::Access::StorageWrite, RHI::Format::R32Float,
+                                           RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(imageOffset.IsValid()) << "The seam must have taken the heap path, not the fallback bind.";
+
+        // The two must land at DIFFERENT table indices even though both name "1".
+        EXPECT_EQ(HeapBinding::StagedOffsetAt(ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE + 1u).Value,
+                  imageOffset.Value);
+        EXPECT_NE(HeapBinding::StagedOffsetAt(ShaderBindingLayout::TEX_SPECULAR).Value, imageOffset.Value)
+            << "Image unit 1 must not have overwritten texture slot 1's offset.";
+
+        // ONLY the pass-side call — the same discipline the sampler seam test
+        // documents. Calling DescriptorHeap::Flush() by hand here would supply the
+        // publish the engine is supposed to perform and hide its absence.
+        HeapBinding::FlushOffsets();
+
+        glUseProgram(compute);
+        glDispatchCompute(1, 1, 1);
+        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_UPDATE_BARRIER_BIT);
+        glFinish();
+        glUseProgram(0);
+
+        const auto pixels = ReadStorageTexture(texture);
+        EXPECT_FLOAT_EQ(pixels[0], 0.0f);
+        EXPECT_FLOAT_EQ(pixels[1], 1.0f);
+        EXPECT_FLOAT_EQ(pixels[2], 10.0f);
+        EXPECT_FLOAT_EQ(pixels[3], 11.0f);
+        EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+
+        glDeleteProgram(compute);
+    }
+
+    // Two mip levels of ONE texture are two descriptors. HZBGenerator binds four
+    // in a single dispatch, and under the pre-storage memo key — which carried no
+    // mip — the second would have been served the first's view and the whole
+    // pyramid would have been written at level 0. That failure renders a
+    // plausible frame with a broken occlusion pyramid.
+    TEST_F(HeapGpuFixture, TwoMipsOfOneTextureProduceTwoDistinctImageDescriptors)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        GLuint texture = 0u;
+        glCreateTextures(GL_TEXTURE_2D, 1, &texture);
+        glTextureStorage2D(texture, 2, GL_R32F, 2, 2); // two mips
+        OwnedTextures.push_back(texture);
+        const RHI::ResourceHandle resource = RegisterTexture(texture);
+
+        auto& heap = RHI::DescriptorHeap::Get();
+        const RHI::ViewHandle mip0 = heap.GetOrCreateStorageView(
+            resource,
+            RHI::MakeStorageViewDesc(resource, 0u, false, 0u, RHI::Access::StorageWrite, RHI::Format::R32Float),
+            RHI::HeapSlotLifetime::Persistent);
+        const RHI::ViewHandle mip1 = heap.GetOrCreateStorageView(
+            resource,
+            RHI::MakeStorageViewDesc(resource, 1u, false, 0u, RHI::Access::StorageWrite, RHI::Format::R32Float),
+            RHI::HeapSlotLifetime::Persistent);
+
+        ASSERT_TRUE(mip0.IsValid());
+        ASSERT_TRUE(mip1.IsValid());
+        EXPECT_NE(RHI::OffsetOf(mip0).Value, RHI::OffsetOf(mip1).Value) << "Two heap slots.";
+        EXPECT_EQ(Backend.GetStats().ResidentImageHandles, 2u)
+            << "…and two DISTINCT driver handles: glGetImageHandleARB keys on the level.";
+        EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+    }
+
+    // ACCESS WIDENING. `glGetImageHandleARB` takes no access, so a read-only and
+    // a read-write view of the same (texture, level, layer, format) are literally
+    // the same driver handle — but reading a WRITE_ONLY-resident handle is
+    // undefined. GTAO does exactly this within one frame, so the backend has to
+    // notice and re-make the handle resident READ_WRITE.
+    //
+    // Asserted through glGetError as well as the counter, because the failure
+    // mode if the widening were done naively (resident-while-already-resident) is
+    // an INVALID_OPERATION rather than a wrong pixel.
+    TEST_F(HeapGpuFixture, TwoAccessesOfOneImageWidenResidencyInsteadOfDoubleResidentTransitioning)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        const GLuint texture = MakeStorageTexture();
+        OwnedTextures.push_back(texture);
+        const RHI::ResourceHandle resource = RegisterTexture(texture);
+
+        auto& heap = RHI::DescriptorHeap::Get();
+        const RHI::ViewHandle writeView = heap.GetOrCreateStorageView(
+            resource,
+            RHI::MakeStorageViewDesc(resource, 0u, false, 0u, RHI::Access::StorageWrite, RHI::Format::R32Float),
+            RHI::HeapSlotLifetime::Persistent);
+        const RHI::ViewHandle readView = heap.GetOrCreateStorageView(
+            resource,
+            RHI::MakeStorageViewDesc(resource, 0u, false, 0u, RHI::Access::StorageRead, RHI::Format::R32Float),
+            RHI::HeapSlotLifetime::Persistent);
+
+        ASSERT_TRUE(writeView.IsValid());
+        ASSERT_TRUE(readView.IsValid());
+        EXPECT_NE(RHI::OffsetOf(writeView).Value, RHI::OffsetOf(readView).Value)
+            << "Access is part of the neutral view key, so these are two views…";
+        EXPECT_EQ(Backend.GetStats().ResidentImageHandles, 1u)
+            << "…but GL folds them to ONE handle, which is why residency needs widening rather than a second "
+               "transition.";
+        EXPECT_EQ(Backend.GetStats().ImageResidencyWidenings, 1u);
+        EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR))
+            << "Making an already-resident handle resident again is an INVALID_OPERATION.";
+    }
+
+    // A storage view with no format is DECLINED, not guessed. The format is part
+    // of the binding contract (it has to match the shader's layout qualifier), so
+    // inheriting the resource's would hand the shader a handle it reads through
+    // the wrong interpretation — a plausible wrong image, the worst outcome this
+    // model can produce.
+    TEST_F(HeapGpuFixture, AStorageViewWithoutAFormatIsDeclinedRatherThanGuessed)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        const GLuint texture = MakeStorageTexture();
+        OwnedTextures.push_back(texture);
+        const RHI::ResourceHandle resource = RegisterTexture(texture);
+
+        const u64 unsupportedBefore = Backend.GetStats().UnsupportedViews;
+
+        RHI::ViewDesc desc = RHI::MakeStorageViewDesc(resource, 0u, false, 0u, RHI::Access::StorageWrite,
+                                                      RHI::Format::Unknown);
+        const RHI::ViewHandle view =
+            RHI::DescriptorHeap::Get().CreateStorageView(resource, desc, RHI::HeapSlotLifetime::Persistent);
+
+        EXPECT_FALSE(view.IsValid()) << "No handle at all — a caller must fall back to the slot-based bind.";
+        EXPECT_EQ(Backend.GetStats().UnsupportedViews, unsupportedBefore + 1u)
+            << "…and the refusal must be COUNTED, or it is invisible in a frame that merely looks wrong.";
+    }
+
+    // The image kind's reserved null slot holds an IMAGE descriptor. Pointing a
+    // cleared image binding at slot 0 — which holds a SAMPLER handle — would swap
+    // a stale-read bug for an undefined-behaviour one. This checks the seam
+    // stages the right one, which is the decision a call site cannot see.
+    TEST_F(HeapGpuFixture, AFailedImageBindingPointsAtTheImageNullNotTheSamplerNull)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        Shader::SetBoundProgramBindless(true);
+
+        // NullResource is dead by construction, so the heap declines and the seam
+        // takes its fallback path — exactly what a pass saying "I am not using
+        // this image this frame" produces.
+        const RHI::HeapOffset offset =
+            HeapBinding::BindImageOrOffset(/*imageUnit*/ 2u, RHI::NullResource, 0u, false, 0u,
+                                           RHI::Access::StorageWrite, RHI::Format::R32Float,
+                                           RHI::HeapSlotLifetime::Persistent);
+
+        EXPECT_FALSE(offset.IsValid());
+        EXPECT_EQ(HeapBinding::StagedOffsetAt(ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE + 2u).Value,
+                  RHI::kNullStorageHeapOffset)
+            << "A cleared IMAGE binding must point at the image null (slot 1), not the sampler null (slot 0).";
     }
 } // namespace OloEngine::Tests

@@ -1232,6 +1232,14 @@ namespace OloEngine
         m_RendererID = program;
         m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
 
+        // Record the variant against the NATIVE id so a bind that never reaches
+        // Bind() — CommandDispatch binds by handle through
+        // RendererAPI::BindShaderProgram — can still publish it. Registered
+        // unconditionally (true AND false) because GL reissues freed program
+        // names: a slot-based program inheriting a retired bindless id would
+        // otherwise be told it reads the heap (issue #691 Phase 3).
+        Shader::RegisterProgramBindless(m_RendererID, m_IsBindlessVariant);
+
         // Name the program for GPU debuggers (RenderDoc/NSight) and register it
         // in the CPU-side label registry so the GL debug callback can resolve
         // driver perf messages that reference a raw program id (e.g. NVIDIA
@@ -2028,6 +2036,13 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glUseProgram(0);
+
+        // No program is bound, so no program reads the heap. Bind() publishes
+        // this flag and Unbind() has to retract it, or a bind issued between an
+        // Unbind and the next Bind takes the heap path on the strength of a
+        // program that is no longer in flight — recording an offset and skipping
+        // the bind for nobody (issue #691 Phase 3).
+        Shader::SetBoundProgramBindless(false);
     }
     void OpenGLShader::SetInt(const std::string& name, const int value) const
     {

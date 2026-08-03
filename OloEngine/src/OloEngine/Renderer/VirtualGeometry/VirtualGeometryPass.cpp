@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryPass.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
@@ -419,6 +420,17 @@ namespace OloEngine
             if (debugActive)
             {
                 // Image units 0/1 (separate namespace from the sampler texture units).
+                //
+                // DELIBERATELY NOT CONVERTED to the heap (issue #691 Phase 3). These feed
+                // VirtualMeshGBuffer.glsl, and the bindless compile route produces no
+                // SPIR-V and therefore never runs Reflect() — so a G-Buffer shader taken
+                // down it would have m_IsDeferredCapable stay false and be misrouted out
+                // of the deferred producer bucket into the forward-overlay fallback.
+                // OpenGLShader::CreateProgramFromRawGLSL detects and errors on exactly
+                // this. Converting the CALL SITE alone would be safe (the seam falls back
+                // for a program that is not the bindless variant) and would buy nothing
+                // but a lower ratchet number, which is the opposite of what the counter
+                // is for. Revisit when the bindless route gains a reflection source.
                 RenderCommand::BindImageTexture(0, registry.GetDebugColorTexture(), 0, false, 0,
                                                 RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm);
                 RenderCommand::BindImageTexture(1, registry.GetDebugCountTexture(), 0, false, 0,
@@ -606,14 +618,23 @@ namespace OloEngine
         if (debugMode == VirtualDebugMode::Overdraw && m_ColorizeShader)
         {
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess);
-            RenderCommand::BindImageTexture(0, registry.GetDebugColorTexture(), 0, false, 0,
-                                            RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm);
-            RenderCommand::BindImageTexture(1, registry.GetDebugCountTexture(), 0, false, 0,
-                                            RHI::Access::StorageRead, RHI::Format::R32UInt);
+            // THE SHADER IS BOUND FIRST, and under the heap that ordering is
+            // load-bearing: the binding seam asks Shader::IsBoundProgramBindless() to
+            // choose between writing an offset and issuing a bind, and that flag
+            // describes the program in flight. Binding the images first would take the
+            // fallback path even with the heap enabled.
             m_ColorizeShader->Bind();
             m_ColorizeShader->SetUint("u_Width", registry.GetDebugWidth());
             m_ColorizeShader->SetUint("u_Height", registry.GetDebugHeight());
             m_ColorizeShader->SetFloat("u_OverdrawScale", 8.0f);
+            // Persistent: the debug targets are registry-owned and survive the frame.
+            HeapBinding::BindImageOrOffset(0, registry.GetDebugColorTexture(), 0, false, 0,
+                                           RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm,
+                                           RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindImageOrOffset(1, registry.GetDebugCountTexture(), 0, false, 0,
+                                           RHI::Access::StorageRead, RHI::Format::R32UInt,
+                                           RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::FlushOffsets();
             u32 const gx = (registry.GetDebugWidth() + 7u) / 8u;
             u32 const gy = (registry.GetDebugHeight() + 7u) / 8u;
             RenderCommand::DispatchCompute(gx, gy, 1);

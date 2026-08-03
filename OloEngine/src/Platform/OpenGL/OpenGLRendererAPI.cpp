@@ -4,6 +4,7 @@
 #include "Platform/OpenGL/OpenGLUtilities.h"
 #include "Platform/OpenGL/OpenGLRHIConversions.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <glad/gl.h>
@@ -1238,6 +1239,22 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glUseProgram(programID);
+
+        // PUBLISH WHETHER THIS PROGRAM READS THE HEAP (issue #691 Phase 3).
+        //
+        // OpenGLShader::Bind() does this from its own m_IsBindlessVariant, but the
+        // command layer never goes through it — CommandDispatch binds by handle
+        // and lands here, so without this line the flag keeps whatever the last
+        // post-process shader set. The binding seam then makes the wrong choice
+        // for every command-dispatched draw, in both directions: it skips a bind
+        // an unconverted program needed, or writes a bind a converted program
+        // ignores in favour of an offset nobody wrote.
+        //
+        // Found by running the editor with OLO_RHI_BINDLESS=1 and looking at the
+        // frame: the sky was black and the terrain was missing, with a completely
+        // clean log and 5296 passing tests. No unit test can see it, because the
+        // suite never builds a bindless variant at all.
+        Shader::SetBoundProgramBindless(Shader::IsProgramBindless(programID));
     }
 
     void OpenGLRendererAPI::BindVertexArrayRaw(u32 vaoID)
