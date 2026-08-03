@@ -567,6 +567,65 @@ namespace OloEngine::RHI
         m_Backend->BindHeap();
     }
 
+    void DescriptorHeap::RetireResource(ResourceHandle resource)
+    {
+        const std::lock_guard lock(m_Mutex);
+
+        // NOT gated on m_Enabled, unlike InvalidateResource. Views minted while
+        // the heap was on must still be torn down if the toggle flips off before
+        // the texture dies — otherwise their residency outlives the object and
+        // the delete faults anyway.
+        if (m_Backend == nullptr)
+        {
+            return;
+        }
+
+        const auto it = m_ViewsByResource.find(resource.Index);
+        if (it == m_ViewsByResource.end())
+        {
+            return;
+        }
+
+        // ReleaseSlotLocked erases from m_ViewsByResource as it goes, so iterate
+        // a copy rather than the live vector.
+        const std::vector<u32> indices = it->second;
+        for (const u32 index : indices)
+        {
+            ViewSlot& slot = m_Slots[index];
+            if (!slot.Live || slot.Resource != resource)
+            {
+                continue;
+            }
+
+            const bool persistent = slot.Lifetime == HeapSlotLifetime::Persistent;
+
+            // Drops residency (refcounted), poisons the published slot and
+            // advances the generation so held handles report stale.
+            ReleaseSlotLocked(index);
+
+            // A transient slot belongs to the ring cursor and is reclaimed
+            // wholesale at the frame boundary; handing it to the free list would
+            // let it be allocated twice in one frame.
+            if (persistent)
+            {
+                m_PersistentFreeList.push_back(index);
+                if (m_Stats.PersistentLive > 0u)
+                {
+                    --m_Stats.PersistentLive;
+                }
+            }
+        }
+
+        // Any memoised entry now points at a retired view. GetOrCreateView
+        // revalidates before returning a hit, so a stale entry is already safe —
+        // but dropping them here keeps the cache from growing across a resize
+        // storm, and makes the next lookup a clean miss rather than a
+        // validate-then-evict.
+        std::erase_if(m_PersistentViewCache,
+                      [this](const auto& entry)
+                      { return !IsSlotLiveLocked(entry.second); });
+    }
+
     void DescriptorHeap::InvalidateResource(ResourceHandle resource)
     {
         const std::lock_guard lock(m_Mutex);

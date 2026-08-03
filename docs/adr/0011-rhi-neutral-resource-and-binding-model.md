@@ -1346,6 +1346,38 @@ Generalisable past this issue: when a layer deliberately makes an identity
 outlive its storage, every cache keyed on that identity needs an explicit
 invalidation hook, because the identity can no longer report the change.
 
+**CORRECTION (2026-08-03) — this amendment as written is dangerous, and was
+followed literally into a process-killing bug.** "Every site that recreates a
+resource's storage must call `InvalidateResource`" does not distinguish a
+resource whose storage is REPLACED from one that is DESTROYED, and the two need
+opposite handling:
+
+| | Call | Why |
+| --- | --- | --- |
+| Hot reload — object lives, storage replaced | `InvalidateResource` | Releases the old descriptor and **acquires a new one**, so the view keeps working |
+| **Destruction — object goes away** | **`RetireResource`** | Drops residency, poisons the slot, advances generations |
+
+`InvalidateResource`'s re-acquire is the whole point on a reload and is fatal on
+a delete: under `ARB_bindless_texture` it makes the handle **resident again**,
+and `glDeleteTextures` on a texture with a resident handle is undefined. A
+framebuffer resize deletes every attachment, so this is an ordinary path, not an
+exotic one.
+
+Observed as the editor exiting **silently on every maximise** — no assertion, no
+queued GL error, no log line, because the fault is inside the driver. The
+companion symptom was a flickering viewport. Neither is reachable by anything
+this repo tests automatically: the suite never enables the heap, and a
+screenshot A/B is blind to a temporal artifact by construction. It took a human
+resizing a window, which is exactly the dependency
+`RetiringAResourceDropsResidencySoTheTextureCanBeDeletedSafely` now removes.
+
+Both calls are wired into the texture/framebuffer lifecycle beside their
+slot-path sibling `InvalidateTextureBinding`, rather than left to call sites to
+remember. That siting is the actual fix: the heap hook had **two** hand-written
+call sites in the whole engine while the slot-path hook was automatic for every
+texture, and an invalidation contract that depends on every future author
+remembering it is one that will be broken again.
+
 ### (23) §1.2a's sampler deduplication is the one piece of new machinery Phase 4 inherits directly
 
 §1.2a predicted the engine has "no existing concept to migrate" for the sampler

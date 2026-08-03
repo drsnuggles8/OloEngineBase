@@ -54,6 +54,7 @@
 
 #include <glad/gl.h>
 
+#include <algorithm>
 #include <array>
 #include <iostream>
 #include <string>
@@ -1244,6 +1245,61 @@ void main()
         EXPECT_FALSE(view.IsValid()) << "No handle at all — a caller must fall back to the slot-based bind.";
         EXPECT_EQ(Backend.GetStats().UnsupportedViews, unsupportedBefore + 1u)
             << "…and the refusal must be COUNTED, or it is invisible in a frame that merely looks wrong.";
+    }
+
+    // -------------------------------------------------------------------------
+    // DELETING A TEXTURE THAT STILL HAS A RESIDENT HANDLE IS UNDEFINED, and this
+    // is the test that stands in for a person resizing a window.
+    //
+    // A framebuffer resize deletes its attachments. The heap held persistent
+    // views for them, and the destruction path called `InvalidateResource` —
+    // which RE-ACQUIRES, so the handle was made resident again on a texture about
+    // to be deleted. The editor exited silently on every maximise: no assertion,
+    // no GL error queued, no log line, because the fault is inside the driver.
+    //
+    // Nothing else in the suite could see it. A compile cannot; the full suite
+    // cannot (it never enables the heap); a screenshot A/B cannot (the symptom is
+    // a teardown fault, and the companion symptom — a flickering viewport — is
+    // temporal, which a still frame is blind to by construction).
+    //
+    // So this asserts the ONE property that makes the delete legal: after
+    // retiring, the handle is no longer resident.
+    // -------------------------------------------------------------------------
+    TEST_F(HeapGpuFixture, RetiringAResourceDropsResidencySoTheTextureCanBeDeletedSafely)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        const GLuint texture = MakeSolidTexture(200u, 100u, 50u, 255u);
+        const RHI::ResourceHandle resource = RegisterTexture(texture);
+
+        RHI::SamplerDesc sampler;
+        sampler.MinFilter = RHI::Filter::Nearest;
+        sampler.MagFilter = RHI::Filter::Nearest;
+        sampler.LinearMipFilter = false;
+
+        auto& heap = RHI::DescriptorHeap::Get();
+        const RHI::ViewHandle view = heap.CreateView(resource, RHI::ViewDesc{}, sampler,
+                                                     RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(view.IsValid());
+        ASSERT_EQ(Backend.GetStats().ResidentHandles, 1u) << "Precondition: the handle is resident.";
+
+        heap.RetireResource(resource);
+
+        EXPECT_EQ(Backend.GetStats().ResidentHandles, 0u)
+            << "RESIDENCY MUST BE DROPPED BEFORE THE OBJECT DIES. With it still resident, the "
+               "glDeleteTextures below is undefined behaviour — which is how the editor was exiting "
+               "with no diagnostic at all.";
+        EXPECT_FALSE(RHI::OffsetOf(view).IsValid()) << "…and the view must report stale.";
+
+        // The delete the engine performs next. Legal only because of the above.
+        glDeleteTextures(1, &texture);
+        EXPECT_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
+
+        // Retire already unregistered nothing on our behalf, so tidy the registry
+        // entry by hand — the fixture would otherwise resolve it to a dead name.
+        RHI::ResourceRegistry::Get().Unregister(resource);
+        OwnedHandles.erase(std::remove(OwnedHandles.begin(), OwnedHandles.end(), resource),
+                           OwnedHandles.end());
     }
 
     // The image kind's reserved null slot holds an IMAGE descriptor. Pointing a

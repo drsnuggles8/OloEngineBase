@@ -2,6 +2,7 @@
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
@@ -93,6 +94,34 @@ namespace OloEngine
             // too), so these are new objects — unlike a texture hot-reload,
             // where identity is deliberately preserved. Anything holding the
             // old handles must see them go stale rather than silently follow.
+            // RETIRE THE HEAP'S VIEWS FIRST, while the handles still name
+            // these objects. A bindless descriptor names the underlying GL
+            // texture, so the deletion above dangles every view any pass holds
+            // for these attachments — and `OffsetOf` cannot detect it, because
+            // the VIEW's own generation has not moved (ADR 0011 amendment (22)).
+            //
+            // This is the site that made the gap visible: a resize recreates
+            // every attachment, so with converted passes holding Persistent views
+            // the next frame samples deleted textures. Sampling a dead bindless
+            // handle is undefined behaviour rather than a black read — observed
+            // as a flickering viewport and a hard crash when the window was
+            // maximised.
+            //
+            // RetireResource, NOT InvalidateResource: the latter re-ACQUIRES a
+            // descriptor, which makes the handle resident again on a texture that
+            // is about to be deleted — and glDeleteTextures on a texture with a
+            // resident handle is undefined, which is how the editor was exiting
+            // silently on every maximise. Retire drops residency and poisons the
+            // slot instead.
+            //
+            // Must run BEFORE the handles are cleared: views are matched by handle,
+            // so a cleared handle finds nothing to retire.
+            for (const auto& handle : m_ColorAttachmentHandles)
+            {
+                RHI::DescriptorHeap::Get().RetireResource(handle.Get());
+            }
+            RHI::DescriptorHeap::Get().RetireResource(m_DepthAttachmentHandle.Get());
+
             m_ColorAttachmentHandles.clear();
             m_DepthAttachmentHandle.Reset();
         }

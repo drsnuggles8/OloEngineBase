@@ -994,6 +994,92 @@ namespace OloEngine::Tests
         EXPECT_EQ(Backend.AcquiredViews.front().Usage, RHI::ViewUsage::Storage);
     }
 
+    // =========================================================================
+    // RETIRE vs INVALIDATE — destruction is not re-creation.
+    //
+    // These exist because conflating the two silently killed the editor: a
+    // framebuffer resize deletes its attachments, InvalidateResource was called,
+    // and it RE-ACQUIRES a descriptor — making the bindless handle resident again
+    // on a texture about to be destroyed. glDeleteTextures on a texture with a
+    // resident handle is undefined, and the process exited with no log at all.
+    //
+    // Neither a compile, the full suite, nor a screenshot A/B could see it: the
+    // symptom is a driver-level fault at teardown, and the visual symptom
+    // (flicker) is temporal. It took a person resizing a window. These tests are
+    // the cheap standing guard that replaces that.
+    // =========================================================================
+
+    TEST_F(HeapFixture, RetireResourceReleasesTheDescriptorAndDoesNotReacquireIt)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(950u);
+        const RHI::ViewHandle view = heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(view.IsValid());
+
+        const u32 acquiresBefore = Backend.Acquires;
+        const u32 releasesBefore = Backend.Releases;
+
+        heap.RetireResource(resource);
+
+        EXPECT_EQ(Backend.Releases, releasesBefore + 1u) << "The descriptor must be released.";
+        EXPECT_EQ(Backend.Acquires, acquiresBefore)
+            << "RETIRE MUST NOT RE-ACQUIRE. InvalidateResource does, which is right for a reload and "
+               "fatal for a delete — it re-makes the handle resident on an object that is about to be "
+               "destroyed.";
+        EXPECT_FALSE(RHI::OffsetOf(view).IsValid())
+            << "A retired view's offset must report stale, not resolve into a slot someone else now owns.";
+    }
+
+    // The distinction stated as a contract, so a future refactor that "unifies"
+    // the two functions fails here instead of in a driver.
+    TEST_F(HeapFixture, InvalidateReacquiresWhereRetireDoesNot)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle reloaded = MakeResource(951u);
+        ASSERT_TRUE(heap.CreateView(reloaded, {}, {}, RHI::HeapSlotLifetime::Persistent).IsValid());
+        const u32 beforeInvalidate = Backend.Acquires;
+        heap.InvalidateResource(reloaded);
+        EXPECT_EQ(Backend.Acquires, beforeInvalidate + 1u)
+            << "A reload must re-describe the view — the object lives on and its handle stays valid.";
+
+        const RHI::ResourceHandle destroyed = MakeResource(952u);
+        ASSERT_TRUE(heap.CreateView(destroyed, {}, {}, RHI::HeapSlotLifetime::Persistent).IsValid());
+        const u32 beforeRetire = Backend.Acquires;
+        heap.RetireResource(destroyed);
+        EXPECT_EQ(Backend.Acquires, beforeRetire)
+            << "A destruction must NOT re-describe it.";
+    }
+
+    // The retired slot must go back to the free list, or a resize storm leaks the
+    // persistent region until the heap reports exhaustion for no visible reason.
+    TEST_F(HeapFixture, RetiredPersistentSlotsAreReusable)
+    {
+        SetUpHeap(/*persistent*/ 8u, /*transient*/ 4u);
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        // 6 allocatable slots (2 are the reserved nulls). Churn well past that.
+        for (u32 round = 0u; round < 5u; ++round)
+        {
+            std::vector<RHI::ResourceHandle> live;
+            for (u32 i = 0u; i < 6u; ++i)
+            {
+                const RHI::ResourceHandle r = MakeResource(960u + round * 10u + i);
+                ASSERT_TRUE(heap.CreateView(r, {}, {}, RHI::HeapSlotLifetime::Persistent).IsValid())
+                    << "round " << round << " view " << i << " — slots were not returned by RetireResource";
+                live.push_back(r);
+            }
+            for (const RHI::ResourceHandle r : live)
+            {
+                heap.RetireResource(r);
+            }
+        }
+        EXPECT_EQ(heap.GetStats().PersistentOverflows, 0u);
+    }
+
     // CreateStorageView forces the kind rather than trusting the caller's desc. A
     // hand-rolled desc that forgot `Usage` would otherwise get a SAMPLER
     // descriptor back from a function named CreateStorageView — silent, and the

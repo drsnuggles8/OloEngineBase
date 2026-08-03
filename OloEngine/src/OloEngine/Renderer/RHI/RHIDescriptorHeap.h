@@ -333,6 +333,33 @@ namespace OloEngine::RHI
         // ---------------------------------------------------------------------
         void InvalidateResource(ResourceHandle resource);
 
+        // ---------------------------------------------------------------------
+        // DESTRUCTION IS NOT RE-CREATION, and conflating them kills the process.
+        //
+        // `InvalidateResource` above re-describes a view whose STORAGE changed
+        // while the object lives on — it releases the old descriptor and
+        // ACQUIRES A NEW ONE, which under `ARB_bindless_texture` makes the handle
+        // RESIDENT AGAIN. That is right for a hot reload and catastrophic for a
+        // delete: `glDeleteTextures` on a texture that still has a resident
+        // handle is undefined, and in practice takes the driver — and the whole
+        // process — down with no log line to show for it.
+        //
+        // Every framebuffer RESIZE deletes its attachments, so this is not an
+        // exotic path. Call this before the GL object goes away; call
+        // `InvalidateResource` only when the object survives and its storage did
+        // not.
+        //
+        // Retires the views outright: residency dropped, slots poisoned,
+        // generations advanced so any held `ViewHandle` reports stale through
+        // `OffsetOf` rather than resolving into a slot that now belongs to
+        // someone else.
+        //
+        // ADR 0011 amendment (22) says "every site that recreates a resource's
+        // storage must call InvalidateResource" and does not draw this
+        // distinction — that omission is what this pair exists to correct.
+        // ---------------------------------------------------------------------
+        void RetireResource(ResourceHandle resource);
+
         struct Stats
         {
             u32 PersistentCapacity = 0;
