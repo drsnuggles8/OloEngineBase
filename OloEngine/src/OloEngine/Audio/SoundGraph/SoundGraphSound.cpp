@@ -261,7 +261,7 @@ namespace OloEngine::Audio::SoundGraph
         // Hand the voice slot back before the graph goes away — the budget holds a raw
         // pointer to this host and must never drive a torn-down one. Also reached from the
         // destructor, which is the only teardown path some owners take.
-        ReleaseVoice();
+        ReleaseVoice(/*restoreGain=*/true);
 
         if (m_Source)
         {
@@ -304,17 +304,24 @@ namespace OloEngine::Audio::SoundGraph
         return params;
     }
 
-    void SoundGraphSound::ReleaseVoice() const
+    void SoundGraphSound::ReleaseVoice(bool restoreGain) const
     {
         const auto handle = m_VoiceHandle.exchange(OloEngine::Audio::kInvalidVoiceHandle, std::memory_order_acq_rel);
         if (handle != OloEngine::Audio::kInvalidVoiceHandle)
         {
             OloEngine::Audio::VoiceManager::Get().Release(handle);
         }
-        // Never leave a released voice muted — the budget is no longer tracking it, so
-        // nothing would ever bring the gain back.
-        m_VoiceGainScale.store(1.0f, std::memory_order_relaxed);
-        ApplyEffectiveGain();
+
+        if (restoreGain)
+        {
+            // The budget is no longer tracking this voice, so nothing else would ever lift
+            // its mute — do it here, before it plays again.
+            m_VoiceGainScale.store(1.0f, std::memory_order_relaxed);
+            ApplyEffectiveGain();
+        }
+        // Otherwise leave the mute in place: this voice is being retired, and the graph
+        // runtime has no way to actually stop, so restoring gain would make a sound that
+        // is supposed to be over audible again.
     }
 
     void SoundGraphSound::SyncVoiceParams() const
@@ -388,7 +395,7 @@ namespace OloEngine::Audio::SoundGraph
         // event: Acquire drives OnVoiceStart synchronously when this voice wins a slot, and
         // that is where the gain is un-muted. Starting a re-triggered sound also drops any
         // previous registration so the budget never holds two records for one graph.
-        ReleaseVoice();
+        ReleaseVoice(/*restoreGain=*/true);
         const auto handle = OloEngine::Audio::VoiceManager::Get().Acquire(this, BuildVoiceParams());
         m_VoiceHandle.store(handle, std::memory_order_release);
         if (handle == OloEngine::Audio::kInvalidVoiceHandle)
@@ -414,7 +421,7 @@ namespace OloEngine::Audio::SoundGraph
 
     bool SoundGraphSound::Stop()
     {
-        ReleaseVoice();
+        ReleaseVoice(/*restoreGain=*/false);
 
         // Cancel any active fades
         m_IsFading = false;
@@ -776,7 +783,7 @@ namespace OloEngine::Audio::SoundGraph
                     // never do so. Scene::InitializeAudioSoundGraph hands the Sound to the
                     // scene and nothing calls Stop() on a graph that simply ended, so
                     // without this every finished one-shot graph holds a slot forever.
-                    ReleaseVoice();
+                    ReleaseVoice(/*restoreGain=*/false);
                     if (m_OnPlaybackComplete)
                         m_OnPlaybackComplete();
                 }

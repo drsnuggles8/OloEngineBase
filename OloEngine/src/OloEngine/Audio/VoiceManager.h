@@ -40,6 +40,11 @@ namespace OloEngine::Audio
         /// never brought back by the budget — only by the owner un-pausing it. Without
         /// this the budget would call OnVoiceStart on a paused source and resume playback
         /// nobody asked for.
+        ///
+        /// MANAGER-OWNED: set only through SetVoicePaused. UpdateParams deliberately
+        /// IGNORES this field on input and carries the manager's own value forward — a
+        /// host's BuildVoiceParams does not track pause state, and the per-frame position
+        /// refresh would otherwise clear it one frame after it was set.
         bool Paused = false;
         /// Playback rate; the logical position of a virtualized voice advances by
         /// deltaSeconds * Pitch so it resumes in the right *phase*, not merely playing.

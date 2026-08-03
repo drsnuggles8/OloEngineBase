@@ -116,11 +116,20 @@ namespace OloEngine
             return;
         }
 
-        // Clearing the pause re-enters the contest. If this voice wins a slot the budget
-        // drives OnVoiceStart itself (seeking to the retained position); if it does not,
-        // the source stays silent rather than pushing the mix over cap — it will come back
-        // when it out-scores someone.
+        // Clearing the pause re-enters the contest. If this voice lost its slot while
+        // paused and now wins one back, the budget drives OnVoiceStart itself (seeking to
+        // the retained position).
         Audio::VoiceManager::Get().SetVoicePaused(handle, false);
+
+        // But a voice that was paused while UNCONTENDED never left VoiceState::Playing —
+        // nobody wanted its slot, so the budget had no transition to emit and will emit
+        // none now. Nothing would restart the backend that Pause() stopped, leaving the
+        // source silently dead. Restarting here covers that case; for a voice the budget
+        // just promoted this is a harmless second start on an already-running sound.
+        if (Audio::VoiceManager::Get().IsAudible(handle))
+        {
+            ::ma_sound_start(m_Sound.get());
+        }
     }
 
     void AudioSource::Stop() const
@@ -309,6 +318,16 @@ namespace OloEngine
 
     void AudioSource::SetVolume(const f32 volume) const
     {
+        // Volume reaches here from YAML, script and the network, and it now feeds the
+        // voice score as well as the mixer — so reject a non-finite value rather than
+        // letting it through (CLAUDE.md / cpp-coding-quality §2, same convention as
+        // SetPriority and SoundGraphSound::SetVolume).
+        if (!std::isfinite(volume))
+        {
+            OLO_CORE_WARN("AudioSource::SetVolume - ignoring non-finite volume; keeping {}", m_Config.VolumeMultiplier);
+            return;
+        }
+
         // Gain feeds the voice score, so every mutator that the budget ranks on has to
         // re-sync — a source faded to silence should become the next steal victim.
         m_Config.VolumeMultiplier = volume;
@@ -318,6 +337,12 @@ namespace OloEngine
 
     void AudioSource::SetPitch(const f32 pitch) const
     {
+        if (!std::isfinite(pitch))
+        {
+            OLO_CORE_WARN("AudioSource::SetPitch - ignoring non-finite pitch; keeping {}", m_Config.PitchMultiplier);
+            return;
+        }
+
         m_Config.PitchMultiplier = pitch;
         SyncVoiceParams();
         ::ma_sound_set_pitch(m_Sound.get(), pitch);

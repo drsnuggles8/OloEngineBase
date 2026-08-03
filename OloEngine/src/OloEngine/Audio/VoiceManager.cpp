@@ -250,8 +250,15 @@ namespace OloEngine::Audio
         const std::scoped_lock lock(m_Mutex);
         if (auto* record = Find(handle))
         {
+            // Paused is MANAGER-OWNED and deliberately not taken from the caller. Hosts
+            // build these params from their own state and none of them carries the flag,
+            // while Scene::UpdateAudio pushes a position refresh for every source every
+            // frame — so honouring the incoming value would silently un-pause every paused
+            // voice within a single frame, defeating SetVoicePaused entirely.
+            const bool paused = record->Params.Paused;
             record->Params = params;
-            record->Score = ComputeScore(params, m_ListenerPosition);
+            record->Params.Paused = paused;
+            record->Score = ComputeScore(record->Params, m_ListenerPosition);
         }
     }
 

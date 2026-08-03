@@ -124,11 +124,21 @@ decision; the budget may take a paused voice's slot away, but must never give it
 that can actually be heard outbids it), and it makes `CanBecomeAudible` return false (so
 only the owner's `SetVoicePaused(handle, false)` can revive it).
 
-Two consequences worth knowing:
+Three consequences worth knowing:
 
-- **An uncontended pause keeps its slot.** Scoring zero only matters when someone wants
-  the slot; with no contender there is nobody to hand it to, and stopping the backend for
-  no gain is pure churn. The budget self-corrects the instant a real contender arrives.
+- **An uncontended pause keeps its slot, and that decides who restarts the backend.**
+  Scoring zero only matters when someone wants the slot; with no contender there is nobody
+  to hand it to, so the voice stays `Playing` and the budget emits no transition. The
+  self-correction — yielding the slot — happens only under contention. The trap is on the
+  way back: because no transition was emitted, **nothing calls `OnVoiceStart`**, so the
+  owner must restart the backend it stopped. `AudioSource::UnPause` therefore clears the
+  pause and *then* starts the sound if the budget still reports it audible; a voice that
+  really did lose its slot is started by the budget instead. Miss that and pause/unpause
+  leaves the source silently dead — playing according to every state query, mute in fact.
+- **`Paused` is manager-owned.** `UpdateParams` deliberately ignores the incoming value
+  and carries its own forward. Hosts build `VoiceParams` from their own state and none of
+  them tracks pause, while `Scene::UpdateAudio` pushes a position refresh for every source
+  every frame — honour the caller's value and every paused voice un-pauses one frame later.
 - **Pause/resume is why `WasAudible` exists.** §3's refusal rule ("a one-shot that only
   ever advanced silently must not be seeked into") would otherwise refuse a one-shot that
   the player *did* hear, was paused mid-way, and then un-paused. The rule keys on whether

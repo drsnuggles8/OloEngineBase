@@ -249,7 +249,14 @@ namespace OloEngine
                 /// Snapshot the current scoring inputs for the budget.
                 OloEngine::Audio::VoiceParams BuildVoiceParams() const;
                 /// Hand the slot back and forget the handle. Idempotent.
-                void ReleaseVoice() const;
+                ///
+                /// `restoreGain` decides whether the budget's mute is lifted on the way
+                /// out. Pass true when the voice is about to play again (Play) or the
+                /// object is going away (teardown); pass FALSE when retiring a voice that
+                /// is meant to fall silent (Stop, natural completion) — the graph runtime
+                /// has no transport, so un-muting a still-running virtualized graph would
+                /// make a stopped sound audible again.
+                void ReleaseVoice(bool restoreGain) const;
                 /// Push refreshed scoring inputs at the budget.
                 void SyncVoiceParams() const;
                 /// Apply m_Volume scaled by the budget's mute state to the live graph.

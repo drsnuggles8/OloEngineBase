@@ -706,6 +706,36 @@ TEST(VoiceManagerPauseTest, UnpausingReEntersTheContestAndResumesAtItsPosition)
     EXPECT_NEAR(host.LastStartPosition, 2.0, 1e-6);
 }
 
+TEST(VoiceManagerPauseTest, UpdateParamsDoesNotClearOwnerPauseIntent)
+{
+    // `Paused` is manager-owned. Hosts build VoiceParams from their own state and none of
+    // them tracks pause, so if UpdateParams honoured the incoming value it would clear the
+    // flag — and Scene::UpdateAudio pushes a position refresh for EVERY source EVERY frame,
+    // so a paused voice would silently un-pause within one frame of being paused.
+    VoiceManager manager;
+    manager.SetMaxVoices(1);
+
+    FakeVoiceHost host;
+    FakeVoiceHost blocker;
+
+    const VoiceHandle voice = manager.Acquire(&host, MakeParams(0.9f));
+    manager.SetVoicePaused(voice, true);
+
+    // Push it virtual so only a promotion could restart it.
+    const VoiceHandle blockerVoice = manager.Acquire(&blocker, MakeParams(0.5f));
+    ASSERT_TRUE(manager.IsVirtual(voice));
+    ASSERT_EQ(host.StartCount, 1u);
+
+    // The per-frame refresh: params rebuilt by the host, carrying Paused = false.
+    manager.UpdateParams(voice, MakeParams(0.9f));
+
+    manager.Release(blockerVoice);
+    manager.Update(1.0f / 60.0f);
+
+    EXPECT_EQ(host.StartCount, 1u) << "a per-frame param refresh cleared the owner's pause intent";
+    EXPECT_TRUE(manager.IsVirtual(voice));
+}
+
 TEST(VoiceManagerPauseTest, ACompletedAudibleOneShotIsStoppedBeforeItsSlotIsReused)
 {
     // Length comes from the decoder, so the tracked position can reach it a hair before
