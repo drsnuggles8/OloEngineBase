@@ -402,6 +402,8 @@ add_executable(OloEngine-Tests
 		AI/GoapTest.cpp
 		# AI Sight-Perception Tests
 		AI/PerceptionMathTest.cpp
+		# AI flocking / boids spatial hash (#731)
+		AI/FlockSpatialHashTest.cpp
 		# Scene spatial acceleration structure (#430)
 		SpatialAccelerationTest.cpp
 		# Inventory Tests
@@ -832,6 +834,7 @@ add_executable(OloEngine-Tests
 		Functional/Dialogue/DialogueAcceptsQuestAndGatesOnStateTest.cpp
 		Functional/AI/BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp
 		Functional/AI/PerceptionMatchesBruteForceViaSpatialIndexTest.cpp
+		Functional/AI/FlockingViaSceneTickTest.cpp
 		Functional/Scripting/LuaReadsTransformOfAnotherEntityTest.cpp
 		Functional/SaveGame/InventoryComponentSceneYAMLRoundTripTest.cpp
 		Functional/SaveGame/HierarchyPreservedAcrossSaveLoadTest.cpp

@@ -134,6 +134,42 @@ OLO_ADD_INTERNAL_CALL(BoatComponent_SetThrottleInput);
 OLO_ADD_INTERNAL_CALL(BoatComponent_GetSteerInput);
 OLO_ADD_INTERNAL_CALL(BoatComponent_SetSteerInput);
 
+// BoidComponent
+OLO_ADD_INTERNAL_CALL(BoidComponent_GetMaxSpeed);
+OLO_ADD_INTERNAL_CALL(BoidComponent_SetMaxSpeed);
+OLO_ADD_INTERNAL_CALL(BoidComponent_GetMaxForce);
+OLO_ADD_INTERNAL_CALL(BoidComponent_SetMaxForce);
+OLO_ADD_INTERNAL_CALL(BoidComponent_GetNeighborRadius);
+OLO_ADD_INTERNAL_CALL(BoidComponent_SetNeighborRadius);
+OLO_ADD_INTERNAL_CALL(BoidComponent_GetSeparationRadius);
+OLO_ADD_INTERNAL_CALL(BoidComponent_SetSeparationRadius);
+OLO_ADD_INTERNAL_CALL(BoidComponent_GetMaxNeighbors);
+OLO_ADD_INTERNAL_CALL(BoidComponent_SetMaxNeighbors);
+OLO_ADD_INTERNAL_CALL(BoidComponent_GetSeparationWeight);
+OLO_ADD_INTERNAL_CALL(BoidComponent_SetSeparationWeight);
+OLO_ADD_INTERNAL_CALL(BoidComponent_GetAlignmentWeight);
+OLO_ADD_INTERNAL_CALL(BoidComponent_SetAlignmentWeight);
+OLO_ADD_INTERNAL_CALL(BoidComponent_GetCohesionWeight);
+OLO_ADD_INTERNAL_CALL(BoidComponent_SetCohesionWeight);
+OLO_ADD_INTERNAL_CALL(BoidComponent_GetGoalWeight);
+OLO_ADD_INTERNAL_CALL(BoidComponent_SetGoalWeight);
+OLO_ADD_INTERNAL_CALL(BoidComponent_GetGoalPosition);
+OLO_ADD_INTERNAL_CALL(BoidComponent_SetGoalPosition);
+OLO_ADD_INTERNAL_CALL(BoidComponent_GetObstacleAvoidWeight);
+OLO_ADD_INTERNAL_CALL(BoidComponent_SetObstacleAvoidWeight);
+OLO_ADD_INTERNAL_CALL(BoidComponent_GetObstacleLookahead);
+OLO_ADD_INTERNAL_CALL(BoidComponent_SetObstacleLookahead);
+OLO_ADD_INTERNAL_CALL(BoidComponent_GetLockYAxis);
+OLO_ADD_INTERNAL_CALL(BoidComponent_SetLockYAxis);
+OLO_ADD_INTERNAL_CALL(BoidComponent_GetFaceVelocity);
+OLO_ADD_INTERNAL_CALL(BoidComponent_SetFaceVelocity);
+OLO_ADD_INTERNAL_CALL(BoidComponent_GetVelocity);
+OLO_ADD_INTERNAL_CALL(BoidComponent_SetVelocity);
+
+// BoidObstacleComponent
+OLO_ADD_INTERNAL_CALL(BoidObstacleComponent_GetRadius);
+OLO_ADD_INTERNAL_CALL(BoidObstacleComponent_SetRadius);
+
 // BoxCollider2DComponent
 OLO_ADD_INTERNAL_CALL(BoxCollider2DComponent_GetOffset);
 OLO_ADD_INTERNAL_CALL(BoxCollider2DComponent_SetOffset);

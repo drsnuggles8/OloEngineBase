@@ -99,6 +99,44 @@ case 2678681430u: // BoatComponent
     comp.m_SteerInput = std::clamp(comp.m_SteerInput, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
     break;
 }
+case 3810890398u: // BoidComponent
+{
+    auto& comp = deserializedEntity.AddComponent<BoidComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_MaxSpeed)) return false;
+    comp.m_MaxSpeed = std::clamp(comp.m_MaxSpeed, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxForce)) return false;
+    comp.m_MaxForce = std::clamp(comp.m_MaxForce, static_cast<f32>(0.0f), static_cast<f32>(10000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_NeighborRadius)) return false;
+    comp.m_NeighborRadius = std::clamp(comp.m_NeighborRadius, static_cast<f32>(0.01f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_SeparationRadius)) return false;
+    comp.m_SeparationRadius = std::clamp(comp.m_SeparationRadius, static_cast<f32>(0.01f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxNeighbors)) return false;
+    comp.m_MaxNeighbors = std::clamp(comp.m_MaxNeighbors, static_cast<u32>(1u), static_cast<u32>(4096u));
+    if (!SceneBinIO::Read(reader, comp.m_SeparationWeight)) return false;
+    comp.m_SeparationWeight = std::clamp(comp.m_SeparationWeight, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_AlignmentWeight)) return false;
+    comp.m_AlignmentWeight = std::clamp(comp.m_AlignmentWeight, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_CohesionWeight)) return false;
+    comp.m_CohesionWeight = std::clamp(comp.m_CohesionWeight, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_GoalWeight)) return false;
+    comp.m_GoalWeight = std::clamp(comp.m_GoalWeight, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_GoalPosition)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_ObstacleAvoidWeight)) return false;
+    comp.m_ObstacleAvoidWeight = std::clamp(comp.m_ObstacleAvoidWeight, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ObstacleLookahead)) return false;
+    comp.m_ObstacleLookahead = std::clamp(comp.m_ObstacleLookahead, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_LockYAxis)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_FaceVelocity)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_Velocity)) return false;
+    break;
+}
+case 3350231697u: // BoidObstacleComponent
+{
+    auto& comp = deserializedEntity.AddComponent<BoidObstacleComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Radius)) return false;
+    comp.m_Radius = std::clamp(comp.m_Radius, static_cast<f32>(0.01f), static_cast<f32>(10000.0f));
+    break;
+}
 case 4273541646u: // BuoyancyComponent
 {
     auto& comp = deserializedEntity.AddComponent<BuoyancyComponent>();

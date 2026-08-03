@@ -1975,6 +1975,8 @@ namespace OloEngine
             DisplayAddComponentEntry<GoapAgentComponent>("GOAP Agent");
             DisplayAddComponentEntry<PerceptionComponent>("Perception");
             DisplayAddComponentEntry<PerceptibleComponent>("Perceptible");
+            DisplayAddComponentEntry<BoidComponent>("Boid (Flocking)");
+            DisplayAddComponentEntry<BoidObstacleComponent>("Boid Obstacle");
 
             ImGui::Separator();
 
@@ -7035,6 +7037,45 @@ namespace OloEngine
             {
                 ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No active path");
             } });
+
+        DrawComponent<BoidComponent>("Boid (Flocking)", entity, [](auto& component)
+                                     {
+            ImGui::SeparatorText("Motion");
+            ImGui::DragFloat("Max Speed", &component.m_MaxSpeed, 0.1f, 0.0f, 1000.0f);
+            ImGui::DragFloat("Max Force", &component.m_MaxForce, 0.1f, 0.0f, 10000.0f);
+            ImGui::Checkbox("Lock Y Axis", &component.m_LockYAxis);
+            ImGui::Checkbox("Face Velocity", &component.m_FaceVelocity);
+            ImGui::DragFloat3("Velocity", &component.m_Velocity.x, 0.1f);
+
+            ImGui::SeparatorText("Neighbourhood");
+            // Neighbour radius drives the spatial hash's cell size, so a flock
+            // with wildly mixed radii costs more per query than a uniform one.
+            ImGui::DragFloat("Neighbor Radius", &component.m_NeighborRadius, 0.1f, 0.01f, 1000.0f);
+            ImGui::DragFloat("Separation Radius", &component.m_SeparationRadius, 0.1f, 0.01f, 1000.0f);
+            int maxNeighbors = static_cast<int>(component.m_MaxNeighbors);
+            if (ImGui::DragInt("Max Neighbors", &maxNeighbors, 1, 1, 4096))
+                component.m_MaxNeighbors = static_cast<u32>(std::clamp(maxNeighbors, 1, 4096));
+
+            ImGui::SeparatorText("Weights");
+            ImGui::DragFloat("Separation", &component.m_SeparationWeight, 0.05f, 0.0f, 100.0f);
+            ImGui::DragFloat("Alignment", &component.m_AlignmentWeight, 0.05f, 0.0f, 100.0f);
+            ImGui::DragFloat("Cohesion", &component.m_CohesionWeight, 0.05f, 0.0f, 100.0f);
+
+            ImGui::SeparatorText("Goal");
+            ImGui::DragFloat("Goal Weight", &component.m_GoalWeight, 0.05f, 0.0f, 100.0f);
+            ImGui::DragFloat3("Goal Position", &component.m_GoalPosition.x, 0.1f);
+
+            ImGui::SeparatorText("Obstacles");
+            ImGui::DragFloat("Avoid Weight", &component.m_ObstacleAvoidWeight, 0.05f, 0.0f, 100.0f);
+            ImGui::DragFloat("Lookahead", &component.m_ObstacleLookahead, 0.1f, 0.0f, 1000.0f);
+
+            // Runtime readout — recomputed by BoidSteering every tick. Zero
+            // neighbours while a flock is clearly clustered means the radius is
+            // smaller than the spacing, not that the hash is broken.
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Neighbors this tick: %u", component.m_NeighborCount); });
+
+        DrawComponent<BoidObstacleComponent>("Boid Obstacle", entity, [](auto& component)
+                                             { ImGui::DragFloat("Radius", &component.m_Radius, 0.05f, 0.01f, 10000.0f); });
 
         DrawComponent<BehaviorTreeComponent>("Behavior Tree", entity, [](auto& component)
                                              {

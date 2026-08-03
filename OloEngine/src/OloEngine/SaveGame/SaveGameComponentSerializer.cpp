@@ -2739,6 +2739,27 @@ namespace OloEngine
         // Runtime path state intentionally excluded — recomputed by the nav system.
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, BoidComponent& c)
+    {
+        ar << c.m_MaxSpeed << c.m_MaxForce;
+        ar << c.m_NeighborRadius << c.m_SeparationRadius << c.m_MaxNeighbors;
+        ar << c.m_SeparationWeight << c.m_AlignmentWeight << c.m_CohesionWeight;
+        ar << c.m_GoalWeight;
+        ar << c.m_GoalPosition.x << c.m_GoalPosition.y << c.m_GoalPosition.z;
+        ar << c.m_ObstacleAvoidWeight << c.m_ObstacleLookahead;
+        ar << c.m_LockYAxis << c.m_FaceVelocity;
+        // Velocity is authored/carried state, not per-tick derived state — a
+        // save reloaded mid-flight must resume with the flock still moving.
+        ar << c.m_Velocity.x << c.m_Velocity.y << c.m_Velocity.z;
+        // m_SteeringForce / m_NeighborCount are recomputed by the next
+        // BoidSteering tick, so they are deliberately excluded.
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, BoidObstacleComponent& c)
+    {
+        ar << c.m_Radius;
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, NameplateComponent& c)
     {
         ar << c.m_Enabled << c.m_ShowHealthBar << c.m_ShowManaBar;
@@ -4088,6 +4109,8 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(DialogueComponent);
         REGISTER_SAVE_COMPONENT(NavMeshBoundsComponent);
         REGISTER_SAVE_COMPONENT(NavAgentComponent);
+        REGISTER_SAVE_COMPONENT(BoidComponent);
+        REGISTER_SAVE_COMPONENT(BoidObstacleComponent);
         REGISTER_SAVE_COMPONENT(NameplateComponent);
         REGISTER_SAVE_COMPONENT(IKTargetComponent);
         REGISTER_SAVE_COMPONENT(SpringBoneComponent);

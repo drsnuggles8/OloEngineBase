@@ -116,6 +116,43 @@ if (auto node = entity["BoatComponent"]; node)
         comp.m_SteerInput = std::clamp(v, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
 }
 
+if (auto node = entity["BoidComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<BoidComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxSpeed"], v))
+        comp.m_MaxSpeed = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxForce"], v))
+        comp.m_MaxForce = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["NeighborRadius"], v))
+        comp.m_NeighborRadius = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SeparationRadius"], v))
+        comp.m_SeparationRadius = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(1000.0f));
+    comp.m_MaxNeighbors = std::clamp(node["MaxNeighbors"].as<u32>(comp.m_MaxNeighbors), static_cast<u32>(1u), static_cast<u32>(4096u));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SeparationWeight"], v))
+        comp.m_SeparationWeight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["AlignmentWeight"], v))
+        comp.m_AlignmentWeight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["CohesionWeight"], v))
+        comp.m_CohesionWeight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["GoalWeight"], v))
+        comp.m_GoalWeight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    comp.m_GoalPosition = node["GoalPosition"].as<glm::vec3>(comp.m_GoalPosition);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ObstacleAvoidWeight"], v))
+        comp.m_ObstacleAvoidWeight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ObstacleLookahead"], v))
+        comp.m_ObstacleLookahead = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    comp.m_LockYAxis = node["LockYAxis"].as<bool>(comp.m_LockYAxis);
+    comp.m_FaceVelocity = node["FaceVelocity"].as<bool>(comp.m_FaceVelocity);
+    comp.m_Velocity = node["Velocity"].as<glm::vec3>(comp.m_Velocity);
+}
+
+if (auto node = entity["BoidObstacleComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<BoidObstacleComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Radius"], v))
+        comp.m_Radius = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(10000.0f));
+}
+
 if (auto node = entity["BuoyancyComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<BuoyancyComponent>();

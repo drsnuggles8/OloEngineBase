@@ -392,6 +392,116 @@ namespace OloEngine
 		}
 	}
 
+	public partial class BoidComponent : Component
+	{
+		public float MaxSpeed
+		{
+			get => InternalCalls.BoidComponent_GetMaxSpeed(Entity.ID);
+			set => InternalCalls.BoidComponent_SetMaxSpeed(Entity.ID, value);
+		}
+
+		public float MaxForce
+		{
+			get => InternalCalls.BoidComponent_GetMaxForce(Entity.ID);
+			set => InternalCalls.BoidComponent_SetMaxForce(Entity.ID, value);
+		}
+
+		public float NeighborRadius
+		{
+			get => InternalCalls.BoidComponent_GetNeighborRadius(Entity.ID);
+			set => InternalCalls.BoidComponent_SetNeighborRadius(Entity.ID, value);
+		}
+
+		public float SeparationRadius
+		{
+			get => InternalCalls.BoidComponent_GetSeparationRadius(Entity.ID);
+			set => InternalCalls.BoidComponent_SetSeparationRadius(Entity.ID, value);
+		}
+
+		public uint MaxNeighbors
+		{
+			get => InternalCalls.BoidComponent_GetMaxNeighbors(Entity.ID);
+			set => InternalCalls.BoidComponent_SetMaxNeighbors(Entity.ID, value);
+		}
+
+		public float SeparationWeight
+		{
+			get => InternalCalls.BoidComponent_GetSeparationWeight(Entity.ID);
+			set => InternalCalls.BoidComponent_SetSeparationWeight(Entity.ID, value);
+		}
+
+		public float AlignmentWeight
+		{
+			get => InternalCalls.BoidComponent_GetAlignmentWeight(Entity.ID);
+			set => InternalCalls.BoidComponent_SetAlignmentWeight(Entity.ID, value);
+		}
+
+		public float CohesionWeight
+		{
+			get => InternalCalls.BoidComponent_GetCohesionWeight(Entity.ID);
+			set => InternalCalls.BoidComponent_SetCohesionWeight(Entity.ID, value);
+		}
+
+		public float GoalWeight
+		{
+			get => InternalCalls.BoidComponent_GetGoalWeight(Entity.ID);
+			set => InternalCalls.BoidComponent_SetGoalWeight(Entity.ID, value);
+		}
+
+		public Vector3 GoalPosition
+		{
+			get
+			{
+				InternalCalls.BoidComponent_GetGoalPosition(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.BoidComponent_SetGoalPosition(Entity.ID, ref value);
+		}
+
+		public float ObstacleAvoidWeight
+		{
+			get => InternalCalls.BoidComponent_GetObstacleAvoidWeight(Entity.ID);
+			set => InternalCalls.BoidComponent_SetObstacleAvoidWeight(Entity.ID, value);
+		}
+
+		public float ObstacleLookahead
+		{
+			get => InternalCalls.BoidComponent_GetObstacleLookahead(Entity.ID);
+			set => InternalCalls.BoidComponent_SetObstacleLookahead(Entity.ID, value);
+		}
+
+		public bool LockYAxis
+		{
+			get => InternalCalls.BoidComponent_GetLockYAxis(Entity.ID);
+			set => InternalCalls.BoidComponent_SetLockYAxis(Entity.ID, value);
+		}
+
+		public bool FaceVelocity
+		{
+			get => InternalCalls.BoidComponent_GetFaceVelocity(Entity.ID);
+			set => InternalCalls.BoidComponent_SetFaceVelocity(Entity.ID, value);
+		}
+
+		public Vector3 Velocity
+		{
+			get
+			{
+				InternalCalls.BoidComponent_GetVelocity(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.BoidComponent_SetVelocity(Entity.ID, ref value);
+		}
+	}
+
+	public partial class BoidObstacleComponent : Component
+	{
+		public float Radius
+		{
+			get => InternalCalls.BoidObstacleComponent_GetRadius(Entity.ID);
+			set => InternalCalls.BoidObstacleComponent_SetRadius(Entity.ID, value);
+		}
+	}
+
 	public partial class BoxCollider2DComponent : Component
 	{
 		public Vector2 Offset

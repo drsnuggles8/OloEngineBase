@@ -62,6 +62,34 @@ if (entity.HasComponent<BoatComponent>())
     SceneBinIO::Write(out, comp.m_SteerInput);
 }
 
+if (entity.HasComponent<BoidComponent>())
+{
+    SceneBinIO::WriteU32(out, 3810890398u); // BoidComponent
+    auto const& comp = entity.GetComponent<BoidComponent>();
+    SceneBinIO::Write(out, comp.m_MaxSpeed);
+    SceneBinIO::Write(out, comp.m_MaxForce);
+    SceneBinIO::Write(out, comp.m_NeighborRadius);
+    SceneBinIO::Write(out, comp.m_SeparationRadius);
+    SceneBinIO::Write(out, comp.m_MaxNeighbors);
+    SceneBinIO::Write(out, comp.m_SeparationWeight);
+    SceneBinIO::Write(out, comp.m_AlignmentWeight);
+    SceneBinIO::Write(out, comp.m_CohesionWeight);
+    SceneBinIO::Write(out, comp.m_GoalWeight);
+    SceneBinIO::Write(out, comp.m_GoalPosition);
+    SceneBinIO::Write(out, comp.m_ObstacleAvoidWeight);
+    SceneBinIO::Write(out, comp.m_ObstacleLookahead);
+    SceneBinIO::Write(out, comp.m_LockYAxis);
+    SceneBinIO::Write(out, comp.m_FaceVelocity);
+    SceneBinIO::Write(out, comp.m_Velocity);
+}
+
+if (entity.HasComponent<BoidObstacleComponent>())
+{
+    SceneBinIO::WriteU32(out, 3350231697u); // BoidObstacleComponent
+    auto const& comp = entity.GetComponent<BoidObstacleComponent>();
+    SceneBinIO::Write(out, comp.m_Radius);
+}
+
 if (entity.HasComponent<BuoyancyComponent>())
 {
     SceneBinIO::WriteU32(out, 4273541646u); // BuoyancyComponent

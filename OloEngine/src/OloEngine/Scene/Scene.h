@@ -11,6 +11,7 @@
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Scene/WorldOriginSettings.h"
 #include "OloEngine/Scene/SpatialAcceleration.h"
+#include "OloEngine/AI/Flocking/FlockingSystem.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
 #include "OloEngine/Navigation/NavMesh.h"
 #include "OloEngine/Navigation/NavMeshQuery.h"
@@ -984,11 +985,18 @@ namespace OloEngine
         void UpdateNavigation(Timestep ts);      // pathfinding / crowds
         void UpdatePerception(Timestep ts);      // AI sight sensing
         void UpdateAI(Timestep ts);              // behavior trees / FSM / GOAP
-        void UpdateInventory(Timestep ts);       // pickups / despawn
-        void UpdateQuest(Timestep ts);           // quest timers / conditions
-        void UpdateProgression(Timestep ts);     // XP/level resolution + point grants (issue #635)
-        void UpdateAbilities(Timestep ts);       // gameplay ability system
-        void UpdateAudio(Timestep ts);           // listener/source pose sync + events
+        // Flocking is split across two nodes (issue #731): the neighbour search
+        // + force solve is worker-safe because it writes nothing but each
+        // agent's own component, while the integrate/move half writes
+        // TransformComponent and so must stay on the game thread. See
+        // FlockingSystem.h for the full rationale.
+        void UpdateBoidSteering(Timestep ts); // neighbour search + steering forces (worker-safe)
+        void UpdateBoidMovement(Timestep ts); // integrate velocity + move entities (game thread)
+        void UpdateInventory(Timestep ts);    // pickups / despawn
+        void UpdateQuest(Timestep ts);        // quest timers / conditions
+        void UpdateProgression(Timestep ts);  // XP/level resolution + point grants (issue #635)
+        void UpdateAbilities(Timestep ts);    // gameplay ability system
+        void UpdateAudio(Timestep ts);        // listener/source pose sync + events
         // Particle update is split by GPU usage (issue #576): the CPU partition
         // is worker-dispatchable (Parallelizable), the GPU partition stays on the
         // game thread because it issues GL compute. UpdateParticlesPartition does
@@ -1161,6 +1169,11 @@ namespace OloEngine
         // Spatial acceleration (runtime-only; rebuilt each OnUpdateRuntime tick,
         // never serialized/copied). See GetSpatialIndex / UpdateSpatialIndex.
         SceneSpatialIndex m_SpatialIndex;
+
+        // Flocking scratch (issue #731) — runtime-only, rebuilt at the top of
+        // every BoidSteering tick and never serialized/copied. Persistent only
+        // so the per-tick snapshot + hash rebuild don't allocate.
+        FlockingWorkspace m_FlockingWorkspace;
 
         // Scratch buffers for PropagateWorldTransforms (issue #499) — persistent
         // across ticks and .clear()ed at the top of each call instead of being

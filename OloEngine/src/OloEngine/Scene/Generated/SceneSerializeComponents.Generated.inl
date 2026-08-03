@@ -83,6 +83,38 @@ if (entity.HasComponent<BoatComponent>())
     out << YAML::EndMap; // BoatComponent
 }
 
+if (entity.HasComponent<BoidComponent>())
+{
+    out << YAML::Key << "BoidComponent";
+    out << YAML::BeginMap; // BoidComponent
+    auto const& comp = entity.GetComponent<BoidComponent>();
+    out << YAML::Key << "MaxSpeed" << YAML::Value << comp.m_MaxSpeed;
+    out << YAML::Key << "MaxForce" << YAML::Value << comp.m_MaxForce;
+    out << YAML::Key << "NeighborRadius" << YAML::Value << comp.m_NeighborRadius;
+    out << YAML::Key << "SeparationRadius" << YAML::Value << comp.m_SeparationRadius;
+    out << YAML::Key << "MaxNeighbors" << YAML::Value << comp.m_MaxNeighbors;
+    out << YAML::Key << "SeparationWeight" << YAML::Value << comp.m_SeparationWeight;
+    out << YAML::Key << "AlignmentWeight" << YAML::Value << comp.m_AlignmentWeight;
+    out << YAML::Key << "CohesionWeight" << YAML::Value << comp.m_CohesionWeight;
+    out << YAML::Key << "GoalWeight" << YAML::Value << comp.m_GoalWeight;
+    out << YAML::Key << "GoalPosition" << YAML::Value << comp.m_GoalPosition;
+    out << YAML::Key << "ObstacleAvoidWeight" << YAML::Value << comp.m_ObstacleAvoidWeight;
+    out << YAML::Key << "ObstacleLookahead" << YAML::Value << comp.m_ObstacleLookahead;
+    out << YAML::Key << "LockYAxis" << YAML::Value << comp.m_LockYAxis;
+    out << YAML::Key << "FaceVelocity" << YAML::Value << comp.m_FaceVelocity;
+    out << YAML::Key << "Velocity" << YAML::Value << comp.m_Velocity;
+    out << YAML::EndMap; // BoidComponent
+}
+
+if (entity.HasComponent<BoidObstacleComponent>())
+{
+    out << YAML::Key << "BoidObstacleComponent";
+    out << YAML::BeginMap; // BoidObstacleComponent
+    auto const& comp = entity.GetComponent<BoidObstacleComponent>();
+    out << YAML::Key << "Radius" << YAML::Value << comp.m_Radius;
+    out << YAML::EndMap; // BoidObstacleComponent
+}
+
 if (entity.HasComponent<BuoyancyComponent>())
 {
     out << YAML::Key << "BuoyancyComponent";

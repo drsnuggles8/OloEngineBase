@@ -7,6 +7,8 @@
 
 ids.insert(entt::type_hash<AircraftComponent>::value());
 ids.insert(entt::type_hash<BoatComponent>::value());
+ids.insert(entt::type_hash<BoidComponent>::value());
+ids.insert(entt::type_hash<BoidObstacleComponent>::value());
 ids.insert(entt::type_hash<BuoyancyComponent>::value());
 ids.insert(entt::type_hash<CharacterController3DComponent>::value());
 ids.insert(entt::type_hash<CircleRendererComponent>::value());
