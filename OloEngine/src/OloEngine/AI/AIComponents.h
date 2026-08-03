@@ -340,6 +340,44 @@ namespace OloEngine
         // for tests and the editor ("is this agent actually flocking?").
         OLO_SERIALIZE(Skip)
         u32 m_NeighborCount = 0;
+
+        // Authored fields only — the two Skip-tagged runtime fields above are
+        // rewritten by BoidSteering every tick. The editor's undo tracking
+        // snapshots a component on the idle→edit transition and compares it
+        // FRAMES LATER, so a whole-struct compare would report "changed" on
+        // every frame of a running simulation, latch its is-editing flag on,
+        // and never push the undo entry at all. Same lesson as
+        // TimeOfDayComponent / WeatherStateComponent; PreferValueComparison in
+        // SceneHierarchyPanel opts this component into using this operator.
+        //
+        // This also keeps the editor off the byte-level memcmp path, which
+        // would compare the two indeterminate padding bytes between
+        // m_FaceVelocity and m_Velocity (SonarCloud cpp:S5000 — the
+        // PerceptibleComponent / CloudscapeComponent case).
+        //
+        // m_Velocity IS compared: it is authored state the inspector exposes.
+        // Unlike TimeOfDayComponent's clock it needs no drift gate, because the
+        // flocking systems run only under SimulateRuntimeStep — never in edit
+        // mode, which is where undo actually matters.
+        auto operator==(const BoidComponent& other) const -> bool
+        {
+            const bool sameLimits = Math::BitwiseEqual(m_MaxSpeed, other.m_MaxSpeed) &&
+                                    Math::BitwiseEqual(m_MaxForce, other.m_MaxForce);
+            const bool sameNeighbourhood = Math::BitwiseEqual(m_NeighborRadius, other.m_NeighborRadius) &&
+                                           Math::BitwiseEqual(m_SeparationRadius, other.m_SeparationRadius) &&
+                                           (m_MaxNeighbors == other.m_MaxNeighbors);
+            const bool sameWeights = Math::BitwiseEqual(m_SeparationWeight, other.m_SeparationWeight) &&
+                                     Math::BitwiseEqual(m_AlignmentWeight, other.m_AlignmentWeight) &&
+                                     Math::BitwiseEqual(m_CohesionWeight, other.m_CohesionWeight);
+            const bool sameGoal = Math::BitwiseEqual(m_GoalWeight, other.m_GoalWeight) &&
+                                  Math::BitwiseEqual(m_GoalPosition, other.m_GoalPosition);
+            const bool sameObstacles = Math::BitwiseEqual(m_ObstacleAvoidWeight, other.m_ObstacleAvoidWeight) &&
+                                       Math::BitwiseEqual(m_ObstacleLookahead, other.m_ObstacleLookahead);
+            const bool sameMotion = (m_LockYAxis == other.m_LockYAxis) &&
+                                    (m_FaceVelocity == other.m_FaceVelocity) &&
+                                    Math::BitwiseEqual(m_Velocity, other.m_Velocity);
+            return sameLimits && sameNeighbourhood && sameWeights && sameGoal && sameObstacles && sameMotion;
+        }
     };
 
     // Spherical obstacle the flock steers around. Position comes from the

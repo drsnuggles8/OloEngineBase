@@ -248,6 +248,76 @@ TEST_F(FlockingViaSceneTickTest, FlockTracksItsGoal)
     EXPECT_LT(after, before * 0.5f) << "the flock did not move towards its goal (" << before << " -> " << after << ")";
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Separation reaches beyond the perception radius.
+//
+// m_SeparationRadius and m_NeighborRadius are authored independently, and
+// nothing stops the former exceeding the latter. The grid cell is sized from
+// the wider of the two, so the neighbour query has to use that same maximum —
+// querying only m_NeighborRadius silently truncates separation to the
+// perception radius, and the symptom is agents happily overlapping inside their
+// own personal space while every other test stays green.
+// ─────────────────────────────────────────────────────────────────────────────
+class FlockingSeparationDominantTest : public FunctionalTest
+{
+  protected:
+    // Deliberately between the two radii: the pair is INVISIBLE to cohesion and
+    // alignment but well inside separation's reach.
+    static constexpr f32 kStartSeparation = 3.0f;
+    static constexpr f32 kNeighborRadius = 1.0f;
+    static constexpr f32 kSeparationRadius = 5.0f;
+
+    void BuildScene() override
+    {
+        for (i32 i = 0; i < 2; ++i)
+        {
+            Entity e = GetScene().CreateEntity("Boid");
+            e.GetComponent<TransformComponent>().Translation = { static_cast<f32>(i) * kStartSeparation, 0.0f, 0.0f };
+
+            auto& boid = e.AddComponent<BoidComponent>();
+            boid.m_Velocity = { 0.0f, 0.0f, 0.0f };
+            boid.m_NeighborRadius = kNeighborRadius;
+            boid.m_SeparationRadius = kSeparationRadius;
+            boid.m_SeparationWeight = 1.0f;
+            // Everything else off, so separation is the only force in play.
+            boid.m_AlignmentWeight = 0.0f;
+            boid.m_CohesionWeight = 0.0f;
+            boid.m_GoalWeight = 0.0f;
+            boid.m_ObstacleAvoidWeight = 0.0f;
+
+            m_Boids.push_back(e);
+        }
+    }
+
+    [[nodiscard]] f32 PairDistance() const
+    {
+        return glm::length(m_Boids[0].GetComponent<TransformComponent>().Translation -
+                           m_Boids[1].GetComponent<TransformComponent>().Translation);
+    }
+
+    std::vector<Entity> m_Boids;
+};
+
+TEST_F(FlockingSeparationDominantTest, SeparationActsBeyondThePerceptionRadius)
+{
+    ASSERT_FLOAT_EQ(PairDistance(), kStartSeparation);
+
+    RunFrames(60);
+
+    EXPECT_GT(PairDistance(), kStartSeparation)
+        << "agents inside their separation radius but outside their perception radius did not push apart — "
+           "the neighbour query is truncating separation to m_NeighborRadius";
+
+    // And the scoping half of the contract: cohesion/alignment must NOT have
+    // silently widened along with separation. These two are outside each
+    // other's perception radius, so neither counts the other as a neighbour.
+    for (const Entity& e : m_Boids)
+    {
+        EXPECT_EQ(e.GetComponent<BoidComponent>().m_NeighborCount, 0u)
+            << "cohesion/alignment widened to the separation radius; they must stay scoped to m_NeighborRadius";
+    }
+}
+
 TEST_F(FlockingViaSceneTickTest, RepeatedRunsAreBitIdentical)
 {
     // Same entities, same starting state, same tick count, twice. Fixed

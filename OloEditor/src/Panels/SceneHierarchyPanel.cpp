@@ -1204,6 +1204,17 @@ namespace OloEngine
     {
     };
 
+    // BoidComponent's Skip-tagged runtime fields (m_SteeringForce,
+    // m_NeighborCount) are rewritten by BoidSteering every tick, and it carries
+    // two padding bytes between m_FaceVelocity and m_Velocity. The memcmp path
+    // would therefore both see churn across the snapshot→compare gap (latching
+    // isEditing on and never pushing the undo) and compare indeterminate
+    // padding (cpp:S5000). Its operator== compares authored fields only.
+    template<>
+    struct PreferValueComparison<BoidComponent> : std::true_type
+    {
+    };
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {

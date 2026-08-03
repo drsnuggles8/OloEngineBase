@@ -158,20 +158,35 @@ namespace OloEngine
             glm::vec3 cohesion(0.0f);
             u32 neighborCount = 0;
             u32 separationCount = 0;
+            u32 visitedCount = 0;
 
+            const f32 neighborRadiusSq = boid.m_NeighborRadius * boid.m_NeighborRadius;
             const f32 separationRadiusSq = boid.m_SeparationRadius * boid.m_SeparationRadius;
             const u32 maxNeighbors = std::max(1u, boid.m_MaxNeighbors);
 
+            // The query must cover BOTH perception terms. m_SeparationRadius is
+            // independently authored and nothing stops it exceeding
+            // m_NeighborRadius; querying only the latter would silently truncate
+            // separation to the perception radius while pass 1 had already sized
+            // the grid cell from the wider of the two — so the cells were built
+            // for a query that never happened.
+            const f32 queryRadius = std::max(boid.m_NeighborRadius, boid.m_SeparationRadius);
+
             workspace.BoidGrid.ForEachInRadius(
-                position, boid.m_NeighborRadius,
+                position, queryRadius,
                 [&](u32 index, const glm::vec3& neighborPosition, f32 distanceSq) -> bool
                 {
                     if (index == selfIndex)
                         return true;
 
-                    ++neighborCount;
-                    cohesion += neighborPosition;
-                    alignment += workspace.BoidVelocities[index];
+                    // Cohesion and alignment stay scoped to the perception
+                    // radius; only separation sees the wider sweep.
+                    if (distanceSq <= neighborRadiusSq)
+                    {
+                        ++neighborCount;
+                        cohesion += neighborPosition;
+                        alignment += workspace.BoidVelocities[index];
+                    }
 
                     if (distanceSq < separationRadiusSq && distanceSq > kDegenerateLengthSq)
                     {
@@ -181,9 +196,13 @@ namespace OloEngine
                         ++separationCount;
                     }
 
-                    // Stop once the cap is reached — the visit order is
+                    // The cap bounds WORK, so it counts every visited candidate
+                    // rather than only the ones inside the perception radius —
+                    // otherwise a separation-dominant agent would sweep its whole
+                    // wider neighbourhood uncapped. The visit order is
                     // deterministic, so "the first N" is a reproducible set.
-                    return neighborCount < maxNeighbors;
+                    ++visitedCount;
+                    return visitedCount < maxNeighbors;
                 });
 
             glm::vec3 force(0.0f);

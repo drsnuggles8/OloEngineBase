@@ -70,9 +70,10 @@ namespace OloEngine
         // A query whose radius spans more than this many cells stops being a
         // win over a linear scan (and risks a pathological loop when a caller
         // passes a huge radius against a small cell size), so it falls back to
-        // scanning every item. The result is identical either way — only the
-        // cost differs — and the fallback still visits items in ascending
-        // index order, preserving the determinism contract above.
+        // scanning every item. Both paths visit the same items in ascending
+        // index order, so the fallback is a pure cost trade-off and is
+        // indistinguishable to a caller — including one that stops the sweep
+        // early, which would otherwise keep a different subset per path.
         static constexpr u32 kMaxQueryCells = 4096;
 
         // Rebuild the grid from scratch. `positions` is copied (indices in
@@ -242,11 +243,25 @@ namespace OloEngine
 
         if (spanX * spanY * spanZ > static_cast<i64>(kMaxQueryCells))
         {
-            // Degenerate query — scan every item in index order instead.
-            for (u32 slot = 0; slot < static_cast<u32>(m_Items.size()); ++slot)
+            // Degenerate query — scan every item instead.
+            //
+            // Walk m_Positions, NOT m_Items: the CSR item array is grouped by
+            // bucket, so iterating it would visit in bucket-major order, which
+            // is deterministic but is NOT the same order as the cell sweep
+            // above. That difference is observable — a caller that stops early
+            // (the steering kernel's neighbour cap) would keep a different
+            // subset depending on which path ran — so the two paths must agree
+            // on order, not merely on the set they can produce.
+            for (u32 index = 0; index < static_cast<u32>(m_Positions.size()); ++index)
             {
-                const u32 index = m_Items[slot];
                 const glm::vec3& position = m_Positions[index];
+                // Skip the items Rebuild rejected, so the fallback returns
+                // exactly what the grid holds. (The distance test below would
+                // reject them anyway — every comparison against a NaN or
+                // infinite delta is false — but relying on that is a subtlety
+                // no reader should have to reconstruct.)
+                if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z))
+                    continue;
                 const glm::vec3 delta = position - center;
                 const f32 distanceSq = glm::dot(delta, delta);
                 if (distanceSq <= radiusSq && !visit(index, position, distanceSq))
