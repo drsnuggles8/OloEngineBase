@@ -938,15 +938,29 @@ namespace OloEngine
             // Sanitize non-finite floats exactly as RpcDispatcher::ReadArg does for
             // wire data — a locally-executed RPC never crosses the wire, so without
             // this the same call would deliver NaN locally and 0 remotely.
+            // The substitution is silent on the wire, so it is logged here — matching
+            // the Lua binding, where the same zero-fill warns. Without it a script
+            // that ships a NaN sees the RPC arrive as a perfectly plausible 0 with
+            // nothing anywhere to say the value was replaced.
             if (objectClass == ::mono_get_single_class())
             {
                 const f64 value = static_cast<f64>(*static_cast<f32*>(::mono_object_unbox(object)));
-                return RpcArg::MakeFloat(std::isfinite(value) ? value : 0.0);
+                if (!std::isfinite(value))
+                {
+                    OLO_CORE_WARN_TAG("Networking", "RPC number argument is not finite; sending 0");
+                    return RpcArg::MakeFloat(0.0);
+                }
+                return RpcArg::MakeFloat(value);
             }
             if (objectClass == ::mono_get_double_class())
             {
                 const f64 value = *static_cast<f64*>(::mono_object_unbox(object));
-                return RpcArg::MakeFloat(std::isfinite(value) ? value : 0.0);
+                if (!std::isfinite(value))
+                {
+                    OLO_CORE_WARN_TAG("Networking", "RPC number argument is not finite; sending 0");
+                    return RpcArg::MakeFloat(0.0);
+                }
+                return RpcArg::MakeFloat(value);
             }
             if (objectClass == ::mono_get_string_class())
             {
@@ -963,6 +977,7 @@ namespace OloEngine
                         std::isfinite(value[0]) && std::isfinite(value[1]) && std::isfinite(value[2]);
                     if (!finite)
                     {
+                        OLO_CORE_WARN_TAG("Networking", "RPC vec3 argument is not finite; sending (0,0,0)");
                         return RpcArg::MakeVec3(glm::vec3(0.0f));
                     }
                     return RpcArg::MakeVec3({ value[0], value[1], value[2] });

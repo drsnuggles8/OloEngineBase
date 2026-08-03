@@ -353,3 +353,39 @@ Call sites: `OloServerApp` (dedicated server), `OloRuntimeApp` (shipped game),
 Note the editor asymmetry: **only the Play scene is ever registered, never
 `m_EditorScene`.** Replicating the authored scene would let a live connection write
 into the document the user is editing.
+
+### A live scene swap is not a restart — do not clear per-connection state
+
+The dedicated server's `reload` console command swaps the scene **with the sockets
+still up**. Everything the drivers hold then splits into two halves that must be
+treated differently, and conflating them kills the session silently in one direction
+or the other:
+
+| half | examples | on a scene swap |
+|---|---|---|
+| scene-derived | acked baselines, known-entity sets, snapshot history, spawned-archetype map, queued spawns/despawns, observer positions | **must** be cleared — every entry names a destroyed entity, so a delta would describe the new world against the old one |
+| connection-derived | the `ClientState` entry itself, the tick clock, per-client last-processed input ticks | **must** survive |
+
+`ServerReplicationDriver::Reset()` clears both, which is right when the server
+*stops* and wrong here. `Tick` skips a connected client that has no `ClientState`
+(`m_Clients.find(id) == end() → continue`), and a client that never disconnected
+never sends another connect event to rebuild one — so `Reset()` on a reload leaves
+every held-open connection permanently, silently dead. `ResetForSceneSwap` exists for
+this call site.
+
+Two further asymmetries the split makes obvious once you look for them:
+
+- **The tick counter must stay monotonic.** The client rejects any snapshot whose
+  tick is not newer than the last it applied, so restarting the server's counter at 0
+  starves the connection exactly as effectively as dropping its state. Same for the
+  per-client input ticks in the other direction — the client's own counter does not
+  restart either.
+- **Despawns must be sent before `Known` is cleared, not after.** The despawn pass
+  only fires for entities that *leave* a client's known set; an entity already
+  forgotten is never mentioned again, so clearing first strands the whole old world
+  on every client.
+
+Pinned by `ServerAuthoritativeLoopTest.ALiveSceneSwapKeepsReplicatingToStillConnectedClients`.
+The bug is invisible to a single-shot test — the swap itself succeeds and the server
+keeps ticking happily; only a client that was connected *across* the swap can observe
+it.

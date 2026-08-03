@@ -51,6 +51,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <functional>
@@ -676,6 +677,51 @@ TEST_F(ServerAuthoritativeLoopTest, ScriptFacingSpawnAndDespawnAreDeferredToTheS
     Pump();
     EXPECT_FALSE(m_ServerScene->TryGetEntityWithUUID(queued).has_value())
         << "the deferred despawn never ran";
+}
+
+TEST_F(ServerAuthoritativeLoopTest, ALiveSceneSwapKeepsReplicatingToStillConnectedClients)
+{
+    // Regression guard for a silent-death bug: the server console's `reload` swaps
+    // the scene while the sockets stay up. Clearing replication state with Reset()
+    // there erases the ClientState, and the replication pass skips a connected
+    // client that has none — while a client that never disconnected never sends
+    // another connect event to rebuild it. The connection goes permanently quiet
+    // with no error anywhere.
+    ConnectClient(0);
+    ASSERT_TRUE(PumpUntil([this]
+                          { return m_ClientDrivers[0].GetLocalClientID() != 0; }));
+
+    const u32 clientID = m_ClientDrivers[0].GetLocalClientID();
+    const u64 oldPawn = m_ServerDriver.GetPlayerEntity(clientID);
+    ASSERT_NE(oldPawn, 0u);
+    ASSERT_TRUE(PumpUntil([this, oldPawn]
+                          { return ClientHasEntity(0, oldPawn); }));
+
+    // The swap itself, exactly as OloServerApp::LoadScene performs it.
+    m_ServerScene = CreateScope<Scene>();
+    m_ServerDriver.ResetForSceneSwap(*m_ServerScene, *m_Server);
+
+    const std::vector<u32> tracked = m_ServerDriver.GetTrackedClients();
+    ASSERT_NE(std::find(tracked.begin(), tracked.end(), clientID), tracked.end())
+        << "the swap forgot a still-connected client";
+
+    // The old world must be torn down on the client...
+    EXPECT_TRUE(PumpUntil([this, oldPawn]
+                          { return !ClientHasEntity(0, oldPawn); }))
+        << "the client kept an entity from the destroyed scene";
+
+    // ...and replication must continue into the new one.
+    const u64 newPawn = m_ServerDriver.GetPlayerEntity(clientID);
+    ASSERT_NE(newPawn, 0u) << "the still-connected client was left without a pawn";
+    EXPECT_NE(newPawn, oldPawn);
+    EXPECT_TRUE(PumpUntil([this, newPawn]
+                          { return ClientHasEntity(0, newPawn); }))
+        << "the connection went silent after the scene swap";
+
+    // The tick clock must not restart: the client rejects any snapshot whose tick is
+    // not newer than the last it applied, so a reset counter would starve it just as
+    // effectively as a dropped ClientState.
+    EXPECT_GT(m_ServerDriver.GetCurrentTick(), 0u);
 }
 
 TEST_F(ServerAuthoritativeLoopTest, PingQueriesDoNotDeadlockAgainstConnectionIteration)

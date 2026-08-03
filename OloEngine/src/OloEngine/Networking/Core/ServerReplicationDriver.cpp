@@ -183,6 +183,56 @@ namespace OloEngine
         m_Tick = 0;
     }
 
+    void ServerReplicationDriver::ResetForSceneSwap(Scene& scene, NetworkServer& server)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Tell each client to drop the replicated entities it holds BEFORE we forget
+        // that it knows them. Clearing Known first would strand every one of them on
+        // the client forever: the despawn pass only fires for entities that leave a
+        // client's known set, so an entity we have already forgotten is never
+        // mentioned again. (A client only destroys what the server spawned for it,
+        // so this cannot touch its own scene-authored content.)
+        for (auto& [clientID, state] : m_Clients)
+        {
+            for (u64 known : state.Known)
+            {
+                std::vector<u8> payload = EntityLifecycle::EncodeDespawn(known);
+                server.SendMessageToClient(clientID, ENetworkMessageType::EntityDespawn, payload.data(),
+                                           static_cast<u32>(payload.size()), k_nSteamNetworkingSend_Reliable);
+            }
+
+            // Scene-derived: every one of these describes entities that no longer
+            // exist. The connection itself survives.
+            state.AckedBaseline.clear();
+            state.AckedTick = 0;
+            state.PendingSnapshots.clear();
+            state.Known.clear();
+            state.PlayerEntity = 0;
+
+            // The observer position is a point in the old scene's space.
+            m_Interest.RemoveClient(clientID);
+        }
+
+        m_SpawnedArchetypes.clear();
+        m_PendingSpawns.clear();
+        m_PendingDespawns.clear();
+        m_History.Clear();
+        m_Accumulator = 0.0f;
+
+        // m_Tick and the per-client input ticks deliberately survive — see the header.
+
+        // A still-connected client never sends another connect event, so nothing else
+        // would ever give it a pawn in the new scene.
+        for (auto& [clientID, state] : m_Clients)
+        {
+            state.PlayerEntity = SpawnPlayerFor(scene, clientID);
+        }
+
+        OLO_CORE_INFO("[ServerReplication] Scene swap: {} connection(s) kept, replication state rebuilt at tick {}",
+                      m_Clients.size(), m_Tick);
+    }
+
     void ServerReplicationDriver::HandleClientConnected(Scene& scene, NetworkServer& server, u32 clientID)
     {
         OLO_PROFILE_FUNCTION();
@@ -203,18 +253,26 @@ namespace OloEngine
         server.SendMessageToClient(clientID, ENetworkMessageType::Connect, payload.data(),
                                    static_cast<u32>(payload.size()), k_nSteamNetworkingSend_Reliable);
 
+        state.PlayerEntity = SpawnPlayerFor(scene, clientID);
+
+        OLO_CORE_INFO("[ServerReplication] Client {} joined (player entity {})", clientID, state.PlayerEntity);
+    }
+
+    u64 ServerReplicationDriver::SpawnPlayerFor(Scene& scene, u32 clientID)
+    {
         if (m_PlayerSpawnCallback)
         {
-            state.PlayerEntity = m_PlayerSpawnCallback(scene, clientID);
+            return m_PlayerSpawnCallback(scene, clientID);
         }
-        else if (!m_PlayerArchetype.empty())
+
+        if (!m_PlayerArchetype.empty())
         {
             Entity player = SpawnReplicated(scene, m_PlayerArchetype, "Player " + std::to_string(clientID), clientID,
                                             ENetworkAuthority::Client);
-            state.PlayerEntity = player ? static_cast<u64>(player.GetUUID()) : 0;
+            return player ? static_cast<u64>(player.GetUUID()) : 0;
         }
 
-        OLO_CORE_INFO("[ServerReplication] Client {} joined (player entity {})", clientID, state.PlayerEntity);
+        return 0;
     }
 
     void ServerReplicationDriver::HandleClientDisconnected(Scene& scene, NetworkServer& server, u32 clientID)

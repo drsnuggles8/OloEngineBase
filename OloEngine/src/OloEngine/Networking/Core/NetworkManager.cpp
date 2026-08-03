@@ -41,8 +41,8 @@ namespace OloEngine
         // can be swapped under a live connection, so the binding is refreshed from
         // Tick() rather than done once at connect time. Game-thread only, like
         // Tick() itself.
-        NetworkClient* g_AttachedClient = nullptr;
-        Scene* g_AttachedScene = nullptr;
+        NetworkClient* s_AttachedClient = nullptr;
+        Scene* s_AttachedScene = nullptr;
     } // namespace
 
     static void GNSDebugOutput(ESteamNetworkingSocketsDebugOutputType eType, char const* pszMsg)
@@ -206,12 +206,13 @@ namespace OloEngine
                                    [](u32 senderClientID, const u8* data, u32 size)
                                    { s_ServerDriver.HandleSnapshotAck(senderClientID, data, size); });
 
-        // Prune the per-client last-processed-tick entry on disconnect so it
-        // doesn't grow without bound over the lifetime of a long-running server.
-        // (The driver prunes it too, from the drained event; this keeps the
-        // transport-level contract intact even if the driver is not ticking.)
-        s_Server->SetClientDisconnectedCallback([](u32 clientID)
-                                                { s_ServerDriver.GetInputHandler().RemoveClient(clientID); });
+        // NOTE: no SetClientDisconnectedCallback here, deliberately. GNS raises the
+        // disconnect on the NETWORK thread, so pruning the input handler from that
+        // callback would mutate m_LastProcessedTicks while the game thread is reading
+        // and writing it in HandleInputCommand/ReplicateToClient — a data race on
+        // exactly the boundary this file's threading contract draws. The pruning
+        // still happens, one drain later: ServerReplicationDriver::Tick pops the
+        // queued disconnect event on the game thread and calls RemoveClient there.
     }
 
     bool NetworkManager::StartServer(u16 port)
@@ -292,8 +293,8 @@ namespace OloEngine
         // The client driver's handlers are bound from Tick(): a scene may not exist
         // yet at connect time, and the handlers need the scene they will write to.
         s_ClientDriver.Reset();
-        g_AttachedClient = nullptr;
-        g_AttachedScene = nullptr;
+        s_AttachedClient = nullptr;
+        s_AttachedScene = nullptr;
         return true;
     }
 
@@ -494,11 +495,11 @@ namespace OloEngine
 
             // Attach lazily: Connect() can happen before a scene exists, and the
             // handlers capture the scene they will write to.
-            if (g_AttachedScene != scene || g_AttachedClient != client)
+            if (s_AttachedScene != scene || s_AttachedClient != client)
             {
                 s_ClientDriver.AttachTo(*client, *scene);
-                g_AttachedScene = scene;
-                g_AttachedClient = client;
+                s_AttachedScene = scene;
+                s_AttachedClient = client;
             }
             s_ClientDriver.Tick(*scene, *client, dt);
         }
@@ -574,6 +575,15 @@ namespace OloEngine
     u64 NetworkManager::SpawnReplicated(std::string_view archetype, const std::string& name, u32 ownerClientID,
                                         ENetworkAuthority authority)
     {
+        if (!IsServer())
+        {
+            // Refusing beats queueing: the queue is only drained by the SERVER half
+            // of Tick(), so a client-side call would leave the spawn parked forever
+            // while handing the caller a UUID for an entity that never appears.
+            OLO_CORE_WARN_TAG("Networking", "SpawnReplicated: not running a server; call ignored");
+            return 0;
+        }
+
         if (GetActiveScene() == nullptr)
         {
             OLO_CORE_WARN_TAG("Networking", "SpawnReplicated: no active scene");
@@ -591,6 +601,12 @@ namespace OloEngine
 
     void NetworkManager::DespawnReplicated(u64 entityUUID)
     {
+        if (!IsServer())
+        {
+            OLO_CORE_WARN_TAG("Networking", "DespawnReplicated: not running a server; call ignored");
+            return;
+        }
+
         if (GetActiveScene() == nullptr)
         {
             OLO_CORE_WARN_TAG("Networking", "DespawnReplicated: no active scene");

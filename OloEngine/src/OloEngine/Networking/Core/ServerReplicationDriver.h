@@ -170,8 +170,22 @@ namespace OloEngine
         [[nodiscard]] std::vector<u32> GetTrackedClients() const;
 
         // Forget every connection and reset the tick clock. Called when the server
-        // stops so a restart never replays the previous session's baselines.
+        // STOPS, so a restart never replays the previous session's baselines.
         void Reset();
+
+        // Drop what the OLD scene owned while keeping every connection alive.
+        //
+        // A live scene swap (the server console's `reload`) is not a restart: the
+        // sockets stay up, and a still-connected client never sends another connect
+        // event. Using Reset() here erases its ClientState, and the replication pass
+        // skips a connected client that has none — so it would receive nothing ever
+        // again, silently. Only the scene-derived half may be cleared.
+        //
+        // Deliberately NOT reset: the tick counter (a client rejects any snapshot
+        // whose tick is <= the newest it applied, so restarting at 0 would make it
+        // discard the entire new scene) and the per-client input ticks (the client's
+        // own input counter does not restart either).
+        void ResetForSceneSwap(Scene& scene, NetworkServer& server);
 
       private:
         // How many un-acked snapshots we keep per client before giving up on the
@@ -203,6 +217,10 @@ namespace OloEngine
 
         void HandleClientConnected(Scene& scene, NetworkServer& server, u32 clientID);
         void HandleClientDisconnected(Scene& scene, NetworkServer& server, u32 clientID);
+
+        // Create this client's pawn per the configured callback/archetype. Returns
+        // its UUID, or 0 when the game supplies neither.
+        [[nodiscard]] u64 SpawnPlayerFor(Scene& scene, u32 clientID);
 
         // The replicated entities `clientID` may currently see, in a stable order.
         [[nodiscard]] std::vector<u64> ComputeRelevantSet(Scene& scene, u32 clientID);

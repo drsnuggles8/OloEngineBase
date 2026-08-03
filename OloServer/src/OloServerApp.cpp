@@ -229,15 +229,6 @@ namespace OloEngine
                     // Detach the outgoing scene from replication before it dies;
                     // the drivers hold a raw Scene*.
                     NetworkManager::SetActiveScene(nullptr);
-
-                    // SetActiveScene(nullptr) only forgets the pointer. Every
-                    // per-client baseline, known-entity set and history snapshot
-                    // still describes entities from the scene about to be destroyed,
-                    // so a `reload` with connections held open would delta the new
-                    // world against the old one. Drop that state; connected clients
-                    // re-receive spawns on the next relevance pass.
-                    NetworkManager::GetServerDriver().Reset();
-
                     m_ActiveScene->OnRuntimeStop();
                 }
                 m_ActiveScene = tempScene;
@@ -246,6 +237,22 @@ namespace OloEngine
                 // — capture, interest scoping, spawn/despawn, RPC handlers — early-
                 // outs without it.
                 NetworkManager::SetActiveScene(m_ActiveScene.get());
+
+                // SetActiveScene() only swaps the pointer. Every per-client baseline,
+                // known-entity set and history snapshot still describes entities from
+                // the scene we just destroyed, so a `reload` with connections held
+                // open would delta the new world against the old one.
+                //
+                // Reset() is the WRONG tool here: it erases m_Clients, and the
+                // replication pass skips a connected client with no state — while a
+                // client that never disconnected never sends another connect event to
+                // rebuild it. Every held-open connection would go silently dead for
+                // the rest of the process. ResetForSceneSwap keeps the connections and
+                // rebuilds only what the scene owned.
+                if (NetworkServer* server = NetworkManager::GetServer())
+                {
+                    NetworkManager::GetServerDriver().ResetForSceneSwap(*m_ActiveScene, *server);
+                }
 
                 OLO_CORE_INFO("[Server] Scene loaded and started");
                 return true;
