@@ -91,7 +91,8 @@ namespace OloEngine
             /// still frees the audible slot and keeps the mix within budget — and it makes
             /// resume-in-phase trivially correct, because the graph never stopped
             /// advancing — but unlike the clip path it does NOT reclaim the DSP cost.
-            /// Reclaiming that needs a stop/seek API on SoundGraphSource first.
+            /// Reclaiming that needs a stop/seek API on SoundGraphSource first (issue
+            /// #745).
             class SoundGraphSound : public IPlayableAudio, public OloEngine::Audio::IVoiceHost
             {
               public:

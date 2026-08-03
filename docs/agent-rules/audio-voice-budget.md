@@ -108,8 +108,10 @@ manager holds a raw `IVoiceHost*` and must never drive a torn-down host.
 `SoundGraphSource` exposes `SendPlayEvent()` and nothing to seek or suspend with, so a
 virtualized graph voice is silenced rather than suspended. That still holds the audible cap
 — which is the acceptance criterion — but it does not reclaim the DSP cost. Fixing that
-needs a stop/seek API on `SoundGraphSource` first; don't "fix" it by stopping the graph,
-which would restart it from its initial state on devirtualization and reintroduce §3's bug.
+needs a stop/seek API on `SoundGraphSource` first (tracked as **#745**, which also raises
+the harder question of whether the graph's stateful nodes can be resumed deterministically
+at all); don't "fix" it by stopping the graph, which would restart it from its initial
+state on devirtualization and reintroduce §3's bug.
 
 Watch the polarity trap while you are in there: `SoundGraphSound::m_Priority` is
 miniaudio-flavoured (**0 = highest**) while `VoiceParams::Priority` is the other way round
