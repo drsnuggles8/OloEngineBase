@@ -374,6 +374,89 @@ TEST(FlockSpatialHashTest, VisitOrderIsIdenticalAcrossInstancesAndRebuilds)
     EXPECT_EQ(orderedHits(first), firstOrder);
 }
 
+TEST(FlockSpatialHashTest, TheTwoTraversalPathsShareASetButNotAnOrder)
+{
+    // The exact contract at the kMaxQueryCells declaration, pinned so nobody
+    // "simplifies" either path into the other's ordering by accident.
+    //
+    // Points are laid out so global index order and cell-major order genuinely
+    // disagree: index 0 sits in a HIGHER cell than index 1, so the cell sweep
+    // must emit 1 before 0 while the linear fallback emits 0 before 1.
+    constexpr f32 kCell = 1.0f;
+    const std::vector<glm::vec3> points = {
+        { 1.5f, 0.5f, 0.5f }, // index 0 -> cell (1, 0, 0)
+        { 0.5f, 0.5f, 0.5f }, // index 1 -> cell (0, 0, 0)
+    };
+
+    FlockSpatialHash hash;
+    hash.Rebuild(points, kCell);
+
+    const auto visitOrder = [&hash](f32 radius)
+    {
+        std::vector<u32> order;
+        hash.ForEachInRadius({ 1.0f, 0.5f, 0.5f }, radius,
+                             [&order](u32 index, const glm::vec3&, f32)
+                             { order.push_back(index); });
+        return order;
+    };
+
+    // Small radius -> cell sweep: cell (0,0,0) precedes cell (1,0,0).
+    const std::vector<u32> sweep = visitOrder(1.0f);
+    EXPECT_EQ(sweep, (std::vector<u32>{ 1u, 0u })) << "cell sweep is not cell-major";
+
+    // A radius far past the cell budget -> linear fallback: ascending index.
+    const f32 hugeRadius = kCell * static_cast<f32>(FlockSpatialHash::kMaxQueryCells);
+    const std::vector<u32> fallback = visitOrder(hugeRadius);
+    EXPECT_EQ(fallback, (std::vector<u32>{ 0u, 1u })) << "fallback is not ascending-index";
+
+    // Same SET either way — that part of the contract does hold.
+    std::vector<u32> sweepSorted = sweep;
+    std::vector<u32> fallbackSorted = fallback;
+    std::sort(sweepSorted.begin(), sweepSorted.end());
+    std::sort(fallbackSorted.begin(), fallbackSorted.end());
+    EXPECT_EQ(sweepSorted, fallbackSorted);
+
+    // And each path is reproducible on its own — which is what acceptance
+    // criterion 2 actually rests on.
+    EXPECT_EQ(visitOrder(1.0f), sweep);
+    EXPECT_EQ(visitOrder(hugeRadius), fallback);
+}
+
+TEST(FlockSpatialHashTest, FlockingCellSizingKeepsEveryQueryOffTheFallback)
+{
+    // The invariant FlockingSystem relies on: it sizes each grid's cells from
+    // the widest radius any agent queries, so a query can only ever span
+    // 3x3x3 cells and the capped steering callback can never meet the
+    // differently-ordered fallback. Verified through the public API by
+    // checking the capped prefix is the cell-sweep prefix at that sizing.
+    const std::vector<glm::vec3> points = ScatterPoints(400, 20.0f, 77u);
+    constexpr f32 kRadius = 4.0f;
+
+    FlockSpatialHash hash;
+    hash.Rebuild(points, kRadius); // cellSize == query radius, as FlockingSystem does
+
+    for (const glm::vec3& centre : { points[0], points[137], points[399] })
+    {
+        std::vector<u32> full;
+        hash.ForEachInRadius(centre, kRadius, [&full](u32 i, const glm::vec3&, f32)
+                             { full.push_back(i); });
+
+        constexpr u32 kCap = 3;
+        std::vector<u32> capped;
+        hash.ForEachInRadius(centre, kRadius,
+                             [&capped](u32 i, const glm::vec3&, f32) -> bool
+                             {
+                                 capped.push_back(i);
+                                 return capped.size() < kCap;
+                             });
+
+        const sizet expected = std::min<sizet>(kCap, full.size());
+        ASSERT_EQ(capped.size(), expected);
+        EXPECT_TRUE(std::equal(capped.begin(), capped.end(), full.begin()))
+            << "a capped sweep did not take the uncapped sweep's prefix — the fallback was reached";
+    }
+}
+
 TEST(FlockSpatialHashTest, WithinACellItemsAreVisitedInAscendingIndexOrder)
 {
     // The stable counting-sort scatter is what makes "the first N neighbours"

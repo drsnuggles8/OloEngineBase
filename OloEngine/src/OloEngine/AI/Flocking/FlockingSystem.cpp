@@ -100,6 +100,15 @@ namespace OloEngine
 
         // Cell size == the widest perception radius in the flock, so a query
         // never sweeps more than 3x3x3 cells.
+        //
+        // Load-bearing beyond performance: SolveAgent caps its sweep at
+        // m_MaxNeighbors, and FlockSpatialHash's linear-scan fallback visits in
+        // a DIFFERENT order than the cell sweep (see kMaxQueryCells), so a
+        // capped caller that crossed the fallback threshold would retain a
+        // different neighbour subset. Deriving the cell size from the widest
+        // radius any agent queries keeps every query at <= 27 cells, which is
+        // three orders of magnitude below the threshold — the cap can never
+        // meet the fallback. Keep this coupling if the cell sizing changes.
         workspace.BoidGrid.Rebuild(workspace.BoidPositions, maxNeighborRadius);
 
         // ── Obstacles ────────────────────────────────────────────────────────

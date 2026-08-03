@@ -74,10 +74,25 @@ namespace OloEngine
         // A query whose radius spans more than this many cells stops being a
         // win over a linear scan (and risks a pathological loop when a caller
         // passes a huge radius against a small cell size), so it falls back to
-        // scanning every item. Both paths visit the same items in ascending
-        // index order, so the fallback is a pure cost trade-off and is
-        // indistinguishable to a caller — including one that stops the sweep
-        // early, which would otherwise keep a different subset per path.
+        // scanning every item.
+        //
+        // CONTRACT, precisely — the two paths return the same SET, and each is
+        // internally deterministic, but they do NOT share a visit ORDER:
+        //   * cell sweep: cell-major (z, y, x), ascending index within a cell
+        //   * fallback:   ascending index, globally
+        // Which path runs is a pure function of (radius, cellSize, center), so
+        // a given query always takes the same path and always produces the same
+        // order — run-to-run determinism (acceptance criterion 2) holds either
+        // way. What does NOT hold is cross-path equivalence for a callback that
+        // stops early: capping at N keeps a different N depending on the path.
+        //
+        // That is unobservable for the flocking kernel, which is the only
+        // capped caller: FlockingSystem sizes each grid's cells from the
+        // WIDEST query radius any agent will use, so every query spans at most
+        // 3x3x3 = 27 cells and can never reach this threshold. A future capped
+        // caller that sizes cells independently of its query radius would have
+        // to think about this — hence the contract being spelled out rather
+        // than assumed.
         static constexpr u32 kMaxQueryCells = 4096;
 
         // Rebuild the grid from scratch. `positions` is copied (indices in
@@ -247,15 +262,20 @@ namespace OloEngine
 
         if (spanX * spanY * spanZ > static_cast<i64>(kMaxQueryCells))
         {
-            // Degenerate query — scan every item instead.
+            // Degenerate query — scan every item in ascending index order.
             //
-            // Walk m_Positions, NOT m_Items: the CSR item array is grouped by
-            // bucket, so iterating it would visit in bucket-major order, which
-            // is deterministic but is NOT the same order as the cell sweep
-            // above. That difference is observable — a caller that stops early
-            // (the steering kernel's neighbour cap) would keep a different
-            // subset depending on which path ran — so the two paths must agree
-            // on order, not merely on the set they can produce.
+            // This is NOT the cell sweep's order. The sweep below is cell-major
+            // ((z, y, x), then ascending index WITHIN a cell), and once a query
+            // spans more than one cell the two differ: index 0 may live in cell
+            // (1,0,0) and index 1 in (0,0,0), so the sweep emits 1, 0 while this
+            // emits 0, 1. Both are deterministic, and both yield the same SET —
+            // but an early-stopping caller would retain a different subset.
+            // See the kMaxQueryCells declaration for the exact contract and why
+            // the flocking kernel cannot observe the difference.
+            //
+            // Walk m_Positions rather than m_Items on purpose: the CSR array is
+            // bucket-major, which is a third order again, and ascending index is
+            // the one a reader can predict without knowing the hash.
             const u32 itemCount = static_cast<u32>(m_Positions.size());
             for (u32 index = 0; index < itemCount; ++index)
             {
