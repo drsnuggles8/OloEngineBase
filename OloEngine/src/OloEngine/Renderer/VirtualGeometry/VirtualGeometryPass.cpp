@@ -339,6 +339,12 @@ namespace OloEngine
         m_CullShader->SetFloat("u_SwRasterThresholdPixels", swThresholdPixels);
         m_CullShader->SetInt("u_Phase2", 0);
         m_CullShader->SetInt("u_WriteRejected", twoPhase ? 1 : 0);
+        // Cluster-bounds visualization (#725) — phase 1 only. Phase 2 re-tests an
+        // already-classified subset, so emitting there would draw a second sphere
+        // over most of the same clusters and make the "drawn" set look larger
+        // than the cut actually is.
+        m_CullShader->SetInt("u_DebugDrawClusters", static_cast<i32>(m_ClusterBoundsDebugMode));
+        m_CullShader->SetUint("u_DebugDrawClusterStride", std::max(m_ClusterBoundsDebugStride, 1u));
         m_CullShader->SetUint("u_RejectCapacity", frameClusterCount);
         m_CullShader->SetUint("u_CommandSlotBase", 0u);
         m_CullShader->SetUint("u_ArgsSlotBase", 0u);
@@ -503,6 +509,10 @@ namespace OloEngine
             m_CullShader->SetFloat("u_SwRasterThresholdPixels", swThresholdPixels);
             m_CullShader->SetInt("u_Phase2", 1);
             m_CullShader->SetInt("u_WriteRejected", 0);
+            // Explicitly OFF for phase 2 — uniform state is per program and
+            // persists across dispatches, so leaving phase 1's value set would
+            // double-emit every disoccluded cluster.
+            m_CullShader->SetInt("u_DebugDrawClusters", 0);
             m_CullShader->SetUint("u_RejectCapacity", frameClusterCount);
             m_CullShader->SetUint("u_CommandSlotBase", frameClusterCount);
             m_CullShader->SetUint("u_ArgsSlotBase", instanceCount);

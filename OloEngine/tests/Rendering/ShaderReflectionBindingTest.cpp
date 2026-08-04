@@ -50,7 +50,13 @@ namespace OloEngine::Tests
         /// production shader that declares a storage buffer at a slot
         /// above this is using an undeclared binding — exactly the kind
         /// of drift this test catches.
-        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_VIRTUAL_REJECTED;
+        ///
+        /// Bump this when you add an SSBO_* constant ABOVE the current top.
+        /// It is deliberately a named constant rather than a literal, but it
+        /// still has to be re-pointed by hand: deriving "the maximum" would
+        /// need the constants enumerated somewhere, and the reason this test
+        /// exists is that they are not.
+        constexpr u32 kHighestKnownSSBOBinding = ShaderBindingLayout::SSBO_DEBUG_DRAW_SPHERE;
 
         struct BindingFailure
         {

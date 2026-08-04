@@ -1,0 +1,30 @@
+#version 460 core
+
+// DebugDrawPushProbe.comp — GPU-side probe for the shader debug-draw append
+// protocol (issue #725), driven by ShaderDebugDrawGpuPushTest.
+//
+// Not a production shader: it lives under assets/shaders/tests/, which the
+// shader-compilation harness deliberately skips. Its whole job is to exercise
+// `OloDebugDrawAABB` from a real compute dispatch on real hardware, so the
+// two-atomic append protocol in include/DebugDrawCommon.glsl is validated by the
+// driver rather than only by a CPU transcription of it.
+//
+// Each invocation below u_PushCount pushes one AABB, tiled along X so the
+// entries are distinguishable if a test ever wants to read them back.
+
+#define OLO_DEBUG_DRAW_AABB
+#include "../include/DebugDrawCommon.glsl"
+
+layout(local_size_x = 64) in;
+
+uniform uint u_PushCount;
+
+void main()
+{
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= u_PushCount)
+        return;
+
+    float x = float(index) * 2.0;
+    OloDebugDrawAABB(vec3(x, 0.0, 0.0), vec3(x + 1.0, 1.0, 1.0), vec3(0.0, 1.0, 0.0), OLO_DEBUG_SPACE_WORLD);
+}

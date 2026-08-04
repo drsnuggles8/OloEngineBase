@@ -42,7 +42,11 @@ or a model. It exposes data over a standard protocol; you bring your own agent. 
 `claude mcp add` command (with copy buttons).
 
 **For automation / headless:** set `OLO_MCP_AUTOSTART=1` (optionally `OLO_MCP_PORT=<port>`)
-before launching OloEditor; the server starts during editor init.
+before launching OloEditor; the server starts during editor init. Add
+`OLO_MCP_ALLOW_WRITES=1` if the session needs the **write** tools (`olo_scene_open`,
+`olo_renderer_settings_set`, …) — without it they are refused, because the write
+consent control is an ImGui toggle nobody is there to click. See
+[Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c).
 
 When running, the server writes a **discovery file** containing the host, port, token, and
 URL — handy for scripts/agents that read it instead of copy-paste. It's removed when the
@@ -222,6 +226,7 @@ and for what to do when adding a tool.
 | `olo_render_capture_target` | read back one intermediate render target (depth, normals, G-buffer, shadow map, AO, the DDGI atlases, the froxel-fog volumes, post-process stages, …) as a PNG image block; depth is min-max normalised by default. `layer` picks one slice of an **array / cube / 3D** target (CSM cascade 0–3, cubemap faces, froxel z-slices); out-of-range is an error, never a silent layer-0 capture. `afterPass` captures the resource **as of that pass's execution** (mid-frame snapshot) instead of end-of-frame — see [Mid-frame state & exact texels](#mid-frame-state--exact-texels-afterpass-texel-space-stats-validate). `region`:{x,y,w,h} reads back a sub-rect at **native resolution** rather than the whole target rescaled to `maxWidth` — the only way to measure a pixel-scale artifact; the reply's `meta.region.nativeResolution` says whether the PNG is genuinely 1:1 |
 | `olo_render_transient_plan` | the render graph's **transient plan + pool state** — the layer under `olo_render_graph_topology_export` where aliasing is decided. Per entry: alias group/slot, `willAllocate` + the planner's `skipReason`, `firstPass`→`lastPass` lifetime, resolved `glTexture` id, `versionAliasOf` (what a `WriteNewVersion` rename aliases), and its poison hue. Per pool: bucket descriptors with free counts, byte totals, and this frame's unsorted `acquireOrder` (two entries sharing a `glId` shared one GPU object). See [Transient plan & pool introspection](#transient-plan--pool-introspection-olo_render_transient_plan) |
 | `olo_render_debug_set` | **(consented write)** flip the two transient-corruption instruments LIVE instead of via env var + editor restart: `poisonTransients` (clear every pool-acquired transient to a per-resource hue at materialize time — turns a stochastic stale-read artifact into a deterministic per-resource-coloured one; the reply carries the whole resource→colour map up front) and `disableAliasing` (every transient gets its own backing; the pool is evicted on the flip so the A/B isn't mixed). Omitting a flag leaves it unchanged; `restoreWith` puts both back. Gated behind **Agent writes** |
+| `olo_shader_debug_draw` | **(consented write)** drive the GPU-pushable shader debug-draw channels (issue #725) — the instrument for GPU-driven passes, whose cull decisions and bounds are computed on the GPU and otherwise never come back. Any shader that includes `include/DebugDrawCommon.glsl` can atomic-append a line / circle / rectangle / AABB / box / cone / sphere; this draws every channel with one indirect call at the end of the SceneColor chain, depth-tested against the real scene. `enabled` is the master switch — off means no uploads, no readback and no draw, and every push site collapses to a single scalar guard read (the header-only channel buffers stay allocated and bound, because reading an unbound SSBO is undefined in GL), `lineWidth` the screen-space quad width, `clusterBounds` a bit field turning on the shipped virtual-geometry consumer (1 drawn / 2 frustum-culled / 4 cone-culled / 8 Hi-Z occluded, Deferred path only) and `clusterStride` its sub-sampling. The per-channel counters in the reply ARE the overflow flag: `requested` is unclamped and `drawn` is capped at `capacity`, so `overflowed`/`dropped` distinguish "I pushed nothing" from "I pushed too much and the rest was thrown away". Counters are one frame behind by design (DeviceToHost staging copy, no stall) |
 | `olo_render_probe_pixel` | the exact NUMBERS under one pixel: every decoded G-Buffer channel (albedo, metallic, decoded world normal, roughness, AO, emissive, velocity, integer entityID, raw + linearized depth) plus the final presented colour — or, with `target`, the raw channels of ONE named resource. Every reply echoes `mappedCoord` (the exact texel read); `space`:"texel" + `mip` address an exact texel of a padded resource (the HZB pyramid), `layer` picks an array slice, `afterPass` probes mid-frame state |
 | `olo_render_target_stats` | exact float min/max/mean + a **bit-exact unique-value histogram** over a `rect` of one target at a `mip` — the 1-ULP instrument an 8-bit PNG cannot be (1.0 and 0.99999994 both encode as 255). Per channel: finite/NaN/Inf counts, distinct-bit-pattern count, most frequent values with exact counts. Supports `layer` and `afterPass` |
 | `olo_render_validate` | on-demand render-graph frame validation: the compiled resource-hazard sweep, barrier/build diagnostics, execute-path resolve failures, consumed-but-unbacked resources, and versioned-name physical-id groups; optional `compare` checks two targets **bit-exactly** (channel 0), e.g. `compare:{a:"SceneDepth", b:"HZB", afterPass:"GTAOPass"}` — both sides snapshotted in the SAME frame |
@@ -243,17 +248,22 @@ and for what to do when adding a tool.
 | `olo_physics_raycast` | cast a ray (`origin` + `direction`\|`to`) through the live physics world: closest hit, or up to `maxHits` ordered hits (entity, position, normal, distance) |
 | `olo_physics_overlap` | bodies overlapping a sphere (`radius`) or box (`halfExtents`) at `origin`; requires Play mode |
 | `olo_physics_why_no_collision` | explain why two entities (`a`, `b`) are NOT colliding — the "player falls through the floor" debugger: root-cause `reasonCode`, summary, ordered checks, and per-entity facts |
+| `olo_set_collision_layer` | **(consented write)** set an entity's rigidbody collision layer (`entity`, `layer`). The counterpart to `olo_physics_why_no_collision`: that one explains why two bodies do not collide, this one fixes the common cause. Routed through the editor's undo stack, so an applied change is a single Ctrl-Z |
 | `olo_input_inject` | **(consented write)** inject synthetic mouse/keyboard input — `click` / `move` / `drag` / `key` / `text` — into the editor's own input stream, so you can verify that an interactive handler actually FIRES (a viewport click selects the right entity; a panel button does what it claims), not merely that the editor renders. Synchronous: returns once the injected frames have been rendered, with the resulting selected/hovered entity in `after`. Gated behind **Agent writes**. See [Interactive UI verification](#interactive-ui-verification-olo_input_inject) |
 
 ### Write consent — Disabled / Prompt / Allow all (issue #306 item C)
 
-Every tool marked **(consented write)** above (`olo_set_collision_layer`,
-`olo_entity_set_field`, `olo_reload_script`, `olo_renderer_settings_set`,
-`olo_scene_open`, `olo_scene_play`, `olo_scene_stop`, `olo_editor_select_entity`,
-`olo_input_inject` — not every one of these mutates the *project*; some, like
-`olo_editor_select_entity`, only mutate editor-only UI state, but all cross the
-read-only line the same way and are gated identically)
-is gated in the MCP panel by a three-way **Agent writes** control.
+Every tool marked **(consented write)** above is gated in the MCP panel by a
+three-way **Agent writes** control. That per-tool marking is the source of truth
+and is checked against the code by `McpDocsCoverageTest` — an enumeration
+repeated here would be a second copy free to drift, and it did: it listed 9 of
+the 14 gated tools for several releases, so anything absent from it (the
+sun/time-of-day/weather setters, `olo_postprocess_settings_set`,
+`olo_render_debug_set`) read as ungated.
+
+Note that not every gated tool mutates the *project* — some, like
+`olo_editor_select_entity`, only mutate editor-only UI state — but all cross the
+read-only line the same way and are gated identically.
 It is **off by default and never persisted**, so every editor launch starts read-only
 and the human at the editor opts in for the session:
 
@@ -275,6 +285,23 @@ and the human at the editor opts in for the session:
 - **Allow all** — writes auto-apply for the session with no prompt (the legacy
   "Allow writes" behaviour). Use it when you're actively driving a batch of edits and
   don't want to click through each one.
+
+**Headless / automated sessions: `OLO_MCP_ALLOW_WRITES=1`.** The three-way control is
+an ImGui radio group, so a non-interactive launch has nobody to click it and would
+refuse every write tool. Set `OLO_MCP_ALLOW_WRITES=1` **before launching the editor**,
+alongside `OLO_MCP_AUTOSTART=1`, and the session starts at *Allow all*
+(`EditorLayer::OnAttach`). Two constraints follow from where the hook lives:
+
+- It is read **only inside the autostart block**, and only after `Start()` succeeds.
+  Setting it without `OLO_MCP_AUTOSTART=1`, or exporting it after the editor is
+  already running, does nothing — arming write consent on a server that never began
+  listening would be meaningless state to carry.
+- It is still **opt-in and never persisted**. An interactive user who launches the
+  editor normally is unaffected; you have to have deliberately launched an automated
+  session for it to apply. That is the same spirit as `OLO_MCP_AUTOSTART` itself.
+
+`scripts/perf/run-perf-battery.ps1` is the worked example, and the `run-oloengine`
+skill's `attach -AllowWrites` passes it for you.
 
 Every entity/component write still routes through the editor's **undo stack** — an
 approved change is a single **Ctrl-Z** — so *Prompt* and *Allow all* differ only in
@@ -405,7 +432,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_crash_list`, `olo_crash_get` |
 | `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_stop`, `olo_editor_select_entity` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
-| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_material_get` |
+| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_material_get`, `olo_shader_debug_draw` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
 | `assets` | `olo_assets_list`, `olo_assets_problems` |
 | `scripting` | `olo_script_get_api`, `olo_script_get_last_errors`, `olo_reload_script` |

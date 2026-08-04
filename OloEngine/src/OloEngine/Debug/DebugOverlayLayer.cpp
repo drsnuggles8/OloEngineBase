@@ -6,6 +6,8 @@
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/DebugUtils.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 
@@ -151,6 +153,30 @@ namespace OloEngine
         ImGui::Checkbox("Light Gizmos", &settings.ShowLightGizmos);
         ImGui::Checkbox("Grid", &settings.ShowGrid);
         ImGui::Checkbox("Bounding Boxes", &settings.ShowBoundingBoxes);
+
+        // GPU-pushable shader debug draws (issue #725). Surfaced here as well as
+        // in the Renderer Settings panel because the F3 overlay is the one that
+        // is reachable in a shipped/runtime build, and this is exactly the
+        // instrument you want when a GPU-driven pass is misbehaving there.
+        ImGui::Checkbox("Shader Debug Draws", &settings.ShaderDebugDrawEnabled);
+        if (settings.ShaderDebugDrawEnabled)
+        {
+            // Overflow is the failure the feature exists to make visible, so it
+            // is reported here even though the full per-channel table lives in
+            // the settings panel.
+            if (const auto& stats = ShaderDebugDraw::GetStats(); stats.StatsValid)
+            {
+                for (u32 i = 0; i < kShaderDebugDrawPrimitiveCount; ++i)
+                {
+                    if (const auto& channel = stats.Channels[i]; channel.Overflowed())
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.2f, 1.0f), "  %s overflow: %u dropped",
+                                           ShaderDebugDrawContract::Name(static_cast<ShaderDebugDrawPrimitive>(i)),
+                                           channel.Dropped());
+                    }
+                }
+            }
+        }
 
         ImGui::BeginDisabled();
         bool showEntityNames = false;

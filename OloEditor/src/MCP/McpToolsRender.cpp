@@ -25,6 +25,8 @@
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -4057,6 +4059,153 @@ namespace OloEngine::MCP
             return ToolResult::Structured(j);
         }
 
+        // ---- olo_shader_debug_draw (main-marshaled) ----------------------------
+        // The agent-facing half of issue #725. The whole point of GPU-pushable
+        // debug draws is that a cull decision computed on the GPU becomes visible
+        // without a code edit + reload; an agent that cannot flip the switch and
+        // read the overflow counters is back to the debug-colour-output loop.
+
+        // (main thread) The live knob + per-channel state, echoed by the tool.
+        Json ShaderDebugDrawStateJson()
+        {
+            const auto& settings = Renderer3D::GetRendererSettings();
+            Json j;
+            j["enabled"] = settings.ShaderDebugDrawEnabled;
+            j["lineWidth"] = settings.ShaderDebugDrawLineWidth;
+            j["clusterBounds"] = settings.ShaderDebugDrawClusterBounds;
+            j["clusterStride"] = settings.ShaderDebugDrawClusterStride;
+
+            // Channel stats are from the PREVIOUS frame by construction: the
+            // headers are copied into DeviceToHost staging at the end of the
+            // debug pass and read at the next BeginFrame, so the read never
+            // stalls on this frame's GPU work. For an overflow flag that latency
+            // does not matter; saying so here stops a caller reading a stale zero
+            // as "nothing was pushed".
+            const auto& stats = ShaderDebugDraw::GetStats();
+            j["statsValid"] = stats.StatsValid;
+            j["statsAreFromPreviousFrame"] = true;
+            Json channels = Json::array();
+            for (u32 i = 0; i < kShaderDebugDrawPrimitiveCount; ++i)
+            {
+                const auto& channel = stats.Channels[i];
+                channels.push_back(Json{
+                    { "primitive", ShaderDebugDrawContract::Name(static_cast<ShaderDebugDrawPrimitive>(i)) },
+                    { "capacity", channel.Capacity },
+                    { "drawn", channel.Drawn },
+                    { "requested", channel.Requested },
+                    { "cpuPushes", channel.CpuPushes },
+                    { "overflowed", channel.Overflowed() },
+                    { "dropped", channel.Dropped() },
+                });
+            }
+            j["channels"] = std::move(channels);
+            j["anyOverflow"] = stats.AnyOverflow();
+            return j;
+        }
+
+        Schema::Node ShaderDebugDrawStateSchema()
+        {
+            return Schema::Object()
+                .Prop("enabled", Schema::Bool())
+                .Prop("lineWidth", Schema::Number())
+                .Prop("clusterBounds", Schema::Int())
+                .Prop("clusterStride", Schema::Int())
+                .Prop("statsValid", Schema::Bool())
+                .Prop("statsAreFromPreviousFrame", Schema::Bool())
+                .Prop("anyOverflow", Schema::Bool())
+                .Prop("channels", Schema::Array(Schema::Object()
+                                                    .Prop("primitive", Schema::String())
+                                                    .Prop("capacity", Schema::Int())
+                                                    .Prop("drawn", Schema::Int())
+                                                    .Prop("requested", Schema::Int())
+                                                    .Prop("cpuPushes", Schema::Int())
+                                                    .Prop("overflowed", Schema::Bool())
+                                                    .Prop("dropped", Schema::Int())));
+        }
+
+        ToolResult Handle_ShaderDebugDrawSet(McpServer& server, const Json& args)
+        {
+            const bool hasEnabled = args.contains("enabled") && args["enabled"].is_boolean();
+            const bool hasLineWidth = args.contains("lineWidth") && args["lineWidth"].is_number();
+            const bool hasClusterBounds = args.contains("clusterBounds") && args["clusterBounds"].is_number_integer();
+            const bool hasClusterStride = args.contains("clusterStride") && args["clusterStride"].is_number_integer();
+
+            f32 lineWidth = 0.0f;
+            if (hasLineWidth)
+            {
+                lineWidth = args["lineWidth"].get<f32>();
+                if (!std::isfinite(lineWidth) || lineWidth < 1.0f || lineWidth > 32.0f)
+                    return ToolResult::Error("Invalid 'lineWidth': expected a finite number in [1, 32].");
+            }
+
+            i64 clusterBounds = 0;
+            if (hasClusterBounds)
+            {
+                clusterBounds = args["clusterBounds"].get<i64>();
+                if (clusterBounds < 0 || clusterBounds > 15)
+                    return ToolResult::Error("Invalid 'clusterBounds': expected a bit field in [0, 15] "
+                                             "(1 drawn | 2 frustum-culled | 4 cone-culled | 8 Hi-Z occluded).");
+            }
+
+            i64 clusterStride = 0;
+            if (hasClusterStride)
+            {
+                clusterStride = args["clusterStride"].get<i64>();
+                if (clusterStride < 1 || clusterStride > 4096)
+                    return ToolResult::Error("Invalid 'clusterStride': expected an integer in [1, 4096].");
+            }
+
+            const bool enabled = hasEnabled && args["enabled"].get<bool>();
+            const bool anyChange = hasEnabled || hasLineWidth || hasClusterBounds || hasClusterStride;
+
+            const Json applied = server.MarshalRead(
+                [hasEnabled, enabled, hasLineWidth, lineWidth, hasClusterBounds, clusterBounds, hasClusterStride,
+                 clusterStride]() -> Json
+                {
+                    Json previous = ShaderDebugDrawStateJson();
+                    auto& rs = Renderer3D::GetRendererSettings();
+                    if (hasEnabled)
+                        rs.ShaderDebugDrawEnabled = enabled;
+                    if (hasLineWidth)
+                        rs.ShaderDebugDrawLineWidth = lineWidth;
+                    if (hasClusterBounds)
+                        rs.ShaderDebugDrawClusterBounds = static_cast<u32>(clusterBounds);
+                    if (hasClusterStride)
+                        rs.ShaderDebugDrawClusterStride = static_cast<u32>(clusterStride);
+                    return Json{ { "previous", std::move(previous) } };
+                });
+
+            // The enable gates a render-graph DECLARATION (the pass declares its
+            // SceneColor RMW only while on) AND the channel capacities the GLSL
+            // push helpers test, and the stats are a frame behind on top of that.
+            // Settle so the state this call reports back is the one a screenshot
+            // taken immediately afterwards will show.
+            if (anyChange && server.Context().GetFrameIndex)
+                (void)ForceFreshFrame(server, kVirtualDebugSettleFrames);
+
+            const Json current = server.MarshalRead([]() -> Json
+                                                    { return ShaderDebugDrawStateJson(); });
+
+            Json j;
+            j["changed"] = anyChange;
+            j["previous"] = applied.value("previous", Json::object());
+            j["current"] = current;
+            if (current.value("anyOverflow", false))
+            {
+                j["message"] = "At least one channel OVERFLOWED - the excess draws were dropped, so what you "
+                               "see is a prefix, not the whole set. Raise clusterStride, or expect an "
+                               "arbitrary subset.";
+            }
+            else if (current.value("enabled", false))
+            {
+                j["message"] = "Shader debug draws are on. Push from a shader via "
+                               "include/DebugDrawCommon.glsl, or set clusterBounds for the shipped "
+                               "virtual-geometry cluster visualization (Deferred path only). Capture with "
+                               "olo_screenshot { forceFrame: true }.";
+            }
+            return ToolResult::Structured(j);
+        }
+
         ToolResult Handle_VirtualGeometryStats(McpServer& server, const Json& /*args*/)
         {
             const Json result = server.MarshalRead([]() -> Json
@@ -5869,6 +6018,52 @@ namespace OloEngine::MCP
                                     .Required({ "changed", "previous", "current" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_VirtualGeometrySet;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_shader_debug_draw";
+            tool.Toolset = "render";
+            tool.Title = "GPU-pushable shader debug draws";
+            // Session-global renderer debug state, never the project. Idempotent:
+            // the same arguments leave the same state.
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ true);
+            tool.Description =
+                "Drive the GPU-pushable shader debug-draw channels (issue #725) - the instrument for "
+                "GPU-driven passes, whose cull decisions, cluster bounds and probe placements are computed "
+                "on the GPU and otherwise never come back. Any shader that includes "
+                "'include/DebugDrawCommon.glsl' can atomic-append a line / circle / rectangle / AABB / box / "
+                "cone / sphere into a per-primitive channel, and this pass draws every channel with one "
+                "indirect call at the end of the SceneColor chain, depth-tested against the real scene. "
+                "'enabled' is the master switch (off costs nothing: the channels collapse to header-only and "
+                "the push helpers early-out on one scalar load). 'lineWidth' sets the screen-space quad width "
+                "in pixels. 'clusterBounds' turns on the SHIPPED consumer - VirtualClusterCull.comp emitting "
+                "each cluster's world-space cull sphere colour-coded by verdict, as a bit field: 1 = drawn "
+                "(green), 2 = frustum-culled (red), 4 = cone-culled (blue), 8 = Hi-Z occluded (yellow); "
+                "combine them to answer 'which test removed that cluster' directly. It needs the DEFERRED "
+                "path with virtual geometry in view. 'clusterStride' emits only every Nth cluster - a "
+                "Nanite-class scene has far more clusters than a channel holds, so 1 simply overflows. "
+                "The response's per-channel counters ARE the overflow flag: 'requested' is unclamped and "
+                "'drawn' is capped at 'capacity', so 'overflowed'/'dropped' distinguish 'I pushed nothing' "
+                "from 'I pushed too much and the rest was silently thrown away' - the failure mode this "
+                "feature exists to remove. Counters are one frame behind by design (read back through a "
+                "DeviceToHost staging copy so nothing stalls). Call with no arguments to read the state. "
+                "EPHEMERAL renderer state: never saved, restored by a scene reload.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("enabled", Schema::Bool().Desc("Master switch for the debug-draw channels + the render pass. Off is free."))
+                                   .Prop("lineWidth", Schema::Number().Min(1).Max(32).Desc("Screen-space line width in pixels (default 2). Every primitive is expanded to quads, so this is a real knob, not a GL_LINES hint."))
+                                   .Prop("clusterBounds", Schema::Int().Min(0).Max(15).Desc("Virtual-geometry cluster-bounds bit field: 1 drawn | 2 frustum-culled | 4 cone-culled | 8 Hi-Z occluded. 0 = off. Deferred path only."))
+                                   .Prop("clusterStride", Schema::Int().Min(1).Max(4096).Desc("Emit only every Nth cluster (default 32). Guards against overflowing the channel with a whole Nanite cut."))
+                                   .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("changed", Schema::Bool().Desc("True when any knob argument was present."))
+                                    .Prop("previous", ShaderDebugDrawStateSchema().Desc("State before the write."))
+                                    .Prop("current", ShaderDebugDrawStateSchema().Desc("State after the write + settle."))
+                                    .Prop("message", Schema::String().Desc("Overflow warning or capture hint."))
+                                    .Required({ "changed", "previous", "current" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_ShaderDebugDrawSet;
             server.RegisterTool(std::move(tool));
         }
 

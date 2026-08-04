@@ -888,6 +888,14 @@ namespace OloEngine
         // RGCommandContext::BindTextureOrHeapOffset, read via
         // include/BindlessHeap.glsl's OLO_HEAP_* macros.
         static constexpr u32 UBO_HEAP_OFFSETS = 56;
+        // GPU-pushable shader debug draws (issue #725): the render-side params
+        // for DebugDrawPrimitives.glsl — main-camera view-projection, the
+        // observer-camera inverse view-projection that gives meaning to the
+        // ObserverCameraNDC coordinate space, viewport size + line width (the
+        // expansion is a screen-space quad, so it needs pixels), and the
+        // primitive selector that picks which channel this draw expands.
+        // Push-side shaders never see this block — they only touch the SSBOs.
+        static constexpr u32 UBO_DEBUG_DRAW = 57;
 
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
@@ -1110,6 +1118,31 @@ namespace OloEngine
         // data (ADR 0011 §1.1). Bound once per frame, never per draw.
         static constexpr u32 SSBO_RESOURCE_HEAP = 45;
 
+        // GPU-pushable shader debug draws (issue #725) — one append channel per
+        // primitive type, declared by include/DebugDrawCommon.glsl and drawn by
+        // assets/shaders/DebugDrawPrimitives.glsl. Every channel has the SAME
+        // 32-byte header (a DrawArraysIndirectCommand followed by Capacity +
+        // RequestCount) and differs only in its trailing entry array, so the C++
+        // mirror in Renderer/Debug/ShaderDebugDrawTypes.h can describe all seven
+        // with one header struct. The channel buffer is bound BOTH as an SSBO
+        // here and as the GL_DRAW_INDIRECT_BUFFER of its own draw — the args live
+        // at offset 0 precisely so `glDrawArraysIndirect(.., nullptr)` finds them.
+        //
+        // The order of these seven MUST match ShaderDebugDrawPrimitive's
+        // enumerator order (pinned by ShaderDebugDrawContractTest) — the C++ side
+        // indexes its channel array by the enumerator and derives the binding as
+        // SSBO_DEBUG_DRAW_FIRST + index.
+        static constexpr u32 SSBO_DEBUG_DRAW_LINE = 46;
+        static constexpr u32 SSBO_DEBUG_DRAW_CIRCLE = 47;
+        static constexpr u32 SSBO_DEBUG_DRAW_RECTANGLE = 48;
+        static constexpr u32 SSBO_DEBUG_DRAW_AABB = 49;
+        static constexpr u32 SSBO_DEBUG_DRAW_BOX = 50;
+        static constexpr u32 SSBO_DEBUG_DRAW_CONE = 51;
+        static constexpr u32 SSBO_DEBUG_DRAW_SPHERE = 52;
+
+        static constexpr u32 SSBO_DEBUG_DRAW_FIRST = SSBO_DEBUG_DRAW_LINE;
+        static constexpr u32 SSBO_DEBUG_DRAW_COUNT = 7;
+
         // =============================================================================
         // TYPE ALIASES FOR CONVENIENCE
         // =============================================================================
@@ -1261,6 +1294,8 @@ namespace OloEngine
                     return name.contains("AtmosphereShading") || name.contains("atmosphereShading");
                 case UBO_IMPOSTOR_BAKE:
                     return name.contains("ImpostorBake") || name.contains("impostorBake");
+                case UBO_DEBUG_DRAW:
+                    return name.contains("DebugDraw") || name.contains("debugDraw");
                 default:
                     return false;
             }
