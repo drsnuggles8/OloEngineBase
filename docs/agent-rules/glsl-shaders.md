@@ -390,6 +390,39 @@ because the pass keeps rendering and only the newly-unbound input goes dark.
 converted whole.** It applies to every partly-converted file, and there are now
 ~30 of them.
 
+#### It is now machine-checked, because the prose rule did not hold
+
+`BindlessShaderPipeline.NoBindlessRouteShaderKeepsASlotBasedSamplerDeclaration`
+scans every shader on the bindless route and fails on any sampler declaration
+that survives with `OLO_BINDLESS` defined. The one exception it allows is a slot
+bound through `PublishTextureOffsetAndBind`, which stages an offset **and**
+always binds — that is what the DDGI atlases use, so their slot-based readers
+keep working.
+
+The test exists because this section, worked example and all, was already
+written when `Terrain_Depth.glsl` was converted **one line at a time**:
+`u_TerrainHeightmap` got a correct `#ifdef`/`#else` pair and `u_SnowDepthMap`,
+declared on the very next line, did not. Snow deformation then read zero under
+`OLO_RHI_BINDLESS=1` — and the entire suite stayed green **in both
+configurations**, because the failure is invisible to anything that does not
+compare them.
+
+Two things generalise past this bug:
+
+- **A test that compares two frames in the SAME configuration cannot see a
+  defect that affects both frames equally.** `WorldOriginRebaseVisualEvidence`
+  moved 1.413 → 5.861 and that number was twice mis-diagnosed (as sampler state,
+  then as raw-GLSL float codegen) before anyone compared **across** configs and
+  found RMSE 78.8 with mean luminance halved. Bisect by probing values out
+  through `o_Color` and *reading the pixels*; the scalar the test reports is a
+  summary, not evidence.
+- **Whether a shader is on the route is decided by a text search**, so it must
+  measure code rather than prose. `WantsBindlessVariant` now blanks comments and
+  matches `OLO_BINDLESS` as a whole identifier — before, a comment saying "not
+  OLO_BINDLESS converted" would have rerouted the shader and silently unbound
+  every sampler it declares, and `include/BindlessHeap.glsl`'s own
+  `#ifndef OLO_BINDLESS_HEAP_GLSL` guard matched as a substring.
+
 ### 5c-bis. A shader using a VULKAN-only builtin cannot take the bindless route at all
 
 The bindless route feeds your original GLSL straight to `glShaderSource`,

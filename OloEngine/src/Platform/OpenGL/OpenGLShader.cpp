@@ -55,6 +55,51 @@ namespace OloEngine
         // identifier of an `out` statement. Scanning for the bare name would also
         // fire on a shader that merely SAMPLES a G-Buffer target — DeferredLighting
         // reads `gAlbedo` — and would misclassify a consumer as a producer.
+        // True when `token` occurs in `source` as a WHOLE IDENTIFIER outside every
+        // // and /* */ comment. GLSL has no raw strings and no char literals, so
+        // comments are the only span that has to be skipped.
+        //
+        // The whole-identifier requirement matters because include/BindlessHeap.glsl
+        // guards itself with `#ifndef OLO_BINDLESS_HEAP_GLSL`, and a plain substring
+        // search for "OLO_BINDLESS" matches that guard. Every shader that merely
+        // INCLUDES the header would then take the raw-GLSL route whether or not it
+        // converted anything — and taking the route is what makes the seam stop
+        // issuing real binds (§5c). No shader depends on the loose reading today
+        // (all 64 on the route spell `OLO_BINDLESS` themselves), so tightening it
+        // is behaviour-preserving.
+        [[nodiscard]] static bool MentionsOutsideComments(std::string_view source, std::string_view token)
+        {
+            const auto isIdentChar = [](char c)
+            { return (std::isalnum(static_cast<unsigned char>(c)) != 0) || c == '_'; };
+
+            for (sizet i = 0; i < source.size();)
+            {
+                if (source.compare(i, 2, "//") == 0)
+                {
+                    i = std::min(source.find('\n', i), source.size());
+                    continue;
+                }
+                if (source.compare(i, 2, "/*") == 0)
+                {
+                    const sizet end = source.find("*/", i + 2u);
+                    i = (end == std::string_view::npos) ? source.size() : end + 2u;
+                    continue;
+                }
+                if (source.compare(i, token.size(), token) == 0)
+                {
+                    const bool leftOk = (i == 0) || !isIdentChar(source[i - 1u]);
+                    const sizet after = i + token.size();
+                    const bool rightOk = (after >= source.size()) || !isIdentChar(source[after]);
+                    if (leftOk && rightOk)
+                    {
+                        return true;
+                    }
+                }
+                ++i;
+            }
+            return false;
+        }
+
         [[nodiscard]] static bool DeclaresGBufferOutput(std::string_view source, std::string_view prefix,
                                                         std::span<const std::string_view> sentinels)
         {
@@ -744,9 +789,19 @@ namespace OloEngine
         // Opt-in is the token itself. A shader that never mentions OLO_BINDLESS
         // has no bindless branch to build, so building one would just compile
         // the same slot-based code down a route with fewer safety nets.
+        //
+        // OUTSIDE COMMENTS, and that is not pedantry. This decision is
+        // program-wide: taking the route makes IsBoundProgramBindless() true, so
+        // the seam stops issuing real binds for every input whose declaration is
+        // still `layout(binding = N)` (§5c). A shader that merely NAMES the token
+        // in prose — "this one is deliberately not OLO_BINDLESS converted" is the
+        // obvious way to write that — would silently lose every one of its
+        // samplers to black. No shader relies on the comment-inclusive reading
+        // today, so this is behaviour-preserving as well as safer. Mirrors
+        // RHIBoundaryRatchetTest's rule that a scan must measure code, not prose.
         return std::ranges::any_of(sources,
                                    [](const auto& entry)
-                                   { return entry.second.find("OLO_BINDLESS") != std::string::npos; });
+                                   { return Utils::MentionsOutsideComments(entry.second, "OLO_BINDLESS"); });
     }
 
     bool OpenGLShader::CreateProgramFromRawGLSL(const std::unordered_map<GLenum, std::string>& sources)

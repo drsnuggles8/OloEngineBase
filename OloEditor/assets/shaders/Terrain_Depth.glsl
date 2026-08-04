@@ -124,10 +124,19 @@ layout(std140, binding = 10) uniform TerrainParams {
 // producer the bindless route would misroute.
 #ifdef OLO_BINDLESS
 #define u_TerrainHeightmap OLO_HEAP_TEX_2D(23)
+// CONVERTED FOR THE SAME REASON, and it was missed the first time. Its bind
+// (CommandDispatch's TEX_SNOW_DEPTH BindTrackedTextureUnit) already goes
+// through HeapBinding::BindTextureOrOffset, which for a bindless-variant
+// program records an offset and issues NO bind. Leaving the declaration
+// slot-based left this sampler unbound under OLO_RHI_BINDLESS=1, so snow
+// deformation silently read zero — §5c: the unit of conversion is a C++ bind
+// AND its declaration, together. Terrain_GBuffer/Terrain_PBR declare the name
+// in their own files and stay slot-based, so they still get a real bind.
+#define u_SnowDepthMap OLO_HEAP_TEX_2D(30)
 #else
 layout(binding = 23) uniform sampler2D u_TerrainHeightmap;
-#endif
 layout(binding = 30) uniform sampler2D u_SnowDepthMap;
+#endif
 
 // Snow Accumulation UBO (binding 16)
 layout(std140, binding = 16) uniform SnowAccumulationParams {
