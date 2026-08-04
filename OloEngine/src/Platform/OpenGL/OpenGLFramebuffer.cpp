@@ -62,11 +62,30 @@ namespace OloEngine
         // `GL_INVALID_OPERATION ... Not a valid texture` when the heap releases a
         // handle for an attachment that was already deleted. Same defect, quieter
         // symptom: a heap descriptor outliving the texture it describes.
-        for (const auto& handle : m_ColorAttachmentHandles)
+        // A DESTRUCTOR IS IMPLICITLY noexcept, so anything thrown here calls
+        // std::terminate. RetireResource takes the heap's mutex and touches
+        // containers, either of which can throw — so the retire is guarded even
+        // though it is not expected to fail in practice. Leaking a descriptor is
+        // recoverable; taking the process down during teardown is not.
+        try
         {
-            RHI::DescriptorHeap::Get().RetireResource(handle.Get());
+            for (const auto& handle : m_ColorAttachmentHandles)
+            {
+                RHI::DescriptorHeap::Get().RetireResource(handle.Get());
+            }
+            RHI::DescriptorHeap::Get().RetireResource(m_DepthAttachmentHandle.Get());
         }
-        RHI::DescriptorHeap::Get().RetireResource(m_DepthAttachmentHandle.Get());
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("[RHI/GL] Retiring framebuffer attachment descriptors threw during "
+                           "destruction: {}. Descriptors leak for the rest of the process.",
+                           e.what());
+        }
+        catch (...)
+        {
+            OLO_CORE_ERROR("[RHI/GL] Retiring framebuffer attachment descriptors threw during "
+                           "destruction. Descriptors leak for the rest of the process.");
+        }
 
         u32 fboId = m_RendererID;
         std::vector<u32> colorIds(m_ColorAttachments);
