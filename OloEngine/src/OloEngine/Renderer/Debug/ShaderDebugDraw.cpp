@@ -118,14 +118,18 @@ namespace OloEngine
         }
         data.ParamsUBO.Reset();
         {
-            // Same locking discipline as BeginFrame — a worker thread can be
-            // mid-push while the renderer tears down.
+            // Close the gate and clear under ONE lock hold. Order matters: a
+            // worker parked on this mutex re-checks IsEnabled() the moment it
+            // acquires, so clearing the flags first means it observes the
+            // shutdown and drops its append instead of repopulating the vectors
+            // we just emptied.
             const std::scoped_lock lock(data.CpuMutex);
+            data.Enabled = false;
+            data.Initialised = false;
             ClearCpuEntries();
         }
         data.Stats = {};
         data.StatsStaged = false;
-        data.Initialised = false;
     }
 
     bool ShaderDebugDraw::IsInitialised()
@@ -175,6 +179,13 @@ namespace OloEngine
             return;
         auto& data = Get();
         const std::scoped_lock lock(data.CpuMutex);
+        // Re-check under the lock: the pre-lock IsEnabled() only proves the
+        // feature was on a moment ago, and Shutdown/BeginFrame clear these
+        // vectors while holding this same mutex. Without the recheck a worker
+        // parked on the lock appends AFTER the clear, leaving an entry that
+        // outlives the frame that was allowed to produce it.
+        if (!IsEnabled())
+            return;
         data.CpuLines.push_back(ShaderDebugDrawLine{ start, static_cast<u32>(std::to_underlying(space)), end, 0.0f,
                                                      color, 0.0f });
     }
@@ -186,6 +197,13 @@ namespace OloEngine
             return;
         auto& data = Get();
         const std::scoped_lock lock(data.CpuMutex);
+        // Re-check under the lock: the pre-lock IsEnabled() only proves the
+        // feature was on a moment ago, and Shutdown/BeginFrame clear these
+        // vectors while holding this same mutex. Without the recheck a worker
+        // parked on the lock appends AFTER the clear, leaving an entry that
+        // outlives the frame that was allowed to produce it.
+        if (!IsEnabled())
+            return;
         data.CpuCircles.push_back(ShaderDebugDrawCircle{ center, static_cast<u32>(std::to_underlying(space)), normal,
                                                          radius, color, 0.0f });
     }
@@ -197,6 +215,13 @@ namespace OloEngine
             return;
         auto& data = Get();
         const std::scoped_lock lock(data.CpuMutex);
+        // Re-check under the lock: the pre-lock IsEnabled() only proves the
+        // feature was on a moment ago, and Shutdown/BeginFrame clear these
+        // vectors while holding this same mutex. Without the recheck a worker
+        // parked on the lock appends AFTER the clear, leaving an entry that
+        // outlives the frame that was allowed to produce it.
+        if (!IsEnabled())
+            return;
         data.CpuRectangles.push_back(ShaderDebugDrawRectangle{ center, static_cast<u32>(std::to_underlying(space)),
                                                                axisU, 0.0f, axisV, 0.0f, color, 0.0f });
     }
@@ -208,6 +233,13 @@ namespace OloEngine
             return;
         auto& data = Get();
         const std::scoped_lock lock(data.CpuMutex);
+        // Re-check under the lock: the pre-lock IsEnabled() only proves the
+        // feature was on a moment ago, and Shutdown/BeginFrame clear these
+        // vectors while holding this same mutex. Without the recheck a worker
+        // parked on the lock appends AFTER the clear, leaving an entry that
+        // outlives the frame that was allowed to produce it.
+        if (!IsEnabled())
+            return;
         data.CpuAABBs.push_back(ShaderDebugDrawAABB{ min, static_cast<u32>(std::to_underlying(space)), max, 0.0f, color,
                                                      0.0f });
     }
@@ -225,6 +257,13 @@ namespace OloEngine
 
         auto& data = Get();
         const std::scoped_lock lock(data.CpuMutex);
+        // Re-check under the lock: the pre-lock IsEnabled() only proves the
+        // feature was on a moment ago, and Shutdown/BeginFrame clear these
+        // vectors while holding this same mutex. Without the recheck a worker
+        // parked on the lock appends AFTER the clear, leaving an entry that
+        // outlives the frame that was allowed to produce it.
+        if (!IsEnabled())
+            return;
         data.CpuBoxes.push_back(entry);
     }
 
@@ -235,6 +274,13 @@ namespace OloEngine
             return;
         auto& data = Get();
         const std::scoped_lock lock(data.CpuMutex);
+        // Re-check under the lock: the pre-lock IsEnabled() only proves the
+        // feature was on a moment ago, and Shutdown/BeginFrame clear these
+        // vectors while holding this same mutex. Without the recheck a worker
+        // parked on the lock appends AFTER the clear, leaving an entry that
+        // outlives the frame that was allowed to produce it.
+        if (!IsEnabled())
+            return;
         data.CpuCones.push_back(ShaderDebugDrawCone{ apex, static_cast<u32>(std::to_underlying(space)), axis, radius,
                                                      color, 0.0f });
     }
@@ -246,6 +292,13 @@ namespace OloEngine
             return;
         auto& data = Get();
         const std::scoped_lock lock(data.CpuMutex);
+        // Re-check under the lock: the pre-lock IsEnabled() only proves the
+        // feature was on a moment ago, and Shutdown/BeginFrame clear these
+        // vectors while holding this same mutex. Without the recheck a worker
+        // parked on the lock appends AFTER the clear, leaving an entry that
+        // outlives the frame that was allowed to produce it.
+        if (!IsEnabled())
+            return;
         data.CpuSpheres.push_back(ShaderDebugDrawSphere{ center, radius, color,
                                                          static_cast<u32>(std::to_underlying(space)) });
     }
@@ -342,12 +395,12 @@ namespace OloEngine
                 }
                 data.Stats = {};
             }
-            // Under the lock, same as the enabled path below. The appenders
-            // early-out on IsEnabled() so a concurrent push is unlikely, but a
-            // worker thread that entered DrawX() just before the toggle flipped
-            // can still be inside push_back — and "unlikely" is not an
-            // invariant. Do not let the locking discipline depend on call-site
-            // timing.
+            // Under the lock, same as the enabled path below — and the clear is
+            // final rather than best-effort, because data.Enabled is already
+            // false here and the appenders re-check it after acquiring this
+            // same mutex. A worker that passed its pre-lock check and is parked
+            // here therefore observes the disable and drops its append instead
+            // of repopulating what we just emptied.
             {
                 const std::scoped_lock lock(data.CpuMutex);
                 ClearCpuEntries();

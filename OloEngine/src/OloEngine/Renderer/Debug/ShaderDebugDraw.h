@@ -8,6 +8,7 @@
 #include <glm/glm.hpp>
 
 #include <array>
+#include <atomic>
 #include <mutex>
 #include <vector>
 
@@ -143,8 +144,16 @@ namespace OloEngine
             std::mutex CpuMutex;
 
             ShaderDebugDrawStats Stats;
-            bool Enabled = false;
-            bool Initialised = false;
+            // ATOMIC because the Draw*() appenders are documented as callable
+            // from worker threads (see the class comment) while SetEnabled /
+            // Init / Shutdown run on the render thread. A plain bool read and
+            // written from two threads is a data race under the C++ memory
+            // model — undefined behaviour, however benign the generated code
+            // looks. The appenders additionally RE-CHECK this gate after taking
+            // CpuMutex, because passing the pre-lock test says nothing about
+            // still being enabled once the lock is held.
+            std::atomic<bool> Enabled{ false };
+            std::atomic<bool> Initialised{ false };
             bool StatsStaged = false;
             f32 LineWidth = 2.0f;
             u32 RequestedCapacity = kDefaultChannelCapacity;

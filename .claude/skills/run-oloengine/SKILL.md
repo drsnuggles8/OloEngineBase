@@ -126,7 +126,7 @@ radio group, so a detached `attach` has nobody to click it and the tools come ba
 `OLO_MCP_ALLOW_WRITES=1` alongside `OLO_MCP_AUTOSTART=1` before launching:
 
 ```powershell
-pwsh -NoProfile -File .claude\skillsun-oloengine\driver.ps1 -Action attach -AllowWrites
+pwsh -NoProfile -File .claude\skills\run-oloengine\driver.ps1 -Action attach -AllowWrites
 ```
 
 The variable is read **only inside the editor's autostart block, after the server
