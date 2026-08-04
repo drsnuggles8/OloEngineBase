@@ -70,25 +70,30 @@ namespace OloEngine
         [[nodiscard]] auto AcquireDescriptor(RHI::ResourceHandle resource, const RHI::ViewDesc& view,
                                              const RHI::SamplerDesc& sampler) -> u64 override;
 
-        void ReleaseDescriptor(u64 descriptor) override;
+        void ReleaseDescriptor(u64 descriptor, RHI::ViewUsage usage) override;
 
         void UploadSlots(u32 firstSlot, const u64* descriptors, u32 count) override;
 
         void BindHeap() override;
 
-        [[nodiscard]] auto NullDescriptor() const -> u64 override;
+        [[nodiscard]] auto NullDescriptor(RHI::ViewUsage usage) const -> u64 override;
 
         struct Stats
         {
-            u32 ResidentHandles = 0;  ///< distinct handles currently resident
-            u32 SamplerObjects = 0;   ///< deduplicated GL sampler objects
-            u64 AcquireFailures = 0;  ///< dead resource, or a view GL cannot express
-            u64 UnsupportedViews = 0; ///< subresource/format reinterpretation, see below
+            u32 ResidentHandles = 0;         ///< distinct SAMPLER handles currently resident
+            u32 ResidentImageHandles = 0;    ///< distinct STORAGE-IMAGE handles currently resident
+            u32 SamplerObjects = 0;          ///< deduplicated GL sampler objects
+            u64 AcquireFailures = 0;         ///< dead resource, or a view GL cannot express
+            u64 UnsupportedViews = 0;        ///< subresource/format reinterpretation, see below
+            u64 ImageResidencyWidenings = 0; ///< a handle re-made resident READ_WRITE, see below
         };
         [[nodiscard]] auto GetStats() const -> Stats;
 
       private:
         [[nodiscard]] auto SamplerObjectFor(const RHI::SamplerDesc& sampler, bool depthCompare) -> GLuint;
+        [[nodiscard]] auto AcquireSampledDescriptor(GLuint texture, const RHI::ViewDesc& view,
+                                                    const RHI::SamplerDesc& sampler) -> u64;
+        [[nodiscard]] auto AcquireStorageDescriptor(GLuint texture, const RHI::ViewDesc& view) -> u64;
 
         bool m_Supported = false;
         GLuint m_HeapBuffer = 0u;
@@ -99,6 +104,13 @@ namespace OloEngine
         GLuint m_NullTexture = 0u;
         GLuint m_NullSampler = 0u;
         u64 m_NullDescriptor = 0u;
+        // The same idea for the second descriptor kind: a 1x1 R32F texture whose
+        // IMAGE handle is resident READ_WRITE. It must be a separate texture
+        // because an image handle carries a format and R32F is the only one an
+        // `imageLoad` of any float image can safely read as zero; and it must be a
+        // separate HANDLE because `image2D(samplerHandle)` is undefined.
+        GLuint m_NullImageTexture = 0u;
+        u64 m_NullImageDescriptor = 0u;
         u32 m_SlotCapacity = 0u;
 
         // Residency refcount. Two views that differ only in a field GL folds
@@ -107,6 +119,28 @@ namespace OloEngine
         // residency transition — so the count is required for correctness, not
         // for tidiness.
         std::unordered_map<u64, u32> m_Residency;
+
+        // Image residency, kept in a SEPARATE map rather than a flag on the one
+        // above. Two reasons, and the second is the load-bearing one:
+        //
+        //  * The transitions are different calls
+        //    (`glMakeImageHandleResidentARB` / `...NonResidentARB`), and the spec
+        //    does not promise a texture handle and an image handle are
+        //    numerically distinguishable — so one map keyed on the value alone
+        //    could dispatch the wrong call for a colliding pair.
+        //  * An image residency carries an ACCESS, and it has to be WIDENED.
+        //    `glGetImageHandleARB` takes no access, so a read-only and a
+        //    read-write view of the same (texture, level, layer, format) are the
+        //    SAME handle — but reading a WRITE_ONLY-resident handle, or writing a
+        //    READ_ONLY one, is undefined. When a second acquire needs an access
+        //    the current residency does not cover, the handle is re-made resident
+        //    as READ_WRITE (counted in Stats::ImageResidencyWidenings).
+        struct ImageResidency
+        {
+            u32 RefCount = 0u;
+            GLenum Access = 0u; ///< GL_READ_ONLY / GL_WRITE_ONLY / GL_READ_WRITE
+        };
+        std::unordered_map<u64, ImageResidency> m_ImageResidency;
 
         // Deduplicated sampler objects. This is what makes one depth array
         // reachable as both a comparison sampler and a raw-depth one WITHOUT

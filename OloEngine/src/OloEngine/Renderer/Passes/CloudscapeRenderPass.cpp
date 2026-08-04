@@ -226,17 +226,6 @@ namespace OloEngine
         if (m_CloudscapeUBO)
             m_CloudscapeUBO->Bind();
 
-        // Defensive sampler re-binds for the raymarch's noise field
-        // (56/57/58 carry explicit layout(binding) qualifiers in
-        // CloudscapeCommon.glsl). UploadExecutionState bound these already;
-        // re-pin them in case an earlier pass touched the units.
-        if (m_BaseNoiseTextureID.IsValid())
-            context.BindTexture(ShaderBindingLayout::TEX_CLOUD_BASE_NOISE, m_BaseNoiseTextureID);
-        if (m_DetailNoiseTextureID.IsValid())
-            context.BindTexture(ShaderBindingLayout::TEX_CLOUD_DETAIL_NOISE, m_DetailNoiseTextureID);
-        if (m_WeatherMapTextureID.IsValid())
-            context.BindTexture(ShaderBindingLayout::TEX_CLOUD_WEATHER_MAP, m_WeatherMapTextureID);
-
         // ----------------------------------------------------------------
         // Pass A — Half-resolution raymarch.
         // Output: RGBA16F (RGB = premultiplied inscatter, A = transmittance).
@@ -261,12 +250,29 @@ namespace OloEngine
 
         m_RaymarchShader->Bind();
 
+        // Defensive sampler re-binds for the raymarch's noise field
+        // (56/57/58 carry explicit layout(binding) qualifiers in
+        // CloudscapeCommon.glsl). UploadExecutionState bound these already;
+        // re-pin them in case an earlier pass touched the units.
+        //
+        // MOVED BELOW THE SHADER BIND (issue #691 Phase 3): the seam picks
+        // offset-vs-bind from the program in flight, so re-pinning before
+        // m_RaymarchShader->Bind() made these take the fallback path while the
+        // raymarch shader read offsets nobody wrote.
+        if (m_BaseNoiseTextureID.IsValid())
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_CLOUD_BASE_NOISE, m_BaseNoiseTextureID, RHI::HeapSlotLifetime::Persistent);
+        if (m_DetailNoiseTextureID.IsValid())
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_CLOUD_DETAIL_NOISE, m_DetailNoiseTextureID, RHI::HeapSlotLifetime::Persistent);
+        if (m_WeatherMapTextureID.IsValid())
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_CLOUD_WEATHER_MAP, m_WeatherMapTextureID, RHI::HeapSlotLifetime::Persistent);
+
         // Full-resolution depth (the shader samples at half-res UV).
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID, RHI::HeapSlotLifetime::FrameTransient);
 
         {
             const auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
+            context.FlushHeapOffsets();
             context.DrawIndexed(va);
         }
         cloudsRawFramebuffer->Unbind();
@@ -296,7 +302,7 @@ namespace OloEngine
 
         // This frame's raymarch at unit 0 (layout(binding = 0) in the shader).
         const RHI::ResourceHandle cloudsRawColor = cloudsRawFramebuffer->GetColorAttachmentHandle(0);
-        context.BindTexture(0, cloudsRawColor);
+        context.BindTextureOrHeapOffset(0, cloudsRawColor, RHI::HeapSlotLifetime::FrameTransient);
 
         // History at unit 1. Prefer the graph-imported handle (always the
         // live texture); fall back to the pipeline-supplied raw id, then to
@@ -313,11 +319,12 @@ namespace OloEngine
             historyTexture = m_HistoryTexture;
         const RHI::ResourceHandle historyBind =
             (m_HistoryValid && historyTexture.IsValid()) ? historyTexture : cloudsRawColor;
-        context.BindTexture(1, historyBind);
+        context.BindTextureOrHeapOffset(1, historyBind, RHI::HeapSlotLifetime::FrameTransient);
 
         {
             const auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
+            context.FlushHeapOffsets();
             context.DrawIndexed(va);
         }
         cloudsResolvedFramebuffer->Unbind();
@@ -348,13 +355,14 @@ namespace OloEngine
 
         // Upstream scene colour at unit 0, resolved clouds at unit 1,
         // full-res depth at TEX_POSTPROCESS_DEPTH (all layout-qualified).
-        context.BindTexture(0, inputColorTextureID);
-        context.BindTexture(1, cloudsResolvedFramebuffer->GetColorAttachmentHandle(0));
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID);
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(1, cloudsResolvedFramebuffer->GetColorAttachmentHandle(0), RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID, RHI::HeapSlotLifetime::FrameTransient);
 
         {
             const auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
+            context.FlushHeapOffsets();
             context.DrawIndexed(va);
         }
 

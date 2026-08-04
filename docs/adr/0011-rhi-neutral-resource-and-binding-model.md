@@ -1346,6 +1346,38 @@ Generalisable past this issue: when a layer deliberately makes an identity
 outlive its storage, every cache keyed on that identity needs an explicit
 invalidation hook, because the identity can no longer report the change.
 
+**CORRECTION (2026-08-03) — this amendment as written is dangerous, and was
+followed literally into a process-killing bug.** "Every site that recreates a
+resource's storage must call `InvalidateResource`" does not distinguish a
+resource whose storage is REPLACED from one that is DESTROYED, and the two need
+opposite handling:
+
+| | Call | Why |
+| --- | --- | --- |
+| Hot reload — object lives, storage replaced | `InvalidateResource` | Releases the old descriptor and **acquires a new one**, so the view keeps working |
+| **Destruction — object goes away** | **`RetireResource`** | Drops residency, poisons the slot, advances generations |
+
+`InvalidateResource`'s re-acquire is the whole point on a reload and is fatal on
+a delete: under `ARB_bindless_texture` it makes the handle **resident again**,
+and `glDeleteTextures` on a texture with a resident handle is undefined. A
+framebuffer resize deletes every attachment, so this is an ordinary path, not an
+exotic one.
+
+Observed as the editor exiting **silently on every maximise** — no assertion, no
+queued GL error, no log line, because the fault is inside the driver. The
+companion symptom was a flickering viewport. Neither is reachable by anything
+this repo tests automatically: the suite never enables the heap, and a
+screenshot A/B is blind to a temporal artifact by construction. It took a human
+resizing a window, which is exactly the dependency
+`RetiringAResourceDropsResidencySoTheTextureCanBeDeletedSafely` now removes.
+
+Both calls are wired into the texture/framebuffer lifecycle beside their
+slot-path sibling `InvalidateTextureBinding`, rather than left to call sites to
+remember. That siting is the actual fix: the heap hook had **two** hand-written
+call sites in the whole engine while the slot-path hook was automatic for every
+texture, and an invalidation contract that depends on every future author
+remembering it is one that will be broken again.
+
 ### (23) §1.2a's sampler deduplication is the one piece of new machinery Phase 4 inherits directly
 
 §1.2a predicted the engine has "no existing concept to migrate" for the sampler
@@ -1415,6 +1447,240 @@ amendment rather than a TODO because it changes how the remaining work should be
 estimated: ~18% of the surface does not fall out of the sampler path at any
 price, and "full bindless" costs a second descriptor kind before it costs another
 call-site sweep.
+
+---
+
+## Amendments from Phase 3, bucket 3 (2026-08-03) — the storage-image kind
+
+Amendment (26) predicted the shape and the prediction held: the descriptor kind
+cost more than the 30 call sites it unblocked. What follows is only what amends a
+decision above; the working notes are in
+[docs/agent-rules/rhi-abstraction-boundary.md §4c](../agent-rules/rhi-abstraction-boundary.md).
+
+### (27) `ViewUsage` goes on `ViewDesc` — one view description, two descriptor kinds
+
+`RHI::ViewUsage { Sampled, Storage }` is a member of `ViewDesc`, not a separate
+`StorageViewDesc` type, and the choice is decided by Vulkan rather than by GL.
+
+Under `VkImageViewCreateInfo` **one view description serves both**: a
+`COMBINED_IMAGE_SAMPLER` and a `STORAGE_IMAGE` differ in the descriptor written,
+not in how the view is described. GL is the backend that makes them look like
+different things, because its sampler-handle form
+(`glGetTextureSamplerHandleARB`) cannot express a subresource at all without a
+`glTextureView`, while its image-handle form (`glGetImageHandleARB`) takes
+level/layered/layer/format inline. Splitting the *description* would have
+modelled that GL implementation detail as if it were part of the neutral
+contract — §1.7's `GLenum`-in-the-facade mistake, one layer up.
+
+`StorageAccess` is the one field whose justification is backend-asymmetric, and
+it is on the desc anyway: Vulkan puts read/write intent in shader qualifiers and
+barriers, GL puts it in **residency**. Since `glGetImageHandleARB` takes no
+access, two views differing only there are the same driver handle — so the
+backend folds them and widens residency, exactly as it already folds sampler
+state into a texture handle. The neutral key stays honest; the folding stays in
+the backend.
+
+### (28) A reserved null is needed per DESCRIPTOR KIND, not per heap
+
+Amendment (26)'s companion finding, and it generalises the "unbind has no
+translation" rule rather than repeating it.
+
+Heap slot 0 holds a sampler descriptor. Constructing an `image2D` from a sampler
+handle is undefined in **exactly** the way constructing one from zero is, so
+pointing a cleared or failed *image* binding at slot 0 would have traded a
+stale-read bug for an undefined-behaviour bug. Slot 1 is therefore reserved as
+the null storage-image descriptor (`RHI::kNullStorageHeapOffset`), and
+`IDescriptorHeapBackend::NullDescriptor` takes a `ViewUsage`.
+
+**The generalisation:** when converting a binding model to an indexed one,
+enumerate the operations with no index equivalent (amendment (26)'s rule) **and
+then enumerate the kinds each of those operations has to answer for**. One null
+per heap is only correct while the heap holds one kind.
+
+### (29) Image units are a second index space in the same offset table
+
+`glBindImageTexture(unit, …)` and `glBindTextureUnit(slot, …)` are separate GL
+namespaces that both start at zero, and Vulkan's descriptor indexing has the same
+property (a storage image and a sampled image are distinct binding arrays). The
+single offset table therefore reserves a disjoint region: image unit `u` lives at
+`ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE + u`, and
+`include/BindlessHeap.glsl`'s `OLO_HEAP_IMAGE_*` macros apply the identical base
+from the same constant.
+
+Without it, image unit 0 and `TEX_DIFFUSE` collide and each silently publishes
+over the other — a wrong *real* resource, which is this model's worst failure
+shape. Amendment (25)'s "both variants name the same number" property survives
+because the base is applied on both sides from one place, so a converted shader
+still names the image unit its bind named.
+
+### (30) Amendment (20) is PARTIALLY closed, and the remaining half is smaller and better specified
+
+The storage path supplies two of (20)'s three missing pieces and **exercises**
+them: the concrete **format**, and the **subresource selection** (GL's
+`layered`/`layer` pair and Vulkan's `baseArrayLayer`/`layerCount` pair are the
+same statement twice, so `SubresourceRange` needed no new fields — see
+`RHI::MakeStorageViewDesc`).
+
+What remains is genuinely narrower:
+
+- the **view dimension** (GL's `glTextureView` target, Vulkan's
+  `VkImageViewType`), which the image path does not need; and
+- resolving `FormatOverride == Unknown` against the resource's own format, which
+  needs resource metadata the heap does not hold.
+
+Both were deliberately **not** added. A neutral field with no consumer and no
+test is the invented vocabulary Phase 2 step 2 paid for, and adding one now would
+have meant guessing its shape against the only backend in the tree — the exact
+failure (20) was recorded to avoid. So (20) stays open, with its scope reduced
+from "the desc cannot describe a view" to "the desc cannot describe a view's
+*shape*, and cannot resolve an inherited format".
+
+### (32) A SHARED slot-indexed offset table is the wrong vehicle for PER-DRAW material textures
+
+Bucket 2 (`Renderer/Commands/`) routed its binds through the seam and then stopped
+short of converting the material shaders, and the reason is a property of the
+offset table rather than of the material path.
+
+`FlushOffsets()` publishes the staged offsets **and re-establishes the heap's SSBO
+binding**. Per pass that is free; the table is written once and read by every draw
+in the pass. The material path changes textures **per draw**, so a converted
+material shader needs a flush per draw — which gives back exactly the cost §1.2
+names as the performance argument for bindless ("bound once per frame, never per
+draw"). Converting it that way would be a measurable regression dressed as
+progress, and the ratchet would happily record it as a win.
+
+§1.2 already describes the right shape and it is a *different* mechanism, not a
+different call site: *"the offset is stable for the object's life, so it can be
+baked once into material data and never touched."* Per-material offsets belong in
+`PODMaterialData` / the material UBO, fetched once when the material is built,
+not restaged into a shared table per draw.
+
+So bucket 2 splits in two, and only the first half is done:
+
+- **Done:** every bind in `Renderer/Commands/` goes through the seam
+  (21 counted sites → 2, and both survivors are the `CommandDispatch::BindTexture`
+  *handler's own name* — a declaration and a definition, the same
+  name-collision-inflates-the-counter case §1.3's survey hit with
+  `ShaderResourceRegistry::BindTexture`). With no bindless material program in
+  flight the seam falls back, so this is inert until the second half lands and
+  costs nothing meanwhile.
+- **Deferred with a reason:** baking per-material offsets into material data. That
+  is the change that makes the material path actually bindless, and it is a
+  data-layout change to `PODMaterialData` rather than a binding change.
+
+Two smaller findings from the same bucket:
+
+- **A redundant-bind cache must not short-circuit an offset write.**
+  `BoundTextures[slot]` means "this slot's GL binding is already correct", which is
+  sound because a binding persists until something rebinds it. It does **not** mean
+  "this slot's offset is already correct": the offset table is shared with every
+  pass that binds through the seam, and those passes do not update that array.
+  Skipping saves nothing either — the write is a CPU array store, not a driver
+  call. `HeapBinding::WritesOffsetsForBoundProgram()` exists for exactly this
+  distinction and for nothing else.
+- **The fallback has to go through the CALLER'S `RendererAPI&`.** The dispatch
+  handlers receive one by reference and the suite executes packets against
+  `MockRendererAPI`, which records every `BindTexture`. Routing the fallback
+  through the static `RenderCommand` facade instead keeps compiling, keeps working
+  in the editor, and silently stops the mock ever seeing the call — the `.data()`
+  trap of amendment (14) in a new place: a redirection the type system cannot
+  object to.
+
+### (31) Compute shaders needed no second compile route — check the constraint's blast radius
+
+Amendment (19) established that bindless GLSL cannot enter the
+`shaderc(target = vulkan)` pipeline, and the graphics side needed
+`CreateProgramFromRawGLSL` to get around it. The natural inference is that
+compute needs the same.
+
+It does not. `OpenGLComputeShader::Compile` has always fed include-resolved GLSL
+straight to `glShaderSource` and never travelled that pipeline at all, so the
+whole conversion was the same `#extension` + `#define` prologue injection. **A
+constraint that forced a workaround in one subsystem may simply not apply to the
+next** — check before budgeting from the workaround's cost.
+
+The genuine finding there was elsewhere and was a latent bug:
+`Shader::SetBoundProgramBindless` was published by `OpenGLShader::Bind()` only,
+so a bindless graphics program followed by a compute program left the flag set —
+and the first converted compute pass would have written offsets for a program
+that declares no offset table while binding nothing. Both `Bind()`s now publish
+and both `Unbind()`s retract.
+
+### (33) An offset is meaningless without the heap that minted it — the table must be re-based, not just the buffer
+
+The offset table (`HeapBindingSeam.cpp`) is a process-lifetime static. It
+already knew that the *UBO* had to be recreated across a heap re-initialisation,
+because the GL name belonged to the previous context — amendment (27)'s epoch
+comparison. What it did not do was reset the **contents**.
+
+Offsets are indices into the heap that minted them. After an
+`Initialize`/`Shutdown` pair, every slot the next pass does not re-stage still
+holds a number addressing the *previous* heap's descriptor, and the bindless
+shader samples it without complaint. A pass re-stages the slots it binds, so
+this is invisible for those; the damage lands on slots a pass reads but does not
+write.
+
+**This is the same recurring family as (22) and (28) — state outliving the thing
+that gives it meaning — and it is the third time it has appeared in this phase.**
+The epoch check was in place, aimed at the buffer, and read as if it had covered
+the problem. It had covered the half that produces a *loud* failure (offsets that
+never arrive) and missed the half that produces a silent one.
+
+Two further defects fell out of the same read:
+
+- The dirty check ran **before** the epoch check, so a pass that staged nothing
+  returned early and never rebuilt the buffer at all.
+- A default-constructed `Scratch{}` is all zeros, and offset 0 is the **sampler**
+  null. The image region therefore started life pointing `image2D` at a sampler
+  descriptor — the exact UB `BindImageOrOffset`'s own fallback path takes care to
+  avoid. The reset is per-kind for that reason, not a `memset`.
+
+Pinned by `HeapGpuFixture.OffsetTableIsRebasedWhenTheHeapIsReinitialised`.
+
+**This was real but it was NOT what the six failing suites were suffering from** —
+see (34), and read the two together. Fixing it changed the failure count by zero.
+
+### (34) A test fixture that displaces the heap singleton must put it back — and the damage never appears where the bug is
+
+The actual cause of the six failing visual-evidence suites under
+`OLO_RHI_BINDLESS=1` was four lines in a *non-GPU* unit test.
+`HeapFixture::TearDown` (`RHIDescriptorHeapTest.cpp`) stood a fake backend over
+`DescriptorHeap::Get()` and, when done, called `Shutdown()` — leaving the
+process-wide heap **off** for everything that ran afterwards.
+
+Every test in that file passes either way, because they all drive the heap
+directly. The victims were Fog, VolumetricFog, ContactShadow, EASU, SSAO and
+GTAO, all of which run later in the suite and all of which pass in isolation.
+
+The mechanism is amendment (33)'s sibling and the same asymmetry `SetEnabled`
+now warns about: a shader's bindless-or-not variant is decided at COMPILE time
+and cached, so switching the heap off afterwards does not rebuild those
+programs — it only stops the seam publishing the offsets they still read.
+
+**Three diagnostic traps, all of which cost time here:**
+
+1. **A moving failure set means one shared-state bug, not N independent ones.**
+   Excluding the heap fixtures changed *which* suites failed rather than how
+   many. That was read as evidence about the individual suites; it was evidence
+   about the ordering. Attributing per-test was measuring the wrong thing.
+2. **A two-test repro can hide an order bug a full suite exposes.** Running
+   `HeapFixture` immediately followed by the Fog test PASSES — with no earlier
+   tests, Fog's shaders compile *after* the heap is already down, so they compile
+   slot-based and stay self-consistent. The bug requires shaders compiled
+   bindless FIRST. A minimal repro that passes is not proof of innocence when the
+   thing being tested is order.
+3. **Correlate against execution order before theorising.** Every failing suite
+   sat after the fixture's line in the log and the one failure before it had an
+   unrelated known cause. That correlation was available from the first full run
+   and would have pointed straight at the culprit.
+
+Both fixtures now capture the engine's backend, desc and enabled flag on entry
+and restore them on exit, via the new `DescriptorHeap::GetDesc()` — restoring the
+*flag* rather than forcing bindless on, since a run that did not ask for it must
+stay on the slot path. `GLStateGuard::kUboSlots` was also raised from
+`UBO_FLUID_RENDER` (48) to `UBO_HEAP_OFFSETS` (56): the offset table — the one
+binding every converted pass depends on — sat outside the leak detector's
+tracked range, so the detector built for this class of bug could not see it.
 
 ---
 

@@ -136,11 +136,13 @@ namespace OloEngine
 
         m_Shader->Bind();
 
-        context.BindTexture(0, inputColorTextureID);
+        // FrameTransient: the scene colour is graph-owned.
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
         m_Shader->SetInt("u_Texture", 0);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
+        context.FlushHeapOffsets();
         context.DrawIndexed(va);
 
         context.SetDepthMask(true);

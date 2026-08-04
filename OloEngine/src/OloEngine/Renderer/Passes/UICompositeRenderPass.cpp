@@ -157,11 +157,14 @@ namespace OloEngine
         if (inputColorTextureID.IsValid() && m_BlitShader)
         {
             m_BlitShader->Bind();
-            context.BindTexture(0, inputColorTextureID);
+            // FrameTransient: the scene colour is graph-owned. Shares
+            // FullscreenBlit.glsl with FinalRenderPass, so the two convert together.
+            context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
             m_BlitShader->SetInt("u_Texture", 0);
 
             const auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
+            context.FlushHeapOffsets();
             context.DrawIndexed(va);
         }
         else if (m_NoInputWarningCount++ < 5)

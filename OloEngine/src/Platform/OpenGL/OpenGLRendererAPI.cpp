@@ -4,6 +4,7 @@
 #include "Platform/OpenGL/OpenGLUtilities.h"
 #include "Platform/OpenGL/OpenGLRHIConversions.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <glad/gl.h>
@@ -19,8 +20,40 @@ namespace OloEngine
         // context still current. Shutting the backend down first would leave
         // every ARB_bindless_texture handle resident, which keeps its texture
         // permanently immutable for whatever remains of the process.
+        //
+        // BUT THE ORDER WAS RIGHT AND THE TIMING WAS NOT. This destructor runs
+        // from the static destructor of `RenderCommand::s_RendererAPI`, i.e. at
+        // atexit — long after the window and its GL context are gone. Every
+        // `glMakeTextureHandleNonResidentARB` in the release path then executes
+        // against a dead context and faults inside the driver: an access
+        // violation in nvoglv64 with a stack running through
+        // ReleaseDescriptor -> ReleaseSlotLocked -> Shutdown, and no message,
+        // because there is nothing left to log through.
+        //
+        // Releasing residency is a nicety at process exit — the driver reclaims
+        // everything when the context dies — whereas crashing is not. So the
+        // teardown happens in ShutdownGpuResources(), called while the context is
+        // still current, and this destructor does nothing if that already ran.
+        // If it did NOT run we deliberately leak rather than touch dead GL.
+        if (!m_GpuResourcesReleased)
+        {
+            OLO_CORE_WARN("[RHI/GL] OpenGLRendererAPI destroyed without ShutdownGpuResources(); "
+                          "skipping descriptor-heap teardown because the GL context is likely gone. "
+                          "Bindless handles leak until process exit, which is harmless — calling GL "
+                          "here is not.");
+        }
+    }
+
+    void OpenGLRendererAPI::ShutdownGpuResources()
+    {
+        // Call this while the context is STILL CURRENT — see the destructor.
+        if (m_GpuResourcesReleased)
+        {
+            return;
+        }
         RHI::DescriptorHeap::Get().Shutdown();
         m_DescriptorHeapBackend.Shutdown();
+        m_GpuResourcesReleased = true;
     }
 
     void OpenGLRendererAPI::Init()
@@ -1238,6 +1271,22 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glUseProgram(programID);
+
+        // PUBLISH WHETHER THIS PROGRAM READS THE HEAP (issue #691 Phase 3).
+        //
+        // OpenGLShader::Bind() does this from its own m_IsBindlessVariant, but the
+        // command layer never goes through it — CommandDispatch binds by handle
+        // and lands here, so without this line the flag keeps whatever the last
+        // post-process shader set. The binding seam then makes the wrong choice
+        // for every command-dispatched draw, in both directions: it skips a bind
+        // an unconverted program needed, or writes a bind a converted program
+        // ignores in favour of an offset nobody wrote.
+        //
+        // Found by running the editor with OLO_RHI_BINDLESS=1 and looking at the
+        // frame: the sky was black and the terrain was missing, with a completely
+        // clean log and 5296 passing tests. No unit test can see it, because the
+        // suite never builds a bindless variant at all.
+        Shader::SetBoundProgramBindless(Shader::IsProgramBindless(programID));
     }
 
     void OpenGLRendererAPI::BindVertexArrayRaw(u32 vaoID)
@@ -2167,6 +2216,20 @@ namespace OloEngine
         // object alive, which is worse than the unchecked form it replaced.
         if (Utils::IsWrongKind(texture, RHI::ResourceKind::Texture))
             return;
+
+        // RETIRE THE HEAP DESCRIPTOR FIRST, and do it HERE rather than at the call
+        // sites. `OpenGLTexture*` and `OpenGLFramebuffer` own their retire because
+        // they manage GL names directly, but systems that mint a texture through
+        // `CreateTexture2DHandle` (CloudShadowMap, and anything that follows it)
+        // destroy it through this function and have no other hook. Leaving the
+        // retire to each of them makes it one-more-thing-to-remember, and the
+        // symptom of forgetting is a resident bindless handle on a deleted
+        // texture — undefined when sampled, `GL_INVALID_OPERATION ... Not a valid
+        // texture` when the heap later withdraws residency.
+        //
+        // Before Unregister: views are matched by handle, so a retired registry
+        // entry finds nothing to retire.
+        RHI::DescriptorHeap::Get().RetireResource(texture);
 
         DeleteTexture(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture));
         RHI::ResourceRegistry::Get().Unregister(texture);

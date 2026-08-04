@@ -477,6 +477,7 @@ namespace OloEngine
                                                           // program may still be the bound program by the time this
                                                           // deferred deletion runs.
                                                           Utils::UnbindProgramIfCurrent(programId);
+                                                          Shader::UnregisterProgram(programId);
                                                           glDeleteProgram(programId); });
     }
 
@@ -685,6 +686,7 @@ namespace OloEngine
             return true;
         }
 
+        Shader::UnregisterProgram(program);
         glDeleteProgram(program);
         const GLuint freshProgram = glCreateProgram();
 
@@ -790,6 +792,7 @@ namespace OloEngine
 
         if (!ok)
         {
+            Shader::UnregisterProgram(freshProgram);
             glDeleteProgram(freshProgram);
             // Degrade, do not fail. A broken bindless branch must cost the frame
             // its optimisation, never its shader — the caller retries on the
@@ -1232,6 +1235,14 @@ namespace OloEngine
         m_RendererID = program;
         m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
 
+        // Record the variant against the NATIVE id so a bind that never reaches
+        // Bind() — CommandDispatch binds by handle through
+        // RendererAPI::BindShaderProgram — can still publish it. Registered
+        // unconditionally (true AND false) because GL reissues freed program
+        // names: a slot-based program inheriting a retired bindless id would
+        // otherwise be told it reads the heap (issue #691 Phase 3).
+        Shader::RegisterProgramBindless(m_RendererID, m_IsBindlessVariant);
+
         // Name the program for GPU debuggers (RenderDoc/NSight) and register it
         // in the CPU-side label registry so the GL debug callback can resolve
         // driver perf messages that reference a raw program id (e.g. NVIDIA
@@ -1309,6 +1320,7 @@ namespace OloEngine
 
         // Cache miss or invalid binary: discard the (possibly dirtied) program object
         // and recreate a clean one for compilation from SPIR-V.
+        Shader::UnregisterProgram(program);
         glDeleteProgram(program);
         program = glCreateProgram();
 
@@ -1352,6 +1364,7 @@ namespace OloEngine
             glGetProgramInfoLog(program, maxLength, &maxLength, infoLog.data());
             OLO_CORE_CRITICAL("[OpenGL] Shader linking failed for '{}':\n{}", m_FilePath, infoLog.data());
 
+            Shader::UnregisterProgram(program);
             glDeleteProgram(program);
 
             for (const auto id : shaderIDs)
@@ -1564,6 +1577,7 @@ namespace OloEngine
             glGetProgramInfoLog(m_RendererID, maxLength, &maxLength, infoLog.data());
             OLO_CORE_CRITICAL("[OpenGL] Async shader linking failed for '{}':\n{}", m_FilePath, infoLog.data());
 
+            Shader::UnregisterProgram(m_RendererID);
             glDeleteProgram(m_RendererID);
             m_RendererID = 0;
             m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
@@ -1666,6 +1680,7 @@ namespace OloEngine
         }
 
         // Cache miss or invalid binary: recreate a clean program object before compiling.
+        Shader::UnregisterProgram(program);
         glDeleteProgram(program);
         program = glCreateProgram();
 
@@ -1674,6 +1689,7 @@ namespace OloEngine
         {
             // CompileOpenGLBinariesForAmd already cleaned up any shaders it attached
             // before failing; |program| itself is still ours to delete.
+            Shader::UnregisterProgram(program);
             glDeleteProgram(program);
             m_CompilationStatus = ShaderCompilationStatus::Failed;
             return;
@@ -1688,6 +1704,7 @@ namespace OloEngine
             {
                 glDetachShader(program, id);
             }
+            Shader::UnregisterProgram(program);
             glDeleteProgram(program);
             m_CompilationStatus = ShaderCompilationStatus::Failed;
             return;
@@ -1989,6 +2006,7 @@ namespace OloEngine
                                                               // reloaded-away program may still be bound by the time
                                                               // this deferred deletion runs.
                                                               Utils::UnbindProgramIfCurrent(oldProgram);
+                                                              Shader::UnregisterProgram(oldProgram);
                                                               glDeleteProgram(oldProgram); });
         }
     }
@@ -2028,6 +2046,13 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glUseProgram(0);
+
+        // No program is bound, so no program reads the heap. Bind() publishes
+        // this flag and Unbind() has to retract it, or a bind issued between an
+        // Unbind and the next Bind takes the heap path on the strength of a
+        // program that is no longer in flight — recording an offset and skipping
+        // the bind for nobody (issue #691 Phase 3).
+        Shader::SetBoundProgramBindless(false);
     }
     void OpenGLShader::SetInt(const std::string& name, const int value) const
     {

@@ -246,6 +246,103 @@ Practical rules:
   layouts, stage interfaces, the math — through the default variant. Only the
   bindless branch's own declarations go unvalidated.
 
+### 5b. Storage images through the heap — three things differ, and each is forced
+
+`imageLoad`/`imageStore` bindings go through the same heap, but they are a
+**different descriptor kind** (issue #691 Phase 3 bucket 3, ADR 0011 amendments
+(26)–(29)), and the recipe is not the sampler one with a different macro name.
+
+```glsl
+#include "include/BindlessHeap.glsl"
+
+#ifndef OLO_BINDLESS
+layout(r32f, binding = 0) uniform writeonly image2D u_Output;
+#endif
+
+void main()
+{
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(r32f, writeonly, image2D, u_Output, 0);
+#endif
+    imageStore(u_Output, coord, value);   // <- byte-identical either way
+}
+```
+
+and on the C++ side `RenderCommand::BindImageTexture(unit, tex, mip, layered,
+layer, access, format)` becomes `HeapBinding::BindImageOrOffset(...)` with the
+same arguments plus a lifetime, followed by `HeapBinding::FlushOffsets()`.
+
+**1. The macro DECLARES; it is not an expression.** A sampler macro can be
+`#define u_X OLO_HEAP_TEX_2D(19)` because a sampler constructor is an expression.
+An image carries a format layout qualifier, which belongs to a *declaration*, and
+an image initialised from a buffer read is not a constant expression — so it
+cannot live at file scope. The declaration therefore moves **into the function
+that uses the image**. In `HZB.comp` that is `WriteMip()`, not `main()`; a local
+in `main()` would not be visible to the helper. The body still does not change,
+which is the property that keeps a conversion reviewable.
+
+**2. The memory qualifier travels too — but `readonly` is NOT passable.**
+`writeonly` and `coherent` change what the compiler may assume, so they are the
+macro's second argument. Pass `OLO_HEAP_IMAGE_RW` when the bindful declaration
+had none — an empty macro argument is legal but not uniformly implemented across
+GLSL preprocessors.
+
+`readonly` is the exception and it is a hard one: the macro **declares and
+initialises a local**, and initialising a `readonly` variable is a write, so the
+compiler rejects it (`error C7504`). A read-only storage image therefore **stays
+on the slot path** — keep the plain `layout(binding = N) readonly uniform
+image2D` and convert the rest of the shader around it. Four compute shaders
+silently fell back to the slot-based program before this was diagnosed; the
+bindless route declines quietly by design, so the only symptom was the absence of
+the "bindless route" log line.
+
+**3. The number is an IMAGE UNIT, not a `TEX_*` slot.** GL image units and
+texture units are separate namespaces that both start at zero, so the offset
+table reserves a disjoint region and the macro rebases by
+`ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE`. Both sides apply the base from that
+one constant, so amendment (25)'s "the two variants cannot disagree" property
+holds. Without the rebase, image unit 0 and `TEX_DIFFUSE` collide and each
+renders the other's resource.
+
+Two more rules that already cost debugging time:
+
+- **Bind the shader BEFORE the image.** The seam asks
+  `Shader::IsBoundProgramBindless()` to decide between writing an offset and
+  issuing a bind, and that flag describes the program *in flight*. An image bound
+  first silently takes the fallback path even with the heap on. Two call sites
+  (`TerrainErosion`, `VirtualGeometryPass`'s colorize) had to be reordered.
+- **A ping-pong needs a flush per iteration.** `FluidSmooth` and `GTAO_Denoise`
+  swap source and destination every pass, so a flush hoisted out of the loop
+  publishes only the final pair.
+
+**Check that the name is not ALSO declared in an include before converting it.**
+`#define u_X OLO_HEAP_TEX_2D(N)` rewrites *every* occurrence of that token in the
+translation unit — including the `layout(binding = N) uniform sampler2D u_X;` in
+a shared header, which becomes syntactic garbage. `DDGI_Relight.glsl` hit this:
+it declares `u_ShadowMapCSMRaw` / `u_ShadowAtlasRaw` itself *and* includes
+`DeferredLightingShared.glsl`, which declares them too under a different guard.
+The bindless build failed and fell back **silently** — the only visible trace was
+a `.bindless.failed.glsl` dump, which is why
+`AssetContentValidity.AllCacheFilesMatchKnownPattern` catching a stray cache file
+is load-bearing rather than housekeeping.
+
+So the check before converting a declaration is
+`grep -rn "<name>" assets/shaders/include/`. If a header owns it too, leave that
+input on the slot path and convert the rest — §5a's "a shader can be moved input
+by input" is what makes this cheap, and `PostProcess_Fog.glsl` is the worked
+example (converted for depth + froxel, still binding `TEX_SHADOW` conventionally).
+
+**Do NOT convert a G-Buffer shader's images.** The bindless route produces no
+SPIR-V and therefore never runs `Reflect()`, so `m_IsDeferredCapable` stays false
+and the shader is misrouted into the forward-overlay fallback.
+`CreateProgramFromRawGLSL` detects and errors on this; `VirtualMeshGBuffer.glsl`
+is deliberately left on the slot path for that reason.
+
+The exact constructor spelling the macro uses is pinned against a live driver by
+`BindlessHeapGpuTest.TheImageConstructorSpellingTheHeaderUsesIsAcceptedByTheDriver`,
+which probes the alternatives and reports which ones work — so if it ever has to
+change, the test says what to change it to.
+
 ---
 
 ## 6. SSBO bindings (std430)

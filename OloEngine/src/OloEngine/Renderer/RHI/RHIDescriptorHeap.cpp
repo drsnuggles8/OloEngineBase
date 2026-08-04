@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+#include "OloEngine/Renderer/Shader.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -36,12 +37,12 @@ namespace OloEngine::RHI
         return *s_Instance;
     }
 
-    auto DescriptorHeap::PoisonDescriptorLocked() const -> u64
+    auto DescriptorHeap::PoisonDescriptorLocked(ViewUsage usage) const -> u64
     {
         // The backend's real, resident, sampleable null descriptor. Zero is NOT
         // a safe substitute: sampling an invalid bindless handle is undefined
         // behaviour, so an instrument built on it would be reporting driver luck.
-        return m_Backend != nullptr ? m_Backend->NullDescriptor() : 0u;
+        return m_Backend != nullptr ? m_Backend->NullDescriptor(usage) : 0u;
     }
 
     void DescriptorHeap::Initialize(const HeapDesc& desc, IDescriptorHeapBackend* backend)
@@ -85,7 +86,19 @@ namespace OloEngine::RHI
             m_Slots[index].Generation = survivingGenerations[index];
         }
 
-        m_Mirror.assign(total, backend != nullptr ? backend->NullDescriptor() : 0u);
+        m_Mirror.assign(total, backend != nullptr ? backend->NullDescriptor(ViewUsage::Sampled) : 0u);
+
+        // The two reserved nulls, written into the mirror and marked dirty so the
+        // first Flush() publishes them. The backend prefills its whole buffer with
+        // the SAMPLED null at Initialize (an unwritten GPU buffer is undefined,
+        // not zero — the bug that passed alone and failed in the full suite), so
+        // without this the storage null slot would hold a sampler handle and every
+        // cleared image binding would be undefined behaviour rather than black.
+        if (backend != nullptr && total > kNullStorageHeapOffset)
+        {
+            m_Mirror[kNullHeapOffset] = backend->NullDescriptor(ViewUsage::Sampled);
+            m_Mirror[kNullStorageHeapOffset] = backend->NullDescriptor(ViewUsage::Storage);
+        }
 
         m_PersistentFreeList.clear();
         m_PersistentFreeList.reserve(m_PersistentCapacity);
@@ -94,16 +107,22 @@ namespace OloEngine::RHI
         // "the shadow atlas is offset 3" every run is worth more than one where
         // the offsets shuffle between runs.
         //
-        // SLOT 0 IS NEVER ALLOCATED. It is the null descriptor, permanently
-        // poisoned, and it exists because "unbind" does not survive the
-        // translation to a heap. A slot-based pass clears an input by binding a
-        // null texture; under the heap there is nothing to bind — the OFFSET is
-        // what the shader reads, and leaving it alone would keep sampling the
-        // previous frame's texture through a perfectly valid offset. Writing
-        // kNullHeapOffset instead gives that call site somewhere honest to point.
-        // (ToneMapRenderPass does exactly this with RHI::NullResource, which is
-        // how the hazard was found.)
-        for (u32 index = m_PersistentCapacity; index > kNullHeapOffset + 1u; --index)
+        // SLOTS 0 AND 1 ARE NEVER ALLOCATED. They are the null descriptors —
+        // sampled and storage — permanently poisoned, and they exist because
+        // "unbind" does not survive the translation to a heap. A slot-based pass
+        // clears an input by binding a null texture; under the heap there is
+        // nothing to bind — the OFFSET is what the shader reads, and leaving it
+        // alone would keep sampling the previous frame's texture through a
+        // perfectly valid offset. Writing the matching null offset instead gives
+        // that call site somewhere honest to point. (ToneMapRenderPass does
+        // exactly this with RHI::NullResource, which is how the hazard was found.)
+        //
+        // TWO of them, not one, because a null is per DESCRIPTOR KIND: building an
+        // `image2D` out of a sampler handle is undefined in exactly the way
+        // building one out of zero is, so a single reserved slot would have moved
+        // the storage-image failure from "stale read" to "undefined" rather than
+        // fixing it.
+        for (u32 index = m_PersistentCapacity; index > kFirstAllocatableHeapSlot; --index)
         {
             m_PersistentFreeList.push_back(index - 1u);
         }
@@ -114,6 +133,14 @@ namespace OloEngine::RHI
         m_PersistentViewCache.clear();
         m_DirtyFirst = 0u;
         m_DirtyLast = 0u;
+        if (backend != nullptr && total > kNullStorageHeapOffset)
+        {
+            // Publish the two reserved nulls on the first Flush(). They are the
+            // only slots the allocator never touches, so nothing else would ever
+            // mark them dirty.
+            m_DirtyFirst = kNullHeapOffset;
+            m_DirtyLast = kFirstAllocatableHeapSlot;
+        }
 
         ++m_InitEpoch;
 
@@ -175,6 +202,25 @@ namespace OloEngine::RHI
         return m_Enabled;
     }
 
+    auto DescriptorHeap::GetBackend() const -> IDescriptorHeapBackend*
+    {
+        const std::lock_guard lock(m_Mutex);
+        return m_Backend;
+    }
+
+    auto DescriptorHeap::GetDesc() const -> HeapDesc
+    {
+        const std::lock_guard lock(m_Mutex);
+        return m_Desc;
+    }
+
+    auto DescriptorHeap::AnyBindlessProgramsExist() -> bool
+    {
+        // Lives on Shader because that is where the variant is recorded; proxied
+        // here so a caller reasoning about the heap does not need to know that.
+        return Shader::AnyBindlessProgramsExist();
+    }
+
     void DescriptorHeap::SetEnabled(bool enabled)
     {
         const std::lock_guard lock(m_Mutex);
@@ -190,6 +236,28 @@ namespace OloEngine::RHI
             }
             m_Enabled = false;
             return;
+        }
+
+        // Turning the heap OFF while bindless-variant programs are already linked
+        // leaves the two halves of the seam disagreeing: `HeapPathIsLive()` goes
+        // false so every bind takes the slot path, while those programs keep
+        // sampling `g_OloHeapOffsets` — a table nobody publishes any more. The
+        // programs are cached by shader, not by heap state, so this does not heal
+        // on its own.
+        //
+        // A warning rather than a refusal: a test fixture legitimately does this
+        // while standing its own heap up, and failing the call would be worse than
+        // reporting it.
+        // WARNED ONCE. A test harness legitimately toggles this per fixture, so a
+        // per-call warning would be a flood that trains the reader to ignore it —
+        // the failure mode the asset-degradation rules already call out.
+        static bool s_WarnedOnDisableWithBindlessPrograms = false;
+        if (m_Enabled && !enabled && !s_WarnedOnDisableWithBindlessPrograms && AnyBindlessProgramsExist())
+        {
+            s_WarnedOnDisableWithBindlessPrograms = true;
+            OLO_CORE_WARN("[RHI] Descriptor heap disabled while bindless-variant programs are still "
+                          "linked. Those programs read the offset table, which is no longer published — "
+                          "expect wrong or missing textures until they are rebuilt. (warned once)");
         }
 
         m_Enabled = enabled;
@@ -308,7 +376,13 @@ namespace OloEngine::RHI
         slot.Lifetime = lifetime;
         slot.Resource = resource;
         slot.View = view;
-        slot.SamplerSlot = AcquireSamplerSlotLocked(sampler);
+        // A storage view consumes NO sampler slot. Not a saving — a correctness
+        // point: the sampler heap is a separate, capacity-limited heap (§1.2a),
+        // and charging image bindings to it would exhaust it with entries that
+        // describe nothing, on a backend where the overflow is only a warning and
+        // on Vulkan where it is a hard failure.
+        slot.SamplerSlot =
+            view.Usage == ViewUsage::Storage ? HeapOffset::Invalid : AcquireSamplerSlotLocked(sampler);
         slot.Descriptor = descriptor;
 
         m_Mirror[index] = descriptor;
@@ -358,9 +432,7 @@ namespace OloEngine::RHI
         // and the slot can never be reused.
         ReleaseSamplerSlotLocked(samplerSlot);
 
-        const PersistentViewKey key{ .Resource = HashKey(resource),
-                                     .SamplerSlot = samplerSlot,
-                                     .DepthCompare = view.DepthCompare };
+        const PersistentViewKey key{ .Resource = HashKey(resource), .SamplerSlot = samplerSlot, .View = view };
 
         if (const auto it = m_PersistentViewCache.find(key); it != m_PersistentViewCache.end())
         {
@@ -386,6 +458,37 @@ namespace OloEngine::RHI
             m_PersistentViewCache[key] = created;
         }
         return created;
+    }
+
+    auto DescriptorHeap::CreateStorageView(ResourceHandle resource, const ViewDesc& view,
+                                           HeapSlotLifetime lifetime) -> ViewHandle
+    {
+        const std::lock_guard lock(m_Mutex);
+
+        // Forced rather than asserted. A caller that built the desc with
+        // MakeStorageViewDesc already has it; a caller that hand-rolled one and
+        // forgot would otherwise get a SAMPLER descriptor back from a function
+        // named CreateStorageView, which is a silent wrong-kind bug rather than a
+        // loud one.
+        ViewDesc storage = view;
+        storage.Usage = ViewUsage::Storage;
+        return CreateViewLocked(resource, storage, SamplerDesc{}, lifetime);
+    }
+
+    auto DescriptorHeap::GetOrCreateStorageView(ResourceHandle resource, const ViewDesc& view,
+                                                HeapSlotLifetime lifetime) -> ViewHandle
+    {
+        ViewDesc storage = view;
+        storage.Usage = ViewUsage::Storage;
+        return GetOrCreateView(resource, storage, SamplerDesc{}, lifetime);
+    }
+
+    auto DescriptorHeap::UsageOf(ViewHandle view) const -> ViewUsage
+    {
+        const std::lock_guard lock(m_Mutex);
+
+        const ViewSlot* slot = ValidateLocked(view);
+        return slot != nullptr ? slot->View.Usage : ViewUsage::Sampled;
     }
 
     void DescriptorHeap::DestroyView(ViewHandle view)
@@ -506,6 +609,65 @@ namespace OloEngine::RHI
         m_Backend->BindHeap();
     }
 
+    void DescriptorHeap::RetireResource(ResourceHandle resource)
+    {
+        const std::lock_guard lock(m_Mutex);
+
+        // NOT gated on m_Enabled, unlike InvalidateResource. Views minted while
+        // the heap was on must still be torn down if the toggle flips off before
+        // the texture dies — otherwise their residency outlives the object and
+        // the delete faults anyway.
+        if (m_Backend == nullptr)
+        {
+            return;
+        }
+
+        const auto it = m_ViewsByResource.find(resource.Index);
+        if (it == m_ViewsByResource.end())
+        {
+            return;
+        }
+
+        // ReleaseSlotLocked erases from m_ViewsByResource as it goes, so iterate
+        // a copy rather than the live vector.
+        const std::vector<u32> indices = it->second;
+        for (const u32 index : indices)
+        {
+            ViewSlot& slot = m_Slots[index];
+            if (!slot.Live || slot.Resource != resource)
+            {
+                continue;
+            }
+
+            const bool persistent = slot.Lifetime == HeapSlotLifetime::Persistent;
+
+            // Drops residency (refcounted), poisons the published slot and
+            // advances the generation so held handles report stale.
+            ReleaseSlotLocked(index);
+
+            // A transient slot belongs to the ring cursor and is reclaimed
+            // wholesale at the frame boundary; handing it to the free list would
+            // let it be allocated twice in one frame.
+            if (persistent)
+            {
+                m_PersistentFreeList.push_back(index);
+                if (m_Stats.PersistentLive > 0u)
+                {
+                    --m_Stats.PersistentLive;
+                }
+            }
+        }
+
+        // Any memoised entry now points at a retired view. GetOrCreateView
+        // revalidates before returning a hit, so a stale entry is already safe —
+        // but dropping them here keeps the cache from growing across a resize
+        // storm, and makes the next lookup a clean miss rather than a
+        // validate-then-evict.
+        std::erase_if(m_PersistentViewCache,
+                      [this](const auto& entry)
+                      { return !IsSlotLiveLocked(entry.second); });
+    }
+
     void DescriptorHeap::InvalidateResource(ResourceHandle resource)
     {
         const std::lock_guard lock(m_Mutex);
@@ -535,12 +697,12 @@ namespace OloEngine::RHI
             // recreated storage can be handed the same driver name — so
             // acquire-then-release can hand back a descriptor for the object it
             // is about to drop residency for.
-            m_Backend->ReleaseDescriptor(slot.Descriptor);
+            m_Backend->ReleaseDescriptor(slot.Descriptor, slot.View.Usage);
 
             const SamplerDesc sampler = slot.SamplerSlot < static_cast<u32>(m_SamplerSlots.size())
                                             ? m_SamplerSlots[slot.SamplerSlot].Desc
                                             : SamplerDesc{};
-            const u64 descriptor = m_Backend->AcquireDescriptor(slot.Resource, slot.View, sampler);
+            u64 descriptor = m_Backend->AcquireDescriptor(slot.Resource, slot.View, sampler);
             if (descriptor == 0u)
             {
                 // Deliberately NOT the same policy as CreateView, which hands
@@ -550,7 +712,19 @@ namespace OloEngine::RHI
                 // so retiring it would invalidate a handle that did nothing
                 // wrong. Poisoning renders black, which is the honest answer to
                 // "the resource behind this view could not be re-described".
+                //
+                // PUBLISH THE POISON DESCRIPTOR, NOT THE ZERO. The comment above
+                // has always said "poisoning renders black"; the code used to
+                // store the returned 0 verbatim, and a zero bindless handle is
+                // not black — sampling one is UNDEFINED BEHAVIOUR, which is the
+                // exact reason `NullDescriptor` exists as a real resident texture
+                // rather than a constant. So the failure path was resting on the
+                // driver luck the rest of this class is built to avoid, and it is
+                // reached precisely when something has already gone wrong (the
+                // resource died under a live view) — the worst moment for the
+                // instrument to become non-deterministic.
                 ++m_Stats.DescriptorFailures;
+                descriptor = PoisonDescriptorLocked(slot.View.Usage);
             }
 
             slot.Descriptor = descriptor;
@@ -599,9 +773,13 @@ namespace OloEngine::RHI
             return;
         }
 
+        // Read the kind BEFORE the slot is reset — `slot.View` is cleared below,
+        // and both the release call and the poison value depend on it.
+        const ViewUsage usage = slot.View.Usage;
+
         if (m_Backend != nullptr)
         {
-            m_Backend->ReleaseDescriptor(slot.Descriptor);
+            m_Backend->ReleaseDescriptor(slot.Descriptor, usage);
         }
 
         ReleaseSamplerSlotLocked(slot.SamplerSlot);
@@ -632,7 +810,7 @@ namespace OloEngine::RHI
         slot.Resource = {};
         slot.View = {};
         slot.SamplerSlot = HeapOffset::Invalid;
-        slot.Descriptor = PoisonDescriptorLocked();
+        slot.Descriptor = PoisonDescriptorLocked(usage);
 
         if (m_Desc.PoisonOnFree)
         {
@@ -642,7 +820,7 @@ namespace OloEngine::RHI
             // which is what LIFO slot reuse would otherwise hide in steady
             // state, exactly as the transient POOL hides it
             // (docs/agent-rules/render-graph-transient-aliasing.md).
-            m_Mirror[index] = PoisonDescriptorLocked();
+            m_Mirror[index] = PoisonDescriptorLocked(usage);
             MarkDirtyLocked(index);
             ++m_Stats.SlotsPoisoned;
         }

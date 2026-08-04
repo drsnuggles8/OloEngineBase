@@ -2,6 +2,7 @@
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
@@ -54,6 +55,38 @@ namespace OloEngine
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
+        // DESTRUCTION NEEDS THE SAME RETIRE AS RESIZE — see Invalidate() for the
+        // full reasoning. It was missed here because the resize path is the one
+        // that produced a visible bug (a flickering viewport, a crash on
+        // maximise), while this path only surfaces at shutdown as a single
+        // `GL_INVALID_OPERATION ... Not a valid texture` when the heap releases a
+        // handle for an attachment that was already deleted. Same defect, quieter
+        // symptom: a heap descriptor outliving the texture it describes.
+        // A DESTRUCTOR IS IMPLICITLY noexcept, so anything thrown here calls
+        // std::terminate. RetireResource takes the heap's mutex and touches
+        // containers, either of which can throw — so the retire is guarded even
+        // though it is not expected to fail in practice. Leaking a descriptor is
+        // recoverable; taking the process down during teardown is not.
+        try
+        {
+            for (const auto& handle : m_ColorAttachmentHandles)
+            {
+                RHI::DescriptorHeap::Get().RetireResource(handle.Get());
+            }
+            RHI::DescriptorHeap::Get().RetireResource(m_DepthAttachmentHandle.Get());
+        }
+        catch (const std::exception& e)
+        {
+            OLO_CORE_ERROR("[RHI/GL] Retiring framebuffer attachment descriptors threw during "
+                           "destruction: {}. Descriptors leak for the rest of the process.",
+                           e.what());
+        }
+        catch (...)
+        {
+            OLO_CORE_ERROR("[RHI/GL] Retiring framebuffer attachment descriptors threw during "
+                           "destruction. Descriptors leak for the rest of the process.");
+        }
+
         u32 fboId = m_RendererID;
         std::vector<u32> colorIds(m_ColorAttachments);
         u32 depthId = m_DepthAttachment;
@@ -93,6 +126,34 @@ namespace OloEngine
             // too), so these are new objects — unlike a texture hot-reload,
             // where identity is deliberately preserved. Anything holding the
             // old handles must see them go stale rather than silently follow.
+            // RETIRE THE HEAP'S VIEWS FIRST, while the handles still name
+            // these objects. A bindless descriptor names the underlying GL
+            // texture, so the deletion above dangles every view any pass holds
+            // for these attachments — and `OffsetOf` cannot detect it, because
+            // the VIEW's own generation has not moved (ADR 0011 amendment (22)).
+            //
+            // This is the site that made the gap visible: a resize recreates
+            // every attachment, so with converted passes holding Persistent views
+            // the next frame samples deleted textures. Sampling a dead bindless
+            // handle is undefined behaviour rather than a black read — observed
+            // as a flickering viewport and a hard crash when the window was
+            // maximised.
+            //
+            // RetireResource, NOT InvalidateResource: the latter re-ACQUIRES a
+            // descriptor, which makes the handle resident again on a texture that
+            // is about to be deleted — and glDeleteTextures on a texture with a
+            // resident handle is undefined, which is how the editor was exiting
+            // silently on every maximise. Retire drops residency and poisons the
+            // slot instead.
+            //
+            // Must run BEFORE the handles are cleared: views are matched by handle,
+            // so a cleared handle finds nothing to retire.
+            for (const auto& handle : m_ColorAttachmentHandles)
+            {
+                RHI::DescriptorHeap::Get().RetireResource(handle.Get());
+            }
+            RHI::DescriptorHeap::Get().RetireResource(m_DepthAttachmentHandle.Get());
+
             m_ColorAttachmentHandles.clear();
             m_DepthAttachmentHandle.Reset();
         }

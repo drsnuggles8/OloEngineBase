@@ -6,6 +6,10 @@
 #include "OloEnginePCH.h"
 #include "RenderPropertyTest.h"
 
+#include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
@@ -647,8 +651,32 @@ namespace OloEngine::Tests
             ::glDeleteVertexArrays(1, &m_Vao);
     }
 
+    void BindSlotBasedInput(const u32 slot, const u32 texture)
+    {
+        ::glBindTextureUnit(static_cast<GLuint>(slot), static_cast<GLuint>(texture));
+    }
+
+    ScopedSlotBasedShaders::ScopedSlotBasedShaders()
+        : m_WasEnabled(RHI::DescriptorHeap::Get().IsEnabled())
+    {
+        if (m_WasEnabled)
+        {
+            RHI::DescriptorHeap::Get().SetEnabled(false);
+        }
+    }
+
+    ScopedSlotBasedShaders::~ScopedSlotBasedShaders()
+    {
+        if (m_WasEnabled)
+        {
+            RHI::DescriptorHeap::Get().SetEnabled(true);
+        }
+    }
+
     void FullscreenPass::Draw(u32 inputTexture) const
     {
+        // Plain bind — see BindSlotBasedInput / ScopedSlotBasedShaders for why these
+        // harnesses deliberately stay on the slot-based path.
         ::glBindTextureUnit(0, static_cast<GLuint>(inputTexture));
         ::glBindVertexArray(m_Vao);
         ::glDrawArrays(GL_TRIANGLES, 0, 6);

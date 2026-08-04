@@ -230,11 +230,21 @@ namespace OloEngine
             context.Clear();
 
             m_BloomThresholdShader->Bind();
-            context.BindTexture(0, inputColorTextureID);
-            m_BloomThresholdShader->SetInt("u_Texture", 0);
+            // FrameTransient: the scene colour comes from the graph.
+            //
+            // The SetInt that followed is gone throughout this pass: the shaders
+            // declare `layout(binding = 0)` already, so it was redundant — and
+            // under the bindless variant the name is a #define rather than a
+            // uniform, so it would warn every frame.
+            context.BindTextureOrHeapOffset(0, inputColorTextureID,
+                                            RHI::HeapSlotLifetime::FrameTransient);
 
             const auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
+            // A FLUSH PER DRAW, not one per pass. Every step below rebinds slot 0
+            // to a different mip, so a flush hoisted out of these loops would
+            // publish only the last one and every earlier draw would sample it.
+            context.FlushHeapOffsets();
             RenderCommand::DrawIndexed(va);
             bloomMips[0]->Unbind();
         }
@@ -266,7 +276,8 @@ namespace OloEngine
 
             m_BloomDownsampleShader->Bind();
             const RHI::ResourceHandle srcTexture = srcMip->GetColorAttachmentHandle(0);
-            context.BindTexture(0, srcTexture);
+            // Persistent: the bloom mip chain is pass-owned and survives the frame.
+            context.BindTextureOrHeapOffset(0, srcTexture, RHI::HeapSlotLifetime::Persistent);
 
             if (m_GPUData && m_PostProcessUBO)
             {
@@ -277,6 +288,7 @@ namespace OloEngine
 
             const auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
+            context.FlushHeapOffsets();
             RenderCommand::DrawIndexed(va);
             dstMip->Unbind();
         }
@@ -310,7 +322,7 @@ namespace OloEngine
 
             m_BloomUpsampleShader->Bind();
             const RHI::ResourceHandle srcTexture = srcMip->GetColorAttachmentHandle(0);
-            context.BindTexture(0, srcTexture);
+            context.BindTextureOrHeapOffset(0, srcTexture, RHI::HeapSlotLifetime::Persistent);
 
             if (m_GPUData && m_PostProcessUBO)
             {
@@ -321,6 +333,7 @@ namespace OloEngine
 
             const auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
+            context.FlushHeapOffsets();
             RenderCommand::DrawIndexed(va);
             dstMip->Unbind();
         }
@@ -361,15 +374,15 @@ namespace OloEngine
 
             m_BloomCompositeShader->Bind();
 
-            context.BindTexture(0, inputColorTextureID);
-            m_BloomCompositeShader->SetInt("u_SceneColor", 0);
+            context.BindTextureOrHeapOffset(0, inputColorTextureID,
+                                            RHI::HeapSlotLifetime::FrameTransient);
 
             const RHI::ResourceHandle bloomColor = bloomMips[0]->GetColorAttachmentHandle(0);
-            context.BindTexture(1, bloomColor);
-            m_BloomCompositeShader->SetInt("u_BloomColor", 1);
+            context.BindTextureOrHeapOffset(1, bloomColor, RHI::HeapSlotLifetime::Persistent);
 
             const auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
+            context.FlushHeapOffsets();
             RenderCommand::DrawIndexed(va);
             outputFramebuffer->Unbind();
         }

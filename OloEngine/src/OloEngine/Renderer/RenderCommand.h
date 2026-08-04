@@ -205,6 +205,14 @@ namespace OloEngine
             s_RendererAPI->BlitFramebufferToDefault(srcFramebuffer, width, height);
         }
 
+        // Release renderer-owned GPU state while the context is still current.
+        // See RendererAPI::ShutdownGpuResources for why this is a virtual with a
+        // default no-op body rather than a cast to the concrete backend.
+        static void ShutdownGpuResources()
+        {
+            s_RendererAPI->ShutdownGpuResources();
+        }
+
         static void BindTexture(u32 slot, RHI::ResourceHandle texture)
         {
             s_RendererAPI->BindTexture(slot, texture);

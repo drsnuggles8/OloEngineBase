@@ -617,6 +617,8 @@
 		# ARB_bindless_texture half lives in Platform/OpenGL/.
 		"OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 		"OloEngine/Renderer/RHI/RHIDescriptorHeap.cpp"
+		"OloEngine/Renderer/HeapBindingSeam.cpp"
+		"OloEngine/Renderer/HeapBindingSeam.h"
 		"OloEngine/Renderer/RGCommandContext.cpp"
 		"OloEngine/Renderer/RGCommandContext.h"
 		"OloEngine/Renderer/RGBuilder.cpp"

@@ -1012,6 +1012,38 @@ namespace OloEngine
         static_assert(TEX_SHADER_GRAPH_0 < 80, "Engine texture slots exceed GL 4.6 minimum GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS");
 
         // =============================================================================
+        // STORAGE-IMAGE (imageLoad / imageStore) BINDINGS — issue #691 Phase 3
+        //
+        // Image units are a SEPARATE GL namespace from texture units:
+        // glBindImageTexture(unit, ...) and glBindTextureUnit(slot, ...) both start
+        // at 0 and mean different things. The heap-offset table has only ONE index
+        // space, so an image binding at unit 0 and a texture binding at TEX_DIFFUSE
+        // would collide and each would silently overwrite the other's offset.
+        //
+        // Image unit `u` therefore occupies table index HEAP_IMAGE_SLOT_BASE + u.
+        // The base is applied identically on both sides — by
+        // RGCommandContext::BindImageOrHeapOffset on the CPU and by
+        // include/BindlessHeap.glsl's OLO_HEAP_IMAGE_* macros in the shader — from
+        // this one constant, so the shader still names the SAME image unit the
+        // bind names and the two cannot disagree. That is ADR 0011 amendment (25)'s
+        // property preserved across the second descriptor kind.
+        static constexpr u32 HEAP_IMAGE_SLOT_BASE = MAX_ENGINE_TEXTURE_SLOTS;
+
+        // GL 4.6 guarantees GL_MAX_IMAGE_UNITS >= 8. The engine's deepest user is
+        // HZBGenerator's 4-mip batch; nothing binds above unit 3.
+        static constexpr u32 MAX_ENGINE_IMAGE_SLOTS = 8;
+
+        // Total entries in the shared heap-offset table: every texture slot, then
+        // every image slot. include/BindlessHeap.glsl declares
+        // `uvec4 g_OloHeapOffsets[HEAP_OFFSET_TABLE_VEC4S]` and must match.
+        static constexpr u32 HEAP_OFFSET_TABLE_SLOTS = HEAP_IMAGE_SLOT_BASE + MAX_ENGINE_IMAGE_SLOTS;
+        static constexpr u32 HEAP_OFFSET_TABLE_VEC4S = (HEAP_OFFSET_TABLE_SLOTS + 3u) / 4u;
+        static_assert(HEAP_OFFSET_TABLE_VEC4S * 4u == HEAP_OFFSET_TABLE_SLOTS,
+                      "The heap-offset table must be a whole number of uvec4s — std140 pads a uint array to a "
+                      "16-byte stride, so a partial group would put the last slots outside the block the shader "
+                      "declares.");
+
+        // =============================================================================
         // SHADER STORAGE BUFFER OBJECT (SSBO) BINDINGS
         // =============================================================================
 

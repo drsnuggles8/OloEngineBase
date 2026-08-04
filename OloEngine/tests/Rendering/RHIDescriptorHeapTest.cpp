@@ -67,10 +67,23 @@ namespace OloEngine::Tests
                 return Supported;
             }
 
-            [[nodiscard]] auto AcquireDescriptor(RHI::ResourceHandle, const RHI::ViewDesc&,
+            // Every view the heap asked this backend to realise, in order. Lets a
+            // test assert on WHAT was asked for rather than only on how often —
+            // which is the only way to catch a storage view that reached the
+            // backend describing the wrong mip, layer or format.
+            std::vector<RHI::ViewDesc> AcquiredViews;
+            u32 StorageAcquires = 0u;
+            u32 StorageReleases = 0u;
+
+            [[nodiscard]] auto AcquireDescriptor(RHI::ResourceHandle, const RHI::ViewDesc& view,
                                                  const RHI::SamplerDesc&) -> u64 override
             {
                 ++Acquires;
+                if (view.Usage == RHI::ViewUsage::Storage)
+                {
+                    ++StorageAcquires;
+                }
+                AcquiredViews.push_back(view);
                 if (FailNextAcquire)
                 {
                     FailNextAcquire = false;
@@ -79,11 +92,15 @@ namespace OloEngine::Tests
                 return NextDescriptor++;
             }
 
-            void ReleaseDescriptor(u64 descriptor) override
+            void ReleaseDescriptor(u64 descriptor, RHI::ViewUsage usage) override
             {
                 if (descriptor != 0u)
                 {
                     ++Releases;
+                    if (usage == RHI::ViewUsage::Storage)
+                    {
+                        ++StorageReleases;
+                    }
                 }
             }
 
@@ -99,13 +116,15 @@ namespace OloEngine::Tests
                 ++Binds;
             }
 
-            // A distinctive non-zero value, deliberately. Zero would let a test
+            // Distinctive non-zero values, deliberately. Zero would let a test
             // that meant "the slot holds the null descriptor" pass equally when
-            // the slot was simply never written.
+            // the slot was simply never written — and the two must DIFFER, or a
+            // storage slot poisoned with the sampler null would look correct.
             static constexpr u64 kNull = 0xD15AB1EDu;
-            [[nodiscard]] auto NullDescriptor() const -> u64 override
+            static constexpr u64 kNullImage = 0xDEADFA11u;
+            [[nodiscard]] auto NullDescriptor(RHI::ViewUsage usage) const -> u64 override
             {
-                return kNull;
+                return usage == RHI::ViewUsage::Storage ? kNullImage : kNull;
             }
         };
 
@@ -118,9 +137,40 @@ namespace OloEngine::Tests
             return RHI::ResourceRegistry::Get().Register(RHI::ResourceKind::Texture, native, RHI::Backend::OpenGL);
         }
 
+        // THIS FIXTURE OWNS PROCESS-WIDE STATE, and must hand it back.
+        //
+        // `DescriptorHeap::Get()` is a singleton the whole renderer binds through.
+        // Standing a fake one up over it is fine; leaving it SHUT DOWN is not, and
+        // the damage is invisible here — every test in this file passes either way,
+        // because they all drive the heap directly.
+        //
+        // What breaks is later, elsewhere. A shader's bindless-or-not variant is
+        // decided at COMPILE time and cached; the heap being switched off afterwards
+        // does not rebuild those programs, it just stops the binding seam publishing
+        // the offsets they still read. So every already-compiled bindless program in
+        // the rest of the run samples a table nobody updates.
+        //
+        // That is not hypothetical: with `OLO_RHI_BINDLESS=1`, leaving the heap down
+        // here took out six visual-evidence suites (Fog, VolumetricFog, ContactShadow,
+        // EASU, SSAO, GTAO) — every one of which runs after this file and passes in
+        // isolation. Tests that pass alone and fail in the suite are the signature;
+        // the failing SET even moves when test order moves, which is what makes this
+        // read as N independent bugs instead of one.
         struct HeapFixture : ::testing::Test
         {
             FakeHeapBackend Backend;
+
+            // The engine's own heap, captured before we displace it.
+            RHI::IDescriptorHeapBackend* EngineBackend = nullptr;
+            RHI::HeapDesc EngineDesc;
+            bool EngineHeapWasEnabled = false;
+
+            void SetUp() override
+            {
+                EngineBackend = RHI::DescriptorHeap::Get().GetBackend();
+                EngineDesc = RHI::DescriptorHeap::Get().GetDesc();
+                EngineHeapWasEnabled = RHI::DescriptorHeap::Get().IsEnabled();
+            }
 
             void SetUpHeap(u32 persistent = 8u, u32 transient = 4u, bool poison = false)
             {
@@ -142,7 +192,31 @@ namespace OloEngine::Tests
 
             void TearDown() override
             {
+                // Drop the fake FIRST — `Backend` is a member and is about to be
+                // destroyed, so the singleton must stop pointing at it either way.
                 RHI::DescriptorHeap::Get().Shutdown();
+                RestoreProcessHeap();
+            }
+
+            // Put the engine's heap back exactly as it was found, so the rest of
+            // the run sees the state it would have seen had this file never run.
+            //
+            // Restores the ENABLED FLAG rather than forcing it on: when the
+            // environment did not ask for bindless, the engine's heap is
+            // deliberately down, and switching it on here would push unrelated
+            // tests onto a path their goldens were never captured against.
+            void RestoreProcessHeap()
+            {
+                if (EngineBackend == nullptr)
+                {
+                    // No engine heap to restore — a headless run with no GL
+                    // context never built one, and Initialize(nullptr) would just
+                    // manufacture a broken one.
+                    return;
+                }
+
+                RHI::DescriptorHeap::Get().Initialize(EngineDesc, EngineBackend);
+                RHI::DescriptorHeap::Get().SetEnabled(EngineHeapWasEnabled);
             }
         };
     } // namespace
@@ -526,7 +600,25 @@ namespace OloEngine::Tests
 
         const u32 acquiresBefore = Backend.Acquires;
         heap.Flush();
-        const std::vector<u64> beforeTable = Backend.LastUpload;
+
+        // Read the two SLOTS this test is about, not the raw upload span.
+        //
+        // The span is not a contract: a flush uploads whatever range is dirty,
+        // and Initialize now dirties the two reserved null slots (0 and 1) so the
+        // first flush is wider than the second. Comparing `LastUpload` wholesale
+        // made the test depend on those two flushes happening to cover the same
+        // indices — true only while nothing else was ever dirty. What the test
+        // means to assert is that THESE TWO VIEWS' descriptors changed.
+        const auto descriptorAt = [this](RHI::HeapOffset offset) -> u64
+        {
+            const u32 slot = offset.Value;
+            EXPECT_GE(slot, Backend.LastUploadFirstSlot);
+            const sizet index = slot - Backend.LastUploadFirstSlot;
+            EXPECT_LT(index, Backend.LastUpload.size()) << "slot " << slot << " was outside the uploaded range";
+            return index < Backend.LastUpload.size() ? Backend.LastUpload[index] : 0u;
+        };
+        const u64 beforeA = descriptorAt(heap.OffsetOf(viewA));
+        const u64 beforeB = descriptorAt(heap.OffsetOf(viewB));
 
         // An in-place reload recreates the storage on the SAME C++ object, so
         // ResourceRegistry deliberately KEEPS the handle valid — that is what
@@ -544,8 +636,10 @@ namespace OloEngine::Tests
         EXPECT_TRUE(heap.OffsetOf(viewB).IsValid());
 
         heap.Flush();
-        ASSERT_EQ(Backend.LastUpload.size(), beforeTable.size());
-        EXPECT_NE(Backend.LastUpload, beforeTable) << "The published table must carry the NEW descriptors.";
+        EXPECT_NE(descriptorAt(heap.OffsetOf(viewA)), beforeA)
+            << "The published table must carry view A's NEW descriptor.";
+        EXPECT_NE(descriptorAt(heap.OffsetOf(viewB)), beforeB)
+            << "The published table must carry view B's NEW descriptor.";
     }
 
     TEST_F(HeapFixture, InvalidateResourceIgnoresViewsOfOtherResources)
@@ -729,5 +823,334 @@ namespace OloEngine::Tests
         heap.Flush();
         EXPECT_EQ(Backend.Uploads, 1u) << "Nothing changed, so nothing should be uploaded.";
         EXPECT_EQ(Backend.Binds, 2u) << "…but the binding must be re-established regardless.";
+    }
+
+    // =========================================================================
+    // STORAGE IMAGES — the second descriptor kind (ADR 0011 amendment (26)).
+    //
+    // These are the contract tests for the half of the heap that is NOT the
+    // sampler path. They matter disproportionately because every failure mode
+    // here is a plausible-looking wrong image rather than a missing one: a
+    // storage view that reaches the backend describing the wrong mip writes a
+    // real pyramid level, just not the one the dispatch meant.
+    // =========================================================================
+
+    // The parameters a call site already passes to BindImageTexture must arrive
+    // at the backend unchanged. This is the test that pins MakeStorageViewDesc's
+    // GL-layered/Vulkan-subresource mapping, which is the one place the two
+    // vocabularies have to agree.
+    TEST_F(HeapFixture, AStorageViewCarriesItsMipLayerFormatAndAccessToTheBackend)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(900u);
+        const RHI::ViewDesc desc = RHI::MakeStorageViewDesc(resource, /*mipLevel*/ 3u, /*layered*/ false,
+                                                            /*layer*/ 5u, RHI::Access::StorageWrite,
+                                                            RHI::Format::R32Float);
+
+        ASSERT_TRUE(heap.CreateStorageView(resource, desc, RHI::HeapSlotLifetime::Persistent).IsValid());
+        ASSERT_EQ(Backend.AcquiredViews.size(), 1u);
+
+        const RHI::ViewDesc& seen = Backend.AcquiredViews.front();
+        EXPECT_EQ(seen.Usage, RHI::ViewUsage::Storage);
+        EXPECT_EQ(seen.Range.BaseMip, 3u);
+        EXPECT_EQ(seen.Range.MipCount, 1u) << "An image binding addresses exactly one level, never a chain.";
+        EXPECT_EQ(seen.Range.BaseLayer, 5u);
+        EXPECT_EQ(seen.Range.LayerCount, 1u) << "layered == false means exactly one layer.";
+        EXPECT_EQ(seen.FormatOverride, RHI::Format::R32Float);
+        EXPECT_EQ(seen.StorageAccess, RHI::Access::StorageWrite);
+    }
+
+    // The other half of the mapping: `layered == true` means "every layer", which
+    // is what a 3D or array storage image binds. Getting this backwards would
+    // write only slice 0 of the wind field or the froxel volume — a frame that
+    // still renders, with two thirds of the volume stale.
+    TEST_F(HeapFixture, ALayeredStorageViewAsksForEveryLayerAndIgnoresTheLayerIndex)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(901u);
+        const RHI::ViewDesc desc = RHI::MakeStorageViewDesc(resource, 0u, /*layered*/ true, /*layer*/ 7u,
+                                                            RHI::Access::StorageWrite, RHI::Format::RGBA16Float);
+
+        ASSERT_TRUE(heap.CreateStorageView(resource, desc, RHI::HeapSlotLifetime::Persistent).IsValid());
+        ASSERT_EQ(Backend.AcquiredViews.size(), 1u);
+
+        EXPECT_EQ(Backend.AcquiredViews.front().Range.BaseLayer, 0u)
+            << "A layered binding covers the whole level, so the layer index must not survive into the view.";
+        EXPECT_EQ(Backend.AcquiredViews.front().Range.LayerCount, RHI::SubresourceRange::AllRemaining);
+    }
+
+    // THE MEMO-CACHE FIX, and the reason it was not optional. Before storage
+    // images the persistent cache keyed on (resource, samplerSlot, depthCompare),
+    // which was sound only because the GL backend declined every view that was
+    // not the whole resource. HZBGenerator asks for four mips of ONE texture in
+    // one dispatch; under the old key the second, third and fourth would all have
+    // been served the first's view and the whole pyramid would have been written
+    // at level 0.
+    TEST_F(HeapFixture, TwoMipsOfOneTextureAreTwoDistinctViewsNotOneMemoisedView)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(902u);
+        const RHI::ViewHandle mip0 = heap.GetOrCreateStorageView(
+            resource, RHI::MakeStorageViewDesc(resource, 0u, false, 0u, RHI::Access::StorageWrite, RHI::Format::R32Float),
+            RHI::HeapSlotLifetime::Persistent);
+        const RHI::ViewHandle mip3 = heap.GetOrCreateStorageView(
+            resource, RHI::MakeStorageViewDesc(resource, 3u, false, 0u, RHI::Access::StorageWrite, RHI::Format::R32Float),
+            RHI::HeapSlotLifetime::Persistent);
+
+        ASSERT_TRUE(mip0.IsValid());
+        ASSERT_TRUE(mip3.IsValid());
+        EXPECT_NE(RHI::OffsetOf(mip0).Value, RHI::OffsetOf(mip3).Value)
+            << "Two mip levels of one texture are two views and must occupy two heap slots.";
+        EXPECT_EQ(Backend.StorageAcquires, 2u);
+
+        // …and asking again for one of them still memoises, or a pass running
+        // every frame would drain the persistent region in seconds.
+        const RHI::ViewHandle mip3Again = heap.GetOrCreateStorageView(
+            resource, RHI::MakeStorageViewDesc(resource, 3u, false, 0u, RHI::Access::StorageWrite, RHI::Format::R32Float),
+            RHI::HeapSlotLifetime::Persistent);
+        EXPECT_EQ(RHI::OffsetOf(mip3Again).Value, RHI::OffsetOf(mip3).Value);
+        EXPECT_EQ(Backend.StorageAcquires, 2u) << "The repeat must be memoised, not re-acquired.";
+    }
+
+    // The same texture read as R32F and as R32UI is two views, not one.
+    // SnowAccumulationSystem does exactly this so its feed pass can use
+    // imageAtomicCompSwap on the bit pattern. Sharing one view would hand the
+    // atomic path a float image and reinterpret every accumulated depth.
+    TEST_F(HeapFixture, TwoFormatsOfOneTextureAreTwoDistinctStorageViews)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(903u);
+        const RHI::ViewHandle asFloat = heap.GetOrCreateStorageView(
+            resource, RHI::MakeStorageViewDesc(resource, 0u, false, 0u, RHI::Access::StorageReadWrite, RHI::Format::R32Float),
+            RHI::HeapSlotLifetime::Persistent);
+        const RHI::ViewHandle asUint = heap.GetOrCreateStorageView(
+            resource, RHI::MakeStorageViewDesc(resource, 0u, false, 0u, RHI::Access::StorageReadWrite, RHI::Format::R32UInt),
+            RHI::HeapSlotLifetime::Persistent);
+
+        ASSERT_TRUE(asFloat.IsValid());
+        ASSERT_TRUE(asUint.IsValid());
+        EXPECT_NE(RHI::OffsetOf(asFloat).Value, RHI::OffsetOf(asUint).Value);
+    }
+
+    // A storage view consumes no sampler slot. The sampler heap is a separate,
+    // capacity-limited heap (§1.2a) whose exhaustion is only a warning on OpenGL
+    // and a hard failure on a split-heap backend — charging image bindings to it
+    // would fill it with entries describing nothing.
+    TEST_F(HeapFixture, AStorageViewConsumesNoSamplerSlot)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const u32 samplersBefore = heap.GetStats().SamplerSlotsLive;
+
+        const RHI::ResourceHandle resource = MakeResource(904u);
+        const RHI::ViewHandle view = heap.CreateStorageView(
+            resource, RHI::MakeStorageViewDesc(resource, 0u, false, 0u, RHI::Access::StorageWrite, RHI::Format::RGBA8UNorm),
+            RHI::HeapSlotLifetime::Persistent);
+
+        ASSERT_TRUE(view.IsValid());
+        EXPECT_EQ(heap.GetStats().SamplerSlotsLive, samplersBefore);
+        EXPECT_FALSE(heap.SamplerOffsetOf(view).IsValid())
+            << "A storage view has no sampler at all, so its sampler offset must be invalid rather than 0 — "
+               "which would name a real, unrelated sampler slot.";
+        EXPECT_EQ(heap.UsageOf(view), RHI::ViewUsage::Storage);
+    }
+
+    // POISON MUST MATCH THE KIND. Overwriting a released storage slot with the
+    // SAMPLER null would put the shader back on undefined behaviour
+    // (`image2D(samplerHandle)`) at exactly the moment the instrument is supposed
+    // to be reporting a use-after-free.
+    TEST_F(HeapFixture, AFreedStorageSlotIsPoisonedWithTheIMAGENullNotTheSamplerNull)
+    {
+        SetUpHeap(8u, 4u, /*poison*/ true);
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(905u);
+        const RHI::ViewHandle view = heap.CreateStorageView(
+            resource, RHI::MakeStorageViewDesc(resource, 0u, false, 0u, RHI::Access::StorageWrite, RHI::Format::R32Float),
+            RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(view.IsValid());
+
+        const u32 slot = RHI::OffsetOf(view).Value;
+        heap.DestroyView(view);
+        heap.Flush();
+
+        ASSERT_GE(slot, Backend.LastUploadFirstSlot);
+        ASSERT_LT(slot - Backend.LastUploadFirstSlot, Backend.LastUpload.size());
+        EXPECT_EQ(Backend.LastUpload[slot - Backend.LastUploadFirstSlot], FakeHeapBackend::kNullImage)
+            << "A freed storage slot must hold the IMAGE null descriptor.";
+        EXPECT_EQ(Backend.StorageReleases, 1u)
+            << "The release must be told the kind — GL has two residency namespaces with two entry points.";
+    }
+
+    // The two reserved slots exist and hold the right kind each. Nothing else
+    // ever writes them (the allocator starts above both), so if Initialize does
+    // not seed them the storage null is whatever the backend's buffer prefill
+    // left there — which is the sampler null, i.e. undefined behaviour for every
+    // cleared image binding.
+    TEST_F(HeapFixture, BothReservedNullSlotsArePublishedOnTheFirstFlush)
+    {
+        SetUpHeap();
+        RHI::DescriptorHeap::Get().Flush();
+
+        ASSERT_EQ(Backend.LastUploadFirstSlot, RHI::kNullHeapOffset);
+        ASSERT_GE(Backend.LastUpload.size(), static_cast<sizet>(RHI::kFirstAllocatableHeapSlot));
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullHeapOffset], FakeHeapBackend::kNull);
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullStorageHeapOffset], FakeHeapBackend::kNullImage);
+    }
+
+    // Neither reserved slot may ever be handed out. A view landing on slot 0 or 1
+    // would make "I am not using this input" indistinguishable from a real
+    // binding, which is the whole hazard the reservation exists to remove.
+    TEST_F(HeapFixture, TheAllocatorNeverHandsOutEitherReservedNullSlot)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        for (u32 i = 0u; i < 6u; ++i)
+        {
+            const RHI::ResourceHandle resource = MakeResource(910u + i);
+            const RHI::ViewHandle view =
+                heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::Persistent);
+            ASSERT_TRUE(view.IsValid()) << "view " << i;
+            EXPECT_GE(RHI::OffsetOf(view).Value, RHI::kFirstAllocatableHeapSlot)
+                << "view " << i << " landed on a reserved null slot.";
+        }
+    }
+
+    // A storage view with no format is refused rather than guessed. A storage
+    // image's format is part of its binding contract — it must match the shader's
+    // format layout qualifier — so inheriting the resource's format would produce
+    // a handle the shader reads through the wrong interpretation.
+    //
+    // The refusal is the BACKEND's, so this test asserts the desc reaches it
+    // carrying Unknown; OpenGLDescriptorHeapBackend's UnsupportedViews counter is
+    // what records the decline on a real device.
+    TEST_F(HeapFixture, AStorageViewWithNoFormatStillReachesTheBackendForItToDecline)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(920u);
+        RHI::ViewDesc desc = RHI::MakeStorageViewDesc(resource, 0u, false, 0u, RHI::Access::StorageWrite,
+                                                      RHI::Format::Unknown);
+
+        (void)heap.CreateStorageView(resource, desc, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_EQ(Backend.AcquiredViews.size(), 1u);
+        EXPECT_EQ(Backend.AcquiredViews.front().FormatOverride, RHI::Format::Unknown);
+        EXPECT_EQ(Backend.AcquiredViews.front().Usage, RHI::ViewUsage::Storage);
+    }
+
+    // =========================================================================
+    // RETIRE vs INVALIDATE — destruction is not re-creation.
+    //
+    // These exist because conflating the two silently killed the editor: a
+    // framebuffer resize deletes its attachments, InvalidateResource was called,
+    // and it RE-ACQUIRES a descriptor — making the bindless handle resident again
+    // on a texture about to be destroyed. glDeleteTextures on a texture with a
+    // resident handle is undefined, and the process exited with no log at all.
+    //
+    // Neither a compile, the full suite, nor a screenshot A/B could see it: the
+    // symptom is a driver-level fault at teardown, and the visual symptom
+    // (flicker) is temporal. It took a person resizing a window. These tests are
+    // the cheap standing guard that replaces that.
+    // =========================================================================
+
+    TEST_F(HeapFixture, RetireResourceReleasesTheDescriptorAndDoesNotReacquireIt)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(950u);
+        const RHI::ViewHandle view = heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(view.IsValid());
+
+        const u32 acquiresBefore = Backend.Acquires;
+        const u32 releasesBefore = Backend.Releases;
+
+        heap.RetireResource(resource);
+
+        EXPECT_EQ(Backend.Releases, releasesBefore + 1u) << "The descriptor must be released.";
+        EXPECT_EQ(Backend.Acquires, acquiresBefore)
+            << "RETIRE MUST NOT RE-ACQUIRE. InvalidateResource does, which is right for a reload and "
+               "fatal for a delete — it re-makes the handle resident on an object that is about to be "
+               "destroyed.";
+        EXPECT_FALSE(RHI::OffsetOf(view).IsValid())
+            << "A retired view's offset must report stale, not resolve into a slot someone else now owns.";
+    }
+
+    // The distinction stated as a contract, so a future refactor that "unifies"
+    // the two functions fails here instead of in a driver.
+    TEST_F(HeapFixture, InvalidateReacquiresWhereRetireDoesNot)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle reloaded = MakeResource(951u);
+        ASSERT_TRUE(heap.CreateView(reloaded, {}, {}, RHI::HeapSlotLifetime::Persistent).IsValid());
+        const u32 beforeInvalidate = Backend.Acquires;
+        heap.InvalidateResource(reloaded);
+        EXPECT_EQ(Backend.Acquires, beforeInvalidate + 1u)
+            << "A reload must re-describe the view — the object lives on and its handle stays valid.";
+
+        const RHI::ResourceHandle destroyed = MakeResource(952u);
+        ASSERT_TRUE(heap.CreateView(destroyed, {}, {}, RHI::HeapSlotLifetime::Persistent).IsValid());
+        const u32 beforeRetire = Backend.Acquires;
+        heap.RetireResource(destroyed);
+        EXPECT_EQ(Backend.Acquires, beforeRetire)
+            << "A destruction must NOT re-describe it.";
+    }
+
+    // The retired slot must go back to the free list, or a resize storm leaks the
+    // persistent region until the heap reports exhaustion for no visible reason.
+    TEST_F(HeapFixture, RetiredPersistentSlotsAreReusable)
+    {
+        SetUpHeap(/*persistent*/ 8u, /*transient*/ 4u);
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        // 6 allocatable slots (2 are the reserved nulls). Churn well past that.
+        for (u32 round = 0u; round < 5u; ++round)
+        {
+            std::vector<RHI::ResourceHandle> live;
+            for (u32 i = 0u; i < 6u; ++i)
+            {
+                const RHI::ResourceHandle r = MakeResource(960u + round * 10u + i);
+                ASSERT_TRUE(heap.CreateView(r, {}, {}, RHI::HeapSlotLifetime::Persistent).IsValid())
+                    << "round " << round << " view " << i << " — slots were not returned by RetireResource";
+                live.push_back(r);
+            }
+            for (const RHI::ResourceHandle r : live)
+            {
+                heap.RetireResource(r);
+            }
+        }
+        EXPECT_EQ(heap.GetStats().PersistentOverflows, 0u);
+    }
+
+    // CreateStorageView forces the kind rather than trusting the caller's desc. A
+    // hand-rolled desc that forgot `Usage` would otherwise get a SAMPLER
+    // descriptor back from a function named CreateStorageView — silent, and the
+    // wrong kind is undefined behaviour in the shader rather than an error.
+    TEST_F(HeapFixture, CreateStorageViewForcesTheStorageKindOntoAHandRolledDesc)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(921u);
+        RHI::ViewDesc sloppy; // default-constructed: Usage == Sampled
+        sloppy.Resource = resource;
+        sloppy.FormatOverride = RHI::Format::R32Float;
+
+        ASSERT_TRUE(heap.CreateStorageView(resource, sloppy, RHI::HeapSlotLifetime::Persistent).IsValid());
+        ASSERT_EQ(Backend.AcquiredViews.size(), 1u);
+        EXPECT_EQ(Backend.AcquiredViews.front().Usage, RHI::ViewUsage::Storage);
     }
 } // namespace OloEngine::Tests

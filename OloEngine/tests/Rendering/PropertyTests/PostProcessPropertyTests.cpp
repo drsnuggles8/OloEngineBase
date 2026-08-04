@@ -129,7 +129,11 @@ namespace OloEngine::Tests
                 spec.Attachments = { FramebufferTextureFormat::RGBA8 };
                 m_OutputFB = Framebuffer::Create(spec);
 
-                m_Shader = Shader::Create(shaderPath);
+                // Slot-based on purpose — see ScopedSlotBasedShaders.
+                {
+                    const ScopedSlotBasedShaders slotBased;
+                    m_Shader = Shader::Create(shaderPath);
+                }
                 m_Ubo = UniformBuffer::Create(PostProcessUBOData::GetSize(), 7);
                 m_Ubo->SetData(&uboData, PostProcessUBOData::GetSize());
             }
@@ -357,6 +361,7 @@ namespace OloEngine::Tests
         spec.Attachments = { FramebufferTextureFormat::RGBA16F };
         Ref<Framebuffer> hdrFb = Framebuffer::Create(spec);
 
+        const ScopedSlotBasedShaders slotBased; // see ScopedSlotBasedShaders
         auto shader = Shader::Create("assets/shaders/PostProcess_ToneMap.glsl");
         ASSERT_TRUE(shader);
         auto ubo = UniformBuffer::Create(PostProcessUBOData::GetSize(), 7);
@@ -607,7 +612,7 @@ namespace OloEngine::Tests
         // With identity matrices, the depth value is irrelevant but the sampler
         // must still be bound to something valid. Using 0.5 keeps it in-range.
         const u32 depthTex = CreateUniformFloatTexture2D(kSize, kSize, 0.5f, 0.5f, 0.5f, 1.0f);
-        ::glBindTextureUnit(19, static_cast<GLuint>(depthTex));
+        BindSlotBasedInput(19u, depthTex);
 
         // MotionBlur UBO (binding 8, identity matrices) + params UBO (binding 42,
         // hasVelocity = 0). With no velocity buffer the shader reconstructs
@@ -657,10 +662,10 @@ namespace OloEngine::Tests
 
         // Depth < 1 everywhere → the geometry branch reads the velocity buffer.
         const u32 depthTex = CreateUniformFloatTexture2D(kSize, kSize, 0.5f, 0.5f, 0.5f, 1.0f);
-        ::glBindTextureUnit(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, static_cast<GLuint>(depthTex));
+        BindSlotBasedInput(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTex);
         // Velocity buffer (slot 2) holds zero motion for every pixel.
         const u32 velTex = CreateUniformFloatTexture2D(kSize, kSize, 0.0f, 0.0f, 0.0f, 0.0f);
-        ::glBindTextureUnit(2, static_cast<GLuint>(velTex));
+        BindSlotBasedInput(2u, velTex);
 
         [[maybe_unused]] auto aux = BindMotionBlurAuxUBOs(/*hasVelocity*/ true);
 
@@ -717,7 +722,7 @@ namespace OloEngine::Tests
         harness.SetInputTexture(CreateFloatTexture2D(kSize, kSize, edge.data()));
 
         const u32 depthTex = CreateUniformFloatTexture2D(kSize, kSize, 0.5f, 0.5f, 0.5f, 1.0f);
-        ::glBindTextureUnit(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, static_cast<GLuint>(depthTex));
+        BindSlotBasedInput(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTex);
 
         [[maybe_unused]] auto aux = BindMotionBlurAuxUBOs(/*hasVelocity*/ true);
 
@@ -727,18 +732,25 @@ namespace OloEngine::Tests
         };
 
         // Horizontal velocity (0.25 UV ≈ 8 px) — smears the edge left↔right.
+        // Each velocity buffer is scoped to its own draw: the binding owns a heap
+        // registration, and the second must replace the first rather than stack on
+        // top of it at the same slot.
         const u32 horizontalVel = CreateUniformFloatTexture2D(kSize, kSize, 0.25f, 0.0f, 0.0f, 0.0f);
-        ::glBindTextureUnit(2, static_cast<GLuint>(horizontalVel));
-        harness.Draw();
         std::vector<u8> horizontal;
-        harness.ReadOutputRgba8(horizontal);
+        {
+            BindSlotBasedInput(2u, horizontalVel);
+            harness.Draw();
+            harness.ReadOutputRgba8(horizontal);
+        }
 
         // Same magnitude, vertical — a vertical edge is invariant under it.
         const u32 verticalVel = CreateUniformFloatTexture2D(kSize, kSize, 0.0f, 0.25f, 0.0f, 0.0f);
-        ::glBindTextureUnit(2, static_cast<GLuint>(verticalVel));
-        harness.Draw();
         std::vector<u8> vertical;
-        harness.ReadOutputRgba8(vertical);
+        {
+            BindSlotBasedInput(2u, verticalVel);
+            harness.Draw();
+            harness.ReadOutputRgba8(vertical);
+        }
 
         ::glDeleteTextures(1, &depthTex);
         ::glDeleteTextures(1, &horizontalVel);
@@ -801,7 +813,7 @@ namespace OloEngine::Tests
         const f32 depth = (zNdc + 1.0f) * 0.5f;
 
         const u32 depthTex = CreateUniformFloatTexture2D(kSize, kSize, depth, depth, depth, 1.0f);
-        ::glBindTextureUnit(19, static_cast<GLuint>(depthTex));
+        BindSlotBasedInput(19u, depthTex);
 
         harness.Draw();
 
@@ -903,7 +915,7 @@ namespace OloEngine::Tests
                                   GL_RGBA, GL_FLOAT, depthPixels.data());
             return static_cast<u32>(id);
         }();
-        ::glBindTextureUnit(19, static_cast<GLuint>(depthTex));
+        BindSlotBasedInput(19u, depthTex);
 
         harness.Draw();
 
@@ -1180,6 +1192,7 @@ namespace OloEngine::Tests
 
         u32 currentTex = CreateFloatTexture2D(kFullSize, kFullSize, input.data());
 
+        const ScopedSlotBasedShaders slotBased; // see ScopedSlotBasedShaders
         auto downsampleShader = Shader::Create("assets/shaders/PostProcess_BloomDownsample.glsl");
         auto upsampleShader = Shader::Create("assets/shaders/PostProcess_BloomUpsample.glsl");
         ASSERT_TRUE(downsampleShader);
@@ -1278,7 +1291,7 @@ namespace OloEngine::Tests
         // used because shader early-outs, but sampling an unbound sampler is
         // undefined behaviour on some drivers).
         const u32 depthTex = CreateUniformFloatTexture2D(kSize, kSize, 0.5f, 0.5f, 0.5f, 1.0f);
-        ::glBindTextureUnit(19, static_cast<GLuint>(depthTex));
+        BindSlotBasedInput(19u, depthTex);
 
         // Fog UBO at binding 17 with disabled flag.
         FogUBOData fogData{};

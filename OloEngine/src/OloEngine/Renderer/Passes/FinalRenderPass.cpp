@@ -104,11 +104,13 @@ namespace OloEngine
                 OLO_CORE_WARN("FinalRenderPass: setup-selected input texture view resolved to id=0");
             }
         }
-        context.BindTexture(0, inputColorTextureID);
+        // FrameTransient: the scene colour is graph-owned.
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
         m_BlitShader->SetInt("u_Texture", 0);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
+        context.FlushHeapOffsets();
         context.DrawIndexed(va);
     }
 

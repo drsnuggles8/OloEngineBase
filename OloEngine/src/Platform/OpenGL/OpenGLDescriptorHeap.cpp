@@ -27,6 +27,15 @@ namespace OloEngine
             }
             return linearMip ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR;
         }
+
+        // Does a residency established as `current` already permit `wanted`?
+        // READ_WRITE permits everything; the two narrow modes permit only
+        // themselves. Used to decide whether a second acquire of the same handle
+        // has to widen — see OpenGLDescriptorHeap.h's ImageResidency.
+        [[nodiscard]] bool ImageAccessCovers(GLenum current, GLenum wanted)
+        {
+            return current == GL_READ_WRITE || current == wanted;
+        }
     } // namespace
 
     void OpenGLDescriptorHeapBackend::Initialize(u32 slotCapacity)
@@ -100,6 +109,54 @@ namespace OloEngine
             glMakeTextureHandleResidentARB(m_NullDescriptor);
         }
 
+        // The null STORAGE-IMAGE descriptor. Separate texture and separate handle
+        // for the same reason the sampler null is not handle 0: an `image2D`
+        // constructed from a sampler handle is undefined, so pointing a cleared or
+        // failed image binding at the sampler null would trade a stale read for
+        // undefined behaviour instead of fixing it.
+        //
+        // R32F because an image handle bakes in a format and every storage image
+        // this engine binds is a float or a uint one; a float read of a zeroed
+        // R32F is the deterministic 0.0 the poison instrument promises. A uint
+        // image reading it sees the bit pattern 0, which is also 0.
+        glCreateTextures(GL_TEXTURE_2D, 1, &m_NullImageTexture);
+        glTextureStorage2D(m_NullImageTexture, 1, GL_R32F, 1, 1);
+        constexpr std::array<f32, 1> kZero = { 0.0f };
+        glTextureSubImage2D(m_NullImageTexture, 0, 0, 0, 1, 1, GL_RED, GL_FLOAT, kZero.data());
+        glObjectLabel(GL_TEXTURE, m_NullImageTexture, -1, "RHI::DescriptorHeap null image");
+
+        m_NullImageDescriptor =
+            static_cast<u64>(glGetImageHandleARB(m_NullImageTexture, 0, GL_FALSE, 0, GL_R32F));
+        if (m_NullImageDescriptor == 0u)
+        {
+            // Same fail-closed policy as the sampler null above, and for the same
+            // reason: without a real null the storage half of the model rests on
+            // undefined behaviour, and the slot-based path is the supported
+            // configuration anyway.
+            OLO_CORE_ERROR("[RHI/GL] Could not create the bindless null IMAGE descriptor "
+                           "(glGetImageHandleARB returned 0). Disabling heap-bindless; "
+                           "the slot-based binding path stays in use.");
+            glDeleteTextures(1, &m_NullImageTexture);
+            m_NullImageTexture = 0u;
+            if (glIsTextureHandleResidentARB(m_NullDescriptor) == GL_TRUE)
+            {
+                glMakeTextureHandleNonResidentARB(m_NullDescriptor);
+            }
+            m_NullDescriptor = 0u;
+            glDeleteSamplers(1, &m_NullSampler);
+            m_NullSampler = 0u;
+            glDeleteTextures(1, &m_NullTexture);
+            m_NullTexture = 0u;
+            m_Supported = false;
+            m_SlotCapacity = 0u;
+            return;
+        }
+
+        if (glIsImageHandleResidentARB(m_NullImageDescriptor) != GL_TRUE)
+        {
+            glMakeImageHandleResidentARB(m_NullImageDescriptor, GL_READ_WRITE);
+        }
+
         // std430 uvec2[] — a GLuint64 handle IS a uvec2 in memory, so the CPU
         // mirror uploads verbatim with no packing step. Deliberately NOT a
         // uint64_t[] block: that would additionally require
@@ -151,6 +208,15 @@ namespace OloEngine
         }
         m_Residency.clear();
 
+        for (const auto& [handle, entry] : m_ImageResidency)
+        {
+            if (entry.RefCount > 0u && glIsImageHandleResidentARB(handle) == GL_TRUE)
+            {
+                glMakeImageHandleNonResidentARB(handle);
+            }
+        }
+        m_ImageResidency.clear();
+
         for (const auto& entry : m_Samplers)
         {
             if (entry.Object != 0u)
@@ -168,6 +234,14 @@ namespace OloEngine
             }
             m_NullDescriptor = 0u;
         }
+        if (m_NullImageDescriptor != 0u)
+        {
+            if (glIsImageHandleResidentARB(m_NullImageDescriptor) == GL_TRUE)
+            {
+                glMakeImageHandleNonResidentARB(m_NullImageDescriptor);
+            }
+            m_NullImageDescriptor = 0u;
+        }
         if (m_NullSampler != 0u)
         {
             glDeleteSamplers(1, &m_NullSampler);
@@ -177,6 +251,11 @@ namespace OloEngine
         {
             glDeleteTextures(1, &m_NullTexture);
             m_NullTexture = 0u;
+        }
+        if (m_NullImageTexture != 0u)
+        {
+            glDeleteTextures(1, &m_NullImageTexture);
+            m_NullImageTexture = 0u;
         }
 
         if (m_HeapBuffer != 0u)
@@ -254,18 +333,41 @@ namespace OloEngine
             return 0u;
         }
 
-        // SUBRESOURCE RANGES AND FORMAT REINTERPRETATION ARE NOT SUPPORTED HERE,
-        // and this is a real limitation rather than an unimplemented stub. An
-        // ARB_bindless_texture handle names a whole texture object; a mip/layer
-        // subrange or a format reinterpretation needs a glTextureView, which
-        // needs the source target and internal format — neither of which the
-        // neutral ViewDesc carries, on purpose (it describes intent, not GL
-        // state). Wiring it would mean either widening the neutral desc with GL
-        // shaped fields or a second registry lookup for the texture's metadata.
-        // Recorded as a Phase 4 input: Vulkan needs the same information for
-        // VkImageViewCreateInfo, so the neutral desc is under-specified for BOTH
-        // backends and that is worth knowing before Vulkan bring-up rather than
-        // after.
+        const GLuint texture = static_cast<GLuint>(native);
+
+        // The two descriptor kinds are two different API calls with two different
+        // residency namespaces — not two configurations of one call. Splitting
+        // here rather than threading conditionals through one body keeps each
+        // one's preconditions next to its own GL entry point.
+        return view.Usage == RHI::ViewUsage::Storage ? AcquireStorageDescriptor(texture, view)
+                                                     : AcquireSampledDescriptor(texture, view, sampler);
+    }
+
+    auto OpenGLDescriptorHeapBackend::AcquireSampledDescriptor(GLuint texture, const RHI::ViewDesc& view,
+                                                               const RHI::SamplerDesc& sampler) -> u64
+    {
+        // SUBRESOURCE RANGES AND FORMAT REINTERPRETATION ARE NOT SUPPORTED FOR A
+        // SAMPLED VIEW, and this is a real limitation rather than an
+        // unimplemented stub. An ARB_bindless_texture TEXTURE handle names a whole
+        // texture object; a mip/layer subrange or a format reinterpretation needs
+        // a glTextureView, which needs the source target and internal format —
+        // neither of which the neutral ViewDesc carries, on purpose (it describes
+        // intent, not GL state).
+        //
+        // ADR 0011 amendment (20), PARTIALLY CLOSED BY THE STORAGE PATH BELOW and
+        // worth being precise about which part. The gap has two halves:
+        //
+        //   * the FORMAT and the SUBRESOURCE SELECTION. Both are now expressed
+        //     neutrally and are exercised end to end — `glGetImageHandleARB` takes
+        //     exactly them, and every converted image site supplies them.
+        //   * the VIEW DIMENSION (GL's `glTextureView` target, Vulkan's
+        //     `VkImageViewType`) and the resolution of `FormatOverride ==
+        //     Unknown` against the resource's own format. Neither is needed by
+        //     the image path, so neither has been added — an unexercised neutral
+        //     field is the sort of invented vocabulary Phase 2 step 2 paid for.
+        //
+        // So the remaining half is still a Phase 4 input, and it is now a SMALLER
+        // and better-specified one.
         const RHI::SubresourceRange defaultRange;
         if (!(view.Range == defaultRange) || view.FormatOverride != RHI::Format::Unknown)
         {
@@ -273,7 +375,6 @@ namespace OloEngine
             return 0u;
         }
 
-        const GLuint texture = static_cast<GLuint>(native);
         const GLuint samplerObject = SamplerObjectFor(sampler, view.DepthCompare);
 
         // glGetTextureSamplerHandleARB rather than glGetTextureHandleARB: the
@@ -305,10 +406,120 @@ namespace OloEngine
         return static_cast<u64>(handle);
     }
 
-    void OpenGLDescriptorHeapBackend::ReleaseDescriptor(u64 descriptor)
+    auto OpenGLDescriptorHeapBackend::AcquireStorageDescriptor(GLuint texture, const RHI::ViewDesc& view) -> u64
+    {
+        // A STORAGE IMAGE'S FORMAT IS PART OF ITS BINDING CONTRACT, not an
+        // optional reinterpretation: it has to match the shader's format layout
+        // qualifier, and `glGetImageHandleARB` has nowhere to put "whatever the
+        // texture happens to be". Declining is the only honest answer — guessing
+        // the resource's format would produce a handle the shader reads through
+        // the wrong interpretation, which is a plausible-looking wrong image
+        // rather than a missing one.
+        if (view.FormatOverride == RHI::Format::Unknown)
+        {
+            ++m_Stats.UnsupportedViews;
+            return 0u;
+        }
+
+        // Invert MakeStorageViewDesc's neutral mapping. One mip, always: an image
+        // binding addresses exactly one level, so a MipCount other than 1 is a
+        // caller describing something GL cannot bind rather than something this
+        // backend has not implemented.
+        if (view.Range.MipCount != 1u)
+        {
+            ++m_Stats.UnsupportedViews;
+            return 0u;
+        }
+
+        const bool layered = view.Range.LayerCount == RHI::SubresourceRange::AllRemaining;
+        if (!layered && view.Range.LayerCount != 1u)
+        {
+            // A contiguous run of layers that is neither "one" nor "all" has no
+            // glBindImageTexture spelling either — the slot-based path could not
+            // express it, so the heap path declining it is parity, not a
+            // regression.
+            ++m_Stats.UnsupportedViews;
+            return 0u;
+        }
+
+        const GLuint64 handle = glGetImageHandleARB(texture, static_cast<GLint>(view.Range.BaseMip),
+                                                    layered ? GL_TRUE : GL_FALSE,
+                                                    static_cast<GLint>(layered ? 0u : view.Range.BaseLayer),
+                                                    Utils::ToGLInternalFormat(view.FormatOverride));
+        if (handle == 0u)
+        {
+            ++m_Stats.AcquireFailures;
+            return 0u;
+        }
+
+        // The SAME lowering the slot-based BindImageTexture uses, deliberately.
+        // A second spelling of "which GL access is this" is how the two paths
+        // would drift into treating one binding differently — the mistake the
+        // sampler path already made once with LinearMipFilter.
+        const GLenum wanted = Utils::ToGLImageAccess(view.StorageAccess);
+
+        ImageResidency& residency = m_ImageResidency[handle];
+        if (residency.RefCount == 0u)
+        {
+            if (glIsImageHandleResidentARB(handle) != GL_TRUE)
+            {
+                glMakeImageHandleResidentARB(handle, wanted);
+            }
+            residency.Access = wanted;
+            ++m_Stats.ResidentImageHandles;
+        }
+        else if (!ImageAccessCovers(residency.Access, wanted))
+        {
+            // WIDEN. `glGetImageHandleARB` takes no access, so a read-only and a
+            // read-write view of the same (texture, level, layer, format) are
+            // literally the same handle — and reading a WRITE_ONLY-resident
+            // handle, or writing a READ_ONLY one, is undefined. GTAO does exactly
+            // this: its edge texture is bound WRITE_ONLY by the main pass and
+            // READ_ONLY by the denoise pass in the same frame.
+            //
+            // Re-residency is not optional here and the transition has to go
+            // through non-resident first, because making an already-resident
+            // handle resident again is an INVALID_OPERATION.
+            if (glIsImageHandleResidentARB(handle) == GL_TRUE)
+            {
+                glMakeImageHandleNonResidentARB(handle);
+            }
+            glMakeImageHandleResidentARB(handle, GL_READ_WRITE);
+            residency.Access = GL_READ_WRITE;
+            ++m_Stats.ImageResidencyWidenings;
+        }
+        ++residency.RefCount;
+
+        return static_cast<u64>(handle);
+    }
+
+    void OpenGLDescriptorHeapBackend::ReleaseDescriptor(u64 descriptor, RHI::ViewUsage usage)
     {
         if (!m_Supported || descriptor == 0u)
         {
+            return;
+        }
+
+        if (usage == RHI::ViewUsage::Storage)
+        {
+            const auto it = m_ImageResidency.find(descriptor);
+            if (it == m_ImageResidency.end() || it->second.RefCount == 0u)
+            {
+                return;
+            }
+
+            if (--it->second.RefCount == 0u)
+            {
+                if (glIsImageHandleResidentARB(descriptor) == GL_TRUE)
+                {
+                    glMakeImageHandleNonResidentARB(descriptor);
+                }
+                m_ImageResidency.erase(it);
+                if (m_Stats.ResidentImageHandles > 0u)
+                {
+                    --m_Stats.ResidentImageHandles;
+                }
+            }
             return;
         }
 
@@ -360,9 +571,9 @@ namespace OloEngine
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_RESOURCE_HEAP, m_HeapBuffer);
     }
 
-    auto OpenGLDescriptorHeapBackend::NullDescriptor() const -> u64
+    auto OpenGLDescriptorHeapBackend::NullDescriptor(RHI::ViewUsage usage) const -> u64
     {
-        return m_NullDescriptor;
+        return usage == RHI::ViewUsage::Storage ? m_NullImageDescriptor : m_NullDescriptor;
     }
 
     auto OpenGLDescriptorHeapBackend::GetStats() const -> Stats

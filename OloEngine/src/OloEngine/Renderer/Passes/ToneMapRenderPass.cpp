@@ -285,8 +285,16 @@ namespace OloEngine
         if (m_ExposureStateBuffer)
             m_ExposureStateBuffer->Bind();
 
-        context.BindTexture(0, inputColorTextureID);
-        m_Shader->SetInt("u_Texture", 0);
+        // FrameTransient: graph-owned (context.ResolveTextureHandle), so the
+        // descriptor comes from the per-frame ring rather than being memoised onto
+        // a pooled object the planner may hand to a different resource next frame.
+        //
+        // The `SetInt("u_Texture", 0)` that used to follow is gone: the shader has
+        // declared `layout(binding = 0)` all along (glsl-shaders.md §5 forbids
+        // glUniform1i for samplers), so it was already redundant — and under the
+        // bindless variant `u_Texture` is a #define rather than a uniform, so it
+        // would log a "uniform not found" warning every frame.
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
 
         // Scene depth for the underwater fog distance reconstruction.
         RHI::ResourceHandle depthTextureID{};
@@ -294,25 +302,38 @@ namespace OloEngine
             depthTextureID = context.ResolveTextureHandle(m_SelectedSceneDepthTexture);
         if (depthTextureID.IsValid())
         {
-            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID);
-            m_Shader->SetInt("u_DepthTexture", ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTextureID,
+                                            RHI::HeapSlotLifetime::FrameTransient);
         }
 
         // Per-pixel water-surface depth (nearest wavy surface) captured by the
         // water pass — lets the underwater fog find the real water boundary per
         // pixel instead of assuming a flat plane. 0 when no water rendered.
         const RHI::ResourceHandle waterDepthTexture = Renderer3D::GetWaterSurfaceDepthTextureID();
-        context.BindTexture(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH, waterDepthTexture);
-        m_Shader->SetInt("u_WaterSurfaceDepth", ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH);
+        // Persistent: renderer-owned, not acquired from the graph's transient pool.
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH, waterDepthTexture,
+                                        RHI::HeapSlotLifetime::Persistent);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
+        context.FlushHeapOffsets();
         context.DrawIndexed(va);
 
         // Leave the depth slot clean for subsequent passes that share the layout.
+        //
+        // THIS IS THE CALL SITE THAT MOTIVATED THE RESERVED NULL DESCRIPTOR. Under
+        // the heap there is no bind to clear — the shader reads an OFFSET — so
+        // leaving the previous one in the table would keep a later pass sampling
+        // this frame's depth through a perfectly valid index. The seam stages
+        // kNullHeapOffset instead, and the flush below publishes it: without that,
+        // the clear would only take effect whenever some other pass happened to
+        // flush next.
         if (depthTextureID.IsValid())
-            context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, RHI::NullResource);
-        context.BindTexture(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH, RHI::NullResource);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, RHI::NullResource,
+                                            RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH, RHI::NullResource,
+                                        RHI::HeapSlotLifetime::Persistent);
+        context.FlushHeapOffsets();
 
         // Leave the auto-exposure storage buffers unbound so a metered exposure
         // value can't leak into other passes or tests/tools that drive the

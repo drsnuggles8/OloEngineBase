@@ -29,6 +29,10 @@ namespace OloEngine
         ~OpenGLRendererAPI() override;
 
         void Init() override;
+        // Release GPU-side renderer state while the context is still current.
+        // MUST be called before the context is destroyed; the destructor cannot
+        // do this safely because it runs at atexit.
+        void ShutdownGpuResources() override;
         void SetViewport(u32 x, u32 y, u32 width, u32 height) override;
 
         void SetClearColor(const glm::vec4& color) override;
@@ -308,5 +312,7 @@ namespace OloEngine
         // member rather than a static so its GL objects cannot outlive the
         // context. Inert when the extension is absent.
         OpenGLDescriptorHeapBackend m_DescriptorHeapBackend;
+        // Guards the destructor against touching GL at atexit — see ~OpenGLRendererAPI.
+        bool m_GpuResourcesReleased = false;
     };
 } // namespace OloEngine

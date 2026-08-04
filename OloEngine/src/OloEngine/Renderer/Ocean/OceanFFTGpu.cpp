@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Ocean/OceanFFTGpu.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -183,10 +184,17 @@ namespace OloEngine::Ocean
             for (u32 stage = 0u; stage < stages; ++stage)
             {
                 m_ButterflyShader->SetInt("u_Stage", static_cast<int>(stage));
-                RenderCommand::BindImageTexture(0, m_PingPong[src]->GetRHIHandle(), 0, true, 0, RHI::Access::StorageRead,
-                                                RHI::Format::RGBA32Float);
-                RenderCommand::BindImageTexture(1, m_PingPong[1u - src]->GetRHIHandle(), 0, true, 0, RHI::Access::StorageWrite,
-                                                RHI::Format::RGBA32Float);
+                // Both ping-pong halves are read AND written across the stage loop with
+                // their roles swapping, so each texture ends up with a read view and a
+                // write view. Those fold to one GL image handle, which is why the backend
+                // widens its residency to READ_WRITE rather than transitioning twice.
+                HeapBinding::BindImageOrOffset(0, m_PingPong[src]->GetRHIHandle(), 0, true, 0,
+                                               RHI::Access::StorageRead, RHI::Format::RGBA32Float,
+                                               RHI::HeapSlotLifetime::Persistent);
+                HeapBinding::BindImageOrOffset(1, m_PingPong[1u - src]->GetRHIHandle(), 0, true, 0,
+                                               RHI::Access::StorageWrite, RHI::Format::RGBA32Float,
+                                               RHI::HeapSlotLifetime::Persistent);
+                HeapBinding::FlushOffsets();
                 RenderCommand::DispatchCompute(groups, groups, kSpectraLayers);
                 RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess);
                 src = 1u - src;
@@ -220,7 +228,10 @@ namespace OloEngine::Ocean
             m_EvolveShader->SetFloat("u_Gravity", m_Gravity);
             m_EvolveShader->SetFloat("u_Time", time);
             RenderCommand::BindTexture(0, m_H0Tex->GetRHIHandle());
-            RenderCommand::BindImageTexture(0, m_PingPong[0]->GetRHIHandle(), 0, true, 0, RHI::Access::StorageWrite, RHI::Format::RGBA32Float);
+            HeapBinding::BindImageOrOffset(0, m_PingPong[0]->GetRHIHandle(), 0, true, 0,
+                                           RHI::Access::StorageWrite, RHI::Format::RGBA32Float,
+                                           RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::FlushOffsets();
             RenderCommand::DispatchCompute(groups, groups, 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess);
         }
@@ -238,12 +249,16 @@ namespace OloEngine::Ocean
             m_AssembleShader->Bind();
             m_AssembleShader->SetInt("u_Resolution", static_cast<int>(N));
             m_AssembleShader->SetFloat("u_Choppiness", choppiness);
-            RenderCommand::BindImageTexture(0, m_PingPong[finalIndex]->GetRHIHandle(), 0, true, 0, RHI::Access::StorageRead,
-                                            RHI::Format::RGBA32Float);
-            RenderCommand::BindImageTexture(1, displacementTex->GetRHIHandle(), 0, false, 0, RHI::Access::StorageWrite,
-                                            RHI::Format::RGBA32Float);
-            RenderCommand::BindImageTexture(2, derivativesTex->GetRHIHandle(), 0, false, 0, RHI::Access::StorageWrite,
-                                            RHI::Format::RGBA32Float);
+            HeapBinding::BindImageOrOffset(0, m_PingPong[finalIndex]->GetRHIHandle(), 0, true, 0,
+                                           RHI::Access::StorageRead, RHI::Format::RGBA32Float,
+                                           RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindImageOrOffset(1, displacementTex->GetRHIHandle(), 0, false, 0,
+                                           RHI::Access::StorageWrite, RHI::Format::RGBA32Float,
+                                           RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindImageOrOffset(2, derivativesTex->GetRHIHandle(), 0, false, 0,
+                                           RHI::Access::StorageWrite, RHI::Format::RGBA32Float,
+                                           RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::FlushOffsets();
             RenderCommand::DispatchCompute(groups, groups, 1);
             // The water shader samples these textures next; image stores must
             // be visible to texture fetches (and any later image loads).
