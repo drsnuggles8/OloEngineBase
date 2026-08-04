@@ -4,6 +4,15 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
+// COMPLETE types, not forward declarations. `Channel` below holds a
+// Ref<StorageBuffer> BY VALUE, so instantiating it instantiates
+// ~Ref<StorageBuffer>, which converts the pointee to RefCounted* for
+// RefUtils::Release. With only a forward declaration Clang cannot prove
+// that derived-to-base conversion and rejects the header outright — MSVC
+// happens to accept it, which is why this surfaced on the Linux sanitizer
+// build and not locally. Public headers must be self-contained anyway.
+#include "OloEngine/Renderer/StorageBuffer.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <glm/glm.hpp>
 
@@ -14,8 +23,6 @@
 
 namespace OloEngine
 {
-    class StorageBuffer;
-    class UniformBuffer;
 
     // @brief The GPU-pushable shader debug-draw channels (issue #725).
     //
