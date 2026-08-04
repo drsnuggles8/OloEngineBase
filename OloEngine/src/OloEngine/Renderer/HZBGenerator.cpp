@@ -183,16 +183,23 @@ namespace OloEngine
                                            RHI::Format::R32Float, RHI::HeapSlotLifetime::Persistent);
         }
 
-        // Bind input: scene depth for first pass, HZB itself for subsequent passes
+        // Bind input: scene depth for first pass, HZB itself for subsequent passes.
+        //
+        // THE TWO BRANCHES TAKE DIFFERENT LIFETIMES for the same slot, and that is
+        // correct rather than sloppy: the scene depth is a graph-pooled resource
+        // (FrameTransient — a Persistent view would memoise an offset onto an
+        // object the planner may reassign next frame), while the HZB pyramid is
+        // this generator's own texture (Persistent, memoisable). The lifetime
+        // follows the RESOURCE, never the slot (issue #691 Phase 3).
         if (isFirstPass)
         {
-            RenderCommand::BindTexture(4, sceneDepthTexture);
+            HeapBinding::BindTextureOrOffset(4, sceneDepthTexture, RHI::HeapSlotLifetime::FrameTransient);
         }
         else
         {
             // Need a barrier so previous batch writes are visible as texture fetches
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::TextureFetch | MemoryBarrierFlags::ShaderImageAccess);
-            RenderCommand::BindTexture(4, hzbTex);
+            HeapBinding::BindTextureOrOffset(4, hzbTex, RHI::HeapSlotLifetime::Persistent);
         }
 
         // Compute source and destination sizes.

@@ -200,6 +200,13 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
+        // Slot-based on purpose — see ScopedSlotBasedShaders. This harness binds
+        // its HZB with a raw glBindTextureUnit(0, ...), which a BINDLESS-variant
+        // program cannot see: it would read g_OloHeapOffsets[0], sample the
+        // reserved null and cull against a depth of zero. Converting
+        // InstanceOcclusionCull.comp made that live (issue #691 Phase 3,
+        // rhi-abstraction-boundary.md §4d).
+        const ScopedSlotBasedShaders slotBased;
         auto cs = ComputeShader::Create("assets/shaders/compute/InstanceOcclusionCull.comp");
         ASSERT_TRUE(cs && cs->IsValid()) << "InstanceOcclusionCull.comp failed to compile/link";
 
@@ -236,6 +243,13 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
+        // Slot-based on purpose — see ScopedSlotBasedShaders. This harness binds
+        // its HZB with a raw glBindTextureUnit(0, ...), which a BINDLESS-variant
+        // program cannot see: it would read g_OloHeapOffsets[0], sample the
+        // reserved null and cull against a depth of zero. Converting
+        // InstanceOcclusionCull.comp made that live (issue #691 Phase 3,
+        // rhi-abstraction-boundary.md §4d).
+        const ScopedSlotBasedShaders slotBased;
         auto cs = ComputeShader::Create("assets/shaders/compute/InstanceOcclusionCull.comp");
         ASSERT_TRUE(cs && cs->IsValid()) << "InstanceOcclusionCull.comp failed to compile/link";
 
@@ -261,6 +275,13 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
+        // Slot-based on purpose — see ScopedSlotBasedShaders. This harness binds
+        // its HZB with a raw glBindTextureUnit(0, ...), which a BINDLESS-variant
+        // program cannot see: it would read g_OloHeapOffsets[0], sample the
+        // reserved null and cull against a depth of zero. Converting
+        // InstanceOcclusionCull.comp made that live (issue #691 Phase 3,
+        // rhi-abstraction-boundary.md §4d).
+        const ScopedSlotBasedShaders slotBased;
         auto cs = ComputeShader::Create("assets/shaders/compute/InstanceOcclusionCull.comp");
         ASSERT_TRUE(cs && cs->IsValid()) << "InstanceOcclusionCull.comp failed to compile/link";
 

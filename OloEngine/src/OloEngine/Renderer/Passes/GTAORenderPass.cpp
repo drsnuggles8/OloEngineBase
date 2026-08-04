@@ -419,13 +419,21 @@ namespace OloEngine
         HeapBinding::BindImageOrOffset(1, edgeTexID, 0, false, 0, RHI::Access::StorageWrite,
                                        RHI::Format::R8UNorm, RHI::HeapSlotLifetime::FrameTransient);
 
-        // Bind inputs
+        // Bind inputs. The lifetimes differ per input and are not interchangeable:
+        // the HZB pyramid and the Hilbert LUT are pass-owned objects (memoisable,
+        // Persistent), while the view normals come from the graph's transient pool
+        // and must take a per-frame ring slot — a Persistent view of a pooled
+        // target memoises an offset onto an object the pool may reassign next
+        // frame (issue #691 Phase 3).
         const RHI::ResourceHandle hzbID = m_HZBGenerator.GetHZBTexture();
-        RenderCommand::BindTexture(GTAO_HZB_TEXTURE_SLOT, hzbID);
+        HeapBinding::BindTextureOrOffset(GTAO_HZB_TEXTURE_SLOT, hzbID,
+                                         RHI::HeapSlotLifetime::Persistent);
 
-        RenderCommand::BindTexture(GTAO_NORMALS_TEXTURE_SLOT, normalsTextureID);
+        HeapBinding::BindTextureOrOffset(GTAO_NORMALS_TEXTURE_SLOT, normalsTextureID,
+                                         RHI::HeapSlotLifetime::FrameTransient);
 
-        RenderCommand::BindTexture(GTAO_HILBERT_TEXTURE_SLOT, m_HilbertLUT->GetRHIHandle());
+        HeapBinding::BindTextureOrOffset(GTAO_HILBERT_TEXTURE_SLOT, m_HilbertLUT->GetRHIHandle(),
+                                         RHI::HeapSlotLifetime::Persistent);
 
         // Dispatch 16×16 workgroups
         u32 groupsX = (m_Width + 15) / 16;

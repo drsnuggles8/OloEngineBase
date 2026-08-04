@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
@@ -615,13 +616,18 @@ namespace OloEngine
             RenderCommand::SetBlendState(false);
 
             m_DebugRMAShader->Bind();
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_ALBEDO,
-                                       m_GBuffer->GetColorAttachmentHandle(GBuffer::Albedo));
-            RenderCommand::BindTexture(ShaderBindingLayout::TEX_GBUFFER_NORMAL,
-                                       m_GBuffer->GetColorAttachmentHandle(GBuffer::Normal));
+            // Persistent: these are the pass's OWN G-Buffer attachments, not
+            // graph-pooled targets (issue #691 Phase 3).
+            HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_GBUFFER_ALBEDO,
+                                             m_GBuffer->GetColorAttachmentHandle(GBuffer::Albedo),
+                                             RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL,
+                                             m_GBuffer->GetColorAttachmentHandle(GBuffer::Normal),
+                                             RHI::HeapSlotLifetime::Persistent);
 
             auto va = MeshPrimitives::GetFullscreenTriangle();
             va->Bind();
+            HeapBinding::FlushOffsets();
             RenderCommand::DrawIndexed(va);
 
             // Restore the scene FB's multi-attachment draw-buffer list so the

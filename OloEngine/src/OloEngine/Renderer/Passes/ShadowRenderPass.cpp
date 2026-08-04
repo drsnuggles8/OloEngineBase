@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
@@ -484,7 +485,13 @@ namespace OloEngine
 
                     if (caster.heightmapTextureID.IsValid())
                     {
-                        RenderCommand::BindTexture(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP, caster.heightmapTextureID);
+                        // Persistent: a terrain heightmap is an asset-owned texture,
+                        // not a graph-pooled target. The shader was bound once above
+                        // the loop, so the seam's program fork is already correct
+                        // (issue #691 Phase 3).
+                        HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP,
+                                                         caster.heightmapTextureID,
+                                                         RHI::HeapSlotLifetime::Persistent);
                     }
 
                     if (terrainUBO)
@@ -493,6 +500,11 @@ namespace OloEngine
                         terrainUBO->Bind();
                     }
 
+                    // A FLUSH PER CASTER, not per pass: each iteration rebinds the
+                    // heightmap slot to a DIFFERENT terrain's texture, so a flush
+                    // hoisted out of this loop would publish only the last caster's
+                    // offset and every earlier patch would displace against it.
+                    HeapBinding::FlushOffsets();
                     RenderCommand::DrawIndexedPatchesRaw(caster.vaoID, caster.indexCount, caster.patchVertexCount);
                 }
             }

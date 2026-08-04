@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
@@ -1271,9 +1272,24 @@ namespace OloEngine
 
                 PostProcessPasses.Cloudscape->UploadAndBindUBO();
 
-                RenderCommand::BindTexture(ShaderBindingLayout::TEX_CLOUD_BASE_NOISE, CloudNoise::GetBaseNoiseTexture());
-                RenderCommand::BindTexture(ShaderBindingLayout::TEX_CLOUD_DETAIL_NOISE, CloudNoise::GetDetailNoiseTexture());
-                RenderCommand::BindTexture(ShaderBindingLayout::TEX_CLOUD_WEATHER_MAP, weatherMapID);
+                // PUBLISHED-GLOBAL: staged here at pipeline level for the Cloudscape
+                // pass, whose program is not bound yet (only its UBO is), so the
+                // seam's IsBoundProgramBindless() fork is meaningless — publish does
+                // both (issue #691 Phase 3).
+                //
+                // The two noise volumes are CloudNoise-owned and never pooled
+                // (Persistent); the weather map is FrameTransient because it can
+                // come from the graph, and a Persistent view of a pooled target
+                // memoises an offset the planner may invalidate next frame.
+                HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_CLOUD_BASE_NOISE,
+                                                         CloudNoise::GetBaseNoiseTexture(),
+                                                         RHI::HeapSlotLifetime::Persistent);
+                HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_CLOUD_DETAIL_NOISE,
+                                                         CloudNoise::GetDetailNoiseTexture(),
+                                                         RHI::HeapSlotLifetime::Persistent);
+                HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_CLOUD_WEATHER_MAP, weatherMapID,
+                                                         RHI::HeapSlotLifetime::FrameTransient);
+                HeapBinding::FlushOffsets();
 
                 if (cloudState.CastShadows)
                 {

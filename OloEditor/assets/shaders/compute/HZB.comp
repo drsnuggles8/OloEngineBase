@@ -50,7 +50,15 @@ layout(binding = 1, r32f) writeonly uniform image2D o_HZB_Mip1;
 layout(binding = 2, r32f) writeonly uniform image2D o_HZB_Mip2;
 layout(binding = 3, r32f) writeonly uniform image2D o_HZB_Mip3;
 #endif
+// Sampler input converted alongside HZBGenerator's bind — this shader is already
+// a bindless variant (its four output mips are converted below), so a seam call
+// for a still-slot-based declaration would record an offset and issue no bind
+// (glsl-shaders.md §5c).
+#ifdef OLO_BINDLESS
+#define u_InputDepth OLO_HEAP_TEX_2D(4)
+#else
 layout(binding = 4) uniform sampler2D u_InputDepth;
+#endif
 
 // ---------------------------------------------------------------------------
 // Shared memory for cross-thread reduction. Holds the reduced depth per thread

@@ -24,10 +24,19 @@ layout(location = 0) out vec4 o_Color;
 layout(location = 0) in vec2 v_TexCoord;
 
 // Raw SSAO texture (R channel = AO value)
+#include "include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1). SSAO.glsl (pass 1) is
+// a separate program and was converted earlier; this is pass 2's own shader.
+#ifdef OLO_BINDLESS
+#define u_SSAOTexture OLO_HEAP_TEX_2D(0)
+#define u_DepthTexture OLO_HEAP_TEX_2D(19) // TEX_POSTPROCESS_DEPTH
+#else
 layout(binding = 0) uniform sampler2D u_SSAOTexture;
 
 // Scene depth for edge awareness
 layout(binding = 19) uniform sampler2D u_DepthTexture;
+#endif
 
 // SSAO UBO (binding 9) — need inverse projection for linear depth
 layout(std140, binding = 9) uniform SSAOUBO

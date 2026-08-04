@@ -112,7 +112,21 @@ layout(std140, binding = 10) uniform TerrainParams {
     vec4 u_LayerBlendSharpness1;
 };
 
+#include "include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1). Sampled in the
+// VERTEX stage for displacement, which is fine: the heap SSBO (45) and the
+// offset table (56) are program-wide, not fragment-only.
+//
+// Terrain_GBuffer.glsl and Terrain_PBR.glsl bind the same TEX_TERRAIN_HEIGHTMAP
+// slot but declare the name in their OWN files, so this #define cannot reach
+// them — and Terrain_GBuffer must stay slot-based anyway, being a G-Buffer
+// producer the bindless route would misroute.
+#ifdef OLO_BINDLESS
+#define u_TerrainHeightmap OLO_HEAP_TEX_2D(23)
+#else
 layout(binding = 23) uniform sampler2D u_TerrainHeightmap;
+#endif
 layout(binding = 30) uniform sampler2D u_SnowDepthMap;
 
 // Snow Accumulation UBO (binding 16)
