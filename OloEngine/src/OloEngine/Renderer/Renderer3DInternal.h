@@ -29,6 +29,7 @@
 #include "OloEngine/Renderer/Passes/PlanarReflectionRenderPass.h"
 #include "OloEngine/Renderer/Passes/PrecipitationRenderPass.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
+#include "OloEngine/Renderer/Passes/ShaderDebugDrawPass.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryPass.h"
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
@@ -165,6 +166,12 @@ namespace OloEngine
         Ref<FluidIntermediatesPass> FluidIntermediates; // #630 depth splat + smooth + thickness
         Ref<FluidCompositePass> FluidComposite;         // #630 SceneColor RMW shading pass
         Ref<VirtualGeometryPass> VirtualGeometry;       // #629 cluster LOD DAG cull + raster
+        // #725 GPU-pushable debug primitives. Lives in this set because it is
+        // registered by RegisterRenderStreamNodes, but it carries no command
+        // bucket (its draws come from GPU-appended SSBOs), so it is deliberately
+        // absent from GetRenderStreamNode / ForEachRenderStreamNode — both of
+        // which deal in CommandBufferRenderPass.
+        Ref<ShaderDebugDrawPass> ShaderDebugDraw;
 
         void Reset()
         {
@@ -176,6 +183,7 @@ namespace OloEngine
             FluidIntermediates.Reset();
             FluidComposite.Reset();
             VirtualGeometry.Reset();
+            ShaderDebugDraw.Reset();
         }
     };
 

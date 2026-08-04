@@ -80,6 +80,19 @@ namespace OloEngine
             m_PerSampleLighting = enable;
         }
 
+        // Cluster-bounds visualization through the shader debug-draw channels
+        // (issue #725). `mode` is the bit field documented on
+        // RendererSettings::ShaderDebugDrawClusterBounds; `stride` sub-samples
+        // the emit so a Nanite-class cluster count does not simply overflow the
+        // channel. Forwarded to VirtualClusterCull.comp's u_DebugDrawClusters /
+        // u_DebugDrawClusterStride on the PHASE 1 dispatch only — phase 2
+        // re-tests an already-classified subset and would double-emit.
+        void SetClusterBoundsDebug(u32 mode, u32 stride) noexcept
+        {
+            m_ClusterBoundsDebugMode = mode;
+            m_ClusterBoundsDebugStride = stride;
+        }
+
       private:
         Ref<ComputeShader> m_CullShader;
         Ref<ComputeShader> m_RasterShader;      // portable two-pass 2x32 visibility-buffer rasterizer
@@ -109,5 +122,7 @@ namespace OloEngine
         RGTextureHandle m_SelectedSceneDepthMS{};
 
         bool m_PerSampleLighting = false;
+        u32 m_ClusterBoundsDebugMode = 0;    // #725, see SetClusterBoundsDebug
+        u32 m_ClusterBoundsDebugStride = 32; // #725
     };
 } // namespace OloEngine

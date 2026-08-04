@@ -3,13 +3,18 @@
 #include "SettingsChangeLog.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
 #include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 
 #include <imgui.h>
 
+#include <algorithm>
+#include <array>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
@@ -134,6 +139,8 @@ namespace OloEngine
             AppendChange(changes, "ShowCameraFrustums", before.ShowCameraFrustums, after.ShowCameraFrustums);
             AppendChange(changes, "ShowBoundingBoxes", before.ShowBoundingBoxes, after.ShowBoundingBoxes);
             AppendChange(changes, "DebugVelocityOverlayForward", before.DebugVelocityOverlayForward, after.DebugVelocityOverlayForward);
+            AppendChange(changes, "ShaderDebugDrawEnabled", before.ShaderDebugDrawEnabled, after.ShaderDebugDrawEnabled);
+            AppendChange(changes, "ShaderDebugDrawClusterBounds", before.ShaderDebugDrawClusterBounds, after.ShaderDebugDrawClusterBounds);
 
             SettingsChangeLog::EmitLog("RendererSettingsPanel", changes);
         }
@@ -726,6 +733,96 @@ namespace OloEngine
             if (ImGui::Checkbox("Show Bounding Boxes", &settings.ShowBoundingBoxes))
             {
                 m_DebugSettingsChanged = true;
+            }
+
+            // --- GPU-pushable shader debug draws (issue #725) ---
+            ImGui::Separator();
+            if (ImGui::Checkbox("Shader Debug Draws", &settings.ShaderDebugDrawEnabled))
+            {
+                m_DebugSettingsChanged = true;
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Draw the GPU-pushable debug primitives any shader can append to\n"
+                                  "(include/DebugDrawCommon.glsl). Off costs nothing.");
+            }
+            if (settings.ShaderDebugDrawEnabled)
+            {
+                ImGui::Indent();
+                if (ImGui::SliderFloat("Line Width", &settings.ShaderDebugDrawLineWidth, 1.0f, 16.0f, "%.1f px"))
+                {
+                    m_DebugSettingsChanged = true;
+                }
+
+                // The shipped consumer. Each bit is one cull verdict, so the
+                // combination answers "which test removed that cluster" directly
+                // instead of by elimination.
+                static constexpr std::array<std::pair<const char*, u32>, 4> kClusterBoundsBits{ {
+                    { "Clusters drawn (green)", 1u },
+                    { "Frustum-culled (red)", 2u },
+                    { "Cone-culled (blue)", 4u },
+                    { "Hi-Z occluded (yellow)", 8u },
+                } };
+                ImGui::TextUnformatted("Virtual-geometry cluster bounds:");
+                for (const auto& [label, bit] : kClusterBoundsBits)
+                {
+                    bool on = (settings.ShaderDebugDrawClusterBounds & bit) != 0u;
+                    if (ImGui::Checkbox(label, &on))
+                    {
+                        settings.ShaderDebugDrawClusterBounds =
+                            on ? (settings.ShaderDebugDrawClusterBounds | bit)
+                               : (settings.ShaderDebugDrawClusterBounds & ~bit);
+                        m_DebugSettingsChanged = true;
+                    }
+                }
+                if (settings.ShaderDebugDrawClusterBounds != 0u)
+                {
+                    auto stride = static_cast<i32>(settings.ShaderDebugDrawClusterStride);
+                    if (ImGui::SliderInt("Cluster Stride", &stride, 1, 256))
+                    {
+                        settings.ShaderDebugDrawClusterStride = static_cast<u32>(std::max(stride, 1));
+                        m_DebugSettingsChanged = true;
+                    }
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("Emit only every Nth cluster. A Nanite-class scene has far more\n"
+                                          "clusters than the channel holds, so 1 just overflows.");
+                    }
+                }
+
+                // Live overflow readout. "I drew nothing" and "I overflowed and
+                // everything after slot N was dropped" are the two failure modes
+                // the issue calls out as otherwise indistinguishable.
+                const auto& stats = ShaderDebugDraw::GetStats();
+                if (stats.StatsValid)
+                {
+                    ImGui::Separator();
+                    ImGui::TextUnformatted("Channels (previous frame):");
+                    for (u32 i = 0; i < kShaderDebugDrawPrimitiveCount; ++i)
+                    {
+                        const auto& channel = stats.Channels[i];
+                        if (channel.Requested == 0 && channel.Capacity == 0)
+                            continue;
+                        const char* name =
+                            ShaderDebugDrawContract::Name(static_cast<ShaderDebugDrawPrimitive>(i));
+                        if (channel.Overflowed())
+                        {
+                            ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.2f, 1.0f),
+                                               "%s: %u/%u drawn — OVERFLOW, %u dropped", name, channel.Drawn,
+                                               channel.Requested, channel.Dropped());
+                        }
+                        else if (channel.Drawn > 0)
+                        {
+                            ImGui::Text("%s: %u drawn (%u from CPU) / capacity %u", name, channel.Drawn,
+                                        channel.CpuPushes, channel.Capacity);
+                        }
+                        else
+                        {
+                            ImGui::TextDisabled("%s: none", name);
+                        }
+                    }
+                }
+                ImGui::Unindent();
             }
 
             ImGui::Unindent();

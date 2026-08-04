@@ -147,6 +147,7 @@ TEST(ShaderBindingLayout, UBOBindingSlotUniqueness)
     checkSlot(ShaderBindingLayout::UBO_FOG_VOLUMES, "UBO_FOG_VOLUMES");
     checkSlot(ShaderBindingLayout::UBO_DECAL, "UBO_DECAL");
     checkSlot(ShaderBindingLayout::UBO_VIRTUAL_DRAW, "UBO_VIRTUAL_DRAW");
+    checkSlot(ShaderBindingLayout::UBO_DEBUG_DRAW, "UBO_DEBUG_DRAW"); // #725
 }
 
 // =============================================================================
@@ -223,6 +224,18 @@ TEST(ShaderBindingLayout, SSBOSlotUniqueness)
     checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_INDICES, "SSBO_VIRTUAL_INDICES");
     checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_GROUP_STATES, "SSBO_VIRTUAL_GROUP_STATES");
     checkSlot(ShaderBindingLayout::SSBO_VIRTUAL_REJECTED, "SSBO_VIRTUAL_REJECTED");
+    checkSlot(ShaderBindingLayout::SSBO_RESOURCE_HEAP, "SSBO_RESOURCE_HEAP");
+    // GPU-pushable shader debug draws (issue #725). Seven consecutive channels;
+    // ShaderDebugDraw derives each one's binding as SSBO_DEBUG_DRAW_FIRST +
+    // enumerator, so a collision here would silently point two channels at one
+    // buffer — the entries of one primitive reinterpreted as another's.
+    checkSlot(ShaderBindingLayout::SSBO_DEBUG_DRAW_LINE, "SSBO_DEBUG_DRAW_LINE");
+    checkSlot(ShaderBindingLayout::SSBO_DEBUG_DRAW_CIRCLE, "SSBO_DEBUG_DRAW_CIRCLE");
+    checkSlot(ShaderBindingLayout::SSBO_DEBUG_DRAW_RECTANGLE, "SSBO_DEBUG_DRAW_RECTANGLE");
+    checkSlot(ShaderBindingLayout::SSBO_DEBUG_DRAW_AABB, "SSBO_DEBUG_DRAW_AABB");
+    checkSlot(ShaderBindingLayout::SSBO_DEBUG_DRAW_BOX, "SSBO_DEBUG_DRAW_BOX");
+    checkSlot(ShaderBindingLayout::SSBO_DEBUG_DRAW_CONE, "SSBO_DEBUG_DRAW_CONE");
+    checkSlot(ShaderBindingLayout::SSBO_DEBUG_DRAW_SPHERE, "SSBO_DEBUG_DRAW_SPHERE");
 }
 
 // =============================================================================

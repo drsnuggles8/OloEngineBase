@@ -117,6 +117,8 @@ add_executable(OloEngine-Tests
 		Rendering/FrameDataBufferTest.cpp
 		Rendering/InstanceDataLayoutTest.cpp
 		Rendering/GPUFrustumCullParityTest.cpp
+		Rendering/ShaderDebugDrawContractTest.cpp
+		Rendering/ShaderDebugDrawExpansionTest.cpp
 		Rendering/GPUOcclusionCullParityTest.cpp
 		Rendering/DeferredTwoPhaseOcclusionTest.cpp
 		Rendering/ScatterBrushMathTest.cpp
@@ -192,6 +194,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/PlanarReflectionVisualEvidenceTest.cpp
 		Rendering/PropertyTests/HZBGeneratorResizeTest.cpp
 		Rendering/PropertyTests/GPUOcclusionCullGPUTest.cpp
+		Rendering/PropertyTests/ShaderDebugDrawGpuPushTest.cpp
+		Rendering/PropertyTests/ShaderDebugDrawVisualTest.cpp
 		Rendering/PropertyTests/GPUFluidSolverParityTest.cpp
 		Rendering/PropertyTests/OcclusionCullVisualEvidenceTest.cpp
 		Rendering/PropertyTests/OcclusionCullDeferredVisualEvidenceTest.cpp

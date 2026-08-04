@@ -170,5 +170,41 @@ namespace OloEngine
         // velocity attachment into colour[0] right after scene rendering
         // (pre post-process), so the viewport shows the velocity buffer.
         bool DebugVelocityOverlayForward = false;
+
+        // --- GPU-pushable shader debug draws (issue #725) ---
+        // Master switch for the append channels ANY shader can push line / circle
+        // / rectangle / AABB / box / cone / sphere primitives into, drawn at the
+        // end of the SceneColor chain with one indirect call per type.
+        //
+        // Off by default and genuinely free while off: the channels collapse to
+        // header-only with Capacity == 0, the render pass declares no graph
+        // resources, and the GLSL push helpers early-out on one scalar load. The
+        // channels do stay allocated + bound while off — that is what makes the
+        // guard read defined rather than undefined behaviour on an unbound SSBO.
+        //
+        // This is the instrument for GPU-driven work: cull decisions, cluster
+        // bounds and probe placements are computed on the GPU and otherwise never
+        // come back, so the alternative is a debug colour output + reload +
+        // screenshot loop.
+        bool ShaderDebugDrawEnabled = false;
+
+        // Width, in pixels, of the debug-draw line quads. Every primitive is
+        // expanded to screen-space quads rather than GL_LINES (core profile only
+        // guarantees line width 1), so this is a real knob.
+        f32 ShaderDebugDrawLineWidth = 2.0f;
+
+        // The shipped consumer of the above (issue #725): VirtualClusterCull.comp
+        // emits each cluster's world-space cull sphere, colour-coded by which
+        // test decided it. Bit field —
+        //   bit0 drawn (green) | bit1 frustum-culled (red)
+        //   bit2 cone-culled (blue) | bit3 Hi-Z-occluded (yellow)
+        // Requires ShaderDebugDrawEnabled AND the Deferred path with virtual
+        // geometry present; ignored otherwise.
+        u32 ShaderDebugDrawClusterBounds = 0;
+
+        // Emit only every Nth cluster. A Nanite-class scene selects far more
+        // clusters per frame than a channel holds, so the honest default is a
+        // sub-sample rather than an overflowing prefix of an arbitrary order.
+        u32 ShaderDebugDrawClusterStride = 32;
     };
 } // namespace OloEngine

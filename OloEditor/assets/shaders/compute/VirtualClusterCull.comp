@@ -35,6 +35,17 @@
 // Phase 1 may therefore reject wrongly (reprojection error, camera cut,
 // disocclusion) with no visible consequence; only a phase-2 reject is final.
 
+// CLUSTER-BOUNDS VISUALIZATION (issue #725). The cut, frustum and cone verdicts
+// above are made per cluster on the GPU and, before this, never came back — so
+// "why did that cluster disappear" was answerable only by adding a debug colour
+// output and reloading. `u_DebugDrawClusters` makes each verdict emit the
+// cluster's world-space cull sphere into the shader debug-draw channel, colour
+// coded by which test decided it. Off by default; see the uniform's comment for
+// the modes and the sub-sampling knob (a real Nanite scene has far more clusters
+// than any channel capacity, so pushing all of them is not a visualization).
+#define OLO_DEBUG_DRAW_SPHERE
+#include "../include/DebugDrawCommon.glsl"
+
 layout(local_size_x = 64) in;
 
 // Mirrors OloEngine::VirtualClusterGpuRecord (VirtualMeshGpuData.h, 64 B std430).
@@ -178,7 +189,34 @@ uniform uint u_RejectCapacity;   // reject-list record capacity (this frame's to
 uniform uint u_CommandSlotBase;  // added to inst.CommandBase — 0 in phase 1, the frame's cluster count in phase 2
 uniform uint u_ArgsSlotBase;     // added to the instance index when indexing args[] — 0 / the frame's instance count
 
+// ── Cluster-bounds debug visualization (issue #725) ──
+// Bit field, 0 = off:
+//   bit0 — clusters that survive every test and are drawn      (green)
+//   bit1 — clusters the FRUSTUM rejected                       (red)
+//   bit2 — clusters the normal CONE rejected as backfacing     (blue)
+//   bit3 — clusters the phase-1 Hi-Z rejected as occluded      (yellow)
+// Only ever set for the main perspective view (the shadow cascades bind the same
+// program with u_OrthoMode = 1 and would otherwise emit a second, differently
+// culled set on top of the first).
+uniform int u_DebugDrawClusters;
+// Emit only every Nth cluster. A Nanite-class scene selects tens of thousands of
+// clusters per frame and the channel holds a few thousand, so the useful setting
+// is almost never 1 — and an overflow, while reported rather than silent, is
+// still a picture of an arbitrary prefix rather than of the scene.
+uniform uint u_DebugDrawClusterStride;
+
 const uint kNoRefinedGroup = 0xFFFFFFFFu;
+
+// Emit one cluster's world-space cull sphere if `modeBit` is enabled.
+void DebugEmitCluster(uint clusterIndex, vec3 worldCenter, float worldRadius, int modeBit, vec3 color)
+{
+    if ((u_DebugDrawClusters & modeBit) == 0 || u_OrthoMode != 0)
+        return;
+    uint stride = max(u_DebugDrawClusterStride, 1u);
+    if ((clusterIndex % stride) != 0u)
+        return;
+    OloDebugDrawSphere(worldCenter, worldRadius, color, OLO_DEBUG_SPACE_WORLD);
+}
 
 // Near-plane distance recovered from the standard GL perspective projection:
 // n = P[3][2] / (P[2][2] - 1). Guarded so a degenerate projection cannot
@@ -315,6 +353,9 @@ void EmitSurvivor(uint instanceIndex, uint clusterIndex, VirtualInstance inst, V
                   vec3 worldCenter, float worldRadius, vec4 nearPlane)
 {
     uint argsIndex = instanceIndex + u_ArgsSlotBase;
+
+    // Survived every test — this is the cut the frame actually draws.
+    DebugEmitCluster(clusterIndex, worldCenter, worldRadius, 1, vec3(0.2, 1.0, 0.3));
 
     bool alphaMasked = (inst.Flags & 2u) != 0u;
     if (u_SwRasterThresholdPixels > 0.0 && u_OrthoMode == 0 && !alphaMasked)
@@ -464,7 +505,10 @@ void main()
     for (int i = 0; i < 6; ++i)
     {
         if (dot(planes[i].xyz, worldCenter) + planes[i].w < -worldRadius)
+        {
+            DebugEmitCluster(clusterIndex, worldCenter, worldRadius, 2, vec3(1.0, 0.15, 0.15));
             return; // outside this plane
+        }
     }
 
     // ── Normal-cone backface rejection (uniform-scale instances only; never
@@ -482,7 +526,10 @@ void main()
         vec3 worldAxis = normalize(mat3(inst.Transform) * cluster.Cone.xyz);
         vec3 toCluster = worldCenter - u_CameraPosition;
         if (dot(toCluster, worldAxis) >= cluster.Cone.w * length(toCluster) + worldRadius)
+        {
+            DebugEmitCluster(clusterIndex, worldCenter, worldRadius, 4, vec3(0.2, 0.4, 1.0));
             return; // entire cluster faces away
+        }
     }
 
     // ── Hi-Z occlusion cull, PHASE 1 (main/perspective view only — shadow
@@ -508,6 +555,7 @@ void main()
         float occRadius = cluster.CullSphere.w * occScale;
         if (IsOccluded(occCenter, occRadius))
         {
+            DebugEmitCluster(clusterIndex, worldCenter, worldRadius, 8, vec3(1.0, 0.9, 0.15));
             if (u_WriteRejected == 0)
                 return; // single-phase caller: simply cull
 

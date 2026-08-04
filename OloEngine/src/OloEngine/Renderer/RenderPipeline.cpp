@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/GPUResourceQueue.h"
@@ -949,6 +950,29 @@ namespace OloEngine
         {
             const bool deferred = (data.Settings.Path == RenderingPath::Deferred);
             RenderStreamPasses.VirtualGeometry->SetPerSampleLighting(deferred && data.Settings.Deferred.PerSampleLighting);
+            // Cluster-bounds visualization (#725) — gated on the debug-draw
+            // master switch as well as its own mode, so one toggle turns the
+            // whole instrument off rather than leaving a compute shader
+            // atomic-appending into channels nothing draws.
+            RenderStreamPasses.VirtualGeometry->SetClusterBoundsDebug(
+                data.Settings.ShaderDebugDrawEnabled ? data.Settings.ShaderDebugDrawClusterBounds : 0u,
+                data.Settings.ShaderDebugDrawClusterStride);
+        }
+
+        // GPU-pushable shader debug draws (issue #725). The settings toggle drives
+        // BOTH the channel state (which is what the GLSL push helpers see, via
+        // Capacity) and the pass enable (which is what gates the graph
+        // declaration), so the two can never disagree about whether the feature
+        // is on. Gate the pass on shader readiness as well: an un-ready pass that
+        // still declared its SceneColor RMW would insert a version alias that
+        // resolves to a pass which draws nothing.
+        if (RenderStreamPasses.ShaderDebugDraw)
+        {
+            const bool wanted = data.Settings.ShaderDebugDrawEnabled;
+            ShaderDebugDraw::SetEnabled(wanted);
+            ShaderDebugDraw::SetLineWidth(data.Settings.ShaderDebugDrawLineWidth);
+            RenderStreamPasses.ShaderDebugDraw->SetEnabled(
+                wanted && RenderStreamPasses.ShaderDebugDraw->IsReadyForExecution());
         }
 
         // Phase 6: propagate OIT toggle to transparent passes that still
@@ -1038,6 +1062,24 @@ namespace OloEngine
         }
 
         ApplyGlobalResources(data);
+
+        // GPU-pushable shader debug draws (issue #725). This is the seam where
+        // the CPU-staged pushes become GPU-visible, and it has to be exactly
+        // here: scene traversal (which is where CPU pushes come from) has
+        // finished, and the render graph — which is where GPU pushes come from —
+        // has not started. Doing it earlier drops that frame's CPU pushes; doing
+        // it later would reset the counters the GPU had already appended to.
+        if (RenderStreamPasses.ShaderDebugDraw)
+        {
+            // The observer camera is issue #726 and does not exist yet, so
+            // ObserverCameraNDC is fed the MAIN camera's inverse view-projection.
+            // That makes the space a faithful identity round-trip to
+            // MainCameraNDC rather than a source of garbage geometry, and leaves
+            // exactly one line to change when #726 lands.
+            RenderStreamPasses.ShaderDebugDraw->SetCameraState(data.ViewProjectionMatrix,
+                                                               glm::inverse(data.ViewProjectionMatrix));
+        }
+        ShaderDebugDraw::BeginFrame();
 
         // Upload post-process settings to GPU
         {
@@ -1608,6 +1650,14 @@ namespace OloEngine
         HashPassState(h, RenderStreamPasses.FluidIntermediates);
         HashPassState(h, RenderStreamPasses.FluidComposite);
         HashPassState(h, RenderStreamPasses.Decal);
+        // GPU-pushable shader debug draws (issue #725). The pass declares its
+        // SceneColor RMW only while enabled, so the enable gates a graph
+        // DECLARATION and MUST invalidate this cache — the #530 class of bug
+        // (docs/agent-rules/render-pipeline-caches.md). Without it, flipping the
+        // toggle changes nothing until some unrelated input happens to move.
+        // HashPassState covers enable AND readiness, which matters because the
+        // shader compiles asynchronously: the first ready frame has to rebuild.
+        HashPassState(h, RenderStreamPasses.ShaderDebugDraw);
         HashPassState(h, PostProcessPasses.SSS);
         HashPassState(h, PostProcessPasses.AOApply);
         HashPassState(h, PostProcessPasses.SSGI);
@@ -3027,6 +3077,7 @@ namespace OloEngine
         inputs.Passes.FluidIntermediates = RenderStreamPasses.FluidIntermediates.Raw();
         inputs.Passes.FluidComposite = RenderStreamPasses.FluidComposite.Raw();
         inputs.Passes.VirtualGeometry = RenderStreamPasses.VirtualGeometry.Raw();
+        inputs.Passes.ShaderDebugDraw = RenderStreamPasses.ShaderDebugDraw.Raw();
         inputs.Passes.Decal = RenderStreamPasses.Decal.Raw();
         inputs.Passes.SSAO = SceneCompositePasses.SSAO.Raw();
         inputs.Passes.GTAO = SceneCompositePasses.GTAO.Raw();
@@ -3152,6 +3203,13 @@ namespace OloEngine
         RenderStreamPasses.VirtualGeometry = Ref<VirtualGeometryPass>::Create();
         RenderStreamPasses.VirtualGeometry->Init(scenePassSpec);
         RenderStreamPasses.VirtualGeometry->SetScenePass(FrameCorePasses.Scene);
+
+        // GPU-pushable shader debug draws (issue #725): seven indirect draws
+        // expanding the append channels into screen-space line quads. Sized to
+        // the SCENE pass spec, not the final one — it draws into the scene
+        // framebuffer, sharing its depth attachment.
+        RenderStreamPasses.ShaderDebugDraw = Ref<ShaderDebugDrawPass>::Create();
+        RenderStreamPasses.ShaderDebugDraw->Init(scenePassSpec);
 
         // Screen-space fluid (issue #630): intermediates (depth splat + smooth
         // + thickness into pass-owned targets) feeding the SceneColor-RMW

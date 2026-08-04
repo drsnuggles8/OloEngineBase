@@ -16,6 +16,7 @@
 
 #include "OloEngine/Renderer/CloudNoise.h"
 #include "OloEngine/Renderer/CloudShadowMap.h"
+#include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Buffer.h"
@@ -127,6 +128,13 @@ namespace OloEngine
 
         FrameDataBufferManager::Init();
         FrameResourceManager::Get().Init();
+
+        // GPU-pushable shader debug-draw channels (issue #725). Allocated and
+        // bound here, before any shader compiles, because a shader that includes
+        // include/DebugDrawCommon.glsl reads each channel's Capacity as its
+        // disabled-path guard — and reading an unbound SSBO is undefined in GL.
+        // Header-only (7 x 32 bytes) until the feature is switched on.
+        ShaderDebugDraw::Init();
 
         CommandDispatch::Initialize();
         OLO_CORE_INFO("CommandDispatch system initialized.");
@@ -506,6 +514,10 @@ namespace OloEngine
         // Release the persistent Hi-Z occlusion pyramid (#431).
         s_Data.OcclusionHZB.Shutdown();
         s_Data.OcclusionHZBValid = false;
+
+        // Release the debug-draw channels + their readback staging (#725) while
+        // GL is alive.
+        ShaderDebugDraw::Shutdown();
 
         // Release the virtualized-geometry GPU pools (#629) while GL is alive.
         VirtualMeshRegistry::Get().Shutdown();
