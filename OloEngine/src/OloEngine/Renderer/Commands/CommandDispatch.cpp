@@ -568,15 +568,24 @@ namespace OloEngine
         // answers "is this a bindless variant", which is true for a program that
         // converted any unrelated input while still declaring slot-based material
         // samplers — skipping the binds for one of those renders it unlit.
-        if (Shader::ReadsMaterialHeapOffsets())
+        //
+        // AND ONLY THE FIVE MATERIAL-LOCAL MAPS ARE SKIPPED. The environment map
+        // and the IBL trio are PUBLISHED state, not material state: most materials
+        // carry no handles for them, and what the shader must sample is whatever
+        // DeferredLightingPass published to TEX_ENVIRONMENT / TEX_USER_0..2 for the
+        // frame. Routing those through per-material offsets resolves an invalid
+        // handle to the reserved null and the mesh loses all ambient light — a
+        // dark scene with no error. They stay on the shared offset table, which is
+        // exactly what BindTrackedTexture stages (issue #691 Phase 3).
+        const bool materialLocalFromHeap = Shader::ReadsMaterialHeapOffsets();
+        if (!materialLocalFromHeap)
         {
-            return;
+            BindTrackedTexture(mat.albedoMapID, ShaderBindingLayout::TEX_DIFFUSE);
+            BindTrackedTexture(mat.metallicRoughnessMapID, ShaderBindingLayout::TEX_SPECULAR);
+            BindTrackedTexture(mat.normalMapID, ShaderBindingLayout::TEX_NORMAL);
+            BindTrackedTexture(mat.aoMapID, ShaderBindingLayout::TEX_AMBIENT);
+            BindTrackedTexture(mat.emissiveMapID, ShaderBindingLayout::TEX_EMISSIVE);
         }
-        BindTrackedTexture(mat.albedoMapID, ShaderBindingLayout::TEX_DIFFUSE);
-        BindTrackedTexture(mat.metallicRoughnessMapID, ShaderBindingLayout::TEX_SPECULAR);
-        BindTrackedTexture(mat.normalMapID, ShaderBindingLayout::TEX_NORMAL);
-        BindTrackedTexture(mat.aoMapID, ShaderBindingLayout::TEX_AMBIENT);
-        BindTrackedTexture(mat.emissiveMapID, ShaderBindingLayout::TEX_EMISSIVE);
         BindTrackedTexture(mat.environmentMapID, ShaderBindingLayout::TEX_ENVIRONMENT);
         BindTrackedTexture(mat.irradianceMapID, ShaderBindingLayout::TEX_USER_0);
         BindTrackedTexture(mat.prefilterMapID, ShaderBindingLayout::TEX_USER_1);

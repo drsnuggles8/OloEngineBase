@@ -755,6 +755,24 @@ namespace OloEngine
 
         m_IsBindlessVariant = true;
 
+        // SET HERE, BESIDE m_IsBindlessVariant, AND FOR THE SAME REASON: this
+        // function returns early on a linked-program cache hit, so anything
+        // derived further down is simply absent on a warm run. The flag would then
+        // disagree with the shader actually executing — it reads material offsets
+        // while CommandDispatch believes it does not, so the offsets are never
+        // written and it samples the reserved null.
+        //
+        // AND THE MARKER IS AN EXPLICIT OPT-IN, because the obvious ones do not
+        // work: `sources` is POST-INCLUDE-RESOLUTION, and include/BindlessHeap.glsl
+        // both defines the material accessor macros and names the UBO field inside
+        // them. Keying on either token marks every shader that merely INCLUDES the
+        // header as a reader, which makes BindPBRTextures skip the material binds
+        // engine-wide and renders meshes unlit with no error (issue #691 Phase 3).
+        m_ReadsMaterialHeapOffsets =
+            std::ranges::any_of(sources,
+                                [](const auto& entry)
+                                { return entry.second.find("OLO_MATERIAL_HEAP_READER") != std::string::npos; });
+
         const GLuint program = glCreateProgram();
 
         // The variant-keyed cache. Same reasoning as the SPIR-V tiers: a linked
@@ -790,12 +808,11 @@ namespace OloEngine
             // driver. Injecting here makes include placement a non-issue across
             // every converted shader instead of a per-file rule nobody can see.
             //
-            // GL_ARB_shader_draw_parameters comes along for the Vulkan-builtin
-            // shim below; `: enable` (not `require`) so a driver without it still
-            // compiles every shader that does not name those builtins.
+            // GL_ARB_shader_draw_parameters is DELIBERATELY NOT ENABLED here — see
+            // the shim below. Enabling it changed what `gl_InstanceIndex` resolves
+            // to and silently desynchronised every instanced draw.
             static constexpr std::string_view kPrologue =
                 "#extension GL_ARB_bindless_texture : require\n"
-                "#extension GL_ARB_shader_draw_parameters : enable\n"
                 "#define OLO_BINDLESS 1\n";
 
             std::string patched = stageSource;
@@ -835,7 +852,32 @@ namespace OloEngine
                 std::string_view OpenGL;
             };
             static constexpr std::array<VulkanBuiltinShim, 2> kVulkanBuiltinShims{ {
-                { "gl_InstanceIndex", "(gl_InstanceID + gl_BaseInstanceARB)" },
+                // gl_InstanceID ALONE, deliberately — NOT `gl_InstanceID +
+                // gl_BaseInstanceARB`, which is what SPIRV-Cross literally prints
+                // and what an earlier version of this shim copied.
+                //
+                // SPIRV-Cross guards that term:
+                //     #ifdef GL_ARB_shader_draw_parameters
+                //     #define SPIRV_Cross_BaseInstance gl_BaseInstanceARB
+                //     #else
+                //     uniform int SPIRV_Cross_BaseInstance;   // never set
+                //     #endif
+                // and the engine's SPIR-V -> GL path does not enable that
+                // extension, so every existing draw effectively indexes with
+                // `gl_InstanceID + 0`. Enabling the extension here and using the
+                // real base instance made this route disagree with the slot path
+                // about which instance a vertex belongs to — every `u_Model`,
+                // `u_Normal` and `u_PrevModel` in InstanceBlock_Vertex.glsl reads
+                // `instances[gl_InstanceIndex]`, so the transforms and normals
+                // came from the wrong entry.
+                //
+                // Measured on WorldOriginRebaseVisualEvidence: 10.097 RMSE with
+                // the base-instance term, 5.861 without (the slot path is 1.413;
+                // the remainder is the raw-GLSL compile path itself, not this).
+                //
+                // The rule: match what the engine's OTHER path actually COMPILES
+                // TO, not what the translator prints in the abstract.
+                { "gl_InstanceIndex", "gl_InstanceID" },
                 { "gl_VertexIndex", "gl_VertexID" },
             } };
             for (const auto& [vulkanName, openglName] : kVulkanBuiltinShims)
@@ -982,21 +1024,9 @@ namespace OloEngine
             {
                 continue;
             }
-            // Does this program read its MATERIAL textures from the material UBO?
-            // Distinct from being a bindless variant — see
-            // Shader::ReadsMaterialHeapOffsets.
-            //
-            // KEYED ON USE, NOT ON DECLARATION. Several shaders declare
-            // u_MaterialHeapOffsets without reading it (a std140 block may declare
-            // a prefix of what the CPU uploads, so the field is harmless there).
-            // Keying on the declaration would mark those as offset-readers and
-            // make BindPBRTextures skip binds their slot-based samplers still
-            // need — unlit meshes, silently. Only the OLO_MATERIAL_* accessors
-            // appear in a shader that actually samples through the offsets.
-            if (stageSource.find("OLO_MATERIAL_") != std::string::npos)
-            {
-                m_ReadsMaterialHeapOffsets = true;
-            }
+            // NOTE m_ReadsMaterialHeapOffsets is NOT derived here. It is set at the
+            // top of this function, above the cache-hit early return, because
+            // anything computed at this point is absent on a warm run.
             if (Utils::DeclaresGBufferOutput(stageSource, kGBufferPrefix, kGBufferSentinels))
             {
                 m_IsDeferredCapable = true;
