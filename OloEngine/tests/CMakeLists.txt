@@ -673,6 +673,7 @@ add_executable(OloEngine-Tests
 		# DSL + the header-only UndoRedo CommandHistory), so no extra editor TU is
 		# pulled in — it links the engine Scene/ECS already in the test binary.
 		MCP/McpConsentedWriteTest.cpp
+		MCP/McpDocsCoverageTest.cpp
 		# Generic consented, undoable MCP WRITE tool: olo_entity_set_field + its read
 		# companion olo_entity_list_fields (#306 item C, second slice). Same seams as
 		# McpConsentedWriteTest.cpp — the session write gate + inputSchema enforcement
