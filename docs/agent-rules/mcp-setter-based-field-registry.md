@@ -56,14 +56,32 @@ guard just no-ops) rather than constructing a live `AudioSource` — the "the wr
 actually reaches `Source->SetVolume()`" half needs either a manual/live-editor check
 or a mock backend, not a plain `OLO_TEST_LAYER: unit` test.
 
-## 5. The editor's MCP write-consent gate ("Agent writes") is human-only — a non-interactive agent session can't unlock it to verify a write end-to-end
+## 5. The editor's MCP write-consent gate ("Agent writes") IS unlockable headlessly — `OLO_MCP_ALLOW_WRITES=1`
 
-There is no env var or headless bypass: `Disabled`/`Prompt`/`Allow all` is a
-per-session ImGui toggle in the MCP panel, off by default and never persisted (see
-`docs/guides/mcp-diagnostics-server.md` § Write consent). `olo_input_inject` (which
-could in principle click the toggle) is itself a consented write, so it can't be used
-to unlock consent — by design, a human has to be sitting at the editor. If you reach
-this same wall doing MCP write-path work from a non-interactive agent session:
-confirm what you can with unit tests + a read of the generated code, and say
-explicitly that the live-write half needs a human at the editor, rather than
-skipping the verification silently.
+**Corrected 2026-08-04 (issue #725).** This section previously said "there is no env
+var or headless bypass" and that "a human has to be sitting at the editor". That was
+wrong when it was written: `OLO_MCP_ALLOW_WRITES` landed in `EditorLayer::OnAttach` on
+2026-07-03, thirteen days before this file first claimed it did not exist. The claim
+then propagated into CLAUDE.md, which is in context for every session — so an agent
+that hit a refused write believed the wall was by design and stopped, which is exactly
+what happened during #725's live verification.
+
+The actual rule:
+
+- Set **`OLO_MCP_ALLOW_WRITES=1` together with `OLO_MCP_AUTOSTART=1`, before launching
+  the editor.** The session then starts at *Allow all*. The `run-oloengine` skill's
+  `attach -AllowWrites` does this for you.
+- It is read **only inside the autostart block, after `Start()` succeeds**. Exporting
+  it without `OLO_MCP_AUTOSTART=1`, or after the editor is already up, does nothing —
+  which is what makes "I set the variable and writes are still refused" a real and
+  confusing failure. Relaunch; do not go looking for a second gate.
+- It stays **opt-in and never persisted**, so an interactive user is unaffected.
+
+What remains true is the *reason* the interactive default is off, and the reason
+`olo_input_inject` cannot be used to unlock it: injecting input is itself a consented
+write, so it can never bootstrap consent. That is by design and is not a gap.
+
+The generalisable lesson is not about MCP at all: **a doc that says "X is impossible"
+is the most expensive kind to get wrong**, because it stops the reader from trying,
+so nobody discovers the error by accident. When you write one, grep for the thing you
+are declaring absent before you declare it.

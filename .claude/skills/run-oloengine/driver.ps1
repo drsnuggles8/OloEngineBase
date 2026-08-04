@@ -39,6 +39,12 @@ param(
     [switch]$KeepOpen,                  # capture: leave the app running afterwards
     [int]$McpPort = 0,                  # attach: override the per-worktree MCP port (0 = derive from worktree path)
     [string]$McpName,                   # attach: override the per-worktree MCP server name (default oloeditor-<port>)
+    # attach: start the session at MCP write consent 'Allow all' via OLO_MCP_ALLOW_WRITES.
+    # Needed for any mutating olo_* tool (olo_scene_open, olo_renderer_settings_set, ...):
+    # the consent control is an ImGui radio group, so a detached launch has nobody to
+    # click it and every write is refused. Off by default -- an agent should ask for
+    # writes deliberately, not get them by accident.
+    [switch]$AllowWrites,
     # 'print' (default) uses PrintWindow -> captures THIS window's own surface even
     # when occluded/not focused. 'screen' BitBlts the desktop at the window rect and
     # only works if OloEditor is genuinely the top-most visible window (it usually is
@@ -428,12 +434,16 @@ switch ($Action) {
         $env:OLO_MCP_AUTOSTART = '1'
         $env:OLO_MCP_PORT = "$port"
         $env:OLO_MCP_DISCOVERY_FILE = $discoveryPath
+        # Only meaningful alongside OLO_MCP_AUTOSTART and only BEFORE launch: the
+        # editor reads it inside the autostart block, after Start() succeeds. Setting
+        # it on an already-running editor does nothing.
+        if ($AllowWrites) { $env:OLO_MCP_ALLOW_WRITES = '1' }
         try {
             $proc = Start-Editor $exePath $workDir $true   # detached: survives this script
             $hwnd = Wait-Window $proc $WaitSeconds $exePath
         }
         finally {
-            Remove-Item Env:OLO_MCP_AUTOSTART, Env:OLO_MCP_PORT, Env:OLO_MCP_DISCOVERY_FILE -ErrorAction SilentlyContinue
+            Remove-Item Env:OLO_MCP_AUTOSTART, Env:OLO_MCP_PORT, Env:OLO_MCP_DISCOVERY_FILE, Env:OLO_MCP_ALLOW_WRITES -ErrorAction SilentlyContinue
         }
 
         New-Item -ItemType Directory -Force -Path (Split-Path $pidFile) | Out-Null

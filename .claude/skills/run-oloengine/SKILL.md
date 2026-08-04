@@ -90,6 +90,7 @@ Driver options:
 | `-KeepOpen` | with `capture`: leave the app running after the shot |
 | `-McpPort <n>` | with `attach`: override the per-worktree MCP port (default: derived from the worktree path) |
 | `-McpName <name>` | with `attach`: override the registered MCP server name (default `oloeditor-<port>`) |
+| `-AllowWrites` | with `attach`: start the session at MCP write consent **Allow all** (`OLO_MCP_ALLOW_WRITES=1`). Required for any mutating `olo_*` tool — see below. |
 
 ## Attach the MCP diagnostics server (live frame inspection)
 
@@ -115,6 +116,27 @@ oloeditor-<port> <url> --header "Authorization: Bearer <token>"`. The discovery 
 and server name are keyed on the **port** (itself a full-path hash), not the worktree
 folder name, so two worktrees that happen to share a leaf directory name still get
 distinct identities and don't clobber each other's registration.
+
+**Write tools need `-AllowWrites`.** The `olo_*` surface is read-only by default: every
+mutating tool (`olo_scene_open`, `olo_renderer_settings_set`, `olo_scene_play`,
+`olo_entity_set_field`, …) is gated by the MCP panel's three-way **Agent writes**
+control, which is off on every launch and never persisted. That control is an ImGui
+radio group, so a detached `attach` has nobody to click it and the tools come back with
+*"Write tools are disabled"*. Pass `-AllowWrites` and the driver sets
+`OLO_MCP_ALLOW_WRITES=1` alongside `OLO_MCP_AUTOSTART=1` before launching:
+
+```powershell
+pwsh -NoProfile -File .claude\skillsun-oloengine\driver.ps1 -Action attach -AllowWrites
+```
+
+The variable is read **only inside the editor's autostart block, after the server
+starts**, so it has to be set before launch — exporting it against an already-running
+editor does nothing, and that failure looks identical to the gate being closed. If a
+write is refused, relaunch with `-AllowWrites` rather than hunting for a second gate.
+
+Read-only work (screenshots, camera moves, `olo_render_capture_target`,
+`olo_shader_errors`, the stats tools) needs none of this — leave writes off unless you
+actually intend to mutate the project.
 
 Notes:
 - A fresh Claude Code session/reconnect may be needed before the newly registered

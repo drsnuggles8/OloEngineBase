@@ -42,7 +42,11 @@ or a model. It exposes data over a standard protocol; you bring your own agent. 
 `claude mcp add` command (with copy buttons).
 
 **For automation / headless:** set `OLO_MCP_AUTOSTART=1` (optionally `OLO_MCP_PORT=<port>`)
-before launching OloEditor; the server starts during editor init.
+before launching OloEditor; the server starts during editor init. Add
+`OLO_MCP_ALLOW_WRITES=1` if the session needs the **write** tools (`olo_scene_open`,
+`olo_renderer_settings_set`, …) — without it they are refused, because the write
+consent control is an ImGui toggle nobody is there to click. See
+[Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c).
 
 When running, the server writes a **discovery file** containing the host, port, token, and
 URL — handy for scripts/agents that read it instead of copy-paste. It's removed when the
@@ -275,6 +279,23 @@ and the human at the editor opts in for the session:
 - **Allow all** — writes auto-apply for the session with no prompt (the legacy
   "Allow writes" behaviour). Use it when you're actively driving a batch of edits and
   don't want to click through each one.
+
+**Headless / automated sessions: `OLO_MCP_ALLOW_WRITES=1`.** The three-way control is
+an ImGui radio group, so a non-interactive launch has nobody to click it and would
+refuse every write tool. Set `OLO_MCP_ALLOW_WRITES=1` **before launching the editor**,
+alongside `OLO_MCP_AUTOSTART=1`, and the session starts at *Allow all*
+(`EditorLayer::OnAttach`). Two constraints follow from where the hook lives:
+
+- It is read **only inside the autostart block**, and only after `Start()` succeeds.
+  Setting it without `OLO_MCP_AUTOSTART=1`, or exporting it after the editor is
+  already running, does nothing — arming write consent on a server that never began
+  listening would be meaningless state to carry.
+- It is still **opt-in and never persisted**. An interactive user who launches the
+  editor normally is unaffected; you have to have deliberately launched an automated
+  session for it to apply. That is the same spirit as `OLO_MCP_AUTOSTART` itself.
+
+`scripts/perf/run-perf-battery.ps1` is the worked example, and the `run-oloengine`
+skill's `attach -AllowWrites` passes it for you.
 
 Every entity/component write still routes through the editor's **undo stack** — an
 approved change is a single **Ctrl-Z** — so *Prompt* and *Allow all* differ only in
