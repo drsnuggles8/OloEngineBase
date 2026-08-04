@@ -1740,44 +1740,51 @@ carries — and if those disagree, the two variants render differently while bot
 look entirely plausible.
 
 `RHI::SamplerDesc{}` defaults to `AddressU/V/W = ClampToEdge` and
-`MaxAnisotropy = 1.0`. That is exactly right for a render target, which is why
-every pass conversion so far has been able to pass `{}` and see no difference.
-It is exactly wrong for a **material** texture, which is typically `Repeat` with
-anisotropic filtering.
+`MaxAnisotropy = 1.0`. That is right for a render target — which is why every
+pass conversion so far has passed `{}` and seen no difference — and wrong for a
+**material** texture: every `OpenGLTexture2D` path sets `GL_REPEAT`, while
+`OpenGLTextureCubemap` sets `GL_CLAMP_TO_EDGE`. Anisotropy is never set on a
+texture object at all, so the default already matches.
 
-Measured on `WorldOriginRebaseVisualEvidenceTest.RebaseProducesNoVisiblePop`,
-which compares a frame before and after a floating-origin shift:
+So the state IS derivable at the call site (it follows the texture TYPE, not the
+individual material) and does **not** need to travel in `PODMaterialData` — an
+earlier version of this section claimed it did.
+
+**BUT FIXING IT DID NOT FIX THE DIVERGENCE, and that is the point worth keeping.**
+Measured on `WorldOriginRebaseVisualEvidenceTest`, which compares a frame before
+and after a floating-origin shift:
 
 | configuration | RMSE |
 |---|---|
 | heap OFF | **1.413** |
-| heap ON, C++ per-material plumbing live, shader NOT converted | **1.413** |
-| heap ON, `PBR_MultiLight` converted with a default `SamplerDesc` | **5.861** (threshold 5.0) |
+| heap ON, C++ plumbing live, shader NOT converted | **1.413** |
+| heap ON, converted, default (`ClampToEdge`) sampler | **5.861** |
+| heap ON, converted, correct (`Repeat`) sampler | **10.447** |
+| heap ON, converted, correct sampler, material UBO cache **disabled** | **5.861** |
 
-The middle row is the control that makes the attribution safe: the plumbing alone
-changes nothing, so the divergence is the shader reading through descriptors
-minted with the wrong sampler state — not the offsets, not the bind-skip, not the
-UBO cache.
+Two independent defects, and a hypothesis killed:
 
-**Why it cannot be patched at the resolve site.** `RHI::ResourceRegistry` stores
-`(kind, nativeHandle, owner)` and nothing else, so a `ResourceHandle` cannot reach
-its sampler parameters. The only existing site that passes a non-default sampler
-(SSAO's noise texture) does so because the *call site* knows what that texture
-needs. For materials the call site is `CommandDispatch`, which sees only
-`PODMaterialData` — nine handles and no sampler state.
+1. **The material UBO cache is stale-prone.** Disabling it takes 10.447 back to
+   5.861, so roughly 4.5 of the divergence is a cached upload outliving what it
+   describes. The slot path cannot have this bug: `BindTrackedTexture` re-reads
+   `mat.albedoMapID` every draw, whereas a cached offset is computed once and the
+   bind-skip means nothing re-checks it.
+2. **A residual ~5.861 that sampler state does not touch.** Still unexplained.
 
-**So the remaining work is: carry sampler state per material texture** (wrap and
-anisotropy at minimum) from the Material asset into `PODMaterialData`, and pass it
-to `HeapBinding::ResolveTextureOffset`. Everything else for the material path is
-already in place and verified: the offsets in `PBRMaterialUBO`, the epoch and
-program-kind cache keys, the `OLO_MATERIAL_*` accessors, and
-`BindPBRTextures`'s early-out that removes nine `glBindTextureUnit` calls per
-material.
+**The sampler hypothesis was wrong, and the shape of the error is instructive.**
+This test compares two frames in the SAME configuration, so any *systematic*
+difference — including a wrong sampler — affects both frames equally and cancels.
+It can only detect something that changes ACROSS the rebase. Attributing a
+temporal-consistency failure to a systematic cause was a category error, and the
+measurement that exposed it (correct sampler made it *worse*, not better) is the
+kind only an A/B can give you.
 
-**Do not "fix" this by assuming materials are Repeat+aniso.** That swaps one
-plausible-but-wrong default for another, and the failure mode is a subtly
-different image rather than an error — the exact class this issue keeps
-producing.
+So the per-material path is built, proven to compile and render, and **not
+landed**: `PBR_MultiLight` stays slot-based and the plumbing sits inert behind
+`WritesOffsetsForBoundProgram()`. What remains is to find what changes across a
+rebase — start with descriptor lifetime against the rebase's own resource
+churn, since `Persistent` views plus a cached offset is precisely the
+combination the slot path never has.
 
 ### Every texture type that mints an identity owes a retire
 

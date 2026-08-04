@@ -492,23 +492,63 @@ namespace OloEngine
     static void WriteMaterialHeapOffsets(const PODMaterialData& mat,
                                          ShaderBindingLayout::PBRMaterialUBO& ubo)
     {
-        constexpr auto resolve = [](const RHI::ResourceHandle texture) -> u32
+        // A BINDLESS DESCRIPTOR BAKES SAMPLER STATE; A SLOT BIND DOES NOT.
+        // glBindTextureUnit samples with whatever the TEXTURE OBJECT carries,
+        // while a heap handle carries what its descriptor was minted with — so
+        // minting with SamplerDesc{} makes the converted shader sample
+        // differently from the unconverted one, plausibly and silently. Measured
+        // at RMSE 5.861 vs 1.413 on WorldOriginRebaseVisualEvidence before this
+        // was carried through (issue #691 Phase 3).
+        //
+        // The right state is READ OFF THE BACKEND, not assumed: every
+        // OpenGLTexture2D path sets LINEAR / LINEAR_MIPMAP_LINEAR + GL_REPEAT and
+        // no anisotropy, while OpenGLTextureCubemap sets the same filters with
+        // GL_CLAMP_TO_EDGE. So the only field that differs from the default is the
+        // address mode, and it differs by texture TYPE — which this call site
+        // knows statically. That is why the sampler does not need to travel in
+        // PODMaterialData: it is a property of the backend's uniform policy, not
+        // of the individual material.
+        //
+        // IF THAT POLICY EVER BECOMES PER-TEXTURE (a user-configurable wrap mode,
+        // a clamped LUT), this stops being derivable here and the state must
+        // travel with the handle. The symptom would be a subtly wrong image, so
+        // change these together with OpenGLTexture2D/Cubemap, never separately.
+        static const RHI::SamplerDesc k2DSampler = []
+        {
+            RHI::SamplerDesc desc;
+            desc.AddressU = RHI::AddressMode::Repeat;
+            desc.AddressV = RHI::AddressMode::Repeat;
+            desc.AddressW = RHI::AddressMode::Repeat;
+            return desc;
+        }();
+        // Cubemaps keep the default ClampToEdge, matching OpenGLTextureCubemap.
+        static const RHI::SamplerDesc kCubeSampler{};
+
+        const auto resolve = [](const RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler) -> u32
         {
             if (!texture.IsValid())
             {
                 return RHI::kNullHeapOffset;
             }
             const RHI::HeapOffset offset =
-                HeapBinding::ResolveTextureOffset(texture, RHI::HeapSlotLifetime::Persistent);
+                HeapBinding::ResolveTextureOffset(texture, RHI::HeapSlotLifetime::Persistent, sampler);
             return offset.IsValid() ? offset.Value : RHI::kNullHeapOffset;
         };
 
-        ubo.HeapOffsets[0] = { resolve(mat.albedoMapID), resolve(mat.metallicRoughnessMapID),
-                               resolve(mat.normalMapID), resolve(mat.aoMapID) };
-        ubo.HeapOffsets[1] = { resolve(mat.emissiveMapID), resolve(mat.environmentMapID),
-                               resolve(mat.irradianceMapID), resolve(mat.prefilterMapID) };
-        ubo.HeapOffsets[2] = { resolve(mat.brdfLutMapID), resolve(mat.diffuseMapID),
-                               resolve(mat.specularMapID), RHI::kNullHeapOffset };
+        ubo.HeapOffsets[0] = { resolve(mat.albedoMapID, k2DSampler),
+                               resolve(mat.metallicRoughnessMapID, k2DSampler),
+                               resolve(mat.normalMapID, k2DSampler), resolve(mat.aoMapID, k2DSampler) };
+        ubo.HeapOffsets[1] = { resolve(mat.emissiveMapID, k2DSampler),
+                               resolve(mat.environmentMapID, kCubeSampler),
+                               resolve(mat.irradianceMapID, kCubeSampler),
+                               resolve(mat.prefilterMapID, kCubeSampler) };
+        // The BRDF LUT is a Texture2D (EnvironmentMap.cpp creates it through
+        // Texture2D::Create), so it takes GL_REPEAT like every other 2D map —
+        // matching the slot path, which is the property that matters here even
+        // though a lookup table would ideally clamp.
+        ubo.HeapOffsets[2] = { resolve(mat.brdfLutMapID, k2DSampler),
+                               resolve(mat.diffuseMapID, k2DSampler),
+                               resolve(mat.specularMapID, k2DSampler), RHI::kNullHeapOffset };
     }
 
     // Helper: Bind all PBR material textures (albedo, metallic-roughness, normal,
