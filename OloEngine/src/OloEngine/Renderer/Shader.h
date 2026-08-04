@@ -58,6 +58,20 @@ namespace OloEngine
         // RendererAPI::BindShaderProgram, which is exactly that case — see the
         // registry comment in Shader.cpp for what went wrong without it.
         static void RegisterProgramBindless(u32 programID, bool bindless);
+
+        // Drop `programID` from the bindless registry. MUST be called before
+        // glDeleteProgram, at EVERY deletion site.
+        //
+        // GL reissues freed program names. A registered id that outlives its
+        // program is therefore inherited by an unrelated future program:
+        // `IsProgramBindless` returns true for it, `BindShaderProgram` publishes
+        // that, and the binding seam then records an offset and skips the bind —
+        // so a slot-based pass renders with empty sampler bindings and no
+        // diagnostic at all. Registration without paired retirement is the whole
+        // bug; erasing an id that was never registered is a harmless no-op, so
+        // the safe rule is to call this unconditionally rather than reason about
+        // which programs reached registration.
+        static void UnregisterProgram(u32 programID);
         [[nodiscard]] static auto IsProgramBindless(u32 programID) -> bool;
 
         // True when any live program was built as the bindless variant. Disabling

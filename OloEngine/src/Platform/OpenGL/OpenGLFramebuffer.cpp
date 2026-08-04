@@ -55,6 +55,19 @@ namespace OloEngine
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
+        // DESTRUCTION NEEDS THE SAME RETIRE AS RESIZE — see Invalidate() for the
+        // full reasoning. It was missed here because the resize path is the one
+        // that produced a visible bug (a flickering viewport, a crash on
+        // maximise), while this path only surfaces at shutdown as a single
+        // `GL_INVALID_OPERATION ... Not a valid texture` when the heap releases a
+        // handle for an attachment that was already deleted. Same defect, quieter
+        // symptom: a heap descriptor outliving the texture it describes.
+        for (const auto& handle : m_ColorAttachmentHandles)
+        {
+            RHI::DescriptorHeap::Get().RetireResource(handle.Get());
+        }
+        RHI::DescriptorHeap::Get().RetireResource(m_DepthAttachmentHandle.Get());
+
         u32 fboId = m_RendererID;
         std::vector<u32> colorIds(m_ColorAttachments);
         u32 depthId = m_DepthAttachment;

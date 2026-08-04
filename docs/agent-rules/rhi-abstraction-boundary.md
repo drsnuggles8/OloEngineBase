@@ -1587,7 +1587,7 @@ right and costs a day:
 
 So `PostProcessHarness` and its golden-image twin wrap shader creation in
 `ScopedSlotBasedShaders`, and their binds stay plain `glBindTextureUnit` (behind
-`ScopedHeapInput`, a named type whose only job is to make that dependency visible
+`BindSlotBasedInput`, a named function whose only job is to make that dependency visible
 at the call site). Coverage does not move: `BindlessHeapGpuTest` proves the seam
 with real texel readback, and the visual-evidence suites drive these same shaders
 through the real passes with the heap on. **A math test should measure math.**

@@ -66,6 +66,11 @@ namespace OloEngine
         }
     }
 
+    void Shader::UnregisterProgram(const u32 programID)
+    {
+        s_BindlessPrograms.erase(programID);
+    }
+
     auto Shader::IsProgramBindless(const u32 programID) -> bool
     {
         return s_BindlessPrograms.contains(programID);

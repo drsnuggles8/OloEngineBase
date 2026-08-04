@@ -2217,6 +2217,20 @@ namespace OloEngine
         if (Utils::IsWrongKind(texture, RHI::ResourceKind::Texture))
             return;
 
+        // RETIRE THE HEAP DESCRIPTOR FIRST, and do it HERE rather than at the call
+        // sites. `OpenGLTexture*` and `OpenGLFramebuffer` own their retire because
+        // they manage GL names directly, but systems that mint a texture through
+        // `CreateTexture2DHandle` (CloudShadowMap, and anything that follows it)
+        // destroy it through this function and have no other hook. Leaving the
+        // retire to each of them makes it one-more-thing-to-remember, and the
+        // symptom of forgetting is a resident bindless handle on a deleted
+        // texture — undefined when sampled, `GL_INVALID_OPERATION ... Not a valid
+        // texture` when the heap later withdraws residency.
+        //
+        // Before Unregister: views are matched by handle, so a retired registry
+        // entry finds nothing to retire.
+        RHI::DescriptorHeap::Get().RetireResource(texture);
+
         DeleteTexture(Utils::ResolveNativeAs(texture, RHI::ResourceKind::Texture));
         RHI::ResourceRegistry::Get().Unregister(texture);
     }

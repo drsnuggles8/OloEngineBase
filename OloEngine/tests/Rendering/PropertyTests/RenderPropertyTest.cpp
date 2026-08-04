@@ -651,13 +651,8 @@ namespace OloEngine::Tests
             ::glDeleteVertexArrays(1, &m_Vao);
     }
 
-    ScopedHeapInput::ScopedHeapInput(const u32 slot, const u32 texture)
+    void BindSlotBasedInput(const u32 slot, const u32 texture)
     {
-        // A plain bind. Correct because these harnesses run under
-        // ScopedSlotBasedShaders, so the program in flight reads sampler slots,
-        // not the heap offset table. The type exists to make that dependency
-        // visible at the call site rather than leaving a bare glBindTextureUnit
-        // that silently breaks the day someone drops the guard.
         ::glBindTextureUnit(static_cast<GLuint>(slot), static_cast<GLuint>(texture));
     }
 
@@ -680,7 +675,7 @@ namespace OloEngine::Tests
 
     void FullscreenPass::Draw(u32 inputTexture) const
     {
-        // Plain bind — see ScopedHeapInput / ScopedSlotBasedShaders for why these
+        // Plain bind — see BindSlotBasedInput / ScopedSlotBasedShaders for why these
         // harnesses deliberately stay on the slot-based path.
         ::glBindTextureUnit(0, static_cast<GLuint>(inputTexture));
         ::glBindVertexArray(m_Vao);

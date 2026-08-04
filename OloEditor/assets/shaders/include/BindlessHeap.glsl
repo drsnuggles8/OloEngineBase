@@ -82,11 +82,18 @@ layout(std430, binding = 45) readonly buffer OloResourceHeapBlock
 // std140 pads a `uint` array to a 16-byte stride, so this is uvec4-shaped and
 // indexed [i >> 2][i & 3]. Declaring it `uint g_Offsets[64]` instead would read
 // every fourth entry and sample three wrong textures out of four — silently,
-// and with entirely plausible-looking output. Must match
-// ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS rounded up to a multiple of 4.
+// and with entirely plausible-looking output.
+//
+// MUST MATCH ShaderBindingLayout::HEAP_OFFSET_TABLE_VEC4S — which covers the
+// texture slots AND the image region above them, not just
+// MAX_ENGINE_TEXTURE_SLOTS. This was 16 (texture slots only) while the engine
+// wrote 18, so every image unit indexed past the end of the array. It survived
+// because `BindlessHeapGpuTest` declares its own inline copy of this block with
+// the right size: a test that restates a shared declaration cannot detect that
+// the shared one is wrong.
 layout(std140, binding = 56) uniform OloHeapOffsetBlock
 {
-    uvec4 g_OloHeapOffsets[16];
+    uvec4 g_OloHeapOffsets[18];
 };
 
 #define OLO_HEAP_OFFSET(texSlot) (g_OloHeapOffsets[(texSlot) >> 2][(texSlot) & 3])
@@ -118,6 +125,36 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 #define OLO_HEAP_TEX_2D_ARRAY_SHADOW(texSlot) OLO_HEAP_SAMPLER_2D_ARRAY_SHADOW(OLO_HEAP_OFFSET(texSlot))
 #define OLO_HEAP_TEX_3D(texSlot) OLO_HEAP_SAMPLER_3D(OLO_HEAP_OFFSET(texSlot))
 #define OLO_HEAP_TEX_CUBE(texSlot) OLO_HEAP_SAMPLER_CUBE(OLO_HEAP_OFFSET(texSlot))
+
+// -----------------------------------------------------------------------------
+// STORAGE IMAGES — the second descriptor kind (#691 Phase 3).
+//
+// GL image units and texture units are separate namespaces that BOTH start at
+// zero, so image unit `u` lives at table index OLO_HEAP_IMAGE_BASE + u. Without
+// the rebase a compute pass writing image unit 0 would overwrite TEX_DIFFUSE's
+// offset and each would silently render the other's resource. The base must
+// match ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE.
+#define OLO_HEAP_IMAGE_BASE 64u
+#define OLO_HEAP_IMAGE_OFFSET(imgUnit) OLO_HEAP_OFFSET(OLO_HEAP_IMAGE_BASE + uint(imgUnit))
+
+// Pass this as `mem` for an image you both read and write, or for one with no
+// memory qualifier at all.
+//
+// DO NOT PASS `readonly`. The macro DECLARES AND INITIALISES a local, and
+// initialising a readonly variable is a write — `error C7504`. A read-only image
+// has to stay on the slot-based path (a plain `layout(binding = N) readonly
+// uniform image2D`) until that is expressible. Four compute shaders silently
+// fell back to the slot path before this was understood.
+#define OLO_HEAP_IMAGE_RW
+
+// Declare a bindless storage image. `fmt` must match the format the CPU side
+// passed to HeapBinding::BindImageOrOffset — a storage image's format is part of
+// its binding contract, not something either side may infer.
+//
+// The local is function-scoped, so it must be declared in EVERY function that
+// touches the image, not once at file scope like a uniform.
+#define OLO_HEAP_IMAGE(fmt, mem, type, name, imgUnit) \
+    layout(fmt) mem type name = layout(fmt) type(g_OloResourceHeap[OLO_HEAP_IMAGE_OFFSET(imgUnit)])
 
 #endif // OLO_BINDLESS
 

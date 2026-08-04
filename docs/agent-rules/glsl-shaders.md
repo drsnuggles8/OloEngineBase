@@ -281,10 +281,20 @@ that uses the image**. In `HZB.comp` that is `WriteMip()`, not `main()`; a local
 in `main()` would not be visible to the helper. The body still does not change,
 which is the property that keeps a conversion reviewable.
 
-**2. The memory qualifier travels too.** `writeonly` / `readonly` / `coherent`
-change what the compiler may assume, so they are the macro's second argument.
-Pass `OLO_HEAP_IMAGE_RW` when the bindful declaration had none — an empty macro
-argument is legal but not uniformly implemented across GLSL preprocessors.
+**2. The memory qualifier travels too — but `readonly` is NOT passable.**
+`writeonly` and `coherent` change what the compiler may assume, so they are the
+macro's second argument. Pass `OLO_HEAP_IMAGE_RW` when the bindful declaration
+had none — an empty macro argument is legal but not uniformly implemented across
+GLSL preprocessors.
+
+`readonly` is the exception and it is a hard one: the macro **declares and
+initialises a local**, and initialising a `readonly` variable is a write, so the
+compiler rejects it (`error C7504`). A read-only storage image therefore **stays
+on the slot path** — keep the plain `layout(binding = N) readonly uniform
+image2D` and convert the rest of the shader around it. Four compute shaders
+silently fell back to the slot-based program before this was diagnosed; the
+bindless route declines quietly by design, so the only symptom was the absence of
+the "bindless route" log line.
 
 **3. The number is an IMAGE UNIT, not a `TEX_*` slot.** GL image units and
 texture units are separate namespaces that both start at zero, so the offset

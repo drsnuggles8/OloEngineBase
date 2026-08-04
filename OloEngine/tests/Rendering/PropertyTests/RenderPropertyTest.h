@@ -153,19 +153,14 @@ namespace OloEngine::Tests
     // a missing velocity texture reads as zero velocity, which is exactly what it
     // asserts. A test that cannot fail is not evidence.
     //
-    // Scope it around the draw(s) that need it. The destructor releases the heap
-    // registration, and tolerates the texture having already been deleted (see the
-    // .cpp) because these tests delete their textures in whatever order suits them.
+    // NOT scoped, despite living next to the scope guard below: this binds and
+    // returns, exactly like the `glBindTextureUnit` it replaces. It is a named
+    // function rather than a bare GL call so that the requirement — the shader in
+    // flight must be slot-based — is stated at the call site instead of being an
+    // unwritten assumption that breaks silently if `ScopedSlotBasedShaders` is
+    // ever dropped from the harness.
     // -------------------------------------------------------------------------
-    class ScopedHeapInput
-    {
-      public:
-        ScopedHeapInput(u32 slot, u32 texture);
-        ~ScopedHeapInput() = default;
-
-        ScopedHeapInput(const ScopedHeapInput&) = delete;
-        ScopedHeapInput& operator=(const ScopedHeapInput&) = delete;
-    };
+    void BindSlotBasedInput(u32 slot, u32 texture);
 
     // -------------------------------------------------------------------------
     // Compile shaders created inside this scope as the SLOT-BASED variant.

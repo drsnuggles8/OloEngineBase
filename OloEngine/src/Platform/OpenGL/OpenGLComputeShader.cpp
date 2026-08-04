@@ -91,6 +91,7 @@ namespace OloEngine
                                                           // program may still be the bound program by the time this
                                                           // deferred deletion runs.
                                                           Utils::UnbindProgramIfCurrent(programId);
+                                                          Shader::UnregisterProgram(programId);
                                                           glDeleteProgram(programId); });
     }
 
@@ -200,6 +201,7 @@ namespace OloEngine
             glGetProgramiv(m_RendererID, GL_INFO_LOG_LENGTH, &length);
             std::string infoLog(static_cast<sizet>(length), '\0');
             glGetProgramInfoLog(m_RendererID, length, &length, infoLog.data());
+            Shader::UnregisterProgram(m_RendererID);
             glDeleteProgram(m_RendererID);
             glDeleteShader(shader);
             m_RendererID = 0;
@@ -365,6 +367,7 @@ namespace OloEngine
                                                           // reloaded-away program may still be bound by the time
                                                           // this deferred deletion runs.
                                                           Utils::UnbindProgramIfCurrent(oldProgramId);
+                                                          Shader::UnregisterProgram(oldProgramId);
                                                           glDeleteProgram(oldProgramId); });
 
         m_RendererID = 0;
