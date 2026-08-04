@@ -15,7 +15,14 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
+#include "../include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
+// declaration moves into main() as a local built from the heap descriptor at
+// this image unit; the body below is unchanged either way.
+#ifndef OLO_BINDLESS
 layout(rgba16f, binding = 0) writeonly uniform image3D u_WindField;
+#endif
 
 // ---- Uniforms set by WindSystem::Update() ----
 uniform vec3  u_GridMin;              // World-space AABB minimum corner
@@ -151,6 +158,9 @@ vec3 curlNoise(vec3 p)
 
 void main()
 {
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(rgba16f, writeonly, image3D, u_WindField, 0);
+#endif
     ivec3 gid = ivec3(gl_GlobalInvocationID);
 
     // Early-out for invocations beyond the grid

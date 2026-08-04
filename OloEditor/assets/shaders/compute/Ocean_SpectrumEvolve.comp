@@ -28,7 +28,14 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(binding = 0) uniform sampler2D u_H0; // rg = h0(k), ba = conj(h0(-k))
 
+#include "../include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
+// declarations move into main() as locals built from the heap descriptors at
+// these image units; the body below is unchanged either way.
+#ifndef OLO_BINDLESS
 layout(rgba32f, binding = 0) writeonly uniform image2DArray u_Spectra;
+#endif
 
 uniform int   u_Resolution; // N (power of two)
 uniform float u_PatchSize;  // L, world tile size (metres)
@@ -45,6 +52,9 @@ vec2 cmul(vec2 a, vec2 b)
 
 void main()
 {
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(rgba32f, writeonly, image2DArray, u_Spectra, 0);
+#endif
     ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
     if (gid.x >= u_Resolution || gid.y >= u_Resolution)
         return;

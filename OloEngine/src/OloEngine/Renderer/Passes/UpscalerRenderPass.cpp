@@ -153,8 +153,12 @@ namespace OloEngine
 
         activeShader->Bind();
 
-        context.BindTexture(0, inputColorTextureID);
-        activeShader->SetInt("u_Texture", 0);
+        // FrameTransient: graph-resolved input. The `SetInt("u_Texture", 0)`
+        // companion is gone — redundant against the shader's own
+        // `layout(binding = 0)`, and a "uniform not found" warning every frame
+        // under the bindless variant where the name is a #define
+        // (issue #691 Phase 3).
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
 
         CASUBOData casData;
         casData.Params = glm::vec4(
@@ -167,6 +171,7 @@ namespace OloEngine
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
+        context.FlushHeapOffsets();
         context.DrawIndexed(va);
 
         context.SetDepthMask(true);

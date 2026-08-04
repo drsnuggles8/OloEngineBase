@@ -104,6 +104,12 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // use-after-free renders as a deterministic black instead of a plausible
 // wrong texture.
 #define OLO_HEAP_SAMPLER_2D(offset) sampler2D(g_OloResourceHeap[offset])
+// Integer sampler — an entity-ID / index target, not a colour one. Needed
+// because a handle carries no type: `sampler2D(h)` and `isampler2D(h)` are
+// different reinterpretations of the SAME uvec2, and picking the float one for
+// an R32I texture reads garbage rather than failing. JumpFlood_Init is the
+// worked example (issue #691 Phase 3, bucket 1).
+#define OLO_HEAP_ISAMPLER_2D(offset) isampler2D(g_OloResourceHeap[offset])
 #define OLO_HEAP_SAMPLER_2D_ARRAY(offset) sampler2DArray(g_OloResourceHeap[offset])
 #define OLO_HEAP_SAMPLER_2D_ARRAY_SHADOW(offset) sampler2DArrayShadow(g_OloResourceHeap[offset])
 #define OLO_HEAP_SAMPLER_3D(offset) sampler3D(g_OloResourceHeap[offset])
@@ -121,6 +127,7 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // …after which the shader BODY is byte-identical between the two variants,
 // which is what keeps a conversion reviewable.
 #define OLO_HEAP_TEX_2D(texSlot) OLO_HEAP_SAMPLER_2D(OLO_HEAP_OFFSET(texSlot))
+#define OLO_HEAP_TEX_2D_INT(texSlot) OLO_HEAP_ISAMPLER_2D(OLO_HEAP_OFFSET(texSlot))
 #define OLO_HEAP_TEX_2D_ARRAY(texSlot) OLO_HEAP_SAMPLER_2D_ARRAY(OLO_HEAP_OFFSET(texSlot))
 #define OLO_HEAP_TEX_2D_ARRAY_SHADOW(texSlot) OLO_HEAP_SAMPLER_2D_ARRAY_SHADOW(OLO_HEAP_OFFSET(texSlot))
 #define OLO_HEAP_TEX_3D(texSlot) OLO_HEAP_SAMPLER_3D(OLO_HEAP_OFFSET(texSlot))

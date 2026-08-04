@@ -36,11 +36,24 @@ layout(location = 0) out vec4 o_Color;
 
 layout(location = 0) in vec2 v_TexCoord;
 
+#include "include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1). The BODY below is
+// byte-identical between the two variants — only these declarations move, and
+// each names the same TEX_* constant SSRRenderPass binds with.
+#ifdef OLO_BINDLESS
+#define u_SceneColor OLO_HEAP_TEX_2D(0)
+#define u_DepthTexture OLO_HEAP_TEX_2D(19)   // TEX_POSTPROCESS_DEPTH
+#define u_GBufferNormal OLO_HEAP_TEX_2D(44)  // TEX_GBUFFER_NORMAL
+#define u_GBufferAlbedo OLO_HEAP_TEX_2D(43)  // TEX_GBUFFER_ALBEDO
+#define u_MinHZB OLO_HEAP_TEX_2D(35)         // TEX_SSR_HZB
+#else
 layout(binding = 0) uniform sampler2D u_SceneColor;     // lit upstream HDR colour (reflection source)
 layout(binding = 19) uniform sampler2D u_DepthTexture;  // scene depth (nonlinear, [0,1])
 layout(binding = 44) uniform sampler2D u_GBufferNormal; // RT1: rg = oct world normal, z = roughness, w = ao
 layout(binding = 43) uniform sampler2D u_GBufferAlbedo; // RT0: rgb = albedo, a = metallic
 layout(binding = 35) uniform sampler2D u_MinHZB;        // min-depth (nearest-surface) HZB pyramid (#284)
+#endif
 
 layout(std140, binding = 38) uniform SSRParams
 {

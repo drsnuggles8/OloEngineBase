@@ -26,10 +26,20 @@ void main()
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
 
+#include "include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1). The BODY below is
+// byte-identical between the two variants — only these declarations move, and
+// each names the same TEX_* constant SSSRenderPass binds with.
+#ifdef OLO_BINDLESS
+#define u_SceneColor OLO_HEAP_TEX_2D(0)
+#define u_SceneDepth OLO_HEAP_TEX_2D(19) // TEX_POSTPROCESS_DEPTH
+#else
 // Scene color (RGBA16F, attachment 0)
 layout(binding = 0) uniform sampler2D u_SceneColor;
 // Scene depth for bilateral edge-aware filtering
 layout(binding = 19) uniform sampler2D u_SceneDepth;
+#endif
 
 // SSS UBO (binding 14)
 layout(std140, binding = 14) uniform SSSParams {

@@ -19,7 +19,17 @@ layout(location = 0) out vec4 o_Color;
 
 layout(location = 0) in vec2 v_TexCoord;
 
+#include "include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1). The BODY below is
+// byte-identical between the two variants. Note the INTEGER form: the entity-ID
+// target is R32I, and a heap handle carries no type — reading it as a plain
+// sampler2D would reinterpret the same uvec2 as a float texture.
+#ifdef OLO_BINDLESS
+#define u_EntityID OLO_HEAP_TEX_2D_INT(0)
+#else
 layout(binding = 0) uniform isampler2D u_EntityID;
+#endif
 
 layout(std140, binding = 27) uniform SelectionOutlineUBO
 {

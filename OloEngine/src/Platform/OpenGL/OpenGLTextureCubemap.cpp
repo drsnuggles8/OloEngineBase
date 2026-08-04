@@ -1,8 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTextureCubemap.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
-#include "OloEngine/Renderer/Commands/CommandDispatch.h"
-#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
@@ -222,13 +220,11 @@ namespace OloEngine
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
 
-        // See OpenGLTexture2D::~OpenGLTexture2D — same skip-bind hazard applies
-        // when the recycled ID is later supplied for a cubemap slot.
-        CommandDispatch::InvalidateTextureBinding(m_RHIHandle.Get());
-        // …and the heap's descriptors, which name the GL object and so dangle
-        // across this deletion. Both calls, at every lifecycle site — see the
-        // note in OpenGLTexture2D's destructor (issue #691 Phase 3).
-        RHI::DescriptorHeap::Get().RetireResource(m_RHIHandle.Get());
+        // Both lifecycle calls, through the shared helper — the same skip-bind
+        // hazard applies when the recycled ID is later supplied for a cubemap
+        // slot, and the heap's descriptors name the GL object and so dangle
+        // across this deletion (issue #691 Phase 3).
+        Utils::RetireTextureViews(m_RHIHandle.Get());
 
         u32 id = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([id]()

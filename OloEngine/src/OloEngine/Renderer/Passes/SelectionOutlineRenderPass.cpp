@@ -218,13 +218,23 @@ namespace OloEngine
         RenderCommand::SetColorMask(true, true, true, true);
         context.Clear();
 
-        // Bind entity-ID texture from the graph-published SceneColor attachment view.
-        context.BindTexture(0, sceneEntityTextureID);
-
+        // SHADER FIRST, THEN THE TEXTURE — the order is load-bearing now and was
+        // not before. The seam consults Shader::IsBoundProgramBindless(), which
+        // describes the program *in flight*, so a texture bound ahead of the
+        // shader silently takes the slot-path fallback even with the heap on:
+        // the conversion would compile, move the counter, and do nothing
+        // (issue #691 Phase 3; §4c "bind the shader before the image").
+        //
+        // The SetInt companions are gone with the binds — under the bindless
+        // variant the sampler name is a #define, not a uniform, so each would log
+        // "uniform not found" every frame.
         m_JFAInitShader->Bind();
-        m_JFAInitShader->SetInt("u_EntityID", 0);
+
+        // Bind entity-ID texture from the graph-published SceneColor attachment view.
+        context.BindTextureOrHeapOffset(0, sceneEntityTextureID, RHI::HeapSlotLifetime::FrameTransient);
 
         va->Bind();
+        context.FlushHeapOffsets();
         context.DrawIndexed(va);
 
         // =====================================================================
@@ -255,13 +265,20 @@ namespace OloEngine
             RenderCommand::SetColorMask(true, true, true, true);
             context.Clear();
 
-            // Bind previous JFA result
-            context.BindTexture(0, jfaFBs[readIndex]->GetColorAttachmentHandle(0));
-
+            // Shader first — see the JFA Init site above.
             m_JFAPassShader->Bind();
-            m_JFAPassShader->SetInt("u_Texture", 0);
+
+            // Bind previous JFA result
+            context.BindTextureOrHeapOffset(0, jfaFBs[readIndex]->GetColorAttachmentHandle(0),
+                                            RHI::HeapSlotLifetime::FrameTransient);
 
             va->Bind();
+            // A FLUSH PER ITERATION, NOT PER PASS. This ping-pong rebinds slot 0
+            // to the other scratch target every step, so a flush hoisted out of
+            // the loop would publish only the FINAL step's offset and every
+            // earlier draw would sample it — the same rule FluidSmooth and
+            // GTAO_Denoise needed, one loop level down (§4c).
+            context.FlushHeapOffsets();
             context.DrawIndexed(va);
 
             readIndex = writeIndex;
@@ -287,16 +304,17 @@ namespace OloEngine
         RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
         RenderCommand::SetColorMask(true, true, true, true);
 
-        // Slot 0: scene color from the selected dynamic post-chain texture view.
-        context.BindTexture(0, inputColorTextureID);
-        // Slot 1: final JFA distance field from the graph-owned ping-pong scratch
-        context.BindTexture(1, jfaFBs[readIndex]->GetColorAttachmentHandle(0));
-
+        // Shader first — see the JFA Init site above.
         m_JFACompositeShader->Bind();
-        m_JFACompositeShader->SetInt("u_SceneColor", 0);
-        m_JFACompositeShader->SetInt("u_JFAResult", 1);
+
+        // Slot 0: scene color from the selected dynamic post-chain texture view.
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
+        // Slot 1: final JFA distance field from the graph-owned ping-pong scratch
+        context.BindTextureOrHeapOffset(1, jfaFBs[readIndex]->GetColorAttachmentHandle(0),
+                                        RHI::HeapSlotLifetime::FrameTransient);
 
         va->Bind();
+        context.FlushHeapOffsets();
         context.DrawIndexed(va);
 
         // Restore state

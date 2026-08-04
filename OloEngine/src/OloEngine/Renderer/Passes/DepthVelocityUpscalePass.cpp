@@ -131,10 +131,19 @@ namespace OloEngine
 
         // Slots match the shader's layout bindings + the engine reuse
         // conventions: depth on slot 1, velocity on slot 2.
-        context.BindTexture(1, depthTextureID);
-        m_Shader->SetInt("u_Depth", 1);
-        context.BindTexture(2, velocityTextureID);
-        m_Shader->SetInt("u_Velocity", 2);
+        //
+        // The `SetInt("u_Depth", 1)` / `SetInt("u_Velocity", 2)` companions are
+        // gone. They were already redundant — the shader declares
+        // `layout(binding = N)` and glsl-shaders.md §5 forbids glUniform1i for
+        // samplers — and under the bindless variant the name is a #define rather
+        // than a uniform, so each would log "uniform not found" every frame.
+        // Converting a sampler means deleting its SetInt, not just moving the
+        // declaration (issue #691 Phase 3).
+        //
+        // FrameTransient: both are graph-resolved. velocityTextureID may be
+        // NullResource, which the seam stages as the reserved null offset.
+        context.BindTextureOrHeapOffset(1, depthTextureID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(2, velocityTextureID, RHI::HeapSlotLifetime::FrameTransient);
 
         const f32 scale = std::clamp(m_RenderScale, 0.25f, 1.0f);
         const auto renderW = std::max(1u, static_cast<u32>(std::floor(static_cast<f32>(outW) * scale)));
@@ -149,6 +158,7 @@ namespace OloEngine
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
+        context.FlushHeapOffsets();
         context.DrawIndexed(va);
 
         context.SetDepthMask(true);

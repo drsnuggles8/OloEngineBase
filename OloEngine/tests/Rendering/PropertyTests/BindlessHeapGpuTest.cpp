@@ -48,6 +48,8 @@
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/Texture2DArray.h"
+#include "OloEngine/Renderer/Texture3D.h"
 #include "Platform/OpenGL/OpenGLDescriptorHeap.h"
 
 #include <gtest/gtest.h>
@@ -1348,6 +1350,105 @@ void main()
         RHI::ResourceRegistry::Get().Unregister(resource);
         OwnedHandles.erase(std::remove(OwnedHandles.begin(), OwnedHandles.end(), resource),
                            OwnedHandles.end());
+    }
+
+    // -------------------------------------------------------------------------
+    // THE SAME PROPERTY, BUT DRIVEN THROUGH THE REAL DESTRUCTOR.
+    //
+    // The test above proves `RetireResource` drops residency. It does NOT prove
+    // that the engine's texture types actually CALL it, and for two of them they
+    // did not: `~OpenGLTexture2DArray` and `~OpenGLTexture3D` minted an RHI
+    // handle in their constructors and retired nothing in their destructors,
+    // through two PRs and a full suite run.
+    //
+    // Both types are bound as STORAGE IMAGE descriptors through the heap in
+    // production — Texture3D is the wind field, the froxel fog scatter and
+    // integrated volumes, the cloud base/detail noise volumes and the terrain
+    // erosion heightmap; Texture2DArray is the ocean FFT ping-pong pair. So each
+    // destruction left an `ARB_bindless_texture` image handle resident on a
+    // texture the very next statement queued for deletion.
+    //
+    // WHY IT SURVIVED: the symptom is one `GL_INVALID_OPERATION: Not a valid
+    // texture` in the log at process shutdown, under `OLO_RHI_BINDLESS=1` only.
+    // It fails nothing, renders nothing wrong, and CI does not run that
+    // configuration. These tests exist because "check the log after a full
+    // bindless run" is not a thing anything does automatically.
+    //
+    // Constructed through the public factory on purpose: `Ref<OpenGLTexture3D>`
+    // would still test the destructor, but going through `Texture3D::Create`
+    // also pins that the factory hands back the type whose destructor was fixed.
+    // -------------------------------------------------------------------------
+    TEST_F(HeapGpuFixture, DestroyingATexture3DRetiresItsStorageDescriptors)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        Texture3DSpecification spec;
+        spec.Width = 4u;
+        spec.Height = 4u;
+        spec.Depth = 4u;
+        spec.Format = Texture3DFormat::RGBA16F;
+
+        Ref<Texture3D> volume = Texture3D::Create(spec);
+        ASSERT_TRUE(volume) << "Texture3D::Create returned null — no GL context?";
+        const RHI::ResourceHandle resource = volume->GetRHIHandle();
+        ASSERT_TRUE(resource.IsValid()) << "Precondition: the type mints an RHI identity at all.";
+
+        // Exactly the binding VolumetricFogPass issues for m_ScatterVolume:
+        // layered, mip 0, write-only, RGBA16F.
+        const RHI::ViewDesc desc = RHI::MakeStorageViewDesc(resource, 0u, /*layered*/ true, 0u,
+                                                            RHI::Access::StorageWrite,
+                                                            RHI::Format::RGBA16Float);
+        const RHI::ViewHandle view = RHI::DescriptorHeap::Get().CreateStorageView(
+            resource, desc, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(view.IsValid()) << "Precondition: the heap accepted a storage view for it.";
+        // ResidentImageHandles, not ResidentHandles: glGetImageHandleARB has its
+        // own residency namespace, so a storage view never moves the sampler
+        // counter. Asserting the wrong one reads 0 both before and after the
+        // destructor and would pass whether or not the retire happened.
+        ASSERT_EQ(Backend.GetStats().ResidentImageHandles, 1u)
+            << "Precondition: the image handle is resident.";
+
+        volume = nullptr; // ~OpenGLTexture3D
+
+        EXPECT_EQ(Backend.GetStats().ResidentImageHandles, 0u)
+            << "~OpenGLTexture3D must retire its heap descriptors. The glDeleteTextures it queues "
+               "next would otherwise destroy an object with a resident bindless image handle — "
+               "undefined behaviour if anything samples it, and the shutdown "
+               "'GL_INVALID_OPERATION: Not a valid texture' if nothing does.";
+        EXPECT_FALSE(RHI::OffsetOf(view).IsValid()) << "…and the view must report stale.";
+    }
+
+    TEST_F(HeapGpuFixture, DestroyingATexture2DArrayRetiresItsStorageDescriptors)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        Texture2DArraySpecification spec;
+        spec.Width = 4u;
+        spec.Height = 4u;
+        spec.Layers = 2u;
+        spec.Format = Texture2DArrayFormat::RGBA32F;
+
+        Ref<Texture2DArray> pingPong = Texture2DArray::Create(spec);
+        ASSERT_TRUE(pingPong) << "Texture2DArray::Create returned null — no GL context?";
+        const RHI::ResourceHandle resource = pingPong->GetRHIHandle();
+        ASSERT_TRUE(resource.IsValid()) << "Precondition: the type mints an RHI identity at all.";
+
+        // Exactly the binding OceanFFTGpu issues for m_PingPong: layered, mip 0.
+        const RHI::ViewDesc desc = RHI::MakeStorageViewDesc(resource, 0u, /*layered*/ true, 0u,
+                                                            RHI::Access::StorageReadWrite,
+                                                            RHI::Format::RGBA32Float);
+        const RHI::ViewHandle view = RHI::DescriptorHeap::Get().CreateStorageView(
+            resource, desc, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(view.IsValid()) << "Precondition: the heap accepted a storage view for it.";
+        ASSERT_EQ(Backend.GetStats().ResidentImageHandles, 1u)
+            << "Precondition: the image handle is resident (the STORAGE namespace — see above).";
+
+        pingPong = nullptr; // ~OpenGLTexture2DArray
+
+        EXPECT_EQ(Backend.GetStats().ResidentImageHandles, 0u)
+            << "~OpenGLTexture2DArray must retire its heap descriptors — same reasoning as the "
+               "Texture3D case above.";
+        EXPECT_FALSE(RHI::OffsetOf(view).IsValid()) << "…and the view must report stale.";
     }
 
     // The image kind's reserved null slot holds an IMAGE descriptor. Pointing a

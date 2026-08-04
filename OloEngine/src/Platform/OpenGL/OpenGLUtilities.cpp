@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
 #include "Platform/OpenGL/OpenGLFramebuffer.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 
 #include <glad/gl.h>
 
@@ -10,6 +12,26 @@ namespace OloEngine
 {
     namespace Utils
     {
+        void RetireTextureViews(RHI::ResourceHandle handle) noexcept
+        {
+            try
+            {
+                CommandDispatch::InvalidateTextureBinding(handle);
+                RHI::DescriptorHeap::Get().RetireResource(handle);
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_ERROR("[RHI/GL] Retiring texture descriptors threw during destruction: {}. "
+                               "Descriptors leak for the rest of the process.",
+                               e.what());
+            }
+            catch (...)
+            {
+                OLO_CORE_ERROR("[RHI/GL] Retiring texture descriptors threw during destruction. "
+                               "Descriptors leak for the rest of the process.");
+            }
+        }
+
         [[nodiscard("Store this!")]] constexpr GLenum TextureTarget(const bool multisampled) noexcept
         {
             return multisampled ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;

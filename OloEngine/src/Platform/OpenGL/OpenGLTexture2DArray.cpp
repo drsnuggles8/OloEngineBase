@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTexture2DArray.h"
+#include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 
@@ -99,6 +100,14 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         OLO_TRACK_DEALLOC(this);
+
+        // Every texture type that mints an RHI handle owes this — see
+        // Utils::RetireTextureViews. A Texture2DArray is the shadow-map array
+        // and the ocean FFT ping-pong pair, the latter bound as a storage-image
+        // descriptor through the heap, so destroying one used to leave a
+        // resident image handle on a texture that was about to be deleted
+        // (issue #691 Phase 3).
+        Utils::RetireTextureViews(m_RHIHandle.Get());
 
         u32 id = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([id]()

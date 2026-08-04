@@ -32,8 +32,18 @@ void main()
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
 
+#include "include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1). The BODY below is
+// byte-identical between the two variants — only these declarations move, and
+// each names the same TEX_* constant OITResolveRenderPass binds with.
+#ifdef OLO_BINDLESS
+#define u_OITAccum OLO_HEAP_TEX_2D(48)     // TEX_OIT_ACCUM
+#define u_OITRevealage OLO_HEAP_TEX_2D(49) // TEX_OIT_REVEALAGE
+#else
 layout(binding = 48) uniform sampler2D u_OITAccum;
 layout(binding = 49) uniform sampler2D u_OITRevealage;
+#endif
 
 void main()
 {

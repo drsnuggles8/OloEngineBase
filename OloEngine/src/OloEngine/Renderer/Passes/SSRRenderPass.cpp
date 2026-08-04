@@ -166,8 +166,18 @@ namespace OloEngine
         // to binding scene depth so the sampler is never left unbound.
         m_MinHZB.Resize(m_FramebufferSpec.Width, m_FramebufferSpec.Height);
         m_MinHZB.Generate(sceneDepthID);
-        const RHI::ResourceHandle minHZBID = m_MinHZB.GetHZBTexture().IsValid() ? m_MinHZB.GetHZBTexture()
-                                                                                : sceneDepthID;
+        const bool hzbIsPassOwned = m_MinHZB.GetHZBTexture().IsValid();
+        const RHI::ResourceHandle minHZBID = hzbIsPassOwned ? m_MinHZB.GetHZBTexture() : sceneDepthID;
+        // THE LIFETIME FOLLOWS WHICH TEXTURE WE ACTUALLY PICKED, not which slot it
+        // is bound to. The HZB is a pass-owned Ref<Texture2D> (Persistent, so its
+        // descriptor is memoised), but the fallback above is the GRAPH's scene
+        // depth — a pooled resource the planner may hand to a different logical
+        // texture next frame, which is exactly what Persistent must not memoise
+        // (ADR 0011 §1.2). Binding the fallback as Persistent would be a latent
+        // stale-descriptor bug that only appears when HZB generation is
+        // unavailable.
+        const RHI::HeapSlotLifetime hzbLifetime =
+            hzbIsPassOwned ? RHI::HeapSlotLifetime::Persistent : RHI::HeapSlotLifetime::FrameTransient;
 
         // Rebind the SSR UBO (binding 38) — other passes may displace this
         // indexed binding between EndScene()'s upload and this Execute() call.
@@ -190,15 +200,29 @@ namespace OloEngine
         context.SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
         context.Clear();
 
+        // Heap-bindless conversion (issue #691 Phase 3, bucket 1). The shader is
+        // bound FIRST because the seam forks on Shader::IsBoundProgramBindless(),
+        // which describes the program in flight — a bind issued before it would
+        // silently take the slot-path fallback even with the heap on.
+        //
+        // FrameTransient for the four graph-resolved inputs (context.Resolve-
+        // TextureHandle hands back pooled resources); see hzbLifetime above for
+        // the one input whose ownership is conditional.
         m_SSRShader->Bind();
-        context.BindTexture(0, inputColorTextureID);
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID);
-        context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_NORMAL, gbufferNormalID);
-        context.BindTexture(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, gbufferAlbedoID);
-        context.BindTexture(ShaderBindingLayout::TEX_SSR_HZB, minHZBID);
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_NORMAL, gbufferNormalID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GBUFFER_ALBEDO, gbufferAlbedoID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SSR_HZB, minHZBID, hzbLifetime);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
+        // Publishes the descriptors minted above AND the offsets indexing them,
+        // in that order, immediately before the draw that reads them.
+        context.FlushHeapOffsets();
         RenderCommand::DrawIndexed(va);
 
         RenderCommand::SetDepthMask(true);

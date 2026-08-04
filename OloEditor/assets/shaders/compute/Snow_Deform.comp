@@ -10,7 +10,14 @@
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
+#include "../include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3). Under OLO_BINDLESS the
+// declaration moves into main() as a local built from the heap descriptor at
+// this image unit; the body below is unchanged either way.
+#ifndef OLO_BINDLESS
 layout(r32f, binding = 0) uniform image2D u_SnowDepth;
+#endif
 
 struct DeformerStamp
 {
@@ -30,6 +37,9 @@ uniform float u_ClipmapExtent;
 
 void main()
 {
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(r32f, OLO_HEAP_IMAGE_RW, image2D, u_SnowDepth, 0);
+#endif
     ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
     if (texel.x >= u_Resolution || texel.y >= u_Resolution)
         return;

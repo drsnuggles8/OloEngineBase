@@ -19,6 +19,16 @@ layout(location = 0) out vec4 o_Color;
 
 layout(location = 0) in vec2 v_TexCoord;
 
+#include "include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1). The BODY below is
+// byte-identical between the two variants — only these declarations move, and
+// each names the same TEX_* constant the pass binds with.
+#ifdef OLO_BINDLESS
+#define u_Texture OLO_HEAP_TEX_2D(0)
+#define u_DepthTexture OLO_HEAP_TEX_2D(19)          // TEX_POSTPROCESS_DEPTH
+#define u_WaterSurfaceDepth OLO_HEAP_TEX_2D(32)     // TEX_UNDERWATER_WATER_DEPTH
+#else
 layout(binding = 0) uniform sampler2D u_Texture;
 // Scene depth — used by the underwater fog stage to reconstruct eye-space
 // distance for the Beer-Lambert falloff. Bound by ToneMapRenderPass.
@@ -27,6 +37,7 @@ layout(binding = 19) uniform sampler2D u_DepthTexture;
 // at this pixel). Lets the fog find the real per-pixel water boundary instead
 // of assuming a flat plane. Bound by ToneMapRenderPass (TEX_UNDERWATER_WATER_DEPTH).
 layout(binding = 32) uniform sampler2D u_WaterSurfaceDepth;
+#endif
 
 #define TONEMAP_NONE      0
 #define TONEMAP_REINHARD  1

@@ -132,10 +132,14 @@ namespace OloEngine
 
         // Bind input scene color as texture — no read-write hazard since the
         // input is sampled and we write to the graph-owned SSSColor target.
-        context.BindTexture(0, inputColorTextureID);
+        // FrameTransient: graph-resolved, so the descriptor comes from the
+        // per-frame ring rather than being memoised onto a pooled object the
+        // planner may reassign next frame (issue #691 Phase 3).
+        context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
 
         // Bind scene depth for bilateral filtering
-        context.BindTexture(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
 
         DrawFullscreenTriangle(context);
 
@@ -147,6 +151,9 @@ namespace OloEngine
     {
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();
+        // The flush lives with the draw — see OITResolveRenderPass for why
+        // (issue #691 Phase 3).
+        context.FlushHeapOffsets();
         context.DrawIndexed(va);
     }
 

@@ -289,12 +289,33 @@ GLSL preprocessors.
 
 `readonly` is the exception and it is a hard one: the macro **declares and
 initialises a local**, and initialising a `readonly` variable is a write, so the
-compiler rejects it (`error C7504`). A read-only storage image therefore **stays
-on the slot path** — keep the plain `layout(binding = N) readonly uniform
-image2D` and convert the rest of the shader around it. Four compute shaders
-silently fell back to the slot-based program before this was diagnosed; the
-bindless route declines quietly by design, so the only symptom was the absence of
-the "bindless route" log line.
+compiler rejects it (`error C7504`). Four compute shaders silently fell back to
+the slot-based program before this was diagnosed; the bindless route declines
+quietly by design, so the only symptom was the absence of the "bindless route"
+log line.
+
+**But that is a rule about the MACRO ARGUMENT, not about the conversion.** The
+fix is to widen the bindless arm to `OLO_HEAP_IMAGE_RW` while the slot arm keeps
+`readonly` — the two live in mutually exclusive `#ifdef` branches, so they may
+disagree about the qualifier as long as they agree about the image:
+
+```glsl
+#ifndef OLO_BINDLESS
+layout(rgba32f, binding = 0) readonly uniform image2DArray u_Spectra;
+#endif
+void main()
+{
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(rgba32f, OLO_HEAP_IMAGE_RW, image2DArray, u_Spectra, 0);
+#endif
+```
+
+`Ocean_Assemble.comp` and `Ocean_FFTButterfly.comp` are the worked examples and
+both take the bindless route. What you give up is the compiler's read-only
+assumption, not the conversion; the backend's residency widening (amendment (28))
+already makes a read-write-resident handle safe to read. An earlier version of
+this section said a read-only image "stays on the slot path", which reads as
+"abandon the conversion" and left work on the table.
 
 **3. The number is an IMAGE UNIT, not a `TEX_*` slot.** GL image units and
 texture units are separate namespaces that both start at zero, so the offset
@@ -331,6 +352,60 @@ So the check before converting a declaration is
 input on the slot path and convert the rest — §5a's "a shader can be moved input
 by input" is what makes this cheap, and `PostProcess_Fog.glsl` is the worked
 example (converted for depth + froxel, still binding `TEX_SHADOW` conventionally).
+
+Check the **transitive** tree, not the direct includes. `FroxelFogScatter.comp`
+declares `u_ShadowMapCSM` / `u_ShadowAtlas`, which `DeferredLightingShared.glsl`
+and `ForwardPlusCommon.glsl` also declare — the exact shape that broke
+`DDGI_Relight` — but neither header is reachable from its includes
+(`FogCommon`, `FogVolumeCommon`, `AtmosphereShading`, none of which include
+anything), so it owns both names outright. The answer was "safe", and it was only
+knowable by walking the tree.
+
+### 5c. Once a shader is PARTLY converted, the two sides can no longer move separately
+
+The rule above ("a shader can be moved input by input") is about the *shader*.
+This is the constraint it puts on the **C++**, and it is the easiest way to break
+a working pass:
+
+> **The unit of conversion is a C++ bind AND its declaration, together.**
+
+`WantsBindlessVariant()` is a property of the whole program, not of one input. So
+the moment a shader converts *any* input, it builds as the bindless variant and
+`Shader::IsBoundProgramBindless()` is **true** for every bind issued while it is
+in flight. A `BindTextureOrOffset` for an input whose declaration is still
+`layout(binding = N)` therefore records an offset and issues **no bind** — that
+sampler is left unbound and reads black.
+
+`FroxelFogScatter.comp` was exactly this: its output image had been converted
+(bucket 3) while its three shadow/history samplers had not, so converting
+`VolumetricFogPass`'s C++ binds alone would have silently unbound them. Both
+moved in the same change.
+
+The reverse pairing is the older, gentler failure: a converted *shader* whose C++
+still calls plain `BindTexture` reads offsets nobody wrote. That one is loud (a
+black or plainly wrong frame). The direction described here is the quiet one,
+because the pass keeps rendering and only the newly-unbound input goes dark.
+
+**This hazard did not exist while only 11 shaders were converted and each was
+converted whole.** It applies to every partly-converted file, and there are now
+~30 of them.
+
+### 5d. A heap handle carries no type — pick the matching sampler macro
+
+`g_OloResourceHeap[offset]` is a bare `uvec2`. `sampler2D(h)` and `isampler2D(h)`
+are two different *reinterpretations* of the same bits, so reading an `R32I`
+entity-ID target through the float macro compiles cleanly and returns garbage.
+There is no diagnostic for getting this wrong.
+
+`JumpFlood_Init.glsl` samples the entity-ID buffer and therefore needs
+`OLO_HEAP_TEX_2D_INT` (`isampler2D`), not `OLO_HEAP_TEX_2D`. Match the macro to
+the declaration you are replacing, exactly as you match `OLO_HEAP_IMAGE`'s format
+qualifier to the CPU side's `RHI::Format`.
+
+Only the macros actually used exist in `BindlessHeap.glsl`, deliberately: an
+unused macro there is dead code that can be wrong for years, which is exactly how
+`uvec4 g_OloHeapOffsets[16]` survived while the engine wrote 18. Add the sibling
+form when a shader needs it, not in anticipation.
 
 **Do NOT convert a G-Buffer shader's images.** The bindless route produces no
 SPIR-V and therefore never runs `Reflect()`, so `m_IsDeferredCapable` stays false

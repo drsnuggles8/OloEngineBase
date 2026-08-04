@@ -1522,6 +1522,16 @@ So: **the bindless path currently differs visibly from the slot path, and #691
 does not yet have the evidence its notes claim.** The heap is off by default so
 nothing ships broken, but this is open work, not a closed question.
 
+> **SUPERSEDED (2026-08-04) — see §4e.** Both figures above are measurements of an
+> unstable harness, not of the heap. Re-measured on the same sandbox, two captures
+> of the *same build* at the *same pose* differ by 23.5% (RMSE 9.74) — larger than
+> any ON-vs-OFF number ever recorded here, including these. The scene animates
+> water, vehicles and a TAA history, so the live A/B cannot resolve the question in
+> either direction and no amount of retaking will change that. The evidence that
+> does exist: all **80** golden and visual-evidence tests pass in both
+> configurations, un-rebased. Do not treat "the bindless path differs visibly" as a
+> standing finding — it was never measured by an instrument that could show it.
+
 ### Two ordering rules the slot path did not care about
 
 - **Bind the shader before the image.** The seam consults
@@ -1611,6 +1621,148 @@ binding satisfies.
 The general rule: after converting a pass, grep for tests that load that shader
 by filename. They bind through their own helper, not through the pass you just
 converted, and they will keep compiling and start lying.
+
+---
+
+## 4e. Bucket 1 resumed: the revert was aimed at the wrong layer
+
+The revert recorded in `rhi_boundary_baseline.json` backed out all 30 shader
+conversions and concluded *"expect ONE systematic defect in the conversion
+recipe, not sixty."* Right about the count, wrong about the layer. The defects
+were in the **environment**, and #747's later commits fixed them without touching
+a shader: a non-GPU unit test that shut down the process-wide `DescriptorHeap`
+and never restored it, an offset table never re-based across a heap epoch bump, a
+static-destructor teardown running at atexit with no GL context, and a
+leak-detector constant that had drifted behind the binding registry.
+
+Restoring all 30 by reverse-applying the revert, in six batches, held parity at
+every step — **5417 passed / 1 failed in both configurations**, the failure being
+the pre-existing `AtmosphereVisualEvidenceTest` (#735) that also fails with the
+heap off. `ToneMap` and `FullscreenBlit`, which the revert's own bisect blamed for
+roughly half of the 74 failures, now pass untouched.
+
+**The transferable part is the bisect, not the outcome.** "Reverting ToneMap +
+FullscreenBlit alone took 74 → 40" describes a per-frame *ordering* effect — those
+two run every frame, so they were the biggest consumers of a broken shared
+fixture, not the biggest producers of bugs. A failure set that moves when test
+order moves is evidence about shared state (§4d already says this); a bisect over
+*subjects* will still find a subject, and it will be the wrong answer that fits.
+Bisect the fixture before reverting N changes to find one shared cause.
+
+### Verify that a conversion RAN — and know all three ways it says so
+
+A failed bindless build degrades to the slot path silently, so a green suite is
+satisfied just as well by a conversion that never executed. The evidence is the
+engine log's set of shaders that took the route, plus zero `.bindless.failed.glsl`
+dumps and zero fallback warnings.
+
+It announces itself **three different ways**, and a detector missing any one
+reports healthy conversions as silent fallbacks:
+
+| case | log line |
+|---|---|
+| graphics, fresh build | `'<Name>' built through the raw-GLSL route (no SPIR-V).` |
+| graphics, `.pgr` cache hit | `Loaded bindless program from binary cache: <path>` |
+| **compute** | *no `[Bindless]` line at all* — only a `(bindless)` suffix on `Compiled compute shader '<Name>'` |
+
+The compute case is structural rather than an oversight:
+`OpenGLComputeShader::Compile` has always fed raw GLSL to `glShaderSource`, so it
+never travelled the shaderc→SPIR-V hop that forced `CreateProgramFromRawGLSL` on
+the graphics side, and never grew that logging. Matching only the cache form made
+six freshly-converted shaders — i.e. exactly the ones under test — look like they
+had fallen back; matching only the graphics forms did the same to seven `.comp`
+files. Both false alarms are shape-identical to the real failure mode, so neither
+can be waved off, and both cost a diagnosis.
+
+### A suite-wide route list under-reports for a second reason
+
+Some shaders are created only inside `ScopedSlotBasedShaders` scopes (the
+post-process math harnesses), so in a full-suite run they never build a bindless
+variant at all. That is by design (§4d), but it means the route list from a full
+run is a *lower bound*. Confirm a specific conversion by running the tests that
+drive that pass in isolation, where nothing has pre-empted it.
+
+And some passes are unreachable from the suite entirely: `Terrain_Erosion.comp` is
+instantiated only by the editor's terrain brush, so no test can exercise its
+bindless variant however the suite is run. Converting it is fine; claiming the
+suite verified it is not.
+
+### The live ON-vs-OFF A/B is not an instrument on an animated scene — stop retaking it
+
+§4c records the #740 A/B (14.36% differing against a 14.39% floor) and re-measures
+it at 13.65% against a 2.70–3.10% floor, leaving "the bindless path differs
+visibly from the slot path" as open work. Re-measured again here on
+`VehiclesTest.olo`, through the MCP camera at four fixed orbit poses,
+`settleFrames = 12`:
+
+| measurement | pixels differing (>8) | RMSE |
+|---|---|---|
+| **noise floor** — same config, same pose, two consecutive captures | **23.50%** | **9.74** |
+| heap ON vs OFF, front | 15.54% | 7.44 |
+| heap ON vs OFF, side | 31.60% | 9.19 |
+| heap ON vs OFF, high | 8.43% | 4.68 |
+| heap ON vs OFF, low | 22.25% | 7.62 |
+
+**Every ON-vs-OFF RMSE is below the same-config floor.** The scene animates water,
+three vehicles and a TAA history, so two captures of the *identical* build at the
+*identical* pose differ by more than either build differs from the other. This
+measurement cannot distinguish a correct implementation from a broken one — which
+is precisely what `live-verification-noise-floor.md` says a floor the size of its
+signal means, and precisely the error #740 made in the other direction by reading
+"signal ≈ floor" as parity.
+
+So the earlier figures were not wrong so much as **meaningless on this scene**, and
+retaking them on it will keep being meaningless. Do not quote a live A/B here.
+
+**The deterministic instrument already exists and was ignored.** The suite's 80
+golden and visual-evidence tests use fixed cameras and committed goldens, and they
+run under `OLO_RHI_BINDLESS=1` exactly as they run without it. On this branch all
+80 **ran (0 skipped) and passed in both configurations with
+`OLOENGINE_GOLDEN_REBASE` unset** — that is the ON-vs-OFF pixel comparison, done
+against a stable reference, and it is the evidence to cite. A live capture is
+still worth taking for what it *can* show (the frame renders, the log is clean,
+the expected shaders took the route); it is not worth differencing.
+
+If a live A/B is ever genuinely needed, pause the scene or pick a static one
+first, and publish the same-config floor next to the number — a floor is only
+reassuring when it is *small*.
+
+### Every texture type that mints an identity owes a retire
+
+`~OpenGLTexture2DArray` and `~OpenGLTexture3D` called
+`m_RHIHandle.Sync(ResourceKind::Texture, …)` in their constructors and retired
+nothing in their destructors, through two PRs and a full suite run. Both are bound
+as **storage-image** descriptors in production — the wind field, the froxel fog
+scatter/integrated volumes, the cloud noise volumes, the ocean FFT ping-pong — so
+each destruction left an `ARB_bindless_texture` image handle resident on a texture
+the next statement queued for deletion.
+
+Nothing caught it because the symptom is one `GL_INVALID_OPERATION: Not a valid
+texture` at shutdown, under `OLO_RHI_BINDLESS=1` only, which is not what CI runs.
+The two calls now live in one place — `Utils::RetireTextureViews`
+(`Platform/OpenGL/OpenGLUtilities.h`) — and it is `noexcept` deliberately: a
+destructor is implicitly `noexcept`, `RetireResource` takes the heap's mutex and
+touches containers, and a throw there turns a recoverable descriptor leak into a
+process kill during teardown. `~OpenGLTexture2D` and `~OpenGLTextureCubemap` had
+that hazard too and now share the guard.
+
+Guarded from both ends: `BindlessHeapGpuTest` destroys a real `Texture3D` and
+`Texture2DArray` and asserts residency drops, and
+`RHIBoundaryRatchet.EveryTextureTypeThatMintsAnIdentityRetiresItsViews` scans
+`Platform/OpenGL/` so the *next* sibling type cannot repeat it.
+
+Two things that test taught, both worth keeping:
+
+- **A storage view has its own residency namespace.** `glGetImageHandleARB`
+  counts into `ResidentImageHandles`, not `ResidentHandles`. Asserting the sampler
+  counter reads 0 both before *and* after the destructor — the test passes whether
+  or not the retire happens. Assert the **precondition** (`== 1`), not just the
+  postcondition; that is what caught it.
+- **The invariant is "you retire what you minted", not "you call this helper".**
+  `OpenGLFramebuffer` mints texture identities too and retires them correctly in a
+  loop over N attachment handles — a different shape, already correct. A guard
+  demanding the helper would have been demanding a refactor rather than enforcing
+  a property.
 
 ---
 

@@ -3,7 +3,23 @@
 layout(local_size_x = 256) in;
 
 // Heightmap image — R32F, read/write
+#include "../include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3).
+//
+// NOTE THE REPETITION. A bindless image is a LOCAL with an initialiser, so it
+// has to be declared in EVERY function that names it — here sampleHeight(),
+// calcGradient(), erodeAt() and main(). A single declaration in main() compiles
+// clean on the slot path and fails only on the bindless one, with
+// `undefined variable "u_Heightmap"` pointing at the helpers. The bodies are
+// still byte-identical between the variants; only the declarations move.
+//
+// A shader that used the image in many more places would be a candidate for
+// passing it as a function parameter instead (ARB_bindless_texture allows image
+// parameters) rather than repeating the declaration.
+#ifndef OLO_BINDLESS
 layout(r32f, binding = 0) coherent uniform image2D u_Heightmap;
+#endif
 
 // Erosion parameters
 uniform uint  u_Resolution;       // Heightmap resolution (square)
@@ -39,6 +55,9 @@ float randomFloat(uint seed)
 // Returns interpolated height at fractional (x, y) in texel coords
 float sampleHeight(vec2 pos)
 {
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(r32f, coherent, image2D, u_Heightmap, 0);
+#endif
     ivec2 coord = ivec2(floor(pos));
     vec2  frac  = pos - vec2(coord);
 
@@ -53,6 +72,9 @@ float sampleHeight(vec2 pos)
 // --- Gradient calculation via bilinear ---
 vec2 calcGradient(vec2 pos)
 {
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(r32f, coherent, image2D, u_Heightmap, 0);
+#endif
     ivec2 coord = ivec2(floor(pos));
     vec2  frac  = pos - vec2(coord);
 
@@ -71,6 +93,9 @@ vec2 calcGradient(vec2 pos)
 // --- Erode/deposit within a radius using a weighted brush ---
 void erodeAt(vec2 pos, float amount)
 {
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(r32f, coherent, image2D, u_Heightmap, 0);
+#endif
     ivec2 center = ivec2(floor(pos));
 
     // Pre-compute weight sum for normalization
@@ -114,6 +139,9 @@ void erodeAt(vec2 pos, float amount)
 
 void depositAt(vec2 pos, float amount)
 {
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(r32f, coherent, image2D, u_Heightmap, 0);
+#endif
     // Deposit on the 4 bilinear neighbors
     ivec2 coord = ivec2(floor(pos));
     vec2  frac  = pos - vec2(coord);
@@ -136,6 +164,9 @@ void depositAt(vec2 pos, float amount)
 
 void main()
 {
+#ifdef OLO_BINDLESS
+    OLO_HEAP_IMAGE(r32f, coherent, image2D, u_Heightmap, 0);
+#endif
     uint dropletIdx = gl_GlobalInvocationID.x;
     if (dropletIdx >= u_DropletCount)
         return;
