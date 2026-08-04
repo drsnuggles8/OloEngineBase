@@ -69,6 +69,29 @@ walk speed always must. Getting this backwards produces a camera whose
 sensitivity changes with frame rate — which feels like "the mouse is wrong" and
 survives every single-`dt` test.
 
+### Deriving a delta from an absolute position needs a teleport guard
+
+Rebasing on a cursor-mode change is **not** enough. The pointer's window-relative
+position also jumps discontinuously when the window is minimized, restored, moved
+or resized — and the cursor mode never changes across any of those, so a
+`m_HasLastMousePos`-style latch that only resets on a mode change never fires.
+The engine cannot help here: `Events/Event.h`'s `WindowFocus` is an unused enum
+value with no GLFW callback behind it, so nothing surfaces focus or iconify at
+all.
+
+The result is one enormous sample that slams the view into a pitch limit. Bound
+it in **degrees of implied rotation** (delta × sensitivity), not pixels, so the
+threshold tracks the rig's own sensitivity instead of assuming one; and **drop**
+the offending sample rather than clamping it, because for a teleport zero is the
+correct answer whereas a clamp still spins the view by the whole bound. Rebase
+the stored position even on a rejected sample, or the same oversized delta is
+re-derived every tick and the rig latches against the limit forever.
+
+Only the **device** path gets this treatment. A script- or network-driven rig
+assigns its look input directly and must be taken at its word — there the value
+is an authored displacement, and a replayed input command has to reproduce
+exactly what it recorded.
+
 **The same trap hides in `Input::IsKeyJustPressed`.** That flag is snapshotted
 once per rendered *frame* (`Input::Update`, called from `Application::Run`), so
 inside a fixed-step system it reads true on **every** tick of that frame. A

@@ -166,6 +166,95 @@ namespace OloEngine::Tests
         EXPECT_NEAR(rig.m_PitchDeg, -7.0f, kEpsilon);
     }
 
+    // ── Device sampling: pointer teleport rejection ──────────────────────────
+
+    TEST(PlayerRigLook, OrdinaryPointerMotionPassesThroughUntouched)
+    {
+        constexpr f32 sensitivity = 0.15f;
+        const glm::vec2 delta =
+            PlayerRigSystem::SampleLookDelta({ 400.0f, 300.0f }, { 460.0f, 280.0f }, sensitivity, true);
+
+        EXPECT_NEAR(delta.x, 60.0f, kEpsilon);
+        EXPECT_NEAR(delta.y, -20.0f, kEpsilon);
+    }
+
+    TEST(PlayerRigLook, FirstSampleHasNoDeltaToDerive)
+    {
+        const glm::vec2 delta =
+            PlayerRigSystem::SampleLookDelta({ 0.0f, 0.0f }, { 1234.0f, 567.0f }, 0.15f, /*hasPrevious*/ false);
+
+        EXPECT_NEAR(delta.x, 0.0f, kEpsilon);
+        EXPECT_NEAR(delta.y, 0.0f, kEpsilon);
+    }
+
+    // The discontinuity m_HasLastMousePos cannot see: the window is minimized
+    // and restored, so the pointer's window-relative position jumps while the
+    // cursor MODE never changes. Observed live at 4291 px wide, where the jump
+    // implied ~640 deg and slammed the pitch into its clamp.
+    TEST(PlayerRigLook, WindowScalePointerTeleportIsRejectedNotApplied)
+    {
+        constexpr f32 sensitivity = 0.15f;
+        const glm::vec2 delta =
+            PlayerRigSystem::SampleLookDelta({ 2100.0f, 1200.0f }, { 17.0f, 4.0f }, sensitivity, true);
+
+        EXPECT_NEAR(delta.x, 0.0f, kEpsilon);
+        EXPECT_NEAR(delta.y, 0.0f, kEpsilon);
+    }
+
+    // The bound is expressed in DEGREES, so it must track the rig's own
+    // sensitivity rather than assuming a pixel count: the identical pixel jump
+    // is legitimate for a low-sensitivity rig and a teleport for a high one.
+    TEST(PlayerRigLook, TheRejectionThresholdScalesWithSensitivity)
+    {
+        constexpr glm::vec2 previous{ 0.0f, 0.0f };
+        // 1000 px: 150 deg at 0.15 (under the 180 limit), 500 deg at 0.5 (over).
+        constexpr glm::vec2 current{ 1000.0f, 0.0f };
+
+        const glm::vec2 low = PlayerRigSystem::SampleLookDelta(previous, current, 0.15f, true);
+        const glm::vec2 high = PlayerRigSystem::SampleLookDelta(previous, current, 0.5f, true);
+
+        EXPECT_NEAR(low.x, 1000.0f, kEpsilon);
+        EXPECT_NEAR(high.x, 0.0f, kEpsilon);
+    }
+
+    TEST(PlayerRigLook, ExactlyAtTheLimitIsStillAccepted)
+    {
+        constexpr f32 sensitivity = 0.15f;
+        const f32 atLimit = PlayerRigSystem::kMaxLookDegreesPerSample / sensitivity;
+
+        const glm::vec2 accepted = PlayerRigSystem::SampleLookDelta({ 0.0f, 0.0f }, { atLimit, 0.0f }, sensitivity, true);
+        EXPECT_NEAR(accepted.x, atLimit, atLimit * 1.0e-4f);
+
+        const glm::vec2 rejected =
+            PlayerRigSystem::SampleLookDelta({ 0.0f, 0.0f }, { atLimit * 1.01f, 0.0f }, sensitivity, true);
+        EXPECT_NEAR(rejected.x, 0.0f, kEpsilon);
+    }
+
+    // A zero sensitivity rotates by nothing, so there is no rotation to bound
+    // and no reason to reject — dividing the limit by it must not produce an
+    // infinity that swallows every sample.
+    TEST(PlayerRigLook, ZeroSensitivityDoesNotRejectEverything)
+    {
+        const glm::vec2 delta = PlayerRigSystem::SampleLookDelta({ 0.0f, 0.0f }, { 9999.0f, 9999.0f }, 0.0f, true);
+
+        EXPECT_NEAR(delta.x, 9999.0f, kEpsilon);
+        EXPECT_NEAR(delta.y, 9999.0f, kEpsilon);
+    }
+
+    TEST(PlayerRigLook, NonFinitePointerSamplesYieldNoDelta)
+    {
+        constexpr f32 nan = std::numeric_limits<f32>::quiet_NaN();
+        constexpr f32 inf = std::numeric_limits<f32>::infinity();
+
+        const glm::vec2 fromNan = PlayerRigSystem::SampleLookDelta({ nan, 0.0f }, { 10.0f, 10.0f }, 0.15f, true);
+        const glm::vec2 toInf = PlayerRigSystem::SampleLookDelta({ 10.0f, 10.0f }, { inf, 0.0f }, 0.15f, true);
+
+        EXPECT_NEAR(fromNan.x, 0.0f, kEpsilon);
+        EXPECT_NEAR(fromNan.y, 0.0f, kEpsilon);
+        EXPECT_NEAR(toInf.x, 0.0f, kEpsilon);
+        EXPECT_NEAR(toInf.y, 0.0f, kEpsilon);
+    }
+
     // ── Movement basis ───────────────────────────────────────────────────────
 
     TEST(PlayerRigMovement, WishDirectionUsesTheEngineForwardRightBasis)

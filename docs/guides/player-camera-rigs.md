@@ -88,7 +88,7 @@ rig — one number, one owner.
 
 | Field | What it does |
 |---|---|
-| `LookSensitivity` | degrees of rotation per unit of look input (one pixel of mouse motion, with device input) |
+| `LookSensitivity` | degrees of rotation per unit of look input (one pixel of mouse motion, with device input). Also sets the teleport-rejection threshold — see below |
 | `InvertLookY` | flips pitch only |
 | `MinPitchDeg` / `MaxPitchDeg` | look clamp. Kept inside ±90 so the look direction can never go parallel to world up |
 | `WalkSpeed` | ground speed in m/s at full deflection |
@@ -108,6 +108,17 @@ while Play is running. **`Escape` releases it; clicking back into the window
 re-captures it** — otherwise an editor Play session would pin an invisible
 cursor you cannot click your way out of. Leaving Play always hands the cursor
 back (`Scene::OnRuntimeStop`).
+
+**Pointer teleports are rejected, not applied.** A device sample implying more
+than `PlayerRigSystem::kMaxLookDegreesPerSample` (180°) of rotation is read as
+the pointer having jumped rather than the player having flicked, and is dropped.
+This covers minimize/restore, and window moves and resizes — all of which move
+the cursor's window-relative position without changing the cursor *mode*, so the
+first-sample latch never fires for them. Because the bound is in degrees, it
+scales with `LookSensitivity`: the same pixel jump is legitimate for a
+low-sensitivity rig and a teleport for a high-sensitivity one. Only the device
+path is filtered — a script- or network-driven rig's look input is taken as
+authored.
 
 ### `CameraRigComponent`
 

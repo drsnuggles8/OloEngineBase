@@ -62,6 +62,38 @@ namespace OloEngine
 
         // ── Kernels, exposed for unit tests ──────────────────────────────────
 
+        // Largest rotation a SINGLE device sample is allowed to imply, in
+        // degrees. Beyond this the sample is read as the pointer having
+        // TELEPORTED rather than the player having flicked, and is dropped.
+        //
+        // The engine wires no window-focus callback at all (Events/Event.h's
+        // WindowFocus is an unused enum value), so the rig cannot be told that
+        // the window was minimized, restored, moved or resized — all of which
+        // move the cursor's window-relative position discontinuously while the
+        // cursor MODE stays Locked, which is the one discontinuity
+        // m_HasLastMousePos does not already cover.
+        //
+        // 180 deg is chosen to sit above any real flick and below any real
+        // teleport: at the default 0.15 deg/px sensitivity a restore on this
+        // 4291 px-wide window implies ~640 deg, while a human 180 deg flick
+        // takes ~100-200 ms and so spans several frames at any playable rate.
+        // Dropping rather than clamping is deliberate — for a teleport, zero is
+        // the CORRECT answer, whereas a clamp would still spin the view half a
+        // turn. The cost is that a genuine 180 deg-in-one-frame flick is lost,
+        // which needs a frame rate at which the game is unplayable anyway.
+        static constexpr f32 kMaxLookDegreesPerSample = 180.0f;
+
+        // Look delta implied by consecutive absolute pointer samples, or zero
+        // when there is nothing trustworthy to derive: no previous sample, a
+        // non-finite reading, or a jump exceeding kMaxLookDegreesPerSample.
+        //
+        // Only the DEVICE path routes through this. A script- or
+        // network-driven rig assigns m_LookInput directly and is never
+        // second-guessed: there the delta is an authored displacement, and a
+        // replayed input command must reproduce exactly what it recorded.
+        [[nodiscard]] static glm::vec2 SampleLookDelta(const glm::vec2& previous, const glm::vec2& current,
+                                                       f32 lookSensitivity, bool hasPrevious);
+
         // Fold a raw look delta into `rig`'s yaw/pitch. Yaw wraps into
         // [-180, 180) so a rig can spin indefinitely without the angle growing
         // without bound (and losing f32 precision); pitch clamps to the rig's

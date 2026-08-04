@@ -90,8 +90,18 @@ namespace OloEngine
 
             // First sample after enabling the rig (or after a cursor-mode
             // change teleported the pointer) must not be interpreted as a
-            // several-hundred-pixel flick.
-            rig.m_LookInput = rig.m_HasLastMousePos ? (mouse - rig.m_LastMousePos) : glm::vec2(0.0f);
+            // several-hundred-pixel flick. SampleLookDelta also rejects the
+            // discontinuity m_HasLastMousePos cannot see — a window
+            // minimize/restore/move, which jumps the pointer's window-relative
+            // position without changing the cursor mode.
+            rig.m_LookInput = PlayerRigSystem::SampleLookDelta(rig.m_LastMousePos, mouse, rig.m_LookSensitivity,
+                                                               rig.m_HasLastMousePos);
+
+            // Rebase unconditionally, INCLUDING on a rejected sample: the new
+            // position is where the pointer now is, so the next tick measures
+            // from there and resumes normally. Keeping the stale base would
+            // re-derive the same oversized delta every tick and latch the rig
+            // against a pitch limit.
             rig.m_LastMousePos = mouse;
             rig.m_HasLastMousePos = true;
         }
@@ -151,6 +161,34 @@ namespace OloEngine
     {
         const f32 pitch = std::isfinite(pitchDeg) ? pitchDeg : 0.0f;
         return YawRotation(yawDeg) * glm::angleAxis(glm::radians(pitch), kLocalRight);
+    }
+
+    glm::vec2 PlayerRigSystem::SampleLookDelta(const glm::vec2& previous, const glm::vec2& current,
+                                               const f32 lookSensitivity, const bool hasPrevious)
+    {
+        if (!hasPrevious || !Math::IsFinite(previous) || !Math::IsFinite(current))
+            return glm::vec2(0.0f);
+
+        const glm::vec2 delta = current - previous;
+        if (!Math::IsFinite(delta))
+            return glm::vec2(0.0f);
+
+        // Measure the jump in the units the limit is expressed in — degrees of
+        // resulting rotation, not pixels — so the guard tracks the rig's own
+        // sensitivity instead of assuming one. A rig with a zero or non-finite
+        // sensitivity rotates by nothing anyway, so nothing needs rejecting
+        // (and ApplyLookDelta drops the non-finite case outright).
+        const f32 sensitivity = std::abs(lookSensitivity);
+        if (!std::isfinite(sensitivity) || sensitivity <= 0.0f)
+            return delta;
+
+        // Compare squared, against a squared bound, to keep the hot path free
+        // of a sqrt: length(delta) * sensitivity > limit.
+        const f32 maxPixels = kMaxLookDegreesPerSample / sensitivity;
+        if (glm::dot(delta, delta) > (maxPixels * maxPixels))
+            return glm::vec2(0.0f);
+
+        return delta;
     }
 
     void PlayerRigSystem::ApplyLookDelta(PlayerRigComponent& rig, const glm::vec2& lookDelta)
