@@ -357,22 +357,25 @@ namespace OloEngine::Tests
         // The count the CPU writes into DrawArraysIndirectCommand.count is
         // derived from SegmentCount(); if an expansion wrote fewer, the tail of
         // every instance would draw uninitialised segments.
-        constexpr auto expect = [](ShaderDebugDrawPrimitive primitive, sizet actual)
-        { return ShaderDebugDrawContract::SegmentCount(primitive) == actual; };
+        // EXPECT_EQ, not EXPECT_TRUE(a == b): a drifted count is exactly the
+        // case where the expected-vs-actual numbers are the whole diagnosis, and
+        // EXPECT_TRUE would print only "false".
+        const auto expanded = [](auto entry)
+        { return ShaderDebugDrawExpansion::ExpandToVector(entry).size(); };
 
-        EXPECT_TRUE(expect(ShaderDebugDrawPrimitive::Line,
-                           ShaderDebugDrawExpansion::ExpandToVector(ShaderDebugDrawLine{}).size()));
-        EXPECT_TRUE(expect(ShaderDebugDrawPrimitive::Circle,
-                           ShaderDebugDrawExpansion::ExpandToVector(ShaderDebugDrawCircle{}).size()));
-        EXPECT_TRUE(expect(ShaderDebugDrawPrimitive::Rectangle,
-                           ShaderDebugDrawExpansion::ExpandToVector(ShaderDebugDrawRectangle{}).size()));
-        EXPECT_TRUE(expect(ShaderDebugDrawPrimitive::AABB,
-                           ShaderDebugDrawExpansion::ExpandToVector(ShaderDebugDrawAABB{}).size()));
-        EXPECT_TRUE(expect(ShaderDebugDrawPrimitive::Box,
-                           ShaderDebugDrawExpansion::ExpandToVector(ShaderDebugDrawBox{}).size()));
-        EXPECT_TRUE(expect(ShaderDebugDrawPrimitive::Cone,
-                           ShaderDebugDrawExpansion::ExpandToVector(ShaderDebugDrawCone{}).size()));
-        EXPECT_TRUE(expect(ShaderDebugDrawPrimitive::Sphere,
-                           ShaderDebugDrawExpansion::ExpandToVector(ShaderDebugDrawSphere{}).size()));
+        EXPECT_EQ(expanded(ShaderDebugDrawLine{}),
+                  ShaderDebugDrawContract::SegmentCount(ShaderDebugDrawPrimitive::Line));
+        EXPECT_EQ(expanded(ShaderDebugDrawCircle{}),
+                  ShaderDebugDrawContract::SegmentCount(ShaderDebugDrawPrimitive::Circle));
+        EXPECT_EQ(expanded(ShaderDebugDrawRectangle{}),
+                  ShaderDebugDrawContract::SegmentCount(ShaderDebugDrawPrimitive::Rectangle));
+        EXPECT_EQ(expanded(ShaderDebugDrawAABB{}),
+                  ShaderDebugDrawContract::SegmentCount(ShaderDebugDrawPrimitive::AABB));
+        EXPECT_EQ(expanded(ShaderDebugDrawBox{}),
+                  ShaderDebugDrawContract::SegmentCount(ShaderDebugDrawPrimitive::Box));
+        EXPECT_EQ(expanded(ShaderDebugDrawCone{}),
+                  ShaderDebugDrawContract::SegmentCount(ShaderDebugDrawPrimitive::Cone));
+        EXPECT_EQ(expanded(ShaderDebugDrawSphere{}),
+                  ShaderDebugDrawContract::SegmentCount(ShaderDebugDrawPrimitive::Sphere));
     }
 } // namespace OloEngine::Tests

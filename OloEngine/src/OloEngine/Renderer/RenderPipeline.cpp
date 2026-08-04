@@ -1076,8 +1076,11 @@ namespace OloEngine
             // That makes the space a faithful identity round-trip to
             // MainCameraNDC rather than a source of garbage geometry, and leaves
             // exactly one line to change when #726 lands.
+            // PrepareFrame already inverted this frame's view-projection, and it
+            // runs before UploadExecutionState — reuse it rather than paying for
+            // a second 4x4 inverse per frame.
             RenderStreamPasses.ShaderDebugDraw->SetCameraState(data.ViewProjectionMatrix,
-                                                               glm::inverse(data.ViewProjectionMatrix));
+                                                               data.InverseViewProjectionMatrix);
         }
         ShaderDebugDraw::BeginFrame();
 
@@ -1654,9 +1657,17 @@ namespace OloEngine
         // SceneColor RMW only while enabled, so the enable gates a graph
         // DECLARATION and MUST invalidate this cache — the #530 class of bug
         // (docs/agent-rules/render-pipeline-caches.md). Without it, flipping the
-        // toggle changes nothing until some unrelated input happens to move.
-        // HashPassState covers enable AND readiness, which matters because the
-        // shader compiles asynchronously: the first ready frame has to rebuild.
+        // toggle changes nothing until some unrelated input happens to move,
+        // which is worse than never working: it works whenever you happen to
+        // also load a scene or switch path, so it looks intermittent.
+        //
+        // BOTH lines are needed. HashPassState covers the pointer and
+        // IsReadyForExecution() — the latter matters because the debug shader
+        // links asynchronously, so the first ready frame has to rebuild — but it
+        // does NOT read IsEnabled() (see its comment: per-pass enable is
+        // expected to be hashed separately, exactly as
+        // data.PostProcess.OverdrawDebugView is above).
+        HashBool(h, data.Settings.ShaderDebugDrawEnabled);
         HashPassState(h, RenderStreamPasses.ShaderDebugDraw);
         HashPassState(h, PostProcessPasses.SSS);
         HashPassState(h, PostProcessPasses.AOApply);

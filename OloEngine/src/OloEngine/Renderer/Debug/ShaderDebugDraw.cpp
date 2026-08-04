@@ -24,10 +24,28 @@ namespace OloEngine
             return ShaderBindingLayout::SSBO_DEBUG_DRAW_FIRST + ChannelIndex(primitive);
         }
 
+        // Hard ceiling on entries per channel, applied to EVERY path that can
+        // size a channel — including the CPU-push growth in BeginFrame, which
+        // would otherwise bypass the SetChannelCapacity() cap entirely.
+        //
+        // At the widest entry (Box, 144 B) this is ~151 MB, which is already far
+        // past useful for a debug overlay, and it keeps the byte computation
+        // below comfortably inside 32 bits.
+        inline constexpr u32 kMaxChannelCapacity = 1u << 20;
+
         [[nodiscard]] constexpr u32 ChannelBytes(ShaderDebugDrawPrimitive primitive, u32 capacity)
         {
-            return ShaderDebugDrawContract::kEntryArrayOffset +
-                   (ShaderDebugDrawContract::EntryStride(primitive) * capacity);
+            // Compute in u64 and narrow only after the clamp. The product is
+            // capacity * up to 144 bytes, which overflows u32 around 30M
+            // entries — and an overflowed size would have Resize() allocate a
+            // SMALL buffer while channel.Capacity still records the large value,
+            // so the following SetData writes past the allocation. The clamp
+            // makes that unreachable; the u64 makes it unreachable even if the
+            // clamp is ever loosened.
+            const u64 clamped = std::min<u64>(capacity, kMaxChannelCapacity);
+            const u64 bytes = static_cast<u64>(ShaderDebugDrawContract::kEntryArrayOffset) +
+                              (static_cast<u64>(ShaderDebugDrawContract::EntryStride(primitive)) * clamped);
+            return static_cast<u32>(bytes);
         }
 
         constexpr auto kAllPrimitives = std::array{
@@ -99,7 +117,12 @@ namespace OloEngine
             channel.Capacity = 0;
         }
         data.ParamsUBO.Reset();
-        ClearCpuEntries();
+        {
+            // Same locking discipline as BeginFrame — a worker thread can be
+            // mid-push while the renderer tears down.
+            const std::scoped_lock lock(data.CpuMutex);
+            ClearCpuEntries();
+        }
         data.Stats = {};
         data.StatsStaged = false;
         data.Initialised = false;
@@ -133,7 +156,7 @@ namespace OloEngine
 
     void ShaderDebugDraw::SetChannelCapacity(u32 entries)
     {
-        Get().RequestedCapacity = std::clamp(entries, 0u, 1u << 20);
+        Get().RequestedCapacity = std::min(entries, kMaxChannelCapacity);
     }
 
     u32 ShaderDebugDraw::GetChannelCapacity()
@@ -245,6 +268,11 @@ namespace OloEngine
 
     void ShaderDebugDraw::EnsureChannelCapacity(Channel& channel, ShaderDebugDrawPrimitive primitive, u32 capacity)
     {
+        // Clamp HERE as well as at the call sites, so `channel.Capacity` and the
+        // allocation ChannelBytes() sized can never disagree — a Capacity that
+        // exceeds the buffer is exactly the state that turns the next SetData
+        // into an out-of-bounds write.
+        capacity = std::min(capacity, kMaxChannelCapacity);
         if (channel.Capacity == capacity || !channel.Buffer)
             return;
 
@@ -314,7 +342,16 @@ namespace OloEngine
                 }
                 data.Stats = {};
             }
-            ClearCpuEntries();
+            // Under the lock, same as the enabled path below. The appenders
+            // early-out on IsEnabled() so a concurrent push is unlikely, but a
+            // worker thread that entered DrawX() just before the toggle flipped
+            // can still be inside push_back — and "unlikely" is not an
+            // invariant. Do not let the locking discipline depend on call-site
+            // timing.
+            {
+                const std::scoped_lock lock(data.CpuMutex);
+                ClearCpuEntries();
+            }
             return;
         }
 
@@ -328,7 +365,14 @@ namespace OloEngine
             // a CPU push is not a "best effort" append the way a GPU one is (the
             // caller can see the count), so silently dropping it would be a
             // worse failure than spending the memory.
-            const u32 capacity = std::max(data.RequestedCapacity, requested);
+            //
+            // Still bounded by kMaxChannelCapacity: `requested` comes from an
+            // unbounded caller (a gameplay system in a loop), and without the
+            // clamp this path would bypass the SetChannelCapacity() cap
+            // entirely. Past the ceiling the excess is reported as an overflow
+            // like any other, which is the honest outcome — an allocation that
+            // grows without bound is not.
+            const u32 capacity = std::min(std::max(data.RequestedCapacity, requested), kMaxChannelCapacity);
             EnsureChannelCapacity(channel, primitive, capacity);
             const u32 accepted = std::min(requested, channel.Capacity);
             UploadChannel(primitive, cpuEntries.data(), accepted, requested);

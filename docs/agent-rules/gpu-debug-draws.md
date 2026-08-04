@@ -68,8 +68,10 @@ that was not written.
 **Read the overflow flag before you conclude the feature is broken.** "I drew
 nothing" and "I overflowed and everything past slot N was thrown away" look
 identical on screen and are the hour-wasting failure this exists to remove. The
-counters are in the Renderer Settings panel, the F3 overlay, and
-`olo_shader_debug_draw`'s response; an overflow also logs once per channel.
+full counters are in the Renderer Settings panel and in
+`olo_shader_debug_draw`'s response; the F3 overlay carries only the overflow
+lines (which channel, how many dropped), because that is the part you need
+without leaving a running game. An overflow also logs once per channel.
 
 ### 2c. Push volume is your problem
 
@@ -119,6 +121,22 @@ video memory. A CPU `glGetNamedBufferSubData` straight off it makes NVIDIA log
 through a `DeviceToHost` staging copy issued at the end of the debug pass and read
 at the *next* `BeginFrame` — one frame of latency, no stall. Same trap, same fix,
 as `VirtualMeshRegistry::ReadFrameCullStats`.
+
+**An enable that gates a graph DECLARATION must be hashed into
+`ComputeBlackboardFingerprint` — and `HashPassState` does NOT do it for you.**
+`HashPassState` hashes the pass pointer and `IsReadyForExecution()`, never
+`IsEnabled()`; per-pass enables are expected to be hashed separately (as
+`PostProcess.OverdrawDebugView` is). `ShaderDebugDrawPass::Setup` returns before
+any declaration while disabled, so without `HashBool(h,
+data.Settings.ShaderDebugDrawEnabled)` the blackboard + frame-graph caches
+short-circuit and the pass stays undeclared. The symptom is nastier than "never
+works": it works the moment you *also* load a scene or switch rendering path, so
+it reads as intermittent. Pinned by
+`ShaderDebugDrawVisualTest.EnablingAfterTheGraphCacheIsWarmStillDeclaresThePass`,
+which warms the cache with the feature off *first* — enabling from a cold start
+passes either way, which is what makes the warm-up the load-bearing part of that
+test. This is the #530 class; see
+[render-pipeline-caches.md](render-pipeline-caches.md).
 
 **Stats are one frame old.** By construction, per the above. Do not read a
 stale zero as "nothing was pushed" on the frame you enabled the feature.

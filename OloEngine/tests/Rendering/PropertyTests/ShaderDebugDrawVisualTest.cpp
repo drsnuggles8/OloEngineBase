@@ -235,8 +235,12 @@ namespace OloEngine::Tests
             std::error_code ec;
             fs::create_directories(dir, ec);
             const std::string path = (dir / ("ShaderDebugDraw_" + poseName + ".png")).string();
-            ::stbi_write_png(path.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 4, pixels.data(),
-                             static_cast<int>(kWidth) * 4);
+            // The rendering rules make the PNG the evidence, so a failed write is
+            // a failed test — discarding the result would leave the suite green
+            // with nothing to look at, which is the opposite of the point.
+            const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 4,
+                                               pixels.data(), static_cast<int>(kWidth) * 4);
+            EXPECT_NE(wrote, 0) << "stbi_write_png failed to write the evidence PNG '" << path << "'";
         }
     };
 
@@ -358,6 +362,72 @@ namespace OloEngine::Tests
                "the geometry it describes. See assets/tests/visual/ShaderDebugDraw_OccludedSphere.png.";
     }
 
+    // -------------------------------------------------------------------------
+    // Cache-invalidation regression (the #530 class,
+    // docs/agent-rules/render-pipeline-caches.md).
+    //
+    // `ShaderDebugDrawPass::Setup` declares NOTHING while disabled, so the enable
+    // gates a render-graph declaration — and a fingerprint that does not hash it
+    // leaves `m_HasValidBlackboardCache` valid, short-circuits PopulateBlackboard
+    // AND BuildFrameGraph, and reuses a cached build with the pass still
+    // undeclared. The feature then stays invisible until some unrelated
+    // fingerprint input happens to move, which is worse than never working: it
+    // starts working the moment you also load a scene or switch rendering path,
+    // so it reads as intermittent.
+    //
+    // The shape of this test is the whole point. Several frames run with the
+    // feature OFF first, specifically so the graph cache is warm and every other
+    // fingerprint input has settled; then the ONLY thing that changes is the
+    // enable. Turning it on from a cold start would pass either way.
+    // -------------------------------------------------------------------------
+    TEST_F(ShaderDebugDrawVisualTest, EnablingAfterTheGraphCacheIsWarmStillDeclaresThePass)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        auto& settings = Renderer3D::GetRendererSettings();
+        const bool restoreEnabled = settings.ShaderDebugDrawEnabled;
+        const f32 restoreLineWidth = settings.ShaderDebugDrawLineWidth;
+        struct Restore
+        {
+            RendererSettings& Settings;
+            bool Enabled;
+            f32 LineWidth;
+            ~Restore()
+            {
+                Settings.ShaderDebugDrawEnabled = Enabled;
+                Settings.ShaderDebugDrawLineWidth = LineWidth;
+            }
+        } restore{ settings, restoreEnabled, restoreLineWidth };
+
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 500.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 2.0f, 3.0f, 22.0f }, 0.0f, 0.05f);
+
+        settings.ShaderDebugDrawEnabled = false;
+        settings.ShaderDebugDrawLineWidth = 4.0f;
+        RunEditorFrames(camera, 3); // warm the blackboard + frame-graph caches
+        ASSERT_FALSE(ShaderDebugDraw::IsEnabled());
+
+        // The only change from here on.
+        settings.ShaderDebugDrawEnabled = true;
+
+        // One frame for ConfigurePassesForFrame to propagate the flag (and, with
+        // the fingerprint hashed, rebuild the graph), then push and draw.
+        RunEditorFrames(camera, 1);
+        ASSERT_TRUE(ShaderDebugDraw::IsEnabled());
+
+        std::vector<u8> pixels;
+        CaptureWithPushes(camera, pixels);
+        if (::testing::Test::HasFatalFailure())
+            return;
+        WritePng("EnabledAfterWarmCache", pixels);
+
+        EXPECT_GT(CountHue(pixels, kAABBColor), 50u)
+            << "Turning the feature on after the graph cache was warm drew nothing. The enable gates a "
+               "graph declaration, so it MUST be hashed into ComputeBlackboardFingerprint -- HashPassState "
+               "covers only the pass pointer and IsReadyForExecution(), never IsEnabled().";
+    }
+
     TEST_F(ShaderDebugDrawVisualTest, DisabledDrawsNothing)
     {
         OLO_ENSURE_GPU_OR_SKIP();
@@ -379,9 +449,19 @@ namespace OloEngine::Tests
         camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
         camera.SetPose({ 2.0f, 3.0f, 22.0f }, 0.0f, 0.05f);
 
+        // Warm-up FIRST, before any push. The settings flag only reaches
+        // ShaderDebugDraw at ConfigurePassesForFrame (inside EndScene), so
+        // pushing before a frame has run would push while ShaderDebugDraw still
+        // holds whatever enable state the PREVIOUS test in this process left
+        // behind — making the result depend on test order. One frame propagates
+        // the flag, and only then is "the appenders refuse" the thing under test.
+        RunEditorFrames(camera, 1);
+        ASSERT_FALSE(ShaderDebugDraw::IsEnabled())
+            << "The disabled state did not propagate; the rest of this test would be vacuous.";
+
         // Push while disabled — the appenders must refuse, so nothing is staged
-        // and nothing is drawn even after the toggle is irrelevant. This is the
-        // "zero cost when disabled" acceptance criterion's observable half.
+        // and nothing is drawn. This is the "zero cost when disabled" acceptance
+        // criterion's observable half.
         PushEveryPrimitive();
         RunEditorFrames(camera, 2);
 
