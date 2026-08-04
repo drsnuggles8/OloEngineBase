@@ -130,6 +130,25 @@ if (entity.HasComponent<BuoyancyComponent>())
     out << YAML::EndMap; // BuoyancyComponent
 }
 
+if (entity.HasComponent<CameraRigComponent>())
+{
+    out << YAML::Key << "CameraRigComponent";
+    out << YAML::BeginMap; // CameraRigComponent
+    auto const& comp = entity.GetComponent<CameraRigComponent>();
+    out << YAML::Key << "Target" << YAML::Value << static_cast<u64>(comp.m_Target);
+    out << YAML::Key << "PivotOffset" << YAML::Value << comp.m_PivotOffset;
+    out << YAML::Key << "BoomLength" << YAML::Value << comp.m_BoomLength;
+    out << YAML::Key << "CollisionEnabled" << YAML::Value << comp.m_CollisionEnabled;
+    out << YAML::Key << "ProbeRadius" << YAML::Value << comp.m_ProbeRadius;
+    out << YAML::Key << "MinBoomLength" << YAML::Value << comp.m_MinBoomLength;
+    out << YAML::Key << "BoomReturnSpeed" << YAML::Value << comp.m_BoomReturnSpeed;
+    out << YAML::Key << "PositionSmoothTime" << YAML::Value << comp.m_PositionSmoothTime;
+    out << YAML::Key << "HeadBobAmplitude" << YAML::Value << comp.m_HeadBobAmplitude;
+    out << YAML::Key << "HeadBobFrequency" << YAML::Value << comp.m_HeadBobFrequency;
+    out << YAML::Key << "FallbackPitchDeg" << YAML::Value << comp.m_FallbackPitchDeg;
+    out << YAML::EndMap; // CameraRigComponent
+}
+
 if (entity.HasComponent<CharacterController3DComponent>())
 {
     out << YAML::Key << "CharacterController3DComponent";
@@ -482,6 +501,29 @@ if (entity.HasComponent<PerceptibleComponent>())
     out << YAML::Key << "Team" << YAML::Value << comp.Team;
     out << YAML::Key << "IsPerceptible" << YAML::Value << comp.IsPerceptible;
     out << YAML::EndMap; // PerceptibleComponent
+}
+
+if (entity.HasComponent<PlayerRigComponent>())
+{
+    out << YAML::Key << "PlayerRigComponent";
+    out << YAML::BeginMap; // PlayerRigComponent
+    auto const& comp = entity.GetComponent<PlayerRigComponent>();
+    out << YAML::Key << "LookSensitivity" << YAML::Value << comp.m_LookSensitivity;
+    out << YAML::Key << "InvertLookY" << YAML::Value << comp.m_InvertLookY;
+    out << YAML::Key << "MinPitchDeg" << YAML::Value << comp.m_MinPitchDeg;
+    out << YAML::Key << "MaxPitchDeg" << YAML::Value << comp.m_MaxPitchDeg;
+    out << YAML::Key << "WalkSpeed" << YAML::Value << comp.m_WalkSpeed;
+    out << YAML::Key << "SprintMultiplier" << YAML::Value << comp.m_SprintMultiplier;
+    out << YAML::Key << "AirControl" << YAML::Value << comp.m_AirControl;
+    out << YAML::Key << "MoveRelativeToLook" << YAML::Value << comp.m_MoveRelativeToLook;
+    out << YAML::Key << "YawBodyWithLook" << YAML::Value << comp.m_YawBodyWithLook;
+    out << YAML::Key << "FaceMoveDirection" << YAML::Value << comp.m_FaceMoveDirection;
+    out << YAML::Key << "TurnRateDeg" << YAML::Value << comp.m_TurnRateDeg;
+    out << YAML::Key << "UseDeviceInput" << YAML::Value << comp.m_UseDeviceInput;
+    out << YAML::Key << "CaptureCursor" << YAML::Value << comp.m_CaptureCursor;
+    out << YAML::Key << "YawDeg" << YAML::Value << comp.m_YawDeg;
+    out << YAML::Key << "PitchDeg" << YAML::Value << comp.m_PitchDeg;
+    out << YAML::EndMap; // PlayerRigComponent
 }
 
 if (entity.HasComponent<PointLightComponent>())

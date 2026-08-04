@@ -1215,6 +1215,22 @@ namespace OloEngine
     {
     };
 
+    // The two rig components (issue #645) carry Skip-tagged per-tick state —
+    // the player's input intent and mouse-delta bookkeeping, the camera's
+    // current boom length / smoothed position / bob phase — that PlayerRig and
+    // CameraRig rewrite every tick, plus padding around their bool members.
+    // Same two reasons as BoidComponent above; their operator== compares
+    // authored fields only.
+    template<>
+    struct PreferValueComparison<PlayerRigComponent> : std::true_type
+    {
+    };
+
+    template<>
+    struct PreferValueComparison<CameraRigComponent> : std::true_type
+    {
+    };
+
     template<typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
@@ -1988,6 +2004,14 @@ namespace OloEngine
             DisplayAddComponentEntry<PerceptibleComponent>("Perceptible");
             DisplayAddComponentEntry<BoidComponent>("Boid (Flocking)");
             DisplayAddComponentEntry<BoidObstacleComponent>("Boid Obstacle");
+
+            ImGui::Separator();
+
+            // Player + camera rig (issue #645). PlayerRig goes on the character
+            // (next to CharacterController3D); CameraRig goes on the camera and
+            // points back at it. First person is a zero-length boom.
+            DisplayAddComponentEntry<PlayerRigComponent>("Player Rig");
+            DisplayAddComponentEntry<CameraRigComponent>("Camera Rig (Spring Arm)");
 
             ImGui::Separator();
 
@@ -7092,6 +7116,80 @@ namespace OloEngine
 
         DrawComponent<BoidObstacleComponent>("Boid Obstacle", entity, [](auto& component)
                                              { ImGui::DragFloat("Radius", &component.m_Radius, 0.05f, 0.01f, 10000.0f); });
+
+        DrawComponent<PlayerRigComponent>("Player Rig", entity, [](auto& component)
+                                          {
+            ImGui::SeparatorText("Look");
+            ImGui::DragFloat("Sensitivity", &component.m_LookSensitivity, 0.005f, 0.0f, 10.0f, "%.3f deg/px");
+            ImGui::Checkbox("Invert Y", &component.m_InvertLookY);
+            ImGui::DragFloat("Min Pitch", &component.m_MinPitchDeg, 0.5f, -89.9f, 89.9f, "%.1f deg");
+            ImGui::DragFloat("Max Pitch", &component.m_MaxPitchDeg, 0.5f, -89.9f, 89.9f, "%.1f deg");
+
+            ImGui::SeparatorText("Movement");
+            ImGui::DragFloat("Walk Speed", &component.m_WalkSpeed, 0.1f, 0.0f, 1000.0f, "%.2f m/s");
+            ImGui::DragFloat("Sprint Multiplier", &component.m_SprintMultiplier, 0.05f, 1.0f, 100.0f);
+            ImGui::DragFloat("Air Control", &component.m_AirControl, 0.01f, 0.0f, 1.0f);
+            ImGui::Checkbox("Move Relative To Look", &component.m_MoveRelativeToLook);
+
+            ImGui::SeparatorText("Body Facing");
+            // The two are the first-person / third-person switch; yaw-with-look
+            // is absolute and would fight face-move-direction, so it wins.
+            ImGui::Checkbox("Yaw Body With Look (first person)", &component.m_YawBodyWithLook);
+            ImGui::BeginDisabled(component.m_YawBodyWithLook);
+            ImGui::Checkbox("Face Move Direction (third person)", &component.m_FaceMoveDirection);
+            ImGui::DragFloat("Turn Rate", &component.m_TurnRateDeg, 5.0f, 0.0f, 3600.0f, "%.0f deg/s");
+            ImGui::EndDisabled();
+
+            ImGui::SeparatorText("Input");
+            ImGui::Checkbox("Use Device Input", &component.m_UseDeviceInput);
+            ImGui::BeginDisabled(!component.m_UseDeviceInput);
+            ImGui::Checkbox("Capture Cursor", &component.m_CaptureCursor);
+            ImGui::EndDisabled();
+            if (!component.m_UseDeviceInput)
+            {
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                   "Driven externally: a script/network must write moveInput,\n"
+                                   "lookInput, sprint and jump every tick.");
+            }
+
+            ImGui::SeparatorText("Look State");
+            ImGui::DragFloat("Yaw", &component.m_YawDeg, 1.0f, -180.0f, 180.0f, "%.1f deg");
+            ImGui::DragFloat("Pitch", &component.m_PitchDeg, 1.0f, -89.9f, 89.9f, "%.1f deg");
+
+            // Runtime readout — rewritten by the PlayerRig node every tick.
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Planar speed: %.2f m/s  |  %s",
+                               component.m_PlanarSpeed, component.m_Grounded ? "grounded" : "airborne"); });
+
+        DrawComponent<CameraRigComponent>("Camera Rig (Spring Arm)", entity, [this](auto& component)
+                                          {
+            ImGui::SeparatorText("Target");
+            DrawEntityReferenceField("Target", "CameraRigTarget", component.m_Target);
+            ImGui::DragFloat3("Pivot Offset", &component.m_PivotOffset.x, 0.05f);
+
+            ImGui::SeparatorText("Boom");
+            ImGui::DragFloat("Length", &component.m_BoomLength, 0.05f, 0.0f, 1000.0f, "%.2f m");
+            if (component.m_BoomLength <= 0.0f)
+            {
+                ImGui::TextColored(ImVec4(0.6f, 0.8f, 0.6f, 1.0f),
+                                   "Length 0 = first person (camera sits at the pivot).");
+            }
+            ImGui::Checkbox("Collision Pull-In", &component.m_CollisionEnabled);
+            ImGui::BeginDisabled(!component.m_CollisionEnabled || component.m_BoomLength <= 0.0f);
+            ImGui::DragFloat("Probe Radius", &component.m_ProbeRadius, 0.01f, 0.0f, 10.0f, "%.2f m");
+            ImGui::DragFloat("Min Length", &component.m_MinBoomLength, 0.05f, 0.0f, 1000.0f, "%.2f m");
+            ImGui::DragFloat("Return Speed", &component.m_BoomReturnSpeed, 0.1f, 0.0f, 1000.0f, "%.2f m/s");
+            ImGui::EndDisabled();
+
+            ImGui::SeparatorText("Feel");
+            ImGui::DragFloat("Smooth Time", &component.m_PositionSmoothTime, 0.005f, 0.0f, 10.0f, "%.3f s");
+            ImGui::DragFloat("Head Bob Amplitude", &component.m_HeadBobAmplitude, 0.002f, 0.0f, 1.0f, "%.3f m");
+            ImGui::DragFloat("Head Bob Frequency", &component.m_HeadBobFrequency, 0.05f, 0.0f, 50.0f, "%.2f /m");
+            ImGui::DragFloat("Fallback Pitch", &component.m_FallbackPitchDeg, 0.5f, -89.9f, 89.9f, "%.1f deg");
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
+                               "Fallback pitch applies only when the target has no Player Rig.");
+
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Current boom: %.2f m",
+                               component.m_CurrentBoomLength); });
 
         DrawComponent<BehaviorTreeComponent>("Behavior Tree", entity, [](auto& component)
                                              {

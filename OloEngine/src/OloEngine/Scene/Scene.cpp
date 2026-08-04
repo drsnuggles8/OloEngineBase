@@ -121,6 +121,8 @@
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Abilities/GameplayAbilitySystem.h"
 #include "OloEngine/Gameplay/GameplayEventBus.h"
+#include "OloEngine/Gameplay/PlayerRig/PlayerRigComponents.h"
+#include "OloEngine/Gameplay/PlayerRig/PlayerRigSystem.h"
 #include "OloEngine/Audio/AudioEvents/AudioEventsManager.h"
 #include "OloEngine/Audio/AudioEvents/AudioCommandRegistry.h"
 #include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
@@ -1650,6 +1652,13 @@ namespace OloEngine
         // below; the session is over, so the requests are moot.
         ClearPendingEntityCommands();
 
+        // Hand the OS cursor back (issue #645). A player rig with
+        // m_CaptureCursor locks and hides it for mouse-look; leaving that in
+        // place after Play would strand the editor with an invisible, pinned
+        // pointer. Only the rig ever locks it today, so restoring Normal here
+        // clobbers nobody.
+        PlayerRigSystem::ReleaseCursorCapture();
+
         // Stop any global fullscreen video while the GL context is still alive, so its
         // texture is freed here rather than at static-destruction time (no context).
         // Per-entity video players are torn down with their components on scene destruction.
@@ -2896,6 +2905,21 @@ namespace OloEngine
                             { s.UpdateCinematics(ts); })
                 .Writes(kLocalTransforms);
 
+            // Player rig input -> character motion (issue #645). Sits AFTER
+            // Scripts, so a script that drives a rig by writing its intent
+            // fields (m_UseDeviceInput cleared — the script / network / replay
+            // path) is honoured the SAME tick; and BEFORE PhysicsKick, via the
+            // write-then-read edge on LocalTransforms, which is the seam that
+            // makes this tick's step integrate this tick's input. Losing that
+            // edge would land every input one tick late — the same "controls
+            // feel laggy in a way no unit test notices" failure Boat/Aircraft
+            // already guard against. UNMARKED (game thread): it reads live
+            // device input, writes TransformComponent rotations, and touches
+            // the Jolt character controller.
+            sched.AddSystem("PlayerRig", [](Scene& s, Timestep ts)
+                            { s.UpdatePlayerRig(ts); })
+                .ReadsWrites(kLocalTransforms);
+
             // Time-of-day clock (issue #633): advances TimeOfDayComponent's
             // game clock only. The ephemeris → directional-light/sky drive
             // runs on the RENDER path (TimeOfDaySystem::Apply, both editor and
@@ -3178,6 +3202,17 @@ namespace OloEngine
             //                       pin as Navigation. This is the deliberate
             //                       split that lets the expensive half above be
             //                       marked at all — see FlockingSystem.h.
+            //   PlayerRig  UNSAFE — reads LIVE device input (Input:: is a
+            //                       window/GLFW-backed process singleton),
+            //                       writes TransformComponent rotations, and
+            //                       drives the Jolt character controller. Any
+            //                       one of the three pins it; it is also
+            //                       ordered before the kick, i.e. outside the
+            //                       marked cluster entirely (issue #645).
+            //   CameraRig  UNSAFE — TransformComponent writes, same pin as
+            //                       Navigation / BoidMovement, plus a Jolt
+            //                       narrow-phase raycast for the boom (issue
+            //                       #645).
             // (Dialogue / Quest / Progression run in the physics shadow above —
             // game thread, no worker audit needed. Navigation / MorphEval /
             // BoidMovement are pinned main-thread: TransformComponent writes /
@@ -3236,6 +3271,25 @@ namespace OloEngine
             sched.AddSystem("BoidMovement", [](Scene& s, Timestep ts)
                             { s.UpdateBoidMovement(ts); })
                 .Reads(kBoidSteering)
+                .ReadsWrites(kLocalTransforms);
+
+            // Place the camera on its spring arm (issue #645). Registered
+            // DEAD LAST on purpose: a follow camera must observe the target's
+            // FINAL pose for the tick, so it has to sit after the physics
+            // fence, after PropagateTransforms composed the world matrices it
+            // reads the target position from (RAW on WorldTransforms), and
+            // after the post-propagate transform writers — Navigation and
+            // BoidMovement — which the write-after-read edges on
+            // LocalTransforms pull it behind. A camera reading a pre-physics
+            // pose trails its target by exactly one tick, which is visible as
+            // judder and is the whole reason this node is not merged into
+            // PlayerRig. Its Jolt boom raycast is legal here for the same
+            // reason Perception's is: physics is fenced transitively via the
+            // LocalTransforms chain. UNMARKED (game thread): TransformComponent
+            // writes, same pin as Navigation / BoidMovement.
+            sched.AddSystem("CameraRig", [](Scene& s, Timestep ts)
+                            { s.UpdateCameraRig(ts); })
+                .Reads(kWorldTransforms)
                 .ReadsWrites(kLocalTransforms);
 
             sched.Build(); // derive order now; throws SystemSchedulerError if the graph is bad
@@ -3650,6 +3704,22 @@ namespace OloEngine
     {
         // Update AI (behavior trees and state machines)
         AISystem::OnUpdate(this, ts.GetSeconds());
+    }
+
+    void Scene::UpdatePlayerRig(Timestep ts)
+    {
+        // Pre-physics half of the reusable rig (issue #645): sample input,
+        // integrate the look angles, and hand the character controller this
+        // tick's wish velocity so the kick's step integrates it. See
+        // PlayerRigSystem.h for why this is a separate node from CameraRig.
+        PlayerRigSystem::Step(this, ts.GetSeconds());
+    }
+
+    void Scene::UpdateCameraRig(Timestep ts)
+    {
+        // Post-everything half: place each camera on its collision-aware
+        // spring arm now that the target's pose is final for the tick.
+        CameraRigSystem::Step(this, ts.GetSeconds());
     }
 
     void Scene::UpdateBoidSteering(Timestep)

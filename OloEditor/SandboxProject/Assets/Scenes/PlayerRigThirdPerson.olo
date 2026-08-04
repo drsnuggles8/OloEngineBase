@@ -1,0 +1,226 @@
+Scene: PlayerRigThirdPerson.olo
+Entities:
+  - Entity: 6460000000000000001
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 10, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.4, -1, -0.35]
+      Color: [1, 0.96, 0.9]
+      Intensity: 2.5
+  - Entity: 6460000000000000002
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, -0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [60, 1, 60]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.34, 0.36, 0.38]
+      Metallic: 0
+      Roughness: 0.9
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 1
+      LinearDrag: 0.01
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+      LayerID: 0
+      LockedAxes: 0
+    BoxCollider3DComponent:
+      HalfExtents: [30, 0.5, 30]
+      Offset: [0, 0, 0]
+  # ── The player ────────────────────────────────────────────────────────────
+  # Same character controller as the first-person scene; only the rig tuning
+  # differs. FaceMoveDirection turns the body toward where it is WALKING rather
+  # than where the camera is pointed — that is the whole behavioural difference
+  # between the two player templates.
+  - Entity: 6460000000000000010
+    TagComponent:
+      Tag: Player
+    TransformComponent:
+      Translation: [0, 1.2, 8]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 1, 0.8]
+    MeshComponent:
+      Primitive: 4
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.45, 0.2]
+      Metallic: 0
+      Roughness: 0.6
+    CapsuleCollider3DComponent:
+      Radius: 0.4
+      HalfHeight: 0.6
+      Offset: [0, 0, 0]
+    CharacterController3DComponent:
+      SlopeLimitDeg: 45
+      StepOffset: 0.4
+      JumpPower: 6
+      LayerID: 0
+      DisableGravity: false
+      ControlMovementInAir: true
+      ControlRotationInAir: false
+    PlayerRigComponent:
+      LookSensitivity: 0.15
+      InvertLookY: false
+      MinPitchDeg: -60
+      MaxPitchDeg: 55
+      WalkSpeed: 4.5
+      SprintMultiplier: 1.8
+      AirControl: 0.35
+      MoveRelativeToLook: true
+      YawBodyWithLook: false
+      FaceMoveDirection: true
+      TurnRateDeg: 720
+      UseDeviceInput: true
+      CaptureCursor: true
+      YawDeg: 180
+      PitchDeg: -10
+  # ── The camera ────────────────────────────────────────────────────────────
+  # A 4 m boom with collision pull-in. Walk the player into the corridor of
+  # pillars below and the arm shortens as a pillar comes between camera and
+  # character, then eases back out at BoomReturnSpeed once it clears.
+  # A ROOT entity, NOT a child of the player.
+  - Entity: 6460000000000000011
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 2.5, 12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 1.05
+        PerspectiveNear: 0.05
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+      RuntimeControl: false
+      FlySpeed: 5
+    CameraRigComponent:
+      Target: 6460000000000000010
+      PivotOffset: [0.45, 0.9, 0]
+      BoomLength: 4
+      CollisionEnabled: true
+      ProbeRadius: 0.25
+      MinBoomLength: 0.6
+      BoomReturnSpeed: 6
+      PositionSmoothTime: 0.06
+      HeadBobAmplitude: 0
+      HeadBobFrequency: 1.1
+      FallbackPitchDeg: -12
+  # ── Props ─────────────────────────────────────────────────────────────────
+  # A narrow corridor of pillars: walking through it is what exercises the
+  # collision-aware pull-in, which is invisible on an open plane.
+  - Entity: 6460000000000000020
+    TagComponent:
+      Tag: Corridor_Left
+    TransformComponent:
+      Translation: [-1.6, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 4, 10]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.58, 0.62]
+      Metallic: 0
+      Roughness: 0.7
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 1
+      LinearDrag: 0.01
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+      LayerID: 0
+      LockedAxes: 0
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 2, 5]
+      Offset: [0, 0, 0]
+  - Entity: 6460000000000000021
+    TagComponent:
+      Tag: Corridor_Right
+    TransformComponent:
+      Translation: [1.6, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 4, 10]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.58, 0.62]
+      Metallic: 0
+      Roughness: 0.7
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 1
+      LinearDrag: 0.01
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+      LayerID: 0
+      LockedAxes: 0
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 2, 5]
+      Offset: [0, 0, 0]
+  # A back wall closing the corridor: walk up to it and the boom collapses
+  # toward MinBoomLength, then extends again as you back away.
+  - Entity: 6460000000000000022
+    TagComponent:
+      Tag: Corridor_End
+    TransformComponent:
+      Translation: [0, 2, -5.5]
+      Rotation: [0, 0, 0]
+      Scale: [4.2, 4, 1]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.5, 0.42, 0.38]
+      Metallic: 0
+      Roughness: 0.75
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 1
+      LinearDrag: 0.01
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+      LayerID: 0
+      LockedAxes: 0
+    BoxCollider3DComponent:
+      HalfExtents: [2.1, 2, 0.5]
+      Offset: [0, 0, 0]
+  - Entity: 6460000000000000023
+    TagComponent:
+      Tag: Ramp
+    TransformComponent:
+      Translation: [7, 0.6, 3]
+      Rotation: [0, 0, -0.35]
+      Scale: [6, 0.4, 4]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.45, 0.5, 0.42]
+      Metallic: 0
+      Roughness: 0.8
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 1
+      LinearDrag: 0.01
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+      LayerID: 0
+      LockedAxes: 0
+    BoxCollider3DComponent:
+      HalfExtents: [3, 0.2, 2]
+      Offset: [0, 0, 0]

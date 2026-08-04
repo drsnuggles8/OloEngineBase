@@ -214,6 +214,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/StarNestSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
+		Rendering/PropertyTests/PlayerCameraRigVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VirtualGeometryVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SubmeshMaterialPathParityTest.cpp
 		Rendering/PropertyTests/ModelWarmCacheGeometryIdentityTest.cpp
@@ -461,6 +462,7 @@ add_executable(OloEngine-Tests
 		Gameplay/CharacterClassDatabaseTest.cpp
 		Gameplay/ActiveEffectsCleanupTest.cpp
 		Gameplay/ProgressionSystemTest.cpp
+		Gameplay/PlayerRigTest.cpp
 		# Content Browser Tests
 		ContentBrowser/DirectoryTreeTest.cpp
 		ContentBrowser/ContentBrowserItemTest.cpp
@@ -851,6 +853,8 @@ add_executable(OloEngine-Tests
 		# in ApplyDamage, quest-completion reward XP, and the Lua GrantExperience
 		# binding driven through real scene ticks.
 		Functional/Gameplay/ProgressionFullLoopTest.cpp
+		Functional/Gameplay/PlayerRigDrivesCharacterViaSceneTickTest.cpp
+		Functional/Gameplay/CameraRigSpringArmViaSceneTickTest.cpp
 		Functional/Gameplay/KillGrantsExperienceViaDamageTest.cpp
 		Functional/Gameplay/QuestRewardGrantsExperienceTest.cpp
 		Functional/Scripting/LuaGrantsExperienceViaSceneTickTest.cpp

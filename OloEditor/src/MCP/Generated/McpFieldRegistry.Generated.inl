@@ -138,11 +138,28 @@ registry.push_back(OLO_GFW_FIELD(CameraComponent, "FixedAspectRatio", FixedAspec
 registry.push_back(OLO_GFW_FIELD(CameraComponent, "RuntimeControl", RuntimeControl));
 registry.push_back(OLO_GFW_FIELD(CameraComponent, "FlySpeed", FlySpeed));
 
+// CameraRigComponent
+registry.push_back(OLO_GFW_FIELD(CameraRigComponent, "Target", m_Target));
+registry.push_back(OLO_GFW_FIELD(CameraRigComponent, "PivotOffset", m_PivotOffset));
+registry.push_back(OLO_GFW_FIELD_RANGE(CameraRigComponent, "BoomLength", m_BoomLength, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1000.0f)));
+registry.push_back(OLO_GFW_FIELD(CameraRigComponent, "CollisionEnabled", m_CollisionEnabled));
+registry.push_back(OLO_GFW_FIELD_RANGE(CameraRigComponent, "ProbeRadius", m_ProbeRadius, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(CameraRigComponent, "MinBoomLength", m_MinBoomLength, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1000.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(CameraRigComponent, "BoomReturnSpeed", m_BoomReturnSpeed, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1000.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(CameraRigComponent, "PositionSmoothTime", m_PositionSmoothTime, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(CameraRigComponent, "HeadBobAmplitude", m_HeadBobAmplitude, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(CameraRigComponent, "HeadBobFrequency", m_HeadBobFrequency, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(50.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(CameraRigComponent, "FallbackPitchDeg", m_FallbackPitchDeg, OLO_GFW_BOUND(-89.9f), OLO_GFW_BOUND(89.9f)));
+
 // CapsuleCollider3DComponent
 registry.push_back(OLO_GFW_FIELD(CapsuleCollider3DComponent, "Radius", m_Radius));
 registry.push_back(OLO_GFW_FIELD(CapsuleCollider3DComponent, "HalfHeight", m_HalfHeight));
 registry.push_back(OLO_GFW_FIELD(CapsuleCollider3DComponent, "Offset", m_Offset));
 
+}
+
+static void BuildRegistryChunk2(std::vector<FieldEntry>& registry)
+{
 // CharacterController3DComponent
 registry.push_back(OLO_GFW_FIELD(CharacterController3DComponent, "SlopeLimitDeg", m_SlopeLimitDeg));
 registry.push_back(OLO_GFW_FIELD(CharacterController3DComponent, "StepOffset", m_StepOffset));
@@ -158,10 +175,6 @@ registry.push_back(OLO_GFW_FIELD(CinematicComponent, "PlayOnStart", PlayOnStart)
 registry.push_back(OLO_GFW_FIELD(CinematicComponent, "Loop", Loop));
 registry.push_back(OLO_GFW_FIELD(CinematicComponent, "PlaybackSpeed", PlaybackSpeed));
 
-}
-
-static void BuildRegistryChunk2(std::vector<FieldEntry>& registry)
-{
 // CircleCollider2DComponent
 registry.push_back(OLO_GFW_FIELD(CircleCollider2DComponent, "Offset", Offset));
 registry.push_back(OLO_GFW_FIELD(CircleCollider2DComponent, "Radius", Radius));
@@ -216,6 +229,10 @@ registry.push_back(OLO_GFW_FIELD_RANGE(CloudscapeComponent, "ShadowMapWorldSize"
 registry.push_back(OLO_GFW_FIELD_RANGE(CloudscapeComponent, "TemporalBlend", m_TemporalBlend, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(0.98f)));
 registry.push_back(OLO_GFW_FIELD(CloudscapeComponent, "AffectIBL", m_AffectIBL));
 
+}
+
+static void BuildRegistryChunk3(std::vector<FieldEntry>& registry)
+{
 // ConvexMeshCollider3DComponent
 registry.push_back(OLO_GFW_FIELD(ConvexMeshCollider3DComponent, "ColliderAsset", m_ColliderAsset));
 registry.push_back(OLO_GFW_FIELD(ConvexMeshCollider3DComponent, "Offset", m_Offset));
@@ -223,10 +240,6 @@ registry.push_back(OLO_GFW_FIELD(ConvexMeshCollider3DComponent, "Scale", m_Scale
 registry.push_back(OLO_GFW_FIELD(ConvexMeshCollider3DComponent, "ConvexRadius", m_ConvexRadius));
 registry.push_back(OLO_GFW_FIELD(ConvexMeshCollider3DComponent, "MaxVertices", m_MaxVertices));
 
-}
-
-static void BuildRegistryChunk3(std::vector<FieldEntry>& registry)
-{
 // DecalComponent
 registry.push_back(OLO_GFW_FIELD(DecalComponent, "Color", m_Color));
 registry.push_back(OLO_GFW_FIELD(DecalComponent, "Size", m_Size));
@@ -674,6 +687,23 @@ registry.push_back(OLO_GFW_FIELD(PhysicsJoint3DComponent, "PathMaxFrictionForce"
 
 static void BuildRegistryChunk8(std::vector<FieldEntry>& registry)
 {
+// PlayerRigComponent
+registry.push_back(OLO_GFW_FIELD_RANGE(PlayerRigComponent, "LookSensitivity", m_LookSensitivity, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
+registry.push_back(OLO_GFW_FIELD(PlayerRigComponent, "InvertLookY", m_InvertLookY));
+registry.push_back(OLO_GFW_FIELD_RANGE(PlayerRigComponent, "MinPitchDeg", m_MinPitchDeg, OLO_GFW_BOUND(-89.9f), OLO_GFW_BOUND(89.9f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(PlayerRigComponent, "MaxPitchDeg", m_MaxPitchDeg, OLO_GFW_BOUND(-89.9f), OLO_GFW_BOUND(89.9f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(PlayerRigComponent, "WalkSpeed", m_WalkSpeed, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1000.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(PlayerRigComponent, "SprintMultiplier", m_SprintMultiplier, OLO_GFW_BOUND(1.0f), OLO_GFW_BOUND(100.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(PlayerRigComponent, "AirControl", m_AirControl, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD(PlayerRigComponent, "MoveRelativeToLook", m_MoveRelativeToLook));
+registry.push_back(OLO_GFW_FIELD(PlayerRigComponent, "YawBodyWithLook", m_YawBodyWithLook));
+registry.push_back(OLO_GFW_FIELD(PlayerRigComponent, "FaceMoveDirection", m_FaceMoveDirection));
+registry.push_back(OLO_GFW_FIELD_RANGE(PlayerRigComponent, "TurnRateDeg", m_TurnRateDeg, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(3600.0f)));
+registry.push_back(OLO_GFW_FIELD(PlayerRigComponent, "UseDeviceInput", m_UseDeviceInput));
+registry.push_back(OLO_GFW_FIELD(PlayerRigComponent, "CaptureCursor", m_CaptureCursor));
+registry.push_back(OLO_GFW_FIELD(PlayerRigComponent, "YawDeg", m_YawDeg));
+registry.push_back(OLO_GFW_FIELD_RANGE(PlayerRigComponent, "PitchDeg", m_PitchDeg, OLO_GFW_BOUND(-89.9f), OLO_GFW_BOUND(89.9f)));
+
 // PointLightComponent
 registry.push_back(OLO_GFW_FIELD(PointLightComponent, "Color", m_Color));
 registry.push_back(OLO_GFW_FIELD(PointLightComponent, "Intensity", m_Intensity));
@@ -722,6 +752,10 @@ registry.push_back(OLO_GFW_FIELD(RagdollComponent, "BoneRadius", m_BoneRadius));
 registry.push_back(OLO_GFW_FIELD(RagdollComponent, "SwingLimitDeg", m_SwingLimitDeg));
 registry.push_back(OLO_GFW_FIELD(RagdollComponent, "TwistLimitDeg", m_TwistLimitDeg));
 
+}
+
+static void BuildRegistryChunk9(std::vector<FieldEntry>& registry)
+{
 // ReflectionProbeComponent
 registry.push_back(OLO_GFW_FIELD_RANGE(ReflectionProbeComponent, "InfluenceRadius", m_InfluenceRadius, OLO_GFW_BOUND(0.01f), OLO_GFW_NO_BOUND));
 registry.push_back(OLO_GFW_FIELD_RANGE(ReflectionProbeComponent, "BlendDistance", m_BlendDistance, OLO_GFW_BOUND(0.0f), OLO_GFW_NO_BOUND));
@@ -741,10 +775,6 @@ registry.push_back(OLO_GFW_FIELD(RetargetingComponent, "PerBoneTranslation", Per
 registry.push_back(OLO_GFW_FIELD(RetargetingComponent, "TransferRootTranslation", TransferRootTranslation));
 registry.push_back(OLO_GFW_FIELD_RANGE(RetargetingComponent, "RootTranslationScale", RootTranslationScale, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1000.0f)));
 
-}
-
-static void BuildRegistryChunk9(std::vector<FieldEntry>& registry)
-{
 // Rigidbody2DComponent
 registry.push_back(OLO_GFW_FIELD(Rigidbody2DComponent, "Type", Type));
 registry.push_back(OLO_GFW_FIELD(Rigidbody2DComponent, "FixedRotation", FixedRotation));
@@ -798,6 +828,10 @@ registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "CastShadows", m_CastShadow
 registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "ShadowBias", m_ShadowBias));
 registry.push_back(OLO_GFW_FIELD(SpotLightComponent, "ShadowNormalBias", m_ShadowNormalBias));
 
+}
+
+static void BuildRegistryChunk10(std::vector<FieldEntry>& registry)
+{
 // SpringBoneComponent
 registry.push_back(OLO_GFW_FIELD(SpringBoneComponent, "Enabled", Enabled));
 registry.push_back(OLO_GFW_FIELD(SpringBoneComponent, "EndBoneIndex", EndBoneIndex));
@@ -811,10 +845,6 @@ registry.push_back(OLO_GFW_FIELD_RANGE(SpringBoneComponent, "Weight", Weight, OL
 registry.push_back(OLO_GFW_FIELD(SpriteRendererComponent, "Color", Color));
 registry.push_back(OLO_GFW_FIELD(SpriteRendererComponent, "TilingFactor", TilingFactor));
 
-}
-
-static void BuildRegistryChunk10(std::vector<FieldEntry>& registry)
-{
 // StarNestSkyComponent
 registry.push_back(OLO_GFW_FIELD(StarNestSkyComponent, "Offset", m_Offset));
 registry.push_back(OLO_GFW_FIELD(StarNestSkyComponent, "Rotation1", m_Rotation1));

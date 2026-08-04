@@ -155,6 +155,30 @@ case 4273541646u: // BuoyancyComponent
     comp.m_SubmergenceRamp = std::clamp(comp.m_SubmergenceRamp, static_cast<f32>(0.001f), static_cast<f32>(100.0f));
     break;
 }
+case 2905464687u: // CameraRigComponent
+{
+    auto& comp = deserializedEntity.AddComponent<CameraRigComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Target)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PivotOffset)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_BoomLength)) return false;
+    comp.m_BoomLength = std::clamp(comp.m_BoomLength, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_CollisionEnabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_ProbeRadius)) return false;
+    comp.m_ProbeRadius = std::clamp(comp.m_ProbeRadius, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MinBoomLength)) return false;
+    comp.m_MinBoomLength = std::clamp(comp.m_MinBoomLength, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_BoomReturnSpeed)) return false;
+    comp.m_BoomReturnSpeed = std::clamp(comp.m_BoomReturnSpeed, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_PositionSmoothTime)) return false;
+    comp.m_PositionSmoothTime = std::clamp(comp.m_PositionSmoothTime, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (!SceneBinIO::Read(reader, comp.m_HeadBobAmplitude)) return false;
+    comp.m_HeadBobAmplitude = std::clamp(comp.m_HeadBobAmplitude, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_HeadBobFrequency)) return false;
+    comp.m_HeadBobFrequency = std::clamp(comp.m_HeadBobFrequency, static_cast<f32>(0.0f), static_cast<f32>(50.0f));
+    if (!SceneBinIO::Read(reader, comp.m_FallbackPitchDeg)) return false;
+    comp.m_FallbackPitchDeg = std::clamp(comp.m_FallbackPitchDeg, static_cast<f32>(-89.9f), static_cast<f32>(89.9f));
+    break;
+}
 case 1484055434u: // CharacterController3DComponent
 {
     auto& comp = deserializedEntity.AddComponent<CharacterController3DComponent>();
@@ -511,6 +535,34 @@ case 1430454779u: // PerceptibleComponent
     auto& comp = deserializedEntity.AddComponent<PerceptibleComponent>();
     if (!SceneBinIO::Read(reader, comp.Team)) return false;
     if (!SceneBinIO::Read(reader, comp.IsPerceptible)) return false;
+    break;
+}
+case 3041720013u: // PlayerRigComponent
+{
+    auto& comp = deserializedEntity.AddComponent<PlayerRigComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_LookSensitivity)) return false;
+    comp.m_LookSensitivity = std::clamp(comp.m_LookSensitivity, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (!SceneBinIO::Read(reader, comp.m_InvertLookY)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_MinPitchDeg)) return false;
+    comp.m_MinPitchDeg = std::clamp(comp.m_MinPitchDeg, static_cast<f32>(-89.9f), static_cast<f32>(89.9f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxPitchDeg)) return false;
+    comp.m_MaxPitchDeg = std::clamp(comp.m_MaxPitchDeg, static_cast<f32>(-89.9f), static_cast<f32>(89.9f));
+    if (!SceneBinIO::Read(reader, comp.m_WalkSpeed)) return false;
+    comp.m_WalkSpeed = std::clamp(comp.m_WalkSpeed, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_SprintMultiplier)) return false;
+    comp.m_SprintMultiplier = std::clamp(comp.m_SprintMultiplier, static_cast<f32>(1.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_AirControl)) return false;
+    comp.m_AirControl = std::clamp(comp.m_AirControl, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MoveRelativeToLook)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_YawBodyWithLook)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_FaceMoveDirection)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_TurnRateDeg)) return false;
+    comp.m_TurnRateDeg = std::clamp(comp.m_TurnRateDeg, static_cast<f32>(0.0f), static_cast<f32>(3600.0f));
+    if (!SceneBinIO::Read(reader, comp.m_UseDeviceInput)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_CaptureCursor)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_YawDeg)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_PitchDeg)) return false;
+    comp.m_PitchDeg = std::clamp(comp.m_PitchDeg, static_cast<f32>(-89.9f), static_cast<f32>(89.9f));
     break;
 }
 case 1013186614u: // PointLightComponent

@@ -247,6 +247,11 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
     const std::vector<std::string> expected{
         "Scripts",
         "Cinematics",
+        // Player rig (issue #645): after Scripts so a script-driven rig's
+        // intent is honoured the same tick, and before PhysicsKick so the same
+        // tick's step integrates it. Both are real edges on LocalTransforms;
+        // the slot here is the registration-order tie-break between them.
+        "PlayerRig",
         // Atmosphere systems (issue #633): TimeOfDay is the component clock
         // (tie-break slot after Cinematics — its light/sky application runs
         // on the render path, not here); Weather must complete before
@@ -289,6 +294,11 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
         "ParticlesGPU",
         "SnowDeformers",
         "BoidMovement",
+        // Camera rig (issue #645) is registered dead last: it must see the
+        // target's FINAL pose for the tick, so it sits behind the physics
+        // fence, the world-matrix compose, and every post-propagate transform
+        // writer (Navigation, BoidMovement).
+        "CameraRig",
     };
     EXPECT_EQ(Scene::GetGameplaySystemOrderForTesting(), expected);
 }
@@ -447,6 +457,38 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
     EXPECT_FALSE(sched.DependsOn("Audio", "BoidSteering"));
     EXPECT_FALSE(sched.DependsOn("BoidSteering", "ParticlesCPU"));
     EXPECT_FALSE(sched.DependsOn("ParticlesCPU", "BoidSteering"));
+
+    // ── Player + camera rig seams (issue #645) ───────────────────────────────
+    // The rig is split into two nodes for ORDERING, not for parallelism, so
+    // the edges ARE the design — and every one of them is invisible in the
+    // sequential order, which the registration-order tie-break would satisfy
+    // regardless.
+    //
+    // 1. The input half runs after Scripts, so a script that drives a rig by
+    //    writing its intent fields (the m_UseDeviceInput = false path) is
+    //    honoured this tick rather than next.
+    EXPECT_TRUE(sched.DependsOn("PlayerRig", "Scripts"));
+    // 2. …and BEFORE the physics kick, so THIS tick's step integrates the wish
+    //    velocity the rig just handed the character controller. Lose this and
+    //    every input lands a tick late — the exact failure Boat/Aircraft's
+    //    queue-before-step edges guard against, and one no unit test on the
+    //    rig's own math could ever see.
+    EXPECT_TRUE(sched.DependsOn("PhysicsKick", "PlayerRig"));
+    EXPECT_FALSE(sched.DependsOn("PlayerRig", "PhysicsFence"));
+    // 3. The camera half observes the target's FINAL pose: after the fence
+    //    wrote physics results back, after the world matrices it reads the
+    //    target position from were composed, and after the post-propagate
+    //    transform writers. Any of these missing means a camera that trails
+    //    its target by a tick — visible as judder, invisible to a position
+    //    assertion.
+    EXPECT_TRUE(sched.DependsOn("CameraRig", "PhysicsFence"));
+    EXPECT_TRUE(sched.DependsOn("CameraRig", "PropagateTransforms"));
+    EXPECT_TRUE(sched.DependsOn("CameraRig", "Navigation"));
+    EXPECT_TRUE(sched.DependsOn("CameraRig", "BoidMovement"));
+    // 4. And the two halves are ordered relative to each other, in one
+    //    direction only — the camera follows the player, never the reverse.
+    EXPECT_TRUE(sched.DependsOn("CameraRig", "PlayerRig"));
+    EXPECT_FALSE(sched.DependsOn("PlayerRig", "CameraRig"));
 }
 
 // ── Parallel execution ───────────────────────────────────────────────────────

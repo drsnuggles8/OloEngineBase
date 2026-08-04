@@ -430,6 +430,31 @@ namespace OloEngine
             m_Controller->SetListener(this);
             m_PreviousRotation = JoltUtils::ToJoltQuat(rotation);
 
+            // Stamp the owning entity's UUID on the inner body (issue #645).
+            //
+            // Jolt creates that body itself, from mInnerBodyShape above, and
+            // leaves its user data at 0 — but EVERY UUID-keyed body filter in
+            // this engine reads exactly that field
+            // (EntityExclusionBodyFilter::ShouldCollideLocked). A zero there is
+            // treated as "unknown body, allow the collision", so a character
+            // controller silently could NOT be excluded from a scene query: the
+            // camera boom collapsed onto the player's own capsule, and
+            // PerceptionSystem's "the perceiver's own body must not block its
+            // eyes" exclusion did nothing for a character-controlled perceiver.
+            // Rigid bodies have always carried this (JoltBody::CreateBody's
+            // mUserData); the character path just never did.
+            if (m_Entity)
+            {
+                if (const JPH::BodyID innerBody = m_Controller->GetInnerBodyID(); !innerBody.IsInvalid())
+                {
+                    if (JPH::PhysicsSystem* system = m_Scene->GetJoltSystemPtr())
+                    {
+                        system->GetBodyInterface().SetUserData(innerBody,
+                                                               static_cast<JPH::uint64>(m_Entity.GetUUID()));
+                    }
+                }
+            }
+
             OLO_CORE_INFO("Character controller created successfully for entity {0}",
                           m_Entity ? m_Entity.GetUUID() : UUID(0));
         }

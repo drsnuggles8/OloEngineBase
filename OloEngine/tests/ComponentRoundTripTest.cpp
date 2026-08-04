@@ -3988,4 +3988,212 @@ Entities:
         EXPECT_NEAR(r[0][0], fallback[0][0], kFloatEpsilon); // unchanged → fallback used
     }
 
+    // -------------------------------------------------------------------------
+    // PlayerRigComponent / CameraRigComponent (issue #645)
+    //
+    // Both are fully OloHeaderTool-generated: every authored field is trivial,
+    // and the per-tick runtime fields carry OLO_SERIALIZE(Skip). That makes the
+    // round-trip a two-sided check — the authored tuning must survive, and the
+    // runtime state must NOT be in the file at all. The second half is the one
+    // that matters: nothing else notices if a per-tick field starts leaking
+    // into scene YAML, it just quietly begins persisting a held key or a
+    // mid-pull-in boom length into the saved scene.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, PlayerRigComponentSurvivesYAMLRoundTrip)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            PlayerRigComponent rig;
+            rig.m_LookSensitivity = 0.275f;
+            rig.m_InvertLookY = true;
+            rig.m_MinPitchDeg = -63.5f;
+            rig.m_MaxPitchDeg = 71.25f;
+            rig.m_WalkSpeed = 6.125f;
+            rig.m_SprintMultiplier = 2.375f;
+            rig.m_AirControl = 0.625f;
+            rig.m_MoveRelativeToLook = false;
+            rig.m_YawBodyWithLook = false;
+            rig.m_FaceMoveDirection = true;
+            rig.m_TurnRateDeg = 512.5f;
+            rig.m_UseDeviceInput = false;
+            rig.m_CaptureCursor = false;
+            rig.m_YawDeg = 123.75f;
+            rig.m_PitchDeg = -22.5f;
+
+            // Runtime state, deliberately non-default so a leak is visible.
+            rig.m_MoveInput = { 0.5f, -0.5f };
+            rig.m_LookInput = { 9.0f, -9.0f };
+            rig.m_SprintInput = true;
+            rig.m_JumpInput = true;
+            rig.m_PlanarSpeed = 4.25f;
+            rig.m_Grounded = true;
+
+            entity.AddComponent<PlayerRigComponent>(rig);
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty());
+
+        // The Skip-tagged runtime fields must not appear anywhere in the file.
+        for (const char* runtimeKey : { "MoveInput", "LookInput", "SprintInput", "JumpInput",
+                                        "LastMousePos", "HasLastMousePos", "PlanarSpeed", "Grounded" })
+        {
+            EXPECT_EQ(yaml.find(runtimeKey), std::string::npos)
+                << "per-tick runtime field '" << runtimeKey
+                << "' leaked into scene YAML — it needs OLO_SERIALIZE(Skip)";
+        }
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<PlayerRigComponent>());
+
+        const auto& rig = restored.GetComponent<PlayerRigComponent>();
+        EXPECT_NEAR(rig.m_LookSensitivity, 0.275f, kFloatEpsilon);
+        EXPECT_TRUE(rig.m_InvertLookY);
+        EXPECT_NEAR(rig.m_MinPitchDeg, -63.5f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_MaxPitchDeg, 71.25f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_WalkSpeed, 6.125f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_SprintMultiplier, 2.375f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_AirControl, 0.625f, kFloatEpsilon);
+        EXPECT_FALSE(rig.m_MoveRelativeToLook);
+        EXPECT_FALSE(rig.m_YawBodyWithLook);
+        EXPECT_TRUE(rig.m_FaceMoveDirection);
+        EXPECT_NEAR(rig.m_TurnRateDeg, 512.5f, kFloatEpsilon);
+        EXPECT_FALSE(rig.m_UseDeviceInput);
+        EXPECT_FALSE(rig.m_CaptureCursor);
+        // Look angles ARE authored state — a scene sets the initial facing, and
+        // a reloaded save must restore where the player was looking.
+        EXPECT_NEAR(rig.m_YawDeg, 123.75f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_PitchDeg, -22.5f, kFloatEpsilon);
+
+        // Runtime state comes back at its constructor default, not the value
+        // that was live when the scene was saved.
+        EXPECT_NEAR(rig.m_MoveInput.x, 0.0f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_LookInput.y, 0.0f, kFloatEpsilon);
+        EXPECT_FALSE(rig.m_SprintInput);
+        EXPECT_FALSE(rig.m_JumpInput);
+        EXPECT_FALSE(rig.m_HasLastMousePos);
+        EXPECT_NEAR(rig.m_PlanarSpeed, 0.0f, kFloatEpsilon);
+        EXPECT_FALSE(rig.m_Grounded);
+    }
+
+    TEST(ComponentRoundTrip, CameraRigComponentSurvivesYAMLRoundTrip)
+    {
+        constexpr u64 kTargetId = 0x0123456789ABCDEFULL;
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            CameraRigComponent rig;
+            rig.m_Target = UUID(kTargetId);
+            rig.m_PivotOffset = { 0.375f, 1.625f, -0.25f };
+            rig.m_BoomLength = 5.5f;
+            rig.m_CollisionEnabled = false;
+            rig.m_ProbeRadius = 0.375f;
+            rig.m_MinBoomLength = 0.875f;
+            rig.m_BoomReturnSpeed = 8.25f;
+            rig.m_PositionSmoothTime = 0.125f;
+            rig.m_HeadBobAmplitude = 0.0625f;
+            rig.m_HeadBobFrequency = 2.25f;
+            rig.m_FallbackPitchDeg = -33.5f;
+
+            rig.m_CurrentBoomLength = 2.0f;
+            rig.m_SmoothedPosition = { 9.0f, 9.0f, 9.0f };
+            rig.m_BobPhase = 1.5f;
+            rig.m_PrevTargetPosition = { 3.0f, 3.0f, 3.0f };
+            rig.m_Initialized = true;
+
+            entity.AddComponent<CameraRigComponent>(rig);
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        ASSERT_FALSE(yaml.empty());
+
+        for (const char* runtimeKey : { "CurrentBoomLength", "SmoothedPosition", "BobPhase",
+                                        "PrevTargetPosition", "Initialized" })
+        {
+            EXPECT_EQ(yaml.find(runtimeKey), std::string::npos)
+                << "per-tick runtime field '" << runtimeKey
+                << "' leaked into scene YAML — it needs OLO_SERIALIZE(Skip)";
+        }
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<CameraRigComponent>());
+
+        const auto& rig = restored.GetComponent<CameraRigComponent>();
+        // The target reference is a UUID: losing it silently turns a follow
+        // camera into a static one on load.
+        EXPECT_EQ(static_cast<u64>(rig.m_Target), kTargetId);
+        EXPECT_NEAR(rig.m_PivotOffset.x, 0.375f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_PivotOffset.y, 1.625f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_PivotOffset.z, -0.25f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_BoomLength, 5.5f, kFloatEpsilon);
+        EXPECT_FALSE(rig.m_CollisionEnabled);
+        EXPECT_NEAR(rig.m_ProbeRadius, 0.375f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_MinBoomLength, 0.875f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_BoomReturnSpeed, 8.25f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_PositionSmoothTime, 0.125f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_HeadBobAmplitude, 0.0625f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_HeadBobFrequency, 2.25f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_FallbackPitchDeg, -33.5f, kFloatEpsilon);
+
+        EXPECT_NEAR(rig.m_CurrentBoomLength, 0.0f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_BobPhase, 0.0f, kFloatEpsilon);
+        EXPECT_FALSE(rig.m_Initialized);
+    }
+
+    // The generated deserialize gets its bounds from the OLO_SERIALIZE(Clamp)
+    // annotations; a corrupt scene must land in range rather than producing a
+    // camera that can never see anything (a pitch past the pole would make the
+    // look basis degenerate).
+    TEST(ComponentRoundTrip, PlayerRigOutOfRangeValuesAreClampedOnLoad)
+    {
+        auto scene = Scene::Create();
+        const std::string yaml =
+            "Scene: Untitled\n"
+            "Entities:\n"
+            "  - Entity: 12345\n"
+            "    TagComponent:\n"
+            "      Tag: " +
+            std::string(kTestTag) + "\n"
+                                    "    TransformComponent:\n"
+                                    "      Translation: [0, 0, 0]\n"
+                                    "      Rotation: [0, 0, 0]\n"
+                                    "      Scale: [1, 1, 1]\n"
+                                    "    PlayerRigComponent:\n"
+                                    "      LookSensitivity: -5\n"
+                                    "      MaxPitchDeg: 500\n"
+                                    "      MinPitchDeg: -500\n"
+                                    "      AirControl: 9\n"
+                                    "      SprintMultiplier: 0.1\n"
+                                    "      PitchDeg: 720\n"
+                                    "      WalkSpeed: .nan\n";
+
+        ASSERT_TRUE(SceneSerializer(scene).DeserializeFromYAML(yaml));
+        Entity restored = FindByTag(*scene, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<PlayerRigComponent>());
+
+        const auto& rig = restored.GetComponent<PlayerRigComponent>();
+        EXPECT_NEAR(rig.m_LookSensitivity, 0.0f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_MaxPitchDeg, 89.9f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_MinPitchDeg, -89.9f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_AirControl, 1.0f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_SprintMultiplier, 1.0f, kFloatEpsilon);
+        EXPECT_NEAR(rig.m_PitchDeg, 89.9f, kFloatEpsilon);
+        // A non-finite value keeps the constructor default (TryReadFiniteF32
+        // rejects it before the clamp ever runs).
+        EXPECT_NEAR(rig.m_WalkSpeed, PlayerRigComponent{}.m_WalkSpeed, kFloatEpsilon);
+    }
+
 } // namespace OloEngine::Tests

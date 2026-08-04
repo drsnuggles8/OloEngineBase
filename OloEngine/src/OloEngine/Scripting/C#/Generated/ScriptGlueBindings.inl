@@ -2152,6 +2152,229 @@ static void CameraComponent_SetFixedAspectRatio(UUID entityID, bool value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// CameraRigComponent                                                             //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static void CameraRigComponent_GetPivotOffset(UUID entityID, glm::vec3* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    *outValue = comp.m_PivotOffset;
+}
+
+static void CameraRigComponent_SetPivotOffset(UUID entityID, glm::vec3 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.m_PivotOffset = *value;
+}
+
+static float CameraRigComponent_GetBoomLength(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    return comp.m_BoomLength;
+}
+
+static void CameraRigComponent_SetBoomLength(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    comp.m_BoomLength = value;
+}
+
+static bool CameraRigComponent_GetCollisionEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    return comp.m_CollisionEnabled;
+}
+
+static void CameraRigComponent_SetCollisionEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    comp.m_CollisionEnabled = value;
+}
+
+static float CameraRigComponent_GetProbeRadius(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    return comp.m_ProbeRadius;
+}
+
+static void CameraRigComponent_SetProbeRadius(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    comp.m_ProbeRadius = value;
+}
+
+static float CameraRigComponent_GetMinBoomLength(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    return comp.m_MinBoomLength;
+}
+
+static void CameraRigComponent_SetMinBoomLength(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    comp.m_MinBoomLength = value;
+}
+
+static float CameraRigComponent_GetBoomReturnSpeed(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    return comp.m_BoomReturnSpeed;
+}
+
+static void CameraRigComponent_SetBoomReturnSpeed(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    comp.m_BoomReturnSpeed = value;
+}
+
+static float CameraRigComponent_GetPositionSmoothTime(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    return comp.m_PositionSmoothTime;
+}
+
+static void CameraRigComponent_SetPositionSmoothTime(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    comp.m_PositionSmoothTime = value;
+}
+
+static float CameraRigComponent_GetHeadBobAmplitude(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    return comp.m_HeadBobAmplitude;
+}
+
+static void CameraRigComponent_SetHeadBobAmplitude(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    comp.m_HeadBobAmplitude = value;
+}
+
+static float CameraRigComponent_GetHeadBobFrequency(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    return comp.m_HeadBobFrequency;
+}
+
+static void CameraRigComponent_SetHeadBobFrequency(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    comp.m_HeadBobFrequency = value;
+}
+
+static float CameraRigComponent_GetFallbackPitchDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    return comp.m_FallbackPitchDeg;
+}
+
+static void CameraRigComponent_SetFallbackPitchDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<CameraRigComponent>();
+    comp.m_FallbackPitchDeg = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // CapsuleCollider3DComponent                                                     //
 ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -5980,6 +6203,414 @@ static void PhysicsJoint3DComponent_SetPathMaxFrictionForce(UUID entityID, float
         return;
     auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
     comp.m_PathMaxFrictionForce = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
+// PlayerRigComponent                                                             //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static float PlayerRigComponent_GetLookSensitivity(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_LookSensitivity;
+}
+
+static void PlayerRigComponent_SetLookSensitivity(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_LookSensitivity = value;
+}
+
+static bool PlayerRigComponent_GetInvertLookY(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_InvertLookY;
+}
+
+static void PlayerRigComponent_SetInvertLookY(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_InvertLookY = value;
+}
+
+static float PlayerRigComponent_GetMinPitchDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_MinPitchDeg;
+}
+
+static void PlayerRigComponent_SetMinPitchDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_MinPitchDeg = value;
+}
+
+static float PlayerRigComponent_GetMaxPitchDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_MaxPitchDeg;
+}
+
+static void PlayerRigComponent_SetMaxPitchDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_MaxPitchDeg = value;
+}
+
+static float PlayerRigComponent_GetWalkSpeed(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_WalkSpeed;
+}
+
+static void PlayerRigComponent_SetWalkSpeed(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_WalkSpeed = value;
+}
+
+static float PlayerRigComponent_GetSprintMultiplier(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_SprintMultiplier;
+}
+
+static void PlayerRigComponent_SetSprintMultiplier(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_SprintMultiplier = value;
+}
+
+static float PlayerRigComponent_GetAirControl(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_AirControl;
+}
+
+static void PlayerRigComponent_SetAirControl(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_AirControl = value;
+}
+
+static bool PlayerRigComponent_GetMoveRelativeToLook(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_MoveRelativeToLook;
+}
+
+static void PlayerRigComponent_SetMoveRelativeToLook(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_MoveRelativeToLook = value;
+}
+
+static bool PlayerRigComponent_GetYawBodyWithLook(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_YawBodyWithLook;
+}
+
+static void PlayerRigComponent_SetYawBodyWithLook(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_YawBodyWithLook = value;
+}
+
+static bool PlayerRigComponent_GetFaceMoveDirection(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_FaceMoveDirection;
+}
+
+static void PlayerRigComponent_SetFaceMoveDirection(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_FaceMoveDirection = value;
+}
+
+static float PlayerRigComponent_GetTurnRateDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_TurnRateDeg;
+}
+
+static void PlayerRigComponent_SetTurnRateDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_TurnRateDeg = value;
+}
+
+static bool PlayerRigComponent_GetUseDeviceInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_UseDeviceInput;
+}
+
+static void PlayerRigComponent_SetUseDeviceInput(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_UseDeviceInput = value;
+}
+
+static bool PlayerRigComponent_GetCaptureCursor(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_CaptureCursor;
+}
+
+static void PlayerRigComponent_SetCaptureCursor(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_CaptureCursor = value;
+}
+
+static float PlayerRigComponent_GetYawDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_YawDeg;
+}
+
+static void PlayerRigComponent_SetYawDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_YawDeg = value;
+}
+
+static float PlayerRigComponent_GetPitchDeg(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_PitchDeg;
+}
+
+static void PlayerRigComponent_SetPitchDeg(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_PitchDeg = value;
+}
+
+static void PlayerRigComponent_GetMoveInput(UUID entityID, glm::vec2* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    *outValue = comp.m_MoveInput;
+}
+
+static void PlayerRigComponent_SetMoveInput(UUID entityID, glm::vec2 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.m_MoveInput = *value;
+}
+
+static void PlayerRigComponent_GetLookInput(UUID entityID, glm::vec2* outValue)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    *outValue = comp.m_LookInput;
+}
+
+static void PlayerRigComponent_SetLookInput(UUID entityID, glm::vec2 const* value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    for (glm::length_t i = 0; i < value->length(); ++i)
+        if (!std::isfinite((*value)[i]))
+            return;
+    comp.m_LookInput = *value;
+}
+
+static bool PlayerRigComponent_GetSprintInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_SprintInput;
+}
+
+static void PlayerRigComponent_SetSprintInput(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_SprintInput = value;
+}
+
+static bool PlayerRigComponent_GetJumpInput(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    return comp.m_JumpInput;
+}
+
+static void PlayerRigComponent_SetJumpInput(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PlayerRigComponent>();
+    comp.m_JumpInput = value;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////

@@ -97,6 +97,7 @@ namespace OloEngine::Tests
                 root / "Gameplay" / "Quest" / "QuestComponents.h",
                 root / "Gameplay" / "Abilities" / "AbilityComponents.h",
                 root / "Gameplay" / "Progression" / "ProgressionComponents.h",
+                root / "Gameplay" / "PlayerRig" / "PlayerRigComponents.h",
                 root / "Scene" / "Streaming" / "StreamingVolumeComponent.h",
                 root / "AI" / "AIComponents.h",
                 root / "Networking" / "NetworkIdentityComponent.h",
