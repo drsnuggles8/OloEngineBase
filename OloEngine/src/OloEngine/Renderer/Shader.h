@@ -59,6 +59,27 @@ namespace OloEngine
         // registry comment in Shader.cpp for what went wrong without it.
         static void RegisterProgramBindless(u32 programID, bool bindless);
 
+        // "DOES THIS PROGRAM READ ITS MATERIAL TEXTURES OUT OF THE HEAP?" — a
+        // DIFFERENT QUESTION from IsBoundProgramBindless(), and conflating the two
+        // silently unbinds textures.
+        //
+        // A program is a bindless VARIANT if it converted ANY input — a pass
+        // texture, a storage image, anything. That says nothing about whether its
+        // MATERIAL samplers moved: PBR_GBuffer could convert a shadow input and
+        // still declare `layout(binding = 0) uniform sampler2D u_AlbedoMap`.
+        // CommandDispatch::BindPBRTextures skips nine binds when this is true, so
+        // answering the broader question there leaves those samplers unbound and
+        // the mesh renders unlit — observed as a black sphere on an unlit ground
+        // (issue #691 Phase 3).
+        //
+        // Set from the source scan in CreateProgramFromRawGLSL: a shader that
+        // declares `u_MaterialHeapOffsets` reads its material textures from the
+        // material UBO, and nothing else does.
+        [[nodiscard]] static auto ReadsMaterialHeapOffsets() -> bool;
+        static void SetBoundProgramMaterialOffsets(bool reads);
+        static void RegisterProgramMaterialOffsets(u32 programID, bool reads);
+        [[nodiscard]] static auto ProgramReadsMaterialOffsets(u32 programID) -> bool;
+
         // Drop `programID` from the bindless registry. MUST be called before
         // glDeleteProgram, at EVERY deletion site.
         //

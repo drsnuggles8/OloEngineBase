@@ -564,7 +564,11 @@ namespace OloEngine
     // (HeapBinding::WritesOffsetsForBoundProgram, issue #691 Phase 3).
     static void BindPBRTextures(const PODMaterialData& mat)
     {
-        if (HeapBinding::WritesOffsetsForBoundProgram())
+        // THE NARROW QUESTION, not the broad one. WritesOffsetsForBoundProgram()
+        // answers "is this a bindless variant", which is true for a program that
+        // converted any unrelated input while still declaring slot-based material
+        // samplers — skipping the binds for one of those renders it unlit.
+        if (Shader::ReadsMaterialHeapOffsets())
         {
             return;
         }
@@ -603,7 +607,7 @@ namespace OloEngine
         }
 
         // Part of the cache key, not an afterthought — see LastMaterialOffsetsLive.
-        const bool offsetsLive = HeapBinding::WritesOffsetsForBoundProgram();
+        const bool offsetsLive = Shader::ReadsMaterialHeapOffsets();
         const bool sameIndex = (materialDataIndex == s_Data.LastMaterialDataIndex) &&
                                (offsetsLive == s_Data.LastMaterialOffsetsLive);
         s_Data.LastMaterialDataIndex = materialDataIndex;

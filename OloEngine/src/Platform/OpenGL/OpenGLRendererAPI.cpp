@@ -1287,6 +1287,7 @@ namespace OloEngine
         // clean log and 5296 passing tests. No unit test can see it, because the
         // suite never builds a bindless variant at all.
         Shader::SetBoundProgramBindless(Shader::IsProgramBindless(programID));
+        Shader::SetBoundProgramMaterialOffsets(Shader::ProgramReadsMaterialOffsets(programID));
     }
 
     void OpenGLRendererAPI::BindVertexArrayRaw(u32 vaoID)

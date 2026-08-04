@@ -982,6 +982,21 @@ namespace OloEngine
             {
                 continue;
             }
+            // Does this program read its MATERIAL textures from the material UBO?
+            // Distinct from being a bindless variant — see
+            // Shader::ReadsMaterialHeapOffsets.
+            //
+            // KEYED ON USE, NOT ON DECLARATION. Several shaders declare
+            // u_MaterialHeapOffsets without reading it (a std140 block may declare
+            // a prefix of what the CPU uploads, so the field is harmless there).
+            // Keying on the declaration would mark those as offset-readers and
+            // make BindPBRTextures skip binds their slot-based samplers still
+            // need — unlit meshes, silently. Only the OLO_MATERIAL_* accessors
+            // appear in a shader that actually samples through the offsets.
+            if (stageSource.find("OLO_MATERIAL_") != std::string::npos)
+            {
+                m_ReadsMaterialHeapOffsets = true;
+            }
             if (Utils::DeclaresGBufferOutput(stageSource, kGBufferPrefix, kGBufferSentinels))
             {
                 m_IsDeferredCapable = true;
@@ -990,6 +1005,8 @@ namespace OloEngine
                 break;
             }
         }
+
+        Shader::RegisterProgramMaterialOffsets(m_RendererID, m_ReadsMaterialHeapOffsets);
 
         OLO_CORE_INFO("[Bindless] '{}' built through the raw-GLSL route (no SPIR-V).", m_Name);
         return true;
@@ -2192,6 +2209,7 @@ namespace OloEngine
         // RGCommandContext::BindTextureOrHeapOffset would skip the bind for a
         // program that reads sampler binding points (issue #691 Phase 3).
         Shader::SetBoundProgramBindless(m_IsBindlessVariant);
+        Shader::SetBoundProgramMaterialOffsets(m_ReadsMaterialHeapOffsets);
 
         // Update profiler counters
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::ShaderBinds, 1);
@@ -2212,6 +2230,7 @@ namespace OloEngine
         // program that is no longer in flight — recording an offset and skipping
         // the bind for nobody (issue #691 Phase 3).
         Shader::SetBoundProgramBindless(false);
+        Shader::SetBoundProgramMaterialOffsets(false);
     }
     void OpenGLShader::SetInt(const std::string& name, const int value) const
     {

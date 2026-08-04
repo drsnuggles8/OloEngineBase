@@ -260,6 +260,11 @@ namespace OloEngine
         // exposed so a pass can assert it is not writing heap offsets at a
         // program that has no heap in it.
         bool m_IsBindlessVariant = false;
+        // True when this program declares u_MaterialHeapOffsets, i.e. reads its
+        // MATERIAL textures from the material UBO rather than from sampler
+        // bindings. NOT the same as m_IsBindlessVariant — see
+        // Shader::ReadsMaterialHeapOffsets (issue #691 Phase 3).
+        bool m_ReadsMaterialHeapOffsets = false;
 
         // Paths resolved during #include expansion — used to invalidate shader
         // cache when any include file is modified (not just the main .glsl).
