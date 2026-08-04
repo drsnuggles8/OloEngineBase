@@ -2374,28 +2374,6 @@ static void CameraRigComponent_SetFallbackPitchDeg(UUID entityID, float value)
     comp.m_FallbackPitchDeg = value;
 }
 
-static float CameraRigComponent_GetCurrentBoomLength(UUID entityID)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<CameraRigComponent>();
-    return comp.m_CurrentBoomLength;
-}
-
-static void CameraRigComponent_SetCurrentBoomLength(UUID entityID, float value)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    if (!std::isfinite(value))
-        return;
-    auto& comp = entity.GetComponent<CameraRigComponent>();
-    comp.m_CurrentBoomLength = value;
-}
-
 ///////////////////////////////////////////////////////////////////////////////////////////
 // CapsuleCollider3DComponent                                                     //
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -6633,48 +6611,6 @@ static void PlayerRigComponent_SetJumpInput(UUID entityID, bool value)
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<PlayerRigComponent>();
     comp.m_JumpInput = value;
-}
-
-static float PlayerRigComponent_GetPlanarSpeed(UUID entityID)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<PlayerRigComponent>();
-    return comp.m_PlanarSpeed;
-}
-
-static void PlayerRigComponent_SetPlanarSpeed(UUID entityID, float value)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    if (!std::isfinite(value))
-        return;
-    auto& comp = entity.GetComponent<PlayerRigComponent>();
-    comp.m_PlanarSpeed = value;
-}
-
-static bool PlayerRigComponent_GetGrounded(UUID entityID)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<PlayerRigComponent>();
-    return comp.m_Grounded;
-}
-
-static void PlayerRigComponent_SetGrounded(UUID entityID, bool value)
-{
-    Scene* scene = ScriptEngine::GetSceneContext();
-    OLO_CORE_ASSERT(scene);
-    Entity entity = scene->GetEntityByUUID(entityID);
-    OLO_CORE_ASSERT(entity);
-    auto& comp = entity.GetComponent<PlayerRigComponent>();
-    comp.m_Grounded = value;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////

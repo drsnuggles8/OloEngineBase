@@ -458,10 +458,6 @@ namespace OloEngine
 		internal static extern float CameraRigComponent_GetFallbackPitchDeg(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void CameraRigComponent_SetFallbackPitchDeg(ulong entityID, float value);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float CameraRigComponent_GetCurrentBoomLength(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void CameraRigComponent_SetCurrentBoomLength(ulong entityID, float value);
 		#endregion
 
 		#region CapsuleCollider3DComponent
@@ -1303,14 +1299,6 @@ namespace OloEngine
 		internal static extern bool PlayerRigComponent_GetJumpInput(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void PlayerRigComponent_SetJumpInput(ulong entityID, bool value);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern float PlayerRigComponent_GetPlanarSpeed(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void PlayerRigComponent_SetPlanarSpeed(ulong entityID, float value);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern bool PlayerRigComponent_GetGrounded(ulong entityID);
-		[MethodImpl(MethodImplOptions.InternalCall)]
-		internal static extern void PlayerRigComponent_SetGrounded(ulong entityID, bool value);
 		#endregion
 
 		#region PointLightComponent

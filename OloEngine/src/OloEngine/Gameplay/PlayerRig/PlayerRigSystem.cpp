@@ -561,6 +561,15 @@ namespace OloEngine
                 const glm::vec3 travel = targetPosition - rig.m_PrevTargetPosition;
                 const f32 planarDistance = std::sqrt(travel.x * travel.x + travel.z * travel.z);
                 const f32 frequency = std::isfinite(rig.m_HeadBobFrequency) ? std::max(0.0f, rig.m_HeadBobFrequency) : 0.0f;
+                // A non-finite phase LATCHES: fmod(NaN + x, 2pi) is NaN, so is
+                // sin(NaN), so the camera position goes NaN and the finiteness
+                // guard below skips the transform write — for every subsequent
+                // tick, not just this one. The camera would freeze permanently
+                // and never recover on its own. Re-seed instead of accumulating.
+                if (!std::isfinite(rig.m_BobPhase))
+                {
+                    rig.m_BobPhase = 0.0f;
+                }
                 if (std::isfinite(planarDistance))
                 {
                     rig.m_BobPhase = std::fmod(rig.m_BobPhase + planarDistance * frequency * glm::two_pi<f32>(),

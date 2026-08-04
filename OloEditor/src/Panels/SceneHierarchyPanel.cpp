@@ -7160,15 +7160,10 @@ namespace OloEngine
             ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Planar speed: %.2f m/s  |  %s",
                                component.m_PlanarSpeed, component.m_Grounded ? "grounded" : "airborne"); });
 
-        DrawComponent<CameraRigComponent>("Camera Rig (Spring Arm)", entity, [](auto& component)
+        DrawComponent<CameraRigComponent>("Camera Rig (Spring Arm)", entity, [this](auto& component)
                                           {
             ImGui::SeparatorText("Target");
-            // UUID entry rather than a picker: the scene hierarchy panel has no
-            // entity-reference widget yet, and a wrong-typed handle simply
-            // leaves the rig idle rather than breaking anything.
-            u64 target = static_cast<u64>(component.m_Target);
-            if (ImGui::InputScalar("Target UUID", ImGuiDataType_U64, &target))
-                component.m_Target = UUID(target);
+            DrawEntityReferenceField("Target", "CameraRigTarget", component.m_Target);
             ImGui::DragFloat3("Pivot Offset", &component.m_PivotOffset.x, 0.05f);
 
             ImGui::SeparatorText("Boom");

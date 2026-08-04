@@ -174,10 +174,15 @@ namespace OloEngine
         // Horizontal speed the rig commanded this tick (m/s). CameraRigSystem
         // drives head-bob off the target's actual travel, not off this, so this
         // is purely introspection for scripts/animation.
-        OLO_PROPERTY()
+        //
+        // Deliberately NOT OLO_PROPERTY: the generator has no getter-only mode,
+        // so annotating these would emit a public C# SETTER for a value
+        // PlayerRigSystem overwrites every tick — a write that silently does
+        // nothing. Same treatment as BoidComponent's m_SteeringForce /
+        // m_NeighborCount, which are read-only introspection in exactly the same
+        // way. Lua exposes them properly via sol::readonly.
         OLO_SERIALIZE(Skip)
         f32 m_PlanarSpeed = 0.0f;
-        OLO_PROPERTY()
         OLO_SERIALIZE(Skip)
         bool m_Grounded = false;
 
@@ -235,7 +240,13 @@ namespace OloEngine
     {
         // Entity to follow. 0 disables the rig (the camera keeps its authored
         // transform), which is also what happens if the UUID doesn't resolve.
-        OLO_PROPERTY()
+        //
+        // No OLO_PROPERTY: UUID is not a type the C# binding generator emits, so
+        // the annotation would be dead. That matches every other entity
+        // reference in the engine — IKTargetComponent::AimTargetEntity,
+        // PhysicsJoint3DComponent::m_ConnectedEntity, ClothComponent::
+        // m_AttachmentEntity and friends are all editor + serializer only. Lua
+        // does expose it, as an explicit u64 property (see LuaScriptGlue).
         UUID m_Target = 0;
 
         // Pivot offset from the target's origin, in the target's YAW frame
@@ -305,8 +316,10 @@ namespace OloEngine
         f32 m_FallbackPitchDeg = -12.0f;
 
         // ── Runtime (recomputed every tick, never persisted) ─────────────────
-        // Current (possibly pulled-in) boom length.
-        OLO_PROPERTY()
+        // Current (possibly pulled-in) boom length. Read-only introspection —
+        // not OLO_PROPERTY, for the same reason as PlayerRigComponent's
+        // m_PlanarSpeed: CameraRigSystem rewrites it every tick, so a generated
+        // C# setter would be a write that silently does nothing.
         OLO_SERIALIZE(Skip)
         f32 m_CurrentBoomLength = 0.0f;
         OLO_SERIALIZE(Skip)

@@ -231,8 +231,6 @@ OLO_ADD_INTERNAL_CALL(CameraRigComponent_GetHeadBobFrequency);
 OLO_ADD_INTERNAL_CALL(CameraRigComponent_SetHeadBobFrequency);
 OLO_ADD_INTERNAL_CALL(CameraRigComponent_GetFallbackPitchDeg);
 OLO_ADD_INTERNAL_CALL(CameraRigComponent_SetFallbackPitchDeg);
-OLO_ADD_INTERNAL_CALL(CameraRigComponent_GetCurrentBoomLength);
-OLO_ADD_INTERNAL_CALL(CameraRigComponent_SetCurrentBoomLength);
 
 // CapsuleCollider3DComponent
 OLO_ADD_INTERNAL_CALL(CapsuleCollider3DComponent_GetRadius);
@@ -665,10 +663,6 @@ OLO_ADD_INTERNAL_CALL(PlayerRigComponent_GetSprintInput);
 OLO_ADD_INTERNAL_CALL(PlayerRigComponent_SetSprintInput);
 OLO_ADD_INTERNAL_CALL(PlayerRigComponent_GetJumpInput);
 OLO_ADD_INTERNAL_CALL(PlayerRigComponent_SetJumpInput);
-OLO_ADD_INTERNAL_CALL(PlayerRigComponent_GetPlanarSpeed);
-OLO_ADD_INTERNAL_CALL(PlayerRigComponent_SetPlanarSpeed);
-OLO_ADD_INTERNAL_CALL(PlayerRigComponent_GetGrounded);
-OLO_ADD_INTERNAL_CALL(PlayerRigComponent_SetGrounded);
 
 // PointLightComponent
 OLO_ADD_INTERNAL_CALL(PointLightComponent_GetColor);

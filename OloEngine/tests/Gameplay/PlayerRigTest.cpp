@@ -312,7 +312,7 @@ namespace OloEngine::Tests
         // Four quarter-steps too, so this is a real identity and not a lucky
         // coincidence at one subdivision.
         glm::vec3 fourQuarterSteps = kStart;
-        for (int i = 0; i < 4; ++i)
+        for (i32 i = 0; i < 4; ++i)
             fourQuarterSteps = CameraRigSystem::SmoothTowards(fourQuarterSteps, kTarget, kSmoothTime, kDt * 0.25f);
         ExpectVec3Near(fourQuarterSteps, oneStep, 1e-4f);
     }
@@ -327,7 +327,7 @@ namespace OloEngine::Tests
 
         glm::vec3 position = kStart;
         f32 previousGap = glm::length(kTarget - position);
-        for (int i = 0; i < 120; ++i)
+        for (i32 i = 0; i < 120; ++i)
         {
             position = CameraRigSystem::SmoothTowards(position, kTarget, 0.08f, 1.0f / 60.0f);
             const f32 gap = glm::length(kTarget - position);

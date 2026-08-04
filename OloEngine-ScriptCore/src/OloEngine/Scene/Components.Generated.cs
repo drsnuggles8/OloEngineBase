@@ -694,12 +694,6 @@ namespace OloEngine
 			get => InternalCalls.CameraRigComponent_GetFallbackPitchDeg(Entity.ID);
 			set => InternalCalls.CameraRigComponent_SetFallbackPitchDeg(Entity.ID, value);
 		}
-
-		public float CurrentBoomLength
-		{
-			get => InternalCalls.CameraRigComponent_GetCurrentBoomLength(Entity.ID);
-			set => InternalCalls.CameraRigComponent_SetCurrentBoomLength(Entity.ID, value);
-		}
 	}
 
 	public partial class CapsuleCollider3DComponent : Component
@@ -2050,18 +2044,6 @@ namespace OloEngine
 		{
 			get => InternalCalls.PlayerRigComponent_GetJumpInput(Entity.ID);
 			set => InternalCalls.PlayerRigComponent_SetJumpInput(Entity.ID, value);
-		}
-
-		public float PlanarSpeed
-		{
-			get => InternalCalls.PlayerRigComponent_GetPlanarSpeed(Entity.ID);
-			set => InternalCalls.PlayerRigComponent_SetPlanarSpeed(Entity.ID, value);
-		}
-
-		public bool Grounded
-		{
-			get => InternalCalls.PlayerRigComponent_GetGrounded(Entity.ID);
-			set => InternalCalls.PlayerRigComponent_SetGrounded(Entity.ID, value);
 		}
 	}
 

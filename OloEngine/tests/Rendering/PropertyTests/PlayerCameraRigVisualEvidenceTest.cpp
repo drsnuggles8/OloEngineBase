@@ -107,6 +107,15 @@ namespace OloEngine::Tests
         constexpr f32 kBoomLength = 4.0f;
         constexpr f32 kMinBoomLength = 0.6f;
 
+        // How far back the character walks for the pulled-in pose. The wall's
+        // near face sits at kWallCentreZ - kWallHalfThickness = 5.5, so stopping
+        // at 3.3 leaves ~2.2 m of clearance: comfortably inside the 4 m boom
+        // (so the probe fires) and comfortably above kMinBoomLength (so the arm
+        // does not bottom out). The cap only exists so a rig that stopped moving
+        // fails loudly instead of spinning.
+        constexpr f32 kWallApproachZ = 3.3f;
+        constexpr u32 kMaxDriveFrames = 600;
+
         // The character's albedo. Deliberately a saturated orange that nothing
         // else in the scene wears, so "how much of the frame is the character"
         // is a simple per-pixel colour test rather than a segmentation problem.
@@ -328,8 +337,13 @@ namespace OloEngine::Tests
             std::error_code ec;
             fs::create_directories(dir, ec);
             const fs::path out = dir / ("PlayerRig_" + poseName + ".png");
-            stbi_write_png(out.string().c_str(), static_cast<int>(width), static_cast<int>(height), 4,
-                           outRgba.data(), static_cast<int>(width) * 4);
+            // Checked: an unchecked write leaves the test green with no PNG on
+            // disk, which is the worst outcome for a test whose whole product is
+            // the PNG.
+            EXPECT_NE(stbi_write_png(out.string().c_str(), static_cast<int>(width), static_cast<int>(height), 4,
+                                     outRgba.data(), static_cast<int>(width) * 4),
+                      0)
+                << "failed to write evidence PNG: " << out.string();
 
             // Printed with every capture so a failure says WHERE the camera was,
             // not just that the pixels disappointed. A frame that looks wrong is
@@ -422,10 +436,29 @@ namespace OloEngine::Tests
         // interior. A partial pull-in is the case worth photographing, and it
         // exercises the interesting branch: clearance strictly between the floor
         // and the authored length.
+        // Driven to a POSITION, not for a fixed frame count. A hard-coded
+        // "walk backwards for 45 frames" silently encodes the preset's walk
+        // speed and the fixture's dt: change either and the character either
+        // never gets close enough to obstruct the boom, or presses into the wall
+        // and floors the arm at m_MinBoomLength — and the assertions below are a
+        // narrow band between those two. Stopping on the character's own Z makes
+        // the pose reproducible whatever the tick rate.
         PlayerRig().m_MoveInput = { 0.0f, -1.0f };
-        std::vector<u8> wallFrame;
-        Capture("ThirdPerson_Wall", 45, wallFrame);
+        u32 driveFrames = 0;
+        while (m_Player.GetComponent<TransformComponent>().Translation.z < kWallApproachZ &&
+               driveFrames < kMaxDriveFrames)
+        {
+            RunFrames(1);
+            ++driveFrames;
+        }
         PlayerRig().m_MoveInput = { 0.0f, 0.0f };
+        ASSERT_LT(driveFrames, kMaxDriveFrames)
+            << "the character never reached the approach mark (z=" << kWallApproachZ << "); it stopped at z="
+            << m_Player.GetComponent<TransformComponent>().Translation.z
+            << ". Without the approach there is no obstruction and the pose below is vacuous.";
+
+        std::vector<u8> wallFrame;
+        Capture("ThirdPerson_Wall", 2, wallFrame);
 
         const f32 wallBoom = CameraRig().m_CurrentBoomLength;
         EXPECT_LT(wallBoom, openBoom - 0.5f)
@@ -499,8 +532,11 @@ namespace OloEngine::Tests
         const fs::path dir = fs::path(OLO_TEST_EDITOR_ROOT) / "assets" / "tests" / "visual";
         std::error_code ec;
         fs::create_directories(dir, ec);
-        stbi_write_png((dir / "PlayerRig_EditorControl.png").string().c_str(), static_cast<int>(width),
-                       static_cast<int>(height), 4, editorFrame.data(), static_cast<int>(width) * 4);
+        const fs::path controlOut = dir / "PlayerRig_EditorControl.png";
+        EXPECT_NE(stbi_write_png(controlOut.string().c_str(), static_cast<int>(width), static_cast<int>(height), 4,
+                                 editorFrame.data(), static_cast<int>(width) * 4),
+                  0)
+            << "failed to write evidence PNG: " << controlOut.string();
 
         std::cout << "[rig-evidence] EditorControl  eye=(" << eye.x << ", " << eye.y << ", " << eye.z
                   << ")  orange=" << OrangePixelFraction(editorFrame)
