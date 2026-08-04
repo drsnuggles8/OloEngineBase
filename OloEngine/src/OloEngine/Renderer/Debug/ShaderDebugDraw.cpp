@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <utility>
 
 namespace OloEngine
@@ -186,6 +187,8 @@ namespace OloEngine
         // outlives the frame that was allowed to produce it.
         if (!IsEnabled())
             return;
+        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Line, data.CpuLines.size()))
+            return; // over the staging cap — counted as an attempt, not stored
         data.CpuLines.push_back(ShaderDebugDrawLine{ start, static_cast<u32>(std::to_underlying(space)), end, 0.0f,
                                                      color, 0.0f });
     }
@@ -204,6 +207,8 @@ namespace OloEngine
         // outlives the frame that was allowed to produce it.
         if (!IsEnabled())
             return;
+        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Circle, data.CpuCircles.size()))
+            return; // over the staging cap — counted as an attempt, not stored
         data.CpuCircles.push_back(ShaderDebugDrawCircle{ center, static_cast<u32>(std::to_underlying(space)), normal,
                                                          radius, color, 0.0f });
     }
@@ -222,6 +227,8 @@ namespace OloEngine
         // outlives the frame that was allowed to produce it.
         if (!IsEnabled())
             return;
+        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Rectangle, data.CpuRectangles.size()))
+            return; // over the staging cap — counted as an attempt, not stored
         data.CpuRectangles.push_back(ShaderDebugDrawRectangle{ center, static_cast<u32>(std::to_underlying(space)),
                                                                axisU, 0.0f, axisV, 0.0f, color, 0.0f });
     }
@@ -240,6 +247,8 @@ namespace OloEngine
         // outlives the frame that was allowed to produce it.
         if (!IsEnabled())
             return;
+        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::AABB, data.CpuAABBs.size()))
+            return; // over the staging cap — counted as an attempt, not stored
         data.CpuAABBs.push_back(ShaderDebugDrawAABB{ min, static_cast<u32>(std::to_underlying(space)), max, 0.0f, color,
                                                      0.0f });
     }
@@ -264,6 +273,8 @@ namespace OloEngine
         // outlives the frame that was allowed to produce it.
         if (!IsEnabled())
             return;
+        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Box, data.CpuBoxes.size()))
+            return; // over the staging cap — counted as an attempt, not stored
         data.CpuBoxes.push_back(entry);
     }
 
@@ -281,6 +292,8 @@ namespace OloEngine
         // outlives the frame that was allowed to produce it.
         if (!IsEnabled())
             return;
+        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Cone, data.CpuCones.size()))
+            return; // over the staging cap — counted as an attempt, not stored
         data.CpuCones.push_back(ShaderDebugDrawCone{ apex, static_cast<u32>(std::to_underlying(space)), axis, radius,
                                                      color, 0.0f });
     }
@@ -299,8 +312,24 @@ namespace OloEngine
         // outlives the frame that was allowed to produce it.
         if (!IsEnabled())
             return;
+        if (!AcceptCpuPush(data, ShaderDebugDrawPrimitive::Sphere, data.CpuSpheres.size()))
+            return; // over the staging cap — counted as an attempt, not stored
         data.CpuSpheres.push_back(ShaderDebugDrawSphere{ center, radius, color,
                                                          static_cast<u32>(std::to_underlying(space)) });
+    }
+
+    bool ShaderDebugDraw::AcceptCpuPush(Data& data, ShaderDebugDrawPrimitive primitive, sizet stagedCount)
+    {
+        u32& attempts = data.CpuAttempts[ChannelIndex(primitive)];
+        if (attempts != std::numeric_limits<u32>::max())
+            ++attempts;
+        data.HasPendingCpuEntries.store(true, std::memory_order_relaxed);
+
+        // Bound the STAGING VECTOR, not just the GPU channel. Capping the
+        // channel alone still let a gameplay system in a loop grow this
+        // vector without limit — same defect, CPU side. The attempt above is
+        // already recorded, so a refused push still surfaces as overflow.
+        return stagedCount < kMaxChannelCapacity;
     }
 
     void ShaderDebugDraw::ClearCpuEntries()
@@ -313,6 +342,11 @@ namespace OloEngine
         data.CpuBoxes.clear();
         data.CpuCones.clear();
         data.CpuSpheres.clear();
+        // Reset with the vectors, never separately: an attempt counter that
+        // outlived its entries would report a phantom overflow, and a stale
+        // pending flag would make every disabled frame take the lock again.
+        data.CpuAttempts.fill(0);
+        data.HasPendingCpuEntries.store(false, std::memory_order_relaxed);
     }
 
     // -------------------------------------------------------------------------
@@ -367,6 +401,8 @@ namespace OloEngine
 
     void ShaderDebugDraw::BeginFrame()
     {
+        OLO_PROFILE_FUNCTION();
+
         auto& data = Get();
         if (!data.Initialised)
             return;
@@ -395,12 +431,18 @@ namespace OloEngine
                 }
                 data.Stats = {};
             }
-            // Under the lock, same as the enabled path below — and the clear is
-            // final rather than best-effort, because data.Enabled is already
-            // false here and the appenders re-check it after acquiring this
-            // same mutex. A worker that passed its pre-lock check and is parked
-            // here therefore observes the disable and drops its append instead
-            // of repopulating what we just emptied.
+            // Steady-state disabled costs ONE relaxed atomic load and nothing
+            // else — no lock, no clears. Taking the mutex every disabled frame
+            // to clear seven already-empty vectors contradicted the
+            // zero-cost-when-disabled contract this header advertises.
+            //
+            // Reading the flag unlocked is safe: while disabled the appenders
+            // re-check the gate after acquiring CpuMutex and never stage, so
+            // `false` genuinely means empty. `true` only happens on the frame a
+            // push raced the toggle, and then the clear below is final for the
+            // same reason — a worker parked on the lock observes the disable and
+            // drops its append instead of repopulating what we just emptied.
+            if (data.HasPendingCpuEntries.load(std::memory_order_relaxed))
             {
                 const std::scoped_lock lock(data.CpuMutex);
                 ClearCpuEntries();
@@ -413,6 +455,11 @@ namespace OloEngine
         const auto prepare = [&](ShaderDebugDrawPrimitive primitive, const auto& cpuEntries)
         {
             auto& channel = data.Channels[ChannelIndex(primitive)];
+            // `attempted` counts every push the frame ASKED for, including any
+            // the staging cap refused; `staged` is what actually made it into
+            // the vector. Reporting `attempted` as RequestCount is what keeps a
+            // CPU-side flood visible as an overflow rather than a quiet trim.
+            const u32 attempted = data.CpuAttempts[ChannelIndex(primitive)];
             const auto requested = static_cast<u32>(cpuEntries.size());
             // Grow past the configured capacity when the CPU alone needs more —
             // a CPU push is not a "best effort" append the way a GPU one is (the
@@ -428,7 +475,7 @@ namespace OloEngine
             const u32 capacity = std::min(std::max(data.RequestedCapacity, requested), kMaxChannelCapacity);
             EnsureChannelCapacity(channel, primitive, capacity);
             const u32 accepted = std::min(requested, channel.Capacity);
-            UploadChannel(primitive, cpuEntries.data(), accepted, requested);
+            UploadChannel(primitive, cpuEntries.data(), accepted, std::max(attempted, requested));
         };
 
         prepare(ShaderDebugDrawPrimitive::Line, data.CpuLines);
@@ -439,17 +486,15 @@ namespace OloEngine
         prepare(ShaderDebugDrawPrimitive::Cone, data.CpuCones);
         prepare(ShaderDebugDrawPrimitive::Sphere, data.CpuSpheres);
 
-        data.CpuLines.clear();
-        data.CpuCircles.clear();
-        data.CpuRectangles.clear();
-        data.CpuAABBs.clear();
-        data.CpuBoxes.clear();
-        data.CpuCones.clear();
-        data.CpuSpheres.clear();
+        // Via the helper so the attempt counters and the pending flag reset
+        // together with the vectors.
+        ClearCpuEntries();
     }
 
     void ShaderDebugDraw::StageStatsForReadback()
     {
+        OLO_PROFILE_FUNCTION();
+
         auto& data = Get();
         if (!data.Initialised || !data.Enabled)
             return;
@@ -487,6 +532,8 @@ namespace OloEngine
 
     void ShaderDebugDraw::ReadbackStats()
     {
+        OLO_PROFILE_FUNCTION();
+
         auto& data = Get();
         if (!data.StatsStaged)
             return;

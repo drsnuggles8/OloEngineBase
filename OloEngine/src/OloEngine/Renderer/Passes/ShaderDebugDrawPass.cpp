@@ -196,6 +196,13 @@ namespace OloEngine
         // regression. Verified against the guard's own diff: with this call the
         // only state it still reports are the deliberate program/VAO unbinds.
         context.ResetOpaqueForwardDrawState();
+        // ResetOpaqueForwardDrawState restores the cull MODE (glCullFace) but
+        // never re-enables the CAPABILITY, so on its own it does not undo the
+        // DisableCulling() above — the GLStateGuard kept reporting
+        // `CullFace: true -> false` escaping this pass, which is how this was
+        // caught. Culling has to be off for the draw itself: a segment's quad
+        // winding depends on the direction the segment happens to run.
+        RenderCommand::EnableCulling();
         m_SceneFramebuffer->Unbind();
         RenderCommand::BindVertexArrayRaw(RHI::NullResource);
         RenderCommand::BindShaderProgram(RHI::NullResource);

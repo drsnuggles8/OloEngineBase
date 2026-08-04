@@ -149,6 +149,19 @@ namespace OloEngine
             std::vector<ShaderDebugDrawCone> CpuCones;
             std::vector<ShaderDebugDrawSphere> CpuSpheres;
             std::mutex CpuMutex;
+            // Attempted CPU pushes this frame, per primitive — including the
+            // ones refused because the staging vector hit its cap. This, not
+            // the vector size, is what BeginFrame reports as RequestCount, so
+            // a CPU-side flood stays visible as an overflow instead of being
+            // silently trimmed. Guarded by CpuMutex.
+            std::array<u32, kShaderDebugDrawPrimitiveCount> CpuAttempts{};
+            // "Is there anything for a disabled frame to clean up?" Lets the
+            // disabled path skip taking CpuMutex entirely in steady state,
+            // which is what the header's zero-cost-when-disabled contract
+            // promises. Safe to read unlocked: while disabled the appenders
+            // re-check the gate under the lock and never stage, so `false`
+            // genuinely means empty.
+            std::atomic<bool> HasPendingCpuEntries{ false };
 
             ShaderDebugDrawStats Stats;
             // ATOMIC because the Draw*() appenders are documented as callable
@@ -170,6 +183,12 @@ namespace OloEngine
         static void EnsureChannelCapacity(Channel& channel, ShaderDebugDrawPrimitive primitive, u32 capacity);
         static void UploadChannel(ShaderDebugDrawPrimitive primitive, const void* entries, u32 entryCount,
                                   u32 requestedCount);
+        // Record an attempted CPU push and report whether it should be staged.
+        // Call with CpuMutex held. The counter SATURATES rather than wraps —
+        // a wrapped count would turn a huge overflow into a small one, which
+        // is precisely the opposite of what the overflow flag is for.
+        [[nodiscard]] static bool AcceptCpuPush(Data& data, ShaderDebugDrawPrimitive primitive,
+                                                sizet stagedCount);
         static void ClearCpuEntries();
         static void ReadbackStats();
     };
