@@ -99,6 +99,22 @@ namespace OloEngine::HeapBinding
     auto PublishTextureOffsetAndBind(u32 slot, RHI::ResourceHandle texture, RHI::HeapSlotLifetime lifetime,
                                      const RHI::SamplerDesc& sampler = {}) -> RHI::HeapOffset;
 
+    // Resolve a texture to a heap offset WITHOUT staging it in the shared table.
+    //
+    // FOR PER-MATERIAL OFFSETS, which are the reason the shared table is not the
+    // whole answer. The table is indexed by `TEX_*` slot and published by
+    // `FlushOffsets()`; a MATERIAL's textures change per draw, so routing them
+    // through it would mean re-uploading the whole table for every draw — the
+    // per-draw cost bindless exists to remove. Their offsets instead ride in the
+    // material UBO, which the draw path already uploads per material, so carrying
+    // nine more integers there costs nothing extra (ADR 0011 §1.2, amendment (32)).
+    //
+    // Returns an invalid offset when the heap path is not live for the program in
+    // flight, so the caller keeps binding the old way — the same fork every other
+    // entry point here makes, just without the write.
+    [[nodiscard]] auto ResolveTextureOffset(RHI::ResourceHandle texture, RHI::HeapSlotLifetime lifetime,
+                                            const RHI::SamplerDesc& sampler = {}) -> RHI::HeapOffset;
+
     // True when the program in flight reads the offset table, i.e. when a bind
     // through this seam records an offset instead of touching the driver.
     //

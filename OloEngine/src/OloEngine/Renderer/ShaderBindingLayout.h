@@ -145,6 +145,31 @@ namespace OloEngine
             f32 IBLIntensity = 1.0f;     // Runtime IBL strength multiplier
             i32 AlphaMode = 0;           // 0=Opaque, 1=Mask, 2=Blend (matches AlphaMode enum)
             i32 _pbrPad2 = 0;
+
+            // PER-MATERIAL HEAP OFFSETS (issue #691 Phase 3, ADR 0011 amendment (32)).
+            //
+            // WHY THESE LIVE HERE AND NOT IN THE SHARED OFFSET TABLE. That table is
+            // indexed by `TEX_*` slot and published by `HeapBinding::FlushOffsets()`
+            // — right for a PASS, which binds a handful of inputs once. A MATERIAL's
+            // nine textures change per draw, so routing them through it would upload
+            // the whole table every draw: exactly the per-draw cost bindless exists
+            // to remove. This UBO is ALREADY uploaded per material, so carrying nine
+            // more integers is free, and the nine `glBindTextureUnit` calls
+            // BindPBRTextures used to issue go away.
+            //
+            // uvec4-shaped for the same std140 reason as the shared table: a
+            // `uint[9]` pads to a 16-byte stride and would read every fourth entry,
+            // sampling three wrong textures out of four — silently, and with
+            // entirely plausible output.
+            //
+            // Order is fixed and mirrored by OLO_MATERIAL_* in include/BindlessHeap.glsl:
+            //   [0] = .x albedo   .y metallicRoughness .z normal    .w ao
+            //   [1] = .x emissive .y environment       .z irradiance .w prefilter
+            //   [2] = .x brdfLut  .y diffuse (legacy)  .z specular (legacy) .w unused
+            // A slot holding kNullHeapOffset means "no map"; the shader's existing
+            // Use*Map flags already gate whether it samples at all.
+            glm::uvec4 HeapOffsets[3]{};
+
             static constexpr u32 GetSize()
             {
                 return sizeof(PBRMaterialUBO);
@@ -801,7 +826,12 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) % 16 == 0, "ForwardPlusUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) == 48, "ForwardPlusUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO size must be 16-byte aligned for std140");
-    static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 96, "PBRMaterialUBO unexpected size — update GLSL layout");
+    // 96 -> 144: three uvec4 of per-material heap offsets (issue #691 Phase 3).
+    // Every .glsl declaring PBRMaterialUBO must gain the matching trailing
+    // `uvec4 u_MaterialHeapOffsets[3];` — this assert is what stops the C++ and
+    // GLSL layouts drifting, which std140 would otherwise punish by silently
+    // shifting every field after the divergence.
+    static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 144, "PBRMaterialUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) % 16 == 0, "SelectionOutlineUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) == 304, "SelectionOutlineUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::GTAOUBO) % 16 == 0, "GTAOUBO size must be 16-byte aligned for std140");

@@ -133,6 +133,33 @@ namespace OloEngine::HeapBinding
         }
     } // namespace
 
+    auto ResolveTextureOffset(const RHI::ResourceHandle texture, const RHI::HeapSlotLifetime lifetime,
+                              const RHI::SamplerDesc& sampler) -> RHI::HeapOffset
+    {
+        if (!HeapPathIsLive())
+        {
+            return {};
+        }
+
+        RHI::ViewDesc viewDesc;
+        viewDesc.Resource = texture;
+
+        if (const RHI::ViewHandle view =
+                RHI::DescriptorHeap::Get().GetOrCreateView(texture, viewDesc, sampler, lifetime);
+            view.IsValid())
+        {
+            // Fetched at the point of USE, never stored — ADR 0011 §1.2. The
+            // caller writes it straight into the material UBO it is about to
+            // upload, so it never outlives the draw it was minted for.
+            return RHI::OffsetOf(view);
+        }
+
+        // A dead resource or an exhausted heap. An invalid offset tells the caller
+        // to keep binding, which is the same fallback every other entry point
+        // here takes — the material simply renders through the slot path.
+        return {};
+    }
+
     auto WritesOffsetsForBoundProgram() -> bool
     {
         return HeapPathIsLive();

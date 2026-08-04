@@ -42,6 +42,89 @@ namespace OloEngine
 {
     namespace Utils
     {
+        // Does this fragment source declare a G-BUFFER OUTPUT?
+        //
+        // The bindless route has no SPIR-V, so `Reflect()` never runs and cannot
+        // set `m_IsDeferredCapable` from SPIRV-Cross's `stage_outputs`. This reads
+        // the same fact off the source. It must mirror Reflect()'s criteria — a
+        // name starting with `o_GBuffer`, or one of the three sentinels — because
+        // a shader classified differently by the two routes would render through a
+        // different bucket depending only on whether the heap is on (issue #691).
+        //
+        // It matches a DECLARATION, not a mention: the name must be the declared
+        // identifier of an `out` statement. Scanning for the bare name would also
+        // fire on a shader that merely SAMPLES a G-Buffer target — DeferredLighting
+        // reads `gAlbedo` — and would misclassify a consumer as a producer.
+        [[nodiscard]] static bool DeclaresGBufferOutput(std::string_view source, std::string_view prefix,
+                                                        std::span<const std::string_view> sentinels)
+        {
+            for (sizet lineStart = 0; lineStart < source.size();)
+            {
+                const sizet lineEnd = std::min(source.find('\n', lineStart), source.size());
+                const std::string_view line = source.substr(lineStart, lineEnd - lineStart);
+                lineStart = lineEnd + 1u;
+
+                // Strip a line comment so `// writes o_GBufferAlbedo` cannot match.
+                const std::string_view code = line.substr(0, std::min(line.find("//"), line.size()));
+
+                // An `out` declaration, as a whole word — not `layout`, not `output`.
+                sizet outPos = code.find("out ");
+                bool isDeclaration = false;
+                while (outPos != std::string_view::npos)
+                {
+                    const bool leftOk = (outPos == 0) ||
+                                        !(std::isalnum(static_cast<unsigned char>(code[outPos - 1])) ||
+                                          code[outPos - 1] == '_');
+                    if (leftOk)
+                    {
+                        isDeclaration = true;
+                        break;
+                    }
+                    outPos = code.find("out ", outPos + 1u);
+                }
+                if (!isDeclaration)
+                {
+                    continue;
+                }
+
+                // The declared name is the last identifier before the ';'.
+                const sizet semi = code.find(';', outPos);
+                if (semi == std::string_view::npos)
+                {
+                    continue;
+                }
+                sizet nameEnd = semi;
+                while (nameEnd > outPos && std::isspace(static_cast<unsigned char>(code[nameEnd - 1])))
+                {
+                    --nameEnd;
+                }
+                sizet nameStart = nameEnd;
+                while (nameStart > outPos && (std::isalnum(static_cast<unsigned char>(code[nameStart - 1])) ||
+                                              code[nameStart - 1] == '_'))
+                {
+                    --nameStart;
+                }
+                const std::string_view name = code.substr(nameStart, nameEnd - nameStart);
+                if (name.empty())
+                {
+                    continue;
+                }
+
+                if (name.starts_with(prefix))
+                {
+                    return true;
+                }
+                for (const std::string_view sentinel : sentinels)
+                {
+                    if (name == sentinel)
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
         static std::atomic<bool> s_DisableShaderCache{ false }; // Debug flag to disable shader caching
 
         // Debug API to control shader cache (exposed for external use)
@@ -707,14 +790,75 @@ namespace OloEngine
             // driver. Injecting here makes include placement a non-issue across
             // every converted shader instead of a per-file rule nobody can see.
             //
-            // This is the only text transform the route performs. Everything else
-            // is already include-resolved by PreProcess, deliberately: each extra
-            // transform is another way for the two variants to diverge in
-            // something other than the branch the author actually wrote.
+            // GL_ARB_shader_draw_parameters comes along for the Vulkan-builtin
+            // shim below; `: enable` (not `require`) so a driver without it still
+            // compiles every shader that does not name those builtins.
             static constexpr std::string_view kPrologue =
-                "#extension GL_ARB_bindless_texture : require\n#define OLO_BINDLESS 1\n";
+                "#extension GL_ARB_bindless_texture : require\n"
+                "#extension GL_ARB_shader_draw_parameters : enable\n"
+                "#define OLO_BINDLESS 1\n";
 
             std::string patched = stageSource;
+
+            // THE VULKAN-BUILTIN SHIM, and it is the one transform that makes the
+            // two variants MORE alike rather than less.
+            //
+            // The default route is shaderc(vulkan) -> SPIR-V -> SPIRV-Cross -> GLSL,
+            // and SPIRV-Cross is what rewrites Vulkan's vertex builtins into their
+            // GL spellings. This route bypasses SPIRV-Cross entirely, so without a
+            // shim the Vulkan names reach the GL compiler verbatim:
+            //
+            //     error C7531: global variable gl_InstanceIndex requires
+            //                  "#extension GL_KHR_vulkan_glsl : enable" before use
+            //
+            // and the shader degrades to the slot path with only a
+            // `.bindless.failed.glsl` dump to show for it. Renaming in the .glsl is
+            // NOT an option: the default path targets Vulkan, where the GL spellings
+            // do not exist. The shader genuinely needs both, and something has to
+            // bridge them.
+            //
+            // The replacements are SPIRV-Cross's own, taken from its output for
+            // these very shaders rather than derived from the spec:
+            //     gl_InstanceIndex -> (gl_InstanceID + gl_BaseInstanceARB)
+            //     gl_VertexIndex   -> gl_VertexID
+            // (SPIRV-Cross emits the base-instance term behind a
+            // `SPIRV_Cross_BaseInstance` macro defined to `gl_BaseInstanceARB`; the
+            // expression is inlined here because this route has no macro preamble
+            // of its own to hang it on.)
+            //
+            // Substituting the TEXT rather than `#define`-ing the names is required,
+            // not stylistic: GLSL reserves identifiers beginning with `gl_`, so
+            // `#define gl_InstanceIndex ...` is ill-formed.
+            struct VulkanBuiltinShim
+            {
+                std::string_view Vulkan;
+                std::string_view OpenGL;
+            };
+            static constexpr std::array<VulkanBuiltinShim, 2> kVulkanBuiltinShims{ {
+                { "gl_InstanceIndex", "(gl_InstanceID + gl_BaseInstanceARB)" },
+                { "gl_VertexIndex", "gl_VertexID" },
+            } };
+            for (const auto& [vulkanName, openglName] : kVulkanBuiltinShims)
+            {
+                for (sizet pos = patched.find(vulkanName); pos != std::string::npos;
+                     pos = patched.find(vulkanName, pos + openglName.size()))
+                {
+                    // Identifier-boundary guard on both ends, so a longer name that
+                    // merely CONTAINS one of these is left alone.
+                    const bool leftOk = (pos == 0) || !(std::isalnum(static_cast<unsigned char>(patched[pos - 1])) ||
+                                                        patched[pos - 1] == '_');
+                    const sizet after = pos + vulkanName.size();
+                    const bool rightOk = (after >= patched.size()) ||
+                                         !(std::isalnum(static_cast<unsigned char>(patched[after])) ||
+                                           patched[after] == '_');
+                    if (!leftOk || !rightOk)
+                    {
+                        pos = after;
+                        continue;
+                    }
+                    patched.replace(pos, vulkanName.size(), openglName);
+                }
+            }
             if (const sizet versionPos = patched.find("#version"); versionPos != std::string::npos)
             {
                 const sizet eol = patched.find('\n', versionPos);
@@ -808,26 +952,41 @@ namespace OloEngine
         m_CompilationStatus = ShaderCompilationStatus::Ready;
 
         // NO SPIR-V MEANS NO Reflect(), so two pieces of state the ordinary route
-        // sets are absent here: `m_IsDeferredCapable` and the resource registry's
-        // discovered bindings. Every shader converted so far is post-processing,
-        // where neither matters — but a G-Buffer shader taken down this route
-        // would be silently misrouted out of the deferred producer bucket into
-        // the forward-overlay fallback, which is a whole-frame behaviour change
-        // with no error anywhere.
+        // sets would be absent here. This recovers the one that matters.
         //
-        // Detecting it costs one substring scan of source we already hold, and it
-        // fails loudly at the moment someone converts such a shader rather than
-        // during a confusing frame-debugging session later.
+        // `m_IsDeferredCapable` decides whether Renderer3DMeshSubmission routes a
+        // mesh into the deferred producer bucket or the forward-overlay fallback,
+        // so leaving it false silently misroutes a G-Buffer shader — a whole-frame
+        // behaviour change with no error anywhere. That is why this route used to
+        // REFUSE such shaders outright.
+        //
+        // It does not have to. Reflect() sets the flag from SPIRV-Cross's
+        // `stage_outputs`, and the same fact is legible in the source we already
+        // hold: a fragment `out` declaration whose name starts with `o_GBuffer` or
+        // is one of the three sentinels. Deriving it here costs one scan and
+        // unblocks every deferred shader for the heap.
+        //
+        // The OTHER absent piece — `m_ResourceRegistry`'s discovered resources —
+        // was checked rather than assumed: `SetResource`, the only thing that
+        // consumes them, has ZERO callers in the engine or the editor. Nothing
+        // reads that state, so its absence cannot misroute anything.
+        //
+        // Criteria mirror Reflect()'s exactly; if that list grows, grow this one
+        // (ShaderDeferredCapabilityTest pins the two against each other).
+        static constexpr std::string_view kGBufferPrefix = "o_GBuffer";
+        static constexpr std::array<std::string_view, 3> kGBufferSentinels{ "gAlbedo", "gNormalRoughAO",
+                                                                            "gEmissive" };
         for (const auto& [stage, stageSource] : m_OpenGLSourceCode)
         {
-            if (stageSource.find("o_GBuffer") != std::string::npos ||
-                stageSource.find("gNormalRoughAO") != std::string::npos)
+            if (stage != GL_FRAGMENT_SHADER)
             {
-                OLO_CORE_ERROR("[Bindless] '{}' looks like a G-Buffer shader, but the bindless route produces no "
-                               "SPIR-V and therefore never runs Reflect() — m_IsDeferredCapable stays false and the "
-                               "shader would be misrouted to the forward-overlay fallback. Give the bindless route a "
-                               "reflection source before converting deferred shaders (issue #691 Phase 3).",
-                               m_Name);
+                continue;
+            }
+            if (Utils::DeclaresGBufferOutput(stageSource, kGBufferPrefix, kGBufferSentinels))
+            {
+                m_IsDeferredCapable = true;
+                OLO_CORE_TRACE("    [Bindless] detected G-Buffer fragment outputs by source scan -> "
+                               "IsDeferredCapable=true");
                 break;
             }
         }

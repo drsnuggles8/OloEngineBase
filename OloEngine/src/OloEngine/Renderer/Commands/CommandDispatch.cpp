@@ -6,6 +6,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -84,6 +85,20 @@ namespace OloEngine
         RHI::ResourceHandle CurrentBoundVAO{};
         u16 LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
         u16 LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
+        // Heap re-initialisation epoch the cached material UBO was built under.
+        // Its per-material heap offsets index THAT heap, so the cache must be
+        // dropped when it bumps (issue #691 Phase 3).
+        u64 HeapEpoch = 0u;
+        // Whether the CACHED material UBO was built with live heap offsets.
+        //
+        // The cache is keyed on the material index, but an offset's validity
+        // depends on the PROGRAM in flight: ResolveTextureOffset returns nothing
+        // for a slot-based program. So a material uploaded while a slot-based
+        // shader was bound holds null offsets, and re-using that cached upload for
+        // a BINDLESS shader would skip the binds (BindPBRTextures) AND supply no
+        // offsets — the material renders with no textures at all. The program kind
+        // is therefore part of the cache key (issue #691 Phase 3).
+        bool LastMaterialOffsetsLive = false;
         std::array<RHI::ResourceHandle, ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS> BoundTextures{};
         u32 CurrentViewportWidth = 0;
         u32 CurrentViewportHeight = 0;
@@ -465,10 +480,54 @@ namespace OloEngine
         ++s_Data.Stats.TextureBinds;
     }
 
+    // Resolve a material's nine textures to heap offsets for the material UBO.
+    //
+    // Persistent lifetime throughout: these are asset-owned textures, never
+    // graph-pooled, so the descriptors are memoised and the offsets are stable
+    // across frames — which is what keeps the material UBO cacheable
+    // (issue #691 Phase 3, ADR 0011 amendment (32)).
+    //
+    // Order MUST match OLO_MATERIAL_* in include/BindlessHeap.glsl. Getting it
+    // wrong swaps two real textures rather than producing an obvious error.
+    static void WriteMaterialHeapOffsets(const PODMaterialData& mat,
+                                         ShaderBindingLayout::PBRMaterialUBO& ubo)
+    {
+        constexpr auto resolve = [](const RHI::ResourceHandle texture) -> u32
+        {
+            if (!texture.IsValid())
+            {
+                return RHI::kNullHeapOffset;
+            }
+            const RHI::HeapOffset offset =
+                HeapBinding::ResolveTextureOffset(texture, RHI::HeapSlotLifetime::Persistent);
+            return offset.IsValid() ? offset.Value : RHI::kNullHeapOffset;
+        };
+
+        ubo.HeapOffsets[0] = { resolve(mat.albedoMapID), resolve(mat.metallicRoughnessMapID),
+                               resolve(mat.normalMapID), resolve(mat.aoMapID) };
+        ubo.HeapOffsets[1] = { resolve(mat.emissiveMapID), resolve(mat.environmentMapID),
+                               resolve(mat.irradianceMapID), resolve(mat.prefilterMapID) };
+        ubo.HeapOffsets[2] = { resolve(mat.brdfLutMapID), resolve(mat.diffuseMapID),
+                               resolve(mat.specularMapID), RHI::kNullHeapOffset };
+    }
+
     // Helper: Bind all PBR material textures (albedo, metallic-roughness, normal,
     // AO, emissive, environment cubemap, irradiance, prefilter, BRDF LUT).
+    //
+    // THE NINE BINDS ARE THE POINT OF THE WHOLE PHASE. When the program in flight
+    // reads its material textures out of the heap, they are pure waste — the
+    // offsets already travelled in the material UBO. Skipping them here is what
+    // turns bindless from a lateral move into a win on the hot path.
+    //
+    // Gated on the PROGRAM, not on the heap toggle: a slot-based shader in a
+    // bindless-enabled build still needs every one of these
+    // (HeapBinding::WritesOffsetsForBoundProgram, issue #691 Phase 3).
     static void BindPBRTextures(const PODMaterialData& mat)
     {
+        if (HeapBinding::WritesOffsetsForBoundProgram())
+        {
+            return;
+        }
         BindTrackedTexture(mat.albedoMapID, ShaderBindingLayout::TEX_DIFFUSE);
         BindTrackedTexture(mat.metallicRoughnessMapID, ShaderBindingLayout::TEX_SPECULAR);
         BindTrackedTexture(mat.normalMapID, ShaderBindingLayout::TEX_NORMAL);
@@ -491,8 +550,24 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        const bool sameIndex = (materialDataIndex == s_Data.LastMaterialDataIndex);
+        // THE MATERIAL UBO IS CACHED ON THE MATERIAL INDEX, which is what makes
+        // per-material heap offsets free — they ride in a buffer that is only
+        // re-uploaded when the material actually changes. That cache has to be
+        // dropped across a heap re-initialisation, though: the offsets in it index
+        // the PREVIOUS heap, and unlike a stale texture bind that reads as a
+        // plausible wrong image rather than an obvious one (issue #691 Phase 3).
+        if (const u64 heapEpoch = RHI::DescriptorHeap::Get().GetInitEpoch(); heapEpoch != s_Data.HeapEpoch)
+        {
+            s_Data.HeapEpoch = heapEpoch;
+            s_Data.LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
+        }
+
+        // Part of the cache key, not an afterthought — see LastMaterialOffsetsLive.
+        const bool offsetsLive = HeapBinding::WritesOffsetsForBoundProgram();
+        const bool sameIndex = (materialDataIndex == s_Data.LastMaterialDataIndex) &&
+                               (offsetsLive == s_Data.LastMaterialOffsetsLive);
         s_Data.LastMaterialDataIndex = materialDataIndex;
+        s_Data.LastMaterialOffsetsLive = offsetsLive;
 
         if (mat.enablePBR)
         {
@@ -520,6 +595,18 @@ namespace OloEngine
                 // probe GI (baked SH or realtime DDGI) too.
                 pbrMaterialData.EnableLightProbes = Renderer3D::GetRendererSettings().Deferred.EnableLightProbes ? 1 : 0;
                 pbrMaterialData.IBLIntensity = mat.iblIntensity;
+
+                // Per-material heap offsets. Persistent, not FrameTransient: these
+                // are ASSET-owned textures, so their descriptors are memoised and
+                // stable — which is precisely what lets the UBO stay cached on the
+                // material index instead of being re-uploaded every frame. A
+                // FrameTransient offset would go stale at the frame boundary while
+                // the cache happily served last frame's value.
+                //
+                // Every one resolves to an invalid offset when the heap path is not
+                // live for the program in flight, so the slot-path binds below still
+                // happen and nothing changes on the default path.
+                WriteMaterialHeapOffsets(mat, pbrMaterialData);
 
                 if (s_Data.MaterialUBO)
                 {

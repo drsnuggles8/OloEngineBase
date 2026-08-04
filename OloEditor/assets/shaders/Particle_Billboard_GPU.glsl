@@ -165,28 +165,23 @@ layout(location = 2) in flat int v_EntityID;
 layout(location = 3) in vec4 v_ClipPosCurr;
 layout(location = 4) in vec4 v_ClipPosPrev;
 
-// DELIBERATELY NOT HEAP-BINDLESS (issue #691 Phase 3, bucket 1).
+#include "include/BindlessHeap.glsl"
+
+// Heap-bindless conversion (issue #691 Phase 3, bucket 1). Both slots move
+// together — ParticleBatchRenderer::BindParticleTextures stages both in one
+// call (glsl-shaders.md §5c).
 //
-// This shader's vertex stage reads gl_InstanceIndex, which is the VULKAN
-// spelling. On the normal path that is fine: the pipeline runs
-// shaderc(target=vulkan) -> SPIR-V -> SPIRV-Cross -> GLSL 450, and SPIRV-Cross
-// rewrites it to gl_InstanceID for the GL target. The bindless route BYPASSES
-// that entire translation (it feeds the original GLSL straight to
-// glShaderSource), so the Vulkan builtin reaches the GL compiler verbatim and
-// is rejected:
-//
-//     error C7531: global variable gl_InstanceIndex requires
-//                  "#extension GL_KHR_vulkan_glsl : enable" before use
-//
-// The engine degrades to the slot path silently when a bindless build fails,
-// so the only trace was a .bindless.failed.glsl dump. Renaming to gl_InstanceID
-// is NOT a fix — the default SPIR-V path targets Vulkan, where that spelling
-// does not exist. Any shader using a Vulkan-only builtin (gl_InstanceIndex,
-// gl_VertexIndex, ...) is unconvertible until the bindless route gains a
-// translation step. ParticleBatchRenderer still binds through the seam, which
-// falls back correctly for this non-bindless program.
+// This shader reads gl_InstanceIndex, the VULKAN spelling. It used to be
+// unconvertible for that reason; the bindless route now applies SPIRV-Cross's
+// own translation itself, so the Vulkan spelling stays here — correct for the
+// default SPIR-V path — and the GL route rewrites it.
+#ifdef OLO_BINDLESS
+#define u_Texture OLO_HEAP_TEX_2D(0)
+#define u_DepthTexture OLO_HEAP_TEX_2D(1)
+#else
 layout(binding = 0) uniform sampler2D u_Texture;
 layout(binding = 1) uniform sampler2D u_DepthTexture;
+#endif
 
 layout(std140, binding = 2) uniform ParticleParams
 {

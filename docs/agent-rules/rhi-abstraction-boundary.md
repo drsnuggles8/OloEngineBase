@@ -1727,6 +1727,58 @@ If a live A/B is ever genuinely needed, pause the scene or pick a static one
 first, and publish the same-config floor next to the number — a floor is only
 reassuring when it is *small*.
 
+### A BINDLESS DESCRIPTOR BAKES SAMPLER STATE — the slot path does not
+
+This is the one thing that stops the per-material conversion today, and it is a
+property of the model rather than a bug in the plumbing.
+
+`glGetTextureSamplerHandleARB` folds sampler state **into the handle**. A
+slot-based bind does not: `glBindTextureUnit` uses whatever wrap/filter/anisotropy
+the *texture object* carries. So a converted shader samples with the state its
+DESCRIPTOR was minted with, and an unconverted one with the state the OBJECT
+carries — and if those disagree, the two variants render differently while both
+look entirely plausible.
+
+`RHI::SamplerDesc{}` defaults to `AddressU/V/W = ClampToEdge` and
+`MaxAnisotropy = 1.0`. That is exactly right for a render target, which is why
+every pass conversion so far has been able to pass `{}` and see no difference.
+It is exactly wrong for a **material** texture, which is typically `Repeat` with
+anisotropic filtering.
+
+Measured on `WorldOriginRebaseVisualEvidenceTest.RebaseProducesNoVisiblePop`,
+which compares a frame before and after a floating-origin shift:
+
+| configuration | RMSE |
+|---|---|
+| heap OFF | **1.413** |
+| heap ON, C++ per-material plumbing live, shader NOT converted | **1.413** |
+| heap ON, `PBR_MultiLight` converted with a default `SamplerDesc` | **5.861** (threshold 5.0) |
+
+The middle row is the control that makes the attribution safe: the plumbing alone
+changes nothing, so the divergence is the shader reading through descriptors
+minted with the wrong sampler state — not the offsets, not the bind-skip, not the
+UBO cache.
+
+**Why it cannot be patched at the resolve site.** `RHI::ResourceRegistry` stores
+`(kind, nativeHandle, owner)` and nothing else, so a `ResourceHandle` cannot reach
+its sampler parameters. The only existing site that passes a non-default sampler
+(SSAO's noise texture) does so because the *call site* knows what that texture
+needs. For materials the call site is `CommandDispatch`, which sees only
+`PODMaterialData` — nine handles and no sampler state.
+
+**So the remaining work is: carry sampler state per material texture** (wrap and
+anisotropy at minimum) from the Material asset into `PODMaterialData`, and pass it
+to `HeapBinding::ResolveTextureOffset`. Everything else for the material path is
+already in place and verified: the offsets in `PBRMaterialUBO`, the epoch and
+program-kind cache keys, the `OLO_MATERIAL_*` accessors, and
+`BindPBRTextures`'s early-out that removes nine `glBindTextureUnit` calls per
+material.
+
+**Do not "fix" this by assuming materials are Repeat+aniso.** That swaps one
+plausible-but-wrong default for another, and the failure mode is a subtly
+different image rather than an error — the exact class this issue keeps
+producing.
+
 ### Every texture type that mints an identity owes a retire
 
 `~OpenGLTexture2DArray` and `~OpenGLTexture3D` called

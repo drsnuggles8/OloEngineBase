@@ -138,6 +138,37 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 #define OLO_HEAP_TEX_CUBE(texSlot) OLO_HEAP_SAMPLER_CUBE(OLO_HEAP_OFFSET(texSlot))
 
 // -----------------------------------------------------------------------------
+// PER-MATERIAL OFFSETS — the second offset SOURCE (#691 Phase 3, amendment (32)).
+//
+// A material's textures change per draw, so routing them through the shared
+// g_OloHeapOffsets table would mean re-uploading that whole table every draw —
+// the exact per-draw cost bindless exists to remove. Their offsets instead ride
+// in PBRMaterialUBO, which the draw path already uploads per material, so the
+// nine `glBindTextureUnit` calls disappear for free.
+//
+// The declaring shader owns `u_MaterialHeapOffsets[3]` as the LAST member of its
+// PBRMaterialUBO block; these macros only name the lanes, so the index layout
+// lives in exactly one place on each side (CommandDispatch::WriteMaterialHeapOffsets
+// mirrors it).
+#define OLO_MATERIAL_ALBEDO_OFFSET u_MaterialHeapOffsets[0].x
+#define OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET u_MaterialHeapOffsets[0].y
+#define OLO_MATERIAL_NORMAL_OFFSET u_MaterialHeapOffsets[0].z
+#define OLO_MATERIAL_AO_OFFSET u_MaterialHeapOffsets[0].w
+#define OLO_MATERIAL_EMISSIVE_OFFSET u_MaterialHeapOffsets[1].x
+#define OLO_MATERIAL_ENVIRONMENT_OFFSET u_MaterialHeapOffsets[1].y
+#define OLO_MATERIAL_IRRADIANCE_OFFSET u_MaterialHeapOffsets[1].z
+#define OLO_MATERIAL_PREFILTER_OFFSET u_MaterialHeapOffsets[1].w
+#define OLO_MATERIAL_BRDF_LUT_OFFSET u_MaterialHeapOffsets[2].x
+#define OLO_MATERIAL_DIFFUSE_OFFSET u_MaterialHeapOffsets[2].y
+#define OLO_MATERIAL_SPECULAR_OFFSET u_MaterialHeapOffsets[2].z
+
+// The sampler constructors for them. Unlike OLO_HEAP_TEX_*, these take an OFFSET
+// straight from the material block rather than a TEX_* slot — there is no table
+// indirection because there is no shared table involved.
+#define OLO_MATERIAL_TEX_2D(offset) OLO_HEAP_SAMPLER_2D(offset)
+#define OLO_MATERIAL_TEX_CUBE(offset) OLO_HEAP_SAMPLER_CUBE(offset)
+
+// -----------------------------------------------------------------------------
 // STORAGE IMAGES — the second descriptor kind (#691 Phase 3).
 //
 // GL image units and texture units are separate namespaces that BOTH start at
