@@ -13,6 +13,7 @@ so keep references in sync when moving a file (`git grep "docs/<name>"` before a
 - [guides/cinematic-sequencer.md](guides/cinematic-sequencer.md) — cinematic sequencer / timeline.
 - [guides/localization.md](guides/localization.md) — localization & `LocalizedTextComponent`.
 - [guides/mcp-diagnostics-server.md](guides/mcp-diagnostics-server.md) — the read-only MCP diagnostics server (tools, resources, prompts, attach flow).
+- [guides/player-camera-rigs.md](guides/player-camera-rigs.md) — reusable player + camera rigs (first-person / third-person follow spring arm).
 - [guides/procedural-terrain.md](guides/procedural-terrain.md) — procedural terrain generation.
 - [guides/ui-system.md](guides/ui-system.md) — runtime UI system.
 - [guides/video-playback.md](guides/video-playback.md) — video playback component.
@@ -44,6 +45,7 @@ so keep references in sync when moving a file (`git grep "docs/<name>"` before a
 
 ## agent-rules/ — guidance for AI agents working in this repo (read before non-trivial work)
 - [agent-rules/cpp-coding-quality.md](agent-rules/cpp-coding-quality.md) — C++ idioms, float comparison, `auto`, IWYU, MSVC quirks.
+- [agent-rules/follow-camera-and-character-query-seams.md](agent-rules/follow-camera-and-character-query-seams.md) — why a `CharacterVirtual` is invisible to UUID body filters, where a follow camera must sit in the schedule, look-delta vs. rate, parameter-over-mode-enum.
 - [agent-rules/glsl-shaders.md](agent-rules/glsl-shaders.md) — SPIR-V constraints, UBO bindings, MRT.
 - [agent-rules/sonarqube-review-alignment.md](agent-rules/sonarqube-review-alignment.md) — match local `/code-review` to the cloud C++ Extended profile.
 - [agent-rules/testing-architecture.md](agent-rules/testing-architecture.md) — the renderer pyramid + Functional axis decision tree & registration contract.

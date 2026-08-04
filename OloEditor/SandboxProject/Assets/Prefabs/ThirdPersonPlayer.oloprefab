@@ -1,0 +1,50 @@
+Prefab:
+  Handle: 6460000000000000100
+  # The PLAYER half of the third-person rig (issue #645). See
+  # FirstPersonPlayer.oloprefab for why the camera half is not included.
+  # Pair this with a camera carrying a CameraRigComponent whose Target is this
+  # entity's UUID, BoomLength 4 and CollisionEnabled true.
+  Scene: |
+    Scene: ThirdPersonPlayer
+    Entities:
+      - Entity: 6460000000000000101
+        TagComponent:
+          Tag: ThirdPersonPlayer
+        TransformComponent:
+          Translation: [0, 1.2, 0]
+          Rotation: [0, 0, 0]
+          Scale: [0.8, 1, 0.8]
+        MeshComponent:
+          Primitive: 4
+        MaterialComponent:
+          AlbedoColor: [0.85, 0.45, 0.2]
+          Metallic: 0
+          Roughness: 0.6
+        CapsuleCollider3DComponent:
+          Radius: 0.4
+          HalfHeight: 0.6
+          Offset: [0, 0, 0]
+        CharacterController3DComponent:
+          SlopeLimitDeg: 45
+          StepOffset: 0.4
+          JumpPower: 6
+          LayerID: 0
+          DisableGravity: false
+          ControlMovementInAir: true
+          ControlRotationInAir: false
+        PlayerRigComponent:
+          LookSensitivity: 0.15
+          InvertLookY: false
+          MinPitchDeg: -60
+          MaxPitchDeg: 55
+          WalkSpeed: 4.5
+          SprintMultiplier: 1.8
+          AirControl: 0.35
+          MoveRelativeToLook: true
+          YawBodyWithLook: false
+          FaceMoveDirection: true
+          TurnRateDeg: 720
+          UseDeviceInput: true
+          CaptureCursor: true
+          YawDeg: 0
+          PitchDeg: -10

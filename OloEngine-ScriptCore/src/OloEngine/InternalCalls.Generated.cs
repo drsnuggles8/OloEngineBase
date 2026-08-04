@@ -417,6 +417,53 @@ namespace OloEngine
 		internal static extern void CameraComponent_SetFixedAspectRatio(ulong entityID, bool value);
 		#endregion
 
+		#region CameraRigComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CameraRigComponent_GetPivotOffset(ulong entityID, out Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CameraRigComponent_SetPivotOffset(ulong entityID, ref Vector3 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CameraRigComponent_GetBoomLength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CameraRigComponent_SetBoomLength(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool CameraRigComponent_GetCollisionEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CameraRigComponent_SetCollisionEnabled(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CameraRigComponent_GetProbeRadius(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CameraRigComponent_SetProbeRadius(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CameraRigComponent_GetMinBoomLength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CameraRigComponent_SetMinBoomLength(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CameraRigComponent_GetBoomReturnSpeed(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CameraRigComponent_SetBoomReturnSpeed(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CameraRigComponent_GetPositionSmoothTime(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CameraRigComponent_SetPositionSmoothTime(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CameraRigComponent_GetHeadBobAmplitude(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CameraRigComponent_SetHeadBobAmplitude(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CameraRigComponent_GetHeadBobFrequency(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CameraRigComponent_SetHeadBobFrequency(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CameraRigComponent_GetFallbackPitchDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CameraRigComponent_SetFallbackPitchDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float CameraRigComponent_GetCurrentBoomLength(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void CameraRigComponent_SetCurrentBoomLength(ulong entityID, float value);
+		#endregion
+
 		#region CapsuleCollider3DComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float CapsuleCollider3DComponent_GetRadius(ulong entityID);
@@ -1177,6 +1224,93 @@ namespace OloEngine
 		internal static extern float PhysicsJoint3DComponent_GetPathMaxFrictionForce(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void PhysicsJoint3DComponent_SetPathMaxFrictionForce(ulong entityID, float value);
+		#endregion
+
+		#region PlayerRigComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PlayerRigComponent_GetLookSensitivity(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetLookSensitivity(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool PlayerRigComponent_GetInvertLookY(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetInvertLookY(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PlayerRigComponent_GetMinPitchDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetMinPitchDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PlayerRigComponent_GetMaxPitchDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetMaxPitchDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PlayerRigComponent_GetWalkSpeed(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetWalkSpeed(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PlayerRigComponent_GetSprintMultiplier(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetSprintMultiplier(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PlayerRigComponent_GetAirControl(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetAirControl(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool PlayerRigComponent_GetMoveRelativeToLook(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetMoveRelativeToLook(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool PlayerRigComponent_GetYawBodyWithLook(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetYawBodyWithLook(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool PlayerRigComponent_GetFaceMoveDirection(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetFaceMoveDirection(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PlayerRigComponent_GetTurnRateDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetTurnRateDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool PlayerRigComponent_GetUseDeviceInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetUseDeviceInput(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool PlayerRigComponent_GetCaptureCursor(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetCaptureCursor(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PlayerRigComponent_GetYawDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetYawDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PlayerRigComponent_GetPitchDeg(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetPitchDeg(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_GetMoveInput(ulong entityID, out Vector2 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetMoveInput(ulong entityID, ref Vector2 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_GetLookInput(ulong entityID, out Vector2 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetLookInput(ulong entityID, ref Vector2 value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool PlayerRigComponent_GetSprintInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetSprintInput(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool PlayerRigComponent_GetJumpInput(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetJumpInput(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PlayerRigComponent_GetPlanarSpeed(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetPlanarSpeed(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool PlayerRigComponent_GetGrounded(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PlayerRigComponent_SetGrounded(ulong entityID, bool value);
 		#endregion
 
 		#region PointLightComponent

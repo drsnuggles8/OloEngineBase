@@ -1384,6 +1384,11 @@
 		"OloEngine/Gameplay/Progression/ProgressionSystem.cpp"
 		"OloEngine/Gameplay/Progression/ProgressionAssetSerializers.cpp"
 
+		"OloEngine/Gameplay/PlayerRig/PlayerRigComponents.h"
+		"OloEngine/Gameplay/PlayerRig/PlayerRigPresets.h"
+		"OloEngine/Gameplay/PlayerRig/PlayerRigSystem.h"
+		"OloEngine/Gameplay/PlayerRig/PlayerRigSystem.cpp"
+
 		"OloEngine/Navigation/NavMeshSettings.h"
 		"OloEngine/Navigation/NavMesh.h"
 		"OloEngine/Navigation/NavMesh.cpp"

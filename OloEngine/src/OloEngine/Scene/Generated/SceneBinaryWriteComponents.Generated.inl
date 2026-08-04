@@ -103,6 +103,23 @@ if (entity.HasComponent<BuoyancyComponent>())
     SceneBinIO::Write(out, comp.m_SubmergenceRamp);
 }
 
+if (entity.HasComponent<CameraRigComponent>())
+{
+    SceneBinIO::WriteU32(out, 2905464687u); // CameraRigComponent
+    auto const& comp = entity.GetComponent<CameraRigComponent>();
+    SceneBinIO::Write(out, comp.m_Target);
+    SceneBinIO::Write(out, comp.m_PivotOffset);
+    SceneBinIO::Write(out, comp.m_BoomLength);
+    SceneBinIO::Write(out, comp.m_CollisionEnabled);
+    SceneBinIO::Write(out, comp.m_ProbeRadius);
+    SceneBinIO::Write(out, comp.m_MinBoomLength);
+    SceneBinIO::Write(out, comp.m_BoomReturnSpeed);
+    SceneBinIO::Write(out, comp.m_PositionSmoothTime);
+    SceneBinIO::Write(out, comp.m_HeadBobAmplitude);
+    SceneBinIO::Write(out, comp.m_HeadBobFrequency);
+    SceneBinIO::Write(out, comp.m_FallbackPitchDeg);
+}
+
 if (entity.HasComponent<CharacterController3DComponent>())
 {
     SceneBinIO::WriteU32(out, 1484055434u); // CharacterController3DComponent
@@ -410,6 +427,27 @@ if (entity.HasComponent<PerceptibleComponent>())
     auto const& comp = entity.GetComponent<PerceptibleComponent>();
     SceneBinIO::Write(out, comp.Team);
     SceneBinIO::Write(out, comp.IsPerceptible);
+}
+
+if (entity.HasComponent<PlayerRigComponent>())
+{
+    SceneBinIO::WriteU32(out, 3041720013u); // PlayerRigComponent
+    auto const& comp = entity.GetComponent<PlayerRigComponent>();
+    SceneBinIO::Write(out, comp.m_LookSensitivity);
+    SceneBinIO::Write(out, comp.m_InvertLookY);
+    SceneBinIO::Write(out, comp.m_MinPitchDeg);
+    SceneBinIO::Write(out, comp.m_MaxPitchDeg);
+    SceneBinIO::Write(out, comp.m_WalkSpeed);
+    SceneBinIO::Write(out, comp.m_SprintMultiplier);
+    SceneBinIO::Write(out, comp.m_AirControl);
+    SceneBinIO::Write(out, comp.m_MoveRelativeToLook);
+    SceneBinIO::Write(out, comp.m_YawBodyWithLook);
+    SceneBinIO::Write(out, comp.m_FaceMoveDirection);
+    SceneBinIO::Write(out, comp.m_TurnRateDeg);
+    SceneBinIO::Write(out, comp.m_UseDeviceInput);
+    SceneBinIO::Write(out, comp.m_CaptureCursor);
+    SceneBinIO::Write(out, comp.m_YawDeg);
+    SceneBinIO::Write(out, comp.m_PitchDeg);
 }
 
 if (entity.HasComponent<PointLightComponent>())

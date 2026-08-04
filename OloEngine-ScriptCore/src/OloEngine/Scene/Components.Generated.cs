@@ -629,6 +629,79 @@ namespace OloEngine
 		}
 	}
 
+	public partial class CameraRigComponent : Component
+	{
+		public Vector3 PivotOffset
+		{
+			get
+			{
+				InternalCalls.CameraRigComponent_GetPivotOffset(Entity.ID, out Vector3 value);
+				return value;
+			}
+			set => InternalCalls.CameraRigComponent_SetPivotOffset(Entity.ID, ref value);
+		}
+
+		public float BoomLength
+		{
+			get => InternalCalls.CameraRigComponent_GetBoomLength(Entity.ID);
+			set => InternalCalls.CameraRigComponent_SetBoomLength(Entity.ID, value);
+		}
+
+		public bool CollisionEnabled
+		{
+			get => InternalCalls.CameraRigComponent_GetCollisionEnabled(Entity.ID);
+			set => InternalCalls.CameraRigComponent_SetCollisionEnabled(Entity.ID, value);
+		}
+
+		public float ProbeRadius
+		{
+			get => InternalCalls.CameraRigComponent_GetProbeRadius(Entity.ID);
+			set => InternalCalls.CameraRigComponent_SetProbeRadius(Entity.ID, value);
+		}
+
+		public float MinBoomLength
+		{
+			get => InternalCalls.CameraRigComponent_GetMinBoomLength(Entity.ID);
+			set => InternalCalls.CameraRigComponent_SetMinBoomLength(Entity.ID, value);
+		}
+
+		public float BoomReturnSpeed
+		{
+			get => InternalCalls.CameraRigComponent_GetBoomReturnSpeed(Entity.ID);
+			set => InternalCalls.CameraRigComponent_SetBoomReturnSpeed(Entity.ID, value);
+		}
+
+		public float PositionSmoothTime
+		{
+			get => InternalCalls.CameraRigComponent_GetPositionSmoothTime(Entity.ID);
+			set => InternalCalls.CameraRigComponent_SetPositionSmoothTime(Entity.ID, value);
+		}
+
+		public float HeadBobAmplitude
+		{
+			get => InternalCalls.CameraRigComponent_GetHeadBobAmplitude(Entity.ID);
+			set => InternalCalls.CameraRigComponent_SetHeadBobAmplitude(Entity.ID, value);
+		}
+
+		public float HeadBobFrequency
+		{
+			get => InternalCalls.CameraRigComponent_GetHeadBobFrequency(Entity.ID);
+			set => InternalCalls.CameraRigComponent_SetHeadBobFrequency(Entity.ID, value);
+		}
+
+		public float FallbackPitchDeg
+		{
+			get => InternalCalls.CameraRigComponent_GetFallbackPitchDeg(Entity.ID);
+			set => InternalCalls.CameraRigComponent_SetFallbackPitchDeg(Entity.ID, value);
+		}
+
+		public float CurrentBoomLength
+		{
+			get => InternalCalls.CameraRigComponent_GetCurrentBoomLength(Entity.ID);
+			set => InternalCalls.CameraRigComponent_SetCurrentBoomLength(Entity.ID, value);
+		}
+	}
+
 	public partial class CapsuleCollider3DComponent : Component
 	{
 		public float Radius
@@ -1852,6 +1925,143 @@ namespace OloEngine
 		{
 			get => InternalCalls.PhysicsJoint3DComponent_GetPathMaxFrictionForce(Entity.ID);
 			set => InternalCalls.PhysicsJoint3DComponent_SetPathMaxFrictionForce(Entity.ID, value);
+		}
+	}
+
+	public partial class PlayerRigComponent : Component
+	{
+		public float LookSensitivity
+		{
+			get => InternalCalls.PlayerRigComponent_GetLookSensitivity(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetLookSensitivity(Entity.ID, value);
+		}
+
+		public bool InvertLookY
+		{
+			get => InternalCalls.PlayerRigComponent_GetInvertLookY(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetInvertLookY(Entity.ID, value);
+		}
+
+		public float MinPitchDeg
+		{
+			get => InternalCalls.PlayerRigComponent_GetMinPitchDeg(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetMinPitchDeg(Entity.ID, value);
+		}
+
+		public float MaxPitchDeg
+		{
+			get => InternalCalls.PlayerRigComponent_GetMaxPitchDeg(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetMaxPitchDeg(Entity.ID, value);
+		}
+
+		public float WalkSpeed
+		{
+			get => InternalCalls.PlayerRigComponent_GetWalkSpeed(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetWalkSpeed(Entity.ID, value);
+		}
+
+		public float SprintMultiplier
+		{
+			get => InternalCalls.PlayerRigComponent_GetSprintMultiplier(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetSprintMultiplier(Entity.ID, value);
+		}
+
+		public float AirControl
+		{
+			get => InternalCalls.PlayerRigComponent_GetAirControl(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetAirControl(Entity.ID, value);
+		}
+
+		public bool MoveRelativeToLook
+		{
+			get => InternalCalls.PlayerRigComponent_GetMoveRelativeToLook(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetMoveRelativeToLook(Entity.ID, value);
+		}
+
+		public bool YawBodyWithLook
+		{
+			get => InternalCalls.PlayerRigComponent_GetYawBodyWithLook(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetYawBodyWithLook(Entity.ID, value);
+		}
+
+		public bool FaceMoveDirection
+		{
+			get => InternalCalls.PlayerRigComponent_GetFaceMoveDirection(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetFaceMoveDirection(Entity.ID, value);
+		}
+
+		public float TurnRateDeg
+		{
+			get => InternalCalls.PlayerRigComponent_GetTurnRateDeg(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetTurnRateDeg(Entity.ID, value);
+		}
+
+		public bool UseDeviceInput
+		{
+			get => InternalCalls.PlayerRigComponent_GetUseDeviceInput(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetUseDeviceInput(Entity.ID, value);
+		}
+
+		public bool CaptureCursor
+		{
+			get => InternalCalls.PlayerRigComponent_GetCaptureCursor(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetCaptureCursor(Entity.ID, value);
+		}
+
+		public float YawDeg
+		{
+			get => InternalCalls.PlayerRigComponent_GetYawDeg(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetYawDeg(Entity.ID, value);
+		}
+
+		public float PitchDeg
+		{
+			get => InternalCalls.PlayerRigComponent_GetPitchDeg(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetPitchDeg(Entity.ID, value);
+		}
+
+		public Vector2 MoveInput
+		{
+			get
+			{
+				InternalCalls.PlayerRigComponent_GetMoveInput(Entity.ID, out Vector2 value);
+				return value;
+			}
+			set => InternalCalls.PlayerRigComponent_SetMoveInput(Entity.ID, ref value);
+		}
+
+		public Vector2 LookInput
+		{
+			get
+			{
+				InternalCalls.PlayerRigComponent_GetLookInput(Entity.ID, out Vector2 value);
+				return value;
+			}
+			set => InternalCalls.PlayerRigComponent_SetLookInput(Entity.ID, ref value);
+		}
+
+		public bool SprintInput
+		{
+			get => InternalCalls.PlayerRigComponent_GetSprintInput(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetSprintInput(Entity.ID, value);
+		}
+
+		public bool JumpInput
+		{
+			get => InternalCalls.PlayerRigComponent_GetJumpInput(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetJumpInput(Entity.ID, value);
+		}
+
+		public float PlanarSpeed
+		{
+			get => InternalCalls.PlayerRigComponent_GetPlanarSpeed(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetPlanarSpeed(Entity.ID, value);
+		}
+
+		public bool Grounded
+		{
+			get => InternalCalls.PlayerRigComponent_GetGrounded(Entity.ID);
+			set => InternalCalls.PlayerRigComponent_SetGrounded(Entity.ID, value);
 		}
 	}
 

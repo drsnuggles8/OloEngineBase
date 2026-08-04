@@ -4055,6 +4055,100 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, PlayerRigComponent& c)
+    {
+        ar << c.m_LookSensitivity << c.m_InvertLookY;
+        ar << c.m_MinPitchDeg << c.m_MaxPitchDeg;
+        ar << c.m_WalkSpeed << c.m_SprintMultiplier << c.m_AirControl;
+        ar << c.m_MoveRelativeToLook;
+        ar << c.m_YawBodyWithLook << c.m_FaceMoveDirection << c.m_TurnRateDeg;
+        ar << c.m_UseDeviceInput << c.m_CaptureCursor;
+        // Look angles are authored/carried state, not per-tick derived state:
+        // a save reloaded mid-game must restore where the player was looking.
+        ar << c.m_YawDeg << c.m_PitchDeg;
+        // The per-tick intent (m_MoveInput / m_LookInput / m_SprintInput /
+        // m_JumpInput), the mouse-delta bookkeeping and m_PlanarSpeed /
+        // m_Grounded are deliberately excluded — all are rewritten by the next
+        // PlayerRig tick, and persisting a held key would resume the game
+        // walking on its own.
+
+        // The scene-YAML path gets these bounds free from the
+        // OLO_SERIALIZE(Clamp, ...) annotations in PlayerRigComponents.h; the
+        // binary save path does not, so mirror them by hand. Keep the two in
+        // sync — a divergence between the two load paths is exactly the class
+        // of bug that made VehicleComponent::m_DriveMode need Reject over Clamp.
+        if (ar.IsLoading())
+        {
+            auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                    return;
+                }
+                v = std::clamp(v, lo, hi);
+            };
+
+            sanitize(c.m_LookSensitivity, 0.0f, 10.0f, 0.15f);
+            sanitize(c.m_MinPitchDeg, -89.9f, 89.9f, -80.0f);
+            sanitize(c.m_MaxPitchDeg, -89.9f, 89.9f, 80.0f);
+            sanitize(c.m_WalkSpeed, 0.0f, 1000.0f, 4.5f);
+            sanitize(c.m_SprintMultiplier, 1.0f, 100.0f, 1.8f);
+            sanitize(c.m_AirControl, 0.0f, 1.0f, 0.35f);
+            sanitize(c.m_TurnRateDeg, 0.0f, 3600.0f, 720.0f);
+            sanitize(c.m_PitchDeg, -89.9f, 89.9f, 0.0f);
+            // Yaw has no clamp in the scene path either — it wraps rather than
+            // ranging — so only guard finiteness.
+            if (!std::isfinite(c.m_YawDeg))
+                c.m_YawDeg = 0.0f;
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, CameraRigComponent& c)
+    {
+        u64 targetHandle = static_cast<u64>(c.m_Target);
+        ar << targetHandle;
+        ar << c.m_PivotOffset.x << c.m_PivotOffset.y << c.m_PivotOffset.z;
+        ar << c.m_BoomLength;
+        ar << c.m_CollisionEnabled << c.m_ProbeRadius << c.m_MinBoomLength << c.m_BoomReturnSpeed;
+        ar << c.m_PositionSmoothTime;
+        ar << c.m_HeadBobAmplitude << c.m_HeadBobFrequency;
+        ar << c.m_FallbackPitchDeg;
+        // m_CurrentBoomLength / m_SmoothedPosition / m_BobPhase /
+        // m_PrevTargetPosition / m_Initialized are excluded: the rig re-derives
+        // them on its first tick after the load, which is also what makes the
+        // camera snap straight to the restored pose instead of flying in.
+
+        if (ar.IsLoading())
+        {
+            c.m_Target = UUID(targetHandle);
+
+            auto sanitize = [](f32& v, f32 lo, f32 hi, f32 fallback)
+            {
+                if (!std::isfinite(v))
+                {
+                    v = fallback;
+                    return;
+                }
+                v = std::clamp(v, lo, hi);
+            };
+
+            if (!std::isfinite(c.m_PivotOffset.x) || !std::isfinite(c.m_PivotOffset.y) ||
+                !std::isfinite(c.m_PivotOffset.z))
+            {
+                c.m_PivotOffset = glm::vec3(0.0f, 1.7f, 0.0f);
+            }
+            sanitize(c.m_BoomLength, 0.0f, 1000.0f, 0.0f);
+            sanitize(c.m_ProbeRadius, 0.0f, 10.0f, 0.25f);
+            sanitize(c.m_MinBoomLength, 0.0f, 1000.0f, 0.4f);
+            sanitize(c.m_BoomReturnSpeed, 0.0f, 1000.0f, 6.0f);
+            sanitize(c.m_PositionSmoothTime, 0.0f, 10.0f, 0.0f);
+            sanitize(c.m_HeadBobAmplitude, 0.0f, 1.0f, 0.0f);
+            sanitize(c.m_HeadBobFrequency, 0.0f, 50.0f, 1.1f);
+            sanitize(c.m_FallbackPitchDeg, -89.9f, 89.9f, -12.0f);
+        }
+    }
+
     // ========================================================================
     // Registry
     // ========================================================================
@@ -4187,6 +4281,8 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(QuestGiverComponent);
         REGISTER_SAVE_COMPONENT(AbilityComponent);
         REGISTER_SAVE_COMPONENT(ProgressionComponent);
+        REGISTER_SAVE_COMPONENT(PlayerRigComponent);
+        REGISTER_SAVE_COMPONENT(CameraRigComponent);
 
         OLO_CORE_TRACE("[SaveGameComponentSerializer] Registered {} component serializers", s_Registry.size());
     }

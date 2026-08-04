@@ -344,6 +344,8 @@ namespace OloEngine
             REGISTER_COMPONENT(NavAgentComponent),
             REGISTER_COMPONENT(BoidComponent),
             REGISTER_COMPONENT(BoidObstacleComponent),
+            REGISTER_COMPONENT(PlayerRigComponent),
+            REGISTER_COMPONENT(CameraRigComponent),
             REGISTER_COMPONENT(AbilityComponent),
             REGISTER_COMPONENT(DialogueComponent),
             REGISTER_COMPONENT(NetworkIdentityComponent),
@@ -3692,6 +3694,89 @@ namespace OloEngine
                                                 "radius", sol::property([](const BoidObstacleComponent& o)
                                                                         { return o.m_Radius; }, [](BoidObstacleComponent& o, f32 v)
                                                                         { if (std::isfinite(v) && v > 0.0f) o.m_Radius = v; }));
+
+        // --- PlayerRigComponent (issue #645) ---
+        // The script-facing surface is deliberately the INTENT, not the pose:
+        // a script sets moveInput / lookInput / jump and the PlayerRig node
+        // turns them into character motion at the fixed step. Driving a player
+        // by writing its transform from script fights the character controller;
+        // driving it by writing intent does not. Set useDeviceInput = false
+        // first, or the keyboard sample at the top of the tick overwrites the
+        // script's move/look (jump is OR-ed, so it survives either way).
+        lua.new_usertype<PlayerRigComponent>(
+            "PlayerRigComponent",
+            "useDeviceInput", &PlayerRigComponent::m_UseDeviceInput,
+            "captureCursor", &PlayerRigComponent::m_CaptureCursor,
+            "moveInput", sol::property([](const PlayerRigComponent& r)
+                                       { return r.m_MoveInput; }, [](PlayerRigComponent& r, const glm::vec2& v)
+                                       { if (std::isfinite(v.x) && std::isfinite(v.y)) r.m_MoveInput = v; }),
+            "lookInput", sol::property([](const PlayerRigComponent& r)
+                                       { return r.m_LookInput; }, [](PlayerRigComponent& r, const glm::vec2& v)
+                                       { if (std::isfinite(v.x) && std::isfinite(v.y)) r.m_LookInput = v; }),
+            "sprint", &PlayerRigComponent::m_SprintInput,
+            "jump", &PlayerRigComponent::m_JumpInput,
+            "yaw", sol::property([](const PlayerRigComponent& r)
+                                 { return r.m_YawDeg; }, [](PlayerRigComponent& r, f32 v)
+                                 { if (std::isfinite(v)) r.m_YawDeg = v; }),
+            "pitch", sol::property([](const PlayerRigComponent& r)
+                                   { return r.m_PitchDeg; }, [](PlayerRigComponent& r, f32 v)
+                                   { if (std::isfinite(v)) r.m_PitchDeg = v; }),
+            "lookSensitivity", sol::property([](const PlayerRigComponent& r)
+                                             { return r.m_LookSensitivity; }, [](PlayerRigComponent& r, f32 v)
+                                             { if (std::isfinite(v) && v >= 0.0f) r.m_LookSensitivity = v; }),
+            "invertLookY", &PlayerRigComponent::m_InvertLookY,
+            "walkSpeed", sol::property([](const PlayerRigComponent& r)
+                                       { return r.m_WalkSpeed; }, [](PlayerRigComponent& r, f32 v)
+                                       { if (std::isfinite(v) && v >= 0.0f) r.m_WalkSpeed = v; }),
+            "sprintMultiplier", sol::property([](const PlayerRigComponent& r)
+                                              { return r.m_SprintMultiplier; }, [](PlayerRigComponent& r, f32 v)
+                                              { if (std::isfinite(v) && v >= 1.0f) r.m_SprintMultiplier = v; }),
+            "airControl", sol::property([](const PlayerRigComponent& r)
+                                        { return r.m_AirControl; }, [](PlayerRigComponent& r, f32 v)
+                                        { if (std::isfinite(v)) r.m_AirControl = std::clamp(v, 0.0f, 1.0f); }),
+            "moveRelativeToLook", &PlayerRigComponent::m_MoveRelativeToLook,
+            "yawBodyWithLook", &PlayerRigComponent::m_YawBodyWithLook,
+            "faceMoveDirection", &PlayerRigComponent::m_FaceMoveDirection,
+            // Rewritten by the PlayerRig node every tick — a script write would
+            // be silently discarded, so expose them read-only.
+            "planarSpeed", sol::readonly(&PlayerRigComponent::m_PlanarSpeed),
+            "grounded", sol::readonly(&PlayerRigComponent::m_Grounded));
+
+        // --- CameraRigComponent (issue #645) ---
+        // m_BoomLength == 0 is first person; anything above it is a
+        // third-person boom. Scripts retarget the rig (cutscene, possession)
+        // and tweak the feel; the placement itself is the CameraRig node's job.
+        lua.new_usertype<CameraRigComponent>(
+            "CameraRigComponent",
+            "target", sol::property([](const CameraRigComponent& c)
+                                    { return static_cast<u64>(c.m_Target); }, [](CameraRigComponent& c, u64 v)
+                                    { c.m_Target = UUID(v); }),
+            "pivotOffset", sol::property([](const CameraRigComponent& c)
+                                         { return c.m_PivotOffset; }, [](CameraRigComponent& c, const glm::vec3& v)
+                                         { if (IsFiniteVec3(v)) c.m_PivotOffset = v; }),
+            "boomLength", sol::property([](const CameraRigComponent& c)
+                                        { return c.m_BoomLength; }, [](CameraRigComponent& c, f32 v)
+                                        { if (std::isfinite(v) && v >= 0.0f) c.m_BoomLength = v; }),
+            "collisionEnabled", &CameraRigComponent::m_CollisionEnabled,
+            "probeRadius", sol::property([](const CameraRigComponent& c)
+                                         { return c.m_ProbeRadius; }, [](CameraRigComponent& c, f32 v)
+                                         { if (std::isfinite(v) && v >= 0.0f) c.m_ProbeRadius = v; }),
+            "minBoomLength", sol::property([](const CameraRigComponent& c)
+                                           { return c.m_MinBoomLength; }, [](CameraRigComponent& c, f32 v)
+                                           { if (std::isfinite(v) && v >= 0.0f) c.m_MinBoomLength = v; }),
+            "boomReturnSpeed", sol::property([](const CameraRigComponent& c)
+                                             { return c.m_BoomReturnSpeed; }, [](CameraRigComponent& c, f32 v)
+                                             { if (std::isfinite(v) && v >= 0.0f) c.m_BoomReturnSpeed = v; }),
+            "positionSmoothTime", sol::property([](const CameraRigComponent& c)
+                                                { return c.m_PositionSmoothTime; }, [](CameraRigComponent& c, f32 v)
+                                                { if (std::isfinite(v) && v >= 0.0f) c.m_PositionSmoothTime = v; }),
+            "headBobAmplitude", sol::property([](const CameraRigComponent& c)
+                                              { return c.m_HeadBobAmplitude; }, [](CameraRigComponent& c, f32 v)
+                                              { if (std::isfinite(v) && v >= 0.0f) c.m_HeadBobAmplitude = v; }),
+            "headBobFrequency", sol::property([](const CameraRigComponent& c)
+                                              { return c.m_HeadBobFrequency; }, [](CameraRigComponent& c, f32 v)
+                                              { if (std::isfinite(v) && v >= 0.0f) c.m_HeadBobFrequency = v; }),
+            "currentBoomLength", sol::readonly(&CameraRigComponent::m_CurrentBoomLength));
 
         // --- NavMeshBoundsComponent ---
         lua.new_usertype<NavMeshBoundsComponent>("NavMeshBoundsComponent",

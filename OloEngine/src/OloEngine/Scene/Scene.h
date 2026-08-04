@@ -973,8 +973,15 @@ namespace OloEngine
         // are called here. Bodies are the historical hard-coded blocks, moved out
         // of SimulateRuntimeStep verbatim so the derived sequential run is a
         // bit-for-bit no-op. See SystemScheduler.h.
-        void UpdateScripts(Timestep ts);         // C# + Lua entity OnUpdate
-        void UpdateCinematics(Timestep ts);      // authored sequence playback
+        void UpdateScripts(Timestep ts);    // C# + Lua entity OnUpdate
+        void UpdateCinematics(Timestep ts); // authored sequence playback
+        // Reusable player + camera rig (issue #645). Split across two nodes for
+        // ORDERING, not for parallelism: the input/movement half must land
+        // before the physics kick so the same tick's step integrates it, while
+        // the camera half must observe the target's FINAL pose and so runs last.
+        // See PlayerRigSystem.h.
+        void UpdatePlayerRig(Timestep ts);       // input -> character motion (pre-physics)
+        void UpdateCameraRig(Timestep ts);       // spring-arm camera placement (post-everything)
         void UpdateDialogue(Timestep ts);        // dialogue runner
         void UpdateLocomotion(Timestep ts);      // velocity->animation-parameter controller (issue #631)
         void UpdateRetargeting(Timestep ts);     // live-retarget clip bake (issue #631)

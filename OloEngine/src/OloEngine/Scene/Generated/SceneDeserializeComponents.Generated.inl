@@ -171,6 +171,30 @@ if (auto node = entity["BuoyancyComponent"]; node)
         comp.m_SubmergenceRamp = std::clamp(v, static_cast<f32>(0.001f), static_cast<f32>(100.0f));
 }
 
+if (auto node = entity["CameraRigComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<CameraRigComponent>();
+    comp.m_Target = node["Target"].as<u64>(static_cast<u64>(comp.m_Target));
+    comp.m_PivotOffset = node["PivotOffset"].as<glm::vec3>(comp.m_PivotOffset);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["BoomLength"], v))
+        comp.m_BoomLength = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    comp.m_CollisionEnabled = node["CollisionEnabled"].as<bool>(comp.m_CollisionEnabled);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ProbeRadius"], v))
+        comp.m_ProbeRadius = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MinBoomLength"], v))
+        comp.m_MinBoomLength = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["BoomReturnSpeed"], v))
+        comp.m_BoomReturnSpeed = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PositionSmoothTime"], v))
+        comp.m_PositionSmoothTime = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["HeadBobAmplitude"], v))
+        comp.m_HeadBobAmplitude = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["HeadBobFrequency"], v))
+        comp.m_HeadBobFrequency = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(50.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FallbackPitchDeg"], v))
+        comp.m_FallbackPitchDeg = std::clamp(v, static_cast<f32>(-89.9f), static_cast<f32>(89.9f));
+}
+
 if (auto node = entity["CharacterController3DComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<CharacterController3DComponent>();
@@ -537,6 +561,35 @@ if (auto node = entity["PerceptibleComponent"]; node)
     auto& comp = deserializedEntity.AddComponent<PerceptibleComponent>();
     comp.Team = node["Team"].as<i32>(comp.Team);
     comp.IsPerceptible = node["IsPerceptible"].as<bool>(comp.IsPerceptible);
+}
+
+if (auto node = entity["PlayerRigComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<PlayerRigComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LookSensitivity"], v))
+        comp.m_LookSensitivity = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    comp.m_InvertLookY = node["InvertLookY"].as<bool>(comp.m_InvertLookY);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MinPitchDeg"], v))
+        comp.m_MinPitchDeg = std::clamp(v, static_cast<f32>(-89.9f), static_cast<f32>(89.9f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxPitchDeg"], v))
+        comp.m_MaxPitchDeg = std::clamp(v, static_cast<f32>(-89.9f), static_cast<f32>(89.9f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WalkSpeed"], v))
+        comp.m_WalkSpeed = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SprintMultiplier"], v))
+        comp.m_SprintMultiplier = std::clamp(v, static_cast<f32>(1.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["AirControl"], v))
+        comp.m_AirControl = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    comp.m_MoveRelativeToLook = node["MoveRelativeToLook"].as<bool>(comp.m_MoveRelativeToLook);
+    comp.m_YawBodyWithLook = node["YawBodyWithLook"].as<bool>(comp.m_YawBodyWithLook);
+    comp.m_FaceMoveDirection = node["FaceMoveDirection"].as<bool>(comp.m_FaceMoveDirection);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TurnRateDeg"], v))
+        comp.m_TurnRateDeg = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(3600.0f));
+    comp.m_UseDeviceInput = node["UseDeviceInput"].as<bool>(comp.m_UseDeviceInput);
+    comp.m_CaptureCursor = node["CaptureCursor"].as<bool>(comp.m_CaptureCursor);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["YawDeg"], v))
+        comp.m_YawDeg = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PitchDeg"], v))
+        comp.m_PitchDeg = std::clamp(v, static_cast<f32>(-89.9f), static_cast<f32>(89.9f));
 }
 
 if (auto node = entity["PointLightComponent"]; node)
