@@ -573,4 +573,94 @@ void main()
                "through PublishTextureOffsetAndBind if a slot-based consumer of it also exists."
             << report;
     }
+
+    // §7a-bis — THE COMPILE ROUTE IS OBSERVABLE THROUGH THE DEPTH BUFFER, not only
+    // through bindings. `invariant gl_Position` is a promise between two
+    // PROGRAMS: a depth prepass writes depth, a colour pass re-tests it at
+    // GL_LEQUAL. `invariant` constrains the optimizations of ONE compiler; it
+    // cannot make shaderc -> SPIR-V -> SPIRV-Cross and the driver's own GLSL
+    // front-end round the same expression identically. So every shader carrying
+    // that declaration must be on the SAME route as the others, all or none.
+    //
+    // This is a DIFFERENT rule from §5c and it is not implied by it. A depth
+    // prepass declares no samplers at all, so §5c has nothing to say about it
+    // and it would never mention OLO_BINDLESS on its own — it is exactly the
+    // file a sampler-driven sweep leaves behind. That is what happened:
+    // converting the material bucket moved PBR_MultiLight to the raw route and
+    // left DepthPrepass.glsl on the SPIR-V one, and the colour pass then failed
+    // LEQUAL against depth its own prepass had written.
+    //
+    // The failure is worth describing because it does NOT look like a depth bug:
+    // 23340 dropout pixels on a sphere and ZERO on the ground plane in the same
+    // frame. A curved surface's steep per-pixel depth gradient turns a last-bit
+    // disagreement into a visible hole; a flat one absorbs it. It reads as "that
+    // mesh is broken", which is why it survived a shading-side hunt.
+    TEST(BindlessShaderPipeline, DepthInvariantShadersAgreeOnTheCompileRoute)
+    {
+        namespace fs = std::filesystem;
+
+        const fs::path shaderRoot = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders";
+        ASSERT_TRUE(fs::exists(shaderRoot)) << "shader root not found: " << shaderRoot.string();
+
+        std::vector<std::string> onRoute;
+        std::vector<std::string> offRoute;
+        std::vector<std::string> unresolved;
+
+        for (const auto& entry : fs::recursive_directory_iterator(shaderRoot))
+        {
+            if (!entry.is_regular_file())
+            {
+                continue;
+            }
+            const fs::path& p = entry.path();
+            const std::string ext = p.extension().string();
+            if ((ext != ".glsl" && ext != ".comp") || p.parent_path().filename() == "include")
+            {
+                continue;
+            }
+
+            std::set<std::string> seen;
+            const std::string resolved = BlankComments(ResolveIncludes(p, shaderRoot, seen, unresolved));
+            // The declaration must be measured AFTER comments are blanked, for
+            // the same reason WantsBindlessVariant scans outside comments: the
+            // natural way to write "this pass deliberately has no invariant
+            // contract" is to say so in prose next to the words.
+            if (resolved.find("invariant gl_Position") == std::string::npos)
+            {
+                continue;
+            }
+
+            // Mirrors OpenGLShader::WantsBindlessVariant exactly. If that
+            // predicate ever grows a third token this must grow it too, or the
+            // guard silently stops matching the thing it guards.
+            const bool takesRoute = resolved.find("OLO_BINDLESS") != std::string::npos;
+            (takesRoute ? onRoute : offRoute).push_back(p.filename().string());
+        }
+
+        EXPECT_TRUE(unresolved.empty()) << "unresolvable #include(s) — the scan cannot see the declaration";
+        // Floor guard: a scan that found no contract at all would pass vacuously.
+        EXPECT_GE(onRoute.size() + offRoute.size(), 5u)
+            << "no depth-invariant shaders found — the scan is broken, not the codebase";
+
+        std::string split;
+        if (!onRoute.empty() && !offRoute.empty())
+        {
+            split += "\n  on the bindless route:";
+            for (const std::string& s : onRoute)
+            {
+                split += "\n    " + s;
+            }
+            split += "\n  still on the SPIR-V route:";
+            for (const std::string& s : offRoute)
+            {
+                split += "\n    " + s;
+            }
+        }
+        EXPECT_TRUE(onRoute.empty() || offRoute.empty())
+            << "The depth-invariance contract group is SPLIT across compile routes, so the two\n"
+               "programs no longer agree bit-for-bit on gl_Position and the colour pass will fail\n"
+               "LEQUAL against its own prepass in blotches — on curved geometry only.\n"
+               "A shader with no samplers of its own opts in with OLO_BINDLESS_ROUTE_PARITY."
+            << split;
+    }
 } // namespace OloEngine::Tests

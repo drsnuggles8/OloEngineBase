@@ -148,11 +148,24 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     uvec4 u_MaterialHeapOffsets[3];
 };
 
+// Converted whole (§5c) — the material five are every sampler this shader has.
+// The HZB it reads for cluster culling belongs to VirtualClusterCull.comp, not
+// here; this stage only writes G-Buffer targets.
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define OLO_MATERIAL_HEAP_READER 1
+#define u_AlbedoMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET)
+#define u_MetallicRoughnessMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET)
+#define u_NormalMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_NORMAL_OFFSET)
+#define u_AOMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_AO_OFFSET)
+#define u_EmissiveMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_EMISSIVE_OFFSET)
+#else
 layout(binding = 0) uniform sampler2D u_AlbedoMap;
 layout(binding = 1) uniform sampler2D u_MetallicRoughnessMap;
 layout(binding = 2) uniform sampler2D u_NormalMap;
 layout(binding = 4) uniform sampler2D u_AOMap;
 layout(binding = 5) uniform sampler2D u_EmissiveMap;
+#endif
 
 layout(location = 0) in vec3 v_WorldPos;
 layout(location = 1) in vec3 v_Normal;

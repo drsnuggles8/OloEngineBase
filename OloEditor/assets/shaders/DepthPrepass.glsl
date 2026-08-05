@@ -29,6 +29,16 @@ layout(std140, binding = 0) uniform CameraMatrices {
 // Instance transforms SSBO (binding 15)
 #include "include/InstanceBlock_Vertex.glsl"
 
+// ROUTE PARITY, not a bindless conversion (issue #691 Phase 3, glsl-shaders §7a-bis).
+// This shader declares no samplers, so it has nothing to convert and would
+// never mention OLO_BINDLESS on its own. It must still follow the COLOUR pass
+// onto the raw-GLSL route, because `invariant gl_Position` below is a promise
+// between TWO PROGRAMS and `invariant` cannot keep it across two different
+// compiler front-ends. Left behind on the SPIR-V route while PBR_MultiLight
+// moved, this pass wrote depth the colour pass then failed LEQUAL against, in
+// blotches, on curved surfaces only.
+#define OLO_BINDLESS_ROUTE_PARITY 1
+
 invariant gl_Position;
 
 void main()

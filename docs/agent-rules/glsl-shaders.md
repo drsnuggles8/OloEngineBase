@@ -567,6 +567,49 @@ MASK materials use `DepthPrepass_Mask{,Skinned}.glsl`, which must keep the exact
 glTF alpha test from `PBR_MultiLight.glsl` (`baseColorFactor.a * albedo.a <
 cutoff → discard`) so the prepass depth coverage matches the color pass.
 
+### 7a-bis. `invariant` does not survive a change of COMPILE ROUTE
+
+Everything above assumes both programs are built by the same compiler. Once the
+heap-bindless route exists (§5a) that stops being automatic, and the failure is
+not a binding failure at all — it is a *depth* failure.
+
+`invariant gl_Position` constrains the optimizations of **one** compiler. It
+cannot make two different front-ends round the same expression identically, and
+the two routes are exactly that: shaderc → SPIR-V → SPIRV-Cross → driver for the
+slot path, the driver's own GLSL front-end for the bindless one. Split the
+contract group across the two and the color pass fails `GL_LEQUAL` against depth
+its own prepass wrote.
+
+**The trap is that a depth prepass has no samplers.** §5c is a rule about
+declarations and binds, so it has nothing to say here, and `DepthPrepass.glsl`
+would never mention `OLO_BINDLESS` on its own — it is precisely the file a
+sampler-driven conversion sweep walks straight past. Converting the material
+bucket moved `PBR_MultiLight` to the raw route and silently left the prepass
+behind.
+
+So: **every shader declaring `invariant gl_Position` must be on the same route,
+all or none.** A shader with nothing to convert opts in explicitly:
+
+```glsl
+#define OLO_BINDLESS_ROUTE_PARITY 1
+
+invariant gl_Position;
+```
+
+`OpenGLShader::WantsBindlessVariant` accepts that token alongside
+`OLO_BINDLESS`; `BindlessShaderPipeline.DepthInvariantShadersAgreeOnTheCompileRoute`
+fails if the group ever splits again.
+
+**Do not expect this to look like a depth bug.** Measured on
+`WorldOriginRebaseVisualEvidence`: 23340 dropout pixels on the sphere and **zero**
+on the ground plane in the same frame. A curved surface's steep per-pixel depth
+gradient turns a last-bit disagreement into a visible hole; a flat one absorbs it
+entirely. It presents as "that mesh renders with blotchy holes", which is why it
+survived a long hunt through shading, shadows, SSAO, TAA and post-processing —
+all of which were excluded by measurement before the prepass was even suspected.
+The tell, once looked at rather than averaged: the holes showed **sky**, not the
+ground *behind* the sphere, so something had written depth there without colour.
+
 ## 8. Common mistakes
 
 1. **Bare non-opaque uniform outside a block** → SPIR-V compile error. Wrap in a UBO block; only opaque types (samplers, images) may be standalone.

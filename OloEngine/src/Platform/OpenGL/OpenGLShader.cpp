@@ -799,9 +799,31 @@ namespace OloEngine
         // samplers to black. No shader relies on the comment-inclusive reading
         // today, so this is behaviour-preserving as well as safer. Mirrors
         // RHIBoundaryRatchetTest's rule that a scan must measure code, not prose.
+        // THE SECOND TOKEN IS NOT A CONVENIENCE — it exists because the compile
+        // ROUTE is observable through the depth buffer, not just through bindings
+        // (glsl-shaders §7a-bis). A depth prepass declares `invariant gl_Position` and the colour
+        // pass re-tests LEQUAL against the depth it wrote, so the two programs
+        // must agree on that position BIT-FOR-BIT. `invariant` cannot deliver
+        // that across routes: it constrains one compiler's optimizations, and
+        // here the two programs are built by DIFFERENT front-ends — shaderc ->
+        // SPIR-V -> SPIRV-Cross -> driver for one, the driver's own GLSL
+        // front-end for the other. They round the same expression differently.
+        //
+        // DepthPrepass.glsl has no samplers, so it would never mention
+        // OLO_BINDLESS on its own and would silently stay on the SPIR-V route
+        // while its converted colour pass moved to the raw one. Measured on
+        // WorldOriginRebaseVisualEvidence: 23340 dropout pixels on the sphere,
+        // and NONE on the flat ground — a curved surface's steep depth gradient
+        // turns a last-bit disagreement into a visible hole, while a plane hides
+        // it. That asymmetry is why this reads as "the sphere is broken" rather
+        // than "depth is broken", and it is the whole reason the token is here.
         return std::ranges::any_of(sources,
                                    [](const auto& entry)
-                                   { return Utils::MentionsOutsideComments(entry.second, "OLO_BINDLESS"); });
+                                   {
+                                       return Utils::MentionsOutsideComments(entry.second, "OLO_BINDLESS") ||
+                                              Utils::MentionsOutsideComments(entry.second,
+                                                                             "OLO_BINDLESS_ROUTE_PARITY");
+                                   });
     }
 
     bool OpenGLShader::CreateProgramFromRawGLSL(const std::unordered_map<GLenum, std::string>& sources)
