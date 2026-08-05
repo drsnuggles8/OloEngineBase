@@ -366,6 +366,8 @@ namespace OloEngine::RHI
         AddressMode AddressV = AddressMode::ClampToEdge;
         AddressMode AddressW = AddressMode::ClampToEdge;
         f32 MaxAnisotropy = 1.0f;
+        /// Only consulted when an address mode is ClampToBorder. See BorderColor.
+        BorderColor Border = BorderColor::TransparentBlack;
 
         [[nodiscard]] auto operator==(const SamplerDesc& other) const -> bool = default;
     };

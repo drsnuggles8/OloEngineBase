@@ -382,6 +382,26 @@ namespace OloEngine::RHI
         ClampToBorder,
     };
 
+    // The colour sampled outside a ClampToBorder texture. ENUMERATED, not a
+    // float4, because that is the portable subset: Vulkan's VkBorderColor admits
+    // only these three float variants without
+    // VK_EXT_custom_border_color, so a float4 here would be a field the neutral
+    // model cannot honour on the backend it exists to reach.
+    //
+    // It has to exist at all because a bindless descriptor carries its own
+    // sampler object, and a sampler object's border defaults to TRANSPARENT
+    // BLACK while the engine's depth arrays set an OPAQUE WHITE one
+    // (OpenGLTexture2DArray) so that lookups outside a shadow cascade read as
+    // "lit" rather than "fully shadowed". Minting a shadow descriptor without
+    // this reproduces the texture's wrap mode but not its border, and the error
+    // shows up only at cascade edges — a plausible frame, not an obvious one.
+    enum class BorderColor : u8
+    {
+        TransparentBlack = 0, ///< (0,0,0,0) — the GL/VK default
+        OpaqueBlack,          ///< (0,0,0,1)
+        OpaqueWhite,          ///< (1,1,1,1) — "outside the shadow map is lit"
+    };
+
     // Index buffer element width. Added in Phase 2 so the POD draw commands in
     // Commands/RenderCommand.h can describe their index buffer without a
     // GLenum field; the direct Vulkan counterpart is VkIndexType.

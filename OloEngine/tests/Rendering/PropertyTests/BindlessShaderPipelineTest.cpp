@@ -210,14 +210,42 @@ void main()
     // =========================================================================
     namespace
     {
-        // Slots bound through PublishTextureOffsetAndBind: staged as an offset
-        // for bindless readers AND bound for slot-based ones, so a surviving
-        // slot-based declaration of these is correct, not a hazard.
-        [[nodiscard]] bool SlotIsPublishedAndBound(u32 binding)
+        // Slots that ALWAYS receive a real GL bind, whatever program is in flight.
+        // A surviving slot-based declaration of one of these is correct rather
+        // than a hazard, because the thing §5c warns about — the seam withdrawing
+        // the bind for a bindless program — does not happen for them.
+        //
+        // Two mechanisms qualify, and both are deliberate:
+        //   * HeapBinding::PublishTextureOffsetAndBind — stages the offset AND
+        //     binds, for state read by converted and unconverted shaders alike;
+        //   * a direct Texture::Bind() that never consults the seam at all.
+        //
+        // EVERY ENTRY HERE IS A SAMPLER DECLARED IN A SHARED include/ HEADER, and
+        // that is not a coincidence — it is the rule. A header's own
+        // `#ifdef OLO_BINDLESS` IS the route opt-in token, so converting a
+        // declaration there drags every includer onto the raw-GLSL route,
+        // unbinding all of THEIR slot-based samplers. A shared declaration
+        // therefore cannot be converted per-shader; its slot has to be bound
+        // unconditionally instead. Adding an entry without one of the two
+        // mechanisms above turns this allowlist into a way to silence the test.
+        [[nodiscard]] bool SlotAlwaysReceivesARealBind(u32 binding)
         {
-            return binding == ShaderBindingLayout::TEX_DDGI_IRRADIANCE ||
-                   binding == ShaderBindingLayout::TEX_DDGI_VISIBILITY ||
-                   binding == ShaderBindingLayout::TEX_DDGI_PROBE_DATA;
+            return
+                // DDGI atlases — published for the DDGI compute shaders, bound for
+                // Skybox_GBuffer and the forward PBR readers.
+                binding == ShaderBindingLayout::TEX_DDGI_IRRADIANCE ||
+                binding == ShaderBindingLayout::TEX_DDGI_VISIBILITY ||
+                binding == ShaderBindingLayout::TEX_DDGI_PROBE_DATA ||
+                // include/AtmosphereShading.glsl, read by PBR_MultiLight (bindless)
+                // and Terrain_PBR / DeferredLightingShared (slot-based).
+                binding == ShaderBindingLayout::TEX_CLOUD_SHADOW ||
+                // include/CloudscapeCommon.glsl; published in RenderPipeline.cpp.
+                binding == ShaderBindingLayout::TEX_CLOUD_BASE_NOISE ||
+                binding == ShaderBindingLayout::TEX_CLOUD_DETAIL_NOISE ||
+                binding == ShaderBindingLayout::TEX_CLOUD_WEATHER_MAP ||
+                // include/WindSampling.glsl; WindSystem::BindWindTexture binds it
+                // directly every frame, bypassing the seam entirely.
+                binding == ShaderBindingLayout::TEX_WIND_FIELD;
         }
 
         [[nodiscard]] std::string ReadWholeFile(const std::filesystem::path& path)
@@ -265,10 +293,22 @@ void main()
 
         // Inline #include the way OpenGLShader does before handing source to the
         // compiler, so a declaration living in a shared header is still seen.
+        //
+        // RESOLVED RELATIVE TO THE INCLUDING FILE FIRST, then to the shader root.
+        // Shaders under compute/ spell their includes "../include/Foo.glsl";
+        // joining that to the ROOT yields assets/include/Foo.glsl, which does not
+        // exist. An earlier version did exactly that and returned an empty string,
+        // so every declaration reaching those shaders through a shared header was
+        // invisible and the scan under-reported in silence — the same shape of
+        // bug this whole test exists to catch. `unresolved` makes that impossible
+        // to repeat: the caller asserts on it.
         [[nodiscard]] std::string ResolveIncludes(const std::filesystem::path& path,
                                                   const std::filesystem::path& shaderRoot,
-                                                  std::set<std::string>& seen)
+                                                  std::set<std::string>& seen,
+                                                  std::vector<std::string>& unresolved)
         {
+            namespace fs = std::filesystem;
+
             const std::string key = path.lexically_normal().string();
             if (seen.contains(key))
             {
@@ -287,7 +327,23 @@ void main()
             {
                 const std::smatch& m = *it;
                 out.append(src, last, static_cast<sizet>(m.position()) - last);
-                out.append(ResolveIncludes(shaderRoot / m[1].str(), shaderRoot, seen));
+
+                const std::string spelling = m[1].str();
+                const fs::path relative = (path.parent_path() / spelling).lexically_normal();
+                const fs::path fromRoot = (shaderRoot / spelling).lexically_normal();
+
+                if (fs::exists(relative))
+                {
+                    out.append(ResolveIncludes(relative, shaderRoot, seen, unresolved));
+                }
+                else if (fs::exists(fromRoot))
+                {
+                    out.append(ResolveIncludes(fromRoot, shaderRoot, seen, unresolved));
+                }
+                else if (!seen.contains(relative.string()))
+                {
+                    unresolved.push_back(path.filename().string() + " -> " + spelling);
+                }
                 last = static_cast<sizet>(m.position() + m.length());
             }
             out.append(src, last, std::string::npos);
@@ -390,6 +446,7 @@ void main()
         ASSERT_TRUE(fs::exists(shaderRoot)) << "shader root not found: " << shaderRoot.string();
 
         std::vector<std::string> offenders;
+        std::vector<std::string> unresolved;
         u32 scanned = 0;
         u32 onBindlessRoute = 0;
 
@@ -414,7 +471,7 @@ void main()
             ++scanned;
 
             std::set<std::string> seen;
-            const std::string resolved = BlankComments(ResolveIncludes(p, shaderRoot, seen));
+            const std::string resolved = BlankComments(ResolveIncludes(p, shaderRoot, seen, unresolved));
             if (resolved.find("OLO_BINDLESS") == std::string::npos)
             {
                 continue;
@@ -423,7 +480,7 @@ void main()
 
             for (const SamplerDecl& decl : ActiveSamplerDeclarations(resolved))
             {
-                if (SlotIsPublishedAndBound(decl.Binding))
+                if (SlotAlwaysReceivesARealBind(decl.Binding))
                 {
                     continue;
                 }
@@ -436,6 +493,17 @@ void main()
         // silently found nothing to scan would pass this test vacuously.
         EXPECT_GT(scanned, 100u) << "the shader scan did not actually run";
         EXPECT_GT(onBindlessRoute, 40u) << "no shaders detected on the bindless route — scan is broken";
+
+        // An include this scan cannot open is a hole in its coverage, not a
+        // detail: every declaration behind it becomes invisible and the shader
+        // silently looks clean. Fail rather than under-report.
+        std::string missing;
+        for (const std::string& u : unresolved)
+        {
+            missing += "\n    " + u;
+        }
+        EXPECT_TRUE(unresolved.empty())
+            << "unresolvable #include(s) — the scan cannot see what they declare:" << missing;
 
         std::string report;
         for (const std::string& o : offenders)

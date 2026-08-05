@@ -475,8 +475,20 @@ namespace OloEngine
 
         // Persistent: material and IBL textures are asset-owned and outlive the
         // frame, so their descriptors are memoised rather than drawn from the ring.
-        HeapBinding::BindTextureOrOffset(slot, texture, RHI::HeapSlotLifetime::Persistent);
-        s_Data.BoundTextures[slot] = texture;
+        const RHI::HeapOffset staged =
+            HeapBinding::BindTextureOrOffset(slot, texture, RHI::HeapSlotLifetime::Persistent);
+
+        // ONLY CLAIM A GL BINDING WHEN ONE ACTUALLY HAPPENED. The cache's
+        // invariant, stated above, is "this slot's GL BINDING is already
+        // correct" — sound only while every tracked call ends in a bind. Under
+        // the heap it does not: a valid returned offset means the seam STAGED an
+        // offset and issued no bind at all. Recording the texture anyway made the
+        // array assert a binding that was never made, and the next SLOT-BASED
+        // consumer of the same slot would hit the cache and skip its own bind —
+        // sampling whatever that unit last held. Latent until a shader sharing a
+        // slot with an unconverted one converts, which is precisely what the
+        // shadow arrays and the IBL trio do (issue #691 Phase 3).
+        s_Data.BoundTextures[slot] = staged.IsValid() ? RHI::NullResource : texture;
         ++s_Data.Stats.TextureBinds;
     }
 
@@ -729,7 +741,8 @@ namespace OloEngine
     // binding, updating the redundant-bind tracker and the bind stat. A 0 id is a
     // no-op (no texture for that slot this frame). Shared by every tracked bind so
     // the check/update/increment logic lives in exactly one place.
-    static void BindTrackedTextureUnit(u32 slot, RHI::ResourceHandle texture)
+    static void BindTrackedTextureUnit(u32 slot, RHI::ResourceHandle texture,
+                                       const RHI::SamplerDesc& sampler = {})
     {
         if (!texture.IsValid())
             return;
@@ -739,29 +752,90 @@ namespace OloEngine
 
         // Persistent: shadow maps, the snow clipmap and the cloud-shadow map are
         // system-owned and survive the frame, like the material textures above.
-        HeapBinding::BindTextureOrOffset(slot, texture, RHI::HeapSlotLifetime::Persistent);
-        s_Data.BoundTextures[slot] = texture;
+        const RHI::HeapOffset staged =
+            HeapBinding::BindTextureOrOffset(slot, texture, RHI::HeapSlotLifetime::Persistent, sampler);
+        // Same correction as BindTrackedTexture — see the note there.
+        s_Data.BoundTextures[slot] = staged.IsValid() ? RHI::NullResource : texture;
         ++s_Data.Stats.TextureBinds;
+    }
+
+    // THE SAMPLER STATE THE DEPTH ARRAYS ACTUALLY CARRY, read off the backend
+    // rather than assumed — the same discipline the material maps needed. A slot
+    // bind samples with the TEXTURE's parameters; a heap descriptor samples with
+    // its own sampler object, so anything not restated here is silently lost.
+    //
+    // OpenGLTexture2DArray gives a DEPTH_COMPONENT32F array GL_CLAMP_TO_BORDER on
+    // all three axes, an opaque WHITE border (so a lookup outside a cascade reads
+    // "lit", not "fully shadowed"), and — when DepthComparisonMode is set —
+    // GL_COMPARE_REF_TO_TEXTURE with GL_LEQUAL.
+    //
+    // The pair below is one depth array reached as TWO views, which is precisely
+    // what ViewDesc::DepthCompare exists to express: the comparison view feeds
+    // the sampler2DArrayShadow lookups and the raw view feeds the PCSS blocker
+    // search's sampler2DArray reads. They differ ONLY in Compare, and the seam
+    // derives ViewDesc::DepthCompare from that field so the two cannot drift.
+    [[nodiscard]] static RHI::SamplerDesc ShadowDepthSampler(bool comparison)
+    {
+        RHI::SamplerDesc desc;
+        desc.AddressU = RHI::AddressMode::ClampToBorder;
+        desc.AddressV = RHI::AddressMode::ClampToBorder;
+        desc.AddressW = RHI::AddressMode::ClampToBorder;
+        desc.Border = RHI::BorderColor::OpaqueWhite;
+        desc.Compare = comparison ? RHI::CompareOp::LessOrEqual : RHI::CompareOp::Never;
+
+        // NO MIP FILTERING, and this one is not cosmetic — it decides whether the
+        // shadow lookup returns anything at all. The shadow arrays are created
+        // WITHOUT mipmaps, so OpenGLTexture2DArray leaves them on GL_LINEAR. The
+        // SamplerDesc default is LinearMipFilter = true, which resolves to
+        // GL_LINEAR_MIPMAP_LINEAR; pairing that with a texture that has exactly
+        // one level makes the texture INCOMPLETE, and an incomplete shadow sampler
+        // reads as "unshadowed" rather than failing. The symptom was a frame that
+        // looked almost right — DDGI's lit/dark bands measured 62.1 / 40.7 instead
+        // of 60.4 / 33.0, i.e. shadows quietly leaking, with no GL error anywhere.
+        //
+        // GENERALISES: "read the sampler state off the backend" means ALL of it.
+        // The wrap mode, border and compare func were carried across and the
+        // filter was not, which is the same omission the heap backend's own
+        // ToGLMinFilter note records for SSAO's noise sampler.
+        desc.LinearMipFilter = false;
+        return desc;
     }
 
     // Helper: Bind per-frame shadow and snow depth textures (only relevant for PBR paths).
     // Relies on BoundTextureIDs tracking to avoid redundant binds.
     static void BindShadowTextures()
     {
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTexture);
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS, s_Data.AtlasShadowTexture);
+        static const RHI::SamplerDesc kShadowCompare = ShadowDepthSampler(true);
+        static const RHI::SamplerDesc kShadowRaw = ShadowDepthSampler(false);
+
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTexture, kShadowCompare);
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS, s_Data.AtlasShadowTexture, kShadowCompare);
 
         // Comparison-OFF raw-depth views for the PCSS blocker search (plain
         // sampler2DArray at TEX_SHADOW_CSM_RAW / TEX_SHADOW_ATLAS_RAW).
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, s_Data.CSMRawShadowTexture);
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, s_Data.AtlasRawShadowTexture);
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, s_Data.CSMRawShadowTexture, kShadowRaw);
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, s_Data.AtlasRawShadowTexture, kShadowRaw);
 
         BindTrackedTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTexture);
 
         // Cloud shadow transmittance map (issue #633). A 0 id binds nothing —
         // the AtmosphereShadingUBO enabled flag gates the shader-side sample,
         // so an unbound-but-declared sampler is never actually read.
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_CLOUD_SHADOW, s_Data.CloudShadowTexture);
+        //
+        // PUBLISHED AND BOUND, the DDGI-atlas case: its declaration lives in the
+        // SHARED include/AtmosphereShading.glsl, so one includer being on the
+        // bindless route (PBR_MultiLight) does not convert the declaration for
+        // the slot-based ones (Terrain_PBR, DeferredLightingShared) — and it
+        // cannot be converted there without dragging every includer onto the
+        // route, since the header's own `#ifdef OLO_BINDLESS` IS the opt-in
+        // token. Staging the offset AND binding serves both readers, which is
+        // exactly what this seam entry point exists for.
+        if (s_Data.CloudShadowTexture.IsValid())
+        {
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_CLOUD_SHADOW,
+                                                     s_Data.CloudShadowTexture,
+                                                     RHI::HeapSlotLifetime::Persistent);
+        }
     }
 
     // Helper: resolve the program to bind for a mesh draw during the depth

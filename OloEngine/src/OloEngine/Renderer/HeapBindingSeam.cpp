@@ -206,6 +206,17 @@ namespace OloEngine::HeapBinding
             {
                 RHI::ViewDesc viewDesc;
                 viewDesc.Resource = texture;
+                // DERIVED, not defaulted, so the two knobs cannot disagree. The
+                // backend already gates the GL compare mode on
+                // `DepthCompare && sampler.Compare != Never`, so a caller asking
+                // for a comparison sampler always means "compare", and one that
+                // does not always means "give me the raw depth" — which is
+                // exactly what the PCSS blocker search reads at
+                // TEX_SHADOW_*_RAW. Leaving this at its `true` default made every
+                // slot request a compare-capable view while the sampler said
+                // Never, so the two raw views and the two comparison views of the
+                // same depth array differed only by a field with no effect.
+                viewDesc.DepthCompare = (sampler.Compare != RHI::CompareOp::Never);
 
                 if (const RHI::ViewHandle view = heap.GetOrCreateView(texture, viewDesc, sampler, lifetime);
                     view.IsValid())

@@ -295,6 +295,26 @@ namespace OloEngine
         glSamplerParameteri(object, GL_TEXTURE_WRAP_R, static_cast<GLint>(Utils::ToGL(sampler.AddressW)));
         glSamplerParameterf(object, GL_TEXTURE_MAX_ANISOTROPY, sampler.MaxAnisotropy);
 
+        // A SAMPLER OBJECT DOES NOT INHERIT THE TEXTURE'S BORDER COLOUR. Once a
+        // sampler object is in play it supplies the whole sampling state, and its
+        // border defaults to transparent black — while the engine's depth arrays
+        // set an opaque WHITE border so a lookup outside a cascade reads as "lit".
+        // Without this the wrap mode would be reproduced and the border would not,
+        // darkening exactly the pixels beyond the shadow map's edge.
+        if (sampler.AddressU == RHI::AddressMode::ClampToBorder ||
+            sampler.AddressV == RHI::AddressMode::ClampToBorder ||
+            sampler.AddressW == RHI::AddressMode::ClampToBorder)
+        {
+            constexpr std::array<GLfloat, 4> kTransparentBlack{ 0.0f, 0.0f, 0.0f, 0.0f };
+            constexpr std::array<GLfloat, 4> kOpaqueBlack{ 0.0f, 0.0f, 0.0f, 1.0f };
+            constexpr std::array<GLfloat, 4> kOpaqueWhite{ 1.0f, 1.0f, 1.0f, 1.0f };
+
+            const std::array<GLfloat, 4>& border = (sampler.Border == RHI::BorderColor::OpaqueWhite)   ? kOpaqueWhite
+                                                   : (sampler.Border == RHI::BorderColor::OpaqueBlack) ? kOpaqueBlack
+                                                                                                       : kTransparentBlack;
+            glSamplerParameterfv(object, GL_TEXTURE_BORDER_COLOR, border.data());
+        }
+
         // The compare mode is what makes one depth array reachable as two views.
         // `ViewDesc::DepthCompare == false` forces it off regardless of the
         // sampler's own CompareOp, because that is the neutral model's way of

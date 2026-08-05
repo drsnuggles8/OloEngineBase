@@ -71,7 +71,16 @@ void main()
 
 layout(location = 2) in vec2 v_TexCoord;
 
+// Converted whole (§5c) — the alpha-test albedo is this shader's only sampler.
+// It MUST carve the same depth coverage as the colour pass, so it samples the
+// same material texture through the same per-material offset lane.
+#include "include/BindlessHeap.glsl"
+#ifdef OLO_BINDLESS
+#define OLO_MATERIAL_HEAP_READER 1
+#define u_AlbedoMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET)
+#else
 layout(binding = 0) uniform sampler2D u_AlbedoMap;          // TEX_DIFFUSE
+#endif
 
 // Overdraw counter — see DepthPrepass.glsl. Written only for fragments that
 // survive the MASK alpha test below, so the count matches shaded coverage.
