@@ -99,6 +99,31 @@ namespace OloEngine::HeapBinding
     auto PublishTextureOffsetAndBind(u32 slot, RHI::ResourceHandle texture, RHI::HeapSlotLifetime lifetime,
                                      const RHI::SamplerDesc& sampler = {}) -> RHI::HeapOffset;
 
+    // THE SAMPLER STATE A SHADOW-MAP DESCRIPTOR MUST BE MINTED WITH, in one place
+    // because it has to be identical at every site that stages one.
+    //
+    // A slot bind samples with the TEXTURE's parameters, so every consumer of a
+    // shadow map got its comparison mode for free no matter who bound it. A heap
+    // descriptor samples with the SAMPLER OBJECT baked into the handle, so the
+    // state has to be supplied — and the seam's default SamplerDesc{} carries
+    // `Compare = Never`, which the backend turns into GL_TEXTURE_COMPARE_MODE =
+    // GL_NONE. Reading such a handle as `sampler2DArrayShadow` is UNDEFINED, and
+    // in practice reads as "unshadowed": shadows LEAK rather than disappear,
+    // which is far harder to notice.
+    //
+    // WORSE, IT IS A LAST-WRITER RACE ACROSS PASSES. Several passes stage an
+    // offset for TEX_SHADOW / TEX_SHADOW_ATLAS, and whichever ran last owns the
+    // published descriptor for every bindless reader that frame. One site
+    // defaulting the sampler therefore silently disables comparison for shaders
+    // that never asked it to — which is exactly how converting PBR_MultiLight's
+    // shadow samplers made DDGI's lit/dark bands collapse from 60/33 to 62/41
+    // (issue #691 Phase 3).
+    //
+    // `comparison == false` gives the raw-depth view the PCSS blocker search
+    // reads; the seam derives ViewDesc::DepthCompare from the Compare field, so
+    // the two views of one depth array cannot drift apart.
+    [[nodiscard]] auto ShadowDepthSampler(bool comparison) -> RHI::SamplerDesc;
+
     // Resolve a texture to a heap offset WITHOUT staging it in the shared table.
     //
     // FOR PER-MATERIAL OFFSETS, which are the reason the shared table is not the

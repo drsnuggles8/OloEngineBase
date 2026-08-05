@@ -759,54 +759,14 @@ namespace OloEngine
         ++s_Data.Stats.TextureBinds;
     }
 
-    // THE SAMPLER STATE THE DEPTH ARRAYS ACTUALLY CARRY, read off the backend
-    // rather than assumed — the same discipline the material maps needed. A slot
-    // bind samples with the TEXTURE's parameters; a heap descriptor samples with
-    // its own sampler object, so anything not restated here is silently lost.
-    //
-    // OpenGLTexture2DArray gives a DEPTH_COMPONENT32F array GL_CLAMP_TO_BORDER on
-    // all three axes, an opaque WHITE border (so a lookup outside a cascade reads
-    // "lit", not "fully shadowed"), and — when DepthComparisonMode is set —
-    // GL_COMPARE_REF_TO_TEXTURE with GL_LEQUAL.
-    //
-    // The pair below is one depth array reached as TWO views, which is precisely
-    // what ViewDesc::DepthCompare exists to express: the comparison view feeds
-    // the sampler2DArrayShadow lookups and the raw view feeds the PCSS blocker
-    // search's sampler2DArray reads. They differ ONLY in Compare, and the seam
-    // derives ViewDesc::DepthCompare from that field so the two cannot drift.
-    [[nodiscard]] static RHI::SamplerDesc ShadowDepthSampler(bool comparison)
-    {
-        RHI::SamplerDesc desc;
-        desc.AddressU = RHI::AddressMode::ClampToBorder;
-        desc.AddressV = RHI::AddressMode::ClampToBorder;
-        desc.AddressW = RHI::AddressMode::ClampToBorder;
-        desc.Border = RHI::BorderColor::OpaqueWhite;
-        desc.Compare = comparison ? RHI::CompareOp::LessOrEqual : RHI::CompareOp::Never;
-
-        // NO MIP FILTERING, and this one is not cosmetic — it decides whether the
-        // shadow lookup returns anything at all. The shadow arrays are created
-        // WITHOUT mipmaps, so OpenGLTexture2DArray leaves them on GL_LINEAR. The
-        // SamplerDesc default is LinearMipFilter = true, which resolves to
-        // GL_LINEAR_MIPMAP_LINEAR; pairing that with a texture that has exactly
-        // one level makes the texture INCOMPLETE, and an incomplete shadow sampler
-        // reads as "unshadowed" rather than failing. The symptom was a frame that
-        // looked almost right — DDGI's lit/dark bands measured 62.1 / 40.7 instead
-        // of 60.4 / 33.0, i.e. shadows quietly leaking, with no GL error anywhere.
-        //
-        // GENERALISES: "read the sampler state off the backend" means ALL of it.
-        // The wrap mode, border and compare func were carried across and the
-        // filter was not, which is the same omission the heap backend's own
-        // ToGLMinFilter note records for SSAO's noise sampler.
-        desc.LinearMipFilter = false;
-        return desc;
-    }
-
     // Helper: Bind per-frame shadow and snow depth textures (only relevant for PBR paths).
     // Relies on BoundTextureIDs tracking to avoid redundant binds.
     static void BindShadowTextures()
     {
-        static const RHI::SamplerDesc kShadowCompare = ShadowDepthSampler(true);
-        static const RHI::SamplerDesc kShadowRaw = ShadowDepthSampler(false);
+        // Shared with every other site that stages a shadow-map offset — the
+        // state has to be identical or whichever pass ran last silently wins.
+        static const RHI::SamplerDesc kShadowCompare = HeapBinding::ShadowDepthSampler(true);
+        static const RHI::SamplerDesc kShadowRaw = HeapBinding::ShadowDepthSampler(false);
 
         BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTexture, kShadowCompare);
         BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS, s_Data.AtlasShadowTexture, kShadowCompare);

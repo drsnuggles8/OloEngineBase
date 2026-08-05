@@ -920,8 +920,18 @@ namespace OloEngine
         const RHI::ResourceHandle atlasRawID = shadowMap.GetAtlasRawHandle().IsValid()
                                                    ? shadowMap.GetAtlasRawHandle()
                                                    : ShadowMap::GetAtlasRawPlaceholderHandle();
-        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW, csmID, RHI::HeapSlotLifetime::Persistent);
-        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasID, RHI::HeapSlotLifetime::Persistent);
+        // THE COMPARISON SAMPLER IS MANDATORY HERE, not a refinement. This
+        // PUBLISHES into the shared offset table, so the descriptor staged here is
+        // what every bindless reader of TEX_SHADOW sees for the rest of the frame
+        // — including shaders that never go near DDGI. Defaulting the sampler
+        // stages a compare-DISABLED handle, and a `sampler2DArrayShadow` built
+        // from one is undefined and reads as unshadowed. See
+        // HeapBinding::ShadowDepthSampler.
+        const RHI::SamplerDesc shadowSampler = HeapBinding::ShadowDepthSampler(true);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW, csmID,
+                                                 RHI::HeapSlotLifetime::Persistent, shadowSampler);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasID,
+                                                 RHI::HeapSlotLifetime::Persistent, shadowSampler);
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID, RHI::HeapSlotLifetime::Persistent);
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID, RHI::HeapSlotLifetime::Persistent);
 

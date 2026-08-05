@@ -192,8 +192,16 @@ namespace OloEngine
         // Persistent: the shadow maps are renderer-owned (or fixed placeholders)
         // and the froxel volumes are pass-owned and double-buffered across frames,
         // so none comes from the graph's transient pool.
-        HeapBinding::BindTextureOrOffset(0, csmID, RHI::HeapSlotLifetime::Persistent);
-        HeapBinding::BindTextureOrOffset(1, atlasID, RHI::HeapSlotLifetime::Persistent);
+        // FroxelFogScatter.comp reads both of these as `sampler2DArrayShadow`, so
+        // the descriptor has to carry the comparison state — the seam's default
+        // SamplerDesc{} has Compare = Never and mints a compare-DISABLED handle,
+        // which makes that read undefined (it lands on "unshadowed" in practice,
+        // so the fog was silently unshadowed rather than visibly broken). Found
+        // while chasing the same defect in the material path; see
+        // HeapBinding::ShadowDepthSampler.
+        const RHI::SamplerDesc shadowSampler = HeapBinding::ShadowDepthSampler(true);
+        HeapBinding::BindTextureOrOffset(0, csmID, RHI::HeapSlotLifetime::Persistent, shadowSampler);
+        HeapBinding::BindTextureOrOffset(1, atlasID, RHI::HeapSlotLifetime::Persistent, shadowSampler);
         HeapBinding::BindTextureOrOffset(2, m_ScatterVolume[historyIndex]->GetRHIHandle(),
                                          RHI::HeapSlotLifetime::Persistent);
         // Persistent: the froxel volumes are pass-owned and double-buffered across

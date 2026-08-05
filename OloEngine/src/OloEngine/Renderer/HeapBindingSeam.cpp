@@ -266,6 +266,30 @@ namespace OloEngine::HeapBinding
 
     } // namespace
 
+    auto ShadowDepthSampler(const bool comparison) -> RHI::SamplerDesc
+    {
+        // Every field here is READ OFF THE BACKEND rather than chosen, because the
+        // claim this phase makes is that only the binding MECHANISM changes.
+        // OpenGLTexture2DArray gives a DEPTH_COMPONENT32F array CLAMP_TO_BORDER on
+        // all three axes with an opaque-WHITE border, so a lookup outside a cascade
+        // reads "lit" instead of "fully shadowed"; and, when DepthComparisonMode is
+        // set, COMPARE_REF_TO_TEXTURE with LEQUAL.
+        RHI::SamplerDesc desc;
+        desc.AddressU = RHI::AddressMode::ClampToBorder;
+        desc.AddressV = RHI::AddressMode::ClampToBorder;
+        desc.AddressW = RHI::AddressMode::ClampToBorder;
+        desc.Border = RHI::BorderColor::OpaqueWhite;
+        desc.Compare = comparison ? RHI::CompareOp::LessOrEqual : RHI::CompareOp::Never;
+
+        // NO MIP FILTERING: the arrays are created with one level, and the
+        // SamplerDesc default (LinearMipFilter = true) resolves to
+        // GL_LINEAR_MIPMAP_LINEAR, which makes a single-level texture INCOMPLETE.
+        // "Read the sampler state off the backend" means all of it — the same
+        // omission the heap backend's ToGLMinFilter note records for SSAO's noise.
+        desc.LinearMipFilter = false;
+        return desc;
+    }
+
     auto PublishTextureOffsetAndBind(const u32 slot, const RHI::ResourceHandle texture,
                                      const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler)
         -> RHI::HeapOffset

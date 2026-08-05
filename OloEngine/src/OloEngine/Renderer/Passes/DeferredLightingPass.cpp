@@ -343,8 +343,14 @@ namespace OloEngine
         const RHI::ResourceHandle atlasShadowID = m_SelectedInputs.ShadowMapAtlas.IsValid()
                                                       ? context.ResolveTextureHandle(m_SelectedInputs.ShadowMapAtlas)
                                                       : ShadowMap::GetAtlasPlaceholderHandle();
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW, csmShadowID, RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasShadowID, RHI::HeapSlotLifetime::FrameTransient);
+        // Comparison sampler — see HeapBinding::ShadowDepthSampler. The seam's
+        // default carries Compare = Never, which mints a compare-DISABLED
+        // descriptor and makes every `sampler2DArrayShadow` read of it undefined.
+        const RHI::SamplerDesc shadowSampler = HeapBinding::ShadowDepthSampler(true);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW, csmShadowID,
+                                        RHI::HeapSlotLifetime::FrameTransient, shadowSampler);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasShadowID,
+                                        RHI::HeapSlotLifetime::FrameTransient, shadowSampler);
         // Comparison-OFF raw-depth views for the PCSS blocker search (plain
         // sampler2DArray). Fall back to the raw placeholder so the declared
         // sampler always has a valid same-type binding.
