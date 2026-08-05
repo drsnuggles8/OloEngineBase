@@ -76,7 +76,9 @@ namespace OloEngine
 
         void BindHeap() override;
 
-        [[nodiscard]] auto NullDescriptor(RHI::ViewUsage usage) const -> u64 override;
+        [[nodiscard]] auto NullDescriptor(RHI::ViewUsage usage, RHI::NullSamplerKind kind =
+                                                                    RHI::NullSamplerKind::Texture2D) const
+            -> u64 override;
 
         struct Stats
         {
@@ -111,6 +113,22 @@ namespace OloEngine
         // separate HANDLE because `image2D(samplerHandle)` is undefined.
         GLuint m_NullImageTexture = 0u;
         u64 m_NullImageDescriptor = 0u;
+
+        // And one null per SAMPLER TYPE, for the same reason one level over: the
+        // GLSL type used to construct a sampler from a handle must match the
+        // texture's target or the read is undefined. A shader whose environment
+        // probe is unset resolves to a null offset and builds `samplerCube` from
+        // it — so a 2D null there is not a safe fallback, it is the bug
+        // (issue #691 Phase 3). The array-shadow null carries a depth format and a
+        // comparison sampler because `sampler2DArrayShadow` demands both.
+        GLuint m_NullCubeTexture = 0u;
+        u64 m_NullCubeDescriptor = 0u;
+        GLuint m_NullArrayTexture = 0u;
+        u64 m_NullArrayDescriptor = 0u;
+        GLuint m_NullArrayShadowTexture = 0u;
+        GLuint m_NullShadowSampler = 0u;
+        u64 m_NullArrayShadowDescriptor = 0u;
+
         u32 m_SlotCapacity = 0u;
 
         // Residency refcount. Two views that differ only in a field GL folds

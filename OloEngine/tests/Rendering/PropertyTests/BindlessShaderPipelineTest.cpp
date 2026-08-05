@@ -30,6 +30,7 @@
 
 #include "OloEnginePCH.h"
 
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <gtest/gtest.h>
@@ -37,6 +38,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -437,6 +439,59 @@ void main()
             return found;
         }
     } // namespace
+
+    // The reserved null offsets are declared TWICE — once in C++ as
+    // RHI::kNull*HeapOffset, once in GLSL as OLO_HEAP_NULL_* — because the shader
+    // is the only side that knows which sampler TYPE a declaration wants, so it is
+    // the side that substitutes the right null. Two declarations of one constant
+    // drift, and drift here is silent: the shader would build a samplerCube from
+    // whatever slot the stale number names, which is undefined rather than wrong
+    // in any way a test would notice (issue #691 Phase 3).
+    TEST(BindlessShaderPipeline, GlslNullOffsetsMatchTheReservedHeapSlots)
+    {
+        namespace fs = std::filesystem;
+
+        const fs::path header = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders" / "include" /
+                                "BindlessHeap.glsl";
+        ASSERT_TRUE(fs::exists(header)) << header.string();
+        const std::string src = ReadWholeFile(header);
+
+        const auto glslValue = [&src](std::string_view name) -> std::optional<u32>
+        {
+            const std::regex re(std::string{ "#define\\s+" } + std::string{ name } + R"(\s+(\d+)u)");
+            if (std::smatch m; std::regex_search(src, m, re))
+            {
+                return static_cast<u32>(std::stoul(m[1].str()));
+            }
+            return std::nullopt;
+        };
+
+        struct Pin
+        {
+            std::string_view Glsl;
+            u32 Cpp;
+        };
+        const std::array<Pin, 4> kPins{ {
+            { "OLO_HEAP_NULL_2D", RHI::kNullHeapOffset },
+            { "OLO_HEAP_NULL_CUBE", RHI::kNullCubeHeapOffset },
+            { "OLO_HEAP_NULL_ARRAY", RHI::kNullArrayHeapOffset },
+            { "OLO_HEAP_NULL_ARRAY_SHADOW", RHI::kNullArrayShadowHeapOffset },
+        } };
+
+        for (const Pin& pin : kPins)
+        {
+            const std::optional<u32> value = glslValue(pin.Glsl);
+            ASSERT_TRUE(value.has_value()) << pin.Glsl << " is not defined in BindlessHeap.glsl";
+            EXPECT_EQ(*value, pin.Cpp)
+                << pin.Glsl << " = " << *value << " but the C++ reserves slot " << pin.Cpp
+                << ". The shader would construct its sampler from the wrong reserved slot.";
+        }
+
+        // And no null may collide with a slot the allocator hands out, or a real
+        // descriptor would land on top of one.
+        EXPECT_LT(RHI::kNullArrayShadowHeapOffset, RHI::kFirstAllocatableHeapSlot);
+        EXPECT_LT(RHI::kNullCubeHeapOffset, RHI::kFirstAllocatableHeapSlot);
+    }
 
     TEST(BindlessShaderPipeline, NoBindlessRouteShaderKeepsASlotBasedSamplerDeclaration)
     {

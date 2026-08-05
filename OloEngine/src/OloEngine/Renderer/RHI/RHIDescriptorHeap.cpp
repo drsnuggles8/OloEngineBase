@@ -94,10 +94,19 @@ namespace OloEngine::RHI
         // not zero — the bug that passed alone and failed in the full suite), so
         // without this the storage null slot would hold a sampler handle and every
         // cleared image binding would be undefined behaviour rather than black.
-        if (backend != nullptr && total > kNullStorageHeapOffset)
+        if (backend != nullptr && total > kNullArrayShadowHeapOffset)
         {
             m_Mirror[kNullHeapOffset] = backend->NullDescriptor(ViewUsage::Sampled);
             m_Mirror[kNullStorageHeapOffset] = backend->NullDescriptor(ViewUsage::Storage);
+            // One per SAMPLER TYPE — a shader constructing samplerCube /
+            // sampler2DArray / sampler2DArrayShadow from a null offset must find a
+            // descriptor of that target, or the read is undefined rather than
+            // black (issue #691 Phase 3).
+            m_Mirror[kNullCubeHeapOffset] = backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Cube);
+            m_Mirror[kNullArrayHeapOffset] =
+                backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Texture2DArray);
+            m_Mirror[kNullArrayShadowHeapOffset] =
+                backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Texture2DArrayShadow);
         }
 
         m_PersistentFreeList.clear();

@@ -113,10 +113,39 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // …and the unsigned form, for an R16UI/R32UI lookup table. GTAO's Hilbert curve
 // LUT is the worked example.
 #define OLO_HEAP_USAMPLER_2D(offset) usampler2D(g_OloResourceHeap[offset])
-#define OLO_HEAP_SAMPLER_2D_ARRAY(offset) sampler2DArray(g_OloResourceHeap[offset])
-#define OLO_HEAP_SAMPLER_2D_ARRAY_SHADOW(offset) sampler2DArrayShadow(g_OloResourceHeap[offset])
+// -----------------------------------------------------------------------------
+// THE NULL OFFSET HAS A TYPE, so a non-2D constructor must not use the 2D one.
+//
+// Slot 0 is a 1x1 2D texture. `samplerCube(g_OloResourceHeap[0])` is therefore a
+// type mismatch, and ARB_bindless_texture makes using a handle whose sampler type
+// does not match the texture's target UNDEFINED — not black, undefined. Every
+// UNSET input lands on slot 0 (an unset environment probe, an unset IBL map, a
+// scene with no shadow cascade), so this is the common case rather than an edge
+// one, and it reads as a plausible frame that changes with whatever ran before.
+// It cost four wrong diagnoses as an "order-dependent" pop (issue #691 Phase 3).
+//
+// THE SUBSTITUTION LIVES HERE BECAUSE ONLY THE SHADER KNOWS THE TYPE. A TEX_*
+// slot does not imply one — TEX_USER_0..2 are generic slots that different
+// shaders declare as cube or 2D — so the C++ cannot pick the right null for the
+// shared table, while the declaration always can. The comparison is against a
+// value the whole draw shares, so it is uniform control flow.
+//
+// MIRRORS RHI::kNull*HeapOffset in RHIDescriptorHeap.h; pinned by
+// RHIBoundaryRatchet.HeapOffsetIsShaderVisibleAndHandlesAreComparable.
+#define OLO_HEAP_NULL_2D 0u
+#define OLO_HEAP_NULL_CUBE 2u
+#define OLO_HEAP_NULL_ARRAY 3u
+#define OLO_HEAP_NULL_ARRAY_SHADOW 4u
+
+#define OLO_HEAP_TYPED_NULL(offset, typedNull) (((offset) == OLO_HEAP_NULL_2D) ? (typedNull) : (offset))
+
+#define OLO_HEAP_SAMPLER_2D_ARRAY(offset) \
+    sampler2DArray(g_OloResourceHeap[OLO_HEAP_TYPED_NULL(offset, OLO_HEAP_NULL_ARRAY)])
+#define OLO_HEAP_SAMPLER_2D_ARRAY_SHADOW(offset) \
+    sampler2DArrayShadow(g_OloResourceHeap[OLO_HEAP_TYPED_NULL(offset, OLO_HEAP_NULL_ARRAY_SHADOW)])
 #define OLO_HEAP_SAMPLER_3D(offset) sampler3D(g_OloResourceHeap[offset])
-#define OLO_HEAP_SAMPLER_CUBE(offset) samplerCube(g_OloResourceHeap[offset])
+#define OLO_HEAP_SAMPLER_CUBE(offset) \
+    samplerCube(g_OloResourceHeap[OLO_HEAP_TYPED_NULL(offset, OLO_HEAP_NULL_CUBE)])
 
 // The forms a converted shader actually uses. Take the TEX_* slot number, not a
 // heap offset — the indirection through the table is the whole mechanism:

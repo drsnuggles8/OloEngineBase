@@ -86,8 +86,59 @@ namespace OloEngine::RHI
     // a descriptor the API says nothing about.
     inline constexpr u32 kNullStorageHeapOffset = 1u;
 
-    // The first slot the allocator may hand out. Both nulls sit below it.
-    inline constexpr u32 kFirstAllocatableHeapSlot = kNullStorageHeapOffset + 1u;
+    // The reserved null CUBE / ARRAY / ARRAY-SHADOW descriptors, and they exist
+    // because the argument above stops one level too shallow.
+    //
+    // "A null needs to exist per DESCRIPTOR KIND" was applied to sampler-vs-image
+    // and left there — but a SAMPLER TYPE is a kind too. `samplerCube(h)` where
+    // `h` names a 2D texture is undefined in exactly the way `image2D(h)` is, and
+    // §5d (heap handles carry no type) says nothing stops a shader from doing it.
+    // The null descriptor is then the one place the engine MANUFACTURES the
+    // mismatch itself: every unset material and IBL lane resolves to
+    // kNullHeapOffset, so a converted PBR shader with no environment probe built a
+    // samplerCube from the 1x1 2D null on every draw.
+    //
+    // It read as an ORDER-DEPENDENT visible pop (issue #691 Phase 3): the rebase
+    // evidence test passed alone and popped at boundaries 2 and 3 once a sibling
+    // test had run first, because undefined behaviour is free to depend on
+    // whatever the driver did previously. Four state-leak hypotheses died before
+    // this one, all of them looking for something that was being written wrongly
+    // rather than something being read as the wrong TYPE.
+    inline constexpr u32 kNullCubeHeapOffset = 2u;
+    inline constexpr u32 kNullArrayHeapOffset = 3u;
+    inline constexpr u32 kNullArrayShadowHeapOffset = 4u;
+
+    // The first slot the allocator may hand out. Every null sits below it.
+    inline constexpr u32 kFirstAllocatableHeapSlot = kNullArrayShadowHeapOffset + 1u;
+
+    // Which reserved null a given SAMPLER TYPE must fall back to. The shader knows
+    // this and the C++ mostly does not — a TEX_* slot does not imply a type, since
+    // TEX_USER_0..2 are generic slots that different shaders declare differently —
+    // which is why the shader-side accessors in include/BindlessHeap.glsl do the
+    // substitution and these constants are mirrored there.
+    enum class NullSamplerKind : u8
+    {
+        Texture2D = 0,
+        Cube,
+        Texture2DArray,
+        Texture2DArrayShadow,
+    };
+
+    [[nodiscard]] constexpr auto NullOffsetForSamplerKind(NullSamplerKind kind) -> u32
+    {
+        switch (kind)
+        {
+            case NullSamplerKind::Cube:
+                return kNullCubeHeapOffset;
+            case NullSamplerKind::Texture2DArray:
+                return kNullArrayHeapOffset;
+            case NullSamplerKind::Texture2DArrayShadow:
+                return kNullArrayShadowHeapOffset;
+            case NullSamplerKind::Texture2D:
+            default:
+                return kNullHeapOffset;
+        }
+    }
 
     // The null offset appropriate to a view's kind. Every "I am not using this
     // input" and every failed acquire must point at one of the two.
@@ -177,7 +228,12 @@ namespace OloEngine::RHI
         // interchangeable in a shader — `image2D(samplerHandle)` is undefined in
         // exactly the way `sampler2D(0)` is. One null per kind is the minimum
         // that keeps the determinism this model is built on.
-        [[nodiscard]] virtual auto NullDescriptor(ViewUsage usage) const -> u64 = 0;
+        // `kind` is consulted only for ViewUsage::Sampled — a storage image has no
+        // sampler type to mismatch. It defaults so every existing caller keeps
+        // asking for the 2D null it already meant.
+        [[nodiscard]] virtual auto NullDescriptor(ViewUsage usage,
+                                                  NullSamplerKind kind = NullSamplerKind::Texture2D) const
+            -> u64 = 0;
     };
 
     // -------------------------------------------------------------------------

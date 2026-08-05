@@ -157,6 +157,74 @@ namespace OloEngine
             glMakeImageHandleResidentARB(m_NullImageDescriptor, GL_READ_WRITE);
         }
 
+        // ONE NULL PER SAMPLER TYPE. Same argument as the image null above, one
+        // level over: the GLSL constructor's type must match the texture's TARGET
+        // or the read is undefined, so a shader that resolves an unset input to a
+        // null offset and builds `samplerCube` from it needs a real CUBE there.
+        // A 2D null is not a conservative fallback for those — it is the defect
+        // (issue #691 Phase 3; it surfaced as an order-dependent visible pop,
+        // because undefined behaviour may depend on whatever ran before).
+        //
+        // Deliberately NOT fail-closed the way the two above are. Those are
+        // load-bearing for every heap read; these only matter to a shader that
+        // samples an UNSET input of that type, so degrading to the 2D null keeps
+        // the engine running with exactly the pre-existing behaviour instead of
+        // disabling bindless outright over an input nothing may even read.
+        const auto makeResident = [](const GLuint64 handle)
+        {
+            if (handle != 0u && glIsTextureHandleResidentARB(handle) != GL_TRUE)
+            {
+                glMakeTextureHandleResidentARB(handle);
+            }
+        };
+
+        glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &m_NullCubeTexture);
+        glTextureStorage2D(m_NullCubeTexture, 1, GL_RGBA8, 1, 1);
+        for (GLint face = 0; face < 6; ++face)
+        {
+            glTextureSubImage3D(m_NullCubeTexture, 0, 0, 0, face, 1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE,
+                                kBlack.data());
+        }
+        glObjectLabel(GL_TEXTURE, m_NullCubeTexture, -1, "RHI::DescriptorHeap null cube");
+        m_NullCubeDescriptor = static_cast<u64>(glGetTextureSamplerHandleARB(m_NullCubeTexture, m_NullSampler));
+        makeResident(m_NullCubeDescriptor);
+
+        glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &m_NullArrayTexture);
+        glTextureStorage3D(m_NullArrayTexture, 1, GL_RGBA8, 1, 1, 1);
+        glTextureSubImage3D(m_NullArrayTexture, 0, 0, 0, 0, 1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, kBlack.data());
+        glObjectLabel(GL_TEXTURE, m_NullArrayTexture, -1, "RHI::DescriptorHeap null 2D array");
+        m_NullArrayDescriptor = static_cast<u64>(glGetTextureSamplerHandleARB(m_NullArrayTexture, m_NullSampler));
+        makeResident(m_NullArrayDescriptor);
+
+        // The shadow null needs a DEPTH format and a COMPARISON sampler, because
+        // `sampler2DArrayShadow` requires both — a colour texture or a sampler
+        // with GL_TEXTURE_COMPARE_MODE = NONE would reproduce the very mismatch
+        // this exists to remove. Depth 1.0 so an unset shadow map reads "lit",
+        // matching the opaque-white border the real cascades use.
+        glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &m_NullArrayShadowTexture);
+        glTextureStorage3D(m_NullArrayShadowTexture, 1, GL_DEPTH_COMPONENT32F, 1, 1, 1);
+        constexpr std::array<f32, 1> kFar = { 1.0f };
+        glTextureSubImage3D(m_NullArrayShadowTexture, 0, 0, 0, 0, 1, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT,
+                            kFar.data());
+        glObjectLabel(GL_TEXTURE, m_NullArrayShadowTexture, -1, "RHI::DescriptorHeap null shadow array");
+
+        glCreateSamplers(1, &m_NullShadowSampler);
+        glSamplerParameteri(m_NullShadowSampler, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glSamplerParameteri(m_NullShadowSampler, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glSamplerParameteri(m_NullShadowSampler, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+        glSamplerParameteri(m_NullShadowSampler, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+        m_NullArrayShadowDescriptor =
+            static_cast<u64>(glGetTextureSamplerHandleARB(m_NullArrayShadowTexture, m_NullShadowSampler));
+        makeResident(m_NullArrayShadowDescriptor);
+
+        if (m_NullCubeDescriptor == 0u || m_NullArrayDescriptor == 0u || m_NullArrayShadowDescriptor == 0u)
+        {
+            OLO_CORE_WARN("[RHI/GL] Could not create every typed null descriptor (cube={}, array={}, "
+                          "arrayShadow={}). Those types fall back to the 2D null, which is undefined to "
+                          "sample through — the pre-heap behaviour, not a regression.",
+                          m_NullCubeDescriptor, m_NullArrayDescriptor, m_NullArrayShadowDescriptor);
+        }
+
         // std430 uvec2[] — a GLuint64 handle IS a uvec2 in memory, so the CPU
         // mirror uploads verbatim with no packing step. Deliberately NOT a
         // uint64_t[] block: that would additionally require
@@ -256,6 +324,33 @@ namespace OloEngine
         {
             glDeleteTextures(1, &m_NullImageTexture);
             m_NullImageTexture = 0u;
+        }
+
+        // The typed sampler nulls, same order as the two above: drop residency
+        // before deleting the object, or the handle outlives what it names.
+        for (u64* descriptor : { &m_NullCubeDescriptor, &m_NullArrayDescriptor, &m_NullArrayShadowDescriptor })
+        {
+            if (*descriptor != 0u)
+            {
+                if (glIsTextureHandleResidentARB(*descriptor) == GL_TRUE)
+                {
+                    glMakeTextureHandleNonResidentARB(*descriptor);
+                }
+                *descriptor = 0u;
+            }
+        }
+        if (m_NullShadowSampler != 0u)
+        {
+            glDeleteSamplers(1, &m_NullShadowSampler);
+            m_NullShadowSampler = 0u;
+        }
+        for (GLuint* texture : { &m_NullCubeTexture, &m_NullArrayTexture, &m_NullArrayShadowTexture })
+        {
+            if (*texture != 0u)
+            {
+                glDeleteTextures(1, texture);
+                *texture = 0u;
+            }
         }
 
         if (m_HeapBuffer != 0u)
@@ -591,9 +686,28 @@ namespace OloEngine
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_RESOURCE_HEAP, m_HeapBuffer);
     }
 
-    auto OpenGLDescriptorHeapBackend::NullDescriptor(RHI::ViewUsage usage) const -> u64
+    auto OpenGLDescriptorHeapBackend::NullDescriptor(const RHI::ViewUsage usage,
+                                                     const RHI::NullSamplerKind kind) const -> u64
     {
-        return usage == RHI::ViewUsage::Storage ? m_NullImageDescriptor : m_NullDescriptor;
+        if (usage == RHI::ViewUsage::Storage)
+        {
+            // An image binding has no sampler type to mismatch, so `kind` is
+            // meaningless here rather than merely unused.
+            return m_NullImageDescriptor;
+        }
+
+        switch (kind)
+        {
+            case RHI::NullSamplerKind::Cube:
+                return m_NullCubeDescriptor;
+            case RHI::NullSamplerKind::Texture2DArray:
+                return m_NullArrayDescriptor;
+            case RHI::NullSamplerKind::Texture2DArrayShadow:
+                return m_NullArrayShadowDescriptor;
+            case RHI::NullSamplerKind::Texture2D:
+            default:
+                return m_NullDescriptor;
+        }
     }
 
     auto OpenGLDescriptorHeapBackend::GetStats() const -> Stats

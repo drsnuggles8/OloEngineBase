@@ -122,9 +122,32 @@ namespace OloEngine::Tests
             // storage slot poisoned with the sampler null would look correct.
             static constexpr u64 kNull = 0xD15AB1EDu;
             static constexpr u64 kNullImage = 0xDEADFA11u;
-            [[nodiscard]] auto NullDescriptor(RHI::ViewUsage usage) const -> u64 override
+            // One sentinel per SAMPLER TYPE, and they differ for the same reason
+            // the two above do: a cube slot seeded with the 2D null would look
+            // correct to any test that only asks "is this a null", which is
+            // precisely the bug the typed nulls exist to remove (issue #691).
+            static constexpr u64 kNullCube = 0xC0BEC0BEu;
+            static constexpr u64 kNullArray = 0xA55A4A55u;
+            static constexpr u64 kNullArrayShadow = 0x5AD05AD0u;
+            [[nodiscard]] auto NullDescriptor(RHI::ViewUsage usage, RHI::NullSamplerKind kind) const
+                -> u64 override
             {
-                return usage == RHI::ViewUsage::Storage ? kNullImage : kNull;
+                if (usage == RHI::ViewUsage::Storage)
+                {
+                    return kNullImage;
+                }
+                switch (kind)
+                {
+                    case RHI::NullSamplerKind::Cube:
+                        return kNullCube;
+                    case RHI::NullSamplerKind::Texture2DArray:
+                        return kNullArray;
+                    case RHI::NullSamplerKind::Texture2DArrayShadow:
+                        return kNullArrayShadow;
+                    case RHI::NullSamplerKind::Texture2D:
+                    default:
+                        return kNull;
+                }
             }
         };
 
@@ -172,10 +195,20 @@ namespace OloEngine::Tests
                 EngineHeapWasEnabled = RHI::DescriptorHeap::Get().IsEnabled();
             }
 
+            // `persistent` is the count of ALLOCATABLE slots, not the raw capacity.
+            //
+            // It used to be the capacity, which quietly meant "capacity minus
+            // however many slots are reserved" — and that number changed when the
+            // typed sampler nulls took reserved slots 2..4 (issue #691 Phase 3).
+            // Every test then lost three allocations it thought it had, and the two
+            // that allocate six views failed on the fourth with an invalid handle:
+            // a real regression signal pointing at the wrong thing entirely. Adding
+            // the reserved count here keeps each test's stated intent — "give me
+            // eight slots I can allocate" — true across any future reservation.
             void SetUpHeap(u32 persistent = 8u, u32 transient = 4u, bool poison = false)
             {
                 RHI::HeapDesc desc;
-                desc.ResourceSlotCapacity = persistent;
+                desc.ResourceSlotCapacity = RHI::kFirstAllocatableHeapSlot + persistent;
                 desc.SamplerSlotCapacity = 8u;
                 desc.FrameTransientRingSlots = transient;
                 desc.PoisonOnFree = poison;
@@ -1010,7 +1043,7 @@ namespace OloEngine::Tests
     // Neither reserved slot may ever be handed out. A view landing on slot 0 or 1
     // would make "I am not using this input" indistinguishable from a real
     // binding, which is the whole hazard the reservation exists to remove.
-    TEST_F(HeapFixture, TheAllocatorNeverHandsOutEitherReservedNullSlot)
+    TEST_F(HeapFixture, TheAllocatorNeverHandsOutAReservedNullSlot)
     {
         SetUpHeap();
         auto& heap = RHI::DescriptorHeap::Get();
