@@ -104,6 +104,9 @@ add_executable(OloEngine-Tests
 		Rendering/VirtualClusterTwoPhaseOcclusionTest.cpp
 		Rendering/MeshSourceBoundsTest.cpp
 		Rendering/MeshBVHRaycastTest.cpp
+		Rendering/PathTracing/ReferenceBRDFTest.cpp
+		Rendering/PathTracing/PathTracerFurnaceTest.cpp
+		Rendering/PathTracing/PathTracerCornellBoxTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp
 		Rendering/ShaderReflectionBindingTest.cpp
@@ -204,6 +207,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/OceanFFTSpectrumTest.cpp
 		Rendering/PropertyTests/PostProcessPropertyTests.cpp
 		Rendering/PropertyTests/PbrPropertyTests.cpp
+		Rendering/PathTracing/ReferenceBRDFGpuParityTest.cpp
 		Rendering/PropertyTests/ShaderMathIdentityTests.cpp
 		Rendering/PropertyTests/GLStateGuardTest.cpp
 		Rendering/PropertyTests/RendererValidateTest.cpp
@@ -241,6 +245,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ReflectionProbeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SSGIVisualEvidenceTest.cpp
 		Rendering/DDGI/DDGIVisualEvidenceTest.cpp
+		Rendering/PathTracing/DDGIReferenceParityTest.cpp
 		Rendering/PropertyTests/OverdrawVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ContactShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/CASVisualEvidenceTest.cpp
