@@ -370,7 +370,9 @@ namespace OloEngine::PathTracing
 
     // -------------------------------------------------------------------------
     // Display transform (GLSL: reinhardToneMapping / acesToneMapping /
-    // uncharted2ToneMapping / linearToSRGB / postProcessColor)
+    // linearToSRGB). PBRCommon's uncharted2ToneMapping and postProcessColor are
+    // deliberately NOT ported — nothing the reference encodes needs them, and an
+    // unused port is one more thing that can silently drift from the shader.
     //
     // The reference renders LINEAR radiance; these exist so a reference image
     // can be encoded the same way the raster path's composite is, which is the

@@ -178,12 +178,23 @@ namespace OloEngine::Tests
             settings.SamplesPerPixel = 256;
             settings.MaxBounces = 8;
 
-            std::cout << "[evidence] OLO_PATHTRACER_EVIDENCE set — rendering " << kSize << "x" << kSize << " at "
-                      << settings.SamplesPerPixel << " spp\n";
+            std::cout << "[evidence] OLO_PATHTRACER_EVIDENCE set — rendering two angles at " << kSize << "x" << kSize
+                      << ", " << settings.SamplesPerPixel << " spp\n";
 
+            // TWO angles, per CLAUDE.md's rendering rule. Head-on shows the
+            // emitter and the ceiling (the indirect-only surface); the raking
+            // pose shows the block's side faces, where colour bleeding is most
+            // legible — its left face reads red and its right green. Neither
+            // pose alone covers both. One pose's blind spot is not evidence of
+            // correctness.
             ReferenceFilm film(kSize, kSize);
             PathTracer::Render(fixture.Scene, fixture.MakeCamera(kSize, kSize), settings, film);
-            WriteEvidencePng(film, name);
+            WriteEvidencePng(film, name + "_HeadOn");
+
+            ReferenceFilm rakingFilm(kSize, kSize);
+            PathTracer::Render(fixture.Scene, Fixtures::CornellBoxScene::MakeRakingCamera(kSize, kSize), settings,
+                               rakingFilm);
+            WriteEvidencePng(rakingFilm, name + "_Raking");
         }
     } // namespace
 
@@ -231,8 +242,16 @@ namespace OloEngine::Tests
         ReferenceFilm film(kSize, kSize);
         PathTracer::Render(fixture.Scene, camera, settings, film);
 
-        // Mirror Render's per-pixel loop exactly: the first 2D dimension is the
-        // pixel jitter, and the same PathSampler then continues into the path.
+        // Mirror Render's per-pixel loop EXACTLY — including its arithmetic
+        // form, not merely its algebra. Render precomputes a reciprocal and
+        // multiplies; `a * (1.0f / 24.0f)` is not required to equal `a / 24.0f`
+        // in fp32 (24 is not a power of two, so the reciprocal is inexact). A
+        // one-ULP difference in the screen UV moves the primary ray, and near a
+        // silhouette the two rays hit different surfaces — which would make the
+        // file's load-bearing determinism assertion fail for a reason that has
+        // nothing to do with determinism.
+        const f32 invSize = 1.0f / static_cast<f32>(kSize);
+        const f32 invSamples = 1.0f / static_cast<f32>(settings.SamplesPerPixel);
         const auto reproduce = [&](u32 x, u32 y)
         {
             const u32 pixelSeed = MakePixelSeed(x, y, settings.Seed);
@@ -241,11 +260,11 @@ namespace OloEngine::Tests
             {
                 PathSampler sampler(pixelSeed, sample);
                 const glm::vec2 jitter = sampler.Get2D();
-                const glm::vec2 screenUV((static_cast<f32>(x) + jitter.x) / static_cast<f32>(kSize),
-                                         (static_cast<f32>(y) + jitter.y) / static_cast<f32>(kSize));
+                const glm::vec2 screenUV((static_cast<f32>(x) + jitter.x) * invSize,
+                                         (static_cast<f32>(y) + jitter.y) * invSize);
                 accumulated += PathTracer::TracePath(fixture.Scene, camera.GenerateRay(screenUV), settings, sampler);
             }
-            return accumulated * (1.0f / static_cast<f32>(settings.SamplesPerPixel));
+            return accumulated * invSamples;
         };
 
         for (const glm::uvec2 pixel : { glm::uvec2(0, 0), glm::uvec2(7, 19), glm::uvec2(13, 11),

@@ -285,9 +285,24 @@ different BRDF than the renderer is not a reference.
 
 ## 7. Sample count is sometimes a CORRECTNESS parameter
 
-Cost first: the headless gate renders 96×96 at 192 samples (~2 s single-threaded in a release
-build); the whole `PathTracing/` headless set is ~5 s. Cost scales linearly in samples, variance as
-1/√N. Reach for resolution when the assertion is *spatial*, for samples when it is *photometric*.
+Cost first, per test, because the figures differ and a reader budgeting a new test needs the right
+one:
+
+| test | render | why that size |
+|---|---|---|
+| `PathTracerCornellBoxTest` physics/evidence | 64×64 @ 128 spp | region means; also the evidence PNG |
+| `PathTracerCornellBoxTest` bounce | 48×48 @ 128 spp | frame/patch means only |
+| `PathTracerFurnaceTest` Cornell furnace | 40×40 @ 160 spp | the sample count is a *correctness* parameter — see below |
+| `PathTracerFurnaceTest` NEE-bias | 20×20 @ 96 / 768 spp | one region mean over ~160 pixels |
+
+The whole `PathTracing/` headless set is ~5 s of work — but **~65 s under MSVC Debug**, which is
+where the suite actually runs: the tracer measures ~40× slower there, and `ParallelFor` executes
+inline because the test process starts no `FScheduler` workers. That 40× is why these budgets look
+so small; they were cut from an initial 203 s with every threshold's measured margin recorded
+beside it.
+
+Cost scales linearly in samples, variance as 1/√N. Reach for resolution when the assertion is
+*spatial*, for samples when it is *photometric*.
 
 But note the trap in `CornellFurnaceCreatesNoEnergy`. The natural way to assert energy conservation
 is "no pixel exceeds 1.0" — and that assertion is about the **sample count**, not the renderer. At
@@ -320,16 +335,21 @@ a region mean and resolution buys them nothing but runtime). They are diagnostic
 nothing compares against them, and the test never fails because it could not write one.
 
 For something a human can actually read, set **`OLO_PATHTRACER_EVIDENCE=1`** and the same test also
-writes a converged 192×192 / 256-spp `PathTracer_CornellBox_HiRes.png`. Run that in a **Release**
-build: the tracer is ~40× slower under MSVC Debug (measured across the gate renders — 5 s of
-Release work is 200 s of Debug), which is also why the default budgets look so small.
+writes converged 192×192 / 256-spp frames from **two** angles —
+`PathTracer_CornellBox_HiRes_HeadOn.png` and `…_Raking.png`. Two, because they cover different
+things: head-on shows the emitter and the ceiling (the indirect-ONLY surface), while the raking pose
+— inside the room, looking down across the floor — shows the block's side faces, where colour
+bleeding is most legible (left face reads red, right face green). Run it in a **Release** build (see
+the 40× Debug penalty above).
 
 What a correct converged reference looks like, so a broken one is recognisable:
 
-- **Cornell box**: red and green walls, a bright emitter quad in the ceiling with the ceiling
-  *around* it dark (one-sided downward emission — if that ring is lit, the emitter is two-sided or
-  its winding is flipped), a soft shadow under the block, and visible colour bleeding onto the floor
-  and onto the block's side faces.
+- **Cornell box, head-on**: red and green walls, a bright emitter quad in the ceiling with the
+  ceiling *around* it dark (one-sided downward emission — if that ring is lit, the emitter is
+  two-sided or its winding is flipped), and a soft shadow under the block.
+- **Cornell box, raking**: the block's left face tinted red and its right face green. If both faces
+  are neutral grey, indirect light is not carrying wall albedo — which is the whole phenomenon a GI
+  implementation exists to produce.
 - **Cornell furnace**: a near-uniform bright field in which the geometry all but disappears. That is
   the point — every surface converges to the same radiance. Structure still visible in the corners
   is the enclosure's energy loss, not a bug. If you can clearly see the box, something is absorbing.

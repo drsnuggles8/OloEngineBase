@@ -141,6 +141,22 @@ namespace OloEngine::PathTracing
             return kInvalid;
         }
 
+        // A MIRRORED basis passes the test above — glm::length is never negative,
+        // so a reflected axis looks like a perfectly uniform scale. It is not
+        // harmless: a reflection flips triangle winding, and both places this
+        // scene derives an outward direction from winding invert with it —
+        // `BuildEmissiveList`'s cross(V1-V0, V2-V0) and `IntersectInstance`'s
+        // geometric normal. A one-sided emitter would then emit from its back
+        // face and the room would render black, which reads as an integrator
+        // bug rather than a scene-setup one. Reject it as loudly as the
+        // non-uniform case.
+        if (glm::dot(glm::cross(axisX, axisY), axisZ) <= 0.0f)
+        {
+            OLO_CORE_ERROR("ReferenceScene::AddInstance: transform mirrors the basis (non-positive determinant); "
+                           "this flips triangle winding and inverts every geometric normal");
+            return kInvalid;
+        }
+
         ReferenceInstance instance;
         instance.GeometryIndex = geometryIndex;
         instance.MaterialIndex = materialIndex;
@@ -450,6 +466,11 @@ namespace OloEngine::PathTracing
 
     bool ReferenceScene::Intersect(const Ray& ray, SurfaceInteraction& outHit) const
     {
+        // m_Built goes false on any Add*, so this catches BOTH "never built"
+        // and "mutated after Build()" — the latter would otherwise traverse a
+        // stale TLAS that simply does not contain the new geometry, which is
+        // invisible in the output.
+        OLO_CORE_ASSERT(m_Built, "ReferenceScene::Intersect on an unbuilt or stale scene — call Build() after the last Add*()");
         outHit = SurfaceInteraction{};
         if (m_TLASNodes.empty())
             return false;
@@ -492,12 +513,14 @@ namespace OloEngine::PathTracing
             }
 
             // Push both children; the ordering does not affect correctness
-            // because the interval is tightened on every accepted hit.
-            if (stackSize + 2 <= s_TraversalStackSize)
-            {
-                stack[stackSize++] = node.LeftFirst;
-                stack[stackSize++] = node.LeftFirst + 1;
-            }
+            // because the interval is tightened on every accepted hit. The push
+            // is UNCONDITIONAL: a capacity test that silently skipped the push
+            // would drop a whole subtree and produce a plausible, wrong image.
+            // The static_assert on s_TraversalStackSize (ReferenceScene.h) is
+            // what makes overflow impossible; this asserts it at runtime too.
+            OLO_CORE_ASSERT(stackSize + 2 <= s_TraversalStackSize, "TLAS traversal stack overflow");
+            stack[stackSize++] = node.LeftFirst;
+            stack[stackSize++] = node.LeftFirst + 1;
         }
 
         return anyHit;
@@ -505,6 +528,7 @@ namespace OloEngine::PathTracing
 
     bool ReferenceScene::IsOccluded(const glm::vec3& from, const glm::vec3& to, f32 epsilon) const
     {
+        OLO_CORE_ASSERT(m_Built, "ReferenceScene::IsOccluded on an unbuilt or stale scene — call Build() after the last Add*()");
         if (m_TLASNodes.empty())
             return false;
 
@@ -547,11 +571,9 @@ namespace OloEngine::PathTracing
                 continue;
             }
 
-            if (stackSize + 2 <= s_TraversalStackSize)
-            {
-                stack[stackSize++] = node.LeftFirst;
-                stack[stackSize++] = node.LeftFirst + 1;
-            }
+            OLO_CORE_ASSERT(stackSize + 2 <= s_TraversalStackSize, "TLAS traversal stack overflow");
+            stack[stackSize++] = node.LeftFirst;
+            stack[stackSize++] = node.LeftFirst + 1;
         }
 
         return false;

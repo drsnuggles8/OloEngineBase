@@ -452,6 +452,11 @@ namespace OloEngine::Tests
 
             ASSERT_GT(referenceMean, 1e-4f)
                 << "the reference says this probe receives no light at all — the scene twins disagree";
+            // The direct-only reference is the DIVISOR of the ratio below, so it
+            // gets its own guard: a zero here would turn the assertion into
+            // inf > 0.9, which passes.
+            ASSERT_GT(referenceDirectMean, 1e-4f)
+                << "the direct-only reference is zero at this probe — nothing to compare DDGI against";
             ASSERT_GT(ddgiMean, 1e-4f) << "DDGI's probe irradiance is zero where the reference says it is lit";
 
             ddgiMeans.push_back(ddgiMean);
@@ -487,6 +492,14 @@ namespace OloEngine::Tests
         // rank the same way in both worlds — this is the assertion that a
         // global scale error cannot pass and that a broken visibility term
         // cannot pass either.
+        //
+        // Ranked against the DIRECT-ONLY reference, matching the magnitude
+        // assertion above. Ranking against the full multi-bounce reference
+        // would be comparing DDGI's field shape to a field it is not currently
+        // computing — the bounce term contributes nothing here (see
+        // BounceTermIsDeadWhenTheVolumeExcludesTheWalls), and indirect light
+        // does not distribute the same way direct light does, so the two
+        // orderings need not agree even when DDGI is behaving perfectly.
         for (sizet a = 0; a < probes.size(); ++a)
         {
             for (sizet b = a + 1; b < probes.size(); ++b)
@@ -494,16 +507,16 @@ namespace OloEngine::Tests
                 // Skip pairs the reference itself considers a tie (within 15%):
                 // ordering is not a meaningful claim there, and asserting it
                 // would make the test a coin flip.
-                const f32 relativeGap =
-                    std::abs(referenceMeans[a] - referenceMeans[b]) / std::max(referenceMeans[a], referenceMeans[b]);
+                const f32 relativeGap = std::abs(referenceDirectMeans[a] - referenceDirectMeans[b]) / std::max(referenceDirectMeans[a], referenceDirectMeans[b]);
                 if (relativeGap < 0.15f)
                     continue;
 
-                const bool referenceOrder = referenceMeans[a] > referenceMeans[b];
+                const bool referenceOrder = referenceDirectMeans[a] > referenceDirectMeans[b];
                 const bool ddgiOrder = ddgiMeans[a] > ddgiMeans[b];
                 EXPECT_EQ(referenceOrder, ddgiOrder)
-                    << "probes " << a << " and " << b << " rank differently: reference " << referenceMeans[a]
-                    << " vs " << referenceMeans[b] << ", DDGI " << ddgiMeans[a] << " vs " << ddgiMeans[b]
+                    << "probes " << a << " and " << b << " rank differently: reference "
+                    << referenceDirectMeans[a] << " vs " << referenceDirectMeans[b] << ", DDGI " << ddgiMeans[a]
+                    << " vs " << ddgiMeans[b]
                     << " — the probe field's spatial structure does not match ground truth";
             }
         }

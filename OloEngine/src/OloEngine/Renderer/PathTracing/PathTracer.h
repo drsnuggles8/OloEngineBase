@@ -167,8 +167,11 @@ namespace OloEngine::PathTracing
     class PathTracer
     {
       public:
-        // Render `scene` through `camera` into `film` (which is resized and
-        // cleared). The scene must have been Build()t.
+        // Render `scene` through `camera` into `film`. The FILM's extent is the
+        // render resolution — settings carries no width/height — so the caller
+        // sizes it (`ReferenceFilm(w, h)` or `Resize`); Render only clears it.
+        // A zero-extent film is a logged no-op, not a silent one. The scene must
+        // have been Build()t.
         static void Render(const ReferenceScene& scene, const ReferenceCamera& camera,
                            const PathTracerSettings& settings, ReferenceFilm& film);
 

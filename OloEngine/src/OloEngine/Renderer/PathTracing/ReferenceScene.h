@@ -398,5 +398,13 @@ namespace OloEngine::PathTracing
         static constexpr u32 s_MaxLeafInstances = 2;
         static constexpr u32 s_MaxDepth = 60;
         static constexpr u32 s_TraversalStackSize = 64;
+
+        // A depth-first traversal pops one node and pushes two, so peak stack
+        // occupancy is depth + 1. The relation below is what lets the traversals
+        // push unconditionally; without it, raising s_MaxDepth would turn their
+        // capacity guard into SILENT geometry loss — rays would simply miss a
+        // subtree and the image would be plausible and wrong.
+        static_assert(s_TraversalStackSize >= s_MaxDepth + 2,
+                      "TLAS traversal stack must hold the deepest descent plus its sibling");
     };
 } // namespace OloEngine::PathTracing

@@ -529,10 +529,18 @@ namespace OloEngine::PathTracing
             return;
         }
 
+        // The film's extent IS the render resolution (settings carries no
+        // width/height), so a default-constructed film renders nothing. Say so:
+        // a silent no-op return here looks exactly like "the scene is black".
         const u32 width = film.GetWidth();
         const u32 height = film.GetHeight();
         if (width == 0 || height == 0 || settings.SamplesPerPixel == 0)
+        {
+            OLO_CORE_ERROR("PathTracer::Render: nothing to render — film is {}x{} and SamplesPerPixel is {}. "
+                           "The CALLER sizes the film (ReferenceFilm(w, h) or Resize).",
+                           width, height, settings.SamplesPerPixel);
             return;
+        }
 
         film.Clear();
         std::vector<glm::vec3>& pixels = film.GetPixels();

@@ -179,6 +179,35 @@ namespace OloEngine::Tests::PathTracingFixtures
             return ReferenceCamera::FromViewProjection(ViewProjection(width, height), EyePosition());
         }
 
+        // A second, RAKING view for evidence: INSIDE the room, high on the
+        // right, looking down across the floor at the block.
+        //
+        // The head-on camera sees the block flat-on, so its side faces — where
+        // colour bleeding is strongest and most legible — are edge-on or hidden.
+        // From here the block's left face reads visibly RED and its right face
+        // GREEN, which is the clearest possible read on whether indirect light
+        // is carrying wall albedo. Head-on covers what this pose cannot: the
+        // ceiling and the emitter. CLAUDE.md asks for multiple angles precisely
+        // so one pose's blind spot is not mistaken for correctness.
+        //
+        // Inside rather than outside the open +Z face on purpose: an oblique
+        // camera placed outside sees mostly past the opening, and ~18% of that
+        // frame is empty black. This pose measures 0.4%.
+        [[nodiscard]] static glm::vec3 RakingEyePosition()
+        {
+            return glm::vec3(0.75f, 0.72f, 0.88f);
+        }
+
+        [[nodiscard]] static ReferenceCamera MakeRakingCamera(u32 width, u32 height)
+        {
+            const glm::vec3 eye = RakingEyePosition();
+            const glm::mat4 view = glm::lookAt(eye, glm::vec3(-0.35f, -0.90f, -0.45f), glm::vec3(0.0f, 1.0f, 0.0f));
+            const glm::mat4 projection = glm::perspective(glm::radians(62.0f),
+                                                          static_cast<f32>(width) / static_cast<f32>(height),
+                                                          0.05f, 100.0f);
+            return ReferenceCamera::FromViewProjection(projection * view, eye);
+        }
+
         // Project a world point to a pixel coordinate (row 0 == top), the
         // inverse of ReferenceCamera::GenerateRay.
         //
@@ -201,8 +230,10 @@ namespace OloEngine::Tests::PathTracingFixtures
         }
     };
 
-    // `emissiveRadiance` == 0 and `whiteAlbedo` == 1 with an environment turns
-    // this into the multi-bounce furnace variant (see PathTracerFurnaceTest).
+    // For the multi-bounce white-furnace variant of this same geometry — no
+    // emitter, uniform albedo, uniform environment — use MakeCornellFurnaceScene
+    // below. Passing `emissiveRadiance = 0` here does NOT produce it: it just
+    // removes the only light source and renders black.
     inline CornellBoxScene MakeCornellBoxScene(f32 emissiveRadiance = 18.0f)
     {
         CornellBoxScene fixture;
