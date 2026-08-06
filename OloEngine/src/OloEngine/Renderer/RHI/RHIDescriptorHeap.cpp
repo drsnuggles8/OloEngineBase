@@ -37,12 +37,12 @@ namespace OloEngine::RHI
         return *s_Instance;
     }
 
-    auto DescriptorHeap::PoisonDescriptorLocked(ViewUsage usage) const -> u64
+    auto DescriptorHeap::PoisonDescriptorLocked(ViewUsage usage, NullSamplerKind kind) const -> u64
     {
         // The backend's real, resident, sampleable null descriptor. Zero is NOT
         // a safe substitute: sampling an invalid bindless handle is undefined
         // behaviour, so an instrument built on it would be reporting driver luck.
-        return m_Backend != nullptr ? m_Backend->NullDescriptor(usage, NullSamplerKind::Texture2D) : 0u;
+        return m_Backend != nullptr ? m_Backend->NullDescriptor(usage, kind) : 0u;
     }
 
     void DescriptorHeap::Initialize(const HeapDesc& desc, IDescriptorHeapBackend* backend)
@@ -295,14 +295,14 @@ namespace OloEngine::RHI
     // -------------------------------------------------------------------------
 
     auto DescriptorHeap::CreateView(ResourceHandle resource, const ViewDesc& view, const SamplerDesc& sampler,
-                                    HeapSlotLifetime lifetime) -> ViewHandle
+                                    HeapSlotLifetime lifetime, NullSamplerKind kind) -> ViewHandle
     {
         const std::lock_guard lock(m_Mutex);
-        return CreateViewLocked(resource, view, sampler, lifetime);
+        return CreateViewLocked(resource, view, sampler, lifetime, kind);
     }
 
     auto DescriptorHeap::CreateViewLocked(ResourceHandle resource, const ViewDesc& view, const SamplerDesc& sampler,
-                                          HeapSlotLifetime lifetime) -> ViewHandle
+                                          HeapSlotLifetime lifetime, NullSamplerKind kind) -> ViewHandle
     {
         if (!m_Enabled)
         {
@@ -399,6 +399,7 @@ namespace OloEngine::RHI
         slot.SamplerSlot =
             view.Usage == ViewUsage::Storage ? HeapOffset::Invalid : AcquireSamplerSlotLocked(sampler);
         slot.Descriptor = descriptor;
+        slot.NullKind = kind;
 
         m_Mirror[index] = descriptor;
         MarkDirtyLocked(index);
@@ -415,7 +416,7 @@ namespace OloEngine::RHI
     }
 
     auto DescriptorHeap::GetOrCreateView(ResourceHandle resource, const ViewDesc& view, const SamplerDesc& sampler,
-                                         HeapSlotLifetime lifetime) -> ViewHandle
+                                         HeapSlotLifetime lifetime, NullSamplerKind kind) -> ViewHandle
     {
         const std::lock_guard lock(m_Mutex);
 
@@ -430,7 +431,7 @@ namespace OloEngine::RHI
             // object within a frame MUST get two offsets, because that is how an
             // alias becomes visible in the heap instead of needing a mid-frame
             // rewrite.
-            return CreateViewLocked(resource, view, sampler, lifetime);
+            return CreateViewLocked(resource, view, sampler, lifetime, kind);
         }
 
         // ONE lock across lookup, mint and insert. Splitting it let two callers
@@ -467,7 +468,7 @@ namespace OloEngine::RHI
             m_PersistentViewCache.erase(it);
         }
 
-        const ViewHandle created = CreateViewLocked(resource, view, sampler, lifetime);
+        const ViewHandle created = CreateViewLocked(resource, view, sampler, lifetime, kind);
         if (created.IsValid())
         {
             m_PersistentViewCache[key] = created;
@@ -487,7 +488,7 @@ namespace OloEngine::RHI
         // loud one.
         ViewDesc storage = view;
         storage.Usage = ViewUsage::Storage;
-        return CreateViewLocked(resource, storage, SamplerDesc{}, lifetime);
+        return CreateViewLocked(resource, storage, SamplerDesc{}, lifetime, NullSamplerKind::Texture2D);
     }
 
     auto DescriptorHeap::GetOrCreateStorageView(ResourceHandle resource, const ViewDesc& view,
@@ -739,7 +740,7 @@ namespace OloEngine::RHI
                 // resource died under a live view) — the worst moment for the
                 // instrument to become non-deterministic.
                 ++m_Stats.DescriptorFailures;
-                descriptor = PoisonDescriptorLocked(slot.View.Usage);
+                descriptor = PoisonDescriptorLocked(slot.View.Usage, slot.NullKind);
             }
 
             slot.Descriptor = descriptor;
@@ -820,12 +821,20 @@ namespace OloEngine::RHI
             }
         }
 
+        // CAPTURED BEFORE THE RESET, exactly as `usage` already is. Poisoning with
+        // the 2D null regardless of the view's type put a samplerCube reader that
+        // still held this offset — a cached material UBO, say — back onto an
+        // undefined read, which is the defect the typed nulls exist to remove
+        // (issue #691 Phase 3).
+        const NullSamplerKind releasedKind = slot.NullKind;
+
         slot.Generation = generation;
         slot.Live = false;
         slot.Resource = {};
         slot.View = {};
         slot.SamplerSlot = HeapOffset::Invalid;
-        slot.Descriptor = PoisonDescriptorLocked(usage);
+        slot.NullKind = NullSamplerKind::Texture2D;
+        slot.Descriptor = PoisonDescriptorLocked(usage, releasedKind);
 
         if (m_Desc.PoisonOnFree)
         {
@@ -835,7 +844,7 @@ namespace OloEngine::RHI
             // which is what LIFO slot reuse would otherwise hide in steady
             // state, exactly as the transient POOL hides it
             // (docs/agent-rules/render-graph-transient-aliasing.md).
-            m_Mirror[index] = PoisonDescriptorLocked(usage);
+            m_Mirror[index] = PoisonDescriptorLocked(usage, releasedKind);
             MarkDirtyLocked(index);
             ++m_Stats.SlotsPoisoned;
         }

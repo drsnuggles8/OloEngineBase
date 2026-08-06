@@ -503,7 +503,7 @@ namespace OloEngine
         // sampling whatever that unit last held. Latent until a shader sharing a
         // slot with an unconverted one converts, which is precisely what the
         // shadow arrays and the IBL trio do (issue #691 Phase 3).
-        s_Data.BoundTextures[slot] = staged.IsValid() ? RHI::NullResource : texture;
+        s_Data.BoundTextures[slot] = CacheEntryAfterSeam(staged, texture);
         ++s_Data.Stats.TextureBinds;
     }
 
@@ -564,14 +564,21 @@ namespace OloEngine
         // would change nothing the shader reads. So the honest handling is to make
         // the failure OBSERVABLE rather than to pretend it degraded gracefully —
         // silently-black is precisely the failure mode this phase keeps finding.
-        const auto resolve = [](const RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler)
+        // THE NULL IT FALLS BACK TO IS TYPED. A shader builds `samplerCube` from
+        // the environment / irradiance / prefilter lanes, and a descriptor whose
+        // target does not match the constructor is undefined to sample. The GLSL
+        // accessor already remaps offset 0 to the cube null (OLO_HEAP_TYPED_NULL in
+        // include/BindlessHeap.glsl), so this is not a live defect — it makes the
+        // UBO correct ON ITS OWN rather than only in company with that macro.
+        const auto resolve = [](const RHI::ResourceHandle texture, const RHI::SamplerDesc& sampler,
+                                const RHI::NullSamplerKind kind)
         {
             if (!texture.IsValid())
             {
-                return RHI::kNullHeapOffset;
+                return RHI::NullOffsetForSamplerKind(kind);
             }
             const RHI::HeapOffset offset =
-                HeapBinding::ResolveTextureOffset(texture, RHI::HeapSlotLifetime::Persistent, sampler);
+                HeapBinding::ResolveTextureOffset(texture, RHI::HeapSlotLifetime::Persistent, sampler, kind);
             if (!offset.IsValid())
             {
                 // Warned a bounded number of times: a heap that has run out stays
@@ -583,25 +590,28 @@ namespace OloEngine
                                   "reserved null and render BLACK. The bindless program cannot fall back to slot "
                                   "binds (issue #691 Phase 3).");
                 }
-                return RHI::kNullHeapOffset;
+                return RHI::NullOffsetForSamplerKind(kind);
             }
             return offset.Value;
         };
 
-        ubo.HeapOffsets[0] = { resolve(mat.albedoMapID, k2DSampler),
-                               resolve(mat.metallicRoughnessMapID, k2DSampler),
-                               resolve(mat.normalMapID, k2DSampler), resolve(mat.aoMapID, k2DSampler) };
-        ubo.HeapOffsets[1] = { resolve(mat.emissiveMapID, k2DSampler),
-                               resolve(mat.environmentMapID, kCubeSampler),
-                               resolve(mat.irradianceMapID, kCubeSampler),
-                               resolve(mat.prefilterMapID, kCubeSampler) };
+        constexpr auto k2D = RHI::NullSamplerKind::Texture2D;
+        constexpr auto kCube = RHI::NullSamplerKind::Cube;
+        ubo.HeapOffsets[0] = { resolve(mat.albedoMapID, k2DSampler, k2D),
+                               resolve(mat.metallicRoughnessMapID, k2DSampler, k2D),
+                               resolve(mat.normalMapID, k2DSampler, k2D),
+                               resolve(mat.aoMapID, k2DSampler, k2D) };
+        ubo.HeapOffsets[1] = { resolve(mat.emissiveMapID, k2DSampler, k2D),
+                               resolve(mat.environmentMapID, kCubeSampler, kCube),
+                               resolve(mat.irradianceMapID, kCubeSampler, kCube),
+                               resolve(mat.prefilterMapID, kCubeSampler, kCube) };
         // The BRDF LUT is a Texture2D (EnvironmentMap.cpp creates it through
         // Texture2D::Create), so it takes GL_REPEAT like every other 2D map —
         // matching the slot path, which is the property that matters here even
         // though a lookup table would ideally clamp.
-        ubo.HeapOffsets[2] = { resolve(mat.brdfLutMapID, k2DSampler),
-                               resolve(mat.diffuseMapID, k2DSampler),
-                               resolve(mat.specularMapID, k2DSampler), RHI::kNullHeapOffset };
+        ubo.HeapOffsets[2] = { resolve(mat.brdfLutMapID, k2DSampler, k2D),
+                               resolve(mat.diffuseMapID, k2DSampler, k2D),
+                               resolve(mat.specularMapID, k2DSampler, k2D), RHI::kNullHeapOffset };
     }
 
     // Helper: Bind all PBR material textures (albedo, metallic-roughness, normal,
@@ -795,7 +805,7 @@ namespace OloEngine
         const RHI::HeapOffset staged =
             HeapBinding::BindTextureOrOffset(slot, texture, RHI::HeapSlotLifetime::Persistent, sampler);
         // Same correction as BindTrackedTexture — see the note there.
-        s_Data.BoundTextures[slot] = staged.IsValid() ? RHI::NullResource : texture;
+        s_Data.BoundTextures[slot] = CacheEntryAfterSeam(staged, texture);
         ++s_Data.Stats.TextureBinds;
     }
 
@@ -1860,6 +1870,10 @@ namespace OloEngine
 
             BindVAOIfNeeded(cmd->vertexArrayID);
             ++s_Data.Stats.DrawCalls;
+            // Publish before the indirect draw, same as the two direct paths.
+            // UploadMaterialState and BindShadowTextures have staged offsets by
+            // here; an indirect draw reads them exactly as a direct one does.
+            HeapBinding::FlushOffsets();
             // The VAO is already bound by BindVAOIfNeeded above — draw from it
             // rather than re-binding behind the redundant-bind cache's back.
             api.DrawBoundElementsIndirect(cmd->cullIndirectBufferID);
@@ -2437,7 +2451,12 @@ namespace OloEngine
         // Bind albedo texture (with redundancy check)
         if (cmd->albedoTextureID.IsValid())
         {
-            if (s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_0] != cmd->albedoTextureID)
+            // The offset write must survive a cache hit — see BindTrackedTexture's
+            // note. The three decal slots were the last redundancy checks still
+            // missing this: a second decal with the same texture skipped the call
+            // entirely, leaving whatever another pass had staged in TEX_USER_0..2.
+            if (s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_0] != cmd->albedoTextureID ||
+                HeapBinding::WritesOffsetsForBoundProgram())
             {
                 const RHI::HeapOffset staged = HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_USER_0, cmd->albedoTextureID, RHI::HeapSlotLifetime::Persistent);
                 s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_0] = CacheEntryAfterSeam(staged, cmd->albedoTextureID);
@@ -2449,14 +2468,16 @@ namespace OloEngine
         // and Decal_GBuffer_RMA variants). Unused modes pass 0 and the slot is
         // left alone — the variant shader only samples the slot it needs.
         if (cmd->normalTextureID.IsValid() &&
-            s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_1] != cmd->normalTextureID)
+            (s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_1] != cmd->normalTextureID ||
+             HeapBinding::WritesOffsetsForBoundProgram()))
         {
             const RHI::HeapOffset stagedNormal = HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_USER_1, cmd->normalTextureID, RHI::HeapSlotLifetime::Persistent);
             s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_1] = CacheEntryAfterSeam(stagedNormal, cmd->normalTextureID);
             ++s_Data.Stats.TextureBinds;
         }
         if (cmd->rmaTextureID.IsValid() &&
-            s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_2] != cmd->rmaTextureID)
+            (s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_2] != cmd->rmaTextureID ||
+             HeapBinding::WritesOffsetsForBoundProgram()))
         {
             const RHI::HeapOffset stagedRma = HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_USER_2, cmd->rmaTextureID, RHI::HeapSlotLifetime::Persistent);
             s_Data.BoundTextures[ShaderBindingLayout::TEX_USER_2] = CacheEntryAfterSeam(stagedRma, cmd->rmaTextureID);

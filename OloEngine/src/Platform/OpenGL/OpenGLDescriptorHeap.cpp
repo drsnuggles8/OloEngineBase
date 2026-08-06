@@ -165,11 +165,12 @@ namespace OloEngine
         // (issue #691 Phase 3; it surfaced as an order-dependent visible pop,
         // because undefined behaviour may depend on whatever ran before).
         //
-        // Deliberately NOT fail-closed the way the two above are. Those are
-        // load-bearing for every heap read; these only matter to a shader that
-        // samples an UNSET input of that type, so degrading to the 2D null keeps
-        // the engine running with exactly the pre-existing behaviour instead of
-        // disabling bindless outright over an input nothing may even read.
+        // FAIL-CLOSED, exactly as the two above are — see the branch below this
+        // block. An earlier version of this paragraph argued the opposite, that
+        // "degrading to the 2D null keeps the engine running"; that was wrong on
+        // its own terms, because NullDescriptor() does not degrade to the 2D
+        // descriptor for these kinds. It returns the zero it was given, and a zero
+        // handle is not a valid bindless handle either.
         const auto makeResident = [](const GLuint64 handle)
         {
             if (handle != 0u && glIsTextureHandleResidentARB(handle) != GL_TRUE)

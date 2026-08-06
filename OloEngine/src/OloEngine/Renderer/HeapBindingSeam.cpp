@@ -134,7 +134,7 @@ namespace OloEngine::HeapBinding
     } // namespace
 
     auto ResolveTextureOffset(const RHI::ResourceHandle texture, const RHI::HeapSlotLifetime lifetime,
-                              const RHI::SamplerDesc& sampler) -> RHI::HeapOffset
+                              const RHI::SamplerDesc& sampler, const RHI::NullSamplerKind kind) -> RHI::HeapOffset
     {
         if (!HeapPathIsLive())
         {
@@ -145,7 +145,7 @@ namespace OloEngine::HeapBinding
         viewDesc.Resource = texture;
 
         if (const RHI::ViewHandle view =
-                RHI::DescriptorHeap::Get().GetOrCreateView(texture, viewDesc, sampler, lifetime);
+                RHI::DescriptorHeap::Get().GetOrCreateView(texture, viewDesc, sampler, lifetime, kind);
             view.IsValid())
         {
             // Fetched at the point of USE, never stored — ADR 0011 §1.2. The

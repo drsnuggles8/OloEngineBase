@@ -30,6 +30,7 @@
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RHI/RHIResources.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 
@@ -137,8 +138,10 @@ namespace OloEngine::HeapBinding
     // Returns an invalid offset when the heap path is not live for the program in
     // flight, so the caller keeps binding the old way — the same fork every other
     // entry point here makes, just without the write.
-    [[nodiscard("the resolved offset is the only way the shader finds the texture")]] auto ResolveTextureOffset(RHI::ResourceHandle texture, RHI::HeapSlotLifetime lifetime,
-                                                                                                                const RHI::SamplerDesc& sampler = {}) -> RHI::HeapOffset;
+    [[nodiscard("the resolved offset is the only way the shader finds the texture")]] auto
+    ResolveTextureOffset(RHI::ResourceHandle texture, RHI::HeapSlotLifetime lifetime,
+                         const RHI::SamplerDesc& sampler = {},
+                         RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D) -> RHI::HeapOffset;
 
     // True when the program in flight reads the offset table, i.e. when a bind
     // through this seam records an offset instead of touching the driver.

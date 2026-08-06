@@ -578,6 +578,73 @@ namespace OloEngine::Tests
     // -------------------------------------------------------------------------
     // Poison — the instrument that makes a use-after-free deterministic.
     // -------------------------------------------------------------------------
+    // POISON MUST KEEP THE VIEW'S SAMPLER TYPE, not fall back to the 2D null.
+    //
+    // The offset outlives the view: a material UBO is cached on the material
+    // index, so it can still hold the offset of a slot whose texture has since
+    // been retired. If that slot is poisoned with a 2D descriptor while the
+    // shader still builds `samplerCube` from it, the read is UNDEFINED — which is
+    // exactly the defect the typed nulls were added to remove, one level down
+    // from where they were added (issue #691 Phase 3).
+    //
+    // Checks the sampler-typed cases; a storage view has no sampler type to keep.
+    TEST_F(HeapFixture, PoisonKeepsTheViewsSamplerKind)
+    {
+        SetUpHeap(/*persistent*/ 8u, /*transient*/ 4u, /*poison*/ true);
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const std::array<std::pair<RHI::NullSamplerKind, u64>, 3> kCases{ {
+            { RHI::NullSamplerKind::Cube, FakeHeapBackend::kNullCube },
+            { RHI::NullSamplerKind::Texture2DArray, FakeHeapBackend::kNullArray },
+            { RHI::NullSamplerKind::Texture2DArrayShadow, FakeHeapBackend::kNullArrayShadow },
+        } };
+
+        u32 resourceId = 8100u;
+        for (const auto& [kind, expected] : kCases)
+        {
+            const RHI::ResourceHandle resource = MakeResource(resourceId++);
+            const RHI::ViewHandle view = heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{},
+                                                         RHI::HeapSlotLifetime::Persistent, kind);
+            ASSERT_TRUE(view.IsValid());
+            const u32 slot = heap.OffsetOf(view).Value;
+
+            heap.RetireResource(resource);
+            heap.Flush();
+
+            ASSERT_GE(slot, Backend.LastUploadFirstSlot);
+            ASSERT_LT(slot - Backend.LastUploadFirstSlot, Backend.LastUpload.size());
+            EXPECT_EQ(Backend.LastUpload[slot - Backend.LastUploadFirstSlot], expected)
+                << "a retired view of kind " << static_cast<int>(kind)
+                << " was poisoned with the wrong typed null — a shader still holding this"
+                   " offset would construct its sampler from a descriptor of another target.";
+        }
+    }
+
+    // The same rule on the OTHER path that writes a null: a re-acquisition that
+    // FAILS (the resource died under a live view) also has to publish the typed
+    // null, not the 2D one.
+    TEST_F(HeapFixture, FailedReacquisitionKeepsTheViewsSamplerKind)
+    {
+        SetUpHeap();
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const RHI::ResourceHandle resource = MakeResource(8200u);
+        const RHI::ViewHandle view = heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{},
+                                                     RHI::HeapSlotLifetime::Persistent,
+                                                     RHI::NullSamplerKind::Cube);
+        ASSERT_TRUE(view.IsValid());
+        const u32 slot = heap.OffsetOf(view).Value;
+
+        Backend.FailNextAcquire = true;
+        heap.InvalidateResource(resource);
+        heap.Flush();
+
+        ASSERT_GE(slot, Backend.LastUploadFirstSlot);
+        ASSERT_LT(slot - Backend.LastUploadFirstSlot, Backend.LastUpload.size());
+        EXPECT_EQ(Backend.LastUpload[slot - Backend.LastUploadFirstSlot], FakeHeapBackend::kNullCube)
+            << "a failed re-acquisition of a CUBE view published the 2D null";
+    }
+
     TEST_F(HeapFixture, PoisonOnFreeOverwritesTheSlotInThePublishedTable)
     {
         SetUpHeap(/*persistent*/ 8u, /*transient*/ 4u, /*poison*/ true);

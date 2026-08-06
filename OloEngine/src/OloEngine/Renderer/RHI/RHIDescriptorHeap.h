@@ -339,7 +339,8 @@ namespace OloEngine::RHI
         // slot-based path", never as a hard error, because the whole point of
         // the toggle is that both paths work.
         [[nodiscard]] auto CreateView(ResourceHandle resource, const ViewDesc& view, const SamplerDesc& sampler,
-                                      HeapSlotLifetime lifetime) -> ViewHandle;
+                                      HeapSlotLifetime lifetime,
+                                      NullSamplerKind kind = NullSamplerKind::Texture2D) -> ViewHandle;
 
         // The form a render pass calls, once per texture it would have bound.
         //
@@ -355,7 +356,8 @@ namespace OloEngine::RHI
         // of the ring: two acquisitions of one physical object in one frame must
         // get two offsets (see the aliasing note above).
         [[nodiscard]] auto GetOrCreateView(ResourceHandle resource, const ViewDesc& view, const SamplerDesc& sampler,
-                                           HeapSlotLifetime lifetime) -> ViewHandle;
+                                           HeapSlotLifetime lifetime,
+                                           NullSamplerKind kind = NullSamplerKind::Texture2D) -> ViewHandle;
 
         // ---------------------------------------------------------------------
         // Storage images — the SECOND descriptor kind (ADR 0011 amendment (26)).
@@ -518,7 +520,7 @@ namespace OloEngine::RHI
         // Per KIND: poisoning a released storage slot with a sampler handle would
         // put the shader back on undefined behaviour at exactly the moment the
         // instrument is supposed to be reporting.
-        [[nodiscard]] auto PoisonDescriptorLocked(ViewUsage usage) const -> u64;
+        [[nodiscard]] auto PoisonDescriptorLocked(ViewUsage usage, NullSamplerKind kind) const -> u64;
 
         struct ViewSlot
         {
@@ -529,11 +531,20 @@ namespace OloEngine::RHI
             ViewDesc View;
             u32 SamplerSlot = HeapOffset::Invalid; ///< Invalid for a storage view — it consumes no sampler slot
             u64 Descriptor = 0u;                   ///< replaced by the backend's null descriptor on release
+            /// The GLSL sampler type this view is read through. METADATA, and
+            /// deliberately NOT a ViewDesc field: ViewDesc's defaulted operator== is
+            /// the memoisation key, so putting the kind there would split one
+            /// texture into two descriptors the moment two call sites disagreed.
+            /// Kept here it costs nothing and answers the only question that needs
+            /// it — which typed null to poison the slot with on release, so a
+            /// samplerCube reader cannot be handed a 2D descriptor (issue #691).
+            NullSamplerKind NullKind = NullSamplerKind::Texture2D;
         };
 
         // Caller must hold m_Mutex.
         [[nodiscard]] auto CreateViewLocked(ResourceHandle resource, const ViewDesc& view,
-                                            const SamplerDesc& sampler, HeapSlotLifetime lifetime) -> ViewHandle;
+                                            const SamplerDesc& sampler, HeapSlotLifetime lifetime,
+                                            NullSamplerKind kind) -> ViewHandle;
         [[nodiscard]] auto ValidateLocked(ViewHandle view) const -> const ViewSlot*;
         // Same check WITHOUT counting a rejection. For internal housekeeping —
         // evicting a stale cache entry is not a caller presenting a dead handle,
