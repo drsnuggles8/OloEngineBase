@@ -229,11 +229,17 @@ namespace OloEngine::RHI
         // exactly the way `sampler2D(0)` is. One null per kind is the minimum
         // that keeps the determinism this model is built on.
         // `kind` is consulted only for ViewUsage::Sampled — a storage image has no
-        // sampler type to mismatch. It defaults so every existing caller keeps
-        // asking for the 2D null it already meant.
-        [[nodiscard]] virtual auto NullDescriptor(ViewUsage usage,
-                                                  NullSamplerKind kind = NullSamplerKind::Texture2D) const
-            -> u64 = 0;
+        // sampler type to mismatch.
+        //
+        // NO DEFAULT ARGUMENT, deliberately. A default on a VIRTUAL is bound to the
+        // STATIC type of the expression, not the dynamic one, so a base and an
+        // override that disagree about it silently change meaning with the pointer's
+        // declared type — and this one was duplicated in both. Every caller now says
+        // which null it wants, which is also the honest reading given that picking
+        // the wrong kind is undefined behaviour rather than a wrong colour.
+        [[nodiscard("the null descriptor is what a cleared binding samples — dropping it leaves the slot "
+                    "undefined")]] virtual auto
+        NullDescriptor(ViewUsage usage, NullSamplerKind kind) const -> u64 = 0;
     };
 
     // -------------------------------------------------------------------------

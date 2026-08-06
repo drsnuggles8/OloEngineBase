@@ -219,10 +219,57 @@ namespace OloEngine
 
         if (m_NullCubeDescriptor == 0u || m_NullArrayDescriptor == 0u || m_NullArrayShadowDescriptor == 0u)
         {
-            OLO_CORE_WARN("[RHI/GL] Could not create every typed null descriptor (cube={}, array={}, "
-                          "arrayShadow={}). Those types fall back to the 2D null, which is undefined to "
-                          "sample through — the pre-heap behaviour, not a regression.",
-                          m_NullCubeDescriptor, m_NullArrayDescriptor, m_NullArrayShadowDescriptor);
+            // FAIL CLOSED, exactly as the 2D and storage nulls above do. The
+            // earlier version of this branch only warned, and its warning was
+            // wrong twice over: `NullDescriptor()` does not fall back to the 2D
+            // descriptor for these kinds, it returns the ZERO it was given — and a
+            // zero handle is not a valid bindless handle, so sampling it is
+            // undefined rather than black. "The pre-heap behaviour" it claimed to
+            // restore was never reachable pre-heap either.
+            //
+            // A typed null is not an optional refinement: a shader whose
+            // environment probe is unset resolves to the cube null on the COMMON
+            // path, so losing it makes the ordinary case undefined. Refusing the
+            // extension puts the renderer back on the slot path, which is the
+            // supported configuration on any device without it (issue #691 Phase 3).
+            OLO_CORE_ERROR("[RHI/GL] Could not create every typed null descriptor (cube={}, array={}, "
+                           "arrayShadow={}). Disabling heap-bindless; the slot-based binding path stays "
+                           "in use.",
+                           m_NullCubeDescriptor, m_NullArrayDescriptor, m_NullArrayShadowDescriptor);
+            const auto retire = [](u64& descriptor)
+            {
+                if (descriptor != 0u && glIsTextureHandleResidentARB(descriptor) == GL_TRUE)
+                {
+                    glMakeTextureHandleNonResidentARB(descriptor);
+                }
+                descriptor = 0u;
+            };
+            retire(m_NullCubeDescriptor);
+            retire(m_NullArrayDescriptor);
+            retire(m_NullArrayShadowDescriptor);
+            retire(m_NullDescriptor);
+            if (m_NullImageDescriptor != 0u && glIsImageHandleResidentARB(m_NullImageDescriptor) == GL_TRUE)
+            {
+                glMakeImageHandleNonResidentARB(m_NullImageDescriptor);
+            }
+            m_NullImageDescriptor = 0u;
+            glDeleteTextures(1, &m_NullCubeTexture);
+            m_NullCubeTexture = 0u;
+            glDeleteTextures(1, &m_NullArrayTexture);
+            m_NullArrayTexture = 0u;
+            glDeleteTextures(1, &m_NullArrayShadowTexture);
+            m_NullArrayShadowTexture = 0u;
+            glDeleteSamplers(1, &m_NullShadowSampler);
+            m_NullShadowSampler = 0u;
+            glDeleteTextures(1, &m_NullImageTexture);
+            m_NullImageTexture = 0u;
+            glDeleteSamplers(1, &m_NullSampler);
+            m_NullSampler = 0u;
+            glDeleteTextures(1, &m_NullTexture);
+            m_NullTexture = 0u;
+            m_Supported = false;
+            m_SlotCapacity = 0u;
+            return;
         }
 
         // std430 uvec2[] — a GLuint64 handle IS a uvec2 in memory, so the CPU

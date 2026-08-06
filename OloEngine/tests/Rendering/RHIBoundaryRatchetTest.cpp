@@ -744,10 +744,16 @@ namespace OloEngine::Tests
         // could drive to zero, so "zero" is not self-evidently a broken
         // scanner. It is nonetheless not reachable — the slot-based path must
         // survive for devices without ARB_bindless_texture (that is the whole
-        // fallback design), so the engine will always contain some. A floor an
-        // order of magnitude below today's count catches a broken needle
-        // without constraining the conversion.
-        EXPECT_GT(tally.SweepBindTextureSites, 20u)
+        // fallback design), so the engine will always contain some.
+        //
+        // 5, NOT 20. The count is 22 today, so a floor of 20 left two sites of
+        // headroom and would have FAILED a legitimate further conversion — the
+        // opposite of what a floor guard is for, and flatly contrary to the "an
+        // order of magnitude below today's count" this comment used to claim.
+        // The irreducible residue is the facade declarations plus the seam's own
+        // fallbacks, on the order of ten; 5 sits below that and still catches a
+        // needle that has stopped matching.
+        EXPECT_GT(tally.SweepBindTextureSites, 5u)
             << "Found only " << tally.SweepBindTextureSites << " slot-based texture-bind sites outside "
             << "Platform/. Heap-bindless deletes these, but it cannot delete ALL of them: the "
             << "slot-based path is the fallback for devices without ARB_bindless_texture. A number "
@@ -916,7 +922,14 @@ namespace OloEngine::Tests
         const fs::path backend = RepoRoot() / "OloEngine" / "src" / "Platform" / "OpenGL";
         ASSERT_TRUE(fs::exists(backend)) << "Missing " << backend.string();
 
-        static constexpr std::string_view kMint = "Sync(RHI::ResourceKind::Texture";
+        // WHITESPACE-TOLERANT, because the plain substring was a needle that could
+        // stop matching in silence. clang-format wraps a long call, and
+        // `m_RHIHandle.Sync(` + newline + `RHI::ResourceKind::Texture2D, ...)` does
+        // not contain the literal above — so the file would be skipped as a
+        // non-minter and its missing retire would never be checked. A scanner that
+        // under-reports passes for the wrong reason, which is the failure mode this
+        // whole test file exists to prevent.
+        static const std::regex kMint(R"(Sync\s*\(\s*RHI::ResourceKind::Texture)");
 
         // EITHER spelling satisfies the rule, and the second one is not a
         // loophole. `Utils::RetireTextureViews` is the form a texture TYPE
@@ -942,7 +955,7 @@ namespace OloEngine::Tests
             }
 
             const std::string blanked = BlankLiterals(ReadFile(it->path()));
-            if (blanked.find(kMint) == std::string::npos)
+            if (!std::regex_search(blanked, kMint))
             {
                 continue;
             }

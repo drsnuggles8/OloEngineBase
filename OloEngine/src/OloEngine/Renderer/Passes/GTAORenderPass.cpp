@@ -427,7 +427,7 @@ namespace OloEngine
         // frame (issue #691 Phase 3).
         const RHI::ResourceHandle hzbID = m_HZBGenerator.GetHZBTexture();
         HeapBinding::BindTextureOrOffset(GTAO_HZB_TEXTURE_SLOT, hzbID,
-                                         RHI::HeapSlotLifetime::Persistent);
+                                         m_HZBGenerator.GetHZBLifetime());
 
         HeapBinding::BindTextureOrOffset(GTAO_NORMALS_TEXTURE_SLOT, normalsTextureID,
                                          RHI::HeapSlotLifetime::FrameTransient);

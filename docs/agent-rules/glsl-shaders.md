@@ -423,46 +423,71 @@ Two things generalise past this bug:
   every sampler it declares, and `include/BindlessHeap.glsl`'s own
   `#ifndef OLO_BINDLESS_HEAP_GLSL` guard matched as a substring.
 
-### 5c-bis. A shader using a VULKAN-only builtin cannot take the bindless route at all
+### 5c-bis. Vulkan-only builtins — two are bridged, two are still blockers
 
 The bindless route feeds your original GLSL straight to `glShaderSource`,
 skipping shaderc **and SPIRV-Cross**. That is usually just a cache/reflection
 trade (§5a) — but SPIRV-Cross is also what *translates Vulkan spellings into GL
-ones*, and losing it is a hard blocker:
+ones*, and without it the Vulkan builtin reaches the GL compiler verbatim:
 
-```
+```text
 error C7531: global variable gl_InstanceIndex requires
              "#extension GL_KHR_vulkan_glsl : enable" before use
 ```
 
-`Particle_Billboard_GPU.glsl` reads `gl_InstanceIndex`. On the default path
-shaderc targets Vulkan, SPIRV-Cross rewrites it to `gl_InstanceID`, and the GL
-compiler is happy. On the bindless path the Vulkan builtin arrives verbatim and
-is rejected.
+Renaming in the `.glsl` is not an option either way: the default path targets
+Vulkan, where the GL spellings do not exist. The shader genuinely needs both.
 
-**Renaming is not a fix**: the default path targets Vulkan, where `gl_InstanceID`
-does not exist. The shader genuinely needs the Vulkan spelling for one route and
-the GL spelling for the other, and only SPIRV-Cross bridges them. So any shader
-naming `gl_InstanceIndex`, `gl_VertexIndex`, `gl_BaseInstance`, `gl_BaseVertex`
-(or another `GL_KHR_vulkan_glsl` builtin) stays slot-based until the bindless
-route grows a translation step.
+**So `CreateProgramFromRawGLSL` now does the translation itself**, applying
+SPIRV-Cross's own substitutions as a text pass over the source before handing it
+to the driver:
 
-Check before converting:
+| Vulkan spelling | rewritten to | note |
+|---|---|---|
+| `gl_InstanceIndex` | `gl_InstanceID` | **not** `gl_InstanceID + gl_BaseInstanceARB` — see below |
+| `gl_VertexIndex` | `gl_VertexID` | |
+
+A shader naming only these two is therefore **convertible**.
+`Particle_Billboard_GPU.glsl` was the standing example of the old blocker and is
+converted today.
+
+**`gl_BaseInstance` and `gl_BaseVertex` are still blockers** — nothing rewrites
+them, so a shader naming either stays slot-based. Check before converting:
 
 ```bash
-grep -nE "gl_InstanceIndex|gl_VertexIndex|gl_BaseInstance|gl_BaseVertex" <shader>
+grep -nE "gl_BaseInstance|gl_BaseVertex" <shader>
 ```
 
-**Leaving it unconverted is safe and costs nothing else.** The seam forks per
-program, so the pass may keep binding through `BindTextureOrOffset`: a
-non-bindless program takes the fallback and gets a real bind. This is the same
-shape as `Skybox.glsl` and `DDGI_Relight.glsl` — one file opts out, the pass does
-not change.
+**Why the base-instance term is deliberately dropped.** SPIRV-Cross literally
+prints `gl_InstanceID + SPIRV_Cross_BaseInstance`, and an earlier version of the
+shim copied that. But SPIRV-Cross guards the term:
 
-**It failed silently, as designed.** A failed bindless build degrades to the slot
-path with only an error log and a `.bindless.failed.glsl` dump to show for it, so
-the suite stayed green at 5419/1 in both configurations while one shader was
-quietly not converted. Counting those dumps is what caught it — see §4e of
+```text
+#ifdef GL_ARB_shader_draw_parameters
+#define SPIRV_Cross_BaseInstance gl_BaseInstanceARB
+#else
+uniform int SPIRV_Cross_BaseInstance;   // never set
+#endif
+```
+
+and the engine's SPIR-V → GL path does not enable that extension, so every
+existing draw effectively indexes with `gl_InstanceID + 0`. Adding the real base
+instance made this route disagree with the slot path about which instance a
+vertex belongs to, and every `u_Model` / `u_Normal` / `u_PrevModel` in
+`InstanceBlock_Vertex.glsl` reads `instances[gl_InstanceIndex]` — so transforms
+and normals came from the wrong entry.
+
+The rule: **match what the engine's other path actually COMPILES TO, not what the
+translator prints in the abstract.**
+
+**Leaving a shader unconverted stays safe and costs nothing else.** The seam
+forks per program, so a non-bindless program takes the fallback and gets a real
+bind — the same shape as `Skybox.glsl` and `DDGI_Relight.glsl`.
+
+**A failed bindless build fails silently, by design.** It degrades to the slot
+path with only an error log and a `.bindless.failed.glsl` dump, so the suite
+stayed green at 5419/1 in both configurations while one shader was quietly not
+converted. Counting those dumps is what caught it — see §4e of
 rhi-abstraction-boundary.md.
 
 ### 5d. A heap handle carries no type — pick the matching sampler macro

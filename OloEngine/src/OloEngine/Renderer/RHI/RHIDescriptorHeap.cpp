@@ -42,7 +42,7 @@ namespace OloEngine::RHI
         // The backend's real, resident, sampleable null descriptor. Zero is NOT
         // a safe substitute: sampling an invalid bindless handle is undefined
         // behaviour, so an instrument built on it would be reporting driver luck.
-        return m_Backend != nullptr ? m_Backend->NullDescriptor(usage) : 0u;
+        return m_Backend != nullptr ? m_Backend->NullDescriptor(usage, NullSamplerKind::Texture2D) : 0u;
     }
 
     void DescriptorHeap::Initialize(const HeapDesc& desc, IDescriptorHeapBackend* backend)
@@ -86,7 +86,7 @@ namespace OloEngine::RHI
             m_Slots[index].Generation = survivingGenerations[index];
         }
 
-        m_Mirror.assign(total, backend != nullptr ? backend->NullDescriptor(ViewUsage::Sampled) : 0u);
+        m_Mirror.assign(total, backend != nullptr ? backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Texture2D) : 0u);
 
         // The two reserved nulls, written into the mirror and marked dirty so the
         // first Flush() publishes them. The backend prefills its whole buffer with
@@ -94,10 +94,16 @@ namespace OloEngine::RHI
         // not zero — the bug that passed alone and failed in the full suite), so
         // without this the storage null slot would hold a sampler handle and every
         // cleared image binding would be undefined behaviour rather than black.
-        if (backend != nullptr && total > kNullArrayShadowHeapOffset)
+        // m_PersistentCapacity, NOT total. The reserved nulls live at the FRONT of
+        // the heap, and the transient ring starts at m_PersistentCapacity (see the
+        // cursor arithmetic in CreateViewLocked). A configuration whose persistent
+        // region is smaller than the reserved block would therefore hand the typed
+        // null slots out as transient allocations and overwrite them — `total` is
+        // large enough to pass the check while the slots are not actually reserved.
+        if (backend != nullptr && m_PersistentCapacity > kNullArrayShadowHeapOffset)
         {
-            m_Mirror[kNullHeapOffset] = backend->NullDescriptor(ViewUsage::Sampled);
-            m_Mirror[kNullStorageHeapOffset] = backend->NullDescriptor(ViewUsage::Storage);
+            m_Mirror[kNullHeapOffset] = backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Texture2D);
+            m_Mirror[kNullStorageHeapOffset] = backend->NullDescriptor(ViewUsage::Storage, NullSamplerKind::Texture2D);
             // One per SAMPLER TYPE — a shader constructing samplerCube /
             // sampler2DArray / sampler2DArrayShadow from a null offset must find a
             // descriptor of that target, or the read is undefined rather than
@@ -142,7 +148,7 @@ namespace OloEngine::RHI
         m_PersistentViewCache.clear();
         m_DirtyFirst = 0u;
         m_DirtyLast = 0u;
-        if (backend != nullptr && total > kNullStorageHeapOffset)
+        if (backend != nullptr && m_PersistentCapacity > kNullArrayShadowHeapOffset)
         {
             // Publish the two reserved nulls on the first Flush(). They are the
             // only slots the allocator never touches, so nothing else would ever

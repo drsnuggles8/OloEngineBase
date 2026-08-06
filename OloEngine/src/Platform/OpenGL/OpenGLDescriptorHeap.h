@@ -76,8 +76,7 @@ namespace OloEngine
 
         void BindHeap() override;
 
-        [[nodiscard]] auto NullDescriptor(RHI::ViewUsage usage, RHI::NullSamplerKind kind =
-                                                                    RHI::NullSamplerKind::Texture2D) const
+        [[nodiscard]] auto NullDescriptor(RHI::ViewUsage usage, RHI::NullSamplerKind kind) const
             -> u64 override;
 
         struct Stats

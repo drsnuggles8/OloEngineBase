@@ -67,11 +67,26 @@ namespace OloEngine
         // issuing real binds (§5c). No shader depends on the loose reading today
         // (all 64 on the route spell `OLO_BINDLESS` themselves), so tightening it
         // is behaviour-preserving.
+        // GLSL identifiers are ASCII by definition, so classify them directly
+        // rather than through <cctype>. Three reasons, all of which SonarCloud
+        // flags separately on the same expression: std::isalnum returns an INT,
+        // so using it as a `&&`/`||` operand is a bool-conversion bug (S867); it
+        // is locale-sensitive, so a build under a non-C locale can classify
+        // differently (M23_404); and it needs an unsigned-char cast at every call
+        // site to avoid UB on negative values (S810). A four-line predicate has
+        // none of those properties and says what it means.
+        [[nodiscard]] constexpr bool IsIdentifierChar(char c) noexcept
+        {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+        }
+
+        [[nodiscard]] constexpr bool IsAsciiSpace(char c) noexcept
+        {
+            return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\v' || c == '\f';
+        }
+
         [[nodiscard]] static bool MentionsOutsideComments(std::string_view source, std::string_view token)
         {
-            const auto isIdentChar = [](char c)
-            { return (std::isalnum(static_cast<unsigned char>(c)) != 0) || c == '_'; };
-
             for (sizet i = 0; i < source.size();)
             {
                 if (source.compare(i, 2, "//") == 0)
@@ -87,9 +102,9 @@ namespace OloEngine
                 }
                 if (source.compare(i, token.size(), token) == 0)
                 {
-                    const bool leftOk = (i == 0) || !isIdentChar(source[i - 1u]);
+                    const bool leftOk = (i == 0) || !IsIdentifierChar(source[i - 1u]);
                     const sizet after = i + token.size();
-                    const bool rightOk = (after >= source.size()) || !isIdentChar(source[after]);
+                    const bool rightOk = (after >= source.size()) || !IsIdentifierChar(source[after]);
                     if (leftOk && rightOk)
                     {
                         return true;
@@ -117,9 +132,7 @@ namespace OloEngine
                 bool isDeclaration = false;
                 while (outPos != std::string_view::npos)
                 {
-                    const bool leftOk = (outPos == 0) ||
-                                        !(std::isalnum(static_cast<unsigned char>(code[outPos - 1])) ||
-                                          code[outPos - 1] == '_');
+                    const bool leftOk = (outPos == 0) || !IsIdentifierChar(code[outPos - 1]);
                     if (leftOk)
                     {
                         isDeclaration = true;
@@ -139,13 +152,12 @@ namespace OloEngine
                     continue;
                 }
                 sizet nameEnd = semi;
-                while (nameEnd > outPos && std::isspace(static_cast<unsigned char>(code[nameEnd - 1])))
+                while (nameEnd > outPos && IsAsciiSpace(code[nameEnd - 1]))
                 {
                     --nameEnd;
                 }
                 sizet nameStart = nameEnd;
-                while (nameStart > outPos && (std::isalnum(static_cast<unsigned char>(code[nameStart - 1])) ||
-                                              code[nameStart - 1] == '_'))
+                while (nameStart > outPos && IsIdentifierChar(code[nameStart - 1]))
                 {
                     --nameStart;
                 }
@@ -850,6 +862,47 @@ namespace OloEngine
                                 [](const auto& entry)
                                 { return entry.second.find("OLO_MATERIAL_HEAP_READER") != std::string::npos; });
 
+        // DERIVED HERE, ABOVE THE CACHE-HIT EARLY RETURN, and from `sources`
+        // rather than m_OpenGLSourceCode — which is not populated until further
+        // down and is therefore EMPTY on a warm run. Deriving it below meant a
+        // cache hit left the flag false.
+        //
+        // `m_IsDeferredCapable` decides whether Renderer3DMeshSubmission routes a
+        // mesh into the deferred producer bucket or the forward-overlay fallback,
+        // so leaving it false silently misroutes a G-Buffer shader — a whole-frame
+        // behaviour change with no error anywhere. That is why this route used to
+        // REFUSE such shaders outright.
+        //
+        // It does not have to. Reflect() sets the flag from SPIRV-Cross's
+        // `stage_outputs`, and the same fact is legible in the source we already
+        // hold: a fragment `out` declaration whose name starts with `o_GBuffer` or
+        // is one of the three sentinels. The prologue/shim patching applied later
+        // touches none of those tokens, so the unpatched source answers the same.
+        //
+        // The OTHER absent piece — `m_ResourceRegistry`'s discovered resources —
+        // was checked rather than assumed: `SetResource`, the only thing that
+        // consumes them, has ZERO callers in the engine or the editor. Nothing
+        // reads that state, so its absence cannot misroute anything.
+        //
+        // Criteria mirror Reflect()'s exactly; if that list grows, grow this one
+        // (ShaderDeferredCapabilityTest pins the two against each other).
+        {
+            static constexpr std::string_view kGBufferPrefix = "o_GBuffer";
+            static constexpr std::array<std::string_view, 3> kGBufferSentinels{ "gAlbedo", "gNormalRoughAO",
+                                                                                "gEmissive" };
+            for (const auto& [stage, stageSource] : sources)
+            {
+                if (stage == GL_FRAGMENT_SHADER &&
+                    Utils::DeclaresGBufferOutput(stageSource, kGBufferPrefix, kGBufferSentinels))
+                {
+                    m_IsDeferredCapable = true;
+                    OLO_CORE_TRACE("    [Bindless] detected G-Buffer fragment outputs by source scan -> "
+                                   "IsDeferredCapable=true");
+                    break;
+                }
+            }
+        }
+
         const GLuint program = glCreateProgram();
 
         // The variant-keyed cache. Same reasoning as the SPIR-V tiers: a linked
@@ -959,23 +1012,28 @@ namespace OloEngine
             } };
             for (const auto& [vulkanName, openglName] : kVulkanBuiltinShims)
             {
-                for (sizet pos = patched.find(vulkanName); pos != std::string::npos;
-                     pos = patched.find(vulkanName, pos + openglName.size()))
+                // A WHILE LOOP, because the two exits advance by DIFFERENT amounts
+                // and a for-increment cannot express that. The old form advanced by
+                // openglName.size() in both cases, so a REJECTED match (one that
+                // failed the identifier-boundary guard) skipped that many characters
+                // and could step over a following genuine occurrence.
+                sizet pos = patched.find(vulkanName);
+                while (pos != std::string::npos)
                 {
                     // Identifier-boundary guard on both ends, so a longer name that
                     // merely CONTAINS one of these is left alone.
-                    const bool leftOk = (pos == 0) || !(std::isalnum(static_cast<unsigned char>(patched[pos - 1])) ||
-                                                        patched[pos - 1] == '_');
                     const sizet after = pos + vulkanName.size();
-                    const bool rightOk = (after >= patched.size()) ||
-                                         !(std::isalnum(static_cast<unsigned char>(patched[after])) ||
-                                           patched[after] == '_');
-                    if (!leftOk || !rightOk)
+                    const bool leftOk = (pos == 0) || !Utils::IsIdentifierChar(patched[pos - 1]);
+                    const bool rightOk = (after >= patched.size()) || !Utils::IsIdentifierChar(patched[after]);
+                    if (leftOk && rightOk)
                     {
-                        pos = after;
-                        continue;
+                        patched.replace(pos, vulkanName.size(), openglName);
+                        pos = patched.find(vulkanName, pos + openglName.size());
                     }
-                    patched.replace(pos, vulkanName.size(), openglName);
+                    else
+                    {
+                        pos = patched.find(vulkanName, pos + 1u);
+                    }
                 }
             }
             if (const sizet versionPos = patched.find("#version"); versionPos != std::string::npos)
@@ -1073,48 +1131,6 @@ namespace OloEngine
         // NO SPIR-V MEANS NO Reflect(), so two pieces of state the ordinary route
         // sets would be absent here. This recovers the one that matters.
         //
-        // `m_IsDeferredCapable` decides whether Renderer3DMeshSubmission routes a
-        // mesh into the deferred producer bucket or the forward-overlay fallback,
-        // so leaving it false silently misroutes a G-Buffer shader — a whole-frame
-        // behaviour change with no error anywhere. That is why this route used to
-        // REFUSE such shaders outright.
-        //
-        // It does not have to. Reflect() sets the flag from SPIRV-Cross's
-        // `stage_outputs`, and the same fact is legible in the source we already
-        // hold: a fragment `out` declaration whose name starts with `o_GBuffer` or
-        // is one of the three sentinels. Deriving it here costs one scan and
-        // unblocks every deferred shader for the heap.
-        //
-        // The OTHER absent piece — `m_ResourceRegistry`'s discovered resources —
-        // was checked rather than assumed: `SetResource`, the only thing that
-        // consumes them, has ZERO callers in the engine or the editor. Nothing
-        // reads that state, so its absence cannot misroute anything.
-        //
-        // Criteria mirror Reflect()'s exactly; if that list grows, grow this one
-        // (ShaderDeferredCapabilityTest pins the two against each other).
-        static constexpr std::string_view kGBufferPrefix = "o_GBuffer";
-        static constexpr std::array<std::string_view, 3> kGBufferSentinels{ "gAlbedo", "gNormalRoughAO",
-                                                                            "gEmissive" };
-        for (const auto& [stage, stageSource] : m_OpenGLSourceCode)
-        {
-            if (stage != GL_FRAGMENT_SHADER)
-            {
-                continue;
-            }
-            // NOTE m_ReadsMaterialHeapOffsets is NOT derived here. It is set at the
-            // top of this function, above the cache-hit early return, because
-            // anything computed at this point is absent on a warm run.
-            if (Utils::DeclaresGBufferOutput(stageSource, kGBufferPrefix, kGBufferSentinels))
-            {
-                m_IsDeferredCapable = true;
-                OLO_CORE_TRACE("    [Bindless] detected G-Buffer fragment outputs by source scan -> "
-                               "IsDeferredCapable=true");
-                break;
-            }
-        }
-
-        Shader::RegisterProgramMaterialOffsets(m_RendererID, m_ReadsMaterialHeapOffsets);
-
         OLO_CORE_INFO("[Bindless] '{}' built through the raw-GLSL route (no SPIR-V).", m_Name);
         return true;
     }
@@ -1525,6 +1541,16 @@ namespace OloEngine
         // names: a slot-based program inheriting a retired bindless id would
         // otherwise be told it reads the heap (issue #691 Phase 3).
         Shader::RegisterProgramBindless(m_RendererID, m_IsBindlessVariant);
+
+        // AND THE MATERIAL-OFFSET FLAG, for the same reason and in the same place.
+        // It used to be registered at the very end of CreateProgramFromRawGLSL,
+        // which the binary-cache hit returns before reaching — so a warm run built
+        // a bindless program that never announced it reads per-material offsets,
+        // and BindPBRTextures went on issuing the five material binds that program
+        // had already withdrawn. Gated on m_IsBindlessVariant so a slot-based
+        // program inheriting a retired bindless program id cannot be told it reads
+        // the heap (issue #691 Phase 3).
+        Shader::RegisterProgramMaterialOffsets(m_RendererID, m_IsBindlessVariant && m_ReadsMaterialHeapOffsets);
 
         // Name the program for GPU debuggers (RenderDoc/NSight) and register it
         // in the CPU-side label registry so the GL debug callback can resolve

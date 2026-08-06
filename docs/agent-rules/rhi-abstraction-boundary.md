@@ -1703,10 +1703,14 @@ visibly from the slot path" as open work. Re-measured again here on
 | heap ON vs OFF, high | 8.43% | 4.68 |
 | heap ON vs OFF, low | 22.25% | 7.62 |
 
-**Every ON-vs-OFF RMSE is below the same-config floor.** The scene animates water,
-three vehicles and a TAA history, so two captures of the *identical* build at the
-*identical* pose differ by more than either build differs from the other. This
-measurement cannot distinguish a correct implementation from a broken one — which
+**Every ON-vs-OFF RMSE (4.68–9.19) is below the same-config RMSE floor of 9.74.**
+The claim is about RMSE specifically, and deliberately not about the pixel counts:
+the side pose differs in 31.60% of pixels against a 23.50% floor, so "two captures
+of the identical build differ by more" is true of the RMSE and false of the pixel
+percentage. The scene animates water, three vehicles and a TAA history, which is
+enough for two captures of the *identical* build at the *identical* pose to land
+in the same RMSE band as the two builds do against each other. This measurement
+cannot distinguish a correct implementation from a broken one — which
 is precisely what `live-verification-noise-floor.md` says a floor the size of its
 signal means, and precisely the error #740 made in the other direction by reading
 "signal ≈ floor" as parity.
@@ -1728,6 +1732,31 @@ first, and publish the same-config floor next to the number — a floor is only
 reassuring when it is *small*.
 
 ### A BINDLESS DESCRIPTOR BAKES SAMPLER STATE — the slot path does not
+
+> **SUPERSEDED (2026-08-04) — see the Phase 3 narrative in
+> `OloEngine/tests/Rendering/rhi_boundary_baseline.json`, the section beginning
+> "LOCALISED, AND THE VERTEX-PATH DIAGNOSIS BELOW WAS WRONG".**
+>
+> What survives below is sound and worth reading: the sampler state IS derivable
+> at the call site, and the measurement that the *correct* `Repeat` sampler made
+> the number WORSE (5.861 → 10.447) is real — it is what killed the sampler
+> hypothesis, and the reasoning about why a same-configuration test cancels a
+> systematic difference still holds.
+>
+> Three claims in it are RETRACTED:
+>
+> - **"A residual ~5.861 … Still unexplained."** It is explained. The
+>   depth-invariance contract group had split across compile routes: converting
+>   `PBR_MultiLight` moved it to the raw-GLSL route while `DepthPrepass.glsl` —
+>   which declares no samplers and so never mentions `OLO_BINDLESS` — stayed on
+>   the SPIR-V one. `invariant gl_Position` cannot bridge two front-ends, so the
+>   colour pass failed `GL_LEQUAL` against depth its own prepass wrote. See
+>   glsl-shaders §7a-bis.
+> - **"`PBR_MultiLight` stays slot-based."** It is converted and shipped, along
+>   with `PBR_MultiLight_Skinned`, `PBR_GBuffer{,_Skinned}` and
+>   `VirtualMeshGBuffer` — the whole material bucket.
+> - **"the plumbing sits inert."** It is live and exercised by the suite in both
+>   configurations.
 
 This is the one thing that stops the per-material conversion today, and it is a
 property of the model rather than a bug in the plumbing.

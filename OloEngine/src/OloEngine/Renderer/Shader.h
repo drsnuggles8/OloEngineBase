@@ -75,7 +75,8 @@ namespace OloEngine
         // Set from the source scan in CreateProgramFromRawGLSL: a shader that
         // declares `u_MaterialHeapOffsets` reads its material textures from the
         // material UBO, and nothing else does.
-        [[nodiscard]] static auto ReadsMaterialHeapOffsets() -> bool;
+        [[nodiscard("the answer decides whether the material binds are issued at all")]] static auto
+        ReadsMaterialHeapOffsets() -> bool;
         static void SetBoundProgramMaterialOffsets(bool reads);
         static void RegisterProgramMaterialOffsets(u32 programID, bool reads);
         [[nodiscard]] static auto ProgramReadsMaterialOffsets(u32 programID) -> bool;

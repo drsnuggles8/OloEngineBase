@@ -637,7 +637,8 @@ namespace OloEngine::Tests
         // Read the two SLOTS this test is about, not the raw upload span.
         //
         // The span is not a contract: a flush uploads whatever range is dirty,
-        // and Initialize now dirties the two reserved null slots (0 and 1) so the
+        // and Initialize now dirties every reserved null slot
+        // (0 .. RHI::kFirstAllocatableHeapSlot - 1) so the
         // first flush is wider than the second. Comparing `LastUpload` wholesale
         // made the test depend on those two flushes happening to cover the same
         // indices — true only while nothing else was ever dirty. What the test
@@ -1024,12 +1025,14 @@ namespace OloEngine::Tests
             << "The release must be told the kind — GL has two residency namespaces with two entry points.";
     }
 
-    // The two reserved slots exist and hold the right kind each. Nothing else
-    // ever writes them (the allocator starts above both), so if Initialize does
-    // not seed them the storage null is whatever the backend's buffer prefill
-    // left there — which is the sampler null, i.e. undefined behaviour for every
-    // cleared image binding.
-    TEST_F(HeapFixture, BothReservedNullSlotsArePublishedOnTheFirstFlush)
+    // ALL FIVE reserved slots exist and hold the right kind each. Nothing else
+    // ever writes them (the allocator starts above all of them), so if Initialize
+    // does not seed one, that slot holds whatever the backend's buffer prefill
+    // left there — the 2D sampler null — and every consumer of that kind gets a
+    // descriptor of the wrong type, which is undefined to sample rather than
+    // black. Asserting only the first two left the three typed sampler nulls
+    // unpinned, which is exactly the gap they were added to close.
+    TEST_F(HeapFixture, EveryReservedNullSlotIsPublishedOnTheFirstFlush)
     {
         SetUpHeap();
         RHI::DescriptorHeap::Get().Flush();
@@ -1038,11 +1041,15 @@ namespace OloEngine::Tests
         ASSERT_GE(Backend.LastUpload.size(), static_cast<sizet>(RHI::kFirstAllocatableHeapSlot));
         EXPECT_EQ(Backend.LastUpload[RHI::kNullHeapOffset], FakeHeapBackend::kNull);
         EXPECT_EQ(Backend.LastUpload[RHI::kNullStorageHeapOffset], FakeHeapBackend::kNullImage);
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullCubeHeapOffset], FakeHeapBackend::kNullCube);
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullArrayHeapOffset], FakeHeapBackend::kNullArray);
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullArrayShadowHeapOffset], FakeHeapBackend::kNullArrayShadow);
     }
 
-    // Neither reserved slot may ever be handed out. A view landing on slot 0 or 1
-    // would make "I am not using this input" indistinguishable from a real
-    // binding, which is the whole hazard the reservation exists to remove.
+    // No reserved slot may ever be handed out. A view landing anywhere in
+    // 0 .. RHI::kFirstAllocatableHeapSlot - 1 would make "I am not using this
+    // input" indistinguishable from a real binding, which is the whole hazard the
+    // reservation exists to remove.
     TEST_F(HeapFixture, TheAllocatorNeverHandsOutAReservedNullSlot)
     {
         SetUpHeap();
@@ -1149,7 +1156,9 @@ namespace OloEngine::Tests
         SetUpHeap(/*persistent*/ 8u, /*transient*/ 4u);
         auto& heap = RHI::DescriptorHeap::Get();
 
-        // 6 allocatable slots (2 are the reserved nulls). Churn well past that.
+        // SetUpHeap's first argument is the ALLOCATABLE count, so this is 8 of
+        // them — the reserved nulls sit below RHI::kFirstAllocatableHeapSlot and are
+        // not taken out of it. Churn well past that.
         for (u32 round = 0u; round < 5u; ++round)
         {
             std::vector<RHI::ResourceHandle> live;

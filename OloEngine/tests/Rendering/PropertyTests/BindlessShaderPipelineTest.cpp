@@ -318,7 +318,12 @@ void main()
             }
             seen.insert(key);
 
-            const std::string src = ReadWholeFile(path);
+            // BLANKED BEFORE THE INCLUDE MATCH, not after. A commented-out
+            // `// #include "Foo.glsl"` would otherwise be inlined, dragging in
+            // declarations the compiler never sees and reporting them as live —
+            // and the callers' later BlankComments could not undo it, because by
+            // then the included text is indistinguishable from real source.
+            const std::string src = BlankComments(ReadWholeFile(path));
             static const std::regex kInclude(R"(#include\s+\"([^\"]+)\")");
 
             std::string out;
@@ -350,6 +355,37 @@ void main()
             }
             out.append(src, last, std::string::npos);
             return out;
+        }
+
+        // MIRRORS OpenGLShader::WantsBindlessVariant, and must keep mirroring it.
+        // Whole-identifier, not substring: the engine matches identifiers, so a
+        // token that merely CONTAINS one of these (a `MY_OLO_BINDLESS_HACK`) does
+        // not put a shader on the route and must not make this scan think it did.
+        // Both tokens, because a shader with no samplers of its own opts in with
+        // OLO_BINDLESS_ROUTE_PARITY alone (glsl-shaders §7a-bis).
+        [[nodiscard]] bool MentionsIdentifier(const std::string& text, std::string_view identifier)
+        {
+            for (sizet pos = text.find(identifier); pos != std::string::npos;
+                 pos = text.find(identifier, pos + identifier.size()))
+            {
+                const sizet after = pos + identifier.size();
+                const bool leftOk =
+                    (pos == 0) || !(std::isalnum(static_cast<unsigned char>(text[pos - 1])) || text[pos - 1] == '_');
+                const bool rightOk =
+                    (after >= text.size()) ||
+                    !(std::isalnum(static_cast<unsigned char>(text[after])) || text[after] == '_');
+                if (leftOk && rightOk)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        [[nodiscard]] bool WantsBindlessVariant(const std::string& source)
+        {
+            return MentionsIdentifier(source, "OLO_BINDLESS") ||
+                   MentionsIdentifier(source, "OLO_BINDLESS_ROUTE_PARITY");
         }
 
         struct SamplerDecl
@@ -403,7 +439,7 @@ void main()
                 if (std::smatch m; std::regex_match(line, m, kIfDir))
                 {
                     const std::string directive = m[1].str();
-                    const bool mentions = m[2].str().find("OLO_BINDLESS") != std::string::npos;
+                    const bool mentions = WantsBindlessVariant(m[2].str());
                     const bool parentActive = stack.back().Active;
 
                     Frame frame;
@@ -489,8 +525,31 @@ void main()
 
         // And no null may collide with a slot the allocator hands out, or a real
         // descriptor would land on top of one.
-        EXPECT_LT(RHI::kNullArrayShadowHeapOffset, RHI::kFirstAllocatableHeapSlot);
-        EXPECT_LT(RHI::kNullCubeHeapOffset, RHI::kFirstAllocatableHeapSlot);
+        // ALL FIVE, and pairwise DISTINCT. Checking only two left the other three
+        // free to collide with an allocatable slot or with each other, and a
+        // collision is silent: two kinds sharing one slot means the second one
+        // written wins and the first samples a descriptor of the wrong type — the
+        // exact undefined read the typed nulls exist to remove.
+        const std::array<std::pair<std::string_view, u32>, 5> kReserved{ {
+            { "kNullHeapOffset", RHI::kNullHeapOffset },
+            { "kNullStorageHeapOffset", RHI::kNullStorageHeapOffset },
+            { "kNullCubeHeapOffset", RHI::kNullCubeHeapOffset },
+            { "kNullArrayHeapOffset", RHI::kNullArrayHeapOffset },
+            { "kNullArrayShadowHeapOffset", RHI::kNullArrayShadowHeapOffset },
+        } };
+        for (const auto& [name, value] : kReserved)
+        {
+            EXPECT_LT(value, RHI::kFirstAllocatableHeapSlot)
+                << name << " is not inside the reserved region, so the allocator can hand it out";
+        }
+        for (sizet i = 0; i < kReserved.size(); ++i)
+        {
+            for (sizet j = i + 1; j < kReserved.size(); ++j)
+            {
+                EXPECT_NE(kReserved[i].second, kReserved[j].second)
+                    << kReserved[i].first << " and " << kReserved[j].first << " share a slot";
+            }
+        }
     }
 
     TEST(BindlessShaderPipeline, NoBindlessRouteShaderKeepsASlotBasedSamplerDeclaration)
@@ -526,8 +585,9 @@ void main()
             ++scanned;
 
             std::set<std::string> seen;
-            const std::string resolved = BlankComments(ResolveIncludes(p, shaderRoot, seen, unresolved));
-            if (resolved.find("OLO_BINDLESS") == std::string::npos)
+            // Already comment-free: ResolveIncludes blanks each file as it reads it.
+            const std::string resolved = ResolveIncludes(p, shaderRoot, seen, unresolved);
+            if (!WantsBindlessVariant(resolved))
             {
                 continue;
             }
@@ -620,7 +680,8 @@ void main()
             }
 
             std::set<std::string> seen;
-            const std::string resolved = BlankComments(ResolveIncludes(p, shaderRoot, seen, unresolved));
+            // Already comment-free: ResolveIncludes blanks each file as it reads it.
+            const std::string resolved = ResolveIncludes(p, shaderRoot, seen, unresolved);
             // The declaration must be measured AFTER comments are blanked, for
             // the same reason WantsBindlessVariant scans outside comments: the
             // natural way to write "this pass deliberately has no invariant
@@ -633,7 +694,7 @@ void main()
             // Mirrors OpenGLShader::WantsBindlessVariant exactly. If that
             // predicate ever grows a third token this must grow it too, or the
             // guard silently stops matching the thing it guards.
-            const bool takesRoute = resolved.find("OLO_BINDLESS") != std::string::npos;
+            const bool takesRoute = WantsBindlessVariant(resolved);
             (takesRoute ? onRoute : offRoute).push_back(p.filename().string());
         }
 

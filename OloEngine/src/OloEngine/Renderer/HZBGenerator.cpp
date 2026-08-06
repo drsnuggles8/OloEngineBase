@@ -160,6 +160,7 @@ namespace OloEngine
     void HZBGenerator::DispatchMipBatch(u32 startMip, u32 mipCount, RHI::ResourceHandle sceneDepthTexture)
     {
         const RHI::ResourceHandle hzbTex = GetHZBTexture();
+        const RHI::HeapSlotLifetime hzbLifetime = GetHZBLifetime();
         bool isFirstPass = (startMip == 0);
 
         // Bind output image mips (up to 4 per batch)
@@ -174,13 +175,13 @@ namespace OloEngine
         {
             u32 localIdx = mip - startMip;
             HeapBinding::BindImageOrOffset(localIdx, hzbTex, mip, false, 0, RHI::Access::StorageWrite,
-                                           RHI::Format::R32Float, RHI::HeapSlotLifetime::Persistent);
+                                           RHI::Format::R32Float, hzbLifetime);
         }
         // Fill remaining image slots with the last valid mip to avoid undefined bindings
         for (u32 localIdx = endMip - startMip; localIdx < MAX_MIP_BATCH_SIZE; ++localIdx)
         {
             HeapBinding::BindImageOrOffset(localIdx, hzbTex, endMip - 1, false, 0, RHI::Access::StorageWrite,
-                                           RHI::Format::R32Float, RHI::HeapSlotLifetime::Persistent);
+                                           RHI::Format::R32Float, hzbLifetime);
         }
 
         // Bind input: scene depth for first pass, HZB itself for subsequent passes.
@@ -199,7 +200,7 @@ namespace OloEngine
         {
             // Need a barrier so previous batch writes are visible as texture fetches
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::TextureFetch | MemoryBarrierFlags::ShaderImageAccess);
-            HeapBinding::BindTextureOrOffset(4, hzbTex, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindTextureOrOffset(4, hzbTex, hzbLifetime);
         }
 
         // Compute source and destination sizes.
