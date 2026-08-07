@@ -11,6 +11,8 @@
 #include <GLFW/glfw3native.h>
 #include <dwmapi.h>
 
+#include <stdexcept>
+
 namespace OloEngine
 {
 
@@ -86,6 +88,14 @@ namespace OloEngine
 #endif
 
             m_Window = GLFWAPI::glfwCreateWindow(static_cast<int>(props.Width), static_cast<int>(props.Height), m_Data.Title.c_str(), nullptr, nullptr);
+            if (!m_Window)
+            {
+                if (0 == s_GLFWWindowCount)
+                {
+                    GLFWAPI::glfwTerminate();
+                }
+                throw std::runtime_error("glfwCreateWindow failed!");
+            }
             ++s_GLFWWindowCount;
         }
 
@@ -106,8 +116,38 @@ namespace OloEngine
             }
         }
 
+        // Context creation/init can legitimately fail — the Vulkan bring-up REFUSES
+        // to initialise (throws) when the device is below ADR 0010's capability
+        // contract. The constructor must not leak the GLFW window or its refcount
+        // on that path: ~WindowsWindow never runs when Init throws.
         m_Context = GraphicsContext::Create(m_Window);
-        m_Context->Init();
+        if (!m_Context)
+        {
+            GLFWAPI::glfwDestroyWindow(m_Window);
+            m_Window = nullptr;
+            --s_GLFWWindowCount;
+            if (0 == s_GLFWWindowCount)
+            {
+                GLFWAPI::glfwTerminate();
+            }
+            throw std::runtime_error("Failed to create graphics context!");
+        }
+        try
+        {
+            m_Context->Init();
+        }
+        catch (...)
+        {
+            m_Context.reset();
+            GLFWAPI::glfwDestroyWindow(m_Window);
+            m_Window = nullptr;
+            --s_GLFWWindowCount;
+            if (0 == s_GLFWWindowCount)
+            {
+                GLFWAPI::glfwTerminate();
+            }
+            throw;
+        }
 
         GLFWAPI::glfwSetWindowUserPointer(m_Window, &m_Data);
         SetVSync(false);
@@ -210,8 +250,12 @@ namespace OloEngine
         // the window either way — so this is a no-op reorder on the GL path.)
         m_Context.reset();
 
-        GLFWAPI::glfwDestroyWindow(m_Window);
-        --s_GLFWWindowCount;
+        if (m_Window)
+        {
+            GLFWAPI::glfwDestroyWindow(m_Window);
+            m_Window = nullptr;
+            --s_GLFWWindowCount;
+        }
 
         if (0 == s_GLFWWindowCount)
         {

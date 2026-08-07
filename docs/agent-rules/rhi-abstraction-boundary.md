@@ -2142,14 +2142,17 @@ requirement:
 > `RendererAPI::s_API` must be set **before `Window::Create`**.
 
 This is not hypothetical — the seam already exists and is already used:
-`WindowsWindow::Init` calls `Renderer::GetAPI()` before `glfwCreateWindow` (to
-decide `GLFW_OPENGL_DEBUG_CONTEXT`), while `Application`'s constructor calls
-`Window::Create` at line 62 and `Renderer::Init` only at line 72. The setter
-belongs in `Application`'s constructor, before line 62, parsed from
-`ApplicationCommandLineArgs` (which already has a `Contains()` helper for
-mode flags like `--smoke-test`). Anything reading `Renderer::GetAPI()` during
-static initialisation sees `OpenGL` regardless; nothing does today, and nothing
-should start.
+`WindowsWindow::Init` calls `Renderer::GetAPI()` before `glfwCreateWindow`
+(client-API hint + `GLFW_OPENGL_DEBUG_CONTEXT`), and `Application`'s
+constructor calls `Window::Create` well before `Renderer::Init`. That is where
+the setter lives: `SelectRendererBackend` resolves the chain and
+`RendererAPI::SetAPI` applies it in `Application`'s constructor, immediately
+after the working-directory switch (so the config fallback resolves against the
+real cwd) and before `Window::Create`. Anything reading `Renderer::GetAPI()`
+during static initialisation sees the constant-initialised `OpenGL` default
+regardless of the flag — and one thing DOES read it there:
+`RenderCommand::s_RendererAPI = RendererAPI::Create()` (see the Phase 4
+correction above). Nothing else should join it.
 
 Why a live swap is genuinely out of reach here, not just unimplemented:
 `GLFW_CLIENT_API` must be set before `glfwCreateWindow` (so a swap destroys the

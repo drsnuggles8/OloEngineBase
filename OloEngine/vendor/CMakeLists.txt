@@ -906,6 +906,12 @@ if(OLO_WITH_VULKAN)
 		# warning level, exactly as bcdec's IMPLEMENTATION is handled.
 		target_include_directories(vma SYSTEM INTERFACE "${vma_SOURCE_DIR}/include")
 		target_link_libraries(vma INTERFACE Vulkan::Headers)
+	else()
+		# OloEngine links `vma` unconditionally under OLO_WITH_VULKAN, via the
+		# plain target_link_libraries signature — an undefined target there is
+		# silently treated as an external library name and only fails at LINK
+		# time with a baffling "cannot open vma.lib". Fail at configure instead.
+		message(FATAL_ERROR "OLO_WITH_VULKAN=ON but CPM did not add VulkanMemoryAllocator (vma_ADDED is false) — the vma target would be undefined.")
 	endif()
 
 	set_target_properties(volk PROPERTIES FOLDER "Utilities/Vulkan")

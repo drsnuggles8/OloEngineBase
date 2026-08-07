@@ -8,6 +8,7 @@
 #include <fstream>
 #include <optional>
 #include <string_view>
+#include <system_error>
 
 namespace OloEngine
 {
@@ -86,14 +87,19 @@ namespace OloEngine
                 return Resolve(*api, "--rhi flag", value);
             }
             BackendSelection selection;
+            // Source names where the (rejected) request came from, same as the
+            // Resolve() degrade path — the Api is the default, the origin is not.
+            selection.Source = "--rhi flag";
             selection.Diagnostic = std::string("unknown backend '") + std::string(value) +
                                    "' in --rhi= (expected 'opengl' or 'vulkan'). Falling back to OpenGL.";
             return selection;
         }
 
-        // 2) Config-file fallback: Renderer: { RHI: <name> }. Absent or malformed
-        // config is the common case (no file ships by default) and is silent.
-        if (!configFile.empty() && std::filesystem::exists(configFile))
+        // 2) Config-file fallback: Renderer: { RHI: <name> }. Absent, unreadable or
+        // malformed config is the common case (no file ships by default) and is
+        // silent — the error_code overload keeps filesystem errors non-throwing.
+        std::error_code existsError;
+        if (!configFile.empty() && std::filesystem::exists(configFile, existsError))
         {
             try
             {
@@ -109,6 +115,7 @@ namespace OloEngine
                             return Resolve(*api, "config file", value);
                         }
                         BackendSelection selection;
+                        selection.Source = "config file";
                         selection.Diagnostic = std::string("unknown backend '") + value + "' in " +
                                                configFile.string() + " (expected 'opengl' or 'vulkan'). Falling back to OpenGL.";
                         return selection;

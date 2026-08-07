@@ -37,7 +37,7 @@ namespace OloEngine
     // Chain: `--rhi=<name>` among argv[1..] → a `Renderer: { RHI: <name> }` mapping in
     // `configFile` (YAML; silently skipped when absent or malformed) → OpenGL.
     // Recognised names (case-insensitive): "opengl", "vulkan".
-    BackendSelection SelectRendererBackend(int argc, char** argv, const std::filesystem::path& configFile);
+    [[nodiscard]] BackendSelection SelectRendererBackend(int argc, char** argv, const std::filesystem::path& configFile);
 
     // The config file the engine reads the fallback setting from, relative to the
     // process working directory (which Application sets from its specification

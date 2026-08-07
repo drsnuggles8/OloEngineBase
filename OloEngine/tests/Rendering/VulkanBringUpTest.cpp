@@ -174,11 +174,19 @@ namespace
         untypedFeatures.shaderUntypedPointers = VK_TRUE;
         untypedFeatures.pNext = &heapFeatures;
 
+        // Mirror VulkanContext::Init's chain exactly, sync2 included — this test's
+        // claim is "the gate's enables are accepted", so the enable list must not
+        // drift from the gate's.
+        VkPhysicalDeviceVulkan13Features vulkan13Features{};
+        vulkan13Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+        vulkan13Features.synchronization2 = VK_TRUE;
+        vulkan13Features.pNext = &untypedFeatures;
+
         const std::vector<const char*> extensions = VulkanCapabilities::RequiredDeviceExtensions();
 
         VkDeviceCreateInfo deviceInfo{};
         deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        deviceInfo.pNext = &untypedFeatures;
+        deviceInfo.pNext = &vulkan13Features;
         deviceInfo.queueCreateInfoCount = 1;
         deviceInfo.pQueueCreateInfos = &queueInfo;
         deviceInfo.enabledExtensionCount = static_cast<u32>(extensions.size());

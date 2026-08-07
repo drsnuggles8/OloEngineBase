@@ -500,6 +500,15 @@ namespace OloEngine
             extent.height = std::clamp(static_cast<u32>(fbHeight), caps.minImageExtent.height, caps.maxImageExtent.height);
         }
 
+        // A minimised window can reach here with a 0-sized surface (Init while
+        // minimised, or an OUT_OF_DATE recreate racing a minimise) — a zero
+        // extent is invalid for vkCreateSwapchainKHR. Leave the swapchain null;
+        // SwapBuffers retries the creation once the framebuffer has area again.
+        if (extent.width == 0 || extent.height == 0)
+        {
+            return;
+        }
+
         u32 imageCount = caps.minImageCount + 1;
         if (caps.maxImageCount > 0)
         {
@@ -586,6 +595,18 @@ namespace OloEngine
         if (fbWidth == 0 || fbHeight == 0)
         {
             return;
+        }
+
+        // The window has area but no swapchain exists: creation was skipped while
+        // the surface was 0-sized (see CreateSwapchain). Recreate now; if the
+        // surface still reports zero (caps lag the framebuffer), skip the frame.
+        if (d.Swapchain == VK_NULL_HANDLE)
+        {
+            RecreateSwapchain();
+            if (d.Swapchain == VK_NULL_HANDLE)
+            {
+                return;
+            }
         }
 
         VulkanContextData::Frame& frame = d.Frames[d.FrameIndex];

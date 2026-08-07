@@ -116,6 +116,20 @@ namespace
 #endif
     }
 
+    TEST(BackendSelection, WellFormedConfigWithUnknownBackendDegradesLoudly)
+    {
+        // Distinct from the malformed-config case below: the YAML parses fine and
+        // the Renderer.RHI key exists, but names no known backend. That is a USER
+        // mistake worth a diagnostic (Application logs it at error level), with
+        // Source naming where the rejected request came from — unlike malformed
+        // YAML, which falls through silently to the default.
+        const ScopedConfigFile config("Renderer:\n  RHI: directx12\n");
+        const BackendSelection selection = Select<1>({ "app.exe" }, config.Path());
+        EXPECT_EQ(selection.Api, RendererAPI::API::OpenGL);
+        EXPECT_EQ(selection.Source, "config file");
+        EXPECT_FALSE(selection.Diagnostic.empty());
+    }
+
     TEST(BackendSelection, FlagWinsOverConfigFile)
     {
         const ScopedConfigFile config("Renderer:\n  RHI: vulkan\n");
