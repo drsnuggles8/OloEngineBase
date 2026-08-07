@@ -113,6 +113,19 @@ namespace OloEngine
         GLuint m_NullImageTexture = 0u;
         u64 m_NullImageDescriptor = 0u;
 
+        // One null image per FORMAT. glGetImageHandleARB bakes the format into
+        // the handle and a mismatched `layout(...)` qualifier is undefined, so a
+        // single R32F null cannot serve an r32ui or rgba8 binding — the sampler
+        // TARGET argument one axis over (issue #691 Phase 3).
+        struct NullImage
+        {
+            GLuint Texture = 0u;
+            u64 Descriptor = 0u;
+        };
+        std::unordered_map<u32, NullImage> m_NullImagesByFormat;
+
+        [[nodiscard]] auto NullStorageDescriptor(RHI::Format format) const -> u64 override;
+
         // And one null per SAMPLER TYPE, for the same reason one level over: the
         // GLSL type used to construct a sampler from a handle must match the
         // texture's target or the read is undefined. A shader whose environment

@@ -481,7 +481,8 @@ namespace OloEngine
         return staged.IsValid() ? RHI::NullResource : texture;
     }
 
-    static void BindTrackedTexture(RHI::ResourceHandle texture, u32 slot)
+    static void BindTrackedTexture(RHI::ResourceHandle texture, u32 slot,
+                                   RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D)
     {
         if (!texture.IsValid())
             return;
@@ -491,7 +492,7 @@ namespace OloEngine
         // Persistent: material and IBL textures are asset-owned and outlive the
         // frame, so their descriptors are memoised rather than drawn from the ring.
         const RHI::HeapOffset staged =
-            HeapBinding::BindTextureOrOffset(slot, texture, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindTextureOrOffset(slot, texture, RHI::HeapSlotLifetime::Persistent, {}, kind);
 
         // ONLY CLAIM A GL BINDING WHEN ONE ACTUALLY HAPPENED. The cache's
         // invariant, stated above, is "this slot's GL BINDING is already
@@ -648,9 +649,13 @@ namespace OloEngine
             BindTrackedTexture(mat.aoMapID, ShaderBindingLayout::TEX_AMBIENT);
             BindTrackedTexture(mat.emissiveMapID, ShaderBindingLayout::TEX_EMISSIVE);
         }
-        BindTrackedTexture(mat.environmentMapID, ShaderBindingLayout::TEX_ENVIRONMENT);
-        BindTrackedTexture(mat.irradianceMapID, ShaderBindingLayout::TEX_USER_0);
-        BindTrackedTexture(mat.prefilterMapID, ShaderBindingLayout::TEX_USER_1);
+        // TEX_USER_0/1 are samplerCube here (irradiance, prefilter) and plain 2D in
+        // other consumers — which is why the kind cannot be derived from the SLOT
+        // and has to come from the call site that knows what it is binding.
+        BindTrackedTexture(mat.environmentMapID, ShaderBindingLayout::TEX_ENVIRONMENT,
+                           RHI::NullSamplerKind::Cube);
+        BindTrackedTexture(mat.irradianceMapID, ShaderBindingLayout::TEX_USER_0, RHI::NullSamplerKind::Cube);
+        BindTrackedTexture(mat.prefilterMapID, ShaderBindingLayout::TEX_USER_1, RHI::NullSamplerKind::Cube);
         BindTrackedTexture(mat.brdfLutMapID, ShaderBindingLayout::TEX_USER_2);
     }
 
@@ -792,7 +797,8 @@ namespace OloEngine
     // no-op (no texture for that slot this frame). Shared by every tracked bind so
     // the check/update/increment logic lives in exactly one place.
     static void BindTrackedTextureUnit(u32 slot, RHI::ResourceHandle texture,
-                                       const RHI::SamplerDesc& sampler = {})
+                                       const RHI::SamplerDesc& sampler = {},
+                                       RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D)
     {
         if (!texture.IsValid())
             return;
@@ -803,7 +809,7 @@ namespace OloEngine
         // Persistent: shadow maps, the snow clipmap and the cloud-shadow map are
         // system-owned and survive the frame, like the material textures above.
         const RHI::HeapOffset staged =
-            HeapBinding::BindTextureOrOffset(slot, texture, RHI::HeapSlotLifetime::Persistent, sampler);
+            HeapBinding::BindTextureOrOffset(slot, texture, RHI::HeapSlotLifetime::Persistent, sampler, kind);
         // Same correction as BindTrackedTexture — see the note there.
         s_Data.BoundTextures[slot] = CacheEntryAfterSeam(staged, texture);
         ++s_Data.Stats.TextureBinds;
@@ -818,13 +824,20 @@ namespace OloEngine
         static const RHI::SamplerDesc kShadowCompare = HeapBinding::ShadowDepthSampler(true);
         static const RHI::SamplerDesc kShadowRaw = HeapBinding::ShadowDepthSampler(false);
 
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTexture, kShadowCompare);
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS, s_Data.AtlasShadowTexture, kShadowCompare);
+        // The KIND travels with the bind, not just the sampler: these four are the
+        // array-typed inputs on the shared table, so a retired one must poison to
+        // its own typed null rather than the 2D one (issue #691 Phase 3).
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW, s_Data.CSMShadowTexture, kShadowCompare,
+                               RHI::NullSamplerKind::Texture2DArrayShadow);
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS, s_Data.AtlasShadowTexture, kShadowCompare,
+                               RHI::NullSamplerKind::Texture2DArrayShadow);
 
         // Comparison-OFF raw-depth views for the PCSS blocker search (plain
         // sampler2DArray at TEX_SHADOW_CSM_RAW / TEX_SHADOW_ATLAS_RAW).
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, s_Data.CSMRawShadowTexture, kShadowRaw);
-        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, s_Data.AtlasRawShadowTexture, kShadowRaw);
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, s_Data.CSMRawShadowTexture, kShadowRaw,
+                               RHI::NullSamplerKind::Texture2DArray);
+        BindTrackedTextureUnit(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, s_Data.AtlasRawShadowTexture, kShadowRaw,
+                               RHI::NullSamplerKind::Texture2DArray);
 
         BindTrackedTextureUnit(ShaderBindingLayout::TEX_SNOW_DEPTH, s_Data.SnowDepthTexture);
 
@@ -2093,7 +2106,7 @@ namespace OloEngine
         if (s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] != cmd->skyboxTextureID ||
             HeapBinding::WritesOffsetsForBoundProgram())
         {
-            const RHI::HeapOffset staged = HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, cmd->skyboxTextureID, RHI::HeapSlotLifetime::Persistent);
+            const RHI::HeapOffset staged = HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, cmd->skyboxTextureID, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Cube);
             s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] = CacheEntryAfterSeam(staged, cmd->skyboxTextureID);
             ++s_Data.Stats.TextureBinds;
         }
@@ -2295,15 +2308,15 @@ namespace OloEngine
         }
         if (cmd->albedoArrayTextureID.IsValid())
         {
-            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, cmd->albedoArrayTextureID, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, cmd->albedoArrayTextureID, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Texture2DArray);
         }
         if (cmd->normalArrayTextureID.IsValid())
         {
-            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, cmd->normalArrayTextureID, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, cmd->normalArrayTextureID, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Texture2DArray);
         }
         if (cmd->armArrayTextureID.IsValid())
         {
-            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Texture2DArray);
         }
 
         // Bind the full shadow contract the terrain shaders sample — CSM, spot,
@@ -2366,15 +2379,15 @@ namespace OloEngine
         // Bind textures for triplanar sampling
         if (cmd->albedoArrayTextureID.IsValid())
         {
-            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, cmd->albedoArrayTextureID, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_ALBEDO_ARRAY, cmd->albedoArrayTextureID, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Texture2DArray);
         }
         if (cmd->normalArrayTextureID.IsValid())
         {
-            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, cmd->normalArrayTextureID, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_NORMAL_ARRAY, cmd->normalArrayTextureID, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Texture2DArray);
         }
         if (cmd->armArrayTextureID.IsValid())
         {
-            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_TERRAIN_ARM_ARRAY, cmd->armArrayTextureID, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Texture2DArray);
         }
 
         // Bind the shadow contract Terrain_Voxel.glsl samples (CSM + spot + PCSS
@@ -2660,7 +2673,7 @@ namespace OloEngine
         }
         else if (s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT].IsValid())
         {
-            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Cube);
             s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] = {};
         }
 

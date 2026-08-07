@@ -200,8 +200,10 @@ namespace OloEngine
         // while chasing the same defect in the material path; see
         // HeapBinding::ShadowDepthSampler.
         const RHI::SamplerDesc shadowSampler = HeapBinding::ShadowDepthSampler(true);
-        HeapBinding::BindTextureOrOffset(0, csmID, RHI::HeapSlotLifetime::Persistent, shadowSampler);
-        HeapBinding::BindTextureOrOffset(1, atlasID, RHI::HeapSlotLifetime::Persistent, shadowSampler);
+        HeapBinding::BindTextureOrOffset(0, csmID, RHI::HeapSlotLifetime::Persistent, shadowSampler,
+                                         RHI::NullSamplerKind::Texture2DArrayShadow);
+        HeapBinding::BindTextureOrOffset(1, atlasID, RHI::HeapSlotLifetime::Persistent, shadowSampler,
+                                         RHI::NullSamplerKind::Texture2DArrayShadow);
         HeapBinding::BindTextureOrOffset(2, m_ScatterVolume[historyIndex]->GetRHIHandle(),
                                          RHI::HeapSlotLifetime::Persistent);
         // Persistent: the froxel volumes are pass-owned and double-buffered across

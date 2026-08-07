@@ -129,6 +129,32 @@ namespace OloEngine::Tests
             static constexpr u64 kNullCube = 0xC0BEC0BEu;
             static constexpr u64 kNullArray = 0xA55A4A55u;
             static constexpr u64 kNullArrayShadow = 0x5AD05AD0u;
+            // A distinct sentinel per storage FORMAT, so a poison that picked the
+            // wrong one is visible rather than merely plausible.
+            [[nodiscard]] static auto StorageSentinel(RHI::Format format) -> u64
+            {
+                switch (format)
+                {
+                    case RHI::Format::RGBA32Float:
+                        return 0xF32Fu;
+                    case RHI::Format::R8UNorm:
+                        return 0xF008u;
+                    case RHI::Format::RGBA16Float:
+                        return 0xF16Fu;
+                    case RHI::Format::RGBA8UNorm:
+                        return 0xF8A8u;
+                    case RHI::Format::R32UInt:
+                        return 0xF321u;
+                    default:
+                        return kNullImage;
+                }
+            }
+
+            [[nodiscard]] auto NullStorageDescriptor(RHI::Format format) const -> u64 override
+            {
+                return StorageSentinel(format);
+            }
+
             [[nodiscard]] auto NullDescriptor(RHI::ViewUsage usage, RHI::NullSamplerKind kind) const
                 -> u64 override
             {
@@ -617,6 +643,43 @@ namespace OloEngine::Tests
                 << "a retired view of kind " << static_cast<int>(kind)
                 << " was poisoned with the wrong typed null — a shader still holding this"
                    " offset would construct its sampler from a descriptor of another target.";
+        }
+    }
+
+    // POISON MUST KEEP THE VIEW'S STORAGE FORMAT, for the same reason it must keep
+    // a sampler's target — one axis over. glGetImageHandleARB bakes the format into
+    // the handle, so loading through a `layout(r32ui)` qualifier from an R32F null
+    // is UNDEFINED, not a reinterpretation of the zero bit pattern.
+    TEST_F(HeapFixture, PoisonKeepsTheViewsStorageFormat)
+    {
+        SetUpHeap(/*persistent*/ 8u, /*transient*/ 4u, /*poison*/ true);
+        auto& heap = RHI::DescriptorHeap::Get();
+
+        const std::array<RHI::Format, 5> kFormats{ RHI::Format::RGBA32Float, RHI::Format::R8UNorm,
+                                                   RHI::Format::RGBA16Float, RHI::Format::RGBA8UNorm,
+                                                   RHI::Format::R32UInt };
+        u32 resourceId = 8300u;
+        for (const RHI::Format format : kFormats)
+        {
+            const RHI::ResourceHandle resource = MakeResource(resourceId++);
+            RHI::ViewDesc storage;
+            storage.Resource = resource;
+            storage.Usage = RHI::ViewUsage::Storage;
+            storage.FormatOverride = format;
+
+            const RHI::ViewHandle view =
+                heap.CreateView(resource, storage, RHI::SamplerDesc{}, RHI::HeapSlotLifetime::Persistent);
+            ASSERT_TRUE(view.IsValid());
+            const u32 slot = heap.OffsetOf(view).Value;
+
+            heap.RetireResource(resource);
+            heap.Flush();
+
+            ASSERT_GE(slot, Backend.LastUploadFirstSlot);
+            ASSERT_LT(slot - Backend.LastUploadFirstSlot, Backend.LastUpload.size());
+            EXPECT_EQ(Backend.LastUpload[slot - Backend.LastUploadFirstSlot],
+                      FakeHeapBackend::StorageSentinel(format))
+                << "a retired storage view was poisoned with the wrong format's null image";
         }
     }
 
@@ -1111,6 +1174,17 @@ namespace OloEngine::Tests
         EXPECT_EQ(Backend.LastUpload[RHI::kNullCubeHeapOffset], FakeHeapBackend::kNullCube);
         EXPECT_EQ(Backend.LastUpload[RHI::kNullArrayHeapOffset], FakeHeapBackend::kNullArray);
         EXPECT_EQ(Backend.LastUpload[RHI::kNullArrayShadowHeapOffset], FakeHeapBackend::kNullArrayShadow);
+        // And one per storage FORMAT — the format axis of the same rule.
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullStorageRGBA32FHeapOffset],
+                  FakeHeapBackend::StorageSentinel(RHI::Format::RGBA32Float));
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullStorageR8HeapOffset],
+                  FakeHeapBackend::StorageSentinel(RHI::Format::R8UNorm));
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullStorageRGBA16FHeapOffset],
+                  FakeHeapBackend::StorageSentinel(RHI::Format::RGBA16Float));
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullStorageRGBA8HeapOffset],
+                  FakeHeapBackend::StorageSentinel(RHI::Format::RGBA8UNorm));
+        EXPECT_EQ(Backend.LastUpload[RHI::kNullStorageR32UIHeapOffset],
+                  FakeHeapBackend::StorageSentinel(RHI::Format::R32UInt));
     }
 
     // No reserved slot may ever be handed out. A view landing anywhere in

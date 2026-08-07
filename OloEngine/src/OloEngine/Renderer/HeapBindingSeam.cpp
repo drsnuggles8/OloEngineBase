@@ -171,29 +171,29 @@ namespace OloEngine::HeapBinding
         // fallback goes through RenderCommand — see the header for why the
         // distinction has to survive down to the actual call.
         auto BindTextureOrOffsetImpl(RendererAPI* api, u32 slot, RHI::ResourceHandle texture,
-                                     RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler)
-            -> RHI::HeapOffset;
+                                     RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler,
+                                     RHI::NullSamplerKind kind) -> RHI::HeapOffset;
     } // namespace
 
     auto BindTextureOrOffset(const u32 slot, const RHI::ResourceHandle texture,
-                             const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler)
-        -> RHI::HeapOffset
+                             const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler,
+                             const RHI::NullSamplerKind kind) -> RHI::HeapOffset
     {
-        return BindTextureOrOffsetImpl(nullptr, slot, texture, lifetime, sampler);
+        return BindTextureOrOffsetImpl(nullptr, slot, texture, lifetime, sampler, kind);
     }
 
     auto BindTextureOrOffset(RendererAPI& api, const u32 slot, const RHI::ResourceHandle texture,
-                             const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler)
-        -> RHI::HeapOffset
+                             const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler,
+                             const RHI::NullSamplerKind kind) -> RHI::HeapOffset
     {
-        return BindTextureOrOffsetImpl(&api, slot, texture, lifetime, sampler);
+        return BindTextureOrOffsetImpl(&api, slot, texture, lifetime, sampler, kind);
     }
 
     namespace
     {
         auto BindTextureOrOffsetImpl(RendererAPI* const api, const u32 slot, const RHI::ResourceHandle texture,
-                                     const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler)
-            -> RHI::HeapOffset
+                                     const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler,
+                                     const RHI::NullSamplerKind kind) -> RHI::HeapOffset
         {
             auto& heap = RHI::DescriptorHeap::Get();
 
@@ -218,7 +218,7 @@ namespace OloEngine::HeapBinding
                 // same depth array differed only by a field with no effect.
                 viewDesc.DepthCompare = (sampler.Compare != RHI::CompareOp::Never);
 
-                if (const RHI::ViewHandle view = heap.GetOrCreateView(texture, viewDesc, sampler, lifetime);
+                if (const RHI::ViewHandle view = heap.GetOrCreateView(texture, viewDesc, sampler, lifetime, kind);
                     view.IsValid())
                 {
                     // Fetched at the point of write, never stored — ADR 0011 §1.2.
@@ -291,7 +291,8 @@ namespace OloEngine::HeapBinding
     }
 
     auto PublishTextureOffsetAndBind(const u32 slot, const RHI::ResourceHandle texture,
-                                     const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler)
+                                     const RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler,
+                                     const RHI::NullSamplerKind kind)
         -> RHI::HeapOffset
     {
         auto& heap = RHI::DescriptorHeap::Get();
@@ -308,7 +309,7 @@ namespace OloEngine::HeapBinding
             RHI::ViewDesc viewDesc;
             viewDesc.Resource = texture;
 
-            if (const RHI::ViewHandle view = heap.GetOrCreateView(texture, viewDesc, sampler, lifetime);
+            if (const RHI::ViewHandle view = heap.GetOrCreateView(texture, viewDesc, sampler, lifetime, kind);
                 view.IsValid())
             {
                 if (const RHI::HeapOffset offset = RHI::OffsetOf(view); offset.IsValid())
@@ -370,7 +371,12 @@ namespace OloEngine::HeapBinding
         // undefined-behaviour one instead of fixing it.
         if (HeapPathIsLive() && unitInRange)
         {
-            StageOffset(tableIndex, RHI::kNullStorageHeapOffset);
+            // ITS OWN FORMAT'S null, not the shared R32F one. An image handle bakes
+            // the format in, and loading through a disagreeing `layout(...)`
+            // qualifier is undefined rather than a reinterpretation — so an r32ui
+            // or rgba32f binding cleared to the R32F null was undefined on the
+            // ordinary path (issue #691 Phase 3).
+            StageOffset(tableIndex, RHI::NullOffsetForStorageFormat(format));
         }
         return {};
     }

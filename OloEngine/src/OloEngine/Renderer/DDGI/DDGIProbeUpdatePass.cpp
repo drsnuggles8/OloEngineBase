@@ -900,9 +900,13 @@ namespace OloEngine
         // Same split as the caster albedo above: the black fallback cubemap is
         // still a pass-owned native texture.
         if (const RHI::ResourceHandle envMap = Renderer3D::GetGlobalEnvironmentMapHandle(); envMap.IsValid())
-            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT, envMap, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT, envMap,
+                                                     RHI::HeapSlotLifetime::Persistent, {},
+                                                     RHI::NullSamplerKind::Cube);
         else
-            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT, m_BlackCubemap, RHI::HeapSlotLifetime::Persistent);
+            HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT, m_BlackCubemap,
+                                                     RHI::HeapSlotLifetime::Persistent, {},
+                                                     RHI::NullSamplerKind::Cube);
 
         // CSM + shadow atlas at the binding units include/PBRCommon.glsl's
         // evaluators expect (8 / 13 comparison, 33 / 34 raw for PCSS) — same
@@ -929,11 +933,17 @@ namespace OloEngine
         // HeapBinding::ShadowDepthSampler.
         const RHI::SamplerDesc shadowSampler = HeapBinding::ShadowDepthSampler(true);
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW, csmID,
-                                                 RHI::HeapSlotLifetime::Persistent, shadowSampler);
+                                                 RHI::HeapSlotLifetime::Persistent, shadowSampler,
+                                                 RHI::NullSamplerKind::Texture2DArrayShadow);
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasID,
-                                                 RHI::HeapSlotLifetime::Persistent, shadowSampler);
-        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID, RHI::HeapSlotLifetime::Persistent);
-        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID, RHI::HeapSlotLifetime::Persistent);
+                                                 RHI::HeapSlotLifetime::Persistent, shadowSampler,
+                                                 RHI::NullSamplerKind::Texture2DArrayShadow);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID,
+                                                 RHI::HeapSlotLifetime::Persistent, {},
+                                                 RHI::NullSamplerKind::Texture2DArray);
+        HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID,
+                                                 RHI::HeapSlotLifetime::Persistent, {},
+                                                 RHI::NullSamplerKind::Texture2DArray);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

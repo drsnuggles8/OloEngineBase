@@ -127,6 +127,43 @@ namespace OloEngine
 
         m_NullImageDescriptor =
             static_cast<u64>(glGetImageHandleARB(m_NullImageTexture, 0, GL_FALSE, 0, GL_R32F));
+
+        // The other five declared formats. R32F keeps its own dedicated member
+        // above because the fail-closed checks below are written against it; the
+        // rest live in the map and are looked up by NullStorageDescriptor.
+        {
+            struct FormatNull
+            {
+                RHI::Format Neutral;
+                GLenum Internal;
+            };
+            static constexpr std::array<FormatNull, 5> kFormats{ {
+                { RHI::Format::RGBA32Float, GL_RGBA32F },
+                { RHI::Format::R8UNorm, GL_R8 },
+                { RHI::Format::RGBA16Float, GL_RGBA16F },
+                { RHI::Format::RGBA8UNorm, GL_RGBA8 },
+                { RHI::Format::R32UInt, GL_R32UI },
+            } };
+            for (const auto& [neutral, internalFormat] : kFormats)
+            {
+                NullImage entry;
+                glCreateTextures(GL_TEXTURE_2D, 1, &entry.Texture);
+                glTextureStorage2D(entry.Texture, 1, internalFormat, 1, 1);
+                // Zeroed by glTextureStorage2D? No — storage contents are
+                // UNDEFINED until written, the same trap the heap buffer prefill
+                // exists for. Clear explicitly.
+                glClearTexImage(entry.Texture, 0, internalFormat == GL_R32UI ? GL_RED_INTEGER : GL_RGBA,
+                                internalFormat == GL_R32UI ? GL_UNSIGNED_INT : GL_FLOAT, nullptr);
+                glObjectLabel(GL_TEXTURE, entry.Texture, -1, "RHI::DescriptorHeap null image (typed)");
+                entry.Descriptor =
+                    static_cast<u64>(glGetImageHandleARB(entry.Texture, 0, GL_FALSE, 0, internalFormat));
+                if (entry.Descriptor != 0u && glIsImageHandleResidentARB(entry.Descriptor) != GL_TRUE)
+                {
+                    glMakeImageHandleResidentARB(entry.Descriptor, GL_READ_WRITE);
+                }
+                m_NullImagesByFormat[static_cast<u32>(neutral)] = entry;
+            }
+        }
         if (m_NullImageDescriptor == 0u)
         {
             // Same fail-closed policy as the sampler null above, and for the same
@@ -358,6 +395,20 @@ namespace OloEngine
             }
             m_NullImageDescriptor = 0u;
         }
+        // The per-format nulls, same lifecycle. Leaving these resident across a
+        // re-Initialize would leak a handle per format per device reset.
+        for (auto& [format, entry] : m_NullImagesByFormat)
+        {
+            if (entry.Descriptor != 0u && glIsImageHandleResidentARB(entry.Descriptor) == GL_TRUE)
+            {
+                glMakeImageHandleNonResidentARB(entry.Descriptor);
+            }
+            if (entry.Texture != 0u)
+            {
+                glDeleteTextures(1, &entry.Texture);
+            }
+        }
+        m_NullImagesByFormat.clear();
         if (m_NullSampler != 0u)
         {
             glDeleteSamplers(1, &m_NullSampler);
@@ -732,6 +783,15 @@ namespace OloEngine
         }
 
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ShaderBindingLayout::SSBO_RESOURCE_HEAP, m_HeapBuffer);
+    }
+
+    auto OpenGLDescriptorHeapBackend::NullStorageDescriptor(const RHI::Format format) const -> u64
+    {
+        // The R32F null is the documented fallback for a format this table does
+        // not carry — defined-but-wrong beats undefined, the same trade every
+        // other null here makes.
+        const auto it = m_NullImagesByFormat.find(static_cast<u32>(format));
+        return it != m_NullImagesByFormat.end() ? it->second.Descriptor : m_NullImageDescriptor;
     }
 
     auto OpenGLDescriptorHeapBackend::NullDescriptor(const RHI::ViewUsage usage,

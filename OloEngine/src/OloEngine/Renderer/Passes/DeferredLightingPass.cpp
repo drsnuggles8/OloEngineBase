@@ -348,9 +348,11 @@ namespace OloEngine
         // descriptor and makes every `sampler2DArrayShadow` read of it undefined.
         const RHI::SamplerDesc shadowSampler = HeapBinding::ShadowDepthSampler(true);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW, csmShadowID,
-                                        RHI::HeapSlotLifetime::FrameTransient, shadowSampler);
+                                        RHI::HeapSlotLifetime::FrameTransient, shadowSampler,
+                                        RHI::NullSamplerKind::Texture2DArrayShadow);
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasShadowID,
-                                        RHI::HeapSlotLifetime::FrameTransient, shadowSampler);
+                                        RHI::HeapSlotLifetime::FrameTransient, shadowSampler,
+                                        RHI::NullSamplerKind::Texture2DArrayShadow);
         // Comparison-OFF raw-depth views for the PCSS blocker search (plain
         // sampler2DArray). Fall back to the raw placeholder so the declared
         // sampler always has a valid same-type binding.

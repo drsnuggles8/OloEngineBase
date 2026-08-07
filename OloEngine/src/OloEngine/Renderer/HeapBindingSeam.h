@@ -53,7 +53,8 @@ namespace OloEngine::HeapBinding
     // with the same `TEX_*` constant it used to declare `layout(binding = N)`
     // with, so the two variants cannot disagree about which texture is which.
     auto BindTextureOrOffset(u32 slot, RHI::ResourceHandle texture, RHI::HeapSlotLifetime lifetime,
-                             const RHI::SamplerDesc& sampler = {}) -> RHI::HeapOffset;
+                             const RHI::SamplerDesc& sampler = {},
+                             RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D) -> RHI::HeapOffset;
 
     // The same seam for a caller that already holds a `RendererAPI&`, i.e. the
     // command-bucket dispatch handlers.
@@ -69,8 +70,8 @@ namespace OloEngine::HeapBinding
     //
     // The heap path is identical either way — a heap write touches no backend.
     auto BindTextureOrOffset(RendererAPI& api, u32 slot, RHI::ResourceHandle texture,
-                             RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler = {})
-        -> RHI::HeapOffset;
+                             RHI::HeapSlotLifetime lifetime, const RHI::SamplerDesc& sampler = {},
+                             RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D) -> RHI::HeapOffset;
 
     // PUBLISHED-GLOBAL bindings: write the offset AND perform the bind.
     //
@@ -98,7 +99,9 @@ namespace OloEngine::HeapBinding
     // Prefer `BindTextureOrOffset` whenever the consuming shader is bound at the
     // call site; reach for this only for genuinely published state.
     auto PublishTextureOffsetAndBind(u32 slot, RHI::ResourceHandle texture, RHI::HeapSlotLifetime lifetime,
-                                     const RHI::SamplerDesc& sampler = {}) -> RHI::HeapOffset;
+                                     const RHI::SamplerDesc& sampler = {},
+                                     RHI::NullSamplerKind kind = RHI::NullSamplerKind::Texture2D)
+        -> RHI::HeapOffset;
 
     // THE SAMPLER STATE A SHADOW-MAP DESCRIPTOR MUST BE MINTED WITH, in one place
     // because it has to be identical at every site that stages one.

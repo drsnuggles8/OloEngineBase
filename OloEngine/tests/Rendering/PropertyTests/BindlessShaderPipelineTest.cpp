@@ -530,12 +530,17 @@ void main()
         // collision is silent: two kinds sharing one slot means the second one
         // written wins and the first samples a descriptor of the wrong type — the
         // exact undefined read the typed nulls exist to remove.
-        const std::array<std::pair<std::string_view, u32>, 5> kReserved{ {
+        const std::array<std::pair<std::string_view, u32>, 10> kReserved{ {
             { "kNullHeapOffset", RHI::kNullHeapOffset },
             { "kNullStorageHeapOffset", RHI::kNullStorageHeapOffset },
             { "kNullCubeHeapOffset", RHI::kNullCubeHeapOffset },
             { "kNullArrayHeapOffset", RHI::kNullArrayHeapOffset },
             { "kNullArrayShadowHeapOffset", RHI::kNullArrayShadowHeapOffset },
+            { "kNullStorageRGBA32FHeapOffset", RHI::kNullStorageRGBA32FHeapOffset },
+            { "kNullStorageR8HeapOffset", RHI::kNullStorageR8HeapOffset },
+            { "kNullStorageRGBA16FHeapOffset", RHI::kNullStorageRGBA16FHeapOffset },
+            { "kNullStorageRGBA8HeapOffset", RHI::kNullStorageRGBA8HeapOffset },
+            { "kNullStorageR32UIHeapOffset", RHI::kNullStorageR32UIHeapOffset },
         } };
         for (const auto& [name, value] : kReserved)
         {

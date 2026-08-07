@@ -108,8 +108,57 @@ namespace OloEngine::RHI
     inline constexpr u32 kNullArrayHeapOffset = 3u;
     inline constexpr u32 kNullArrayShadowHeapOffset = 4u;
 
+    // AND ONE NULL IMAGE PER FORMAT, which is the same argument a third time.
+    //
+    // `glGetImageHandleARB` BAKES a format into the handle, and reading an image
+    // through a `layout(...)` qualifier that disagrees with it is undefined — not
+    // a reinterpretation. A single R32F null therefore served `r32ui`, `rgba8`,
+    // `rgba32f`, `r8` and `rgba16f` bindings undefined-ly, and the comment that
+    // used to sit beside it ("a uint image reading it sees the bit pattern 0")
+    // asserted a reinterpretation the spec does not offer.
+    //
+    // These are the formats the converted compute shaders actually declare —
+    // r32f (14 declarations), rgba32f (6), r8 (6), rgba16f (3), rgba8 (2),
+    // r32ui (2). Adding a format to a shader without adding it here leaves that
+    // shader's cleared bindings on the R32F fallback, which is why
+    // NullOffsetForStorageFormat is a switch with no silent default.
+    //
+    // kNullStorageHeapOffset stays at 1 (R32Float) so the existing reserved-block
+    // ordering and every test that names it keep their meaning.
+    inline constexpr u32 kNullStorageRGBA32FHeapOffset = 5u;
+    inline constexpr u32 kNullStorageR8HeapOffset = 6u;
+    inline constexpr u32 kNullStorageRGBA16FHeapOffset = 7u;
+    inline constexpr u32 kNullStorageRGBA8HeapOffset = 8u;
+    inline constexpr u32 kNullStorageR32UIHeapOffset = 9u;
+
     // The first slot the allocator may hand out. Every null sits below it.
-    inline constexpr u32 kFirstAllocatableHeapSlot = kNullArrayShadowHeapOffset + 1u;
+    inline constexpr u32 kFirstAllocatableHeapSlot = kNullStorageR32UIHeapOffset + 1u;
+
+    // The reserved slot a CLEARED or FAILED image binding of `format` points at.
+    //
+    // Unknown and anything unlisted map to the R32Float null deliberately rather
+    // than asserting: an unrecognised format is a gap in this table, and pointing
+    // it at a real resident descriptor keeps the read defined-but-wrong instead of
+    // undefined, which is the same trade every other null here makes.
+    [[nodiscard]] constexpr auto NullOffsetForStorageFormat(Format format) -> u32
+    {
+        switch (format)
+        {
+            case Format::RGBA32Float:
+                return kNullStorageRGBA32FHeapOffset;
+            case Format::R8UNorm:
+                return kNullStorageR8HeapOffset;
+            case Format::RGBA16Float:
+                return kNullStorageRGBA16FHeapOffset;
+            case Format::RGBA8UNorm:
+            case Format::RGBA8SRGB:
+                return kNullStorageRGBA8HeapOffset;
+            case Format::R32UInt:
+                return kNullStorageR32UIHeapOffset;
+            default:
+                return kNullStorageHeapOffset;
+        }
+    }
 
     // Which reserved null a given SAMPLER TYPE must fall back to. The shader knows
     // this and the C++ mostly does not — a TEX_* slot does not imply a type, since
@@ -240,6 +289,13 @@ namespace OloEngine::RHI
         [[nodiscard("the null descriptor is what a cleared binding samples — dropping it leaves the slot "
                     "undefined")]] virtual auto
         NullDescriptor(ViewUsage usage, NullSamplerKind kind) const -> u64 = 0;
+
+        // The null IMAGE descriptor for `format`. Separate from NullDescriptor
+        // because an image handle is typed by FORMAT where a sampler handle is
+        // typed by TARGET — two different axes that happen to need the same
+        // treatment, not one axis with more cases.
+        [[nodiscard("a cleared image binding reads this — dropping it leaves the slot undefined")]] virtual auto
+        NullStorageDescriptor(Format format) const -> u64 = 0;
     };
 
     // -------------------------------------------------------------------------
@@ -520,7 +576,8 @@ namespace OloEngine::RHI
         // Per KIND: poisoning a released storage slot with a sampler handle would
         // put the shader back on undefined behaviour at exactly the moment the
         // instrument is supposed to be reporting.
-        [[nodiscard]] auto PoisonDescriptorLocked(ViewUsage usage, NullSamplerKind kind) const -> u64;
+        [[nodiscard]] auto PoisonDescriptorLocked(ViewUsage usage, NullSamplerKind kind, Format storageFormat)
+            const -> u64;
 
         struct ViewSlot
         {
