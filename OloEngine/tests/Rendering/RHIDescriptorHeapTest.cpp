@@ -141,6 +141,11 @@ namespace OloEngine::Tests
                         return 0xF008u;
                     case RHI::Format::RGBA16Float:
                         return 0xF16Fu;
+                    // SRGB shares the RGBA8 null, exactly as
+                    // RHI::NullOffsetForStorageFormat folds it. If these two ever
+                    // disagree, an SRGB view resolves to one format's OFFSET and
+                    // poisons with another format's DESCRIPTOR.
+                    case RHI::Format::RGBA8SRGB:
                     case RHI::Format::RGBA8UNorm:
                         return 0xF8A8u;
                     case RHI::Format::R32UInt:
@@ -655,9 +660,9 @@ namespace OloEngine::Tests
         SetUpHeap(/*persistent*/ 8u, /*transient*/ 4u, /*poison*/ true);
         auto& heap = RHI::DescriptorHeap::Get();
 
-        const std::array<RHI::Format, 5> kFormats{ RHI::Format::RGBA32Float, RHI::Format::R8UNorm,
+        const std::array<RHI::Format, 6> kFormats{ RHI::Format::RGBA32Float, RHI::Format::R8UNorm,
                                                    RHI::Format::RGBA16Float, RHI::Format::RGBA8UNorm,
-                                                   RHI::Format::R32UInt };
+                                                   RHI::Format::RGBA8SRGB, RHI::Format::R32UInt };
         u32 resourceId = 8300u;
         for (const RHI::Format format : kFormats)
         {
@@ -680,6 +685,44 @@ namespace OloEngine::Tests
             EXPECT_EQ(Backend.LastUpload[slot - Backend.LastUploadFirstSlot],
                       FakeHeapBackend::StorageSentinel(format))
                 << "a retired storage view was poisoned with the wrong format's null image";
+        }
+    }
+
+    // The STORAGE half of the failed-reacquisition path. Same reasoning as the
+    // sampler case below: when a resource dies under a live view the re-acquire
+    // fails, and what gets published must still match the format the shader loads
+    // through — a zero or wrongly-formatted image handle is undefined, not black.
+    TEST_F(HeapFixture, FailedReacquisitionKeepsTheViewsStorageFormat)
+    {
+        const std::array<RHI::Format, 6> kFormats{ RHI::Format::RGBA32Float, RHI::Format::R8UNorm,
+                                                   RHI::Format::RGBA16Float, RHI::Format::RGBA8UNorm,
+                                                   RHI::Format::RGBA8SRGB, RHI::Format::R32UInt };
+        u32 resourceId = 8400u;
+        for (const RHI::Format format : kFormats)
+        {
+            SetUpHeap();
+            auto& heap = RHI::DescriptorHeap::Get();
+
+            const RHI::ResourceHandle resource = MakeResource(resourceId++);
+            RHI::ViewDesc storage;
+            storage.Resource = resource;
+            storage.Usage = RHI::ViewUsage::Storage;
+            storage.FormatOverride = format;
+
+            const RHI::ViewHandle view =
+                heap.CreateView(resource, storage, RHI::SamplerDesc{}, RHI::HeapSlotLifetime::Persistent);
+            ASSERT_TRUE(view.IsValid());
+            const u32 slot = heap.OffsetOf(view).Value;
+
+            Backend.FailNextAcquire = true;
+            heap.InvalidateResource(resource);
+            heap.Flush();
+
+            ASSERT_GE(slot, Backend.LastUploadFirstSlot);
+            ASSERT_LT(slot - Backend.LastUploadFirstSlot, Backend.LastUpload.size());
+            EXPECT_EQ(Backend.LastUpload[slot - Backend.LastUploadFirstSlot],
+                      FakeHeapBackend::StorageSentinel(format))
+                << "a failed storage re-acquisition published the wrong format's null image";
         }
     }
 

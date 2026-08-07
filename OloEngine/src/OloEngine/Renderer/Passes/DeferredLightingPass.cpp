@@ -362,8 +362,22 @@ namespace OloEngine
         const RHI::ResourceHandle atlasRawID = m_SelectedInputs.ShadowMapAtlasRawID.IsValid()
                                                    ? m_SelectedInputs.ShadowMapAtlasRawID
                                                    : ShadowMap::GetAtlasRawPlaceholderHandle();
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID, RHI::HeapSlotLifetime::FrameTransient);
-        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID, RHI::HeapSlotLifetime::FrameTransient);
+        // THE RAW VIEWS NEED THEIR OWN SAMPLER, not the seam's default. Comparison
+        // is off — that is what makes them raw — but the rest of the state still has
+        // to match what the texture OBJECT carries, which is what the slot path
+        // samples with: ClampToBorder with an opaque-white border and no mip
+        // filtering (OpenGLTexture2DArray sets exactly that for a depth array). The
+        // seam's default SamplerDesc{} is ClampToEdge with mip filtering on, so a
+        // converted shader read outside the cascade returned the edge texel instead
+        // of 'lit' — the same parity break the comparison samplers had before
+        // HeapBinding::ShadowDepthSampler existed (issue #691 Phase 3).
+        const RHI::SamplerDesc rawShadowSampler = HeapBinding::ShadowDepthSampler(false);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID,
+                                        RHI::HeapSlotLifetime::FrameTransient, rawShadowSampler,
+                                        RHI::NullSamplerKind::Texture2DArray);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID,
+                                        RHI::HeapSlotLifetime::FrameTransient, rawShadowSampler,
+                                        RHI::NullSamplerKind::Texture2DArray);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();
         va->Bind();

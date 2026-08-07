@@ -128,6 +128,7 @@ namespace OloEngine
         m_NullImageDescriptor =
             static_cast<u64>(glGetImageHandleARB(m_NullImageTexture, 0, GL_FALSE, 0, GL_R32F));
 
+        bool typedImageFailed = false;
         // The other five declared formats. R32F keeps its own dedicated member
         // above because the fail-closed checks below are written against it; the
         // rest live in the map and are looked up by NullStorageDescriptor.
@@ -162,17 +163,48 @@ namespace OloEngine
                     glMakeImageHandleResidentARB(entry.Descriptor, GL_READ_WRITE);
                 }
                 m_NullImagesByFormat[static_cast<u32>(neutral)] = entry;
+
+                // CHECKED PER ENTRY, not once at the end. A zero handle — or one
+                // that refused to become resident — is exactly as unsafe as a
+                // missing 2D null: NullStorageDescriptor would hand that zero to a
+                // cleared binding, and sampling a zero bindless handle is undefined,
+                // not black. Recorded rather than returned from here so every
+                // created texture goes through the one cleanup path below.
+                if (entry.Descriptor == 0u || glIsImageHandleResidentARB(entry.Descriptor) != GL_TRUE)
+                {
+                    typedImageFailed = true;
+                }
             }
         }
-        if (m_NullImageDescriptor == 0u)
+        // ONE cleanup path for the typed images, so the two failure branches below
+        // cannot drift apart about what they release.
+        const auto releaseTypedNullImages = [this]
+        {
+            for (auto& [formatKey, entry] : m_NullImagesByFormat)
+            {
+                if (entry.Descriptor != 0u && glIsImageHandleResidentARB(entry.Descriptor) == GL_TRUE)
+                {
+                    glMakeImageHandleNonResidentARB(entry.Descriptor);
+                }
+                if (entry.Texture != 0u)
+                {
+                    glDeleteTextures(1, &entry.Texture);
+                }
+            }
+            m_NullImagesByFormat.clear();
+        };
+
+        if (m_NullImageDescriptor == 0u || typedImageFailed)
         {
             // Same fail-closed policy as the sampler null above, and for the same
             // reason: without a real null the storage half of the model rests on
             // undefined behaviour, and the slot-based path is the supported
             // configuration anyway.
-            OLO_CORE_ERROR("[RHI/GL] Could not create the bindless null IMAGE descriptor "
-                           "(glGetImageHandleARB returned 0). Disabling heap-bindless; "
-                           "the slot-based binding path stays in use.");
+            OLO_CORE_ERROR("[RHI/GL] Could not create every bindless null IMAGE descriptor "
+                           "(base={}, typed-format failure={}). Disabling heap-bindless; "
+                           "the slot-based binding path stays in use.",
+                           m_NullImageDescriptor, typedImageFailed);
+            releaseTypedNullImages();
             glDeleteTextures(1, &m_NullImageTexture);
             m_NullImageTexture = 0u;
             if (glIsTextureHandleResidentARB(m_NullDescriptor) == GL_TRUE)
@@ -282,6 +314,7 @@ namespace OloEngine
                 }
                 descriptor = 0u;
             };
+            releaseTypedNullImages();
             retire(m_NullCubeDescriptor);
             retire(m_NullArrayDescriptor);
             retire(m_NullArrayShadowDescriptor);
@@ -790,7 +823,13 @@ namespace OloEngine
         // The R32F null is the documented fallback for a format this table does
         // not carry — defined-but-wrong beats undefined, the same trade every
         // other null here makes.
-        const auto it = m_NullImagesByFormat.find(static_cast<u32>(format));
+        // NORMALISED FIRST, so this agrees with NullOffsetForStorageFormat — which
+        // folds RGBA8SRGB onto the RGBA8 slot. Without the fold, an SRGB view
+        // resolved to the RGBA8 reserved OFFSET but poisoned with the R32F
+        // DESCRIPTOR: the offset and the descriptor disagreeing about format is
+        // exactly the mismatch these nulls exist to prevent.
+        const RHI::Format lookup = format == RHI::Format::RGBA8SRGB ? RHI::Format::RGBA8UNorm : format;
+        const auto it = m_NullImagesByFormat.find(static_cast<u32>(lookup));
         return it != m_NullImagesByFormat.end() ? it->second.Descriptor : m_NullImageDescriptor;
     }
 

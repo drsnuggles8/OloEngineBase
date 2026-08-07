@@ -108,7 +108,14 @@ namespace OloEngine::RHI
         // region is smaller than the reserved block would therefore hand the typed
         // null slots out as transient allocations and overwrite them — `total` is
         // large enough to pass the check while the slots are not actually reserved.
-        if (backend != nullptr && m_PersistentCapacity > kNullArrayShadowHeapOffset)
+        //
+        // AND IT COMPARES AGAINST kFirstAllocatableHeapSlot, not against the last
+        // named null. Testing `> kNullArrayShadowHeapOffset` was correct only while
+        // that was the final reserved slot; once the per-format storage nulls took
+        // 5..9 the same test admitted capacities 5-9, which reserve part of the
+        // block and hand the rest out. The floor constant is the block's size by
+        // definition, so comparing against it cannot fall out of date again.
+        if (backend != nullptr && m_PersistentCapacity >= kFirstAllocatableHeapSlot)
         {
             m_Mirror[kNullHeapOffset] = backend->NullDescriptor(ViewUsage::Sampled, NullSamplerKind::Texture2D);
             m_Mirror[kNullStorageHeapOffset] = backend->NullStorageDescriptor(Format::R32Float);
@@ -164,7 +171,7 @@ namespace OloEngine::RHI
         m_PersistentViewCache.clear();
         m_DirtyFirst = 0u;
         m_DirtyLast = 0u;
-        if (backend != nullptr && m_PersistentCapacity > kNullArrayShadowHeapOffset)
+        if (backend != nullptr && m_PersistentCapacity >= kFirstAllocatableHeapSlot)
         {
             // Publish the two reserved nulls on the first Flush(). They are the
             // only slots the allocator never touches, so nothing else would ever

@@ -938,11 +938,15 @@ namespace OloEngine
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_ATLAS, atlasID,
                                                  RHI::HeapSlotLifetime::Persistent, shadowSampler,
                                                  RHI::NullSamplerKind::Texture2DArrayShadow);
+        // Comparison OFF but everything else as the texture object carries it — see
+        // the note in DeferredLightingPass. `{}` here would publish a ClampToEdge,
+        // mip-filtered descriptor to a slot every bindless reader shares.
+        const RHI::SamplerDesc rawShadowSampler = HeapBinding::ShadowDepthSampler(false);
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_CSM_RAW, csmRawID,
-                                                 RHI::HeapSlotLifetime::Persistent, {},
+                                                 RHI::HeapSlotLifetime::Persistent, rawShadowSampler,
                                                  RHI::NullSamplerKind::Texture2DArray);
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_SHADOW_ATLAS_RAW, atlasRawID,
-                                                 RHI::HeapSlotLifetime::Persistent, {},
+                                                 RHI::HeapSlotLifetime::Persistent, rawShadowSampler,
                                                  RHI::NullSamplerKind::Texture2DArray);
 
         const auto va = MeshPrimitives::GetFullscreenTriangle();

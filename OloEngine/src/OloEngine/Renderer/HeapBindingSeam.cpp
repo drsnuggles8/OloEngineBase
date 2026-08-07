@@ -259,7 +259,7 @@ namespace OloEngine::HeapBinding
             // descriptor so the shader samples nothing instead.
             if (HeapPathIsLive() && slotInRange)
             {
-                StageOffset(slot, RHI::kNullHeapOffset);
+                StageOffset(slot, RHI::NullOffsetForSamplerKind(kind));
             }
             return {};
         }
@@ -324,7 +324,7 @@ namespace OloEngine::HeapBinding
                 // The heap is on and a bindless consumer WILL read this slot, so
                 // leaving the previous frame's offset there is the stale-read
                 // hazard. Point it at the reserved null instead.
-                StageOffset(slot, RHI::kNullHeapOffset);
+                StageOffset(slot, RHI::NullOffsetForSamplerKind(kind));
             }
         }
 
