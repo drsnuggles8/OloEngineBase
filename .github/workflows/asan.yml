@@ -773,7 +773,10 @@ jobs:
       # object reachability, so it cannot see either guarantee. See #636.
       run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex '^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
       env:
-        TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+        # suppressions: vendored-code races we accept rather than patch — see
+        # the rationale comments in tsan.txt (currently: Jolt's assert-build
+        # lock-ownership bookkeeping in JPH::Mutex/SharedMutex).
+        TSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/tsan.txt:halt_on_error=1:second_deadlock_stack=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
     - name: Test report
