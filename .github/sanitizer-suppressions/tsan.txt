@@ -1,0 +1,22 @@
+# ThreadSanitizer runtime suppressions. Referenced from the TSan job's
+# TSAN_OPTIONS in .github/workflows/asan.yml (same pattern as lsan.txt).
+#
+# Jolt's JPH_ENABLE_ASSERTS lock-ownership bookkeeping (vendored code, so we
+# suppress rather than patch). JPH::Mutex / JPH::SharedMutex wrap the STL
+# mutexes and, in assert builds only (the TSan job builds Debug), track the
+# owning thread in an mLockedThreadID field as a best-effort recursive-lock
+# detector. try_lock() reads that field in its assert BEFORE acquiring the
+# mutex, racing unlock()'s clear of it (Jolt/Core/Mutex.h:126 vs :148, and the
+# SharedMutex twins). The mutex itself synchronizes correctly — only the
+# diagnostic field races. A true positive against the C++ memory model, benign
+# on x86-64, shipped knowingly by upstream in assert builds (same verdict
+# family as #350's allocator race). First seen: master Sanitizers run
+# 31188714433, PhysicsJoint3DTest.PathPositionMotorSettlesAtTargetFraction —
+# but any test that overlaps Jolt jobs with the stepping thread can trip it.
+#
+# File-based on purpose: it covers all six bookkeeping functions across both
+# mutex classes, and a genuine engine-side race cannot have its RACING ACCESS
+# inside this header — the only memory these inline wrappers themselves touch
+# is the mutex's own bookkeeping field. Races merely *guarded* by Jolt mutexes
+# still report normally (their racing frames are elsewhere).
+race:Jolt/Core/Mutex.h
