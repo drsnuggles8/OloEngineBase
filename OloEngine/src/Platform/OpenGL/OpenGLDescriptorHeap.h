@@ -87,6 +87,12 @@ namespace OloEngine
             u64 AcquireFailures = 0;         ///< dead resource, or a view GL cannot express
             u64 UnsupportedViews = 0;        ///< subresource/format reinterpretation, see below
             u64 ImageResidencyWidenings = 0; ///< a handle re-made resident READ_WRITE, see below
+            /// Views minted with `glGetTextureHandleARB`, i.e. the caller stated no
+            /// sampling intent and the descriptor inherited the texture object's
+            /// state. That is parity with the slot path on GL and has no Vulkan
+            /// equivalent — a VkSampler must be described — so this counts the
+            /// sites Phase 4 has to give real sampler state (issue #691 Phase 3).
+            u64 DefaultSamplerInherits = 0;
         };
         [[nodiscard]] auto GetStats() const -> Stats;
 

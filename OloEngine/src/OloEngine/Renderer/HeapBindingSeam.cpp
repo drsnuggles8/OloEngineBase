@@ -284,26 +284,6 @@ namespace OloEngine::HeapBinding
 
     } // namespace
 
-    auto CubeSampler() -> RHI::SamplerDesc
-    {
-        // The one target whose texture OBJECT does not carry GL's default REPEAT:
-        // OpenGLTextureCubemap sets CLAMP_TO_EDGE on all three axes. Same rule as
-        // ShadowDepthSampler — read the state off the backend rather than choosing
-        // one — and the same reason it matters: a descriptor bakes the sampler in,
-        // so a converted shader would sample a cube differently from an
-        // unconverted one reading the same texture.
-        //
-        // The visible stake is small (GL's cube filtering rules confine the wrap
-        // mode to the outermost half-texel of a face, and seamless filtering
-        // removes even that), which is exactly why it is worth a named helper: a
-        // difference this quiet does not get noticed, it gets inherited.
-        RHI::SamplerDesc desc;
-        desc.AddressU = RHI::AddressMode::ClampToEdge;
-        desc.AddressV = RHI::AddressMode::ClampToEdge;
-        desc.AddressW = RHI::AddressMode::ClampToEdge;
-        return desc;
-    }
-
     auto ShadowDepthSampler(const bool comparison) -> RHI::SamplerDesc
     {
         // Every field here is READ OFF THE BACKEND rather than chosen, because the

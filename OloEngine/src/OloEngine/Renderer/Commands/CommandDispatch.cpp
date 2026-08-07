@@ -550,8 +550,9 @@ namespace OloEngine
             desc.AddressW = RHI::AddressMode::Repeat;
             return desc;
         }();
-        // Cubemaps are the one target that is NOT Repeat — see HeapBinding::CubeSampler.
-        static const RHI::SamplerDesc kCubeSampler = HeapBinding::CubeSampler();
+        // Default: the descriptor inherits the cubemap object's own state
+        // (OpenGLTextureCubemap is CLAMP_TO_EDGE) — see AcquireSampledDescriptor.
+        static const RHI::SamplerDesc kCubeSampler{};
 
         // TWO DIFFERENT NULLS, and only one of them is correct. A material with no
         // albedo map SHOULD resolve to the reserved null — the shader gates on
@@ -654,11 +655,9 @@ namespace OloEngine
         // other consumers — which is why the kind cannot be derived from the SLOT
         // and has to come from the call site that knows what it is binding.
         BindTrackedTexture(mat.environmentMapID, ShaderBindingLayout::TEX_ENVIRONMENT,
-                           RHI::NullSamplerKind::Cube, HeapBinding::CubeSampler());
-        BindTrackedTexture(mat.irradianceMapID, ShaderBindingLayout::TEX_USER_0, RHI::NullSamplerKind::Cube,
-                           HeapBinding::CubeSampler());
-        BindTrackedTexture(mat.prefilterMapID, ShaderBindingLayout::TEX_USER_1, RHI::NullSamplerKind::Cube,
-                           HeapBinding::CubeSampler());
+                           RHI::NullSamplerKind::Cube);
+        BindTrackedTexture(mat.irradianceMapID, ShaderBindingLayout::TEX_USER_0, RHI::NullSamplerKind::Cube);
+        BindTrackedTexture(mat.prefilterMapID, ShaderBindingLayout::TEX_USER_1, RHI::NullSamplerKind::Cube);
         BindTrackedTexture(mat.brdfLutMapID, ShaderBindingLayout::TEX_USER_2);
     }
 
@@ -2130,7 +2129,7 @@ namespace OloEngine
         if (s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] != cmd->skyboxTextureID ||
             HeapBinding::WritesOffsetsForBoundProgram())
         {
-            const RHI::HeapOffset staged = HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, cmd->skyboxTextureID, RHI::HeapSlotLifetime::Persistent, HeapBinding::CubeSampler(), RHI::NullSamplerKind::Cube);
+            const RHI::HeapOffset staged = HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, cmd->skyboxTextureID, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Cube);
             s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] = CacheEntryAfterSeam(staged, cmd->skyboxTextureID);
             ++s_Data.Stats.TextureBinds;
         }
@@ -2690,7 +2689,7 @@ namespace OloEngine
         }
         else if (s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT].IsValid())
         {
-            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource, RHI::HeapSlotLifetime::Persistent, HeapBinding::CubeSampler(), RHI::NullSamplerKind::Cube);
+            HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Cube);
             s_Data.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] = {};
         }
 

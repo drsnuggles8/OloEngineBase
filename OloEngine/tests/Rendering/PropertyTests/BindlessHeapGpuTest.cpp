@@ -857,6 +857,68 @@ void main()
     }
 
     // -------------------------------------------------------------------------
+    // A DEFAULT SamplerDesc INHERITS THE TEXTURE OBJECT'S STATE, which is what
+    // makes a converted shader sample identically to an unconverted one.
+    //
+    // WHY THIS IS ASSERTED ON THE MECHANISM RATHER THAN ON PIXELS. The
+    // consequences of getting it wrong are all real but none of them is a
+    // portable pixel assertion: an integer texture with a LINEAR filter is
+    // INCOMPLETE and samples as zero on Mesa while NVIDIA quietly tolerates it
+    // (Texture.h::IsIntegerFormat), and the wrap difference only shows outside
+    // [0, 1], which this fixture's quad never reaches. A test that renders green
+    // on the machine that runs it and black on the machine that ships is worse
+    // than one that checks the contract. The pixel evidence for this lives in the
+    // suite's fixed-camera visual-evidence PNGs, whose same-config noise floor is
+    // 0.000 — see ADR 0011 amendment (38).
+    //
+    // WHAT WENT WRONG WITHOUT IT: every call site that passes `{}` — which is
+    // most of them — got a sampler object built from struct defaults instead of
+    // the texture's own state. There is no set of defaults that is right for all
+    // four targets (2D is REPEAT, colour arrays and cubemaps are CLAMP_TO_EDGE,
+    // depth arrays are CLAMP_TO_BORDER), which is why a per-target table was
+    // whack-a-mole: fixing 2D broke the terrain arrays (issue #691 Phase 3).
+    // -------------------------------------------------------------------------
+    TEST_F(HeapGpuFixture, ADefaultSamplerDescInheritsTheTextureObjectRatherThanMintingOne)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        const GLuint texture = MakeSolidTexture(32u, 64u, 96u, 255u);
+        OwnedTextures.push_back(texture);
+        const RHI::ResourceHandle resource = RegisterTexture(texture);
+
+        const u32 samplerObjectsBefore = Backend.GetStats().SamplerObjects;
+        const u64 inheritsBefore = Backend.GetStats().DefaultSamplerInherits;
+
+        auto& heap = RHI::DescriptorHeap::Get();
+        const RHI::ViewHandle inherited =
+            heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{}, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(inherited.IsValid());
+
+        EXPECT_EQ(Backend.GetStats().DefaultSamplerInherits, inheritsBefore + 1u)
+            << "A default-constructed SamplerDesc must take the glGetTextureHandleARB path.";
+        EXPECT_EQ(Backend.GetStats().SamplerObjects, samplerObjectsBefore)
+            << "Inheriting must mint NO sampler object — one built from struct defaults is exactly "
+               "the state that diverges from the slot path.";
+
+        // The other half, so this cannot pass by the backend simply never
+        // building sampler objects any more.
+        RHI::SamplerDesc stated;
+        stated.MinFilter = RHI::Filter::Nearest;
+        stated.MagFilter = RHI::Filter::Nearest;
+        stated.LinearMipFilter = false;
+        const RHI::ViewHandle explicitView =
+            heap.CreateView(resource, RHI::ViewDesc{}, stated, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(explicitView.IsValid());
+
+        EXPECT_EQ(Backend.GetStats().DefaultSamplerInherits, inheritsBefore + 1u)
+            << "A STATED sampler must not be treated as an inherit.";
+        EXPECT_GT(Backend.GetStats().SamplerObjects, samplerObjectsBefore)
+            << "A stated sampler must still mint a sampler object — that is what models a split heap.";
+        EXPECT_NE(heap.SamplerOffsetOf(inherited).Value, heap.SamplerOffsetOf(explicitView).Value)
+            << "Inherited and stated are two different descriptors of one texture.";
+    }
+
+    // -------------------------------------------------------------------------
     // Sampler dedup, checked against the driver rather than against our own
     // bookkeeping: one texture, two sampler configurations, two distinct
     // handles. This is the mechanism that makes the second GL texture object
@@ -875,14 +937,22 @@ void main()
         nearestClamp.MagFilter = RHI::Filter::Nearest;
         nearestClamp.LinearMipFilter = false;
 
-        RHI::SamplerDesc linearRepeat;
-        linearRepeat.AddressU = RHI::AddressMode::Repeat;
-        linearRepeat.AddressV = RHI::AddressMode::Repeat;
+        // DELIBERATELY NOT A DEFAULT-CONSTRUCTED DESC, and this is the whole
+        // reason the test needed revisiting: `SamplerDesc{}` now means "inherit
+        // the texture object's state" and mints its view with
+        // glGetTextureHandleARB, so it creates NO sampler object at all
+        // (issue #691 Phase 3, AcquireSampledDescriptor). An earlier version of
+        // this test built `linearRepeat` out of what happen to be the default
+        // values and would have silently started measuring one object instead of
+        // two. ClampToEdge is what makes it an intent rather than a shrug.
+        RHI::SamplerDesc linearClamp;
+        linearClamp.AddressU = RHI::AddressMode::ClampToEdge;
+        linearClamp.AddressV = RHI::AddressMode::ClampToEdge;
 
         auto& heap = RHI::DescriptorHeap::Get();
         const RHI::ViewHandle a = heap.CreateView(resource, RHI::ViewDesc{}, nearestClamp,
                                                   RHI::HeapSlotLifetime::Persistent);
-        const RHI::ViewHandle b = heap.CreateView(resource, RHI::ViewDesc{}, linearRepeat,
+        const RHI::ViewHandle b = heap.CreateView(resource, RHI::ViewDesc{}, linearClamp,
                                                   RHI::HeapSlotLifetime::Persistent);
         ASSERT_TRUE(a.IsValid());
         ASSERT_TRUE(b.IsValid());

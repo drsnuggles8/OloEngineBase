@@ -188,7 +188,7 @@ namespace OloEngine
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_WATER_DEPTH, sceneDepthID, RHI::HeapSlotLifetime::FrameTransient);
         if (environmentMap.IsValid())
             context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_ENVIRONMENT, environmentMap,
-                                            RHI::HeapSlotLifetime::FrameTransient, HeapBinding::CubeSampler(),
+                                            RHI::HeapSlotLifetime::FrameTransient, {},
                                             RHI::NullSamplerKind::Cube);
         const auto fullscreenTriangle = MeshPrimitives::GetFullscreenTriangle();
         fullscreenTriangle->Bind();
@@ -209,7 +209,7 @@ namespace OloEngine
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_WATER_DEPTH, RHI::NullResource, RHI::HeapSlotLifetime::FrameTransient);
         if (environmentMap.IsValid())
             context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource,
-                                            RHI::HeapSlotLifetime::FrameTransient, HeapBinding::CubeSampler(),
+                                            RHI::HeapSlotLifetime::FrameTransient, {},
                                             RHI::NullSamplerKind::Cube);
 
         m_SceneFramebuffer->Unbind();

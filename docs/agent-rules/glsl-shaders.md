@@ -557,17 +557,21 @@ nobody staged — a black frame with no diagnostic. That was true of seven shade
 the seam in the same change. `grep -n "\->Bind(" <the file that draws it>` is the
 check; the ratchet counter cannot make it for you (ADR 0011 amendment (36)).
 
-**And check whether the input TILES.** A descriptor bakes the sampler in, so a
-converted shader samples with `SamplerDesc` while an unconverted reader of the
-same texture samples with the texture OBJECT's state. The default is `Repeat`
-now, matching every `OpenGLTexture2D` and GL's own default — but it was
-`ClampToEdge`, and `Water.glsl`'s tiled FFT displacement field turned into a
-handful of flat terraces the first frame it rendered under the heap. Anything
-whose UV leaves `[0, 1]` is where this shows; a full-screen pass never will,
-which is why a bucket of conversions can hide it. `HeapBinding::CubeSampler()`
-and `ShadowDepthSampler()` are the named exceptions — use one, or pass the state
-explicitly, whenever the target is not an ordinary 2D texture.
+**You no longer have to think about wrap or filter — but know why.** A descriptor
+bakes the sampler in, so a converted shader could easily sample differently from
+an unconverted reader of the same texture. `RHI::SamplerDesc{}` therefore means
+*inherit the texture object's state*, and the heap backend mints those views with
+`glGetTextureHandleARB` so the two are identical by construction. Pass a real
+`SamplerDesc` only when your pass genuinely wants something the texture does not
+have — `HeapBinding::ShadowDepthSampler()` is the worked example, SSAO's
+`Nearest`+`Repeat` noise the other.
 
+It reads as trivia until you see the bill for getting it wrong: a struct default
+of `ClampToEdge` turned `Water.glsl`'s tiled FFT field into flat terraces, and
+"fix the default to `Repeat`" then broke the terrain arrays, which are
+`ClampToEdge`. An integer texture is worse than either — GL treats `LINEAR` on an
+integer format as *incomplete* and it samples as **zero**, on Mesa but not NVIDIA.
+See ADR 0011 amendment (38).
 ---
 
 ## 6. SSBO bindings (std430)

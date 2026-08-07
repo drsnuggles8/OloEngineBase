@@ -622,14 +622,71 @@ namespace OloEngine
             return 0u;
         }
 
-        const GLuint samplerObject = SamplerObjectFor(sampler, view.DepthCompare);
+        // A DEFAULT SamplerDesc MEANS "WHATEVER THE SLOT PATH WOULD HAVE USED",
+        // and that is not the same thing as "the default sampler state".
+        //
+        // The slot path samples with the TEXTURE OBJECT's parameters, so a caller
+        // that expresses no sampling intent is asking for those. Minting a sampler
+        // object from a default-constructed desc instead answers a question nobody
+        // asked, and every field it gets wrong is a silent divergence visible only
+        // to a converted shader:
+        //
+        //   * WRAP. OpenGLTexture2D and every framebuffer attachment are REPEAT
+        //     (GL's own default); OpenGLTexture2DArray is CLAMP_TO_EDGE for colour
+        //     and CLAMP_TO_BORDER for depth; OpenGLTextureCubemap is CLAMP_TO_EDGE;
+        //     OpenGLTexture3D takes its from the caller. No single default is right
+        //     for all four, which is why chasing this with per-target helpers was
+        //     whack-a-mole — fixing 2D broke the terrain arrays.
+        //   * FILTER ON AN INTEGER FORMAT. GL makes an integer texture with a
+        //     LINEAR filter *incomplete*, and an incomplete texture samples as ZERO
+        //     — texelFetch included. Texture.h's IsIntegerFormat records what that
+        //     already cost once: every Slug glyph vanished, on AMD only, with the
+        //     draw calls and logs looking healthy. The heap reintroduced it for the
+        //     RG16UI band texture, the R16UI GTAO Hilbert LUT and the R32I entity
+        //     buffer.
+        //   * MIP COMPLETENESS. LinearMipFilter defaults true, which resolves to
+        //     GL_LINEAR_MIPMAP_LINEAR and makes a single-level texture incomplete —
+        //     the hazard HeapBinding::ShadowDepthSampler works around BY HAND.
+        //
+        // So: no intent stated -> `glGetTextureHandleARB`, which bakes the object's
+        // own state and is parity BY CONSTRUCTION rather than by a table of
+        // per-target defaults somebody has to keep correct. Intent stated -> the
+        // sampler-object form, which is what models a SPLIT heap and is what the
+        // sites that genuinely differ from their texture use (ShadowDepthSampler's
+        // comparison-on/comparison-off pair over one depth array, SSAO's
+        // Nearest+Repeat noise).
+        //
+        // WHAT THIS COSTS, stated plainly because it is a real trade: the plain
+        // form re-admits the GL-ism the neutral SamplerDesc exists to keep out.
+        // Vulkan has no "inherit" — a VkSampler must be described — so every site
+        // passing a default desc today is a site Phase 4 has to give real sampler
+        // state. `DefaultSamplerInherits` counts them, so that work is measurable
+        // instead of discovered.
+        // COMPARED AGAINST A DEFAULT-CONSTRUCTED ViewDesc, not against `false`.
+        // `ViewDesc::DepthCompare` DEFAULTS TO TRUE — true means "whatever the
+        // resource's own view would give", and `false` is the deliberate
+        // raw-depth override the PCSS blocker search asks for. Writing the guard
+        // as `!view.DepthCompare` therefore inverts it and disables inheriting for
+        // every ordinary view, which is exactly what
+        // HeapGpuFixture.ADefaultSamplerDescInheritsTheTextureObjectRatherThanMintingOne
+        // caught on its first run. Spelling it this way also survives the default
+        // flipping.
+        static constexpr RHI::ViewDesc kUnstatedView;
+        const bool inheritsTextureState =
+            (sampler == RHI::SamplerDesc{}) && (view.DepthCompare == kUnstatedView.DepthCompare);
 
-        // glGetTextureSamplerHandleARB rather than glGetTextureHandleARB: the
-        // sampler-object form is the one that models a SPLIT heap, where the
-        // same texture serves several sampler configurations. The plain form
-        // would bake whatever parameters the texture object happens to carry,
-        // which is the GL-ism the neutral SamplerDesc exists to stop leaking.
-        const GLuint64 handle = glGetTextureSamplerHandleARB(texture, samplerObject);
+        GLuint64 handle = 0u;
+        if (inheritsTextureState)
+        {
+            ++m_Stats.DefaultSamplerInherits;
+            handle = glGetTextureHandleARB(texture);
+        }
+        else
+        {
+            const GLuint samplerObject = SamplerObjectFor(sampler, view.DepthCompare);
+            handle = glGetTextureSamplerHandleARB(texture, samplerObject);
+        }
+
         if (handle == 0u)
         {
             ++m_Stats.AcquireFailures;

@@ -1783,59 +1783,92 @@ now converted, or that declares no samplers, fails too. An exception list that i
 only checked one way decays into a way to silence the test, which is the same
 trap the §5c allowlist records for itself.
 
-### (38) `SamplerDesc`'s default address mode was ClampToEdge, and the backend's is Repeat
+### (38) `SamplerDesc{}` had to become an INHERIT, because no table of defaults is right for four targets
 
 A bindless descriptor bakes the sampler in; the slot path samples with the
 **texture object's** parameters. So `SamplerDesc{}` is not a style choice — it
 decides what a converted shader sees while an unconverted reader of the same
 texture keeps seeing the object's state, and the two have to agree.
 
-They did not. `OpenGLTexture2D` sets `GL_REPEAT` explicitly on every texture it
-creates and `OpenGLFramebuffer` sets no wrap at all, which leaves GL's own
-default of `GL_REPEAT`. The struct's default was `ClampToEdge` — the odd one out,
-and it survived a whole bucket of conversions because almost every early one was
-a full-screen pass whose UVs never leave `[0, 1]`.
+**The first attempt was to fix the defaults, and it was wrong in an instructive
+way.** `OpenGLTexture2D` and every framebuffer attachment are `GL_REPEAT` (GL's
+own default) while the struct said `ClampToEdge`, so converting `Water.glsl` —
+whose FFT displacement field is *tiled* — collapsed the wave field into a handful
+of enormous flat terraces. Changing the default to `Repeat` fixed that and
+**broke the terrain arrays**, because `OpenGLTexture2DArray` is `CLAMP_TO_EDGE`
+for colour and `CLAMP_TO_BORDER` for depth. A follow-up review found two more
+faces of the same defect:
 
-**Converting `Water.glsl` is what exposed it, and the failure was spectacular
-rather than subtle.** The FFT displacement field is tiled (`uv = worldXZ /
-patchSize`), so outside `[0, 1]` every sample clamped to the edge texel and the
-wave field collapsed from a fine swell into a handful of enormous flat terraces.
-The default is now `Repeat`, with `HeapBinding::CubeSampler()` as the named
-exception for the one target whose object really is `ClampToEdge`
-(`OpenGLTextureCubemap`) — a sibling of `ShadowDepthSampler`, and for the same
-reason.
+| target | what the object carries |
+|---|---|
+| `Texture2D`, framebuffer attachments | `REPEAT` |
+| `Texture2DArray` (colour) | `CLAMP_TO_EDGE` |
+| `Texture2DArray` (depth) | `CLAMP_TO_BORDER`, opaque-white border |
+| `TextureCubemap` | `CLAMP_TO_EDGE` |
+| `Texture3D` | whatever the caller passed |
+| **any integer format** | **`NEAREST`, mandatory** |
 
-**The measurement is the transferable part, not the bug.** §4e of
-rhi-abstraction-boundary.md had already retired the *live* ON-vs-OFF A/B as an
-instrument, because on an animated scene the same-config noise floor is as large
-as the signal. The suite's fixed-camera visual-evidence PNGs have a same-config
-noise floor of **exactly 0.000** — bit-identical across consecutive runs — so
-the same comparison there resolves anything at all:
+That last row is not a preference. GL makes an integer texture with a `LINEAR`
+filter *incomplete*, and an incomplete texture samples as **zero** — `texelFetch`
+included. `Texture.h::IsIntegerFormat` already records what it cost the first
+time: every Slug glyph vanished, on AMD only, with the draw calls and the logs
+looking healthy. The heap had reintroduced it for three textures — the `RG16UI`
+font band texture, the `R16UI` GTAO Hilbert LUT and the `R32I` entity buffer.
+There is also a fifth face: `LinearMipFilter` defaults true, which resolves to
+`GL_LINEAR_MIPMAP_LINEAR` and makes a *single-level* texture incomplete — the
+hazard `HeapBinding::ShadowDepthSampler` works around **by hand**.
+
+**So the answer is not a better table, it is not having one.** A caller that
+expresses no sampling intent is asking for what the slot path would have used, so
+`AcquireSampledDescriptor` mints those views with `glGetTextureHandleARB`, which
+bakes the object's own state — parity *by construction*. A caller that states
+intent still gets `glGetTextureSamplerHandleARB`, which is what models a split
+heap and is what the sites that genuinely differ from their texture use
+(`ShadowDepthSampler`'s comparison-on/comparison-off pair over one depth array,
+SSAO's `Nearest`+`Repeat` noise). All five faces close at once, and
+`HeapBinding::CubeSampler()` — invented during the first attempt — was deleted
+rather than kept, because dead vocabulary is worse than none.
+
+**What it costs, stated plainly.** The plain form re-admits the GL-ism the neutral
+`SamplerDesc` exists to keep out. Vulkan has no "inherit" — a `VkSampler` must be
+described — so every site passing a default desc today is a site Phase 4 has to
+give real sampler state. That is **199 of 209** seam call sites, and
+`Stats::DefaultSamplerInherits` counts them at runtime so the work is *measured*
+rather than discovered. Recording the size of that debt is the point; hiding it
+behind a defaults table that is wrong for two targets out of five is not.
+
+**The measurement is the transferable part.** §4e of
+rhi-abstraction-boundary.md had already retired the *live* ON-vs-OFF A/B, because
+on an animated scene the same-config noise floor is as large as the signal. The
+suite's fixed-camera visual-evidence PNGs are bit-identical across consecutive
+same-config runs — a floor of exactly **0.000** — so the same comparison there
+resolves anything at all:
 
 | | RMSE | pixels >8 |
 |---|---|---|
 | noise floor (heap ON, two consecutive runs) | **0.000** | **0.000%** |
-| heap OFF vs ON, before the fix | 22.670 | 39.93% |
-| heap OFF vs ON, after the fix | 2.783 | 1.76% |
+| heap OFF vs ON, before | 22.670 | 39.93% |
+| heap OFF vs ON, after | 2.783 | 1.76% |
 
-And the residual is characterised rather than waved off: amplified 6×, it is
+And the residual is characterised rather than waved off: amplified 6x it is
 **hairline contours around the foam boundaries**, max 58 with nothing above 64 —
-a `smoothstep` threshold crossing differently because the two compile routes
-round the last bit differently. That is §7a-bis's phenomenon applied to a
-threshold instead of to depth, and it is a property of having two compilers, not
-of the binding model.
+a `smoothstep` threshold crossing differently because the two compile routes round
+the last bit differently. That is §7a-bis's phenomenon applied to a threshold
+instead of to depth, and it is a property of having two compilers.
 
-Three things generalise:
+Four things generalise:
 
-- **The right default for a neutral struct is whatever the backend already
-  does**, not whatever reads as conservative. `ClampToEdge` *sounds* like the
-  safe choice; it was the divergent one.
-- **A green suite is not evidence about pixels.** Every one of these images was
-  produced by a passing test, in both configurations, before and after.
-- **A zero noise floor is what makes a small number meaningful.** 2.783 would be
-  unreadable against the live scene's floor of 9.74; against 0.000 it is a
-  measurement, and it is what let the residual be identified as threshold noise
-  rather than assumed to be.
+- **When a neutral struct's default has to agree with a backend, the honest
+  design is often to ask the backend rather than to guess well.** The table above
+  has five rows and no majority answer; any default is wrong somewhere.
+- **A fix that turns one bug into another is a signal about the shape**, not about
+  the value. `ClampToEdge` -> `Repeat` moved the failure from 2D to arrays, which
+  is what said the mechanism was wrong rather than the constant.
+- **A green suite is not evidence about pixels.** Every image in the table came
+  from a passing test, in both configurations, before and after.
+- **A zero noise floor is what makes a small number readable.** 2.783 would be
+  invisible against the live scene's floor of 9.74; against 0.000 it is a
+  measurement, and it is what let the residual be identified rather than assumed.
 
 ---
 

@@ -128,13 +128,6 @@ namespace OloEngine::HeapBinding
     // the two views of one depth array cannot drift apart.
     [[nodiscard]] auto ShadowDepthSampler(bool comparison) -> RHI::SamplerDesc;
 
-    // THE SAMPLER STATE A CUBEMAP DESCRIPTOR MUST BE MINTED WITH — the one target
-    // whose texture object does not carry GL's default REPEAT. Pass it wherever
-    // NullSamplerKind::Cube is passed, for the same reason ShadowDepthSampler
-    // exists: the descriptor bakes the sampler in, so the converted and
-    // unconverted readers of one texture must be minted from the same state.
-    [[nodiscard]] auto CubeSampler() -> RHI::SamplerDesc;
-
     // Resolve a texture to a heap offset WITHOUT staging it in the shared table.
     //
     // FOR PER-MATERIAL OFFSETS, which are the reason the shared table is not the

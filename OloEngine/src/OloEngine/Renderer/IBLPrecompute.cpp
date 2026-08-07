@@ -66,7 +66,7 @@ namespace OloEngine
         // Bind environment map
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT,
                                                  environmentMap->GetRHIHandle(),
-                                                 RHI::HeapSlotLifetime::Persistent, HeapBinding::CubeSampler(),
+                                                 RHI::HeapSlotLifetime::Persistent, {},
                                                  RHI::NullSamplerKind::Cube);
 
         // Use the render to cubemap helper
@@ -91,7 +91,7 @@ namespace OloEngine
         // Bind environment map
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT,
                                                  environmentMap->GetRHIHandle(),
-                                                 RHI::HeapSlotLifetime::Persistent, HeapBinding::CubeSampler(),
+                                                 RHI::HeapSlotLifetime::Persistent, {},
                                                  RHI::NullSamplerKind::Cube);
 
         // Create IBL parameters uniform buffer
@@ -451,7 +451,7 @@ namespace OloEngine
         // Bind environment map
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT,
                                                  environmentMap->GetRHIHandle(),
-                                                 RHI::HeapSlotLifetime::Persistent, HeapBinding::CubeSampler(),
+                                                 RHI::HeapSlotLifetime::Persistent, {},
                                                  RHI::NullSamplerKind::Cube);
 
         const f64 elapsedMs = MeasureMillisecondsWithGPUSync([&irradianceMap, &shader]()
@@ -499,7 +499,7 @@ namespace OloEngine
         // Bind environment map
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_ENVIRONMENT,
                                                  environmentMap->GetRHIHandle(),
-                                                 RHI::HeapSlotLifetime::Persistent, HeapBinding::CubeSampler(),
+                                                 RHI::HeapSlotLifetime::Persistent, {},
                                                  RHI::NullSamplerKind::Cube);
 
         // The advanced importance shader is driven by IBLAdvancedParams; the
